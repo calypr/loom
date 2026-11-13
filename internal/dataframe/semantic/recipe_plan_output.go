@@ -1,10 +1,5 @@
 package semantic
 
-// This file is the single semantic boundary for persisted recipes and the
-// existing GraphQL dataframe request. It deliberately stops before physical
-// lowering: no collection, AQL, SQL, or backend implementation detail belongs
-// in these types.
-
 import (
 	"fmt"
 	"strings"
@@ -16,10 +11,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// structuralUserRejection classifies a rejected caller-supplied structural
-// identifier (grain, resource type, alias, group pairing). Internal-invariant
-// checks over already-derived structures deliberately keep raw errors so a
-// genuine compiler fault still surfaces as INTERNAL_ERROR instead of a 400.
 func structuralUserRejection(message string) error {
 	return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, message, dataframeerrors.WithRetryable(false))
 }
@@ -36,10 +27,6 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		return OutputPlan{}, structuralUserRejection("group rows require the groups row grain")
 	}
 	if err := spec.ValidateRootGrain(output.RootResourceType, grain); err != nil {
-		// Persisted recipes may introduce a product-specific grain when they
-		// also declare the row-shaping operation and an explicit identity. The
-		// GraphQL request contract remains strict and continues to use
-		// ValidateRootGrain above.
 		if (output.Expand == nil || output.Identity == nil) && output.GroupRows == nil || !validCustomGrain(string(grain)) {
 			return OutputPlan{}, err
 		}
@@ -244,10 +231,6 @@ func expansionItemScope(ownerScope scopeFrame, expansion SemanticRowExpansion) (
 		path = binding.Prefix + "." + path
 	}
 	if semantics, ok := fhirschema.ResolveFieldSemantics(binding.ResourceType, path); ok && semantics.Kind == fhirschema.FieldKindArray && semantics.Reference != "" {
-		// Once UNNEST has selected an object item, resolve item-relative
-		// selectors against that item's generated FHIR definition. Keeping the
-		// owner resource and array prefix here makes e.g. item.code resolve as
-		// Observation.code instead of Coding.code.
 		return ownerScope.child(expansion.ItemBinding, scopeBinding{ResourceType: semantics.Reference, ExpandedItem: true})
 	}
 	prefix := binding.Prefix
@@ -489,9 +472,6 @@ func buildRecipeExtensionMaps(items []recipe.ExtensionColumn, scope scopeFrame, 
 				return nil, err
 			}
 			for index := range maps {
-				// Each extension mapping projects one URL from an Extension array.
-				// Other URLs in the same array are valid siblings and may have their
-				// own independently discovered mappings.
 				maps[index].AllowUnknownKeys = true
 			}
 			result = append(result, maps...)
@@ -505,8 +485,6 @@ func buildRecipeDynamicMaps(items []recipe.DynamicColumn, scope scopeFrame, path
 	for index, dynamic := range items {
 		columns := []string(nil)
 		if dynamic.Columns != nil {
-			// Preserve non-nil empty slices: the resolver uses that distinction
-			// to mark an optional family as resolved with zero discovered keys.
 			columns = append([]string{}, dynamic.Columns...)
 		}
 		item := SemanticDynamicMap{Name: dynamic.Name, ValueMode: dynamic.ValueMode, ScopeAlias: scopeAlias, ResourceType: resourceType, Columns: columns, MaxColumns: dynamic.MaxColumns, ColumnTypes: dynamic.ColumnTypes, ColumnSourceKeys: dynamic.ColumnSourceKeys, AllowUnknownKeys: len(dynamic.ColumnSourceKeys) > 0, Discovered: dynamic.Discovered}

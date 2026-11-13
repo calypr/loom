@@ -1,22 +1,3 @@
-// Generation-scoped resource inventory: publish-last rebuild and marker-bound
-// reads for the PostgreSQL source store (pg-catalog-02).
-//
-// RebuildResourceInventory scans every generated resource type inside one
-// project/generation, groups retained rows by authorization path into exact
-// zero-inclusive counts, assigns the shared content-addressed build identity
-// (catalog.NewResourceInventoryBuild), commits every count row, and only
-// then publishes the completeness marker. DiscoverResourceInventory binds
-// all reads to the marker's build id and re-validates the marker, so rows
-// from an abandoned or partial build — even though physically committed —
-// never appear, and a stale or incomplete marker surfaces a typed
-// unavailable error instead of a partial truth. A failed rebuild therefore
-// leaves the prior marker and its read result intact.
-//
-// The Arango adapter (internal/backends/arango/internal/catalog) remains the behavioral
-// reference: identical option semantics, evidence statuses, digests, and
-// scope rules. CursorBatch is an Arango cursor control and has no PostgreSQL
-// counterpart because grouping happens inside a single grouped SQL statement;
-// BatchSize bounds the count-insert chunks.
 package postgres
 
 import (
@@ -31,21 +12,11 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// ErrResourceInventoryBuildUnavailable reports that no valid, complete,
-// published marker exists for the requested project/generation (or that the
-// published marker does not cover a requested type). The build must be
-// rebuilt before its counts become readable.
 var ErrResourceInventoryBuildUnavailable = errors.New(
 	"resource inventory build is unavailable; run rebuild-resource-inventory --generation ID against the PostgreSQL store")
 
-// ErrResourceInventoryWrite reports that a rebuild could not persist its
-// counts or marker. The failed build was never published; the previously
-// published marker and its read result are intact.
 var ErrResourceInventoryWrite = errors.New("postgres catalog: resource inventory write failed")
 
-// ResourceInventoryUnavailableError names why no usable published build
-// exists for one scope. It matches errors.Is(err,
-// ErrResourceInventoryBuildUnavailable).
 type ResourceInventoryUnavailableError struct {
 	Project           string
 	DatasetGeneration string
@@ -61,12 +32,8 @@ func (e *ResourceInventoryUnavailableError) Unwrap() error {
 	return ErrResourceInventoryBuildUnavailable
 }
 
-// ResourceInventoryWriteError reports a rebuild that failed while persisting
-// counts ("counts") or the marker ("marker"). The named build was not
-// published and the prior marker still governs reads. It matches
-// errors.Is(err, ErrResourceInventoryWrite) and chains the store error.
 type ResourceInventoryWriteError struct {
-	Op                string // "counts" or "marker"
+	Op                string
 	Project           string
 	DatasetGeneration string
 	BuildID           string
@@ -79,16 +46,10 @@ func (e *ResourceInventoryWriteError) Error() string {
 		e.Op, e.BuildID, e.Project, e.DatasetGeneration, e.Err)
 }
 
-// Unwrap exposes both the class sentinel and the cause for errors.Is/As.
 func (e *ResourceInventoryWriteError) Unwrap() []error {
 	return []error{ErrResourceInventoryWrite, e.Err}
 }
 
-// RebuildResourceInventory rebuilds the inventory for one exact
-// project/generation. Empty opts.ResourceTypes means every generated
-// concrete FHIR resource type, matching the Arango adapter. Every generated
-// type receives an exact count row, including a zero row when it has no
-// retained rows; rows are grouped per authorization path.
 func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.ResourceInventoryRebuildOptions) (catalog.ResourceInventoryRebuildSummary, error) {
 	if err := requireLeg("inventory", s.inventory != nil, "RebuildResourceInventory"); err != nil {
 		return catalog.ResourceInventoryRebuildSummary{}, err
@@ -119,8 +80,6 @@ func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.Resou
 			return catalog.ResourceInventoryRebuildSummary{}, fmt.Errorf("scan retained %s rows for resource inventory: %w", resourceType, err)
 		}
 		if len(groups) == 0 {
-			// Zero-inclusive: an empty generated type is real evidence,
-			// distinct from a missing row, with the legacy empty auth path.
 			counts = append(counts, catalog.ResourceInventoryCount{
 				Project: opts.Project, DatasetGeneration: datasetGeneration,
 				ResourceType: resourceType, DocumentCount: 0,
@@ -141,9 +100,6 @@ func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.Resou
 	if err != nil {
 		return catalog.ResourceInventoryRebuildSummary{}, fmt.Errorf("prepare resource inventory build: %w", err)
 	}
-	// Publish-last: every count row commits first (in bounded chunks); the
-	// marker — the only evidence readers trust — is written afterwards and
-	// the store re-checks that these rows are durable before swapping it.
 	if err := s.inventory.InsertCounts(ctx, countRows, batchSize); err != nil {
 		return catalog.ResourceInventoryRebuildSummary{}, &ResourceInventoryWriteError{
 			Op: "counts", Project: opts.Project, DatasetGeneration: datasetGeneration, BuildID: build.BuildID, Err: err,
@@ -164,16 +120,10 @@ func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.Resou
 	}, nil
 }
 
-// ReadResourceInventory is the explicit-read alias of
-// DiscoverResourceInventory, mirroring the Arango capability boundary.
 func (s *Store) ReadResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	return s.DiscoverResourceInventory(ctx, opts)
 }
 
-// DiscoverResourceInventory reads the publish-last inventory projection.
-// Every count read binds the published marker's build id, so unmarked or
-// abandoned count rows are invisible, and a stale or incomplete marker is a
-// typed unavailable result rather than a partial answer.
 func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.ResourceInventoryResult{Values: make([]catalog.ResourceInventoryObservation, 0, len(resourceTypes)), Available: true, Complete: true, Diagnostics: diagnostics}
@@ -223,14 +173,10 @@ func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.Reso
 	}
 	authPathsUnrestricted := catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)
 	if !authPathsUnrestricted && len(opts.AuthResourcePaths) == 0 {
-		// Restricted with no authorized path is a legitimate authorization
-		// state that reads nothing — and it must not query counts at all.
 		result.Digest, _ = catalog.ResourceInventoryDigest(result.Values)
 		result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 		return result, nil
 	}
-	// Unrestricted mode wins over stray paths, matching the Arango adapter,
-	// which ignores the path bind in unrestricted mode.
 	var authPaths []string
 	if !authPathsUnrestricted {
 		authPaths = append([]string(nil), opts.AuthResourcePaths...)
@@ -266,9 +212,6 @@ func unavailableResourceInventory(result catalog.ResourceInventoryResult, messag
 	return result
 }
 
-// evidenceResourceTypes canonicalizes a requested type list, defaulting to
-// every generated concrete FHIR resource type. It mirrors the Arango
-// adapter so both backends accept and reject the same inputs.
 func evidenceResourceTypes(requested []string) ([]string, []catalog.EvidenceDiagnostic) {
 	if len(requested) == 0 {
 		return fhirschema.ResourceTypes(), nil

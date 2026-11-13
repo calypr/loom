@@ -154,9 +154,6 @@ func TestSemanticGroupScalarKeyPreviewMatchesFullQueryAgainstArango(t *testing.T
 		t.Fatalf("fixture must have more scalar keys than its preview limit %d: %#v", previewLimit, uniqueScalarKeys)
 	}
 
-	// This malformed scalar sorts after the valid string-key page. The frontier
-	// must preserve the canonical global type error instead of hiding it beyond
-	// the preview limit.
 	insertConstructionReshapeRows(t, ctx, client, project, generation, []map[string]any{{
 		"id": "late_malformed_status", "status": map[string]any{"unexpected": "object"},
 		"auth_resource_path": "/allowed",

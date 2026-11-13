@@ -218,8 +218,6 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 		{id: "other-project", resourceType: "Observation", authPath: allowedPath, project: project + "_foreign", generation: generation, includeQuantity: true, quantity: map[string]any{"code": "foreign-project"}},
 		{id: "other-generation", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation + "_foreign", includeQuantity: true, quantity: map[string]any{"code": "foreign-generation"}},
 		{id: "denied-scope", resourceType: "Observation", authPath: "/category/denied", project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "denied"}},
-		// ResourceType mismatches cannot be produced by the supported FHIR
-		// ingest path; this guard makes the shared type-ordered index explicit.
 		{id: "wrong-type", resourceType: "Patient", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "wrong-type"}},
 	}
 	documents := make([]json.RawMessage, 0, len(fixtures))

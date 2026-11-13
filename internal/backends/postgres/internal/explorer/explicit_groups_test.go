@@ -1,31 +1,5 @@
 package postgres
 
-// Real PostgreSQL 18 integration for pg-state-explicit-group-definitions-v1.
-// Everything here runs against the service named by LOOM_TEST_POSTGRES_URL:
-// each test creates one uniquely-named isolated database (pgstate06_it_*)
-// plus one owned schema (pgstate06_it_*) inside it and drops both in its
-// cleanups, so the suite leaves zero leftovers. The fixture history is
-// composed through the real pg-store-02 runner from this package's embedded
-// owner history (ledger bootstrap, owner, draft revision, receipts,
-// revisions, and this ticket's explicit-group migration). Expected rows
-// are asserted literally through direct SQL on a witness pool that is a
-// physically distinct backend connection, and concurrent claim/put/cleanup
-// proofs run over two single-connection stores with provably distinct
-// pg_backend_pid values, at least ten rounds per race surface. Guard
-// non-vacuity is witnessed at the database: every violating direct write
-// must fail with the guard in place naming its exact constraint or trigger,
-// and -- guard-drop probe -- the same statement must succeed once the
-// trigger is dropped, with the migration text recreating the identical
-// guard afterwards. Mutation probes accompany every refusal: the same
-// subject must admit its legal control, so a guard cannot pass by blocking
-// everything. Fault seams abort real transactions mid-flight and the
-// rollback is witnessed to leave zero half-applied rows. Every test here
-// requires the live service -- no test runs green on a skip. Concurrency
-// tests run serially (no t.Parallel anywhere). The TestZZ zero-leftover
-// audit is ownership-scoped to pgstate06_it_* only: sibling suites sweep
-// their own prefixes in their own files, and concurrent sibling sweeps
-// must never share a global scan.
-
 import (
 	"context"
 	"crypto/rand"
@@ -52,19 +26,10 @@ import (
 )
 
 const (
-	// pgstate06MigrationVersion is this ticket's slot in the shared
-	// Explorer control-plane ledger (coordinator-assigned; 7 and 8 are
-	// reserved for the sibling state tickets).
-	pgstate06MigrationVersion = int64(9)
-	// pgstate06MigrationName is the embedded migration file's ledger name.
-	pgstate06MigrationName = "explorer_explicit_groups"
-	// pgstate06MigrationChecksum is the byte-frozen SHA-256 of the
-	// migration SQL. The test recomputes it from the embedded bytes and
-	// refuses drift in either direction: the ledger, the loader checksum,
-	// this literal, and a fresh server-side recompute must all agree.
+	pgstate06MigrationVersion  = int64(9)
+	pgstate06MigrationName     = "explorer_explicit_groups"
 	pgstate06MigrationChecksum = "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f"
-	// pgstate06ImmutableSQLState is the check_violation the guards raise.
-	pgstate06CheckViolation = "23514"
+	pgstate06CheckViolation    = "23514"
 )
 
 var pgstate06NameRe = regexp.MustCompile(`^pgstate06_it_[0-9]+_[0-9a-f]+$`)
@@ -87,15 +52,10 @@ func pgstate06RandomHex(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
-// pgState06Fixture owns one isolated database and one owned schema inside
-// it, both named pgstate06_it_*, created for exactly one test and removed
-// by that test's cleanups. Witnesses read through a physically distinct
-// backend; race tests additionally build two dedicated single-connection
-// stores whose pids are witnessed distinct from each other and the witness.
 type pgState06Fixture struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // shared service database
-	iso    *pgxpool.Pool // isolated database
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
 	dbName string
 	schema string
 	dsn    string
@@ -151,9 +111,6 @@ func newPGState06Fixture(t *testing.T) *pgState06Fixture {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
 
-	// Ownership-scoped zero-leftover audit (runs with the admin pool still
-	// open): only this suite's own namespace is swept; concurrent sibling
-	// suites own their prefixes and must never break this scan.
 	t.Cleanup(func() {
 		var mine int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = $1`, dbName).Scan(&mine); err != nil {
@@ -230,8 +187,6 @@ func newPGState06Fixture(t *testing.T) *pgState06Fixture {
 	return f
 }
 
-// migrate applies this package's full embedded history through the real
-// pg-store-02 runner and returns the ledger result.
 func (f *pgState06Fixture) migrate(t *testing.T) pgstore.MigrateResult {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -274,11 +229,6 @@ func (f *pgState06Fixture) newStore(t *testing.T) (*ExplicitGroupStore, error) {
 	return NewExplicitGroupStore(client, f.schema)
 }
 
-// newDedicatedStore opens a MaxConns=1 pool -- one single physical backend
-// connection -- warms it, and returns the store plus that backend's
-// pg_backend_pid. Two dedicated stores are the two real PG connections for
-// the race proofs: their pids must differ, and every statement the store
-// runs provably executes on that one backend.
 func (f *pgState06Fixture) newDedicatedStore(t *testing.T) (*ExplicitGroupStore, int32) {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -311,9 +261,6 @@ func (f *pgState06Fixture) newDedicatedStore(t *testing.T) (*ExplicitGroupStore,
 	return store, pid
 }
 
-// newDedicatedPool is the raw-SQL sibling of newDedicatedStore: one
-// physical backend connection for direct SQL (guard probes, forged writes,
-// snapshots) with its backend pid witnessed up front.
 func (f *pgState06Fixture) newDedicatedPool(t *testing.T) (*pgxpool.Pool, int32) {
 	t.Helper()
 	poolConfig, err := pgxpool.ParseConfig(f.dsn)
@@ -359,9 +306,6 @@ func (f *pgState06Fixture) definitionsTable() string {
 	return sanitizeTableRef(f.schema, ExplicitGroupDefinitionsTable)
 }
 
-// headerSnapshot renders one stored header row as one deterministic text
-// value covering every column. Byte-identical snapshots before and after a
-// refused operation are the row witness that the refusal wrote nothing.
 func (f *pgState06Fixture) headerSnapshot(t *testing.T, revisionID string) string {
 	t.Helper()
 	var out string
@@ -381,9 +325,6 @@ func (f *pgState06Fixture) headerSnapshot(t *testing.T, revisionID string) strin
 	return out
 }
 
-// frozenHeaderSnapshot renders every column except the writer lease. Two
-// frozen snapshots being byte-identical proves the only thing that moved
-// was the lease.
 func (f *pgState06Fixture) frozenHeaderSnapshot(t *testing.T, revisionID string) string {
 	t.Helper()
 	snapshot := f.headerSnapshot(t, revisionID)
@@ -394,8 +335,6 @@ func (f *pgState06Fixture) frozenHeaderSnapshot(t *testing.T, revisionID string)
 	return strings.Join(parts[:15], "\x1f")
 }
 
-// definitionsSnapshot renders the whole definition slice of one revision
-// in stored order as one deterministic text value.
 func (f *pgState06Fixture) definitionsSnapshot(t *testing.T, revisionID string) string {
 	t.Helper()
 	rows, err := f.witness.Query(f.ctx, `SELECT group_id, label, ordinal::text FROM `+
@@ -457,11 +396,6 @@ func requirePgErrTriggerPGState06(t *testing.T, err error, sqlstate, trigger, st
 	return pgErr
 }
 
-// rerunMigration applies one embedded migration's exact SQL text again
-// through direct SQL. The migration is convergent (IF NOT EXISTS /
-// CREATE OR REPLACE / DROP TRIGGER IF EXISTS + CREATE TRIGGER), so a rerun
-// restores the identical guards after a guard-drop probe -- proving the
-// same text that created the guard is what blocks the violating write.
 func (f *pgState06Fixture) rerunMigration(t *testing.T, version int64) {
 	t.Helper()
 	migrations, err := OwnerMigrations()
@@ -518,10 +452,6 @@ func scrubSQLForTest(sql string) string {
 	return sql
 }
 
-// ---------------------------------------------------------------------------
-// fixtures shared by the tests
-// ---------------------------------------------------------------------------
-
 func pgstate06Selection(project string, suffix string) explorer.SelectionRevision {
 	completedAt := time.Now().UTC()
 	return explorer.SelectionRevision{
@@ -574,11 +504,6 @@ func pgstate06CanonicalDefinitions(t *testing.T) []explorer.ExplicitGroupDefinit
 	return canonical
 }
 
-// rawInsertHeader inserts one staging header through direct SQL with the
-// caller's writer lifecycle, computing the id through the same domain
-// function the honest path uses. It exists to seed states the store API
-// cannot itself produce (expired leases, null leases, foreign seeds) for
-// guard and cleanup proofs.
 func (f *pgState06Fixture) rawInsertHeader(t *testing.T, pool *pgxpool.Pool, revision explorer.ExplicitGroupRevision, writerToken string, writerExpiresAt *time.Time) {
 	t.Helper()
 	f.execOn(t, pool, "raw insert header",
@@ -598,8 +523,6 @@ func (f *pgState06Fixture) rawInsertDefinition(t *testing.T, pool *pgxpool.Pool,
 		revisionID, groupID, label, ordinal)
 }
 
-// mustErr asserts fn returns an error matching want, and that it is exactly
-// want's class (not merely wrapping something else).
 func mustErr(t *testing.T, step string, fn func() error, want error) {
 	t.Helper()
 	err := fn()
@@ -615,13 +538,9 @@ func mustNil(t *testing.T, step string, fn func() error) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// construction contract
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupDefinitionsStoreGuards(t *testing.T) {
 	f := newPGState06Fixture(t)
-	f.migrate(t) // pins the live-service precondition
+	f.migrate(t)
 
 	if _, err := NewExplicitGroupStore(nil, "ok_schema"); err == nil {
 		t.Fatal("NewExplicitGroupStore(nil, ...) = nil error, want failure")
@@ -635,8 +554,6 @@ func TestPostgresExplicitGroupDefinitionsStoreGuards(t *testing.T) {
 		t.Fatalf("NewExplicitGroupStore(valid) = %v, want success", err)
 	}
 
-	// Fail closed on an unmigrated schema: the tables are not silently
-	// created and there is no fallback -- SQLSTATE 42P01 surfaces.
 	bare := fmt.Sprintf("pgstate06_it_%d_%s", time.Now().UnixNano(), pgstate06RandomHex(t))
 	if _, err := f.iso.Exec(f.ctx, `CREATE SCHEMA "`+bare+`"`); err != nil {
 		f.fail("create unmigrated schema", err)
@@ -653,10 +570,6 @@ func TestPostgresExplicitGroupDefinitionsStoreGuards(t *testing.T) {
 	_, err = bareStore.GetExplicitGroupRevision(f.ctx, "p", "pgstate06-missing")
 	requirePgErrPGState06(t, err, "42P01", "unmapped schema read fails closed")
 }
-
-// ---------------------------------------------------------------------------
-// begin: claim, intent, ownership, source binding, lease
-// ---------------------------------------------------------------------------
 
 func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T) {
 	f := newPGState06Fixture(t)
@@ -678,13 +591,10 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 	if started.CreatedAt.IsZero() || started.CompletedAt != nil {
 		t.Fatalf("started carries completion values: %+v", started)
 	}
-	// Self-recomputed identity pin: the ID must equal the domain hash
-	// recomputed here from (project, idempotency key), not a fixture echo.
 	if want := explorer.ExplicitGroupRevisionIDFor(project, key); started.ID != want {
 		t.Fatalf("revision ID = %s, want self-recomputed %s", started.ID, want)
 	}
 
-	// Literal stored row on the physically distinct witness backend.
 	wantSnapshot := strings.Join([]string{
 		string(revision.ID), project, "generation-a", "scope-a", "Patient",
 		source.ID, source.MembershipDigest,
@@ -695,8 +605,6 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 		t.Fatalf("stored header = %q, want identity/binding/completion-empty prefix %q", snapshot, wantSnapshot)
 	}
 
-	// Same-owner retry: idempotent, lease strictly forward, every other
-	// column byte-identical.
 	beforeFull := f.headerSnapshot(t, string(revision.ID))
 	beforeFrozen := strings.Join(strings.Split(beforeFull, "\x1f")[:15], "\x1f")
 	retry, err := f.store.BeginExplicitGroupRevision(f.ctx, revision, source, token)
@@ -715,8 +623,6 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 		t.Fatal("same-owner retry did not advance the writer lease")
 	}
 
-	// Foreign token on the live staging header is the typed conflict and
-	// writes nothing.
 	frozenBefore := f.frozenHeaderSnapshot(t, string(revision.ID))
 	mustErr(t, "foreign-token begin", func() error {
 		_, err := f.store.BeginExplicitGroupRevision(f.ctx, revision, source, "not-the-writer")
@@ -725,37 +631,28 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 	if got := f.frozenHeaderSnapshot(t, string(revision.ID)); got != frozenBefore {
 		t.Fatalf("foreign-token begin mutated the header:\nbefore %q\nafter  %q", frozenBefore, got)
 	}
-	// Mutation probe: the same claim still admits its honest owner.
 	mustNil(t, "owner begin after foreign refusal", func() error {
 		_, err := f.store.BeginExplicitGroupRevision(f.ctx, revision, source, token)
 		return err
 	})
 
-	// Same key, different intent: the typed conflict, header untouched.
-	// The only way a committed row can differ in its intent fields while
-	// keeping the honest (project, key) hash identity is a forged write,
-	// so the fixture stores one directly and the honest claim must refuse
-	// it -- exactly the adapter's sameExplicitGroupRevisionIntent refusal.
 	forgeKey := "drift-" + pgstate06RandomHex(t)
 	forge := pgstate06Revision(source, forgeKey)
 	forgedRow := forge
 	forgedRow.Generation = "generation-forged"
 	liveLease := time.Now().UTC().Add(time.Hour)
 	f.rawInsertHeader(t, f.witness, forgedRow, "forged-writer", &liveLease)
-	drifted := pgstate06Revision(source, forgeKey) // the honest intent for that key
+	drifted := pgstate06Revision(source, forgeKey)
 	mustErr(t, "drifted-intent begin", func() error {
 		_, err := f.store.BeginExplicitGroupRevision(f.ctx, drifted, source, token)
 		return err
 	}, explorer.ErrExplicitGroupRevisionConflict)
 
-	// Blank writer token is the typed conflict before any database touch.
 	mustErr(t, "blank-token begin", func() error {
 		_, err := f.store.BeginExplicitGroupRevision(f.ctx, revision, source, "   ")
 		return err
 	}, explorer.ErrExplicitGroupRevisionConflict)
 
-	// A non-staging revision is refused with the adapter's plain state
-	// error, never written.
 	completedInput := revision
 	completedInput.ID = explorer.ExplicitGroupRevisionIDFor(project, key+"-complete")
 	completedInput.IdempotencyKey = key + "-complete"
@@ -770,8 +667,6 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 		t.Fatalf("completed-state begin = %v, want the staging-state refusal", err)
 	}
 
-	// A forged ID (not the (project, key) hash) is the domain validation
-	// error, refused before the database sees it.
 	forged := revision
 	forged.ID = explorer.ExplicitGroupRevisionID("grouprev_" + strings.Repeat("0", 64))
 	if _, err := f.store.BeginExplicitGroupRevision(f.ctx, forged, source, token); err == nil ||
@@ -779,8 +674,6 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 		t.Fatalf("forged-ID begin = %v, want the domain identity refusal", err)
 	}
 
-	// Source binding: every mismatched binding field is the typed stale
-	// source, each refused with zero rows left behind.
 	bindingCases := []struct {
 		name   string
 		mutate func(*explorer.SelectionRevision)
@@ -806,7 +699,6 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 			t.Fatalf("refused %s binding left %d rows, want 0", bindingCase.name, got)
 		}
 	}
-	// Mutation probe: the unmutated binding is admitted.
 	okKey := "binding-ok-" + pgstate06RandomHex(t)
 	ok := pgstate06Revision(source, okKey)
 	if _, err := f.store.BeginExplicitGroupRevision(f.ctx, ok, source, token); err != nil {
@@ -816,8 +708,6 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 		t.Fatalf("correct-binding begin stored %d rows, want 1", got)
 	}
 
-	// Reopen across a physically distinct connection: the claim is still
-	// idempotent for the honest owner.
 	reopened, err := f.newStore(t)
 	if err != nil {
 		f.fail("reopen store", err)
@@ -834,10 +724,6 @@ func TestPostgresExplicitGroupDefinitionsBeginLifecycleAndOwnership(t *testing.T
 	}
 }
 
-// ---------------------------------------------------------------------------
-// definitions: empty groups survive, order is stored, write-once
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupDefinitionsEmptyDefinitionsSurviveReopen(t *testing.T) {
 	f := newPGState06Fixture(t)
 	f.migrate(t)
@@ -851,8 +737,6 @@ func TestPostgresExplicitGroupDefinitionsEmptyDefinitionsSurviveReopen(t *testin
 		f.fail("begin", err)
 	}
 
-	// Declare out of order: storage order must be canonical (ordinal ASC),
-	// never input order -- and the empty group must survive as a row.
 	shuffled := []explorer.ExplicitGroupDefinition{
 		{ID: "group-beta", Label: "Beta cohort", Ordinal: 2},
 		{ID: "group-empty", Label: "No members", Ordinal: 1},
@@ -862,7 +746,6 @@ func TestPostgresExplicitGroupDefinitionsEmptyDefinitionsSurviveReopen(t *testin
 		return f.store.PutExplicitGroupDefinitions(f.ctx, revision.ID, token, shuffled)
 	})
 
-	// Literal expected rows on the physically distinct witness backend.
 	want := strings.Join([]string{
 		"group-alpha|Alpha cohort|0",
 		"group-empty|No members|1",
@@ -875,9 +758,6 @@ func TestPostgresExplicitGroupDefinitionsEmptyDefinitionsSurviveReopen(t *testin
 		t.Fatalf("definition count = %d, want 3", got)
 	}
 
-	// Reopen on a brand-new pool: the same put is still the idempotent
-	// replay of what was actually stored (stable IDs, labels, and stored
-	// order past any single connection).
 	reopened, err := f.newStore(t)
 	if err != nil {
 		f.fail("reopen store", err)
@@ -889,8 +769,6 @@ func TestPostgresExplicitGroupDefinitionsEmptyDefinitionsSurviveReopen(t *testin
 		t.Fatalf("replayed put changed stored definitions:\nbefore %q\nafter  %q", want, got)
 	}
 
-	// Canonicalization is an equivalence: re-declaring the same set in a
-	// different input order is the same content and stays idempotent.
 	remixed := []explorer.ExplicitGroupDefinition{
 		{ID: "group-empty", Label: "  No members  ", Ordinal: 1},
 		{ID: "group-alpha", Label: "Alpha cohort", Ordinal: 0},
@@ -903,8 +781,6 @@ func TestPostgresExplicitGroupDefinitionsEmptyDefinitionsSurviveReopen(t *testin
 		t.Fatalf("remixed put changed stored definitions:\nbefore %q\nafter  %q", want, got)
 	}
 
-	// A single-group revision whose only group has no members is legal:
-	// the definition row is the group, membership is another ticket.
 	soloKey := "solo-" + pgstate06RandomHex(t)
 	solo := pgstate06Revision(source, soloKey)
 	soloToken := "writer-solo-" + pgstate06RandomHex(t)
@@ -920,8 +796,6 @@ func TestPostgresExplicitGroupDefinitionsEmptyDefinitionsSurviveReopen(t *testin
 		t.Fatalf("empty-group-only revision = %q, want the declared row", got)
 	}
 
-	// A blank declaration list is the domain's plain refusal and stores
-	// nothing (the at-least-one-group invariant).
 	emptyKey := "empty-list-" + pgstate06RandomHex(t)
 	empty := pgstate06Revision(source, emptyKey)
 	emptyToken := "writer-empty-" + pgstate06RandomHex(t)
@@ -934,15 +808,12 @@ func TestPostgresExplicitGroupDefinitionsEmptyDefinitionsSurviveReopen(t *testin
 	if got := f.countRows(t, f.definitionsTable(), "revision_id = $1", string(empty.ID)); got != 0 {
 		t.Fatalf("refused empty-list put left %d rows, want 0", got)
 	}
-	// Mutation probe: the same revision admits a legal declaration.
 	mustNil(t, "legal declaration after refusal", func() error {
 		return f.store.PutExplicitGroupDefinitions(f.ctx, empty.ID, emptyToken, []explorer.ExplicitGroupDefinition{
 			{ID: "group-first", Label: "First", Ordinal: 0},
 		})
 	})
 
-	// Duplicate group ID / duplicate ordinal in the PUT arguments are
-	// domain refusals that leave the stored rows untouched.
 	before := f.definitionsSnapshot(t, string(revision.ID))
 	if err := f.store.PutExplicitGroupDefinitions(f.ctx, revision.ID, token, []explorer.ExplicitGroupDefinition{
 		{ID: "group-alpha", Label: "Alpha cohort", Ordinal: 0},
@@ -1009,12 +880,10 @@ func TestPostgresExplicitGroupDefinitionsWriteOnceAndContentDrift(t *testing.T) 
 			t.Fatalf("%s drift mutated stored definitions:\nbefore %q\nafter  %q", driftCase.name, want, got)
 		}
 	}
-	// Mutation probe: the identical content remains the idempotent replay.
 	mustNil(t, "identical put after drift refusals", func() error {
 		return f.store.PutExplicitGroupDefinitions(f.ctx, revision.ID, token, pgstate06Definitions())
 	})
 
-	// Foreign token cannot put, renew, or even replay, and writes nothing.
 	mustErr(t, "foreign-token put", func() error {
 		return f.store.PutExplicitGroupDefinitions(f.ctx, revision.ID, "intruder", pgstate06Definitions())
 	}, explorer.ErrExplicitGroupRevisionConflict)
@@ -1022,8 +891,6 @@ func TestPostgresExplicitGroupDefinitionsWriteOnceAndContentDrift(t *testing.T) 
 		t.Fatalf("foreign-token put mutated stored definitions:\nbefore %q\nafter  %q", want, got)
 	}
 
-	// Blank revision ID or token is the typed conflict before any write;
-	// unknown revision is the typed not-found.
 	mustErr(t, "blank-revision put", func() error {
 		return f.store.PutExplicitGroupDefinitions(f.ctx, "  ", token, pgstate06Definitions())
 	}, explorer.ErrExplicitGroupRevisionConflict)
@@ -1035,10 +902,6 @@ func TestPostgresExplicitGroupDefinitionsWriteOnceAndContentDrift(t *testing.T) 
 	}, explorer.ErrExplicitGroupRevisionNotFound)
 }
 
-// ---------------------------------------------------------------------------
-// abort: idempotence and owner-only removal
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupDefinitionsAbortIdempotence(t *testing.T) {
 	f := newPGState06Fixture(t)
 	f.migrate(t)
@@ -1046,8 +909,6 @@ func TestPostgresExplicitGroupDefinitionsAbortIdempotence(t *testing.T) {
 	project := "pgstate06-project"
 	source := pgstate06Selection(project, "abort-"+pgstate06RandomHex(t))
 
-	// Blank revision ID and a missing revision are idempotent no-ops; a
-	// blank token is the typed conflict before any write.
 	mustNil(t, "abort blank id", func() error {
 		return f.store.AbortExplicitGroupRevision(f.ctx, "   ", "writer")
 	})
@@ -1080,8 +941,6 @@ func TestPostgresExplicitGroupDefinitionsAbortIdempotence(t *testing.T) {
 		t.Fatalf("foreign abort mutated the definitions:\nbefore %q\nafter  %q", beforeDefs, got)
 	}
 
-	// The owner's abort removes exactly the header and its definitions --
-	// nothing else -- and is idempotent on replay.
 	mustNil(t, "owner abort", func() error {
 		return f.store.AbortExplicitGroupRevision(f.ctx, revision.ID, token)
 	})
@@ -1098,8 +957,6 @@ func TestPostgresExplicitGroupDefinitionsAbortIdempotence(t *testing.T) {
 		return f.store.AbortExplicitGroupRevision(f.ctx, revision.ID, "intruder")
 	})
 
-	// Mutation probe: the freed idempotency key can be claimed again by a
-	// fresh writer with the same intent.
 	if _, err := f.store.BeginExplicitGroupRevision(f.ctx, revision, source, "reclaimer"); err != nil {
 		f.fail("re-claim freed key", err)
 	}
@@ -1107,10 +964,6 @@ func TestPostgresExplicitGroupDefinitionsAbortIdempotence(t *testing.T) {
 		t.Fatalf("re-claimed header count = %d, want 1", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// read visibility: staging stays hidden, scopes never leak
-// ---------------------------------------------------------------------------
 
 func TestPostgresExplicitGroupDefinitionsStagingHiddenFromReads(t *testing.T) {
 	f := newPGState06Fixture(t)
@@ -1131,7 +984,6 @@ func TestPostgresExplicitGroupDefinitionsStagingHiddenFromReads(t *testing.T) {
 		return err
 	}, explorer.ErrExplicitGroupRevisionIncomplete)
 
-	// Cross-project Get is concealed NotFound, never Incomplete-with-signal.
 	mustErr(t, "get foreign project", func() error {
 		_, err := f.store.GetExplicitGroupRevision(f.ctx, "other-project", revision.ID)
 		return err
@@ -1141,7 +993,6 @@ func TestPostgresExplicitGroupDefinitionsStagingHiddenFromReads(t *testing.T) {
 		return err
 	}, explorer.ErrExplicitGroupRevisionNotFound)
 
-	// Public definition reads go through the same gate.
 	_, err = f.store.ListExplicitGroupDefinitions(f.ctx, project, revision.ID)
 	mustErr(t, "list definitions of staging", func() error {
 		_, err := f.store.ListExplicitGroupDefinitions(f.ctx, project, revision.ID)
@@ -1152,8 +1003,6 @@ func TestPostgresExplicitGroupDefinitionsStagingHiddenFromReads(t *testing.T) {
 		return err
 	}, explorer.ErrExplicitGroupRevisionNotFound)
 
-	// Listing hides staging -- even under the header's exact scope -- and
-	// never returns nil.
 	listed, err := f.store.ListExplicitGroupRevisions(f.ctx, project, "generation-a", "scope-a", "Patient", 0)
 	if err != nil {
 		f.fail("list revisions", err)
@@ -1164,17 +1013,10 @@ func TestPostgresExplicitGroupDefinitionsStagingHiddenFromReads(t *testing.T) {
 	if len(listed) != 0 {
 		t.Fatalf("staging header leaked into listing: %+v", listed)
 	}
-	// Mutation probe: the scope query itself works -- a foreign scope is
-	// also empty, and the honest scope finds nothing ONLY because of the
-	// state filter (witnessed by the direct count showing the row).
 	if got := f.countRows(t, f.revisionTable(), "id = $1", string(revision.ID)); got != 1 {
 		t.Fatalf("witness header count = %d, want 1 (hidden by state, not absent)", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// cleanup: expired only, bounded, never touching active writers
-// ---------------------------------------------------------------------------
 
 func TestPostgresExplicitGroupDefinitionsCleanupReapsExpiredNeverActive(t *testing.T) {
 	f := newPGState06Fixture(t)
@@ -1185,21 +1027,8 @@ func TestPostgresExplicitGroupDefinitionsCleanupReapsExpiredNeverActive(t *testi
 	now := time.Now().UTC()
 	past := now.Add(-time.Hour)
 	expiredLease := now.Add(-time.Minute)
-	// Realistic live lease: inside the store's own 10-minute renewal
-	// window, so the active writer's re-Begin (which refreshes to
-	// now+lease) strictly moves the lease forward, as the header guard
-	// demands. A forged hour-long lease would make even an honest
-	// renewal look like a shortening.
 	liveLease := now.Add(5 * time.Minute)
 
-	// Seed four staging revisions through direct SQL so the lease states
-	// are exactly controlled at INSERT (the UPDATE trigger would refuse
-	// lease moves made without the writer token, so seeding sets the
-	// lease honestly from the start):
-	//   expired:   created ago, lease expired, has definitions
-	//   nullLease: created ago, never carried a lease (adapter tolerance)
-	//   active:    created ago, lease still live -- the active writer
-	//   young:     created ago, lease expired -- swept like any other
 	seeds := []struct {
 		revision explorer.ExplicitGroupRevision
 		lease    *time.Time
@@ -1246,12 +1075,10 @@ func TestPostgresExplicitGroupDefinitionsCleanupReapsExpiredNeverActive(t *testi
 		t.Fatalf("cleanup touched the active writer's definitions:\nbefore %q\nafter  %q", activeDefs, got)
 	}
 
-	// Prove the `before` bound: a row created after `before` must survive
-	// even with an already-expired lease.
 	liveKey := "cl-live-" + pgstate06RandomHex(t)
-	live := pgstate06Revision(source, liveKey) // CreatedAt is now
+	live := pgstate06Revision(source, liveKey)
 	liveToken := "writer-live-" + pgstate06RandomHex(t)
-	f.rawInsertHeader(t, f.witness, live, liveToken, &now) // lease == now: expired
+	f.rawInsertHeader(t, f.witness, live, liveToken, &now)
 	if err := f.store.CleanupExplicitGroupStaging(f.ctx, now, 100); err != nil {
 		f.fail("cleanup live", err)
 	}
@@ -1259,8 +1086,6 @@ func TestPostgresExplicitGroupDefinitionsCleanupReapsExpiredNeverActive(t *testi
 		t.Fatalf("row created at the before boundary was reaped, want kept (before bound)")
 	}
 
-	// Bounded sweep: three more expired rows, limit 2 removes exactly two
-	// (oldest first), the next sweep removes the rest.
 	var bounded []explorer.ExplicitGroupRevisionID
 	for i := 0; i < 3; i++ {
 		seed := pgstate06Revision(source, fmt.Sprintf("cl-bound-%d-%s", i, pgstate06RandomHex(t)))
@@ -1297,8 +1122,6 @@ func TestPostgresExplicitGroupDefinitionsCleanupReapsExpiredNeverActive(t *testi
 		t.Fatalf("follow-up sweep left %d rows, want 0", remaining)
 	}
 
-	// Mutation probes: an honest live claim under a used key still works,
-	// and the active writer is still operable end to end.
 	if _, err := f.store.BeginExplicitGroupRevision(f.ctx, active, source, "seed-writer"); err != nil {
 		f.fail("active writer begin retry after cleanup", err)
 	}
@@ -1308,10 +1131,6 @@ func TestPostgresExplicitGroupDefinitionsCleanupReapsExpiredNeverActive(t *testi
 		})
 	})
 }
-
-// ---------------------------------------------------------------------------
-// corruption detection on the read side
-// ---------------------------------------------------------------------------
 
 func TestPostgresExplicitGroupDefinitionsCorruptionDetection(t *testing.T) {
 	f := newPGState06Fixture(t)
@@ -1326,10 +1145,6 @@ func TestPostgresExplicitGroupDefinitionsCorruptionDetection(t *testing.T) {
 	if _, err := f.store.BeginExplicitGroupRevision(f.ctx, revision, source, token); err != nil {
 		f.fail("begin", err)
 	}
-	// Forge a non-canonical stored row (a padded label -- the CHECK only
-	// forbids the empty label), then any put comparison must surface the
-	// corruption instead of silently accepting or classifying it as a
-	// mere conflict.
 	f.rawInsertDefinition(t, f.witness, string(revision.ID), "group-padded", " padded ", 0)
 	err := f.store.PutExplicitGroupDefinitions(f.ctx, revision.ID, token, []explorer.ExplicitGroupDefinition{
 		{ID: "group-padded", Label: "padded", Ordinal: 0},
@@ -1341,7 +1156,6 @@ func TestPostgresExplicitGroupDefinitionsCorruptionDetection(t *testing.T) {
 		t.Fatalf("corruption refusal left %d rows, want the single forged row untouched", got)
 	}
 
-	// Mutation probe: a clean revision admits the identical declaration.
 	cleanKey := "corrupt-clean-" + pgstate06RandomHex(t)
 	clean := pgstate06Revision(source, cleanKey)
 	if _, err := f.store.BeginExplicitGroupRevision(f.ctx, clean, source, token); err != nil {
@@ -1353,21 +1167,11 @@ func TestPostgresExplicitGroupDefinitionsCorruptionDetection(t *testing.T) {
 		})
 	})
 
-	// Forging a header row whose id disagrees with its own (project, key)
-	// pair is refused by the named identity-binding CHECK even when the
-	// rest is a perfect copy.
 	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+` SET idempotency_key = 'rewritten' WHERE id = $1`, string(clean.ID))
 	requirePgErrTriggerPGState06(t, err, pgstate06CheckViolation,
 		"explorer_explicit_group_revisions guard", "rewriting the idempotency key is frozen content")
 }
 
-// ---------------------------------------------------------------------------
-// two-real-connection races: >= 10 rounds per surface, byte-identical
-// witnesses, post-abort convergence
-// ---------------------------------------------------------------------------
-
-// pgstate06RaceSetup builds the two dedicated single-connection stores and
-// proves three physically distinct backends (store A, store B, witness).
 func (f *pgState06Fixture) raceSetup(t *testing.T) (storeA, storeB *ExplicitGroupStore) {
 	t.Helper()
 	storeA, pidA := f.newDedicatedStore(t)
@@ -1376,8 +1180,6 @@ func (f *pgState06Fixture) raceSetup(t *testing.T) (storeA, storeB *ExplicitGrou
 	return storeA, storeB
 }
 
-// raceFire releases both goroutines as close together as the runtime
-// allows and collects each side's error.
 func raceFire(fnA, fnB func() error) (errA, errB error) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -1403,12 +1205,6 @@ func exactlyOneConflict(errA, errB error) bool {
 	return (errA == nil && conflictB) || (conflictA && errB == nil)
 }
 
-// TestPostgresExplicitGroupDefinitionsConcurrentClaimRace: ten rounds of
-// two real backends claiming the same idempotency key with different
-// writer tokens. Exactly one wins each round; the loser's refusal wrote
-// nothing; the single stored row belongs to exactly one of the two
-// writers; and after the winner aborts the schema is byte-empty again --
-// post-abort convergence.
 func TestPostgresExplicitGroupDefinitionsConcurrentClaimRace(t *testing.T) {
 	f := newPGState06Fixture(t)
 	f.migrate(t)
@@ -1441,7 +1237,6 @@ func TestPostgresExplicitGroupDefinitionsConcurrentClaimRace(t *testing.T) {
 			t.Fatalf("round %d: claim results errA=%v errB=%v, want one success and one typed conflict", round, errA, errB)
 		}
 
-		// Exactly one header row exists, owned by exactly one token.
 		if got := f.countRows(t, f.revisionTable(), "id = $1", string(revision.ID)); got != 1 {
 			t.Fatalf("round %d: header count = %d, want exactly 1", round, got)
 		}
@@ -1457,9 +1252,6 @@ func TestPostgresExplicitGroupDefinitionsConcurrentClaimRace(t *testing.T) {
 			winnerToken, loserToken = tokenB, tokenA
 		}
 
-		// The loser's refusal wrote nothing further: another claim attempt
-		// with the loser's token stays a conflict and cannot change the
-		// stored row (byte witness).
 		before := f.headerSnapshot(t, string(revision.ID))
 		mustErr(t, fmt.Sprintf("round %d loser re-claim", round), func() error {
 			_, err := storeB.BeginExplicitGroupRevision(f.ctx, revision, source, loserToken)
@@ -1469,9 +1261,6 @@ func TestPostgresExplicitGroupDefinitionsConcurrentClaimRace(t *testing.T) {
 			t.Fatalf("round %d: loser re-claim mutated the winner's row:\nbefore %q\nafter  %q", round, before, got)
 		}
 
-		// Post-abort convergence: the winner aborts, both tables are
-		// byte-empty for this key, and the winner's own begin stays
-		// idempotent right up to the abort.
 		mustNil(t, fmt.Sprintf("round %d winner retry before abort", round), func() error {
 			_, err := storeA.BeginExplicitGroupRevision(f.ctx, revision, source, winnerToken)
 			return err
@@ -1490,11 +1279,6 @@ func TestPostgresExplicitGroupDefinitionsConcurrentClaimRace(t *testing.T) {
 	}
 }
 
-// TestPostgresExplicitGroupDefinitionsConcurrentPutRace runs two race
-// surfaces over the definition write path, ten rounds each: concurrent
-// identical puts (both succeed, one byte-identical row set) and concurrent
-// conflicting puts (exactly one content wins, the other is the typed
-// conflict), each round converging to zero rows after the owner aborts.
 func TestPostgresExplicitGroupDefinitionsConcurrentPutRace(t *testing.T) {
 	f := newPGState06Fixture(t)
 	f.migrate(t)
@@ -1507,9 +1291,6 @@ func TestPostgresExplicitGroupDefinitionsConcurrentPutRace(t *testing.T) {
 
 	const rounds = 11
 
-	// Surface 1: concurrent identical puts with the owner token. Both
-	// must succeed and the stored set must stay the one byte-identical
-	// canonical snapshot.
 	wantCanonical := strings.Join([]string{
 		"group-alpha|Alpha cohort|0",
 		"group-empty|No members|1",
@@ -1541,10 +1322,6 @@ func TestPostgresExplicitGroupDefinitionsConcurrentPutRace(t *testing.T) {
 		t.Fatalf("identical puts stored %d definition rows, want exactly 3", got)
 	}
 
-	// Surface 2: concurrent conflicting puts (different content) on a
-	// fresh revision each round: exactly one succeeds, one is the typed
-	// conflict, and the stored set is exactly one of the two canonical
-	// shapes -- byte-identical for the rest of the round's observations.
 	shapeA := pgstate06CanonicalDefinitions(t)
 	shapeB, err := explorer.CanonicalExplicitGroupDefinitions([]explorer.ExplicitGroupDefinition{
 		{ID: "group-alpha", Label: "Alpha cohort", Ordinal: 0},
@@ -1582,7 +1359,6 @@ func TestPostgresExplicitGroupDefinitionsConcurrentPutRace(t *testing.T) {
 		if got := f.countRows(t, f.definitionsTable(), "revision_id = $1", string(revision.ID)); got != 3 {
 			t.Fatalf("conflicting put round %d: definition count = %d, want 3 (no interleaved halves)", round, got)
 		}
-		// Post-abort convergence for this round.
 		mustNil(t, fmt.Sprintf("conflicting put round %d owner abort", round), func() error {
 			return storeA.AbortExplicitGroupRevision(f.ctx, revision.ID, raceToken)
 		})
@@ -1595,11 +1371,6 @@ func TestPostgresExplicitGroupDefinitionsConcurrentPutRace(t *testing.T) {
 	}
 }
 
-// TestPostgresExplicitGroupDefinitionsCleanupVersusActiveWriterRace: ten
-// rounds of a live writer working on its revision while the other backend
-// sweeps expired rows concurrently. The active writer's header and
-// definitions must stay byte-identical across the sweep, its claim stays
-// its own, and the expired bait is reaped every round.
 func TestPostgresExplicitGroupDefinitionsCleanupVersusActiveWriterRace(t *testing.T) {
 	f := newPGState06Fixture(t)
 	f.migrate(t)
@@ -1623,7 +1394,6 @@ func TestPostgresExplicitGroupDefinitionsCleanupVersusActiveWriterRace(t *testin
 		headerBefore := f.headerSnapshot(t, string(revision.ID))
 		defsBefore := f.definitionsSnapshot(t, string(revision.ID))
 
-		// Expired bait for the sweeper.
 		baitKey := fmt.Sprintf("race-cleanup-bait-%d-%s", round, pgstate06RandomHex(t))
 		bait := pgstate06Revision(source, baitKey)
 		past := time.Now().UTC().Add(-time.Hour)
@@ -1639,8 +1409,6 @@ func TestPostgresExplicitGroupDefinitionsCleanupVersusActiveWriterRace(t *testin
 		}, "bait-writer", &baitLease)
 		f.rawInsertDefinition(t, f.witness, string(bait.ID), "group-bait", "Bait", 0)
 
-		// The racing pair: the owner keeps working (retry + put replay)
-		// while the sweeper sweeps.
 		errA, errB := raceFire(
 			func() error {
 				if _, err := storeA.BeginExplicitGroupRevision(f.ctx, revision, source, writerToken); err != nil {
@@ -1659,9 +1427,6 @@ func TestPostgresExplicitGroupDefinitionsCleanupVersusActiveWriterRace(t *testin
 			t.Fatalf("cleanup race round %d: sweeper errored: %v", round, errB)
 		}
 
-		// The active writer survived untouched. Its lease necessarily
-		// moved (its own retry renewed it), so compare every frozen field
-		// and the definition rows.
 		if got := f.frozenHeaderSnapshot(t, string(revision.ID)); got != strings.Join(strings.Split(headerBefore, "\x1f")[:15], "\x1f") {
 			t.Fatalf("cleanup race round %d: active writer's frozen fields changed:\nbefore %q\nafter  %q",
 				round, strings.Join(strings.Split(headerBefore, "\x1f")[:15], "\x1f"), got)
@@ -1669,14 +1434,12 @@ func TestPostgresExplicitGroupDefinitionsCleanupVersusActiveWriterRace(t *testin
 		if got := f.definitionsSnapshot(t, string(revision.ID)); got != defsBefore {
 			t.Fatalf("cleanup race round %d: active writer's definitions changed:\nbefore %q\nafter  %q", round, defsBefore, got)
 		}
-		// The expired bait is always gone: both tables, no half state.
 		if got := f.countRows(t, f.revisionTable(), "id = $1", string(bait.ID)); got != 0 {
 			t.Fatalf("cleanup race round %d: bait header count = %d, want 0", round, got)
 		}
 		if got := f.countRows(t, f.definitionsTable(), "revision_id = $1", string(bait.ID)); got != 0 {
 			t.Fatalf("cleanup race round %d: bait definition count = %d, want 0", round, got)
 		}
-		// Post-abort convergence: the racing revision goes away cleanly.
 		mustNil(t, fmt.Sprintf("cleanup race round %d owner abort", round), func() error {
 			return storeA.AbortExplicitGroupRevision(f.ctx, revision.ID, writerToken)
 		})
@@ -1686,10 +1449,6 @@ func TestPostgresExplicitGroupDefinitionsCleanupVersusActiveWriterRace(t *testin
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fault injection: real transaction aborts leave zero half-applied state
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupDefinitionsFaultInjectionRollback(t *testing.T) {
 	f := newPGState06Fixture(t)
 	f.migrate(t)
@@ -1698,8 +1457,6 @@ func TestPostgresExplicitGroupDefinitionsFaultInjectionRollback(t *testing.T) {
 	source := pgstate06Selection(project, "fault-"+pgstate06RandomHex(t))
 	token := "writer-" + pgstate06RandomHex(t)
 
-	// Seam 1: a fault after the real definition insert aborts the put --
-	// no definition rows may survive and the lease may not move.
 	key := "fault-put-" + pgstate06RandomHex(t)
 	revision := pgstate06Revision(source, key)
 	if _, err := f.store.BeginExplicitGroupRevision(f.ctx, revision, source, token); err != nil {
@@ -1719,8 +1476,6 @@ func TestPostgresExplicitGroupDefinitionsFaultInjectionRollback(t *testing.T) {
 	if got := f.headerSnapshot(t, string(revision.ID)); got != headerBefore {
 		t.Fatalf("aborted put moved the header row:\nbefore %q\nafter  %q", headerBefore, got)
 	}
-	// Mutation probe: the same put now succeeds and produces exactly the
-	// canonical rows.
 	mustNil(t, "put after fault", func() error {
 		return f.store.PutExplicitGroupDefinitions(f.ctx, revision.ID, token, pgstate06Definitions())
 	})
@@ -1729,8 +1484,6 @@ func TestPostgresExplicitGroupDefinitionsFaultInjectionRollback(t *testing.T) {
 		t.Fatalf("post-fault put stored %q, want the canonical set", defsAfter)
 	}
 
-	// Seam 2: a fault after the real definition delete aborts the abort --
-	// the header AND its definition rows must both still be there.
 	keyAbort := "fault-abort-" + pgstate06RandomHex(t)
 	revisionAbort := pgstate06Revision(source, keyAbort)
 	tokenAbort := "writer-abort-" + pgstate06RandomHex(t)
@@ -1757,7 +1510,6 @@ func TestPostgresExplicitGroupDefinitionsFaultInjectionRollback(t *testing.T) {
 	if got := f.definitionsSnapshot(t, string(revisionAbort.ID)); got != defsBeforeAbort {
 		t.Fatalf("aborted abort removed definition rows:\nbefore %q\nafter  %q", defsBeforeAbort, got)
 	}
-	// Mutation probe: the real abort now completes and removes everything.
 	mustNil(t, "abort after fault", func() error {
 		return f.store.AbortExplicitGroupRevision(f.ctx, revisionAbort.ID, tokenAbort)
 	})
@@ -1769,10 +1521,6 @@ func TestPostgresExplicitGroupDefinitionsFaultInjectionRollback(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// migration ledger: self-recomputed sha256 pins and rerun convergence
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T) {
 	f := newPGState06Fixture(t)
 	first := f.migrate(t)
@@ -1782,16 +1530,6 @@ func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T
 		f.fail("owner migrations", err)
 	}
 
-	// Lineage-wide expectations are SELF-DERIVED from the embedded
-	// migrations directory (coordinator ruling; the #84 self-derive
-	// regime): count = number of migration files, latest = max version
-	// parsed from their names, and the loader must agree with the
-	// directory file-for-file. Hard-coding the ledger here would break
-	// every future owner-dir migration (000007, 000008, ...), which is
-	// exactly the open-ended-directory defect the dedicated test-robustness
-	// wave fixes elsewhere. Only this ticket's own slot -- version 9, its
-	// name, and its byte-frozen checksum -- stays a literal pin below:
-	// author duty over one's own artifact, never a lineage-wide literal.
 	embeddedFiles, embeddedMax := pgstate02EnumerateEmbeddedMigrations(t)
 	if len(owner) != len(embeddedFiles) {
 		t.Fatalf("embedded history has %d migrations, want %d (loader and the migrations directory disagree)", len(owner), len(embeddedFiles))
@@ -1807,8 +1545,6 @@ func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T
 		}
 	}
 
-	// Every ledger row must match a checksum SELF-RECOMPUTED here from
-	// the embedded bytes -- never the loader's self-report.
 	type ledgerRow struct {
 		version  int64
 		name     string
@@ -1860,8 +1596,6 @@ func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T
 		}
 	}
 
-	// Rerun convergence: the applied history re-runs as a no-op preserving
-	// state and the identical ledger, including after real data exists.
 	source := pgstate06Selection("pgstate06-project", "ledger-"+pgstate06RandomHex(t))
 	key := "ledger-" + pgstate06RandomHex(t)
 	revision := pgstate06Revision(source, key)
@@ -1889,10 +1623,6 @@ func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T
 		t.Fatalf("migration rerun mutated staged state:\nbefore %q\nafter  %q", headerBefore, got)
 	}
 
-	// Mixed-history fail-closed: pointing the source-store history at this
-	// Explorer control-plane schema is refused before any statement (the
-	// package-wide one-history-per-schema invariant, witnessed here on
-	// this ticket's schema so the explicit-group tables participate).
 	pgStoreClient, err := pgstore.Open(f.ctx, pgstore.Config{DSN: f.dsn, MaxConns: 2, MinConns: 0, AcquireTimeout: 10 * time.Second})
 	if err != nil {
 		f.fail("open mixed-history pool", err)
@@ -1914,10 +1644,6 @@ func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T
 	}
 }
 
-// TestZZNoLeftoverPgstate06Resources audits that the pgstate06_it_*
-// namespace this suite owns is empty after every test in this file. It is
-// ownership-scoped: sibling suites sweep their own prefixes and concurrent
-// siblings must never break this scan.
 func TestZZNoLeftoverPgstate06Resources(t *testing.T) {
 	raw := pgstate06TestPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1943,10 +1669,6 @@ func TestZZNoLeftoverPgstate06Resources(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// database-enforced guards: named refusals, guard-drop probes, rerun
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 	f := newPGState06Fixture(t)
 	f.migrate(t)
@@ -1955,7 +1677,6 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 	source := pgstate06Selection(project, "guards-"+pgstate06RandomHex(t))
 	token := "writer-" + pgstate06RandomHex(t)
 
-	// Helper: honest staging row via the store.
 	newHeader := func(label string) explorer.ExplicitGroupRevision {
 		key := "guard-" + label + "-" + pgstate06RandomHex(t)
 		revision := pgstate06Revision(source, key)
@@ -1965,8 +1686,6 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 		return revision
 	}
 
-	// Named CHECK refusals for forged rows (non-vacuity: the honest row
-	// shape inserts, the forged field is refused by its exact constraint).
 	honest := pgstate06Revision(source, "check-honest-"+pgstate06RandomHex(t))
 	f.rawInsertHeader(t, f.witness, honest, "tok", nil)
 	if got := f.countRows(t, f.revisionTable(), "id = $1", string(honest.ID)); got != 1 {
@@ -2023,7 +1742,6 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 	requirePgErrConstraintPGState06(t, err, pgstate06CheckViolation,
 		explicitGroupRevisionRequiredFieldsCK, "blank required field refused by the named CHECK")
 
-	// UPDATE guards.
 	guarded := newHeader("guarded")
 	frozenUpdate := func(sql string, args ...any) error {
 		_, err := f.witness.Exec(f.ctx, sql, args...)
@@ -2039,8 +1757,6 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 	requirePgErrTriggerPGState06(t, frozenUpdate(`UPDATE `+f.revisionTable()+` SET writer_expires_at = now() + interval '1 hour' WHERE id = $1`, string(guarded.ID)),
 		pgstate06CheckViolation, "explorer_explicit_group_revisions guard", "lease renewal without the writer-token GUC is refused")
 
-	// Legal channel: renewal WITH the GUC goes through (mutation probe --
-	// the UPDATE guard is not a blanket block).
 	frozenBefore := f.frozenHeaderSnapshot(t, string(guarded.ID))
 	beforeLease := strings.Split(f.headerSnapshot(t, string(guarded.ID)), "\x1f")[16]
 	if _, err := f.witness.Exec(f.ctx, `SELECT set_config('`+gucWriterToken+`', $1, false)`, token); err != nil {
@@ -2060,7 +1776,6 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 		f.fail("clear writer token GUC on witness", err)
 	}
 
-	// Lease may never be shortened or revoked even by the honest holder.
 	shortenProbe := func(sql string) {
 		if _, err := f.witness.Exec(f.ctx, `SELECT set_config('`+gucWriterToken+`', $1, false)`, token); err != nil {
 			f.fail("set writer token GUC", err)
@@ -2075,16 +1790,9 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 	shortenProbe(`UPDATE ` + f.revisionTable() + ` SET writer_expires_at = '2020-01-01T00:00:00Z'::timestamptz WHERE id = $1`)
 	shortenProbe(`UPDATE ` + f.revisionTable() + ` SET writer_expires_at = NULL WHERE id = $1`)
 
-	// DELETE guard: no authorization at all is refused.
 	requirePgErrTriggerPGState06(t, frozenUpdate(`DELETE FROM `+f.revisionTable()+` WHERE id = $1`, string(guarded.ID)),
 		pgstate06CheckViolation, "explorer_explicit_group_revisions guard", "unauthorized DELETE names its trigger")
 
-	// Guard-drop probe: with the trigger dropped, the same violating
-	// UPDATE and DELETE succeed -- proof the guard, not an accident,
-	// blocked them -- and the migration's own text restores the identical
-	// guard, which blocks them again. The probe column is one the CHECKs
-	// do not police (the source membership digest is required non-empty
-	// but not content-bound), so only the trigger can refuse it.
 	f.dropTrigger(t, f.revisionTable(), "explorer_explicit_group_revisions_guard")
 	unguarded := newHeader("unguarded")
 	mustNil(t, "unguarded frozen UPDATE succeeds once the guard is dropped", func() error {
@@ -2122,8 +1830,6 @@ func TestPostgresExplicitGroupDefinitionsDefinitionDatabaseGuards(t *testing.T) 
 	})
 	want := f.definitionsSnapshot(t, string(revision.ID))
 
-	// Shape CHECKs by name, each with its legal control: the same shape
-	// with honest fields inserts, the forged field is refused.
 	_, err := f.witness.Exec(f.ctx, `INSERT INTO `+f.definitionsTable()+` (revision_id, group_id, label, ordinal)
 		VALUES ($1, 'group-alpha', 'Dup alpha', 99)`, string(revision.ID))
 	requirePgErrConstraintPGState06(t, err, "23505", explicitGroupDefinitionPKConstraint,
@@ -2144,45 +1850,31 @@ func TestPostgresExplicitGroupDefinitionsDefinitionDatabaseGuards(t *testing.T) 
 		VALUES ($1, 'group-negative', 'Negative ordinal', -1)`, string(revision.ID))
 	requirePgErrConstraintPGState06(t, err, pgstate06CheckViolation,
 		"explorer_explicit_group_definitions_ordinal_non_negative", "negative ordinal refused by the named CHECK")
-	// Orphan definitions are refused by the guard's named absent-parent
-	// branch, which (as a BEFORE trigger) fires before the FK; the FK
-	// stays as the second line of defense (and still drives the RESTRICT
-	// delete ordering).
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.definitionsTable()+` (revision_id, group_id, label, ordinal)
 		VALUES ('grouprev_' || repeat('f', 64), 'group-orphan', 'Orphan', 52)`)
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "refused: parent revision is absent",
 		"orphan definition refused by the named guard branch ahead of the FK")
-	// Legal control: the same shape with honest fields inserts.
 	f.rawInsertDefinition(t, f.witness, string(revision.ID), "group-legal-control", "Legal control", 53)
 	if got := f.countRows(t, f.definitionsTable(), "revision_id = $1 AND group_id = 'group-legal-control'", string(revision.ID)); got != 1 {
 		t.Fatalf("legal control definition count = %d, want 1", got)
 	}
 
-	// Definitions are write-once.
 	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.definitionsTable()+` SET label = 'Rewritten'
 		WHERE revision_id = $1 AND group_id = 'group-alpha'`, string(revision.ID))
 	requirePgErrTriggerPGState06(t, err, pgstate06CheckViolation,
 		"explorer_explicit_group_definitions guard", "definition UPDATE names its write-once trigger")
 
-	// Un-authorized child DELETE is refused; the authorized abort channel
-	// is exercised through the store below, so this proves the guard
-	// refused only because the caller held nothing.
 	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.definitionsTable()+`
 		WHERE revision_id = $1 AND group_id = 'group-legal-control'`, string(revision.ID))
 	requirePgErrTriggerPGState06(t, err, pgstate06CheckViolation,
 		"explorer_explicit_group_definitions guard", "unauthorized child DELETE names its trigger")
 
-	// FK layering: even holding the abort token, the header cannot go
-	// before its definition rows -- RESTRICT refuses first, by name
-	// (ON DELETE RESTRICT raises 23001 restrict_violation on PostgreSQL).
 	if _, err := f.witness.Exec(f.ctx, `SELECT set_config('`+gucAbortToken+`', $1, false)`, token); err != nil {
 		f.fail("set abort token GUC", err)
 	}
 	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.revisionTable()+` WHERE id = $1`, string(revision.ID))
 	requirePgErrConstraintPGState06(t, err, "23001", explicitGroupRevisionFKConstraint,
 		"header DELETE blocked by the named FK until children are gone")
-	// Mutation probe: children first, then the header, both under the
-	// same abort authorization.
 	if _, err := f.witness.Exec(f.ctx, `DELETE FROM `+f.definitionsTable()+`
 		WHERE revision_id = $1 AND group_id = 'group-legal-control'`, string(revision.ID)); err != nil {
 		f.fail("authorized child DELETE", err)
@@ -2194,8 +1886,6 @@ func TestPostgresExplicitGroupDefinitionsDefinitionDatabaseGuards(t *testing.T) 
 		f.fail("clear abort GUC", err)
 	}
 
-	// Guard-drop probe on the definition trigger: the write-once UPDATE
-	// passes once dropped, and the migration text restores it.
 	f.dropTrigger(t, f.definitionsTable(), "explorer_explicit_group_definitions_guard")
 	mustNil(t, "unguarded definition UPDATE succeeds", func() error {
 		_, err := f.witness.Exec(f.ctx, `UPDATE `+f.definitionsTable()+` SET label = 'Rewritten'
@@ -2208,8 +1898,6 @@ func TestPostgresExplicitGroupDefinitionsDefinitionDatabaseGuards(t *testing.T) 
 	requirePgErrTriggerPGState06(t, err, pgstate06CheckViolation,
 		"explorer_explicit_group_definitions guard", "rerun migration re-blocks the write-once UPDATE")
 
-	// The header guard still works too after the rerun (single-migration
-	// composition restored BOTH guards).
 	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.revisionTable()+` WHERE id = $1`, string(revision.ID))
 	requirePgErrTriggerPGState06(t, err, pgstate06CheckViolation,
 		"explorer_explicit_group_revisions guard", "header guard restored by the same rerun")
@@ -2222,52 +1910,13 @@ func TestPostgresExplicitGroupDefinitionsDefinitionDatabaseGuards(t *testing.T) 
 	_ = want
 }
 
-// ===========================================================================
-// pg-state-explicit-group-members-v1: membership batching, streaming, and
-// the guarded STAGING -> COMPLETE transition.
-//
-// The suite below shares this file's real-PostgreSQL-18 discipline with one
-// OWNED namespace of its own -- verify_grpm_* databases and schemas, with
-// its own creation registry and ownership-scoped zero-leftover audit --
-// so concurrent sibling suites sweeping their own prefixes can never
-// break it and it never runs a global baseline. Source selections are
-// staged through the MERGED selection lifecycle (Begin/Append/Digest/
-// Complete on *Store) into the same schema: the membership migration
-// composes onto the Explorer control-plane ledger (versions
-// [1 2 3 5 6 8 9 10 11]) exactly as a full deployment composes it, so the
-// append/completion boundary checks run against real stored
-// selection_revisions and selection_members rows, never mocks. Every
-// expected row is asserted literally through the witness connection;
-// races run over two dedicated single-connection stores with witnessed
-// distinct pg_backend_pid values, at least ten rounds per surface, with
-// positive overlap witnesses (a race that cannot prove it raced fails),
-// and zero-churn controls that must show the witnesses going quiet.
-// ===========================================================================
-
 const (
-	// grpmMigrationVersion is this ticket's slot in the shared Explorer
-	// control-plane ledger (coordinator allocation continued: 7
-	// interpretations, 8 selections, 9 explicit-group definitions, 10
-	// explicit-group memberships).
-	grpmMigrationVersion = int64(10)
-	// grpmMigrationName is the embedded migration file's ledger name.
-	grpmMigrationName = "explorer_explicit_group_memberships"
-	// grpmMigrationChecksum is the byte-frozen SHA-256 of the membership
-	// migration SQL. The test recomputes it from the embedded bytes and
-	// refuses drift in either direction.
-	grpmMigrationChecksum = "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"
-	// The definition-guard hardening migration (CAS escalation round 3):
-	// 000009 is merged history, so 000011 CREATE OR REPLACEs its
-	// definition guard with the locked parent lookup and the INSERT
-	// branch. Pinned byte-exactly below and re-derived from the embedded
-	// bytes at test time.
-	grpmDefinitionsGuardVersion  = int64(11)
-	grpmDefinitionsGuardName     = "explorer_explicit_group_definition_guard_hardening"
-	grpmDefinitionsGuardChecksum = "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec"
-	// grpmSelectionsFixture* pins the selections migration -- version 8 of
-	// the shared ledger, owned by the merged selection-revision-owner
-	// ticket, now embedded in the owner history and byte-frozen here the
-	// way the capability migration is.
+	grpmMigrationVersion          = int64(10)
+	grpmMigrationName             = "explorer_explicit_group_memberships"
+	grpmMigrationChecksum         = "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"
+	grpmDefinitionsGuardVersion   = int64(11)
+	grpmDefinitionsGuardName      = "explorer_explicit_group_definition_guard_hardening"
+	grpmDefinitionsGuardChecksum  = "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec"
 	grpmSelectionsFixtureName     = "selection_revisions"
 	grpmSelectionsFixtureVersion  = int64(8)
 	grpmSelectionsFixtureChecksum = "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"
@@ -2281,33 +1930,21 @@ const (
 	grpmGroupA = explorer.ExplicitGroupID("verify-grpm-group-a")
 	grpmGroupB = explorer.ExplicitGroupID("verify-grpm-group-b")
 
-	// grpmRaceRounds is the per-surface race floor (two real PG
-	// connections, provably distinct backends, >= 10 rounds).
-	grpmRaceRounds = 10
-	// grpmSeamTimeout bounds every in-transaction seam wait so a broken
-	// race schedule fails loudly instead of hanging.
+	grpmRaceRounds  = 10
 	grpmSeamTimeout = 5 * time.Second
 )
 
-// grpmOwnedNameRe builds the name pattern for a fixture namespace
-// prefix (databases and schemas are "<prefix>_<unixnano>_<hex>").
 func grpmOwnedNameRe(prefix string) *regexp.Regexp {
 	return regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `_[0-9]+_[0-9a-f]+$`)
 }
 
-// grpmLikePattern renders a LIKE pattern (ESCAPE '\') matching every
-// name under a fixture namespace prefix.
 func grpmLikePattern(prefix string) string {
 	return strings.ReplaceAll(prefix, "_", `\`) + `\_%`
 }
 
-// Creation registry: every database/schema this suite creates is recorded
-// before the first write, so the ownership-scoped audit can prove both
-// "nothing registered survives" and "nothing unregistered survives under
-// the verify_grpm_* prefix" -- never a global baseline.
 var (
 	grpmRegistryMu sync.Mutex
-	grpmOwnedRes   = map[string]string{} // database -> owned schema
+	grpmOwnedRes   = map[string]string{}
 )
 
 func grpmRegisterResource(dbName, schema string) {
@@ -2353,11 +1990,6 @@ func newGRPMFixture(t *testing.T) *grpmFixture {
 	return newGRPMFixtureWithPrefix(t, "verify_grpm")
 }
 
-// newGRPMFixtureWithPrefix builds the identical isolated fixture under a
-// caller-owned namespace prefix, so a follow-up ticket can own its own
-// zero-leftover namespace (e.g. verify_e2rv_*) without disturbing the
-// merged suite's verify_grpm_* discipline. Names, patterns, and audits
-// all derive from the prefix.
 func newGRPMFixtureWithPrefix(t *testing.T, prefix string) *grpmFixture {
 	t.Helper()
 	raw := pgstate06TestPostgresURL(t)
@@ -2404,10 +2036,6 @@ func newGRPMFixtureWithPrefix(t *testing.T, prefix string) *grpmFixture {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
 
-	// Ownership-scoped zero-leftover audit (runs with the admin pool
-	// still open): registry first, then the prefix scan over THIS
-	// suite's own namespace only. Concurrent sibling suites own their
-	// prefixes and must never break this scan.
 	t.Cleanup(func() {
 		var mine int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = $1`, dbName).Scan(&mine); err != nil {
@@ -2494,13 +2122,6 @@ func newGRPMFixtureWithPrefix(t *testing.T, prefix string) *grpmFixture {
 	return f
 }
 
-// migrateWithSelections applies the composed Explorer control-plane
-// history through the real pg-store-02 runner: this package's embedded
-// owner history (which now includes 000010 and 000011) plus the byte-frozen
-// selections fixture migration, so the one shared ledger carries
-// [1 2 3 5 6 8 9 10 11] exactly as a fully composed deployment does. The
-// selections fixture is self-recomputed from the file bytes, never
-// trusted from the loader's self-report.
 func (f *grpmFixture) migrateWithSelections(t *testing.T) pgstore.MigrateResult {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -2553,10 +2174,6 @@ func (f *grpmFixture) newStore(t *testing.T) (*ExplicitGroupStore, error) {
 	return NewExplicitGroupStore(client, f.schema)
 }
 
-// newDedicatedStore opens a MaxConns=1 pool -- one single physical backend
-// connection -- warms it, and returns the store plus that backend's
-// pg_backend_pid. Two dedicated stores are the two real PG connections
-// for the race proofs.
 func (f *grpmFixture) newDedicatedStore(t *testing.T) (*ExplicitGroupStore, int32) {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -2589,8 +2206,6 @@ func (f *grpmFixture) newDedicatedStore(t *testing.T) (*ExplicitGroupStore, int3
 	return store, pid
 }
 
-// newDedicatedPool is the raw-SQL sibling: one physical backend connection
-// for direct SQL with its pid witnessed up front.
 func (f *grpmFixture) newDedicatedPool(t *testing.T) (*pgxpool.Pool, int32) {
 	t.Helper()
 	poolConfig, err := pgxpool.ParseConfig(f.dsn)
@@ -2640,9 +2255,6 @@ func (f *grpmFixture) membershipsTable() string {
 	return sanitizeTableRef(f.schema, ExplicitGroupMembershipsTable)
 }
 
-// grpmHeaderSnapshot renders one stored header row as one deterministic
-// text value covering every column, byte-identical snapshots being the
-// witness that a refused operation wrote nothing.
 func (f *grpmFixture) grpmHeaderSnapshot(t *testing.T, revisionID string) string {
 	t.Helper()
 	var out string
@@ -2662,9 +2274,6 @@ func (f *grpmFixture) grpmHeaderSnapshot(t *testing.T, revisionID string) string
 	return out
 }
 
-// membershipSnapshot renders the whole membership set of one revision in
-// walk order as one deterministic text value: group|project|generation|
-// type|resource rows joined below.
 func (f *grpmFixture) membershipSnapshot(t *testing.T, revisionID string) string {
 	t.Helper()
 	rows, err := f.witness.Query(f.ctx, `SELECT group_id, project, generation, resource_type, resource_id FROM `+
@@ -2688,9 +2297,6 @@ func (f *grpmFixture) membershipSnapshot(t *testing.T, revisionID string) string
 	return strings.Join(parts, "\x1e")
 }
 
-// membershipCtidSnapshot additionally carries the physical tuple location,
-// so an idempotent retry proving byte-identical ctids proves no row was
-// rewritten -- not merely re-read.
 func (f *grpmFixture) membershipCtidSnapshot(t *testing.T, revisionID string) string {
 	t.Helper()
 	rows, err := f.witness.Query(f.ctx, `SELECT ctid::text, group_id, resource_id FROM `+
@@ -2757,10 +2363,6 @@ func requirePgErrTriggerGRPM(t *testing.T, err error, sqlstate, trigger, step st
 	return pgErr
 }
 
-// rerunMigrationGRPM applies one embedded migration's exact SQL text again
-// through direct SQL, the same convergent-rerun witness the definitions
-// suite uses: the text that created a guard is what re-blocks the
-// violating write after a guard-drop probe.
 func (f *grpmFixture) rerunMigrationGRPM(t *testing.T, version int64) {
 	t.Helper()
 	migrations, err := OwnerMigrations()
@@ -2817,10 +2419,6 @@ func (f *grpmFixture) setGUC(t *testing.T, name string, value any) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// membership fixtures
-// ---------------------------------------------------------------------------
-
 func grpmRef(resourceID string) explorer.ResourceRef {
 	return explorer.ResourceRef{Project: grpmProject, Generation: grpmGeneration, ResourceType: grpmResourceType, ID: resourceID}
 }
@@ -2829,11 +2427,6 @@ func grpmMembership(group explorer.ExplicitGroupID, resourceID string) explorer.
 	return explorer.ExplicitGroupMembership{GroupID: group, Ref: grpmRef(resourceID)}
 }
 
-// stageSelection drives the MERGED selection lifecycle -- Begin, Append,
-// Digest, Complete -- so the source selection the explicit-group store
-// revalidates on every append and completion is a real stored COMPLETE
-// revision with real stored member rows, not a synthetic bind. The stored
-// frozen facts are returned for the header binding.
 func (f *grpmFixture) stageSelection(t *testing.T, suffix string, resourceIDs ...string) explorer.SelectionRevision {
 	t.Helper()
 	selectionID := "verify-grpm-sel-" + suffix
@@ -2902,8 +2495,6 @@ func grpmDefinitions() []explorer.ExplicitGroupDefinition {
 	}
 }
 
-// beginGroupRevision stages one explicit-group revision honestly through
-// the store against a stored source selection.
 func (f *grpmFixture) beginGroupRevision(t *testing.T, source explorer.SelectionRevision, key, token string) explorer.ExplicitGroupRevision {
 	t.Helper()
 	revision := grpmRevision(source, key)
@@ -2920,9 +2511,6 @@ func (f *grpmFixture) putDefinitions(t *testing.T, revisionID explorer.ExplicitG
 	}
 }
 
-// stagedGroupFixture produces a fully honest staging revision: stored
-// COMPLETE source selection over the given refs, a begun header, and the
-// two declared groups.
 func (f *grpmFixture) stagedGroupFixture(t *testing.T, suffix string, refs ...string) (explorer.ExplicitGroupRevision, string, explorer.SelectionRevision) {
 	t.Helper()
 	source := f.stageSelection(t, suffix, refs...)
@@ -2932,8 +2520,6 @@ func (f *grpmFixture) stagedGroupFixture(t *testing.T, suffix string, refs ...st
 	return revision, token, source
 }
 
-// rawInsertMembership seeds one membership row through direct SQL for
-// guard probes the store API cannot itself produce.
 func (f *grpmFixture) rawInsertMembership(t *testing.T, pool *pgxpool.Pool, revisionID, groupID, project, generation, resourceType, resourceID string) {
 	t.Helper()
 	f.execOnGRPM(t, pool, "raw insert membership",
@@ -2942,7 +2528,6 @@ func (f *grpmFixture) rawInsertMembership(t *testing.T, pool *pgxpool.Pool, revi
 		revisionID, groupID, project, generation, resourceType, resourceID)
 }
 
-// rawInsertDefinition seeds one definition row through direct SQL.
 func (f *grpmFixture) rawInsertDefinition(t *testing.T, pool *pgxpool.Pool, revisionID, groupID, label string, ordinal int64) {
 	t.Helper()
 	f.execOnGRPM(t, pool, "raw insert definition",
@@ -2950,12 +2535,6 @@ func (f *grpmFixture) rawInsertDefinition(t *testing.T, pool *pgxpool.Pool, revi
 		revisionID, groupID, label, ordinal)
 }
 
-// grpmFrameDigest independently re-derives the membership digest from
-// explicit 8-byte big-endian length-prefixed frames built inline, without
-// calling any explorer digest helper: domain tag field, then per member
-// (group, project, generation, resource type, resource id). The expected
-// hex is pinned separately in the test and BOTH must agree, so a framing
-// drift in production breaks against a literal, not against its mirror.
 func grpmFrameDigest(t *testing.T, pairs ...[2]string) string {
 	t.Helper()
 	hash := sha256.New()
@@ -2980,8 +2559,6 @@ func grpmFrameDigest(t *testing.T, pairs ...[2]string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// grpmRow renders one expected membership row in the suite's snapshot
-// format: group|project|generation|type|resource.
 func grpmRow(group, resourceID string) string {
 	return strings.Join([]string{group, grpmProject, grpmGeneration, grpmResourceType, resourceID}, "|")
 }
@@ -2990,8 +2567,6 @@ func grpmRows(rows ...string) string {
 	return strings.Join(rows, "\x1e")
 }
 
-// grpmSeam blocks in-transaction until released, failing the seam (and
-// aborting the live transaction) if the race schedule breaks.
 func grpmSeam(release <-chan struct{}) func(context.Context, pgx.Tx) error {
 	return func(ctx context.Context, tx pgx.Tx) error {
 		select {
@@ -3003,12 +2578,6 @@ func grpmSeam(release <-chan struct{}) func(context.Context, pgx.Tx) error {
 	}
 }
 
-// grpmHoldCompletion starts a store completion on store and blocks inside
-// its transaction -- after the digest/count verification, before the
-// commit -- until the caller closes release. entered is closed the moment
-// the seam is reached, so the caller launches its colliding statement in
-// the window where the completing transaction holds the header row lock.
-// Used by both parent-lock race suites (memberships and definitions).
 func grpmHoldCompletion(store *ExplicitGroupStore, ctx context.Context,
 	revision explorer.ExplicitGroupRevision, token string,
 	defDigest, memDigest string, groups, members int64) (release chan<- struct{}, complete <-chan error, entered <-chan struct{}) {
@@ -3033,9 +2602,6 @@ func grpmHoldCompletion(store *ExplicitGroupStore, ctx context.Context,
 	return releaseComplete, done, completeEntered
 }
 
-// grpmWatchLockWait samples pg_stat_activity for backend pid and reports
-// (via the returned stop/close functions) whether the backend was ever
-// observed blocked on a lock -- the positive overlap witness.
 func (f *grpmFixture) grpmWatchLockWait(pid int32) (sawLockWait func() bool, stop func()) {
 	var (
 		mu   sync.Mutex
@@ -3085,10 +2651,6 @@ func (f *grpmFixture) rawInsertHeaderGRPM(t *testing.T, pool *pgxpool.Pool, revi
 		revision.CreatedAt, writerToken, writerExpiresAt)
 }
 
-// ---------------------------------------------------------------------------
-// append: overlap across groups, idempotent retry, project scope
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
@@ -3097,8 +2659,8 @@ func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T
 
 	batch := []explorer.ExplicitGroupMembership{
 		grpmMembership(grpmGroupA, "r-both"),
-		grpmMembership(grpmGroupA, "r-both"), // intra-batch duplicate: collapses
-		grpmMembership(grpmGroupB, "r-both"), // overlap: a DISTINCT row
+		grpmMembership(grpmGroupA, "r-both"),
+		grpmMembership(grpmGroupB, "r-both"),
 		grpmMembership(grpmGroupA, "r-a"),
 		grpmMembership(grpmGroupB, "r-b"),
 	}
@@ -3109,9 +2671,6 @@ func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T
 	if len(inserted) != 4 {
 		t.Fatalf("first append reported %d created, want 4: %+v", len(inserted), inserted)
 	}
-	// The primary key carries the group ID: r-both is TWO rows, one per
-	// group; the duplicate of a/r-both created nothing. Walk order is the
-	// keyset order (group_id, resource_id, ...).
 	want := grpmRows(
 		grpmRow(string(grpmGroupA), "r-a"),
 		grpmRow(string(grpmGroupA), "r-both"),
@@ -3123,9 +2682,6 @@ func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T
 	}
 	ctidsBefore := f.membershipCtidSnapshot(t, string(revision.ID))
 
-	// Insert-once retry: the exact same batch again -- no duplicates, no
-	// error, nothing reported as newly created, and not one byte moved
-	// (identical ctids prove no rewrite, not merely an identical re-read).
 	retry, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, batch)
 	if err != nil {
 		f.fail("retry overlapping batch", err)
@@ -3140,7 +2696,6 @@ func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T
 		t.Fatalf("ctids after retry = %q, want byte-identical %q", got, ctidsBefore)
 	}
 
-	// Empty batch is the adapter's no-op: nil, nil, nothing touched.
 	empty, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, nil)
 	if err != nil || empty != nil {
 		t.Fatalf("empty batch = (%v, %v), want (nil, nil)", empty, err)
@@ -3149,7 +2704,6 @@ func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T
 		t.Fatalf("ctids after empty batch moved: %q", got)
 	}
 
-	// Every accepted write renewed the writer lease forward.
 	var expires time.Time
 	if err := f.witness.QueryRow(f.ctx,
 		`SELECT writer_expires_at FROM `+f.revisionTable()+` WHERE id = $1`, string(revision.ID)).Scan(&expires); err != nil {
@@ -3159,8 +2713,6 @@ func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T
 		t.Fatalf("writer lease %v was not renewed forward by the accepted append", expires)
 	}
 
-	// Tenant scope: cross-project reads of the same revision ID are the
-	// typed NotFound -- the membership paths gate on the header first.
 	mustErr(t, "digest under foreign project", func() error {
 		_, _, _, _, err := f.store.DigestExplicitGroupRevision(f.ctx, "verify-grpm-other", revision.ID)
 		return err
@@ -3172,10 +2724,6 @@ func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T
 	}, explorer.ErrExplicitGroupRevisionNotFound)
 }
 
-// ---------------------------------------------------------------------------
-// append refusals: wrong writer, completed revision, source membership
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
@@ -3184,13 +2732,11 @@ func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *tes
 	emptyBefore := f.membershipSnapshot(t, string(revision.ID))
 	headerBefore := f.grpmHeaderSnapshot(t, string(revision.ID))
 
-	// Wrong writer token: typed conflict, zero rows written.
 	mustErr(t, "append with foreign writer token", func() error {
 		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token+"-wrong",
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")})
 		return err
 	}, explorer.ErrExplicitGroupRevisionConflict)
-	// Blank token and blank revision: typed conflict before any database touch.
 	mustErr(t, "append with blank token", func() error {
 		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, " ",
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")})
@@ -3206,7 +2752,6 @@ func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *tes
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")})
 		return err
 	}, explorer.ErrExplicitGroupRevisionNotFound)
-	// Every refusal wrote nothing at all -- rows and header unchanged.
 	if got := f.membershipSnapshot(t, string(revision.ID)); got != emptyBefore {
 		t.Fatalf("refused appends wrote rows: %q", got)
 	}
@@ -3214,14 +2759,11 @@ func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *tes
 		t.Fatalf("refused appends moved the header: %q != %q", got, headerBefore)
 	}
 
-	// Source membership guard: a resource that is not in the stored source
-	// selection is refused with the typed error BEFORE anything stages.
 	mustErr(t, "append resource absent from source selection", func() error {
 		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-not-in-source")})
 		return err
 	}, explorer.ErrExplicitGroupMemberNotInSelection)
-	// ... and a batch mixing good and bad members is refused atomically.
 	mustErr(t, "append mixed good/bad batch", func() error {
 		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
 			[]explorer.ExplicitGroupMembership{
@@ -3234,17 +2776,12 @@ func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *tes
 		t.Fatalf("refused source-guard appends wrote rows: %q", got)
 	}
 
-	// Declared-group guard: a group the revision never declared is the
-	// canonicalization refusal (and the database's compound foreign key
-	// is the backstop -- witnessed in DatabaseGuards).
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
 		[]explorer.ExplicitGroupMembership{grpmMembership(explorer.ExplicitGroupID("verify-grpm-group-ghost"), "r-a")}); err == nil ||
 		!strings.Contains(err.Error(), "undeclared explicit group") {
 		t.Fatalf("append under undeclared group error = %v, want the undeclared-group refusal", err)
 	}
 
-	// Foreign-scope reference: Ref.Validate rejects it as a domain error
-	// (not a PG error) before any write.
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
 		[]explorer.ExplicitGroupMembership{{GroupID: grpmGroupA, Ref: explorer.ResourceRef{
 			Project: "verify-grpm-other", Generation: grpmGeneration, ResourceType: grpmResourceType, ID: "r-a"}}}); err == nil {
@@ -3253,9 +2790,6 @@ func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *tes
 		t.Fatalf("foreign-scope reference got conflict-class error %v, want the domain validation error", err)
 	}
 
-	// Mutation probe: the legal control -- the honest member the source
-	// selection DOES contain, under a declared group, with the right
-	// writer -- appends green.
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
 		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
 		f.fail("legal control append", err)
@@ -3264,8 +2798,6 @@ func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *tes
 		t.Fatalf("legal control wrote %q", got)
 	}
 
-	// Completing the revision closes the door: the store refuses append
-	// with the typed conflict...
 	completed, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
 		"0711212b6e8e2eee92a289bec97557775e4435545972b8f21c93f03e532f3321",
 		grpmFrameDigest(t, [2]string{string(grpmGroupA), "r-a"}), 2, 1,
@@ -3278,8 +2810,6 @@ func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *tes
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupB, "r-a")})
 		return err
 	}, explorer.ErrExplicitGroupRevisionConflict)
-	// ... and even bypassing the store, the database refuses: a completed
-	// revision can never gain members by direct SQL.
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
 		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
 		` VALUES ($1, $2, $3, $4, $5, $6)`, string(revision.ID), string(grpmGroupB),
@@ -3287,10 +2817,6 @@ func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *tes
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "explorer_explicit_group_memberships guard",
 		"direct insert under COMPLETE parent")
 }
-
-// ---------------------------------------------------------------------------
-// digest + fenced completion
-// ---------------------------------------------------------------------------
 
 func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testing.T) {
 	f := newGRPMFixture(t)
@@ -3304,15 +2830,9 @@ func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testin
 		f.fail("seed append", err)
 	}
 	const defDigest = "0711212b6e8e2eee92a289bec97557775e4435545972b8f21c93f03e532f3321"
-	// The r-1/r-2 membership set is digested by the independent frame
-	// re-derivation (the PINNED literals for other membership sets are the
-	// golden-facts test's job; here the second witness is the byte-frame
-	// re-derivation, so a framing drift breaks here and nowhere mirrored).
 	memDigest := grpmFrameDigest(t,
 		[2]string{string(grpmGroupA), "r-1"}, [2]string{string(grpmGroupA), "r-2"},
 		[2]string{string(grpmGroupB), "r-1"}, [2]string{string(grpmGroupB), "r-2"})
-	// STAGING digest recomputes from stored children -- both digests, both
-	// counts.
 	gotDef, gotMem, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
 	if err != nil {
 		f.fail("staging digest", err)
@@ -3322,7 +2842,6 @@ func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testin
 			gotDef, gotMem, groups, members, defDigest, memDigest)
 	}
 
-	// Invalid claims are the typed Incomplete before any database touch.
 	for name, call := range map[string]func() error{
 		"blank token": func() error {
 			_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, "", defDigest, memDigest, 2, 4, time.Now().UTC())
@@ -3343,8 +2862,6 @@ func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testin
 	} {
 		mustErr(t, "complete with "+name, call, explorer.ErrExplicitGroupRevisionIncomplete)
 	}
-	// Wrong writer is the typed conflict; wrong claimed facts are the
-	// typed conflict AND leave the revision usable as STAGING.
 	mustErr(t, "complete with foreign token", func() error {
 		_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token+"-wrong", defDigest, memDigest, 2, 4, time.Now().UTC())
 		return err
@@ -3364,8 +2881,6 @@ func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testin
 		return err
 	}, explorer.ErrExplicitGroupRevisionNotFound)
 
-	// Honest fenced completion. Zero completedAt becomes the current UTC
-	// instant rather than the zero time.
 	completed, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, 4, time.Time{})
 	if err != nil || completed == nil {
 		f.fail("honest completion", err)
@@ -3374,13 +2889,10 @@ func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testin
 		completed.CompletedAt == nil || completed.CompletedAt.IsZero() {
 		t.Fatalf("completed revision = %+v", completed)
 	}
-	// COMPLETE digest returns the FROZEN facts (the CAS stored exactly
-	// what the caller claimed and the database re-verified).
 	if gotDef, gotMem, groups, members, err = f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID); err != nil ||
 		gotDef != defDigest || gotMem != memDigest || groups != 2 || members != 4 {
 		t.Fatalf("frozen digest = (%s, %s, %d, %d, %v)", gotDef, gotMem, groups, members, err)
 	}
-	// Idempotent retry: identical facts return the stored revision.
 	retry, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, 4,
 		time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC))
 	if err != nil || retry == nil {
@@ -3389,13 +2901,10 @@ func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testin
 	if retry.CompletedAt == nil || completed.CompletedAt == nil || !retry.CompletedAt.Equal(*completed.CompletedAt) {
 		t.Fatalf("idempotent retry moved completed_at: %v != %v", retry.CompletedAt, completed.CompletedAt)
 	}
-	// Different facts on a COMPLETE row are the typed conflict -- history
-	// cannot be re-written by re-completing it.
 	mustErr(t, "complete COMPLETE row with different facts", func() error {
 		_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, strings.Repeat("a", 64), 2, 4, time.Now().UTC())
 		return err
 	}, explorer.ErrExplicitGroupRevisionConflict)
-	// Abort of a COMPLETE revision is the typed conflict and removes nothing.
 	mustErr(t, "abort COMPLETE revision", func() error {
 		return f.store.AbortExplicitGroupRevision(f.ctx, revision.ID, token)
 	}, explorer.ErrExplicitGroupRevisionConflict)
@@ -3404,16 +2913,10 @@ func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testin
 	}
 }
 
-// ---------------------------------------------------------------------------
-// golden literals: break-one probes
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupMembershipsGoldenFactsAndBreakOne(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
 
-	// The golden revision: two groups (labels/ordinals pinned to the
-	// definition digest literal) and one resource under EACH (overlap).
 	revision, token, source := f.stagedGroupFixture(t, "golden", "r-gold-1", "r-gold-2")
 	if source.ID != "verify-grpm-sel-golden" || source.MembershipDigest == "" || source.MemberCount != 2 {
 		t.Fatalf("golden source = %+v", source)
@@ -3443,7 +2946,6 @@ func TestPostgresExplicitGroupMembershipsGoldenFactsAndBreakOne(t *testing.T) {
 	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, 4, completedAt); err != nil {
 		f.fail("golden completion", err)
 	}
-	// The COMPLETE header lands exactly as pinned, column for column.
 	want := strings.Join([]string{
 		string(revision.ID), grpmProject, grpmGeneration, "verify-grpm-scope", grpmResourceType,
 		"verify-grpm-sel-golden", source.MembershipDigest,
@@ -3463,9 +2965,6 @@ func TestPostgresExplicitGroupMembershipsGoldenFactsAndBreakOne(t *testing.T) {
 		}
 	}
 
-	// Break-one probes on the digest literals: flipping one hex character
-	// must break completion (and every digest is pinned independently of
-	// the frame re-derivation above).
 	flip := func(hexDigest string, pos int) string {
 		bad := []byte(hexDigest)
 		if bad[pos] == 'f' {
@@ -3490,8 +2989,6 @@ func TestPostgresExplicitGroupMembershipsGoldenFactsAndBreakOne(t *testing.T) {
 			return err
 		}, explorer.ErrExplicitGroupRevisionConflict)
 	}
-	// A revision with ONLY the overlap member pair under one group
-	// digests differently -- the digest is over the full relation set.
 	singleRev, singleToken, _ := f.stagedGroupFixture(t, "golden-single", "r-single")
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, singleRev.ID, singleToken,
 		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-single")}); err != nil {
@@ -3506,8 +3003,6 @@ func TestPostgresExplicitGroupMembershipsGoldenFactsAndBreakOne(t *testing.T) {
 		t.Fatalf("single independent re-derivation %s != literal %s", derived, singleDigest)
 	}
 
-	// The overlap pair itself is its own literal -- membership identity
-	// includes the group, so this differs from every single-group digest.
 	overlapRev, overlapToken, _ := f.stagedGroupFixture(t, "golden-overlap", "r-both")
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, overlapRev.ID, overlapToken,
 		[]explorer.ExplicitGroupMembership{
@@ -3521,9 +3016,6 @@ func TestPostgresExplicitGroupMembershipsGoldenFactsAndBreakOne(t *testing.T) {
 		t.Fatalf("overlap digest = (%s, %d, %v), want (%s, 2, nil)", gotMem, members, err, overlapDigest)
 	}
 
-	// The empty membership set over two declared groups completes with the
-	// empty digest and zero members: group_count > 0 is required,
-	// member_count >= 0 is admitted.
 	emptyRev, emptyToken, _ := f.stagedGroupFixture(t, "golden-empty")
 	const emptyDigest = "51a9413396bfc791022568e5db6dbc5001629854b2c17d7b07dfdb35a820ec09"
 	if _, gotMem, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, emptyRev.ID); err != nil ||
@@ -3535,16 +3027,10 @@ func TestPostgresExplicitGroupMembershipsGoldenFactsAndBreakOne(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// visit: bounded pages, stable resumption, cancellation
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
 
-	// 1001 members: one page beyond the cap -- the real boundedness
-	// witness, not a small-set simulation.
 	const total = 1001
 	refs := make([]string, 0, total)
 	for i := 0; i < total; i++ {
@@ -3563,22 +3049,17 @@ func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.
 		f.fail("append 1001 members", err)
 	}
 
-	// STAGING is not streamable: the public gate refuses with Incomplete.
 	mustErr(t, "visit STAGING revision", func() error {
 		_, err := f.store.VisitExplicitGroupMemberships(f.ctx, grpmProject, revision.ID,
 			explorer.ExplicitGroupMembershipCursor{}, 10, func(explorer.ExplicitGroupMembership) error { return nil })
 		return err
 	}, explorer.ErrExplicitGroupRevisionIncomplete)
-	// Nil visitor is an argument error.
 	if _, err := f.store.VisitExplicitGroupMemberships(f.ctx, grpmProject, revision.ID,
 		explorer.ExplicitGroupMembershipCursor{}, 10, nil); err == nil ||
 		!strings.Contains(err.Error(), "visitor is required") {
 		t.Fatalf("nil-visitor error = %v, want the required-visitor refusal", err)
 	}
 
-	// The bounded page witness: the digest walk of the 1001-member set
-	// streamed exactly [1000, 1] -- the cap is real and the walk never
-	// buffers more than one page.
 	var pages []int
 	f.store.membershipPageStreamed = func(rows int) { pages = append(pages, rows) }
 	defDigest, memDigest, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
@@ -3601,16 +3082,6 @@ func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.
 		t.Fatalf("digest page shape %v, want first page %d and last page 1", pages, explicitGroupMembershipPageSize)
 	}
 
-	// The plan-shape witness (review follow-up): the bounded page query
-	// must be served by an ordered index scan -- ORDER BY exactly the
-	// keyset predicate's (group_id, resource_id) is provably the visit
-	// index's own order, so no Sort node appears. The control restores
-	// the old trailing scope columns (not in the visit index, and no
-	// unique constraint on (revision_id, group_id, resource_id) justifies
-	// pathkey truncation): that plan MUST carry a Sort, proving the
-	// no-Sort assertion is not vacuous. enable_seqscan is off so the
-	// comparison isolates pathkey provability from small-table cost
-	// accidents.
 	tx, err := f.witness.Begin(f.ctx)
 	if err != nil {
 		f.fail("begin plan-witness transaction", err)
@@ -3664,9 +3135,6 @@ func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.
 		f.fail("large completion", err)
 	}
 
-	// Visit: one bounded page per call no matter how large the request;
-	// resumption from the returned cursor covers the set exactly once --
-	// no gaps, no duplicates -- in the keyset walk order.
 	var seen []explorer.ExplicitGroupMembership
 	cursor := explorer.ExplicitGroupMembershipCursor{}
 	calls := 0
@@ -3691,9 +3159,6 @@ func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.
 	if len(seen) != total {
 		t.Fatalf("full visit yielded %d members, want %d", len(seen), total)
 	}
-	// The walk order is the keyset order (group_id, resource_id): every
-	// group-a ref ascending, then every group-b ref ascending -- NOT the
-	// append order.
 	var wantOrder []explorer.ExplicitGroupMembership
 	for _, group := range []explorer.ExplicitGroupID{grpmGroupA, grpmGroupB} {
 		for _, m := range batch {
@@ -3712,11 +3177,6 @@ func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.
 		}
 	}
 
-	// Cancellation mid-visit: the walk stops between members and the
-	// returned cursor names the LAST member the visitor actually saw --
-	// resuming continues with no gap and no duplicate. The page must hold
-	// more members than are visited before the cancel, so the walk is
-	// genuinely interrupted mid-page.
 	visCtx, cancel := context.WithCancel(f.ctx)
 	visited := 0
 	var partial []explorer.ExplicitGroupMembership
@@ -3764,10 +3224,6 @@ func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.
 	}
 }
 
-// ---------------------------------------------------------------------------
-// database guards: insert-once, scope, FK, CHECKs, and guard non-vacuity
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
@@ -3779,8 +3235,6 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 	}
 	stored := grpmRows(grpmRow(string(grpmGroupA), "r-a"))
 
-	// Write-once: every real UPDATE is refused by name; a true no-op
-	// UPDATE is legal (mutation probe against the same trigger).
 	_, err := f.witness.Exec(f.ctx, `UPDATE `+f.membershipsTable()+` SET resource_id = 'r-c'`+
 		` WHERE revision_id = $1 AND group_id = $2 AND resource_id = $3`,
 		string(revision.ID), string(grpmGroupA), "r-a")
@@ -3791,7 +3245,6 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 		f.fail("no-op membership UPDATE probe", err)
 	}
 
-	// Un-authorized DELETE is refused; the row survives.
 	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.membershipsTable()+
 		` WHERE revision_id = $1 AND group_id = $2 AND resource_id = $3`,
 		string(revision.ID), string(grpmGroupA), "r-a")
@@ -3801,8 +3254,6 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 		t.Fatalf("refused DELETE moved rows: %q", got)
 	}
 
-	// Scope guard: a reference that does not repeat the parent scope is
-	// refused by the trigger, before the FK even sees it.
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
 		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
 		` VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -3810,7 +3261,6 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "does not repeat the parent scope",
 		"foreign-scope membership insert")
 
-	// Absent parent: the trigger refuses before the revision FK fires.
 	orphan := "verify-grpm-orphan-revision"
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
 		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
@@ -3818,9 +3268,6 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 		orphan, string(grpmGroupA), grpmProject, grpmGeneration, grpmResourceType, "r-x")
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "parent revision is absent", "orphan membership insert")
 
-	// Declared-group compound FK: STAGING parent, correct scope, group
-	// never declared -- the trigger's INSERT branch passes and the
-	// compound foreign key decides: 23503 naming group_fkey.
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
 		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
 		` VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -3828,7 +3275,6 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 	requirePgErrConstraintGRPM(t, err, explicitGroupMembershipForeignKeyState,
 		explicitGroupMembershipGroupFK, "undeclared-group membership insert")
 
-	// CHECK guards on the empty-string identity columns.
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
 		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
 		` VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -3836,22 +3282,17 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 	requirePgErrConstraintGRPM(t, err, grpmCheckViolation,
 		"explorer_explicit_group_memberships_group_id_present", "empty group_id insert")
 
-	// NOT NULL guards are 23502 on the named column.
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
 		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
 		` VALUES ($1, $2, $3, $4, $5, NULL)`,
 		string(revision.ID), string(grpmGroupB), grpmProject, grpmGeneration, grpmResourceType)
 	requirePgErrGRPM(t, err, "23502", "NULL resource_id insert")
 
-	// Mutation probe: the honest row the trigger should admit does land.
 	f.rawInsertMembership(t, f.witness, string(revision.ID), string(grpmGroupB), grpmProject, grpmGeneration, grpmResourceType, "r-b")
 	if got := f.membershipSnapshot(t, string(revision.ID)); got != grpmRows(stored, grpmRow(string(grpmGroupB), "r-b")) {
 		t.Fatalf("mutation-probe insert produced %q", got)
 	}
 
-	// Non-vacuity at the database: drop the membership guard trigger and
-	// the very DELETE that was refused now lands -- then the migration's
-	// own text recreates the identical guard and refuses it again.
 	f.dropTriggerGRPM(t, f.membershipsTable(), "explorer_explicit_group_memberships_guard")
 	f.execOnGRPM(t, f.witness, "guard-dropped delete", `DELETE FROM `+f.membershipsTable()+
 		` WHERE revision_id = $1 AND group_id = $2 AND resource_id = $3`,
@@ -3863,11 +3304,6 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "owner-abort or expired-writer-cleanup",
 		"membership DELETE after guard rerun")
 }
-
-// ---------------------------------------------------------------------------
-// completion machine at the database: born STAGING, tokened transition,
-// verified counts, lifecycle CHECK, guard non-vacuity with rerun
-// ---------------------------------------------------------------------------
 
 func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testing.T) {
 	f := newGRPMFixture(t)
@@ -3882,8 +3318,6 @@ func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testi
 	}
 	headerBefore := f.grpmHeaderSnapshot(t, string(revision.ID))
 
-	// Born STAGING: a direct COMPLETE INSERT is refused by the header
-	// guard's INSERT branch.
 	_, err := f.witness.Exec(f.ctx, `INSERT INTO `+f.revisionTable()+
 		` (id, project, generation, scope_digest, resource_type, source_selection_revision_id,`+
 		` source_membership_digest, definition_digest, membership_digest, group_count, member_count,`+
@@ -3893,7 +3327,6 @@ func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testi
 		grpmProject, grpmGeneration)
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "born STAGING", "direct COMPLETE header INSERT")
 
-	// The transition demands the row's own writer token GUC...
 	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+
 		` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
 		` group_count = 2, member_count = 2, completed_at = now() WHERE id = $1`, string(revision.ID))
@@ -3904,8 +3337,6 @@ func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testi
 		` group_count = 2, member_count = 2, completed_at = now() WHERE id = $1`, string(revision.ID))
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "writer token", "completion with the wrong token GUC")
 
-	// ... and the claimed counts must equal the child rows actually
-	// stored: the transition VERIFIES the membership set at the database.
 	f.setGUC(t, "loom.explorer_explicit_group_writer_token", token)
 	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+
 		` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
@@ -3915,14 +3346,10 @@ func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testi
 		` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
 		` group_count = 5, member_count = 2, completed_at = now() WHERE id = $1`, string(revision.ID))
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "claims group_count 5 but 2", "completion claiming a false group_count")
-	// Every refusal left the header byte-identical.
 	if got := f.grpmHeaderSnapshot(t, string(revision.ID)); got != headerBefore {
 		t.Fatalf("refused direct completions moved the header: %q != %q", got, headerBefore)
 	}
 
-	// Mutation probe on the transition channel: honest counts complete
-	// through the guarded UPDATE (the digests are content-addressed and
-	// verified by the store; the database verifies the transition).
 	f.execOnGRPM(t, f.witness, "honest guarded direct completion",
 		`UPDATE `+f.revisionTable()+
 			` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
@@ -3930,20 +3357,13 @@ func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testi
 	if state := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(state, "\x1fCOMPLETE\x1f") {
 		t.Fatalf("honest guarded completion did not land: %q", state)
 	}
-	// COMPLETE is frozen history: any non-noop UPDATE is refused by name,
-	// a true no-op UPDATE is legal.
 	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+` SET membership_digest = 'tampered' WHERE id = $1`, string(revision.ID))
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "COMPLETE history", "tampering with COMPLETE history")
 	f.execOnGRPM(t, f.witness, "no-op UPDATE probe", `UPDATE `+f.revisionTable()+` SET state = 'COMPLETE' WHERE id = $1`, string(revision.ID))
 
-	// The lifecycle CHECK is classifiable by name once the trigger is
-	// dropped -- the guard is not the only closed shape, and the rerun
-	// restores the identical guard.
 	f.dropTriggerGRPM(t, f.revisionTable(), "explorer_explicit_group_revisions_guard")
 	f.execOnGRPM(t, f.witness, "set up bogus-state probe", `UPDATE `+f.revisionTable()+
 		` SET writer_expires_at = writer_expires_at WHERE id = $1`, string(revision.ID))
-	// A fresh staging header smuggled to BOGUS with no trigger: the
-	// lifecycle CHECK refuses with its exact name.
 	bogusHeader := grpmRevision(source, "machine-bogus")
 	bogus := string(bogusHeader.ID)
 	f.rawInsertHeaderGRPM(t, f.witness, bogusHeader, "bogus-writer", nil)
@@ -3953,8 +3373,6 @@ func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testi
 	f.rerunMigrationGRPM(t, grpmMigrationVersion)
 	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+` SET state = 'BOGUS' WHERE id = $1`, bogus)
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "the only admitted transition", "BOGUS state after guard rerun")
-	// The rerun also restored the completion gate itself: the same token-
-	// less direct completion is refused again.
 	f.setGUC(t, "loom.explorer_explicit_group_writer_token", "")
 	other, _, _ := f.stagedGroupFixture(t, "machine-other", "r-a")
 	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+
@@ -3963,15 +3381,10 @@ func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testi
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "writer token", "tokenless completion after guard rerun")
 }
 
-// ---------------------------------------------------------------------------
-// abort and expired-writer cleanup cascade through the membership table
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupMembershipsAbortCleanupCascade(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
 
-	// Abort: header, definitions, AND memberships vanish together.
 	revision, token, _ := f.stagedGroupFixture(t, "abort", "r-a", "r-b")
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, []explorer.ExplicitGroupMembership{
 		grpmMembership(grpmGroupA, "r-a"), grpmMembership(grpmGroupB, "r-b"), grpmMembership(grpmGroupA, "r-b"),
@@ -4000,10 +3413,6 @@ func TestPostgresExplicitGroupMembershipsAbortCleanupCascade(t *testing.T) {
 		t.Fatalf("header after abort = %d, want 0", got)
 	}
 
-	// Expired-writer cleanup reaps memberships too; the active writer and
-	// its memberships are untouched. The expired revision is seeded
-	// AFTER the live fixture: BeginExplicitGroupRevision's internal
-	// expired-row reaper must not find the bait pre-planted.
 	live, liveToken, _ := f.stagedGroupFixture(t, "cleanup-live", "r-a")
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, live.ID, liveToken,
 		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
@@ -4018,8 +3427,6 @@ func TestPostgresExplicitGroupMembershipsAbortCleanupCascade(t *testing.T) {
 	f.rawInsertMembership(t, f.witness, string(expired.ID), string(grpmGroupA), grpmProject, grpmGeneration, grpmResourceType, "r-a")
 	f.rawInsertMembership(t, f.witness, string(expired.ID), string(grpmGroupB), grpmProject, grpmGeneration, grpmResourceType, "r-a")
 
-	// Direct DELETE of a membership without the cleanup channels is
-	// refused -- cleanup is the ONLY retirement path besides owner abort.
 	_, err := f.witness.Exec(f.ctx, `DELETE FROM `+f.membershipsTable()+` WHERE revision_id = $1`, string(expired.ID))
 	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "owner-abort or expired-writer-cleanup",
 		"unauthorized membership DELETE on expired staging")
@@ -4042,13 +3449,6 @@ func TestPostgresExplicitGroupMembershipsAbortCleanupCascade(t *testing.T) {
 	if got := f.countRowsOn(t, f.revisionTable(), "id = $1", string(live.ID)); got != 1 {
 		t.Fatalf("active writer's header was swept")
 	}
-	// The RESTRICT foreign-key chain is witnessed at the database: with
-	// the abort GUC channel open (so the child DELETEs are themselves
-	// authorized), the header cannot be deleted while children remain,
-	// and the definitions cannot be deleted while MEMBERSHIPS remain --
-	// the membership rows pin both the group they name and, transitively,
-	// their header. The store's delete order (memberships, then
-	// definitions, then header) is the only order the database admits.
 	f.setGUC(t, "loom.explorer_explicit_group_abort_token", liveToken)
 	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.revisionTable()+` WHERE id = $1`, string(live.ID))
 	pgErr := requirePgErrGRPM(t, err, "23001", "authorized header DELETE while children remain")
@@ -4061,25 +3461,16 @@ func TestPostgresExplicitGroupMembershipsAbortCleanupCascade(t *testing.T) {
 	if !strings.Contains(pgErr.Message, explicitGroupMembershipGroupFK) {
 		t.Fatalf("definition DELETE refusal %q does not name the membership group RESTRICT foreign key", pgErr.Message)
 	}
-	// The admitted order lands cleanly.
 	f.execOnGRPM(t, f.witness, "authorized membership delete", `DELETE FROM `+f.membershipsTable()+` WHERE revision_id = $1`, string(live.ID))
 	f.execOnGRPM(t, f.witness, "authorized definition delete", `DELETE FROM `+f.definitionsTable()+` WHERE revision_id = $1`, string(live.ID))
 	f.execOnGRPM(t, f.witness, "authorized header delete", `DELETE FROM `+f.revisionTable()+` WHERE id = $1`, string(live.ID))
 	f.setGUC(t, "loom.explorer_explicit_group_abort_token", "")
 }
 
-// ---------------------------------------------------------------------------
-// fault seams: a crash mid-append or mid-complete leaves zero
-// half-applied state
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupMembershipsFaultSeamRollback(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
 
-	// Seam inside Append, after the real inserts: the rows are genuinely
-	// present to the live transaction (witnessed), then the fault aborts
-	// everything -- rows AND lease renewal vanish together.
 	revision, token, _ := f.stagedGroupFixture(t, "fault-append", "r-a", "r-b")
 	headerBefore := f.grpmHeaderSnapshot(t, string(revision.ID))
 	storeA, _ := f.newDedicatedStore(t)
@@ -4106,16 +3497,12 @@ func TestPostgresExplicitGroupMembershipsFaultSeamRollback(t *testing.T) {
 	if got := f.grpmHeaderSnapshot(t, string(revision.ID)); got != headerBefore {
 		t.Fatalf("crashed append moved the header: %q != %q", got, headerBefore)
 	}
-	// Mutation probe: the identical honest append lands once the fault is gone.
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, []explorer.ExplicitGroupMembership{
 		grpmMembership(grpmGroupA, "r-a"), grpmMembership(grpmGroupB, "r-b"),
 	}); err != nil {
 		f.fail("honest append after fault", err)
 	}
 
-	// Seam inside Complete, after the CAS, before commit: the flip is
-	// real inside the transaction and absent after the rollback; the
-	// revision stays STAGING and completable.
 	storeB, _ := f.newDedicatedStore(t)
 	var flippedState string
 	storeB.beforeCompleteCommit = func(ctx context.Context, tx pgx.Tx) error {
@@ -4140,22 +3527,15 @@ func TestPostgresExplicitGroupMembershipsFaultSeamRollback(t *testing.T) {
 	if got := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(got, "\x1fSTAGING\x1f") {
 		t.Fatalf("crashed completion left the header non-STAGING: %q", got)
 	}
-	// The membership rows themselves were untouched by the crashed
-	// complete (they were committed by the earlier honest append).
 	if got := f.membershipSnapshot(t, string(revision.ID)); got != grpmRows(
 		grpmRow(string(grpmGroupA), "r-a"), grpmRow(string(grpmGroupB), "r-b")) {
 		t.Fatalf("crashed completion disturbed memberships: %q", got)
 	}
-	// Retry-after-crash: the honest completion still works exactly once.
 	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
 		defDigest, memDigest, groups, members, time.Now().UTC()); err != nil {
 		f.fail("completion after crash", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// the fenced completion races the append under the header lock
-// ---------------------------------------------------------------------------
 
 func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T) {
 	f := newGRPMFixture(t)
@@ -4174,9 +3554,6 @@ func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T)
 			f.fail("race seed append", err)
 		}
 
-		// The appender holds the header lock AFTER staging its row and
-		// before renewal/commit; the completer arrives inside that
-		// window, so the two really contend on the same row.
 		releaseAppend := make(chan struct{})
 		appendEntered := make(chan struct{})
 		var appendOnce sync.Once
@@ -4197,9 +3574,6 @@ func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T)
 		}()
 		<-appendEntered
 
-		// The completer claims the digest of the pre-race state (one
-		// member). Whichever order the lock decides, the frozen contract
-		// holds: COMPLETE iff the stored set matches the claimed facts.
 		staleDef, staleMem, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
 		if err != nil {
 			f.fail("race stale digest", err)
@@ -4211,9 +3585,6 @@ func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T)
 			completeDone <- err
 		}()
 
-		// Wait until the completer is genuinely queued behind the
-		// appender's row lock (or has already raced through), then let
-		// the appender commit.
 		locked := false
 		deadline := time.Now().Add(grpmSeamTimeout)
 		for !locked && time.Now().Before(deadline) {
@@ -4235,19 +3606,6 @@ func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T)
 		completeBlocks.Add(1)
 
 		if completeErr == nil {
-			// The completer won: it froze the one-member set it claimed,
-			// which is only legal if the appender's row landed BEFORE the
-			// completer's verification pass saw the set -- impossible
-			// here because the completer's claim pre-dates the lock
-			// window AND its verification re-derives under the lock.
-			// Reaching nil means the verification saw exactly the claimed
-			// one-member set; the appender must then have committed AFTER
-			// the flip -- which the header lock forbids (the appender
-			// claims FOR UPDATE first and holds the row lock through the
-			// seam). A success therefore means the append's claim
-			// serialized AFTER completion: the append's renewal CAS then
-			// missed and the append itself is the conflict. Re-check the
-			// actual invariant instead of assuming the schedule:
 			state := f.grpmHeaderSnapshot(t, string(revision.ID))
 			if !strings.Contains(state, "\x1fCOMPLETE\x1f") {
 				t.Fatalf("round %d: completer succeeded on a non-COMPLETE header: %q", round, state)
@@ -4255,16 +3613,12 @@ func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T)
 			if _, _, _, frozenMembers, derr := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID); derr != nil || frozenMembers != members {
 				t.Fatalf("round %d: COMPLETE frozen member_count %d != claimed %d", round, frozenMembers, members)
 			}
-			// The appender that serialized after the flip must have been
-			// refused -- its lease CAS cannot hit a COMPLETE row.
 			continue
 		}
 		if !errors.Is(completeErr, explorer.ErrExplicitGroupRevisionConflict) {
 			f.fail("race completion", completeErr)
 		}
 		staleConflicts.Add(1)
-		// The conflict must have left the revision usable: STAGING, with
-		// the appender's row (committed first) present and digestible.
 		state := f.grpmHeaderSnapshot(t, string(revision.ID))
 		if !strings.Contains(state, "\x1fSTAGING\x1f") {
 			t.Fatalf("round %d: conflicted completion left state: %q", round, state)
@@ -4273,8 +3627,6 @@ func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T)
 			grpmRow(string(grpmGroupA), "r-a"), grpmRow(string(grpmGroupB), "r-b")) {
 			t.Fatalf("round %d: post-race membership set = %q", round, got)
 		}
-		// The stale claim conflicts while the honest retry completes --
-		// exactly once.
 		mustErr(t, "race stale retry", func() error {
 			_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, strings.Repeat("0", 64), staleMem, groups, members, time.Now().UTC())
 			return err
@@ -4301,18 +3653,6 @@ func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T)
 	}
 }
 
-// TestPostgresExplicitGroupMembershipsOneWayMachineRefusesReversal is the
-// SQL-level author test for the one-way machine's central promise: a
-// COMPLETE header can never be revived. The CAS verifier's S1-class
-// sabotage (removing the header guard's COMPLETE-history branch) survived
-// every store-level semantic test, so the promise is pinned directly at
-// the database here: both reversal shapes -- the full one (state flip
-// with the completion columns zeroed, which is exactly the shape a
-// revived row needs to satisfy lifecycle_values) and the bare state flip
-// -- must be refused BY NAME through the guard's COMPLETE-history branch.
-// Asserting the branch's own wording is deliberate: if a sabotage deletes
-// the branch and the reversal dies on some neighbouring guard (frozen
-// content, lifecycle_values), this test still fails.
 func TestPostgresExplicitGroupMembershipsOneWayMachineRefusesReversal(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
@@ -4351,20 +3691,12 @@ func TestPostgresExplicitGroupMembershipsOneWayMachineRefusesReversal(t *testing
 		}
 	}
 
-	// Non-vacuity: with the header guard dropped -- the S1 world -- the
-	// full reversal really does land, proving the refusals above were this
-	// guard's doing and that the reversal statement is otherwise valid
-	// SQL against a legal schema.
 	f.dropTriggerGRPM(t, f.revisionTable(), "explorer_explicit_group_revisions_guard")
 	f.execOnGRPM(t, f.witness, "guard-dropped reversal", fullReversal, string(revision.ID))
 	if state := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(state, "\x1fSTAGING\x1f") {
 		t.Fatalf("guard-dropped reversal did not land (header %q) -- the probe is vacuous", state)
 	}
 
-	// The revived row is a fully usable STAGING revision (the verifier's
-	// revive -> post-complete-append path): append and completion still
-	// work, so the machine is not merely unlocked -- it is reversible
-	// end to end whenever the guard is gone.
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
 		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupB, "r-b")}); err != nil {
 		f.fail("revived append", err)
@@ -4381,8 +3713,6 @@ func TestPostgresExplicitGroupMembershipsOneWayMachineRefusesReversal(t *testing
 		t.Fatalf("revived row did not re-complete: %q", state)
 	}
 
-	// The migration's own text restores the guard, and both reversal
-	// shapes are again refused by name on the re-completed header.
 	f.rerunMigrationGRPM(t, grpmMigrationVersion)
 	for _, probe := range []struct {
 		step string
@@ -4397,28 +3727,9 @@ func TestPostgresExplicitGroupMembershipsOneWayMachineRefusesReversal(t *testing
 	}
 }
 
-// TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace
-// forces the direct-SQL interleaving the CAS verifier reproduced: a raw
-// INSERT (and an abort-channel DELETE) whose guard must not authorize the
-// operation against a parent image read before a concurrent completion
-// commits. With the guard's parent lookup locked FOR KEY SHARE the
-// intruder queues behind the completing transaction and re-reads the
-// committed state -- refusal; with a plain SELECT it reads STAGING, is
-// admitted, and lands a member under a COMPLETE header (diverging from
-// the frozen digest). Both directions run ten real two-backend rounds
-// with a positive lock-queue witness (the race must genuinely race) plus
-// a no-race control per surface (the same statement lands when nothing
-// completes concurrently, so the refusal cannot be a broken fixture).
 func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
-
-	// No source-text assertion here: the CAS verifier proved a prosrc
-	// substring check on FOR KEY SHARE is comment-fooled (the function's
-	// own prose mentions the lock mode). The behavioral probes below
-	// carry the guarantee -- with the lock stripped, the intruder is
-	// never queued and the timing witness fails on the verifier's exact
-	// symptom (stale-STAGING admission, error = <nil>).
 
 	storeB, pidB := f.newDedicatedStore(t)
 	rawPool, rawPID := f.newDedicatedPool(t)
@@ -4432,7 +3743,6 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 	for round := 0; round < grpmRaceRounds; round++ {
 		roundStr := fmt.Sprintf("toctou-%d", round)
 
-		// --- F1: direct-SQL INSERT versus an in-flight completion ---
 		revision, token, _ := f.stagedGroupFixture(t, roundStr+"-i", "r-a", "r-b")
 		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
@@ -4482,9 +3792,6 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 		}
 		insertRefused.Add(1)
 
-		// Control: the identical raw statement lands when nothing
-		// completes concurrently -- the refusal above is the race, not a
-		// broken fixture.
 		control, controlToken, _ := f.stagedGroupFixture(t, roundStr+"-ic", "r-a", "r-b")
 		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, control.ID, controlToken,
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
@@ -4497,7 +3804,6 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 			t.Fatalf("round %d: no-race control insert did not land: %q", round, got)
 		}
 
-		// --- F2: abort-channel DELETE versus an in-flight completion ---
 		revision2, token2, _ := f.stagedGroupFixture(t, roundStr+"-d", "r-a", "r-b")
 		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision2.ID, token2,
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
@@ -4553,8 +3859,6 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 		}
 		deleteRefused.Add(1)
 
-		// Control: the same abort DELETE lands with no completion in
-		// flight.
 		control2, controlToken2, _ := f.stagedGroupFixture(t, roundStr+"-dc", "r-a")
 		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, control2.ID, controlToken2,
 			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
@@ -4586,9 +3890,6 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 	}
 }
 
-// grpmDefinitionCount independently recounts the stored definition rows
-// for a revision on the witness backend -- raw SQL, no store path -- the
-// third backend the E1-shape race needs for its served-state check.
 func (f *grpmFixture) grpmDefinitionCount(t *testing.T, revisionID string) int64 {
 	t.Helper()
 	var n int64
@@ -4599,20 +3900,10 @@ func (f *grpmFixture) grpmDefinitionCount(t *testing.T, revisionID string) int64
 	return n
 }
 
-// TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete is
-// the named author test for the two 000009 holes 000011 closes: the
-// definition trigger never fired on INSERT, and the DELETE authorization
-// could be granted for a COMPLETE parent raced through completion. Both
-// statements are refused BY NAME on a completed revision, the refusal is
-// proven non-vacuous by dropping the guard (the statements land -- this
-// is the verifier's served-state witness, reproduced deliberately), and
-// the migration's own rerun restores the named refusals. It also
-// re-derives the 000011 embedded bytes against the byte-frozen checksum.
 func TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
 
-	// Byte pin: the embedded 000011 must hash to the registered checksum.
 	owner, err := OwnerMigrations()
 	if err != nil {
 		f.fail("load owner migrations", err)
@@ -4666,10 +3957,6 @@ func TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete(t *test
 		_, _ = f.witness.Exec(f.ctx, `SELECT set_config('loom.explorer_explicit_group_abort_token', '', false)`)
 	})
 
-	// Static refusals on the COMPLETE header -- both statements the
-	// 000009 guard never saw (INSERT fired no trigger; the DELETE branch
-	// existed but could race stale, witnessed separately by the race
-	// suite).
 	requirePgErrTriggerGRPM(t, rawDefInsert("group-c", 2), grpmCheckViolation,
 		"only STAGING revisions accept definitions", "definition INSERT under COMPLETE")
 	requirePgErrTriggerGRPM(t, rawDefDelete(string(grpmGroupB)), grpmCheckViolation,
@@ -4678,9 +3965,6 @@ func TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete(t *test
 		t.Fatalf("refused probes changed the stored definition count: %d", n)
 	}
 
-	// Non-vacuity (the E1 world): with the definition guard dropped, the
-	// INSERT lands and the abort DELETE lands -- exactly the drift the
-	// verifier served (frozen group_count 2 over a mutated row set).
 	f.dropTriggerGRPM(t, f.definitionsTable(), "explorer_explicit_group_definitions_guard")
 	f.execOnGRPM(t, f.witness, "guard-dropped definition insert",
 		`INSERT INTO `+f.definitionsTable()+` (revision_id, group_id, label, ordinal) VALUES ($1, $2, $3, $4)`,
@@ -4688,7 +3972,7 @@ func TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete(t *test
 	f.execOnGRPM(t, f.witness, "guard-dropped definition delete",
 		`DELETE FROM `+f.definitionsTable()+` WHERE revision_id = $1 AND group_id = $2`,
 		string(revision.ID), string(grpmGroupB))
-	if n := f.grpmDefinitionCount(t, string(revision.ID)); n != 2 { // a, c (b removed)
+	if n := f.grpmDefinitionCount(t, string(revision.ID)); n != 2 {
 		t.Fatalf("guard-dropped probes did not land as expected: %d rows", n)
 	}
 	var frozenCount int64
@@ -4700,9 +3984,6 @@ func TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete(t *test
 		t.Fatalf("frozen group_count drifted under guard drop: %d", frozenCount)
 	}
 
-	// The migration's own text restores the guard; both statements are
-	// again refused by name (fresh group ids so no PK collision with the
-	// rows that landed while it was down).
 	f.rerunMigrationGRPM(t, grpmDefinitionsGuardVersion)
 	requirePgErrTriggerGRPM(t, rawDefInsert("group-d", 3), grpmCheckViolation,
 		"only STAGING revisions accept definitions", "definition INSERT after 000011 rerun")
@@ -4710,16 +3991,6 @@ func TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete(t *test
 		"DELETE of definition", "definition DELETE after 000011 rerun")
 }
 
-// TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace
-// is the E1-shape named race: three real backends (completer, raw
-// intruder, independent witness) replay the direct-SQL interleavings the
-// CAS verifier admitted 3/3 against the unlocked 000009 lookup -- the
-// abort-channel definition DELETE and a definition INSERT -- while a
-// store completion holds the header. With 000011 the intruder queues
-// behind the FOR KEY SHARE lookup, re-reads the committed parent, and is
-// refused; the frozen header group_count must always equal the stored
-// definition count recomputed independently on the witness backend --
-// the exact drift E1 served (frozen 2 over stored 1).
 func TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace(t *testing.T) {
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
@@ -4749,7 +4020,6 @@ func TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace(t *
 	for round := 0; round < grpmRaceRounds; round++ {
 		roundStr := fmt.Sprintf("toctou-def-%d", round)
 
-		// --- definition INSERT versus an in-flight completion ---
 		revision, token, _ := f.stagedGroupFixture(t, roundStr+"-i", "r-a")
 		defDigest, memDigest, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
 		if err != nil {
@@ -4795,7 +4065,6 @@ func TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace(t *
 		}
 		insertRefused.Add(1)
 
-		// Control: the identical INSERT lands with nothing completing.
 		control, _, _ := f.stagedGroupFixture(t, roundStr+"-ic", "r-a")
 		f.execOnGRPM(t, rawPool, "def race control insert", `INSERT INTO `+f.definitionsTable()+
 			` (revision_id, group_id, label, ordinal) VALUES ($1, $2, $3, $4)`,
@@ -4804,7 +4073,6 @@ func TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace(t *
 			t.Fatalf("round %d: no-race control INSERT did not land: %d rows", round, n)
 		}
 
-		// --- abort-channel definition DELETE versus an in-flight completion ---
 		revision2, token2, _ := f.stagedGroupFixture(t, roundStr+"-d", "r-a")
 		dDef, dMem, dGroups, dMembers, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision2.ID)
 		if err != nil {
@@ -4854,7 +4122,6 @@ func TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace(t *
 		}
 		deleteRefused.Add(1)
 
-		// Control: the same abort DELETE lands with nothing completing.
 		control2, controlToken2, _ := f.stagedGroupFixture(t, roundStr+"-dc", "r-a")
 		if _, err := rawPool.Exec(f.ctx,
 			`SELECT set_config('loom.explorer_explicit_group_abort_token', $1, false)`, controlToken2); err != nil {
@@ -4882,10 +4149,6 @@ func TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace(t *
 	}
 }
 
-// ---------------------------------------------------------------------------
-// the membership migration composes onto the shared ledger and converges
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T) {
 	f := newGRPMFixture(t)
 	result := f.migrateWithSelections(t)
@@ -4894,10 +4157,6 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 	for _, rec := range result.Applied {
 		versions = append(versions, rec.Version)
 	}
-	// arch-backend-05: migrateWithSelections now applies this package's
-	// complete embedded owner history -- the membership migration and the
-	// selections migration are both owned entries, so the ledger carries
-	// every version 1..11.
 	wantVersions := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("ledger versions = %v, want %v", versions, wantVersions)
@@ -4925,8 +4184,6 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 		}
 	}
 
-	// The embedded bytes recompute to the pin independently of the
-	// runner's bookkeeping.
 	migrations, err := OwnerMigrations()
 	if err != nil {
 		f.fail("owner migrations for convergence", err)
@@ -4945,8 +4202,6 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 		t.Fatal("the membership migration is absent from the embedded owner history")
 	}
 
-	// Convergent rerun through the real runner: zero new applications,
-	// the ledger unchanged, and the guards still bite afterwards.
 	client, err := pgstore.Open(f.ctx, pgstore.Config{DSN: f.dsn, MaxConns: 2, MinConns: 0, AcquireTimeout: 10 * time.Second})
 	if err != nil {
 		f.fail("open rerun pool", err)
@@ -4975,7 +4230,6 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 		t.Fatalf("ledger holds %d rows, want %d after a convergent rerun", ledgerRows, len(result.Applied))
 	}
 
-	// The guards the rerun re-created still refuse the violating write.
 	revision, token, _ := f.stagedGroupFixture(t, "converge", "r-a")
 	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
 		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
@@ -4986,11 +4240,6 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 		"membership DELETE after convergent rerun")
 }
 
-// TestZZZeroLeftoverVerifyGrpmFixtures is the suite-wide ownership-scoped
-// zero-leftover audit for this ticket's namespace: every database this
-// suite registered must be deregistered and gone, and NO verify_grpm_*
-// database may exist in the service. It never sweeps other suites'
-// prefixes.
 func TestZZZeroLeftoverVerifyGrpmFixtures(t *testing.T) {
 	raw := pgstate06TestPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

@@ -17,18 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-11 offline registration tests: the closed nested-object and
-// bounded-slice RETURN surface (objects.go), the D1 defensive depth cap,
-// the D2 child-set item-relation handoff (byte-identical to the sets.go
-// reduction relation), the D3 verbatim Prepared refusal, and the closed-
-// surface contract receipts. Fixtures are plan.Validate-aware mirrors of
-// lower/root_projection.go (physicalSliceExpression: EXTRACT-only
-// projections, VALUE _key sort, bind LIMIT) and lower/recipe_expression.go
-// (lowerDocumentRef: VALUE-only envelope fields over ["payload"],
-// ["resourceType"], ["_key"]/["id"]).
-// ---------------------------------------------------------------------------
-
 const (
 	objLimitBind   = "obj11_limit"
 	objPredicate   = "obj11_predicate_value"
@@ -42,8 +30,6 @@ func objValueExpr(variable string, path []string, cardinality ir.PhysicalCardina
 	}
 }
 
-// objExtractExpr is the closed selector extraction shape: payload-anchored
-// source, registered mode, no extras beyond the spec.
 func objExtractExpr(variable, resourceType string, steps []spec.SelectorStep, cardinality ir.PhysicalCardinality, behavior ir.PhysicalNullBehavior) ir.PhysicalExpression {
 	return ir.PhysicalExpression{
 		Kind: ir.PhysicalExtractExpression, Cardinality: cardinality, NullBehavior: behavior,
@@ -73,10 +59,6 @@ func objField(name string, expression ir.PhysicalExpression) ir.PhysicalExpressi
 	return ir.PhysicalExpressionProjection{Name: name, Expression: expression}
 }
 
-// objSliceExpr is the lowering's bounded slice over one registered source:
-// singleton (source == the root variable, lower/root_projection.go:161)
-// or child set (the D2 handoff). Projections are EXTRACT-only, the sort is
-// the VALUE identity key, and the LIMIT stays a bind (never a SQL literal).
 func objSliceExpr(sourceVariable, limitBind string, projections ...ir.PhysicalExpressionProjection) ir.PhysicalExpression {
 	return ir.PhysicalExpression{
 		Kind: ir.PhysicalSliceExpression, Cardinality: ir.PhysicalArrayCardinality,
@@ -94,12 +76,6 @@ func objExpressionProjection(name string, expression ir.PhysicalExpression) ir.P
 	return ir.PhysicalProjection{Name: name, Expression: &expression}
 }
 
-// objPlan is the composite RETURN over the spine: a positional spine
-// projection (witness that registration did not disturb it), a nested
-// OBJECT, and a bounded SLICE over the singleton root row. It rides
-// setsPlan (a superset of basePlan) so spine traversal fixtures reach
-// their bind vars. Selectors stay inside the active FHIR schema: gender
-// and active on Patient, status on Observation.
 func objPlan() ir.PhysicalPlan {
 	plan := setsPlan()
 	plan.BindVars[objLimitBind] = 2
@@ -118,21 +94,12 @@ func objPlan() ir.PhysicalPlan {
 	return plan
 }
 
-// ---------------------------------------------------------------------------
-// Goldens: the nested-object surface (bound-name jsonb_build_object, the
-// per-field omission CASE at the AQL null reading) and the bounded slice
-// (COALESCE'd jsonb_agg, the total-order SORT, the bind LIMIT).
-// ---------------------------------------------------------------------------
-
 func TestObjectProjectionBindsFieldNamesAsParameters(t *testing.T) {
 	rendered := renderOK(t, objPlan())
 	sql := rendered.SQL
 	if got := strings.Count(sql, "jsonb_build_object($"); got != 4 {
 		t.Fatalf("jsonb_build_object pairs = %d, want 4 (three envelope fields + one slice item field): %s", got, sql)
 	}
-	// Typed columns lift through to_jsonb so a SQL NULL stays SQL NULL;
-	// document paths bind as text[]; no plan name, path, or value is
-	// interpolated into SQL text.
 	for _, want := range []string{
 		`::text, to_jsonb(r0."logical_id"))`,
 		`::text, (r0."payload" #> $`,
@@ -152,7 +119,6 @@ func TestObjectProjectionBindsFieldNamesAsParameters(t *testing.T) {
 			t.Fatalf("field/path %q never bound: %v", want, rendered.Args)
 		}
 	}
-	// Hostile-name witness: the plan's names reach SQL only as data.
 	hostile := objPlan()
 	hostile.Operations[len(hostile.Operations)-1].Return.Projections[1].
 		Expression.Object.Fields[0].Name = `evil"; DROP TABLE fhir_resource; --`
@@ -169,7 +135,6 @@ func TestObjectProjectionBindsFieldNamesAsParameters(t *testing.T) {
 	if !hostileBound {
 		t.Fatalf("hostile field name must cross the $n boundary: %v", hostileRendered.Args)
 	}
-	// Determinism: same plan, byte-identical statement and arguments.
 	again := renderOK(t, objPlan())
 	if again.SQL != sql || !reflect.DeepEqual(again.Args, rendered.Args) {
 		t.Fatalf("object rendering is not deterministic")
@@ -179,16 +144,9 @@ func TestObjectProjectionBindsFieldNamesAsParameters(t *testing.T) {
 func TestObjectOmitFieldDropsBothNullStates(t *testing.T) {
 	plan := objPlan()
 	envelope := plan.Operations[len(plan.Operations)-1].Return.Projections[1].Expression.Object
-	// Field "status" (document-path VALUE) becomes an OMIT_NULLS selector;
-	// "key" and "gender" stay PRESERVE.
 	envelope.Fields[1].Expression.NullBehavior = ir.PhysicalOmitNulls
 	rendered := renderOK(t, plan)
 	sql := rendered.SQL
-	// The AQL omission FILTER (collections.go:63-66) drops a field whose
-	// value is the AQL null — which both a missing property and a stored
-	// JSON null evaluate to. The SQL reading keeps them distinct below
-	// (L-table) and merges them only in the omission decision:
-	// `value IS NULL OR value = 'null'::jsonb`.
 	if !strings.Contains(sql, `) IS NULL OR (`) ||
 		!strings.Contains(sql, `= 'null'::jsonb THEN '{}'::jsonb ELSE jsonb_build_object(`) {
 		t.Fatalf("omission CASE missing the both-null-states reading:\n%s", sql)
@@ -196,11 +154,9 @@ func TestObjectOmitFieldDropsBothNullStates(t *testing.T) {
 	if !strings.Contains(sql, `CASE WHEN (r0."payload" #> $`) {
 		t.Fatalf("omission CASE must guard the rendered value expression:\n%s", sql)
 	}
-	// Only the omit field is wrapped; the PRESERVE fields stay plain pairs.
 	if got := strings.Count(sql, "CASE WHEN"); got != 1 {
 		t.Fatalf("CASE-wrapped fields = %d, want exactly the one omit field: %s", got, sql)
 	}
-	// With any omit field the chain is parenthesized for || precedence.
 	if !strings.Contains(sql, "(jsonb_build_object($") {
 		t.Fatalf("mixed omit/preserve chain must be parenthesized: %s", sql)
 	}
@@ -209,15 +165,9 @@ func TestObjectOmitFieldDropsBothNullStates(t *testing.T) {
 func TestSliceSingletonGolden(t *testing.T) {
 	rendered := renderOK(t, objPlan())
 	sql := rendered.SQL
-	// EMPTY_ON_NULL reading (lower/root_projection.go:465) and the AQL FOR
-	// loop's empty iteration, restored by the COALESCE'd aggregate. The
-	// aggregate applies the same total order the inner LIMIT cut used
-	// (jsonb_agg ignores input order without its own ORDER BY).
 	if !strings.Contains(sql, `COALESCE(jsonb_agg(sl1."item" ORDER BY sl1."item_sort" ASC NULLS FIRST, sl1."item_key"), '[]'::jsonb) FROM (SELECT`) {
 		t.Fatalf("slice sublink spelling wrong:\n%s", sql)
 	}
-	// The AQL SORT value ASC, item._key ASC (collections.go:130) becomes
-	// the total order (sort, logical_id); the LIMIT crosses as a bind.
 	if !strings.Contains(sql, `ORDER BY r0."logical_id" ASC NULLS FIRST, item_key ASC LIMIT $`) {
 		t.Fatalf("slice total-order SORT missing:\n%s", sql)
 	}
@@ -252,8 +202,6 @@ func TestSlicePredicateSortAndLimitBind(t *testing.T) {
 		},
 		Right: &ir.PhysicalValue{BindKey: objPredicate},
 	}}
-	// EXTRACT sort leg (L2's homogeneous-value registration): scalar
-	// selector sort over the same source row.
 	slice.Sort = &ir.PhysicalExpression{
 		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality,
 		NullBehavior: ir.PhysicalPreserveNull,
@@ -273,8 +221,6 @@ func TestSlicePredicateSortAndLimitBind(t *testing.T) {
 	if strings.Contains(sql, "female") {
 		t.Fatalf("predicate value must bind, not inline: %s", sql)
 	}
-	// The WHERE and the EXTRACT-sort leg must both run over the item
-	// alias (the AQL FOR-loop reading), inside the sublink.
 	if !strings.Contains(sql, `ORDER BY (r0."payload" #> $`) {
 		t.Fatalf("EXTRACT sort must render over the item row scope:\n%s", sql)
 	}
@@ -283,16 +229,6 @@ func TestSlicePredicateSortAndLimitBind(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// D2 handoff: the child-set item relation is byte-identical to the one the
-// FIRST/ALL/DISTINCT reductions read (sets.go setReductionSublink's items
-// text), and a nil-Reduction set without a slice consumer keeps the
-// pg-sql-08 refusal byte-identical.
-// ---------------------------------------------------------------------------
-
-// objChildSetSlicePlan is the hand-built non-Prepared child-set slice: the
-// sets.go-validated child set with its reduction removed, consumed by one
-// RETURN-level SLICE (sliceConsumesSetVariable accepts it).
 func objChildSetSlicePlan() ir.PhysicalPlan {
 	set := setsChildSet(ir.PhysicalSetReductionAll)
 	set.Reduction = nil
@@ -312,7 +248,6 @@ func objChildSetSlicePlan() ir.PhysicalPlan {
 }
 
 func TestChildSetSliceSharesTheReductionItemRelation(t *testing.T) {
-	// The reduction rendering (pg-sql-08, untouched): its item relation.
 	reductionRendered := renderOK(t, setsPlanWithSet(setsChildSet(ir.PhysicalSetReductionAll), "__loom_reduced_0"))
 	reductionSQL := reductionRendered.SQL
 	start := strings.Index(reductionSQL, `(SELECT DISTINCT `)
@@ -327,30 +262,23 @@ func TestChildSetSliceSharesTheReductionItemRelation(t *testing.T) {
 
 	sliceRendered := renderOK(t, objChildSetSlicePlan())
 	sql := sliceRendered.SQL
-	// Byte-identical relation: same dedup columns, same FROM list, same
-	// WHERE conjunction — one child occurrence join serves both surfaces.
 	if !strings.Contains(sql, items+`) AS slx`) {
 		t.Fatalf("slice item relation must be byte-identical to the reduction relation\n want substring: %s\n got: %s", items, sql)
 	}
 	if !strings.Contains(sql, `COALESCE(jsonb_agg(sl`) {
 		t.Fatalf("child-set slice must still be a COALESCE'd jsonb_agg: %s", sql)
 	}
-	// Parent grain stays intact (no outer join added by the slice).
 	for _, forbidden := range []string{"LEFT JOIN", "LATERAL (SELECT"} {
 		if strings.Contains(sql, forbidden) {
 			t.Fatalf("slice must not add outer joins (%q present): %s", forbidden, sql)
 		}
 	}
-	// The predicate/sort projections correlate through the same anchor.
 	if !strings.Contains(sql, `= r0."logical_id"`) {
 		t.Fatalf("child-set slice must correlate on the outer row identity: %s", sql)
 	}
 }
 
 func TestNilReductionWithoutSliceConsumerKeepsTheSetsRefusal(t *testing.T) {
-	// The D2 gate accepts a nil-Reduction set ONLY with a registered
-	// slice consumer. Without one, the pg-sql-08 refusal must be
-	// byte-identical (this is the pinned contract receipt).
 	set := setsChildSet(ir.PhysicalSetReductionAll)
 	set.Reduction = nil
 	plan := setsPlan()
@@ -367,18 +295,6 @@ func TestNilReductionWithoutSliceConsumerKeepsTheSetsRefusal(t *testing.T) {
 }
 
 func TestPreparedBearingSliceStaysRefusedVerbatim(t *testing.T) {
-	// Prepared register, defense-in-depth arm (coordinator adjudication
-	// (a)): the singleton-root slice and the OBJECT envelope have no
-	// production Prepared producer — the annotator (lower/child_sets.go:
-	// 552-555) only stamps extracts whose source variable is a child set,
-	// and the probe's root-arm control run (logs/d3-probe.log) observed
-	// none — so a Prepared-bearing operand on this arm keeps the verbatim
-	// refusal. The child-set arm resolves registered slots instead
-	// (Option B is superseded there by the Option A tests below). The
-	// renderer gate is exercised directly — plan.Validate scopes a
-	// Prepared reference against the set variable (defined by the SET
-	// operation), so the full-plan resolution path is tested with the
-	// reference present.
 	plan := objPlan()
 	r := &planRenderer{
 		storage:      mustBinding(t),
@@ -400,21 +316,6 @@ func TestPreparedBearingSliceStaysRefusedVerbatim(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Prepared register (Option A ruling, coordinator): production compact
-// projection (default-on) stamps Extract.Prepared onto child-set slice
-// extracts — projections, predicate left side, and sort
-// (lower/child_sets.go:552-555 and 573-579, the VERIFIED PRODUCER from
-// logs/d3-probe.log). Over the child-set arm those references resolve
-// against the set's registered projection slots; everything outside the
-// register keeps the verbatim refusal.
-// ---------------------------------------------------------------------------
-
-// objPreparedReference names the single slot setsChildSet registers:
-// __loom_projection_0, selector status, DirectScalar, Observation — the
-// exact selector the objChildSetSlicePlan item extract, the obj11StatusSort
-// sort, and the predicate left side carry (the annotator derives the slot
-// from the operand's own selector identity, lower/child_sets.go:553).
 func objPreparedReference() *ir.PhysicalPreparedReference {
 	return &ir.PhysicalPreparedReference{SetVariable: setsPrefix, Field: "__loom_projection_0"}
 }
@@ -442,11 +343,6 @@ func obj11SlicePredicate(plan ir.PhysicalPlan) {
 		}}
 }
 
-// TestPreparedResolutionRendersByteIdenticallyToUnannotated is the Option A
-// equivalence golden: a resolved reference hands the operand to the closed
-// extraction surface as its slot's canonical text, so the annotated plan
-// renders byte-identical SQL and identical Args to the same plan without
-// the annotation, on every annotated arm.
 func TestPreparedResolutionRendersByteIdenticallyToUnannotated(t *testing.T) {
 	arms := []struct {
 		name     string
@@ -463,10 +359,6 @@ func TestPreparedResolutionRendersByteIdenticallyToUnannotated(t *testing.T) {
 			objChildSliceOf(plan).Predicate.Comparison.LeftExpression.Extract.Prepared = objPreparedReference()
 		}},
 		{"bare-row-source", func(plan ir.PhysicalPlan) {
-			// The production slice lowerer's leftSource spelling (empty
-			// path, lower/root_projection.go:402): the bare row IS the
-			// row document and renders byte-identically to the
-			// ["payload"] spelling.
 			objChildSliceOf(plan).Projections[0].Expression.Extract.Source.Path = nil
 		}, func(plan ir.PhysicalPlan) {
 			objChildSliceOf(plan).Projections[0].Expression.Extract.Prepared = objPreparedReference()
@@ -481,9 +373,6 @@ func TestPreparedResolutionRendersByteIdenticallyToUnannotated(t *testing.T) {
 			}
 			arm.annotate(annotated)
 			plainRendered, annotatedRendered := renderOK(t, plain), renderOK(t, annotated)
-			// The plan is an immutable input: the resolution clears the
-			// pointer on the rebind copy only, so the annotated IR still
-			// carries its references after rendering.
 			probe := objChildSliceOf(annotated)
 			carries := func() bool {
 				switch arm.name {
@@ -508,7 +397,6 @@ func TestPreparedResolutionRendersByteIdenticallyToUnannotated(t *testing.T) {
 			if !reflect.DeepEqual(annotatedRendered.Args, plainRendered.Args) {
 				t.Fatalf("annotated Args drifted from the unannotated slot text:\nplain:     %v\nannotated: %v", plainRendered.Args, annotatedRendered.Args)
 			}
-			// The reference itself never reaches SQL text or Args.
 			for _, leak := range []string{"__loom_projection", "prepared", "child_set"} {
 				if strings.Contains(annotatedRendered.SQL, leak) {
 					t.Fatalf("%q leaked into resolved statement text: %s", leak, annotatedRendered.SQL)
@@ -518,14 +406,6 @@ func TestPreparedResolutionRendersByteIdenticallyToUnannotated(t *testing.T) {
 	}
 }
 
-// TestPreparedRegisterSlotTableRefusals exercises the re-read law over
-// slots the annotation must not resolve: the reference must name this
-// slice's own set and slot, carry the operand's own selector, resource
-// type, a registered mode and demand, and a direct property path. The
-// renderer is driven directly (the cell discipline of
-// TestPreparedBearingSliceStaysRefusedVerbatim) so adversarial slot-table
-// shapes — which plan.Validate scopes against the schema — reach the
-// register anyway as defense in depth.
 func TestPreparedRegisterSlotTableRefusals(t *testing.T) {
 	const verbatim = `postgres renderer: unsupported physical plan: composite EXTRACT operand: prepared-set selector references are not implemented for PostgreSQL`
 	directStatus := spec.Selector{Steps: []spec.SelectorStep{{Field: "status"}}}
@@ -590,9 +470,6 @@ func TestPreparedRegisterSlotTableRefusals(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			// Annotate per case: the two verbatim cases need the
-			// reference itself bent, the rest reference the single
-			// registered slot.
 			extract := testCase.extract
 			reference := objPreparedReference()
 			switch testCase.name {
@@ -622,12 +499,6 @@ func TestPreparedRegisterSlotTableRefusals(t *testing.T) {
 	}
 }
 
-// TestPreparedInsideSliceItemObjectKeepsVerbatimRefusal pins the probe-
-// attested non-producer arm: the lowering's SLICE projections are
-// EXTRACT-only (lower/root_projection.go:459-463), so a Prepared-bearing
-// extraction inside a slice item's OBJECT operand never comes from
-// production lowering and keeps the verbatim closed-surface refusal
-// through the full plan.Validate path.
 func TestPreparedInsideSliceItemObjectKeepsVerbatimRefusal(t *testing.T) {
 	plan := objChildSetSlicePlan()
 	field := objField("v", objExtractExpr(setsPrefix, "Observation", []spec.SelectorStep{{Field: "status"}},
@@ -642,11 +513,6 @@ func TestPreparedInsideSliceItemObjectKeepsVerbatimRefusal(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// D1 defensive depth cap: depth 4 renders, depth 5 refuses, and the
-// refusal cites the AQL-unbounded contrast.
-// ---------------------------------------------------------------------------
-
 func objNestedObjects(depth int) ir.PhysicalExpression {
 	expression := objGenderExtract("root", "Patient")
 	for level := 0; level < depth; level++ {
@@ -656,15 +522,12 @@ func objNestedObjects(depth int) ir.PhysicalExpression {
 }
 
 func TestCompositeDepthCapIsDefensive(t *testing.T) {
-	// Depth 4 (the registered maximum) renders: objNestedObjects wraps the
-	// leaf extract in n objects, the RETURN-level one rendering at depth 1.
 	plan := objPlan()
 	plan.Operations[len(plan.Operations)-1].Return.Projections[1].
 		Expression = &ir.PhysicalExpression{}
 	*plan.Operations[len(plan.Operations)-1].Return.Projections[1].Expression = objNestedObjects(4)
 	renderOK(t, plan)
 
-	// Depth 5 fails closed with the cited contrast.
 	deep := objPlan()
 	deepExpression := objNestedObjects(5)
 	deep.Operations[len(deep.Operations)-1].Return.Projections[1].
@@ -678,12 +541,6 @@ func TestCompositeDepthCapIsDefensive(t *testing.T) {
 		t.Fatalf("depth refusal must cite the AQL-unbounded contrast: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Refusal battery: every shape outside the registered composite surface
-// fails closed with ErrUnsupportedPostgresPlan (renderer-owned refusals)
-// or the IR gate first (accepted at either level, as in sets_test.go).
-// ---------------------------------------------------------------------------
 
 func objBatteryReturn(plan *ir.PhysicalPlan) []ir.PhysicalProjection {
 	return plan.Operations[len(plan.Operations)-1].Return.Projections
@@ -801,9 +658,6 @@ func TestCompositeSurfaceRefusals(t *testing.T) {
 			},
 		},
 		{
-			// The IR gate requires ALL predicates to carry children, so the
-			// foreign-kind case keeps the shape legal and lets the
-			// renderer's comparison-only contract own the refusal.
 			name:          "slice predicate of a foreign kind",
 			want:          "must be a comparison",
 			rendererLevel: true,
@@ -887,9 +741,6 @@ func TestCompositeSurfaceRefusals(t *testing.T) {
 			want:          "scanned as",
 			rendererLevel: true,
 			mutate: func(plan *ir.PhysicalPlan) {
-				// The row's scanned type is the collection bind; the
-				// selector keeps its schema-valid Patient identity, so
-				// only the renderer's row/type agreement can refuse.
 				plan.BindVars["root_collection"] = "Observation"
 			},
 		},
@@ -948,7 +799,6 @@ func TestCompositeSurfaceRefusals(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// The slice-predicate cases need the predicate fixture.
 			plan := objPlan()
 			if test.want == "must read the slice source row" || test.want == "must be a comparison" {
 				slice := plan.Operations[len(plan.Operations)-1].Return.Projections[2].Expression.Slice
@@ -983,15 +833,7 @@ func TestCompositeSurfaceRefusals(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Contract receipts: the composite surface is registered on the full read
-// spine only — the selector-extraction slice and the melt input contract
-// keep their cited refusals.
-// ---------------------------------------------------------------------------
-
 func TestClosedSurfacesKeepTheirCompositeReceipts(t *testing.T) {
-	// RenderSelectorExtraction: the closed two-operation slice refuses
-	// composites with the objects.go pointer.
 	plan := basePlan()
 	plan.BindVars[objLimitBind] = 2
 	plan.Operations[len(plan.Operations)-1].Return.Projections = []ir.PhysicalProjection{
@@ -1004,8 +846,6 @@ func TestClosedSurfacesKeepTheirCompositeReceipts(t *testing.T) {
 	if !strings.Contains(err.Error(), "composites belong to the read spine registration (objects.go)") {
 		t.Fatalf("selector-extraction receipt drifted: %v", err)
 	}
-	// The same projection renders fine on the read spine (the receipt is a
-	// surface boundary, not a capability loss).
 	if _, err := RenderPhysicalPlan(plan, mustBinding(t)); err != nil {
 		t.Fatalf("spine must render the composite projection: %v", err)
 	}
@@ -1032,22 +872,9 @@ func TestMeltInputKeepsItsCompositeReceipt(t *testing.T) {
 	wantUnsupported(t, err, "melt-input composite receipt")
 }
 
-// ---------------------------------------------------------------------------
-// Membership-root defense in depth: the population.go contract owns
-// membership roots and refuses composite projections.
-// ---------------------------------------------------------------------------
-
 func TestMembershipRootRefusesCompositeProjections(t *testing.T) {
 	plan := objPlan()
 	plan.BindVars["obj11_membership_probe"] = true
-	// The spine gate is structural (planRenderer.membership is set only by
-	// RenderPopulationRootScan); reach it the same way population.go's
-	// probe renderer does: construct the renderer with the binding set.
-	// Here the closest honest check is the refusal of an OBJECT projection
-	// on a plan whose root was never registered by the spine — the
-	// unregistered-source and derived-variable refusals above pin the same
-	// closed-surface property, so this leg asserts the membership gate
-	// directly on the renderer.
 	r := &planRenderer{
 		storage:    mustBinding(t),
 		parameters: map[string]int{},
@@ -1065,12 +892,6 @@ func TestMembershipRootRefusesCompositeProjections(t *testing.T) {
 		t.Fatalf("membership gate drifted: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Untouched-surface witness: the pinned spine statements from the branch
-// point f1389b45 (captured in logs/witness-capture.log) render byte-
-// identically, so registration cannot have drifted the spine.
-// ---------------------------------------------------------------------------
 
 func TestSpineStatementsStayByteIdentical(t *testing.T) {
 	const witnessSQL = `SELECT r0."logical_id" AS "c0", r0."project" AS "c1", (r0."payload" #> $5::text[]) AS "c2" FROM "pgir02_it_unit"."fhir_resource" AS r0 WHERE r0."project" = $1 AND r0."dataset_generation" = $2 AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND r0."resource_type" = $4 ORDER BY r0."resource_seq" ASC`
@@ -1096,17 +917,6 @@ func TestSpineStatementsStayByteIdentical(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live legs (LOOM_TEST_POSTGRES_URL, owned obj11_it_* namespace; the
-// package-wide obj11RunDeltaAudit pins zero-before/zero-after): decoded
-// key-order irrelevance (D4), the omission tri-state at the AQL null
-// reading, and the child-set slice — dedup, tie-break, LIMIT prefix,
-// predicate, and empty-array parent preservation.
-// ---------------------------------------------------------------------------
-
-// obj11RenderOK renders against the service's own owned schema binding
-// (renderOK/mustBinding is the offline pgir02_it_unit binding and never
-// exists on the service).
 func obj11RenderOK(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
 	t.Helper()
 	rendered, err := RenderPhysicalPlan(plan, bindingFor(t, svc.schema))
@@ -1116,12 +926,6 @@ func obj11RenderOK(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) comma
 	return rendered
 }
 
-// pgx decodes jsonb cells into native Go values (runRendered stringifies
-// with %v, the convention sets_live_test.go established), so the expected
-// rows carry the decoded spelling: maps print sorted ("map[k:v]"), the
-// empty array prints "[]", and JSON null prints "<nil>". The tri-state
-// distinctions that the driver cannot tell apart (stored JSON null vs
-// missing) are pinned at the SQL level by the hand-written witness.
 func obj11ObjectPlan(order []string) ir.PhysicalPlan {
 	plan := basePlan()
 	fields := make([]ir.PhysicalExpressionProjection, 0, len(order))
@@ -1173,8 +977,6 @@ func TestObject11LiveObjectNullStatesAndOmission(t *testing.T) {
 	for _, row := range rows {
 		byID[row[1]] = row
 	}
-	// The PRESERVE field always keeps its key; the OMIT field drops it for
-	// both null states (the AQL FILTER merges missing and stored null).
 	if got := byID["p-present"][0]; got != "map[dropped:female kept:female]" {
 		t.Fatalf("present envelope = %q", got)
 	}
@@ -1183,8 +985,6 @@ func TestObject11LiveObjectNullStatesAndOmission(t *testing.T) {
 			t.Fatalf("%s envelope = %q, want the kept key alone with a JSON null", id, got)
 		}
 	}
-	// Witness: the omission decision at the AQL null reading, in SQL
-	// where the two null states are distinguishable.
 	witness := svc.witness(t, `SELECT logical_id,
 		((payload #> '{gender}') IS NULL)::text,
 		jsonb_typeof(payload #> '{gender}')::text
@@ -1195,8 +995,8 @@ func TestObject11LiveObjectNullStatesAndOmission(t *testing.T) {
 		t.Fatalf("witness rows = %d: %v", len(witness), witness)
 	}
 	states := map[string][2]string{
-		"p-absent":  {"true", "<null>"}, // missing property: SQL NULL from #>
-		"p-null":    {"false", "null"},  // stored JSON null: the jsonb null scalar
+		"p-absent":  {"true", "<null>"},
+		"p-null":    {"false", "null"},
 		"p-present": {"false", "string"},
 	}
 	for _, row := range witness {
@@ -1210,8 +1010,6 @@ func TestObject11LiveObjectNullStatesAndOmission(t *testing.T) {
 			t.Fatalf("rendered omission disagrees with the SQL witness for %s (dropped key=%v, witness omitted=%v)", row[0], hasDropped, omitted)
 		}
 	}
-	// Alive control: the p-absent row really stores no gender (a payload
-	// mutation mistake would fake the whole leg).
 	counts := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource"
 		WHERE project='proj-a' AND dataset_generation='gen-1' AND logical_id='p-absent'
 		  AND jsonb_exists(payload, 'gender')`)
@@ -1221,8 +1019,6 @@ func TestObject11LiveObjectNullStatesAndOmission(t *testing.T) {
 }
 
 func TestObject11LiveKeyOrderIrrelevance(t *testing.T) {
-	// L1 ruling: jsonb canonicalizes object key order; the acceptance is
-	// decoded equality across declaration orders, not SQL text.
 	svc := newOwnedService(t, 0, "obj11_it")
 	svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Patient", "p-1", "FHIR/Patient",
 		map[string]any{"gender": "male", "active": true})
@@ -1242,8 +1038,6 @@ func TestObject11LiveKeyOrderIrrelevance(t *testing.T) {
 		t.Fatalf("decoded object drifted by declaration order:\n first:  %q\n second: %q\n want:   %q",
 			rowsFirst[0][0], rowsSecond[0][0], wantCell)
 	}
-	// Hand-written witness: the same object assembled in the opposite
-	// literal order agrees with both renders.
 	witness := svc.witness(t, `SELECT jsonb_build_object('active', true, 'gender', 'male'::text)
 		UNION ALL SELECT jsonb_build_object('gender', 'male'::text, 'active', true)`)
 	if len(witness) != 2 || witness[0][0] != wantCell || witness[1][0] != wantCell {
@@ -1251,8 +1045,6 @@ func TestObject11LiveKeyOrderIrrelevance(t *testing.T) {
 	}
 }
 
-// obj11StatusSort swaps a child-set slice fixture onto the closed scalar
-// EXTRACT sort leg (identity _key sort is objChildSetSlicePlan's default).
 func obj11StatusSort(plan ir.PhysicalPlan) {
 	slice := plan.Operations[len(plan.Operations)-1].Return.Projections[1].Expression.Slice
 	slice.Sort = &ir.PhysicalExpression{
@@ -1269,9 +1061,6 @@ func obj11StatusSort(plan ir.PhysicalPlan) {
 
 func TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate(t *testing.T) {
 	svc := newOwnedService(t, 0, "obj11_it")
-	// p-1: three distinct children, obs-b reached by two occurrences
-	// (dedup: one item); obs-a and obs-b carry the SAME sort value, so
-	// only the logical_id tie-break orders them. p-2: zero children.
 	svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Patient", "p-1", "FHIR/Patient", map[string]any{})
 	svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Patient", "p-2", "FHIR/Patient", map[string]any{})
 	for _, pair := range [][2]string{{"obs-a", "same"}, {"obs-b", "same"}, {"obs-c", "early"}} {
@@ -1291,8 +1080,6 @@ func TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate(t *testing.T) {
 	insert("p-1", "obs-c", "observation[2]")
 	insert("p-1", "obs-blocked", "observation[9]")
 
-	// EXTRACT sort leg (status): early < same, and the two "same" values
-	// tie-break on logical_id.
 	plan := objChildSetSlicePlan()
 	plan.BindVars[objLimitBind] = 10
 	obj11StatusSort(plan)
@@ -1313,7 +1100,6 @@ func TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate(t *testing.T) {
 	if strings.Contains(full[0][1], "sneaky") {
 		t.Fatalf("denied-auth child leaked into the slice: %s", full[0][1])
 	}
-	// Witness: the exact total order over the deduplicated items.
 	witness := svc.witness(t, `SELECT DISTINCT x.logical_id, x.payload #> '{status}'
 		FROM "`+svc.schema+`"."fhir_edge_occurrence" e
 		INNER JOIN "`+svc.schema+`"."fhir_resource" x
@@ -1332,7 +1118,6 @@ func TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate(t *testing.T) {
 		t.Fatalf("witness values drifted: %v", witness)
 	}
 
-	// LIMIT 2: the rendered prefix equals the first two witness items.
 	limited := objChildSetSlicePlan()
 	limited.BindVars[objLimitBind] = 2
 	obj11StatusSort(limited)
@@ -1341,7 +1126,6 @@ func TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate(t *testing.T) {
 		t.Fatalf("LIMIT 2 must render the witness prefix, got %q", limitedRows[0][1])
 	}
 
-	// Predicate: only status = "same" children survive the FILTER.
 	predicated := objChildSetSlicePlan()
 	predicated.BindVars[objLimitBind] = 10
 	predicated.BindVars[objPredicate] = "same"
@@ -1366,15 +1150,6 @@ func TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate(t *testing.T) {
 	}
 }
 
-// TestObject11LiveSortHomogeneousTypeClasses pins the D4(a) ruling half:
-// for homogeneous sort values the rendered order matches AQL's total
-// order (missing/JSON-null first, then natural within the class) on real
-// PostgreSQL 18 — numbers ascending (not text order), booleans
-// false < true, and the string class pinned by
-// TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate. The
-// cross-type mix stays the registered L2 divergence (objects.go header),
-// and the registered default sort is the _key identity leg (D4(c)),
-// pinned live by TestObject11LiveProductionPlanSliceLeg.
 func TestObject11LiveSortHomogeneousTypeClasses(t *testing.T) {
 	svc := newOwnedService(t, 0, "obj11_it")
 	svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Patient", "p-1", "FHIR/Patient", map[string]any{})
@@ -1385,7 +1160,7 @@ func TestObject11LiveSortHomogeneousTypeClasses(t *testing.T) {
 		{"obs-1", map[string]any{"valueInteger": 10}},
 		{"obs-2", map[string]any{"valueInteger": 2}},
 		{"obs-3", map[string]any{"valueInteger": 1}},
-		{"obs-4", map[string]any{}}, // missing rank: the null position
+		{"obs-4", map[string]any{}},
 	} {
 		svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Observation", fixture.logicalID, "FHIR/Observation", fixture.payload)
 	}
@@ -1413,8 +1188,6 @@ func TestObject11LiveSortHomogeneousTypeClasses(t *testing.T) {
 		}
 	}
 
-	// Numeric class: AQL orders numbers numerically; a text order would
-	// place 10 before 2.
 	numeric := objChildSetSlicePlan()
 	numeric.BindVars[objLimitBind] = 10
 	sortOn(numeric, "valueInteger", []spec.SelectorStep{{Field: "valueInteger"}})
@@ -1427,9 +1200,6 @@ func TestObject11LiveSortHomogeneousTypeClasses(t *testing.T) {
 		t.Fatalf("numeric sort = %q, want %q (numeric order, null first — AQL total order within the class)", got, wantNumeric)
 	}
 
-	// Boolean class: false < true, missing first. A dedicated parent so
-	// the numeric-class children (no boolean property) cannot join this
-	// item array.
 	svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Patient", "p-2", "FHIR/Patient", map[string]any{})
 	for _, fixture := range []struct {
 		logicalID string
@@ -1437,7 +1207,7 @@ func TestObject11LiveSortHomogeneousTypeClasses(t *testing.T) {
 	}{
 		{"bool-1", map[string]any{"valueBoolean": true}},
 		{"bool-2", map[string]any{"valueBoolean": false}},
-		{"bool-3", map[string]any{}}, // missing flag: the null position
+		{"bool-3", map[string]any{}},
 	} {
 		svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Observation", fixture.logicalID, "FHIR/Observation", fixture.payload)
 		svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
@@ -1459,18 +1229,6 @@ func TestObject11LiveSortHomogeneousTypeClasses(t *testing.T) {
 	}
 }
 
-// TestCanonicalKeyReferencesResolveToTheIdentityColumnOnBothLegs pins the
-// traversal.go resolveValueInRows fix the production witness demanded
-// (obj11_live logs: the root identity cell rendered <null> pre-fix): the
-// Arango document-key spellings the shared lowering emits (["_key"] for
-// root key projections, lower/root_projection.go:116; ["id"] for identity
-// comparisons, predicates.go:290 leg) must read the logical_id storage
-// column on BOTH the direct VALUE projection leg and the COMPARISON Left
-// leg — the same canonicalKeyColumn reading the sort leg (window.go:221)
-// and the direct-value validator (selectors.go:496) already applied. The
-// pre-fix behavior (payload #> '{_key}', always SQL NULL) is captured in
-// artifacts/.../logs/obj11-traversal-hunk-before.log against the merged
-// baseline f1389b45; the after text in obj11-traversal-hunk-after.log.
 func TestCanonicalKeyReferencesResolveToTheIdentityColumnOnBothLegs(t *testing.T) {
 	plan := basePlan()
 	plan.BindVars["id_value"] = "p-1"
@@ -1486,8 +1244,6 @@ func TestCanonicalKeyReferencesResolveToTheIdentityColumnOnBothLegs(t *testing.T
 			{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
 		}}})
 	rendered := renderOK(t, plan)
-	// Both legs read the column; no document-path extraction survives for
-	// the identity spellings, and the key names never reach Args.
 	for _, want := range []string{`r0."logical_id" AS "c0"`, `r0."logical_id" AS "c1"`, `r0."logical_id" = $`} {
 		if !strings.Contains(rendered.SQL, want) {
 			t.Fatalf("canonical-key leg lost %q: %s", want, rendered.SQL)
@@ -1501,11 +1257,6 @@ func TestCanonicalKeyReferencesResolveToTheIdentityColumnOnBothLegs(t *testing.T
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// D5 delta-scoped zero-leftover audit over the disjoint obj11_it_*
-// namespace: zero rows before the run, zero survivors after it.
-// ---------------------------------------------------------------------------
 
 func obj11SnapshotOwnedResources(ctx context.Context, raw string) ([]string, error) {
 	pool, err := pgxpool.New(ctx, raw)
@@ -1552,8 +1303,6 @@ func obj11RunDeltaAudit(inner func() int) int {
 		fmt.Fprintf(os.Stderr, "pg-sql-11 delta audit: snapshot before run: %v\n", err)
 		code = 1
 	} else if len(before) != 0 {
-		// D5: this session owns the obj11_it_* namespace; it must start
-		// empty (no sibling lane shares it).
 		fmt.Fprintf(os.Stderr, "pg-sql-11 delta audit: %d obj11_it_* resources exist before the run: %v\n", len(before), before)
 		code = 1
 	}

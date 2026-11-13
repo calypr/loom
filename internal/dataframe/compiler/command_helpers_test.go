@@ -9,14 +9,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// requireStableRuntimeCode asserts that a query executed through the live
-// Arango adapter failed with the expected stable physical-plan ASSERT code.
-// The adapter translates recognized ASSERT codes into typed Loom errors with
-// public messages (code read via dataframeerrors.AsUserError); codes outside
-// the adapter's recognized set still surface verbatim from the driver. The
-// returned string is the adapter's diagnostic-cause rendering, which keeps
-// the vendor message with per-row detail for disclosure assertions without
-// string-matching the public error.
 func requireStableRuntimeCode(t *testing.T, err error, code string) string {
 	t.Helper()
 	if err == nil {
@@ -35,9 +27,6 @@ func requireStableRuntimeCode(t *testing.T, err error, code string) string {
 	return err.Error()
 }
 
-// testAQLView derives the AQL diagnostic view of a compiled command for
-// compiler tests through closed dispatch; a non-AQL-tagged command fails the
-// test instead of being silently treated as AQL.
 func testAQLView(t *testing.T, compiledCommand command.CompiledCommand) (string, map[string]any) {
 	t.Helper()
 	query, bindVars, err := compiledCommand.AQLParameters()
@@ -47,7 +36,6 @@ func testAQLView(t *testing.T, compiledCommand command.CompiledCommand) (string,
 	return query, bindVars
 }
 
-// testAQLCommand builds an AQL-tagged command for compiler test fixtures.
 func testAQLCommand(query string, bindVars map[string]any) command.CompiledCommand {
 	compiledCommand, err := command.NewAQLCommand(query, bindVars)
 	if err != nil {

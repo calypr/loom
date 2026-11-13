@@ -206,8 +206,6 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 		t.Fatalf("restricted failed page leaked progress: %+v", failedPage.Build)
 	}
 
-	// Replay the same source files: per-source event keys replace their prior
-	// rows. The source files live in t.TempDir and the collection is never cleared.
 	for _, fixture := range fixtures {
 		if err := ingestSemanticInventoryFixture(ctx, store, project, generation, fixture.scope, fixtureRoot, fixtureFiles[fixture.scope]); err != nil {
 			t.Fatal(err)
@@ -383,9 +381,6 @@ func TestSemanticInventoryFallbackPolicySurvivesMaterializationAndReadback(t *te
 	}
 }
 
-// This mirrors the binding-v2 digest input and length-prefix encoding, then
-// verifies itself against a contribution from the real semantic emitter
-// before creating a second ordered-policy identity for the storage test.
 func semanticBindingIDForIntegrationTest(observation catalog.SemanticObservation) string {
 	parts := []string{
 		"semantic-binding/v2",

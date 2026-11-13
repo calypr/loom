@@ -1,10 +1,5 @@
 package semantic
 
-// This file is the single semantic boundary for persisted recipes and the
-// existing GraphQL dataframe request. It deliberately stops before physical
-// lowering: no collection, AQL, SQL, or backend implementation detail belongs
-// in these types.
-
 import (
 	"fmt"
 	"strings"
@@ -45,10 +40,6 @@ func BuildRecipePlan(bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Rec
 type scopeBinding struct {
 	ResourceType string
 	Prefix       string
-	// ExpandedItem means this alias denotes one element of a repeated
-	// collection. The prefix retains the array path for schema resolution,
-	// but that collection's cardinality must not leak into expressions scoped
-	// to the item.
 	ExpandedItem bool
 }
 
@@ -122,10 +113,6 @@ func (s scopeFrame) resolve(ref expression.SelectorRef) (expression.Type, error)
 		return expression.Type{}, err
 	}
 	canonicalPath := selector.CanonicalPath()
-	// An unqualified dotted selector may be either a nested root field or an
-	// alias-qualified selector. If the generated schema cannot resolve it as a
-	// root path, report the lexical alias error before the lower-level schema
-	// diagnostic so recipe authors get an actionable scope failure.
 	if ref.Context == "" {
 		if parts := strings.SplitN(path, ".", 2); len(parts) == 2 {
 			if _, visible := s.aliases[parts[0]]; !visible {
@@ -148,14 +135,9 @@ func (s scopeFrame) resolve(ref expression.SelectorRef) (expression.Type, error)
 	}
 	kind := primitiveKind(metadata.Primitive)
 	if kind == expression.KindObject {
-		// A repeated object is a valid expansion source even though it has no
-		// terminal scalar metadata.
 		repeated = repeated || metadata.Repeated
 	}
 	if binding.ExpandedItem {
-		// The expansion itself is the row-shaping operation. Any [] markers in
-		// the item-relative selector still represent a many-valued expression,
-		// while the repeated prefix used to reach the item does not.
 		repeated = strings.Contains(path, "[]")
 	}
 	cardinality := expression.OptionalOne

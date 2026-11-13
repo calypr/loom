@@ -1,38 +1,3 @@
-// Bounded field-profile record persistence for the PostgreSQL 18 source
-// store (pg-catalog-01).
-//
-// FieldProfileRepository is the persistence half of the field-profile slice
-// built by internal/backends/postgres/internal/catalog. It stores the two tables created by
-// migration 000007_field_profile:
-//
-//   - fhir_field_profile: one row per field-profile identity
-//     (project, dataset_generation, auth_resource_path, resource_type,
-//     path), plus the scope-level profile_status marker (path = ”).
-//   - fhir_field_profile_coverage: one coverage marker per profiler scope
-//     (project, dataset_generation, auth_resource_path, resource_type), so
-//     a persisted known-empty profile stays distinguishable from a scope
-//     that was never profiled.
-//
-// Guarantees:
-//   - Upsert replaces exactly one identity: the whole non-identity column
-//     set of the conflicting row is replaced; no other row is touched. The
-//     primary key is the full identity tuple -- never the derived
-//     profile_key -- because the legacy (empty-generation) key derivation is
-//     many-to-one, so distinct scopes can never be merged by key collision.
-//   - Lossless bounded summaries: every catalog.FieldCatalogDocument public
-//     field round-trips unchanged, including false booleans and zero
-//     counts. enrichment_complete is a nullable boolean (missing *bool is
-//     SQL NULL, never coerced). Text arrays and the jsonb subrecord columns
-//     keep SQL NULL (missing) distinct from a populated value, and the
-//     correlated extension/semantic observations live inside jsonb as one
-//     object per observation so values never cross-combine independently.
-//   - Reads bind scope: filtered reads always bind project, dataset
-//     generation, and resource types, plus (in restricted mode) the
-//     authorized auth paths. The unrestricted mode must be requested
-//     explicitly; restricted with no authorized paths reads nothing.
-//
-// This file adds no cross-database atomicity and no backend fallback: every
-// failure is a named error the caller must surface.
 package postgres
 
 import (
@@ -49,89 +14,35 @@ import (
 )
 
 const (
-	// fieldProfileTableName and fieldProfileCoverageTableName are the tables
-	// created by migration 000007_field_profile.sql.
 	fieldProfileTableName         = "fhir_field_profile"
 	fieldProfileCoverageTableName = "fhir_field_profile_coverage"
-	// MaxFieldProfileWriteBatch bounds one upsert chunk's row count so a
-	// caller cannot build an oversized statement through the pool (26
-	// parameters per row stays well under PostgreSQL's 65535-parameter cap).
-	MaxFieldProfileWriteBatch = 500
-	// defaultFieldProfileWriteBatch is used when the caller passes no batch
-	// size.
+	MaxFieldProfileWriteBatch     = 500
 	defaultFieldProfileWriteBatch = 50
-	// fieldProfileColumnCount is len(fieldProfileColumns); the upsert builds
-	// this many ordered parameters per row.
-	fieldProfileColumnCount = 26
+	fieldProfileColumnCount       = 26
 )
 
-// Sentinel errors for classifying field-profile failures without string
-// matching.
 var (
-	// ErrInvalidFieldProfileRow reports a document whose fields the database
-	// contract cannot honor: blank identity or key, unknown record type, a
-	// profile_status row carrying a path, a field row without a kind, or a
-	// negative count.
-	ErrInvalidFieldProfileRow = errors.New("postgres: invalid field profile row")
-	// ErrInvalidFieldProfileScope reports a scope or filter that cannot be
-	// honored: a blank project or resource type, a missing unrestricted
-	// flag, or an unrestricted filter carrying paths.
+	ErrInvalidFieldProfileRow   = errors.New("postgres: invalid field profile row")
 	ErrInvalidFieldProfileScope = errors.New("postgres: invalid field profile scope")
 )
 
-// FieldProfileScope is the exact storage identity of one write-side profile:
-// the identity tuple the catalog.Profiler was constructed with. Empty
-// DatasetGeneration is the legacy dataset namespace, never "any generation";
-// empty AuthResourcePath is the legacy (unscoped) namespace, never "any
-// path".
-// FieldProfileScope is the neutral domain identity; it moved to
-// internal/catalog under arch-backend-06 (consumer-facing write contract).
-// The alias keeps this package's write API byte-identical.
 type FieldProfileScope = catalog.FieldProfileScope
 
-// FieldProfileFilter binds one discovery read to exactly one
-// project/generation plus a declared resource-type list and authorization
-// scope. It follows the explicit-mode convention of InventoryCountScope: the
-// unrestricted mode must be requested deliberately and carries no paths.
 type FieldProfileFilter struct {
-	Project           string
-	DatasetGeneration string
-	// ResourceTypes bounds the read to the declared types; an empty list
-	// reads nothing (there is no implicit "all types" here). The explicit
-	// AllResourceTypes opt-in below is the only all-types mode.
-	ResourceTypes []string
-	// AllResourceTypes selects the true all-types mode: the read omits the
-	// resource_type predicate entirely, spanning every persisted type in
-	// the project/generation scope (the shape the Arango auth-path
-	// reference COLLECT needs). It must be requested deliberately and
-	// never accompanies a declared ResourceTypes list; the zero value
-	// keeps the declared-list semantics byte-identical.
-	AllResourceTypes bool
-	// AuthResourcePathsUnrestricted must be non-nil: true selects the
-	// explicit unrestricted mode (then AuthResourcePaths must be empty),
-	// false selects restricted mode.
+	Project                       string
+	DatasetGeneration             string
+	ResourceTypes                 []string
+	AllResourceTypes              bool
 	AuthResourcePathsUnrestricted *bool
-	// AuthResourcePaths are the authorized auth_resource_path values in
-	// restricted mode. An empty list in restricted mode is a legitimate
-	// authorization state that reads nothing.
-	AuthResourcePaths []string
+	AuthResourcePaths             []string
 }
 
-// FieldProfileCoverage is the scope-level persistence marker written with
-// every profile batch: it records that one profiler scope was persisted and
-// how complete its enrichment was, so a zero-row profile read is "known
-// empty" rather than "unavailable". EnrichmentComplete is the missing/
-// true/false tri-state (*bool); SQL NULL is missing.
 type FieldProfileCoverage struct {
 	FieldProfileScope
 	EnrichmentComplete  *bool
 	EnrichmentTruncated bool
 }
 
-// fieldProfileColumns is the single source of truth for column order: the
-// INSERT column list, the SELECT column list, the upsert argument order, and
-// the scan order all derive from it, so ordered SQL parameters ($1..$N)
-// match the Go argument slice by construction.
 var fieldProfileColumns = []string{
 	"project", "dataset_generation", "auth_resource_path", "resource_type", "path",
 	"profile_key", "record_type", "kind", "doc_count", "max_items", "sample_count",
@@ -141,9 +52,6 @@ var fieldProfileColumns = []string{
 	"extension_values", "semantic_observations",
 }
 
-// fieldProfileUpdateSet renders the DO UPDATE assignment for every
-// non-identity column: an upsert replaces exactly the conflicting identity's
-// payload and never a neighboring row.
 var fieldProfileUpdateSet = func() string {
 	parts := make([]string, 0, len(fieldProfileColumns)-len(scopeColumnNames))
 	for _, column := range fieldProfileColumns {
@@ -156,25 +64,14 @@ var fieldProfileUpdateSet = func() string {
 	return strings.Join(parts, ", ")
 }()
 
-// scopeColumnNames exists only to document the identity prefix of
-// fieldProfileColumns; the switch above is the enforcement.
 var scopeColumnNames = []string{"project", "dataset_generation", "auth_resource_path", "resource_type", "path"}
 
-// FieldProfileRepository stores and reads bounded field-profile records in
-// one schema of the PostgreSQL source store. Create one with
-// NewFieldProfileRepository. The tables must be created by MigrateSchema
-// before use; the caller owns the connection source and the schema
-// lifecycle.
 type FieldProfileRepository struct {
 	src         ConnSource
 	profileFQN  string
 	coverageFQN string
 }
 
-// NewFieldProfileRepository validates the connection source and schema name
-// and binds the repository to the field-profile and coverage tables inside
-// <schema>. The connection source must be live only when a method runs, not
-// here.
 func NewFieldProfileRepository(src ConnSource, schema string) (*FieldProfileRepository, error) {
 	if src == nil {
 		return nil, errors.New("postgres: nil field profile connection source")
@@ -189,14 +86,6 @@ func NewFieldProfileRepository(src ConnSource, schema string) (*FieldProfileRepo
 	}, nil
 }
 
-// UpsertFieldProfileBatch replaces exactly the identities named by docs and
-// refreshes the scope's coverage marker in one transaction: either every
-// document and the marker are durable together or nothing from this batch
-// is. Each conflicting identity's full non-identity column set is replaced;
-// rows outside the batch are never touched. An empty docs list is legal and
-// writes only the coverage marker -- that is how a persisted known-empty
-// profile is recorded. Docs must already carry the scope's identity
-// components; any divergence is a typed error and writes nothing.
 func (r *FieldProfileRepository) UpsertFieldProfileBatch(ctx context.Context, scope FieldProfileScope, docs []catalog.FieldCatalogDocument, coverage FieldProfileCoverage, batchSize int) error {
 	if err := validateFieldProfileScope(scope); err != nil {
 		return err
@@ -254,9 +143,6 @@ func (r *FieldProfileRepository) UpsertFieldProfileBatch(ctx context.Context, sc
 		}
 	}
 
-	// The scope's coverage marker commits with the batch: a persisted
-	// profile is never readable as "known empty" without its marker, and a
-	// marker never claims a batch that did not commit.
 	if _, err := tx.Exec(ctx,
 		"INSERT INTO "+r.coverageFQN+
 			" (project, dataset_generation, auth_resource_path, resource_type, enrichment_complete, enrichment_truncated)"+
@@ -278,9 +164,6 @@ func (r *FieldProfileRepository) UpsertFieldProfileBatch(ctx context.Context, sc
 	return nil
 }
 
-// upsertFieldProfileChunk executes one multi-row upsert inside the caller's
-// transaction. Ordered parameters, fieldProfileColumnCount per row, in
-// fieldProfileColumns order.
 func upsertFieldProfileChunk(ctx context.Context, tx pgx.Tx, profileFQN string, chunk [][]any) error {
 	var sql strings.Builder
 	sql.WriteString("INSERT INTO " + profileFQN + " (" + strings.Join(fieldProfileColumns, ", ") + ") VALUES ")
@@ -308,16 +191,10 @@ func upsertFieldProfileChunk(ctx context.Context, tx pgx.Tx, profileFQN string, 
 	return nil
 }
 
-// ReadFieldProfileRows returns every persisted document for one exact
-// scope -- field records and any profile_status marker -- ordered by path
-// in exact byte order. A scope with nothing persisted returns an empty
-// slice: persistence questions belong to the coverage marker, which
-// DiscoverFieldEnrichment consults.
 func (r *FieldProfileRepository) ReadFieldProfileRows(ctx context.Context, scope FieldProfileScope) ([]catalog.FieldCatalogDocument, error) {
 	if err := validateFieldProfileScope(scope); err != nil {
 		return nil, err
 	}
-	// Ordered parameters: $1 project, $2 generation, $3 auth path, $4 type.
 	sql := "SELECT " + strings.Join(fieldProfileColumns, ", ") + " FROM " + r.profileFQN +
 		" WHERE project = $1 AND dataset_generation = $2 AND auth_resource_path = $3 AND resource_type = $4" +
 		" ORDER BY path"
@@ -337,10 +214,6 @@ func (r *FieldProfileRepository) ReadFieldProfileRows(ctx context.Context, scope
 	return scanFieldProfileRows(rows)
 }
 
-// ReadFieldProfileRowsFiltered returns every persisted document inside one
-// filter, ordered by resource type and path in exact byte order. Restricted
-// with no authorized paths reads nothing (empty slice, no round trip); the
-// unrestricted mode must be requested explicitly.
 func (r *FieldProfileRepository) ReadFieldProfileRowsFiltered(ctx context.Context, filter FieldProfileFilter) ([]catalog.FieldCatalogDocument, error) {
 	where, args, empty, err := fieldProfileFilterSQL(filter)
 	if err != nil {
@@ -366,10 +239,6 @@ func (r *FieldProfileRepository) ReadFieldProfileRowsFiltered(ctx context.Contex
 	return scanFieldProfileRows(rows)
 }
 
-// ReadProfileCoverage returns the coverage markers inside one filter,
-// ordered by authorization path and resource type in exact byte order.
-// Restricted with no authorized paths reads nothing (empty slice, no round
-// trip).
 func (r *FieldProfileRepository) ReadProfileCoverage(ctx context.Context, filter FieldProfileFilter) ([]FieldProfileCoverage, error) {
 	where, args, empty, err := fieldProfileFilterSQL(filter)
 	if err != nil {
@@ -408,25 +277,6 @@ func (r *FieldProfileRepository) ReadProfileCoverage(ctx context.Context, filter
 	return out, nil
 }
 
-// ListDistinctAuthResourcePaths returns the distinct non-empty auth paths
-// recorded for one project across every dataset generation, ascending in
-// exact byte order -- both the dedup equality and the order are pinned by
-// an explicit COLLATE "C" in the select list (the column is plain text, so
-// the cluster default collation must decide neither) and re-sorted by the
-// adapter as the final normalizer.
-// It is the PostgreSQL shape of the Arango reference
-// existingAuthResourcePathsAllGenerationsAQL: a COLLECT over auth_resource_path
-// with the dataset_generation filter deliberately absent -- an empty
-// generation is the legacy unscoped namespace, never "any generation", so
-// the cross-generation union is a distinct predicate-free-by-generation read,
-// not a generation bind of "". Empty paths (the unscoped namespace's own
-// rows) are excluded by predicate, matching the reference's
-// `!= null AND != ""` filter. A project with no recorded paths returns an
-// honest empty: emptiness here is database evidence, never a refusal, and
-// project-level write authorization (F-B27) reads this empty as "no
-// recorded paths" for its bootstrap branch. A blank project is the same
-// typed configuration refusal as the filtered reads -- it never becomes an
-// all-projects scan.
 func (r *FieldProfileRepository) ListDistinctAuthResourcePaths(ctx context.Context, project string) ([]string, error) {
 	sql, args, err := distinctAuthResourcePathsSQL(r.profileFQN, project)
 	if err != nil {
@@ -458,19 +308,6 @@ func (r *FieldProfileRepository) ListDistinctAuthResourcePaths(ctx context.Conte
 	return out, nil
 }
 
-// distinctAuthResourcePathsSQL renders the cross-generation distinct-path
-// read as a pure function so the statement shape is golden-pinnable without
-// a database: one project bind, the empty-path door closed by predicate, and
-// no dataset_generation predicate at all. The select list pins the
-// comparison with an explicit COLLATE "C" because the column itself is
-// plain text: without it BOTH the DISTINCT equality and the ORDER BY would
-// follow the cluster's default collation, making the ascending-byte-order
-// contract (and even the dedup set) an accident of deployment locale rather
-// than a guarantee (interrogation finding, M4 gauntlet). COLLATE lives in
-// the select list, not the ORDER BY, because PostgreSQL requires ORDER BY
-// expressions of a SELECT DISTINCT to appear in the select list (SQLSTATE
-// 42P10); naming the bare output column in ORDER BY then sorts under that
-// same C collation.
 func distinctAuthResourcePathsSQL(profileFQN, project string) (string, []any, error) {
 	if strings.TrimSpace(project) == "" {
 		return "", nil, fmt.Errorf("%w: project is blank", ErrInvalidFieldProfileScope)
@@ -481,13 +318,6 @@ func distinctAuthResourcePathsSQL(profileFQN, project string) (string, []any, er
 	return sql, []any{project}, nil
 }
 
-// fieldProfileFilterSQL renders the shared WHERE clause for filtered reads.
-// Declared-list mode: $1 project, $2 generation, $3 resource types, and
-// $4 auth paths (restricted mode only). AllResourceTypes mode omits the
-// resource types parameter, so auth paths shift to $3. empty is true when
-// the filter is a legitimate read-nothing state (restricted with no
-// authorized paths, or no declared resource types without the explicit
-// all-types opt-in).
 func fieldProfileFilterSQL(filter FieldProfileFilter) (string, []any, bool, error) {
 	if strings.TrimSpace(filter.Project) == "" {
 		return "", nil, false, fmt.Errorf("%w: project is blank", ErrInvalidFieldProfileScope)
@@ -507,10 +337,6 @@ func fieldProfileFilterSQL(filter FieldProfileFilter) (string, []any, bool, erro
 		return "", nil, true, nil
 	}
 	if filter.AllResourceTypes {
-		// The one explicit all-types mode: no resource_type predicate at
-		// all, so every persisted type in the scope is in the read. It
-		// must not accompany a declared list -- a declared list plus
-		// "all" would make the caller's intent ambiguous.
 		if len(filter.ResourceTypes) > 0 {
 			return "", nil, false, fmt.Errorf(
 				"%w: AllResourceTypes must not accompany a declared resource types list (%d given)",
@@ -536,11 +362,6 @@ func fieldProfileFilterSQL(filter FieldProfileFilter) (string, []any, bool, erro
 	return where, args, false, nil
 }
 
-// scanFieldProfileRows decodes rows whose column order is
-// fieldProfileColumns. Nullable text arrays and jsonb columns scan into
-// their Go zero values when SQL NULL, so a missing summary array stays nil
-// and a missing subrecord list stays nil rather than an empty container;
-// populated jsonb arrays decode back into one correlated struct per element.
 func scanFieldProfileRows(rows pgx.Rows) ([]catalog.FieldCatalogDocument, error) {
 	out := []catalog.FieldCatalogDocument{}
 	for rows.Next() {
@@ -570,9 +391,6 @@ func scanFieldProfileRows(rows pgx.Rows) ([]catalog.FieldCatalogDocument, error)
 }
 
 func decodeFieldProfileJSON(doc *catalog.FieldCatalogDocument, extensionRaw, semanticRaw json.RawMessage) error {
-	// SQL NULL (empty raw) leaves the slice nil: the missing state. A
-	// stored '[]' decodes to an empty-but-non-nil slice, exactly what the
-	// profiler emitted. No normalization here — nil versus empty is data.
 	if len(extensionRaw) > 0 {
 		if err := json.Unmarshal(extensionRaw, &doc.ExtensionValues); err != nil {
 			return fmt.Errorf("postgres: decode extension observations for field profile %s/%s/%s: %w",
@@ -585,9 +403,6 @@ func decodeFieldProfileJSON(doc *catalog.FieldCatalogDocument, extensionRaw, sem
 				doc.Project, doc.ResourceType, doc.Path, err)
 		}
 	}
-	// Text arrays: the profiler's append(nil, ...) copies are nil-or-
-	// populated; SQL NULL and a seeded '{}' both decode to the nil
-	// summary slice.
 	if len(doc.DistinctValues) == 0 {
 		doc.DistinctValues = nil
 	}
@@ -600,12 +415,6 @@ func decodeFieldProfileJSON(doc *catalog.FieldCatalogDocument, extensionRaw, sem
 	return nil
 }
 
-// fieldProfileRowArgs maps a document to its column values in
-// fieldProfileColumns order. Missing (nil) text arrays and missing
-// subrecord slices cross the boundary as SQL NULL; populated and
-// empty-but-non-nil jsonb subrecords are encoded as arrays so the Go
-// nil-versus-empty distinction round-trips exactly, keeping each
-// correlated observation one whole object that never cross-combines.
 func fieldProfileRowArgs(doc catalog.FieldCatalogDocument) ([]any, error) {
 	extensionValues, err := extensionValuesParam(doc.ExtensionValues)
 	if err != nil {
@@ -625,10 +434,6 @@ func fieldProfileRowArgs(doc catalog.FieldCatalogDocument) ([]any, error) {
 	}, nil
 }
 
-// textArrayParam passes nil (SQL NULL) for a missing slice and the slice
-// itself when populated; PostgreSQL keeps NULL and '{}' distinct, and both
-// decode back to the nil Go slice the profiler produces for an empty
-// summary (the profiler's append(nil, ...) copies are nil-or-populated).
 func textArrayParam(values []string) any {
 	if len(values) == 0 {
 		return nil
@@ -636,9 +441,6 @@ func textArrayParam(values []string) any {
 	return append([]string(nil), values...)
 }
 
-// extensionValuesParam encodes correlated extension observations for the
-// jsonb column: nil (missing) is SQL NULL; an empty-but-non-nil slice is
-// the jsonb array '[]' so the distinction round-trips.
 func extensionValuesParam(values []catalog.ExtensionValueObservation) ([]byte, error) {
 	if values == nil {
 		return nil, nil
@@ -660,15 +462,6 @@ func extensionValuesParam(values []catalog.ExtensionValueObservation) ([]byte, e
 	return json.Marshal(encoded)
 }
 
-// semanticObservationsParam encodes correlated semantic observations for
-// the jsonb column with the same nil/'[]'/populated contract, and with the
-// bounded slice members (examples, observed units, extension URL path, and
-// the value's fallback selectors) forced to their Go nil-versus-empty
-// presence: the profiler emits empty-but-non-nil []string for a retained
-// but valueless bounded list, encoding/json's omitempty would otherwise
-// drop it, and the round trip would silently rewrite []string{} to nil.
-// Inside a decoded struct member, JSON null and an absent key are the same
-// Go nil, so forcing presence loses no further state.
 func semanticObservationsParam(observations []catalog.SemanticObservation) ([]byte, error) {
 	if observations == nil {
 		return nil, nil
@@ -696,10 +489,6 @@ func semanticObservationsParam(observations []catalog.SemanticObservation) ([]by
 	return json.Marshal(encoded)
 }
 
-// forceSlicePresence rewrites the named keys of an already-marshaled JSON
-// object so each listed slice's Go presence is explicit: nil becomes JSON
-// null and an empty-but-non-nil slice becomes [], overriding omitempty's
-// omission. A populated slice keeps its plain-marshaled encoding.
 func forceSlicePresence(keys []string, values map[string][]string, observation json.RawMessage) (json.RawMessage, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(observation, &object); err != nil {
@@ -715,7 +504,6 @@ func forceSlicePresence(keys []string, values map[string][]string, observation j
 	return json.Marshal(object)
 }
 
-// forceNestedSlicePresence applies forceSlicePresence to one member object.
 func forceNestedSlicePresence(observation json.RawMessage, member, key string, value []string) (json.RawMessage, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(observation, &object); err != nil {
@@ -733,10 +521,6 @@ func forceNestedSlicePresence(observation json.RawMessage, member, key string, v
 	return json.Marshal(object)
 }
 
-// validateFieldProfileScope enforces the column contract for one exact
-// identity. DatasetGeneration may be the empty legacy namespace; AuthResourcePath
-// may be the empty legacy (unscoped) namespace; the other identity fields
-// are required.
 func validateFieldProfileScope(scope FieldProfileScope) error {
 	if strings.TrimSpace(scope.Project) == "" {
 		return fmt.Errorf("%w: project is blank", ErrInvalidFieldProfileScope)
@@ -747,9 +531,6 @@ func validateFieldProfileScope(scope FieldProfileScope) error {
 	return nil
 }
 
-// validateFieldProfileRow enforces the column contract before a round trip:
-// one row is either a field profile (path and kind present, record_type
-// empty) or the scope-level profile_status marker (no path), never a mix.
 func validateFieldProfileRow(doc catalog.FieldCatalogDocument) error {
 	if strings.TrimSpace(doc.Project) == "" {
 		return fmt.Errorf("%w: project is blank", ErrInvalidFieldProfileRow)
@@ -783,8 +564,6 @@ func validateFieldProfileRow(doc catalog.FieldCatalogDocument) error {
 	return nil
 }
 
-// acquire takes one pooled connection for a single-statement or
-// single-transaction field-profile operation.
 func (r *FieldProfileRepository) acquire(ctx context.Context) (*pgxpool.Conn, error) {
 	conn, err := r.src.Acquire(ctx)
 	if err != nil {

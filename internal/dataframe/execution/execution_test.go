@@ -148,10 +148,6 @@ func TestStreamQueryReturnsPartialProgressWhenVisitorStops(t *testing.T) {
 	}
 }
 
-// compiledQueryAdapter is the test-owned backend seam for the generic
-// compiled-query path. It records each invocation so a test can prove no query
-// is issued for an abandoned request, and it keeps visiting rows after the
-// caller cancels the way a lagging driver cursor does.
 type compiledQueryAdapter struct {
 	calls       int
 	rows        []map[string]any
@@ -198,9 +194,7 @@ func TestStreamQueryStopsDeliveryAfterCancellationDuringCallback(t *testing.T) {
 	defer cancel()
 	visited := []any{}
 	adapter := &compiledQueryAdapter{
-		rows: []map[string]any{{"_key": "first"}, {"_key": "second"}},
-		// Cancellation lands after the first row is delivered. A missing check
-		// would hand the second row to the public visitor and report success.
+		rows:        []map[string]any{{"_key": "first"}, {"_key": "second"}},
 		afterCancel: cancel,
 	}
 	svc := NewService(ServiceConfig{SourceRows: aqlRows(adapter.queryRows)})
@@ -209,8 +203,6 @@ func TestStreamQueryStopsDeliveryAfterCancellationDuringCallback(t *testing.T) {
 		visited = append(visited, row["_key"])
 		return nil
 	})
-	// The boundary reports the caller's own context error, wrapped as a typed
-	// user error, rather than inventing a fresh sentinel.
 	if !errors.Is(err, ctx.Err()) {
 		t.Fatalf("streamQuery() error = %v, want the caller context error %v", err, ctx.Err())
 	}
@@ -312,8 +304,6 @@ func TestStreamQueryKeepsVisitorErrorWhenItCancelsMidStream(t *testing.T) {
 
 	result, err := svc.streamQuery(ctx, compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}}, func(row map[string]any) error {
 		visited = append(visited, row["_key"])
-		// The consumer abandons the stream and cancels the request in the same
-		// step; its own error stays authoritative over the new cancellation.
 		cancel()
 		return stop
 	})

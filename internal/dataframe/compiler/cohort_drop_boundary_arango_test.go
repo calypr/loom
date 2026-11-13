@@ -16,8 +16,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// This fixture proves that a pinned member missing from the current resource
-// collection cannot pass a row-dropping construction stage before COHORT_GROUP.
 func TestPreCohortDropStagesExcludeMissingPinnedMembersAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
 	collections := []arangofactory.CollectionSpec{

@@ -15,10 +15,6 @@ func decode[T any](value any) (T, error) {
 	return out, err
 }
 
-// normalizeUpdatedAt keeps reads tolerant of the numeric Arango timestamp
-// written by the short-lived last-write-wins regression. New writes use the
-// normal JSON time string representation, but existing documents must remain
-// readable so they can be repaired by a subsequent draft save.
 func normalizeUpdatedAt(value any) any {
 	row, ok := value.(map[string]any)
 	if !ok {

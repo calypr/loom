@@ -30,16 +30,8 @@ type Client struct {
 	closed         atomic.Bool
 }
 
-// ErrClientClosed marks every operation attempted on a closed Client.
-// Close is terminal: after it returns, every entry path fails with this
-// sentinel instead of reaching the server, so "closed" is an observable
-// state, not a documentation claim.
 var ErrClientClosed = errors.New("arango: client closed")
 
-// checkOpen is the single closed-state guard every network entry path
-// must take before touching the driver. A nil receiver is supported
-// input in this package: it fails closed without dereferencing the
-// receiver or loading the flag.
 func (c *Client) checkOpen() error {
 	if c == nil {
 		return fmt.Errorf("%w: nil client", ErrClientClosed)
@@ -54,47 +46,32 @@ const previewCursorCleanupTimeout = time.Second
 
 type queryMemoryLimitContextKey struct{}
 
-// WithQueryMemoryLimit adds a per-query ArangoDB memory cap. Callers that do
-// not set this option keep the server's configured query behavior.
 func WithQueryMemoryLimit(ctx context.Context, bytes int64) context.Context {
 	return context.WithValue(ctx, queryMemoryLimitContextKey{}, bytes)
 }
 
-// RowQueryer is the narrow row-query surface shared by Arango adapters. It is
-// also the only capability exposed to transaction callbacks.
 type RowQueryer interface {
 	QueryRows(context.Context, string, int, map[string]interface{}, RowVisitor) error
 }
 
-// BatchInserter is the narrow raw-document write surface shared by Arango
-// adapters.
 type BatchInserter interface {
 	InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error
 }
 
-// AQLExecutor is the narrow surface used for non-row AQL statements.
 type AQLExecutor interface {
 	ExecuteAQL(context.Context, string, map[string]interface{}) error
 }
 
-// RowBatchClient is the narrow composite used by registries that only need
-// query and raw-document batch-write capabilities.
 type RowBatchClient interface {
 	RowQueryer
 	BatchInserter
 }
 
-// TransactionalRowClient is the composite used by registry writes that must
-// commit several documents atomically (e.g. the bundle publish CAS). Requiring
-// it at the call site makes a silently non-transactional publish impossible.
 type TransactionalRowClient interface {
 	RowBatchClient
 	WithTransaction(context.Context, TransactionCollections, TransactionFunc) error
 }
 
-// QueryMemoryLimitFromContext reports the per-query ArangoDB memory cap
-// attached to ctx by WithQueryMemoryLimit. It lets composition witnesses
-// confirm the vendor mechanism was attached without reading the private key.
 func QueryMemoryLimitFromContext(ctx context.Context) (int64, bool) {
 	bytes, ok := ctx.Value(queryMemoryLimitContextKey{}).(int64)
 	return bytes, ok
@@ -113,10 +90,6 @@ var bufferPool = sync.Pool{
 	},
 }
 
-// DatabaseExists probes whether a database exists at an endpoint without
-// opening a Client and, crucially, without auto-provisioning. CLI entry
-// points use it behind the factory surface to refuse a missing database
-// before Open would implicitly create one; only the CLI adds that gate.
 func DatabaseExists(ctx context.Context, url, database string) (bool, error) {
 	conn := connection.NewHttpConnection(connection.HttpConfiguration{
 		Endpoint: connection.NewRoundRobinEndpoints([]string{url}),
@@ -253,9 +226,6 @@ func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bin
 	return queryRows(ctx, c.db, query, batchSize, bindVars, visit)
 }
 
-// QueryRowsWithMaxRuntime executes a row query with an ArangoDB server-side
-// runtime limit. It is intended for bounded previews whose client request may
-// be canceled while the server is still evaluating the query.
 func (c *Client) QueryRowsWithMaxRuntime(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, maxRuntime time.Duration, visit RowVisitor) error {
 	if err := c.checkOpen(); err != nil {
 		return err
@@ -263,8 +233,6 @@ func (c *Client) QueryRowsWithMaxRuntime(ctx context.Context, query string, batc
 	return queryRowsWithMaxRuntime(ctx, c.db, query, batchSize, bindVars, maxRuntime, visit)
 }
 
-// CollectionRevision returns ArangoDB's collection data revision. Callers can
-// use it to validate cached read results against intervening document writes.
 func (c *Client) CollectionRevision(ctx context.Context, name string) (string, error) {
 	if err := c.checkOpen(); err != nil {
 		return "", err
@@ -286,8 +254,6 @@ func (c *Client) CollectionRevision(ctx context.Context, name string) (string, e
 	return properties.Revision, nil
 }
 
-// CollectionCount returns Arango's collection cardinality metadata without
-// scanning its documents.
 func (c *Client) CollectionCount(ctx context.Context, name string) (int64, error) {
 	if err := c.checkOpen(); err != nil {
 		return 0, err
@@ -368,11 +334,6 @@ func queryRows(ctx context.Context, queryer driver.DatabaseQuery, query string, 
 }
 
 func queryRowsWithOptions(ctx context.Context, queryer driver.DatabaseQuery, query string, options *driver.QueryOptions, visit RowVisitor, closeTimeout time.Duration) (resultErr error) {
-	// The error boundary is the one classification point for every row-query
-	// entry path (ordinary, max-runtime, and transaction callbacks). It is
-	// registered first so it runs last: by then the cursor-close join has
-	// produced the final chain, and unrecognized errors (visitor errors,
-	// context sentinels, foreign failures) pass through byte-identical.
 	defer func() { resultErr = translateQueryErrorAtSeam(resultErr) }()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -434,9 +395,6 @@ func (c *Client) CollectionExists(ctx context.Context, name string) (bool, error
 	return c.db.CollectionExists(ctx, name)
 }
 
-// ExecuteAQL runs a write/query statement and drains its cursor. It is kept
-// deliberately small so durable registries can perform compare-and-swap
-// updates without exposing the Arango driver through their public APIs.
 func (c *Client) ExecuteAQL(ctx context.Context, query string, bindVars map[string]interface{}) error {
 	if err := c.checkOpen(); err != nil {
 		return err
@@ -458,12 +416,6 @@ func (c *Client) ExecuteAQL(ctx context.Context, query string, bindVars map[stri
 	return nil
 }
 
-// Close is terminal: it releases the owned transport (shared by the driver
-// connection and the raw HTTP client) and puts the Client into a closed
-// state in which every subsequent operation fails with ErrClientClosed
-// without reaching the server. Close is safe to call more than once;
-// repeated calls are no-ops returning nil. The ctx parameter is accepted
-// for interface stability; the release is synchronous.
 func (c *Client) Close(ctx context.Context) error {
 	if c == nil {
 		return nil

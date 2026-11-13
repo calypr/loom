@@ -201,9 +201,6 @@ func TestPhysicalClickHousePrefixDispatchesBothBackendsOnSharedContract(t *testi
 }
 
 func TestPhysicalClickHousePrefixRefusesRestrictedPostgreSQLPrefix(t *testing.T) {
-	// The composed PostgreSQL renderer has no registered bound authorization
-	// path column, so a restricted PostgreSQL-source prefix must fail closed
-	// at IR validation instead of rendering rows without reapplied scope.
 	prefix := PhysicalClickHousePrefix{
 		SourceBackend: PhysicalPrefixSourcePostgreSQL, StageID: "final_stage", AuthScopeMode: "restricted",
 		AuthResourcePaths: []string{"/programs/p1"}, IncludeAuthResourcePath: true,
@@ -219,12 +216,6 @@ func TestPhysicalClickHousePrefixRefusesRestrictedPostgreSQLPrefix(t *testing.T)
 }
 
 func TestPhysicalClickHousePrefixPostgreSQLScopeGateIsAnAllowlist(t *testing.T) {
-	// The PostgreSQL gate refuses unless AuthScopeMode is the literal
-	// "unrestricted". A non-canonical variant of restricted is still
-	// restricted semantics per validateShared (binds carry an exact non-empty
-	// path set with auth_resource_paths_unrestricted false), so it must be
-	// refused by the PostgreSQL gate itself — never by falling through to a
-	// downstream check. Pin every non-canonical variant here.
 	for _, mode := range []string{"Restricted", "RESTRICTED", " restricted", "restricted ", "restricted\u00a0", ""} {
 		t.Run("mode="+strconv.Quote(mode), func(t *testing.T) {
 			prefix := PhysicalClickHousePrefix{

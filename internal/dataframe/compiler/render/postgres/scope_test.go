@@ -1,36 +1,5 @@
 package postgres
 
-// pg-sql-02: canonical scope enforcement, asserted twice over.
-//
-// Offline: golden predicate literals and value-identical ordered arguments
-// for the resource and edge scope mappings in every auth mode (restricted,
-// explicitly unrestricted, deny-all empty restricted set), typed fail-closed
-// refusals for every defective scope bind before a single parameter is
-// bound, proof that scope values never become SQL text, and a wiring probe
-// that the assembled traversal statement carries the exact canonical edge
-// and target scope fragments. The statement-shape goldens themselves stay
-// owned by root_scan_test.go and render_test.go; nothing here re-pins them.
-//
-// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — control.Open/Ping
-// refuses any other major, and every fixture test acquires its pool through
-// it): each test owns one pgsq02_it_* database and one owned schema,
-// migrates through the real pg-store-02 runner (NewMigrationRunner merges
-// the registered sources and sorts them by version,
-// internal/backends/postgres/internal/store/migrate.go:385), stores literal rows through the
-// real pg-store-04/05 repositories, executes the rendered statement with its
-// ordered driver arguments, and compares literal rows against a hand-written
-// direct-SQL witness. The acceptance tuple rule is proven with the same
-// resource ids live in two projects and two generations; restricted scopes
-// return exactly the authorized paths; deny-all reads zero rows from both
-// the root and the edge path; guard-drop probes prove every emitted
-// predicate (root and edge) is load-bearing; named-constraint refusals prove
-// the database, not the renderer, arbitrates scope-column integrity; and two
-// distinct real server connections (pg_backend_pid proven different) read
-// identical literal rows, so enforcement is a property of the statement,
-// not of any session. TestZZNoLeftoverPgSQ02Resources audits that nothing
-// under the pgsq02_it_* prefix survives, scoped to this ticket's own prefix
-// so sibling slices may run their fixtures concurrently.
-
 import (
 	"context"
 	"encoding/json"
@@ -52,8 +21,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// pgsq02ScopePlan builds a scope-bind-only plan for exercising the scope
-// module directly; the fragment tests never need operations.
 func pgsq02ScopePlan(project, generation string, paths []string, unrestricted bool) ir.PhysicalPlan {
 	return ir.PhysicalPlan{
 		Version: 1,
@@ -81,12 +48,6 @@ func pgsq02ScopeRenderer(t *testing.T, plan ir.PhysicalPlan) *planRenderer {
 	}
 	return r
 }
-
-// ---------------------------------------------------------------------------
-// Golden predicate literals: this is the surface the root/target join and
-// the edge join (pg-sql-06, which depends on this ticket) build on. Drift
-// here breaks these literals on purpose.
-// ---------------------------------------------------------------------------
 
 func TestScopeResourcePredicateGoldenRestricted(t *testing.T) {
 	r := pgsq02ScopeRenderer(t, pgsq02ScopePlan("pgsq02-proj-a", "gen-1",
@@ -123,8 +84,6 @@ func TestScopeResourcePredicateGoldenRestricted(t *testing.T) {
 }
 
 func TestScopeResourcePredicateGoldenUnrestricted(t *testing.T) {
-	// Explicit unrestricted mode adds no auth predicate at all, and the
-	// empty generation still binds the legacy namespace literally.
 	r := pgsq02ScopeRenderer(t, pgsq02ScopePlan("pgsq02-proj-a", "", nil, true))
 	typeIndex := r.textParameter("Patient", "text:Patient")
 
@@ -147,9 +106,6 @@ func TestScopeResourcePredicateGoldenUnrestricted(t *testing.T) {
 }
 
 func TestScopeDenyAllKeepsAuthClauseWithEmptyJSONArray(t *testing.T) {
-	// Deny-all must never widen: an empty or nil restricted set keeps the
-	// auth predicate present and binds the JSON empty array literally — not
-	// a SQL or JSON null, which would error or widen at execution.
 	for name, paths := range map[string][]string{"empty": {}, "nil": nil} {
 		r := pgsq02ScopeRenderer(t, pgsq02ScopePlan("pgsq02-proj-a", "gen-1", paths, false))
 		const want = `e1."project" = $1 AND e1."dataset_generation" = $2` +
@@ -171,10 +127,6 @@ func TestScopeDenyAllKeepsAuthClauseWithEmptyJSONArray(t *testing.T) {
 }
 
 func TestScopeEdgePredicateGoldenRestrictedAndUnrestricted(t *testing.T) {
-	// The edge row carries the same canonical scope as a resource row, over
-	// the edge table's own columns, with no traversal-payload clauses: an
-	// edge outside project, generation, or the authorized path set never
-	// joins, whatever its endpoints look like.
 	restricted := pgsq02ScopeRenderer(t, pgsq02ScopePlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient"}, false))
 	const wantRestricted = `e1."project" = $1` +
 		` AND e1."dataset_generation" = $2` +
@@ -194,20 +146,11 @@ func TestScopeEdgePredicateGoldenRestrictedAndUnrestricted(t *testing.T) {
 	}
 }
 
-// pgsq02DeniedPlan is the canonical deny state: the same plan with the
-// fifth bind bound false instead of the canonical true.
 func pgsq02DeniedPlan(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	plan.BindVars[scopeAllowedBind] = false
 	return plan
 }
 
-// TestScopeAllowedFalseMapsToLiteralZeroRowPredicate pins the deny mapping:
-// a plan with scope_allowed bound false keeps every canonical conjunct and
-// closes each row source's chain with a literal FALSE — root and edge,
-// restricted and unrestricted. The deny is a shape, never data: it adds no
-// parameter (the arguments are exactly the allowed render's) and it never
-// replaces or widens the auth clause. The true side is proven unchanged: an
-// allowed plan emits no deny token at all.
 func TestScopeAllowedFalseMapsToLiteralZeroRowPredicate(t *testing.T) {
 	restricted := pgsq02ScopeRenderer(t, pgsq02DeniedPlan(
 		pgsq02ScopePlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient", "FHIR/Specimen"}, false)))
@@ -225,9 +168,6 @@ func TestScopeAllowedFalseMapsToLiteralZeroRowPredicate(t *testing.T) {
 	if got := restricted.scopedEdgePredicate("e1"); got != wantDeniedEdge {
 		t.Fatalf("denied restricted edge predicate =\n%s\nwant\n%s", got, wantDeniedEdge)
 	}
-	// The deny maps to a predicate shape, not a parameter: project,
-	// generation, auth array, and resource type only — never a boolean
-	// argument, and the auth array stays the exact authorized set.
 	if len(restricted.args) != 4 {
 		t.Fatalf("denied scope must bind exactly the allowed scope's parameters; args = %#v", restricted.args)
 	}
@@ -240,7 +180,6 @@ func TestScopeAllowedFalseMapsToLiteralZeroRowPredicate(t *testing.T) {
 		t.Fatalf("denied auth array = %#v, want the exact authorized set kept", restricted.args[2])
 	}
 
-	// Explicit unrestricted mode keeps its no-auth shape and still denies.
 	free := pgsq02ScopeRenderer(t, pgsq02DeniedPlan(pgsq02ScopePlan("pgsq02-proj-a", "", nil, true)))
 	freeType := free.textParameter("Patient", "text:Patient")
 	const wantDeniedFree = `r0."project" = $1 AND r0."dataset_generation" = $2` +
@@ -252,9 +191,6 @@ func TestScopeAllowedFalseMapsToLiteralZeroRowPredicate(t *testing.T) {
 		t.Fatalf("denied unrestricted mode must stay auth-predicate-free: %s", free.scopedEdgePredicate("e1"))
 	}
 
-	// Deny-all (empty restricted set) keeps its empty-array ANY probe and
-	// gains the deny conjunct — the two zero-row states compose, neither
-	// replaces the other.
 	denyAll := pgsq02ScopeRenderer(t, pgsq02DeniedPlan(pgsq02ScopePlan("pgsq02-proj-a", "gen-1", nil, false)))
 	if got := denyAll.scopedEdgePredicate("e1"); got != wantDeniedEdge {
 		t.Fatalf("denied deny-all edge predicate =\n%s\nwant\n%s", got, wantDeniedEdge)
@@ -263,7 +199,6 @@ func TestScopeAllowedFalseMapsToLiteralZeroRowPredicate(t *testing.T) {
 		t.Fatalf("denied deny-all auth value = %#v, want JSON empty array kept", denyAll.args[2])
 	}
 
-	// The true side is untouched: the allowed render carries no deny token.
 	allowed := pgsq02ScopeRenderer(t, pgsq02ScopePlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient"}, false))
 	if strings.Contains(allowed.scopedResourcePredicate("r0", typeIndex), "FALSE") ||
 		strings.Contains(allowed.scopedEdgePredicate("e1"), "FALSE") {
@@ -271,16 +206,6 @@ func TestScopeAllowedFalseMapsToLiteralZeroRowPredicate(t *testing.T) {
 	}
 }
 
-// TestScopeAllowedFalseIsWiredIntoEveryRowSource proves the assembled
-// statements carry the deny in all three row sources — root WHERE, edge
-// lateral WHERE, and reached-target ON — with byte-identical ordered
-// arguments to the allowed render, and that the registered root-scan slice
-// denies too. (With pg-sql-06 the edge and reached-target chains live
-// inside the child subquery of the OPTIONAL traversal LEFT JOIN LATERAL:
-// the edge chain closes the lateral's WHERE, the reached-target chain
-// stays in its INNER JOIN ON. The chain contents pinned here are
-// byte-identical to the pre-lateral fragments; only the connectors and
-// aliases follow the registered join rework in traversal.go.)
 func TestScopeAllowedFalseIsWiredIntoEveryRowSource(t *testing.T) {
 	plan := pgsq02TraversalPlanForScope("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient", "FHIR/Specimen"}, false,
 		"Patient", "has-specimen", "Specimen")
@@ -299,16 +224,12 @@ func TestScopeAllowedFalseIsWiredIntoEveryRowSource(t *testing.T) {
 		t.Fatalf("denied args drifted from the allowed render: %#v vs %#v", denied.Args, allowed.Args)
 	}
 	for _, wantFragment := range []string{
-		// Root row WHERE closes with the deny.
 		` WHERE r0."project" = $1 AND r0."dataset_generation" = $2` +
 			` AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND r0."resource_type" = $4 AND FALSE`,
-		// Edge lateral WHERE carries the deny before the traversal payload.
 		` WHERE e1."project" = $1 AND e1."dataset_generation" = $2` +
 			` AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND FALSE AND e1."label" = $5`,
-		// Reached-target row ON carries it, after the type predicate and
-		// before the occurrence-correlation join.
 		` ON x1."project" = $1 AND x1."dataset_generation" = $2` +
 			` AND x1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND x1."resource_type" = $6 AND FALSE AND x1."logical_id" = e1."target_logical_id"`,
@@ -321,7 +242,6 @@ func TestScopeAllowedFalseIsWiredIntoEveryRowSource(t *testing.T) {
 		t.Fatalf("deny conjunct count = %d, want 3 (root, edge, target):\n%s", count, denied.SQL)
 	}
 
-	// The registered root-scan slice denies through the same gate.
 	root := pgsq02RootPlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient"}, false, "Patient", "logical_id")
 	deniedRoot, err := RenderRootScan(pgsq02DeniedPlan(root), mustBinding(t))
 	if err != nil {
@@ -333,11 +253,6 @@ func TestScopeAllowedFalseIsWiredIntoEveryRowSource(t *testing.T) {
 		t.Fatalf("denied root-scan statement missing its deny conjunct:\n%s", deniedRoot.SQL)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Fail-closed scope loading: every defective bind is refused with the typed
-// sentinel before a single parameter is bound.
-// ---------------------------------------------------------------------------
 
 func TestScopeLoadRefusesEveryDefectiveBindBeforeBindingAnything(t *testing.T) {
 	for _, probe := range []struct {
@@ -372,8 +287,6 @@ func TestScopeLoadRefusesEveryDefectiveBindBeforeBindingAnything(t *testing.T) {
 		if !errors.Is(err, ErrInvalidPostgresPlanScope) {
 			t.Fatalf("%s: error = %v, want ErrInvalidPostgresPlanScope", probe.desc, err)
 		}
-		// Refusal happens before binding: a refused scope never strands a
-		// parameter (which would become an unreferenced placeholder hole).
 		if len(r.args) != 0 {
 			t.Fatalf("%s: refused scope still bound %d parameter(s): %#v", probe.desc, len(r.args), r.args)
 		}
@@ -384,8 +297,6 @@ func TestScopeLoadRefusesEveryDefectiveBindBeforeBindingAnything(t *testing.T) {
 }
 
 func TestScopeRendererEntryRefusesDefectiveScopeWithNoSQL(t *testing.T) {
-	// The renderer entry points propagate the typed sentinel and produce no
-	// statement: a defective scope can never reach a driver.
 	plan := pgsq02ScopePlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient"}, false)
 	delete(plan.BindVars, authUnrestrictedBind)
 	plan.Operations = []ir.PhysicalOperation{
@@ -406,10 +317,6 @@ func TestScopeRendererEntryRefusesDefectiveScopeWithNoSQL(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Parameterized predicates: scope values are driver data only.
-// ---------------------------------------------------------------------------
-
 func TestScopeValuesNeverBecomeSQLTextAndRenderingIsDeterministic(t *testing.T) {
 	hostileProject := `pg'; DROP TABLE fhir_resource; -- "$1`
 	hostileGeneration := "gen-\"2\"\\$2"
@@ -426,7 +333,6 @@ func TestScopeValuesNeverBecomeSQLTextAndRenderingIsDeterministic(t *testing.T) 
 			t.Fatalf("scope value %q leaked into SQL text: %s", leaked, rendered.SQL)
 		}
 	}
-	// The scope values are present exactly as ordered arguments instead.
 	if len(rendered.Args) < 3 {
 		t.Fatalf("scope arguments missing: %#v", rendered.Args)
 	}
@@ -441,19 +347,12 @@ func TestScopeValuesNeverBecomeSQLTextAndRenderingIsDeterministic(t *testing.T) 
 		t.Fatalf("auth argument = %#v", got)
 	}
 
-	// Deterministic: the same plan renders byte-identical SQL and
-	// value-identical arguments every time.
 	second, err := RenderPhysicalPlan(plan, mustBinding(t))
 	if err != nil || second.SQL != rendered.SQL || !reflect.DeepEqual(second.Args, rendered.Args) {
 		t.Fatalf("second render drifted: %v", err)
 	}
 }
 
-// TestScopeFragmentsAreWiredIntoAssembledStatements is the delegation probe:
-// the assembled traversal statement must contain the canonical edge and
-// target scope fragments exactly as the scope module defines them, so the
-// renderer cannot silently diverge from the single mapping. It pins the
-// fragments, not the statement shape (render_test.go owns that golden).
 func TestScopeFragmentsAreWiredIntoAssembledStatements(t *testing.T) {
 	plan := pgsq02TraversalPlanForScope("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient", "FHIR/Specimen"}, false,
 		"Patient", "has-specimen", "Specimen")
@@ -462,18 +361,12 @@ func TestScopeFragmentsAreWiredIntoAssembledStatements(t *testing.T) {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}
 	for _, wantFragment := range []string{
-		// Edge row: canonical scope over the edge table's own columns,
-		// closing the child subquery's WHERE (traversal.go lateral body).
 		` WHERE e1."project" = $1 AND e1."dataset_generation" = $2` +
 			` AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND e1."label" = $5`,
-		// Reached-target row: the same canonical chain over the resource
-		// table (aliased x1 inside the child subquery), followed by the
-		// occurrence-correlation join.
 		` ON x1."project" = $1 AND x1."dataset_generation" = $2` +
 			` AND x1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND x1."resource_type" = $6 AND x1."logical_id" = e1."target_logical_id"`,
-		// Root row: canonical chain in WHERE, before projection.
 		` WHERE r0."project" = $1 AND r0."dataset_generation" = $2` +
 			` AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND r0."resource_type" = $4`,
@@ -484,9 +377,6 @@ func TestScopeFragmentsAreWiredIntoAssembledStatements(t *testing.T) {
 	}
 }
 
-// pgsq02TraversalPlanForScope builds ROOT_SCAN -> one depth-one native
-// outbound traversal -> RETURN over logical ids, carrying exactly the given
-// scope binds. Used by the offline probes here and the live edge fixtures.
 func pgsq02TraversalPlanForScope(project, generation string, paths []string, unrestricted bool,
 	rootType, label, targetType string) ir.PhysicalPlan {
 	plan := pgsq02ScopePlan(project, generation, paths, unrestricted)
@@ -509,13 +399,6 @@ func pgsq02TraversalPlanForScope(project, generation string, paths []string, unr
 	return plan
 }
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 fixtures. A skip here only keeps unrelated CI lanes
-// green; for this ticket's acceptance the runs below are live, and the
-// report pins it. control.Open Ping-verifies PostgreSQL 18 before any
-// fixture touches it.
-// ---------------------------------------------------------------------------
-
 const (
 	pgsq02ProjectA     = "pgsq02-proj-a"
 	pgsq02ProjectB     = "pgsq02-proj-b"
@@ -531,8 +414,8 @@ var pgsq02ResourceNamePattern = regexp.MustCompile(`^pgsq02_it_[0-9]+_[0-9a-f]+$
 
 type pgsq02Service struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
 	client *control.Client
 	schema string
 	fail   func(step string, err error)
@@ -547,7 +430,6 @@ func newPGSQ02Service(t *testing.T) *pgsq02Service {
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -592,8 +474,6 @@ func newPGSQ02Service(t *testing.T) *pgsq02Service {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -621,8 +501,6 @@ func newPGSQ02Service(t *testing.T) *pgsq02Service {
 		}
 	})
 
-	// control.Open Ping-verifies PostgreSQL 18 and fails otherwise: every
-	// live assertion below is real-PG18 evidence by construction.
 	client, err := control.OpenPool(ctx, control.ClientConfig{
 		DSN:            dsn,
 		MaxConns:       4,
@@ -633,11 +511,6 @@ func newPGSQ02Service(t *testing.T) *pgsq02Service {
 		fail("open pg-store client (requires a live PostgreSQL 18 service)", err)
 	}
 	t.Cleanup(client.Close)
-	// The resource and edge relations arrive through the real pg-store-02
-	// runner over its own embedded sources: NewMigrationRunner merges the
-	// registered sources and sorts them by version
-	// (internal/backends/postgres/internal/store/migrate.go:385), so this fixture needs no
-	// new migration files of its own.
 	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		fail("migrate owned schema", err)
 	}
@@ -715,10 +588,6 @@ func (s *pgsq02Service) runRendered(t *testing.T, rendered command.RenderedPostg
 	return s.run(t, rendered.SQL, args...)
 }
 
-// runOnTwoDistinctConnections executes the same rendered statement on two
-// separately acquired pool connections and proves they are two real server
-// processes: the returned pids must differ. Scope enforcement is thereby
-// shown to be a property of the statement, not of any session.
 func (s *pgsq02Service) runOnTwoDistinctConnections(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) ([][]string, [][]string, int32, int32) {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
@@ -800,20 +669,9 @@ func pgsq02RootPlan(project, generation string, paths []string, unrestricted boo
 	return plan
 }
 
-// TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple is
-// the acceptance fixture: the same resource identity is live in two
-// projects and two generations, and the scoped scan returns only the
-// authorized tuple — exact ordered SQL arguments, every decoy proven
-// stored, every emitted predicate proven load-bearing by a guard-drop
-// probe, and named-constraint refusals proving the database arbitrates
-// scope-column integrity.
 func TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple(t *testing.T) {
 	svc := newPGSQ02Service(t)
-	// Selected tuple, inserted first so its storage identity leads.
 	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Patient", "p-shared", pgsq02PathPatient)
-	// Decoys: same type + logical id in the other project, the other
-	// generation, both, the other resource type, and outside the
-	// authorized path.
 	svc.insertResource(t, pgsq02ProjectB, pgsq02GenOne, "Patient", "p-shared", pgsq02PathPatient)
 	svc.insertResource(t, pgsq02ProjectA, pgsq02GenTwo, "Patient", "p-shared", pgsq02PathPatient)
 	svc.insertResource(t, pgsq02ProjectB, pgsq02GenTwo, "Patient", "p-shared", pgsq02PathPatient)
@@ -827,7 +685,6 @@ func TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple(t *tes
 		t.Fatalf("RenderRootScan: %v", err)
 	}
 
-	// Exact ordered arguments, asserted before execution.
 	wantArgs := []command.PostgreSQLParameter{
 		{Type: command.PostgreSQLParameterText, Value: pgsq02ProjectA},
 		{Type: command.PostgreSQLParameterText, Value: pgsq02GenOne},
@@ -843,7 +700,6 @@ func TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple(t *tes
 		t.Fatalf("scoped scan rows = %v, want exactly the authorized tuple %v", got, want)
 	}
 
-	// Hand-written direct-SQL witness with the literals inline.
 	witness := svc.run(t,
 		`SELECT project, dataset_generation, resource_type, logical_id, auth_resource_path`+
 			` FROM "`+svc.schema+`"."fhir_resource"`+
@@ -854,8 +710,6 @@ func TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple(t *tes
 		t.Fatalf("witness rows = %v, want %v", witness, want)
 	}
 
-	// Non-vacuity: every decoy is really stored, so exclusion is the scope
-	// chain doing work, not an empty database.
 	for _, probe := range []struct {
 		desc, sql string
 		args      []any
@@ -872,10 +726,6 @@ func TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple(t *tes
 		}
 	}
 
-	// Guard-drop probes: dropping each emitted predicate one at a time, in
-	// hand-written SQL over the same scope, must admit exactly its decoy.
-	// Each probe numbers its placeholders contiguously and passes exactly
-	// that many arguments.
 	type probe struct {
 		desc     string
 		sql      string
@@ -912,9 +762,6 @@ func TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple(t *tes
 		}
 	}
 
-	// The database, not the renderer, arbitrates scope-column integrity:
-	// the natural identity and the scope-shaped CHECK refuse their exact
-	// named cases.
 	duplicateInsert := `INSERT INTO "` + svc.schema + `".fhir_resource (project, dataset_generation, resource_type, logical_id, auth_resource_path) VALUES ($1,$2,$3,$4,$5)`
 	svc.expectRefused(t, duplicateInsert, "23505", "fhir_resource_natural_identity_ux",
 		pgsq02ProjectA, pgsq02GenOne, "Patient", "p-shared", pgsq02PathPatient)
@@ -922,22 +769,12 @@ func TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple(t *tes
 		"", pgsq02GenOne, "Patient", "ck-project", pgsq02PathPatient)
 }
 
-// TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge proves the
-// authorization half of the acceptance: a restricted scope includes exactly
-// the authorized paths (root rows and edge occurrences alike), and deny-all
-// (the empty restricted set) reads zero rows through both the root path and
-// the edge path, with direct-SQL witnesses showing every excluded row and
-// occurrence really stored. Two distinct real server connections read
-// identical literal rows.
 func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 	svc := newPGSQ02Service(t)
 	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Patient", "sp-1", pgsq02PathPatient)
 	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Specimen", "st-allow", pgsq02PathSpecimen)
 	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Specimen", "st-hidden", pgsq02PathConf)
 	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Specimen", "st-off", pgsq02PathSpecimen)
-	// e1 joins (both endpoints authorized); e2 is excluded by its target's
-	// path; e3 is excluded by the occurrence's own path although both its
-	// endpoints are authorized.
 	svc.insertEdge(t, pgsq02ProjectA, pgsq02GenOne, pgsq02PathPatient, "Patient", "sp-1", "Specimen", "st-allow", "specimen[0]", 0)
 	svc.insertEdge(t, pgsq02ProjectA, pgsq02GenOne, pgsq02PathPatient, "Patient", "sp-1", "Specimen", "st-hidden", "specimen[1]", 0)
 	svc.insertEdge(t, pgsq02ProjectA, pgsq02GenOne, pgsq02PathConf, "Patient", "sp-1", "Specimen", "st-off", "specimen[2]", 0)
@@ -945,7 +782,6 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 	binding := bindingFor(t, svc.schema)
 	allowed := []string{pgsq02PathPatient, pgsq02PathSpecimen}
 
-	// (a) Restricted root scans read exactly the authorized paths.
 	patients, err := RenderRootScan(pgsq02RootPlan(pgsq02ProjectA, pgsq02GenOne, allowed, false, "Patient", "logical_id"), binding)
 	if err != nil {
 		t.Fatalf("restricted patient scan: %v", err)
@@ -962,8 +798,6 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 		t.Fatalf("restricted specimen rows = %v, want exactly %v", got, wantVisible)
 	}
 
-	// (b) Explicit unrestricted mode sees the excluded path too: the miss
-	// above was authorization, not an empty store.
 	unrestricted, err := RenderRootScan(pgsq02RootPlan(pgsq02ProjectA, pgsq02GenOne, nil, true, "Specimen", "logical_id"), binding)
 	if err != nil {
 		t.Fatalf("unrestricted specimen scan: %v", err)
@@ -972,8 +806,6 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 		t.Fatalf("unrestricted specimen rows = %v, want every stored path", got)
 	}
 
-	// (c) Deny-all root: zero rows, never a widening, with the argument
-	// literally the JSON empty array and the rows proven stored.
 	for _, resourceType := range []string{"Patient", "Specimen"} {
 		denyAll, err := RenderRootScan(pgsq02RootPlan(pgsq02ProjectA, pgsq02GenOne, []string{}, false, resourceType, "logical_id"), binding)
 		if err != nil {
@@ -993,7 +825,6 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 		}
 	}
 
-	// (d) Restricted edge traversal reads exactly the authorized route.
 	plan := pgsq02TraversalPlanForScope(pgsq02ProjectA, pgsq02GenOne, allowed, false, "Patient", pgsq02Label, "Specimen")
 	rendered, err := RenderPhysicalPlan(plan, binding)
 	if err != nil {
@@ -1015,8 +846,6 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 		t.Fatalf("restricted traversal rows = %v, want exactly %v", got, wantRoute)
 	}
 
-	// (e) Deny-all edge path: zero rows although every endpoint and every
-	// occurrence is stored.
 	denyEdge := pgsq02TraversalPlanForScope(pgsq02ProjectA, pgsq02GenOne, []string{}, false, "Patient", pgsq02Label, "Specimen")
 	denyRendered, err := RenderPhysicalPlan(denyEdge, binding)
 	if err != nil {
@@ -1034,10 +863,6 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 		t.Fatalf("edge witness must show all three occurrences stored: %v", storedEdges)
 	}
 
-	// (f) Guard-drop probes over the assembled join: dropping the edge
-	// row's own auth predicate admits e3 (authorized endpoints, forbidden
-	// occurrence path); dropping the target's auth predicate admits e2.
-	// Either drop changing nothing would mean the predicate is decoration.
 	edgeJoin := `SELECT r0.logical_id, r1.logical_id FROM "` + svc.schema + `".fhir_resource r0` +
 		` JOIN "` + svc.schema + `".fhir_edge_occurrence e ON `
 	edgeScope := `e.project=$1 AND e.dataset_generation=$2 AND e.auth_resource_path = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
@@ -1069,9 +894,6 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 		}
 	}
 
-	// (g) Statement, not session: two distinct real server connections
-	// (pg_backend_pid proven different) read identical literal rows for
-	// both the authorized route and deny-all.
 	first, second, pid1, pid2 := svc.runOnTwoDistinctConnections(t, rendered)
 	if pid1 == pid2 {
 		t.Fatalf("the two connections were the same server process: pg_backend_pid %d", pid1)
@@ -1087,8 +909,6 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 		t.Fatalf("deny-all read rows on a dedicated connection: %v / %v", denyFirst, denySecond)
 	}
 
-	// (h) The database arbitrates occurrence-scope integrity with its exact
-	// named constraints.
 	duplicateEdge := `INSERT INTO "` + svc.schema + `".fhir_edge_occurrence (project, dataset_generation, auth_resource_path, label,` +
 		` source_resource_type, source_logical_id, target_resource_type, target_logical_id, source_path, source_ordinal)` +
 		` VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
@@ -1098,16 +918,11 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 		"", pgsq02GenOne, pgsq02PathPatient, pgsq02Label, "Patient", "sp-1", "Specimen", "st-allow", "specimen[1]", int64(0))
 }
 
-// TestPGSQ02EdgeIdentityAcrossScopesStaysIsolated stores one edge identity
-// (label plus both endpoint identities) live in all four project/generation
-// combinations and shows the scoped traversal reads exactly the authorized
-// occurrence: the edge row's own project and dataset_generation predicates
-// are load-bearing, not the endpoint identities.
 func TestPGSQ02EdgeIdentityAcrossScopesStaysIsolated(t *testing.T) {
 	svc := newPGSQ02Service(t)
 	type scope struct{ project, generation string }
 	scopes := []scope{
-		{pgsq02ProjectA, pgsq02GenOne}, // the authorized one, inserted first
+		{pgsq02ProjectA, pgsq02GenOne},
 		{pgsq02ProjectB, pgsq02GenOne},
 		{pgsq02ProjectA, pgsq02GenTwo},
 		{pgsq02ProjectB, pgsq02GenTwo},
@@ -1120,8 +935,6 @@ func TestPGSQ02EdgeIdentityAcrossScopesStaysIsolated(t *testing.T) {
 		svc.insertEdge(t, s.project, s.generation, pgsq02PathPatient, "Patient", "p-src", "Specimen", "p-tgt", "specimen[0]", 0)
 	}
 
-	// Non-vacuity: all four copies of both endpoints and the occurrence are
-	// really stored.
 	for _, pair := range []struct {
 		sql    string
 		args   []any
@@ -1159,9 +972,6 @@ func TestPGSQ02EdgeIdentityAcrossScopesStaysIsolated(t *testing.T) {
 		t.Fatalf("scoped traversal over four live scopes = %v, want exactly the authorized occurrence %v", got, want)
 	}
 
-	// Guard-drop probes on the join. Each drops exactly one canonical
-	// predicate over the same stored data and must admit exactly the extra
-	// copy it unguards; projection carries both projects to distinguish.
 	edgeJoin := `SELECT r0.logical_id, r0.project, r1.project, r1.logical_id FROM "` + svc.schema + `".fhir_resource r0` +
 		` JOIN "` + svc.schema + `".fhir_edge_occurrence e ON `
 	targetPrefix := ` JOIN "` + svc.schema + `".fhir_resource r1 ON `
@@ -1199,8 +1009,6 @@ func TestPGSQ02EdgeIdentityAcrossScopesStaysIsolated(t *testing.T) {
 		}
 	}
 
-	// Named-constraint refusals prove the database arbitrates the scope
-	// columns of both relations, independently of the renderer.
 	duplicateEdge := `INSERT INTO "` + svc.schema + `".fhir_edge_occurrence (project, dataset_generation, auth_resource_path, label,` +
 		` source_resource_type, source_logical_id, target_resource_type, target_logical_id, source_path, source_ordinal)` +
 		` VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
@@ -1213,14 +1021,6 @@ func TestPGSQ02EdgeIdentityAcrossScopesStaysIsolated(t *testing.T) {
 		"", pgsq02GenOne, "Patient", "ck-project", pgsq02PathPatient)
 }
 
-// TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge is the live witness
-// for the canonical deny: with scope_allowed bound false, the same stored
-// data the authorized renders read returns zero rows through both the root
-// path and the edge path. The control renders (scope_allowed true) read the
-// route first, every hidden row and occurrence is proven stored, the denied
-// renders carry byte-identical ordered arguments to the allowed ones (the
-// deny is the predicate shape, not data), and the zero-row edge read holds
-// on two distinct real server connections.
 func TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge(t *testing.T) {
 	svc := newPGSQ02Service(t)
 	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Patient", "sp-1", pgsq02PathPatient)
@@ -1231,8 +1031,6 @@ func TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge(t *testing.T) {
 	binding := bindingFor(t, svc.schema)
 	authorized := []string{pgsq02PathPatient, pgsq02PathSpecimen}
 
-	// Control first: with the canonical scope_allowed=true the rows are
-	// visible, so every zero-row read below is the deny doing the work.
 	rootAllowed, err := RenderRootScan(pgsq02RootPlan(pgsq02ProjectA, pgsq02GenOne, authorized, false,
 		"Patient", "logical_id"), binding)
 	if err != nil {
@@ -1252,8 +1050,6 @@ func TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge(t *testing.T) {
 		t.Fatalf("allowed traversal rows = %v, want %v", got, wantRoute)
 	}
 
-	// Denied root path: zero rows with byte-identical ordered arguments —
-	// the deny is a predicate shape, never a parameter.
 	deniedRoot, err := RenderRootScan(pgsq02DeniedPlan(pgsq02RootPlan(pgsq02ProjectA, pgsq02GenOne, authorized, false,
 		"Patient", "logical_id")), binding)
 	if err != nil {
@@ -1266,8 +1062,6 @@ func TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge(t *testing.T) {
 		t.Fatalf("denied root scan read %v, want zero rows", got)
 	}
 
-	// Denied edge path: zero rows although root, target, and occurrence are
-	// stored and readable by the control above.
 	deniedEdge, err := RenderPhysicalPlan(pgsq02DeniedPlan(
 		pgsq02TraversalPlanForScope(pgsq02ProjectA, pgsq02GenOne, authorized, false, "Patient", pgsq02Label, "Specimen")),
 		binding)
@@ -1281,7 +1075,6 @@ func TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge(t *testing.T) {
 		t.Fatalf("denied traversal read %v, want zero rows", got)
 	}
 
-	// Non-vacuity: everything the deny hides is really stored.
 	for _, probe := range []struct {
 		desc, sql string
 		args      []any
@@ -1302,8 +1095,6 @@ func TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge(t *testing.T) {
 		}
 	}
 
-	// Statement, not session: the denied edge route reads zero rows on two
-	// distinct real server connections.
 	first, second, pid1, pid2 := svc.runOnTwoDistinctConnections(t, deniedEdge)
 	if pid1 == pid2 {
 		t.Fatalf("the two deny connections were the same server process: pg_backend_pid %d", pid1)
@@ -1313,15 +1104,9 @@ func TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Zero-leftover audit, scoped to this ticket's own pgsq02_it_* prefix so
-// sibling scope slices may run their fixtures concurrently.
-// ---------------------------------------------------------------------------
-
 func TestZZNoLeftoverPgSQ02Resources(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		// No service was used; nothing can have been created.
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

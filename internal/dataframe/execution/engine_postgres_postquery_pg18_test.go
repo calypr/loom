@@ -1,47 +1,5 @@
 package execution_test
 
-// pg-exec-03 live acceptance battery: Loom post-query values and named-UUID
-// semantics preserved on PostgreSQL rows (check-2: go test
-// ./internal/dataframe/execution -run PostgresPostQuery under
-// LOOM_TEST_POSTGRES_URL against the isolated PostgreSQL 18 service; at the
-// branch point this selector matched zero tests — that RED is the
-// vacuous-suite guard this battery closes).
-//
-// Every leg is production-compiled end to end: an authored recipe.Bundle
-// goes through the real Engine.CompileResolvedBundle (semantic build/resolve
-// and lower) and the selected PostgreSQL compile target renders the
-// parent-tagged command through the canonical command.NewPostgreSQLCommand
-// path; execution streams it onto the real server via the production public
-// facade postgres.NewSourceRows. Fixtures are stored through the production
-// resource repository (control facade) in a schema installed by the
-// production migration runner. No leg hand-builds a lower.CompiledRecipeOutput.
-//
-// The route these legs attest: the PostgreSQL renderer never computes UUIDs
-// in SQL (render/postgres/calls.go registers uuid3/uuid5 as capability
-// gaps), so Loom post-query markers ride stored payload values at
-// schema-validated selector paths, arrive as the json.RawMessage the adapter
-// decodes for jsonb columns, and are materialized by the shared Go
-// materializer (internal/dataframe/execution/postquery.go). Witness literals
-// match named_uuid_test.go and postquery_test.go byte-for-byte; the offline
-// cross-target cell (TestMaterializePostQueryCrossTargetJSONNullEquivalence)
-// proves the Arango and ClickHouse row shapes converge to the same public
-// values, and TestPostgresPostQueryCrossTargetJSONNullConvergence below
-// measures the PostgreSQL end-to-end leg with the same witnesses.
-//
-// Non-vacuity discipline (pg-exec-04 pattern): every refusal has a paired
-// ALIVE control that proceeds on the same fixture; statement counts are
-// taken at the port, never by timing; comparison viability is proven by the
-// mutation-control leg. The full Arango/ClickHouse landmine set is armed on
-// every leg.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec03v1_* and
-// dropped by the test that created them; the TestZZ audit is
-// ownership-scoped to this file's own prefix, and the pre-snapshot baseline
-// is captured before this process creates anything. The rows-package
-// battery owns the distinct verify_exec03v1rw_* prefix (PR #129 review):
-// the packages run as concurrent test binaries, so the escaped-underscore
-// LIKE sweeps never match each other's fixtures.
-
 import (
 	"context"
 	"crypto/rand"
@@ -140,8 +98,6 @@ func exec03pqRandomHex(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
-// exec03pqScrubberFor mirrors the pg-exec-04 credential scrubber: no fatal
-// path may echo any credential-bearing form of the raw service URL.
 func exec03pqScrubberFor(raw string) (func(any) string, func(string)) {
 	secrets := []string{raw}
 	if u, err := url.Parse(raw); err == nil && u.User != nil {
@@ -162,8 +118,6 @@ func exec03pqScrubberFor(raw string) (func(any) string, func(string)) {
 	return scrub, func(s string) { secrets = append(secrets, s) }
 }
 
-// TestExec03pqScrubberHidesCredentialForms pins the scrubber contract
-// offline (never contacts a service).
 func TestExec03pqScrubberHidesCredentialForms(t *testing.T) {
 	raw := "postgres://verify_user:S3cr3t-Pw@db.internal:5432/loomsvc?sslmode=require"
 	scrub, addSecret := exec03pqScrubberFor(raw)
@@ -309,9 +263,6 @@ type exec03pqFixtureRow struct {
 	project, generation, resourceType, logicalID, authPath, payload string
 }
 
-// Post-query marker wires. These are byte-identical to the offline pins in
-// postquery_test.go / named_uuid_test.go; the verifier re-derives the two
-// accepted UUID literals independently (github.com/google/uuid).
 const (
 	exec03pqDNSNamespace = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 
@@ -320,36 +271,21 @@ const (
 	exec03pqUUID5Literal = "21f7f8de-8051-5b89-8680-0195ef798b6a"
 	exec03pqUUID3Literal = "3d813cbb-47fb-32ba-91df-831e1593ac29"
 
-	// Textual namespace derived through MD5 over DNS, name "widgets".
 	exec03pqTextNSWire    = `{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":["www.widgets.com","widgets"]}`
 	exec03pqTextNSLiteral = "c0f58def-a15e-5bfd-928f-ec80a4aa1516"
 
-	// Multi-name concatenation under the parsed DNS namespace.
 	exec03pqConcatMarkerWire = `{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":["6ba7b810-9dad-11d1-80b4-00c04fd430c8","www.","widgets",".com"]}`
 
-	// Nil argument propagates null.
 	exec03pqNilArgWire = `{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":["6ba7b810-9dad-11d1-80b4-00c04fd430c8",null]}`
 
-	// Nested markers: canonical_json over an exact-UUID marker, and a
-	// post-query concat call over a nested marker plus scalars.
 	exec03pqNestedCanonicalWire = `{"__loom_postquery_call":"canonical_json","__loom_postquery_args":[` + exec03pqUUID5Wire + `]}`
 	exec03pqNestedCanonicalWant = `"` + exec03pqUUID5Literal + `"`
 	exec03pqNestedConcatWire    = `{"__loom_postquery_call":"concat","__loom_postquery_args":["x",` + exec03pqUUID3Wire + `,null,42]}`
 	exec03pqNestedConcatWant    = "x" + exec03pqUUID3Literal + "42"
 
-	// Malformed marker SHAPE inside valid JSON (the server accepts it; the
-	// materializer must refuse before publishing the row).
 	exec03pqMalformedMarkerWire = `{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":"nope"}`
 )
 
-// exec03pqAcceptanceFixture is the committed fixture set. Scopes:
-//   - P1/gen-a (marker preview): marker-ada < marker-alan < marker-nested
-//     in the compiled (logical_id, resource_seq) window order.
-//   - P2/gen-b (malformed middle): bad-a, bad-b (malformed marker), bad-c.
-//   - P3/gen-c (nulls and parity): c-01-null, c-02-textns, c-03-concatns,
-//     c-04-nilarg.
-//   - P4/gen-s (full stream): s-1-uuid3, s-2-sibling.
-//   - Intruders under other projects/generations prove scoping.
 func exec03pqAcceptanceFixture() []exec03pqFixtureRow {
 	return []exec03pqFixtureRow{
 		{"P1", "gen-a", "Patient", "marker-ada", "FHIR/Patient", `{"gender":` + exec03pqUUID5Wire + `,"birthDate":"1815-12-10","meta":{"tag":[` + exec03pqUUID3Wire + `,null,1.5]}}`},
@@ -402,7 +338,6 @@ func (s *exec03pqService) countResources(t *testing.T) int64 {
 	return count
 }
 
-// exec03pqCall records one statement through the single source row port.
 type exec03pqCall struct {
 	sql      string
 	args     []command.PostgreSQLParameter
@@ -436,8 +371,6 @@ func (exec03pqInvalidRegistry) LoadRecipeVersion(context.Context, string, string
 	return exec.Entry{}, errors.New("the post-query battery compiles authored bundles only")
 }
 
-// exec03pqForbidArango arms every AQL/Arango/ClickHouse callback as an
-// error landmine: a PostgreSQL-served plan that touches any of them fails.
 func exec03pqForbidArango() dataframeexecution.Config {
 	return dataframeexecution.Config{
 		CompileTarget: compiler.ArangoTarget(),
@@ -491,10 +424,6 @@ func (s *exec03pqService) engine(t *testing.T, recorder *exec03pqRecorder, targe
 	return engine
 }
 
-// exec03pqMarkerBundle is the authored recipe the preview legs compile for
-// real: three fields with schema-validated selectors over Patient (meta is a non-repeated object slot; the identifier array slot stays a registered render gap). No
-// dynamic columns (the PostgreSQL renderer keeps dynamic-column lowering as
-// a typed capability gap — see the refusal leg).
 func exec03pqMarkerBundle() recipe.Bundle {
 	return recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -511,10 +440,6 @@ func exec03pqMarkerBundle() recipe.Bundle {
 	}
 }
 
-// exec03pqStreamBundle carries a declared Identity so the compiled RETURN
-// emits the hidden __loom_row_id projection; OutputStream.Stream (the
-// full-stream and workspace-capture route) then satisfies its stable row
-// identity contract exactly as production callers expect.
 func exec03pqStreamBundle() recipe.Bundle {
 	return recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -551,8 +476,6 @@ func exec03pqCanonicalRows(rows []map[string]any) []string {
 	return out
 }
 
-// chainText renders the full unwrap chain so wrapped refusals can still be
-// asserted on the specifics they name.
 func chainText(err error) string {
 	parts := []string{}
 	for err != nil {
@@ -578,8 +501,6 @@ func exec03pqEqualStrings(got, want []string) bool {
 	return true
 }
 
-// runPreview collects one production-compiled preview and returns the
-// collected rows, the summary, the recorder, and the error.
 func (s *exec03pqService) runPreview(t *testing.T, project, generation string, limit int) ([]map[string]any, dataframeexecution.PreviewSummary, *exec03pqRecorder, error) {
 	t.Helper()
 	recorder := &exec03pqRecorder{s: s}
@@ -596,11 +517,6 @@ func (s *exec03pqService) runPreview(t *testing.T, project, generation string, l
 	return rows, summary, recorder, err
 }
 
-// TestPostgresPostQueryPreviewComputesNamedUUID5 is acceptance 1: Preview
-// computes UUID5(DNS namespace, www.widgets.com) as the pinned literal on
-// a real PostgreSQL row, with the ordered-argument marker array
-// materialized inside the meta object (UUID3 literal, null hole, number)
-// and the non-marker sibling row (ALIVE control) published unchanged.
 func TestPostgresPostQueryPreviewComputesNamedUUID5(t *testing.T) {
 	s := newExec03pqService(t)
 	s.migrate(t)
@@ -622,7 +538,6 @@ func TestPostgresPostQueryPreviewComputesNamedUUID5(t *testing.T) {
 	if want := `{"tag":["` + exec03pqUUID3Literal + `",null,1.5]}`; string(encodedMeta) != want {
 		t.Fatalf("preview meta = %s, want %s", encodedMeta, want)
 	}
-	// ALIVE control: the non-marker sibling published byte-identically.
 	if rows[1]["gender"] != "female" || rows[1]["birthDate"] != "1912-06-23" {
 		t.Fatalf("ALIVE sibling row = %v, want the untouched stored values", rows[1])
 	}
@@ -637,11 +552,6 @@ func TestPostgresPostQueryPreviewComputesNamedUUID5(t *testing.T) {
 	}
 }
 
-// TestPostgresPostQueryStreamComputesNamedUUID3 is acceptance 2: the full
-// stream route (Engine.Run -> OutputStream.Stream, the same materializer
-// call the workspace-capture path shares) computes UUID3 on a real
-// PostgreSQL row. The declared Identity makes the stream carry the
-// production stable-row-identity contract.
 func TestPostgresPostQueryStreamComputesNamedUUID3(t *testing.T) {
 	s := newExec03pqService(t)
 	s.migrate(t)
@@ -674,10 +584,6 @@ func TestPostgresPostQueryStreamComputesNamedUUID3(t *testing.T) {
 	}
 }
 
-// TestPostgresPostQueryNamedUUIDSemanticsParity is acceptance 3: null
-// argument propagates null; textual namespace normalization and
-// multiple-name concatenation match existing Go behavior — measured
-// end-to-end on real PostgreSQL rows.
 func TestPostgresPostQueryNamedUUIDSemanticsParity(t *testing.T) {
 	s := newExec03pqService(t)
 	s.migrate(t)
@@ -689,26 +595,18 @@ func TestPostgresPostQueryNamedUUIDSemanticsParity(t *testing.T) {
 	if len(rows) != 4 {
 		t.Fatalf("rows = %d, want the four P3/gen-c rows", len(rows))
 	}
-	// c-01-null: stored JSON null gender materializes to the untyped nil
-	// public value (presence asserted, value nil).
 	if value, present := rows[0]["gender"]; !present || value != nil {
 		t.Fatalf("JSON null column public value = %#v (present %v), want untyped nil", value, present)
 	}
-	// c-02-textns: textual namespace derived through MD5 over DNS.
 	if rows[1]["gender"] != exec03pqTextNSLiteral {
 		t.Fatalf("textual namespace = %#v, want %s", rows[1]["gender"], exec03pqTextNSLiteral)
 	}
-	// c-03-concatns: multiple name arguments concatenate in order to the
-	// single-name accepted UUID5 witness.
 	if rows[2]["gender"] != exec03pqUUID5Literal {
 		t.Fatalf("multi-name concat = %#v, want %s", rows[2]["gender"], exec03pqUUID5Literal)
 	}
-	// c-04-nilarg: a null argument propagates null, never "<nil>" text.
 	if value, present := rows[3]["gender"]; !present || value != nil {
 		t.Fatalf("nil-argument propagation = %#v (present %v), want untyped nil", value, present)
 	}
-	// ALIVE control inside the same scope: the sibling rows' birthDate
-	// columns are the untouched stored strings.
 	for i, want := range []string{"1900-01-01", "1900-01-02", "1900-01-03", "1900-01-04"} {
 		if rows[i]["birthDate"] != want {
 			t.Fatalf("row %d birthDate = %#v, want %s", i, rows[i]["birthDate"], want)
@@ -716,11 +614,6 @@ func TestPostgresPostQueryNamedUUIDSemanticsParity(t *testing.T) {
 	}
 }
 
-// TestPostgresPostQueryNestedMarkersMaterialize is acceptance 5: nested
-// marker values materialize recursively — canonical_json over an exact
-// UUID marker and concat over a nested UUID3 marker, including a marker
-// nested inside the meta object — and non-marker sibling values are
-// untouched.
 func TestPostgresPostQueryNestedMarkersMaterialize(t *testing.T) {
 	s := newExec03pqService(t)
 	s.migrate(t)
@@ -740,17 +633,12 @@ func TestPostgresPostQueryNestedMarkersMaterialize(t *testing.T) {
 	if want := `{"k":"` + exec03pqNestedConcatWant + `"}`; string(encodedMeta) != want {
 		t.Fatalf("nested meta = %s, want %s", encodedMeta, want)
 	}
-	// ALIVE control: the plain sibling in the same preview.
 	plainMeta, ok := rows[1]["meta"].(map[string]any)
 	if !ok || plainMeta["source"] != "plain" {
 		t.Fatalf("plain meta row = %v", rows[1]["meta"])
 	}
 }
 
-// TestPostgresPostQueryMalformedMarkerFailsBeforeRow is acceptance 4: a
-// malformed marker fails before publishing the affected row — the preview
-// errors, only the preceding row was ever visited, the summary carries no
-// complete marker — with the ALIVE rerun converging on the exact witness.
 func TestPostgresPostQueryMalformedMarkerFailsBeforeRow(t *testing.T) {
 	s := newExec03pqService(t)
 	s.migrate(t)
@@ -768,8 +656,6 @@ func TestPostgresPostQueryMalformedMarkerFailsBeforeRow(t *testing.T) {
 	if summary.RowCount != 1 {
 		t.Fatalf("failed preview RowCount = %d, want the one row published before the failure", summary.RowCount)
 	}
-	// ALIVE control: the same engine kind on the well-formed scope
-	// converges on the exact witness.
 	good, goodSummary, _, err := s.runPreview(t, "P1", "gen-a", 5)
 	if err != nil {
 		t.Fatalf("ALIVE rerun: %s", s.scrub(err))
@@ -782,18 +668,10 @@ func TestPostgresPostQueryMalformedMarkerFailsBeforeRow(t *testing.T) {
 	}
 }
 
-// TestPostgresPostQueryThreeStateValues is acceptance 3's null contract on
-// live rows: SQL NULL (missing stored key extracted by #>) and the JSON
-// null scalar both publish as the untyped nil public value — the
-// adapter-side three-state distinction (nil vs json.RawMessage("null")) is
-// pinned in the rows-package battery (rows_postquery_postgres_test.go).
 func TestPostgresPostQueryThreeStateValues(t *testing.T) {
 	s := newExec03pqService(t)
 	s.migrate(t)
 	s.seed(t, exec03pqAcceptanceFixture())
-	// c-01-null stores gender as JSON null; birthDate is stored, so the
-	// JSON-null path is distinct from a missing key. A missing key reads
-	// SQL NULL from #> and publishes nil identically.
 	recorder := &exec03pqRecorder{s: s}
 	engine := s.engine(t, recorder, s.target)
 	bundle := exec03pqMarkerBundle()
@@ -812,8 +690,6 @@ func TestPostgresPostQueryThreeStateValues(t *testing.T) {
 	if value, present := nullRow["gender"]; !present || value != nil {
 		t.Fatalf("JSON null column public value = %#v (present %v), want untyped nil", value, present)
 	}
-	// meta {"a": null}: the null member stays nil (type identity, not
-	// JSON-text equality).
 	meta, ok := nullRow["meta"].(map[string]any)
 	if !ok {
 		t.Fatalf("meta public shape = %#v, want map[string]any", nullRow["meta"])
@@ -822,7 +698,6 @@ func TestPostgresPostQueryThreeStateValues(t *testing.T) {
 	if !present || value != nil {
 		t.Fatalf("meta null member = %#v (present %v), want untyped nil", value, present)
 	}
-	// SQL NULL leg: a payload without birthDate at all.
 	sqlNullScope := []exec03pqFixtureRow{{"P5", "gen-n", "Patient", "n-1", "FHIR/Patient", `{"gender":"ok"}`}}
 	s.seed(t, sqlNullScope)
 	nullRows, _, _, err := s.runPreview(t, "P5", "gen-n", 5)
@@ -840,13 +715,6 @@ func TestPostgresPostQueryThreeStateValues(t *testing.T) {
 	}
 }
 
-// TestPostgresPostQueryCrossTargetJSONNullConvergence is the live
-// PostgreSQL leg of the ratified cross-target cell: the same JSON-null
-// payload publishes the identical public value measured end to end through
-// the production adapter and PreviewOutput, matching the three-target
-// offline cell TestMaterializePostQueryCrossTargetJSONNullEquivalence
-// (PostgreSQL/Arango/ClickHouse row shapes → identical public values). The
-// wires below are byte-identical to that cell's constants.
 func TestPostgresPostQueryCrossTargetJSONNullConvergence(t *testing.T) {
 	const (
 		genderWire = `null`
@@ -866,8 +734,6 @@ func TestPostgresPostQueryCrossTargetJSONNullConvergence(t *testing.T) {
 	if !summary.Complete || len(rows) != 2 {
 		t.Fatalf("summary %+v rows %v, want two complete rows", summary, rows)
 	}
-	// Same public value the offline Arango/ClickHouse legs produce for the
-	// identical wires: untyped nil, Go string, []any{"a", nil}.
 	if value, present := rows[0]["gender"]; !present || value != nil {
 		t.Fatalf("PostgreSQL leg public value for JSON null = %#v (present %v), want untyped nil", value, present)
 	}
@@ -881,19 +747,11 @@ func TestPostgresPostQueryCrossTargetJSONNullConvergence(t *testing.T) {
 	if _, isString := rows[0]["birthDate"].(string); !isString {
 		t.Fatalf("PostgreSQL leg birthDate has Go type %T, want string", rows[0]["birthDate"])
 	}
-	// ALIVE control: the non-null sibling converges to the string.
 	if rows[1]["gender"] != "female" {
 		t.Fatalf("ALIVE control gender = %#v, want \"female\"", rows[1]["gender"])
 	}
 }
 
-// TestPostgresPostQueryDynamicColumnsRefuseAndMarkersNeedNoDynamicSurface
-// pins the named gap (plan §5.3): dynamic-column lowering emits
-// EXPRESSION_LET, which the v1 PostgreSQL render surface refuses with its
-// typed capability-gap sentinel — so PostgreSQL-served streams never carry
-// a non-empty DynamicChecks set today, and the drift behavior is attested
-// offline through the production materializer on PG-shaped rows. The ALIVE
-// control compiles the identical bundle for the Arango target.
 func TestPostgresPostQueryDynamicColumnsRefuseAndMarkersNeedNoDynamicSurface(t *testing.T) {
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -914,10 +772,6 @@ func TestPostgresPostQueryDynamicColumnsRefuseAndMarkersNeedNoDynamicSurface(t *
 	s.migrate(t)
 	recorder := &exec03pqRecorder{s: s}
 	engine := s.engine(t, recorder, s.target)
-	// The bundle compiles (semantic + lower build the DynamicChecks
-	// metadata); the typed refusal fires where the physical plan renders
-	// for the selected PostgreSQL target — inside stream construction,
-	// before any statement reaches the port.
 	resolved, err := engine.CompileResolvedBundle(s.ctx, bundle, exec03pqBindings("P1", "gen-a"))
 	if err != nil {
 		t.Fatalf("the metadata half of dynamic lowering must still compile: %s", s.scrub(err))
@@ -935,7 +789,6 @@ func TestPostgresPostQueryDynamicColumnsRefuseAndMarkersNeedNoDynamicSurface(t *
 	if recorder.counts() != 0 {
 		t.Fatalf("the refused plan touched the server %d time(s)", recorder.counts())
 	}
-	// ALIVE control: the identical bundle compiles for the Arango target.
 	aqlRecorder := &exec03pqRecorder{s: s}
 	aqlEngine := s.engine(t, aqlRecorder, compiler.ArangoTarget())
 	if _, err := aqlEngine.CompileResolvedBundle(s.ctx, bundle, exec03pqBindings("P1", "gen-a")); err != nil {
@@ -943,10 +796,6 @@ func TestPostgresPostQueryDynamicColumnsRefuseAndMarkersNeedNoDynamicSurface(t *
 	}
 }
 
-// TestPostgresPostQueryMutationControls proves the marker legs die under
-// mutation: comparing the correct collection against flipped goldens must
-// be detected by the same comparison the legs use, and an input flip must
-// break the exact witness (batch law for production-compiled legs).
 func TestPostgresPostQueryMutationControls(t *testing.T) {
 	s := newExec03pqService(t)
 	s.migrate(t)
@@ -999,16 +848,6 @@ func TestPostgresPostQueryMutationControls(t *testing.T) {
 	})
 }
 
-// TestZZPostgresPostQueryZeroLeftoverFixtures is the ownership-scoped
-// audit: every database this file verified into existence must be gone,
-// and no unregistered survivor may remain under this file's own prefix
-// (the rows-package battery owns the distinct verify_exec03v1rw_* prefix
-// so concurrent package runs never sweep each other; PR #129 review).
-// The LIKE pattern is read-only and own-prefix only; cleanup above drops
-// only the exact minted names. The baseline capture is repeated here
-// (idempotent via sync.Once) so running this audit alone with -run still
-// compares against the pre-existing databases instead of an empty
-// baseline, which would flag any healthy concurrent run as survivors.
 func TestZZPostgresPostQueryZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {

@@ -26,17 +26,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-// Every acceptance assertion below runs against a real server: each test
-// creates one uniquely owned pgrecip01v1_it_* database and one owned schema
-// inside it, applies this package's embedded migrations through the real
-// pg-store-02 runner, and asserts literal rows. A skipped required case is
-// a failure for this ticket's acceptance, so the check is run with the
-// service configured; the gate exists only to keep unrelated CI lanes green.
-// No mocks: concurrency is exercised with real concurrent transactions.
-// ---------------------------------------------------------------------------
-
 var pgrecip01v1NameRe = regexp.MustCompile(`^pgrecip01v1_it_[0-9]+_[0-9a-f]+$`)
 
 func testPostgresURL(t *testing.T) string {
@@ -57,17 +46,7 @@ func randomHex(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
-// createdDatabases records every isolated database name this test binary
-// ever created. The zero-leftover audits count exactly these names: the
-// pgrecip01v1_it_* namespace is shared with the sibling recipe/exec/postgres
-// test binary, and pg_database is cluster-wide, so counting the whole
-// prefix would race live fixtures of the other binary whenever go test
-// runs packages in parallel (the default). Auditing the names this binary
-// owns is precise and parallel-safe; the service-database schema check
-// stays namespace-wide because neither binary ever creates a schema in the
-// service database, so it cannot see the other binary's isolated-database
-// schemas.
-var createdDatabases sync.Map // database name -> struct{}{}
+var createdDatabases sync.Map
 
 func snapshotCreatedDatabases() []string {
 	var names []string
@@ -81,8 +60,8 @@ func snapshotCreatedDatabases() []string {
 
 type chainFixture struct {
 	ctx      context.Context
-	admin    *pgxpool.Pool // shared service database
-	iso      *pgxpool.Pool // isolated database
+	admin    *pgxpool.Pool
+	iso      *pgxpool.Pool
 	dbName   string
 	schema   string
 	dsn      string
@@ -91,12 +70,6 @@ type chainFixture struct {
 	fail     func(step string, err error)
 }
 
-// newChainFixture creates one isolated database (pgrecip01v1_it_*) plus one
-// owned schema (pgrecip01v1_it_*) inside it, applies the revision-chain
-// history through the real runner, and registers LIFO cleanups: drop schema,
-// close iso pool, drop database, then a zero-leftover audit scoped to this
-// namespace, then close the admin pool, then cancel the context. Only
-// resources this fixture created are ever dropped.
 func newChainFixture(t *testing.T) *chainFixture {
 	t.Helper()
 	raw := testPostgresURL(t)
@@ -106,9 +79,6 @@ func newChainFixture(t *testing.T) *chainFixture {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string that could appear in a failure
-	// message: the raw service URL, the userinfo, the bare password, and the
-	// rewritten isolated-database DSN appended below.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -133,8 +103,6 @@ func newChainFixture(t *testing.T) *chainFixture {
 		t.Fatalf("%s: %s", step, scrub(err))
 	}
 
-	// Registered first so it runs last: the cleanups below still need a live
-	// context.
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
 
@@ -142,8 +110,6 @@ func newChainFixture(t *testing.T) *chainFixture {
 	if err != nil {
 		fail("connect to test service", err)
 	}
-	// Registered second so it runs second-to-last: the zero-leftover audit
-	// below still needs this admin pool.
 	t.Cleanup(admin.Close)
 
 	dbName := fmt.Sprintf("pgrecip01v1_it_%d_%s", time.Now().UnixNano(), randomHex(t))
@@ -184,8 +150,6 @@ func newChainFixture(t *testing.T) *chainFixture {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -268,8 +232,6 @@ func (f *chainFixture) mustInt64(t *testing.T, query string, args ...any) int64 
 	return n
 }
 
-// mustPgErrorCode runs a statement expected to fail with a specific SQLSTATE
-// and returns the code, failing the test otherwise.
 func (f *chainFixture) mustPgErrorCode(t *testing.T, step, query string, args ...any) string {
 	t.Helper()
 	_, err := f.iso.Exec(f.ctx, query, args...)
@@ -282,10 +244,6 @@ func (f *chainFixture) mustPgErrorCode(t *testing.T, step, query string, args ..
 	}
 	return pgErr.Code
 }
-
-// ---------------------------------------------------------------------------
-// Fixtures for domain values.
-// ---------------------------------------------------------------------------
 
 func bundleFor(name, translationVersion string) recipe.Bundle {
 	return recipe.Bundle{
@@ -328,10 +286,6 @@ func userFault(t *testing.T, err error, want dataframeerrors.ErrorCode) datafram
 	return userErr
 }
 
-// ---------------------------------------------------------------------------
-// Round trip, literals, and head tracking.
-// ---------------------------------------------------------------------------
-
 func TestRevisionRegistryRoundTripAndLiteralRows(t *testing.T) {
 	f := newChainFixture(t)
 	bundle := bundleFor("files", "1")
@@ -354,9 +308,6 @@ func TestRevisionRegistryRoundTripAndLiteralRows(t *testing.T) {
 	}
 	requireRevisionEqual(t, first, list[0], "list")
 
-	// Literal rows: identity columns, head tracking, and payload equality
-	// against the exact bytes the adapter marshals (jsonb equality ignores
-	// formatting only; every member and value must match).
 	if n := f.count(t, "SELECT count(*) FROM "+f.revisionsTable()); n != 1 {
 		t.Fatalf("revision rows = %d, want 1", n)
 	}
@@ -366,9 +317,6 @@ func TestRevisionRegistryRoundTripAndLiteralRows(t *testing.T) {
 	if got := f.mustText(t, "SELECT parent_digest FROM "+f.revisionsTable()+" WHERE project = $1 AND name = $2", "project-a", "files"); got != "" {
 		t.Fatalf("stored parent_digest = %q, want the empty string (Go's missing parent)", got)
 	}
-	// Missing versus JSON-null versus SQL-NULL: the adapter-written payload
-	// omits parentDigest entirely (Go omitempty), and head_digest is a
-	// non-null digest, never the SQL-NULL placeholder, once epoch >= 1.
 	if present := f.mustText(t, "SELECT (payload ? 'parentDigest')::text FROM "+f.revisionsTable()+" WHERE project = $1 AND name = $2", "project-a", "files"); present != "false" {
 		t.Fatalf("payload has parentDigest key = %s, want absent (missing parent)", present)
 	}
@@ -430,17 +378,11 @@ func mustCanonicalDigest(t *testing.T, bundle recipe.Bundle) string {
 	return digest
 }
 
-// ---------------------------------------------------------------------------
-// Parent classification: typed user faults, never orphans.
-// ---------------------------------------------------------------------------
-
 func TestRevisionRegistryRejectsParentForFirstRevision(t *testing.T) {
 	f := newChainFixture(t)
 	_, err := f.registry.Register(f.ctx, "project-a", bundleFor("files", "1"), strings.Repeat("a", 64))
 	userFault(t, err, dataframeerrors.CodeInvalidRequest)
 
-	// The rolled-back transaction leaves nothing behind: not even the
-	// placeholder head row may survive as data.
 	if n := f.count(t, "SELECT count(*) FROM "+f.revisionsTable()); n != 0 {
 		t.Fatalf("revision rows = %d, want 0 (no dangling first revision)", n)
 	}
@@ -454,18 +396,14 @@ func TestRevisionRegistryStaleAndEmptyParentAreTypedStaleCursor(t *testing.T) {
 	first, err := f.registry.Register(f.ctx, "project-a", bundleFor("files", "1"), "")
 	f.fail("register first", err)
 
-	// Empty parent once a head exists: STALE_CURSOR, not retryable, exactly
-	// the Arango adapter's classification (revisions_user_faults parity).
 	_, err = f.registry.Register(f.ctx, "project-a", bundleFor("files", "2"), "")
 	userErr := userFault(t, err, dataframeerrors.CodeStaleCursor)
 	if userErr.Retryable() {
 		t.Fatal("stale parent error must not be retryable")
 	}
-	// A wrong parent likewise.
 	if _, err := f.registry.Register(f.ctx, "project-a", bundleFor("files", "3"), strings.Repeat("f", 64)); userFault(t, err, dataframeerrors.CodeStaleCursor) == nil {
 		t.Fatal("wrong parent not typed")
 	}
-	// Neither rejection persisted anything or moved the head.
 	if n := f.count(t, "SELECT count(*) FROM "+f.revisionsTable()+" WHERE project = $1 AND name = $2", "project-a", "files"); n != 1 {
 		t.Fatalf("revision rows after rejections = %d, want 1", n)
 	}
@@ -492,8 +430,6 @@ func TestRevisionRegistryValidatesIdentityBeforeStore(t *testing.T) {
 }
 
 func TestRevisionRegistryStoreFaultsStayUntyped(t *testing.T) {
-	// A schema without this package's tables: the failure must surface as a
-	// raw store fault (5xx semantics), never a typed user fault.
 	f := newChainFixture(t)
 	bareSchema := f.schema + "_bare"
 	if _, err := f.iso.Exec(f.ctx, `CREATE SCHEMA "`+bareSchema+`"`); err != nil {
@@ -514,18 +450,12 @@ func TestRevisionRegistryStoreFaultsStayUntyped(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Idempotency and immutable revisions.
-// ---------------------------------------------------------------------------
-
 func TestRevisionRegistryHeadRetryIsIdempotent(t *testing.T) {
 	f := newChainFixture(t)
 	bundle := bundleFor("files", "1")
 	first, err := f.registry.Register(f.ctx, "project-a", bundle, "")
 	f.fail("register first", err)
 
-	// Exact same content with the head as parent: idempotent success, the
-	// stored row returned untouched, no head bump.
 	retry, err := f.registry.Register(f.ctx, "project-a", bundle, first.Digest)
 	f.fail("retry head content", err)
 	requireRevisionEqual(t, first, retry, "head retry")
@@ -545,10 +475,6 @@ func TestRevisionRegistryDeepDuplicateKeepsOriginalRow(t *testing.T) {
 	second, err := f.registry.Register(f.ctx, "project-a", bundleFor("files", "2"), first.Digest)
 	f.fail("register second", err)
 
-	// Appending content that already exists deeper in the chain refreshes
-	// the stored row's parent link and stamp to the new edge -- one writer
-	// per (project, name, digest), matching the Arango same-_key overwrite.
-	// The bundle itself cannot drift: the digest pins it.
 	time.Sleep(2 * time.Millisecond)
 	relinked, err := f.registry.Register(f.ctx, "project-a", bundleFor("files", "1"), second.Digest)
 	f.fail("relink first content", err)
@@ -572,12 +498,6 @@ func TestRevisionRegistryDeepDuplicateKeepsOriginalRow(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Concurrency: one winner, typed loser, literal aftermath.
-// ---------------------------------------------------------------------------
-
-// runTwoRegisters launches fn(a) and fn(b) on independent pool connections
-// released together and returns both outcomes.
 func runTwoRegisters(t *testing.T, f *chainFixture, a, b func() (recipe.RecipeRevision, error)) (recipe.RecipeRevision, error, recipe.RecipeRevision, error) {
 	t.Helper()
 	start := make(chan struct{})
@@ -602,8 +522,6 @@ func runTwoRegisters(t *testing.T, f *chainFixture, a, b func() (recipe.RecipeRe
 
 func TestRevisionConcurrentChildrenOfOneParentHaveOneWinner(t *testing.T) {
 	f := newChainFixture(t)
-	// Iterations keep every race on a fresh chain while reusing one
-	// migrated schema: contention is real (same head row, pool >= 2).
 	for iteration := 0; iteration < 6; iteration++ {
 		name := fmt.Sprintf("files-race-%d", iteration)
 		head, err := f.registry.Register(f.ctx, "project-a", bundleFor(name, "1"), "")
@@ -641,8 +559,6 @@ func TestRevisionConcurrentChildrenOfOneParentHaveOneWinner(t *testing.T) {
 				iteration, winners, losers, errA, errB)
 		}
 
-		// Literal aftermath: the loser's revision row rolled back with its
-		// transaction, and the head names the winner with exactly one bump.
 		if n := f.count(t, "SELECT count(*) FROM "+f.revisionsTable()+" WHERE project = $1 AND name = $2", "project-a", name); n != 2 {
 			t.Fatalf("iteration %d: revision rows = %d, want 2 (loser left no orphan)", iteration, n)
 		}
@@ -679,10 +595,6 @@ func TestRevisionConcurrentFirstRegistrationsHaveOneWinner(t *testing.T) {
 			continue
 		}
 		losers++
-		// The losing first registration races the committed head and is
-		// told the (empty) parent is not current: a typed stale-parent
-		// conflict, mirroring the Arango classification of
-		// current-exists-parent-empty.
 		userFault(t, err, dataframeerrors.CodeStaleCursor)
 	}
 	if winners != 1 || losers != 1 {
@@ -695,10 +607,6 @@ func TestRevisionConcurrentFirstRegistrationsHaveOneWinner(t *testing.T) {
 		t.Fatalf("head epoch = %d, want 1", epoch)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Scoping and determinism.
-// ---------------------------------------------------------------------------
 
 func TestRevisionGetAndListAreProjectAndNameScoped(t *testing.T) {
 	f := newChainFixture(t)
@@ -720,7 +628,6 @@ func TestRevisionGetAndListAreProjectAndNameScoped(t *testing.T) {
 		t.Fatalf("unknown-chain list = %#v, want non-nil empty slice", empty)
 	}
 
-	// The same digest under another project is a separate, fully scoped row.
 	other, err := f.registry.Register(f.ctx, "project-b", bundleFor("files", "1"), "")
 	f.fail("register in project-b", err)
 	if other.Digest != first.Digest {
@@ -736,8 +643,6 @@ func TestRevisionListIsDeterministicWithLiteralTies(t *testing.T) {
 	stamp := func(offset time.Duration) time.Time {
 		return time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC).Add(offset)
 	}
-	// Literal rows via direct SQL: three revisions sharing one created_at
-	// (digest tie-break must order them) and one strictly newer.
 	type lit struct {
 		digest  string
 		created time.Time
@@ -778,17 +683,11 @@ func TestRevisionListIsDeterministicWithLiteralTies(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Three-state and schema-integrity guards.
-// ---------------------------------------------------------------------------
-
 func TestRevisionThreeStatesAndHeadPlaceholderInvariant(t *testing.T) {
 	f := newChainFixture(t)
 	first, err := f.registry.Register(f.ctx, "project-a", bundleFor("files", "1"), "")
 	f.fail("register", err)
 
-	// A hand-inserted JSON-null parentDigest stays a JSON null (distinct
-	// from the missing key on adapter rows and from every real digest).
 	nullDigest := strings.Repeat("9", 64)
 	payload := fmt.Sprintf(
 		`{"project":"project-a","name":"files","digest":%q,"parentDigest":null,"bundle":{"recipeSchemaVersion":1,"name":"files","translationVersion":"1","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"document_reference"}]},"createdAt":"2026-02-03T04:05:06Z"}`,
@@ -803,9 +702,6 @@ func TestRevisionThreeStatesAndHeadPlaceholderInvariant(t *testing.T) {
 	if has := f.mustText(t, "SELECT (payload ? 'parentDigest')::text FROM "+f.revisionsTable()+" WHERE digest = $1", nullDigest); has != "true" {
 		t.Fatalf("json-null parentDigest key presence = %s, want true (null is not absent)", has)
 	}
-	// jsonb -> returns SQL NULL only for absent keys; a stored JSON null
-	// reads back as the jsonb 'null' value, so jsonb_typeof is the honest
-	// three-state witness: absent (SQL NULL) versus JSON null versus value.
 	if isNull := f.mustText(t, "SELECT COALESCE(jsonb_typeof(payload -> 'parentDigest'), '<absent>') FROM "+
 		f.revisionsTable()+" WHERE digest = $1", nullDigest); isNull != "null" {
 		t.Fatalf("json-null parentDigest typeof = %s, want null (JSON null preserved, distinct from absent)", isNull)
@@ -815,9 +711,6 @@ func TestRevisionThreeStatesAndHeadPlaceholderInvariant(t *testing.T) {
 		t.Fatalf("adapter-written row parentDigest typeof = %s, want absent (missing, not null)", absent)
 	}
 
-	// The head placeholder (epoch 0 with a SQL-NULL digest) can be created,
-	// but no read path can surface it as data, and the pair CHECK makes the
-	// two mixed states unrepresentable.
 	if _, err := f.iso.Exec(f.ctx,
 		"INSERT INTO "+f.headsTable()+" (project, name, head_digest, epoch, updated_at)"+
 			" VALUES ($1, $2, NULL, 0, $3)", "placeholder-p", "placeholder-r", time.Now().UTC()); err != nil {
@@ -842,8 +735,6 @@ func TestRevisionThreeStatesAndHeadPlaceholderInvariant(t *testing.T) {
 		t.Fatalf("digest-cleared-at-epoch-1 sqlstate = %s, want 23514", code)
 	}
 
-	// Revision integrity guards: malformed digests, parents, and scopes are
-	// rejected at the database boundary, separately from chain conflicts.
 	if code := f.mustPgErrorCode(t, "garbage digest",
 		"INSERT INTO "+f.revisionsTable()+
 			" (project, name, digest, parent_digest, payload, created_at)"+
@@ -863,10 +754,6 @@ func TestRevisionThreeStatesAndHeadPlaceholderInvariant(t *testing.T) {
 		t.Fatalf("empty project sqlstate = %s, want 23514", code)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Migrations, schema ownership, and guards.
-// ---------------------------------------------------------------------------
 
 func TestRevisionNewGuards(t *testing.T) {
 	f := newChainFixture(t)
@@ -890,9 +777,6 @@ func TestRevisionMigrateSchemaHistoryLedgerAndRerun(t *testing.T) {
 		t.Fatalf("embedded history = %+v, want {1 ledger, 3 recipe_revision_chains}", history)
 	}
 
-	// The fixture applied the history through MigrateSchema with the plain
-	// pool; witness the ledger literally: exact versions, names, and
-	// checksums (the runner recomputes them from the SQL).
 	rows, err := f.iso.Query(f.ctx,
 		"SELECT version, name, checksum FROM "+
 			pgx.Identifier{f.schema, pgstore.LedgerTable}.Sanitize()+" ORDER BY version")
@@ -921,9 +805,6 @@ func TestRevisionMigrateSchemaHistoryLedgerAndRerun(t *testing.T) {
 		}
 	}
 
-	// The production entry point on the readiness-checked pg-store-01 pool
-	// re-applies the applied history as a provable no-op: same versions and
-	// checksums, and registered state survives untouched.
 	first, err := f.registry.Register(f.ctx, "project-a", bundleFor("files", "1"), "")
 	f.fail("register before rerun", err)
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -952,10 +833,6 @@ func TestRevisionMigrateSchemaHistoryLedgerAndRerun(t *testing.T) {
 func TestRevisionSchemaMixedHistoryFailsClosed(t *testing.T) {
 	f := newChainFixture(t)
 
-	// A competing history must never interleave with this one unnoticed:
-	// an edited version-1 body fails the checksum gate before any statement,
-	// and a pending version below the recorded maximum fails the out-of-order
-	// gate. Both named errors mean the runner refused the mixed schema.
 	edited := pgstore.Migration{Version: 1, Name: "ledger", SQL: "CREATE TABLE schema_migrations (version bigint);"}
 	runner, err := pgstore.NewMigrationRunner(f.iso, f.schema, []pgstore.Migration{edited})
 	f.fail("build edited-ledger runner", err)
@@ -963,8 +840,6 @@ func TestRevisionSchemaMixedHistoryFailsClosed(t *testing.T) {
 		t.Fatalf("edited ledger history err = %v, want ErrMigrationChecksumMismatch", err)
 	}
 
-	// A history that knows every recorded version but amends the set with
-	// an old version 2: the out-of-order gate must refuse it outright.
 	outOfOrder := pgstore.Migration{Version: 2, Name: "foreign_table", SQL: "CREATE TABLE IF NOT EXISTS foreign_table (id text);"}
 	history, err := ChainMigrations()
 	f.fail("load chain migrations", err)
@@ -981,17 +856,11 @@ func TestRevisionSchemaMixedHistoryFailsClosed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Persistence beyond one connection.
-// ---------------------------------------------------------------------------
-
 func TestRevisionStatePersistsBeyondOneConnection(t *testing.T) {
 	f := newChainFixture(t)
 	first, err := f.registry.Register(f.ctx, "project-a", bundleFor("files", "1"), "")
 	f.fail("register", err)
 
-	// A brand-new pool over the isolated DSN (fresh physical connections,
-	// none of which ran the writes) must read the same state.
 	fresh, err := pgxpool.New(f.ctx, f.dsn)
 	f.fail("open fresh pool", err)
 	defer fresh.Close()
@@ -1001,8 +870,6 @@ func TestRevisionStatePersistsBeyondOneConnection(t *testing.T) {
 	f.fail("get on fresh pool", err)
 	requireRevisionEqual(t, first, loaded, "fresh pool")
 }
-
-// ---------------------------------------------------------------------------
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -1016,11 +883,8 @@ func TestMain(m *testing.M) {
 func auditZeroLeftovers() error {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		// No service was used; nothing can have been created.
 		return nil
 	}
-	// Scrub credential-bearing fragments before any audit error reaches
-	// stderr; the fixtures scrub the same strings on failure paths.
 	auditScrub := func(format string, args ...any) string {
 		message := fmt.Sprintf(format, args...)
 		secrets := []string{raw}
@@ -1044,10 +908,6 @@ func auditZeroLeftovers() error {
 		return errors.New(auditScrub("connect: %v", err))
 	}
 	defer admin.Close()
-	// Audit the exact databases this binary created; the shared
-	// pgrecip01v1_it_* prefix belongs to two binaries under parallel
-	// go test, so a cluster-wide prefix count would race live sibling
-	// fixtures. See createdDatabases.
 	names := snapshotCreatedDatabases()
 	var databases int
 	if err := admin.QueryRow(ctx,
@@ -1057,9 +917,6 @@ func auditZeroLeftovers() error {
 	if databases != 0 {
 		return errors.New(auditScrub("%d databases created by this binary still exist: %v", databases, names))
 	}
-	// Neither binary creates schemas in the service database (owned schemas
-	// live inside each isolated database and die with it), so a service-db
-	// namespace scan is race-free and catches accidental service-db writes.
 	var schemas int
 	if err := admin.QueryRow(ctx,
 		"SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'pgrecip01v1_it_%'").Scan(&schemas); err != nil {

@@ -12,16 +12,12 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
-// casConflictRowQueryer is a deterministic stand-in for the Arango driver in
-// the release CAS: it fails the first conflicts attempts with error 1200
-// (the optimistic ignoreRevs:false pointer abort) and then serves the rows
-// the real transaction returns after converging.
 type casConflictRowQueryer struct {
 	conflicts    int
 	calls        int
 	rows         []map[string]any
 	conflictErr  error
-	otherErr     error // returned once conflicts are spent, instead of rows
+	otherErr     error
 	visitedBinds []map[string]any
 }
 

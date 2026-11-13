@@ -1,141 +1,5 @@
 package postgres
 
-// The composed construction stage sequence (pg-sql-16) is registered here as
-// its own closed plan slice: the source region (the group slice's spine arms
-// PLUS the UNNEST/SET arms that close L-13.2), one CTE per construction
-// stage over the immediately prior relation, and the terminal projection
-// with the registered order and preview limit. Dispatch is the additive
-// composition door in RenderPhysicalPlan (after the graph door, before the
-// four inline slice doors) plus the conversion of the former blanket
-// StageSequence refusal: every plan with two or more stages, and every
-// single-stage shape no inline door claims, lands behind
-// validateStageSequencePlanSurface — the single total contract for the
-// slice (render.go / graph.go / coded_group.go / group.go / pivot.go
-// precedent; entry==dispatch message equality holds for every shape).
-//
-// AQL ground truth is render/aql/stage_sequence.go :264-533 — the LET-chain
-// ported branch-for-branch: the source LET maps to __loom_src, each stage
-// LET maps to __loom_stage_N (stage N+1 reads ONLY stage N's registered
-// output columns — typed intermediate rows: SQL scalar types or jsonb,
-// never reparsed SQL, never AQL), and the terminal FOR/SORT/LIMIT/RETURN
-// maps to the final SELECT. Stage payloads are rendered by the registered
-// slice emitters repointed at the prior relation (group.go core, pivot.go
-// cell/identity core, unpivot.go melt core, the EXPAND port here) — reuse
-// is by repointing, not string surgery, and the inline single-stage doors
-// render byte-identically (golden-pinned: the S0 byte-preservation mutant
-// suite).
-//
-// Registered composition surface (rendered):
-//
-//   - Source region: the group-slice whitelist (one direct ROOT_SCAN +
-//     canonical scope filters + the canonical AUTH_RESOURCE_PATH_ALLOWED
-//     let + renderable spine filters, at most one SORT then one LIMIT, a
-//     terminal RETURN) PLUS UNNEST (unnest.go arms) and SET (sets.go child
-//     sets) — the L-13.2 closure: the SET arm exists and the silent-drop
-//     counterfactual is RED (L-19.4 lesson honored). Population/cohort/
-//     candidate-seed roots stay refused (population.go gate).
-//   - Stage kinds: FILTER, DERIVE, EXPAND, UNPIVOT, GROUP, and the staged
-//     NON-coded PIVOT (the C3/S4 closure — categories, system, version, and
-//     code stay $n parameters, never SQL identifiers). Each stage CTE
-//     selects exactly its declared OutputColumns positionally as c0..cN
-//     (renderer-minted aliases; no plan column name reaches SQL text) and
-//     carries its RowIdentityColumn as the identity column.
-//   - Terminal: SELECT <FinalColumns reads> FROM __loom_stage_last ORDER BY
-//     <registered order> [LIMIT $n]. LIMIT binds PreviewLimitBindKey as
-//     one bigint $n; a non-int or non-positive bind is a typed refusal
-//     (render/aql/stage_sequence.go:452-453 twin).
-//
-// Terminal order (D-16a, mandatory attribution):
-//
-//	CTE terminal re-sort over GROUP-last per coordinator ruling 2026-11-11;
-//	SQL CTE order unspecified; refines registered group total order.
-//
-// A GROUP-last stage re-applies exactly the group slice's registered total
-// order (keys ASC NULLS FIRST, identity COLLATE "C" ASC, D-13c citations
-// kept verbatim, not re-litigated); every other last stage sorts
-// <identity> COLLATE "C" ASC (render/aql/stage_sequence.go:450 twin). The
-// ORDER BY non-vacuity ALIVE control is live-pinned (tie rows distinguished
-// by the COLLATE "C" tiebreak, the #130-era tie-ambiguity technique).
-//
-// Negative-index selector steps over typed intermediate rows are registered
-// here (unit_normalization.go arm, oracle-pinned): ArangoDB 3.12.4-3
-// negative subscripts are TAIL INDEXES (n=-1 reads the last element,
-// n<=-len-1 reads null; objects subscript by the decimal key string for
-// both signs; a non-array subscript reads null) — receipts o1-idx-*.wire.
-// The PostgreSQL twin: array n<0 reads col -> (jsonb_array_length(col) + n)
-// with the n <= -len-1 arm reading NULL; objects read the key text(n); any
-// other stored kind reads NULL. Comparison-class cells pin COLLATE "C" with
-// ASCII-lowercase fixtures (o2b receipts; the D-13b collation class).
-//
-// Refusal register (probe receipts under this session's logs/; L-numbers
-// per the ratified plan §6, all closed-or-refused classes C-01..C-18 of the
-// coordinator's A2 receipt battery are typed — no silent path):
-//
-//   - L-16.1 non-adjacent/foreign stage reference: the ir chain rules
-//     (physical_stage_validation.go:53-73,275-290) re-read at the door;
-//     chain skip, wrong first-stage input, duplicate/empty/untrimmed IDs,
-//     foreign FinalStageID, FinalRowIdentity/FinalColumns schema drift, and
-//     a stage whose InputStageID references a NON-ADJACENT earlier stage
-//     (the CTE chain reads exactly the prior CTE). Typed refusal, never
-//     partially rendered (acceptance clause 2).
-//   - L-16.2 CODED_GROUP / COHORT_GROUP inside a composition: registered
-//     refusal in the coded-group voice (the coded_group.go:436 message text
-//     verbatim); nothing in pg-sql-22/23/25/26 needs a composed CODED_GROUP
-//     today (coordinator A3 ruling 2026-11-11). Enabling ticket registers
-//     when real demand lands.
-//   - L-16.3 PIVOT stage with CodedCorrelation: stage-0 coded PIVOT with
-//     trailing stages refuses in the coded-pivot voice (the pivot.go:1304
-//     message verbatim); index>0 is unreachable from lowering
-//     (ir/physical_stage_validation.go:106-108) and hand-assembled shapes
-//     refuse in the same voice. Coded-pivot composition stays the
-//     pg-sql-22/23 adjacency.
-//   - L-16.4 diagnostic returns / preview windows /
-//     OutputAuthResourcePathBindKey: the coded_group.go/pivot.go twins with
-//     the same citations (compiler/row_lineage.go:655, cell_trace.go:54,
-//     population_mapping.go:38); windowing contracts register with the
-//     pg-sql-22/23 terminals, the auth path column with pg-ir-03.
-//   - L-16.5 source-region EXPRESSION_LET: the probe-attested
-//     production-unreachable twin of pivot.go C6/P-14.3; the arm stays
-//     fail-closed (no dispatch ⇒ silent drop is the L-19.4 class).
-//   - L-16.6 foreign operations / non-canonical DERIVED_LET / unknown
-//     policy, kind, reducer, or operator strings / unregistered stage
-//     expression kinds: the slice twins, fail-closed, never partially
-//     rendered.
-//
-// Registered divergences (verbatim test-comment form per slice; see
-// stage_sequence_test.go U7 for the law cells):
-//
-//   - D-16a terminal re-sort over a GROUP-last stage: REGISTERED
-//     REFINEMENT, attribution line quoted at the top of this header
-//     (coordinator ruling 2026-11-11).
-//   - D-16b EXPAND ordinal over duplicate equal items: jsonb_array_elements
-//     WITH ORDINALITY is positional exactly like AQL RANGE indices —
-//     declared EQUIVALENT (witness column pinned), no divergence.
-//   - D-16c melt+re-melt (UNPIVOT then GROUP): the W3 stable melt order is
-//     already registered (pg-sql-15); composition inherits it — cited, not
-//     new.
-//   - D-16d EXPAND empty-policy raise: the AQL CONCAT diagnostic suffix
-//     ("construction <cid> has no items for row <identity>") embeds row
-//     data in the raise message; the guardCast barrier raises SQLSTATE
-//     22P02 with the canonical CONSTRUCTION_EXPANSION_EMPTY tag only — the
-//     same static-tag posture as the pivot guard chain.
-//   - D-16e+ oracle-attested cells (tail semantics, comparison class) carry
-//     their receipts in the test comments with the o1/o2 wire names.
-//   - D-16f composition correlation version clause (plan §5 G5(b) closure
-//     adjudication): the AQL version clause
-//     (render/aql/correlation_value_scope.go:28-38,
-//     NOT_NULL(x,"")==@bind) has no composition surface to arm — the only
-//     correlation-carrying composition read is a comparison predicate, and
-//     PostgreSQL has no registered correlated-comparison rendering at all
-//     (predicates.go:276 typed refusal, spine-wide, cited; the graph slice
-//     refuses correlated extend filters the same way, graph_test.go:511).
-//     Census re-attested at this head: LowerCorrelatedBinding never fills
-//     version for construction (P-14.5), so the vacuous surface stays
-//     fail-closed with battery pins (correlated composition filter refuses
-//     typed; VersionSelector-without-VersionBindKey refuses at the ir
-//     gate). The version-equality that AQL does consult lands through the
-//     G2 semantic matcher, not here. No silent path.
-
 import (
 	"fmt"
 	"reflect"
@@ -146,42 +10,18 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// Registered canonical assertion tags raised verbatim through guardCast by
-// the composition stage emitters (render/aql/construction_expand.go:36,40,57
-// parity; the empty-policy message is the static-tag twin, D-16d).
 const (
 	stageExpandArrayTypeTag = "CONSTRUCTION_EXPAND_ARRAY_TYPE_MISMATCH"
 	stageExpandItemTypeTag  = "CONSTRUCTION_EXPAND_ITEM_TYPE_MISMATCH"
 	stageExpandEmptyTag     = "CONSTRUCTION_EXPANSION_EMPTY"
 )
 
-// stageSequenceCTEPrefix mints every relation name of the composed
-// statement: __loom_src, __loom_stage_N, and the suffixed internals of the
-// repointed slice cores. AQL spells the same chain
-// __loom_construction_source_projection / __loom_construction_stage_N
-// (render/aql/stage_sequence.go:284-302); the SQL names are renderer-owned
-// constants, never plan data.
 const stageSequenceCTEPrefix = "__loom_"
 
-// stageSequenceCompositionMentions reports whether RenderPhysicalPlan's
-// composition door claims a plan: a stage sequence with two or more stages
-// is the composed shape and is rendered WHOLE here, never by the four
-// inline slice doors (coordinator A2 ruling 2026-11-11). Single-stage plans
-// still route to their inline doors untouched; the ones no door claims
-// reach this door through the converted blanket refusal.
 func stageSequenceCompositionMentions(plan ir.PhysicalPlan) bool {
 	return plan.StageSequence != nil && len(plan.StageSequence.Stages) >= 2
 }
 
-// stageSequenceRelatedOccurrenceMentions reports the G3(c) claim: a stage
-// sequence with at least one GROUP stage carrying the related-occurrence
-// adapter. The composition door above already claims every multi-stage
-// sequence, so in practice this adds the SINGLE-stage related-occurrence
-// shape, routing it to the composition slice whose renderStageGroup
-// dispatch arm owns the adapter (stage_related_occurrence.go); the inline
-// group door's L-13.5 re-read stays as the direct-call defense. Every plan
-// this mentions is judged by the single total contract behind
-// renderStageSequencePhysicalPlan — entry==dispatch message equality.
 func stageSequenceRelatedOccurrenceMentions(plan ir.PhysicalPlan) bool {
 	if plan.StageSequence == nil {
 		return false
@@ -194,12 +34,6 @@ func stageSequenceRelatedOccurrenceMentions(plan ir.PhysicalPlan) bool {
 	return false
 }
 
-// renderStageSequencePhysicalPlan is the single composition door behind
-// both entry points (the RenderPhysicalPlan hook and the direct door
-// tests). Gate order mirrors the other slice doors: storage validation,
-// then validateStageSequencePlanSurface as the first plan-facing act so
-// both doors refuse the same shapes with the same typed errors BEFORE
-// plan.Validate can speak, then the plan-wide gates, then the builder.
 func renderStageSequencePhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := storage.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
@@ -239,34 +73,15 @@ func renderStageSequencePhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresSt
 	return command.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
 }
 
-// validateStageSequencePlanSurface is the total closed-slice contract
-// behind both doors. It speaks typed ErrUnsupportedPostgresPlan refusals
-// over ANY plan the door claims before plan validation, scope loading, or
-// any rendering can reject with an off-type error, and it reproduces the
-// registered voices of shapes whose ownership stays in another slice
-// (#132 register-split voice law).
-//
-// mappingTerminal is set ONLY by the pg-sql-22 population-mapping entry:
-// it admits the PopulationMappingReturn terminal and the compiler-owned
-// member-collecting population root that feeds it. Every registered door
-// calls with false, keeping every registered refusal voice byte-identical.
 func validateStageSequencePlanSurface(plan ir.PhysicalPlan, mappingTerminal bool) error {
 	if plan.StageSequence == nil {
 		return fmt.Errorf("%w: composition dispatch requires a stage sequence", ErrUnsupportedPostgresPlan)
 	}
 	sequence := plan.StageSequence
-	// C-01 (zero stages), L-16.1 first cell: ir/physical_stage_validation.go:15-16
-	// requires at least one stage; the door speaks first.
 	if len(sequence.Stages) == 0 {
 		return fmt.Errorf("%w: stage %d ID is empty, untrimmed, or duplicated — the composition door requires at least one construction stage (ir/physical_stage_validation.go:15 re-read at the door)",
 			ErrUnsupportedPostgresPlan, 0)
 	}
-	// L-16.4 first: diagnostic returns and windowing refuse with the
-	// registered citations regardless of stage kinds (acceptance battery
-	// classes C-16/C-17; plan-level and sequence-level flags). The
-	// population-mapping return stays in this voice for every registered
-	// door (mappingTerminal false); the pg-sql-22 mapping entry admits it
-	// and must carry it (added arm — the registered voice is untouched).
 	if sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil ||
 		(sequence.PopulationMappingReturn != nil && !mappingTerminal) {
 		return fmt.Errorf("%w: row-lineage, cell-trace, and population-mapping returns have no PostgreSQL compiled route (compiler/row_lineage.go:655, cell_trace.go:54, population_mapping.go:38)",
@@ -277,10 +92,6 @@ func validateStageSequencePlanSurface(plan ir.PhysicalPlan, mappingTerminal bool
 			ErrUnsupportedPostgresPlan)
 	}
 	if plan.PreviewSourceWindowByRootID || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow {
-		// The plan-level flag must be refused HERE: the composition door
-		// dispatches before the spine's plan-level window gate, so this is
-		// the only place the check can fire for the shapes it claims — the
-		// twin doors keep the same check (coded_group.go:458, pivot.go:1331).
 		return fmt.Errorf("%w: preview source windowing and the terminal Pivot window are pg-sql-22/23 terminal windowing contracts and are refused, never silently rendered",
 			ErrUnsupportedPostgresPlan)
 	}
@@ -294,11 +105,6 @@ func validateStageSequencePlanSurface(plan ir.PhysicalPlan, mappingTerminal bool
 				ErrUnsupportedPostgresPlan, sequence.PreviewLimitBindKey)
 		}
 	}
-	// L-16.2 / L-16.3 voices: coded-slice shapes the composition door
-	// claims refuse in their slice's registered voice (coordinator A3
-	// ruling; #132 voice law). The message texts are the coded_group.go:436
-	// and pivot.go:1304 texts verbatim so dispatch-level and door-level
-	// refusals stay byte-equal.
 	for index, stage := range sequence.Stages {
 		switch {
 		case stage.Kind == ir.PhysicalStageCodedGroupOp || stage.CodedGroup != nil:
@@ -322,20 +128,6 @@ func validateStageSequencePlanSurface(plan ir.PhysicalPlan, mappingTerminal bool
 	return validateStageSequenceChain(plan, mappingTerminal)
 }
 
-// validateStageSequenceOperations enforces the closed source-region
-// operation list: the group-slice whitelist (validateGroupOperations twin)
-// PLUS UNNEST (unnest.go arms) and SET (sets.go child sets) — the L-13.2
-// closure. SET now HAS a dispatch arm (the source CTE renders it through
-// sets.go), and removing that arm is the silent-drop class the L-19.4
-// sabotage lesson forbids (S5). EXPRESSION_LET stays the probe-attested
-// unreachable fail-closed arm (L-16.5, the pivot.go C6 twin): the source
-// builder has no dispatch for it.
-//
-// mappingTerminal (pg-sql-22, added parameter) admits only the
-// compiler-owned member-collecting population root for the mapping entry;
-// every registered door passes false and the refusal voice below stays
-// byte-identical, cohort sources and candidate seeds stay refused either
-// way.
 func validateStageSequenceOperations(plan ir.PhysicalPlan, mappingTerminal bool) error {
 	if len(plan.Operations) == 0 {
 		return fmt.Errorf("%w: plan has no operations", ErrUnsupportedPostgresPlan)
@@ -381,15 +173,7 @@ func validateStageSequenceOperations(plan ir.PhysicalPlan, mappingTerminal bool)
 			if operation.Unnest == nil {
 				return fmt.Errorf("%w: operation %d: unnest payload is missing", ErrUnsupportedPostgresPlan, index)
 			}
-			// The registered unnest contract is the single definition
-			// (unnest.go); the full-backstop re-check runs inside
-			// renderUnnest at the arm.
 		case ir.PhysicalSetOp:
-			// L-13.2 CLOSED (pg-sql-16): the source CTE renders lowering-
-			// emitted child sets through the validated sets.go correlated-
-			// set machinery. The arm is load-bearing: with no dispatch the
-			// SET would be silently dropped (the L-19.4 law, sets.go:82-95
-			// finding cited).
 			if sawSort || sawLimit || sawReturn {
 				return fmt.Errorf("%w: source child sets must precede the execution window and the terminal RETURN",
 					ErrUnsupportedPostgresPlan)
@@ -398,8 +182,6 @@ func validateStageSequenceOperations(plan ir.PhysicalPlan, mappingTerminal bool)
 				return fmt.Errorf("%w: operation %d: set payload is missing", ErrUnsupportedPostgresPlan, index)
 			}
 		case ir.PhysicalExpressionLetOp:
-			// L-16.5: probe-attested production-unreachable (pivot.go C6 /
-			// probe P-14.3 twin); fail-closed, never partially rendered.
 			return fmt.Errorf("%w: source-region EXPRESSION_LET has no dispatch arm in the composition builder and is refused fail-closed (L-16.5, probe P-14.3 twin)",
 				ErrUnsupportedPostgresPlan)
 		case ir.PhysicalSortOp:
@@ -435,22 +217,6 @@ func validateStageSequenceOperations(plan ir.PhysicalPlan, mappingTerminal bool)
 	return nil
 }
 
-// validateStageSequenceChain re-reads the ir stage-chain contract at the
-// door (physical_stage_validation.go:11-73,275-290) so every invalid
-// reference is refused with a typed error before plan.Validate can speak
-// (acceptance clause 2, L-16.1): source/final IDs and identity columns
-// required; SourceColumns ⊆ the typed source RETURN; per-stage ID
-// non-empty/trimmed/unique; stage[i].InputStageID == prior stage ID (the
-// FIRST stage == SourceStageID — a forward or skip reference reads no CTE
-// and has no rendering); InputColumns == prior OutputColumns (except the
-// group-extend rule); per-stage OutputColumns schema vs RowIdentityColumn;
-// FinalStageID/FinalRowIdentity match the last stage; FinalColumns == the
-// last OutputColumns; per-kind payload exclusivity.
-//
-// mappingTerminal (pg-sql-22, added parameter) admits the composed
-// root-contributor set (the mapping entry's group stages stamp
-// RootContributorInputColumn); every registered door passes false and the
-// L-13.6 refusal voice below stays byte-identical.
 func validateStageSequenceChain(plan ir.PhysicalPlan, mappingTerminal bool) error {
 	sequence := plan.StageSequence
 	if sequence.SourceStageID == "" || sequence.SourceRowIdentity == "" || sequence.FinalStageID == "" || sequence.FinalRowIdentity == "" {
@@ -525,15 +291,6 @@ func validateStageSequenceChain(plan ir.PhysicalPlan, mappingTerminal bool) erro
 	return nil
 }
 
-// validateStageColumns re-reads ir.validatePhysicalStageColumns
-// (physical_stage_validation.go:2602) at the door, same rule set: the
-// named row identity is present, internal, and identity-marked (ir
-// :2632-2637), and names are non-empty and unique (the door's own render
-// prerequisite — the door emits every name). ir does NOT count identity
-// columns — a schema may mark more than one column identity and ir
-// accepts it — so the door declares no identity-count rule either
-// (door==ir, coordinator ir-wins rule; the earlier identities>1 arm was
-// door-invented strictness and was removed on review of PR #137).
 func validateStageColumns(columns []ir.PhysicalStageColumn, identityColumn string) error {
 	if len(columns) == 0 {
 		return fmt.Errorf("a stage schema must declare at least one column")
@@ -563,13 +320,6 @@ func validateStageColumns(columns []ir.PhysicalStageColumn, identityColumn strin
 	return nil
 }
 
-// sameStageColumns compares two declared schemas byte-parallel with
-// ir.samePhysicalStageColumns (physical_stage_validation.go:2645): same
-// columns in same order, same declared types and roles; the ir field set
-// exactly — RelatedRecordAnchor by reflect.DeepEqual, and
-// PresenceCompanionName deliberately NOT compared because the ir rule
-// does not compare it (door==ir, coordinator ir-wins ruling 2026-11-11;
-// TestSQL16RelatedOccurrenceDoorExtend pins both legs).
 func sameStageColumns(left, right []ir.PhysicalStageColumn) bool {
 	if len(left) != len(right) {
 		return false
@@ -586,16 +336,6 @@ func sameStageColumns(left, right []ir.PhysicalStageColumn) bool {
 	return true
 }
 
-// groupInputColumnsExtendSource is the door mirror of
-// ir.physicalGroupInputColumnsExtendSource (physical_stage_validation.go:2659):
-// the extend rule is RelatedOccurrence-ONLY. A plain GROUP stage is
-// accepted by the chain law solely through the sameStageColumns re-read
-// the caller runs first (ir :65 samePhysicalStageColumns leg) — ir returns
-// false here whenever Group.RelatedOccurrence == nil. The pre-ruling
-// name-subset plain arm was door-permissive drift (it accepted reordered
-// name-bijections that ir's :65 refuses); removed per the coordinator
-// ir-wins ruling 2026-11-11, pinned by
-// TestSQL16RelatedOccurrenceDoorExtend/plain-group-* cells.
 func groupInputColumnsExtendSource(stage ir.PhysicalConstructionStage, prior []ir.PhysicalStageColumn) bool {
 	if stage.Kind != ir.PhysicalStageGroupOp || stage.Group == nil || stage.Group.RelatedOccurrence == nil ||
 		len(stage.InputColumns) <= len(prior) ||
@@ -603,12 +343,6 @@ func groupInputColumnsExtendSource(stage ir.PhysicalConstructionStage, prior []i
 		return false
 	}
 	adapter := stage.Group.RelatedOccurrence
-	// RelatedOccurrence arm: prior prefix + exactly the adapter set
-	// (byte-parallel with ir :2661-2694, including the empty-name
-	// semantics: an empty ScalarProjections[].InputColumn REJECTS the
-	// stage, while an empty CodingMembershipColumn/OccurrenceKeyColumn
-	// is treated as absent — both verified in the ir-diff receipt,
-	// coordinator order 2026-11-11, and pinned by the door battery).
 	expected := make(map[string]bool, len(adapter.ScalarProjections)+2)
 	for _, projection := range adapter.ScalarProjections {
 		if projection.InputColumn == "" || expected[projection.InputColumn] {
@@ -640,13 +374,6 @@ func groupInputColumnsExtendSource(stage ir.PhysicalConstructionStage, prior []i
 	return len(expected) == 0
 }
 
-// validateStageKindPayload re-reads the per-kind payload exclusivity table
-// (ir/physical_stage_validation.go:80-190 parity for the registered kinds)
-// so no kind/payload mismatch reaches the builder (battery class C-18).
-//
-// mappingTerminal is set ONLY by the pg-sql-22 mapping entry: it admits the
-// composed root-contributor set (the group arm below), whose registered
-// L-13.6 refusal stays byte-identical for every false caller.
 func validateStageKindPayload(stage ir.PhysicalConstructionStage, mappingTerminal bool) error {
 	switch stage.Kind {
 	case ir.PhysicalStageDeriveOp:
@@ -690,32 +417,9 @@ func validateStageKindPayload(stage ir.PhysicalConstructionStage, mappingTermina
 			stage.RelatedExpand != nil || len(stage.DerivedLets) != 0 {
 			return fmt.Errorf("GROUP requires only a group payload (ir/physical_stage_validation.go:155 re-read at the door)")
 		}
-		// Fail-closed arm gate: a composed GROUP must carry every
-		// registered-arm refusal the inline door speaks (group.go
-		// validateGroupPayload twins). Without this re-read a composed
-		// stage would silently drop the arm's rows-to-be (the L-13.2
-		// "no dispatch arm ⇒ silent drop" law).
-		//
-		// L-13.3 enabling condition (coordinator ruling 2026-11-11): the
-		// single-stage inline door CLOSED the semantic-family gap via
-		// pg-sql-16 G2 (stage_semantic.go); the COMPOSITION stays refused
-		// here, citing the enabling contract (the AQL walk reads the
-		// in-scope source row of the inline first stage,
-		// aql/stage_sequence.go:314 — the composition carrier is the
-		// enabling surface).
 		if stage.Group.SemanticKey != nil {
 			return fmt.Errorf("the semantic family Group key is a registered named gap (L-13.3; enabling contract: the semantic membership walk and matcher) and is refused, never partially rendered")
 		}
-		// L-13.5 enabling condition (pg-sql-16 G3(c), 2026-11-11): the
-		// related-occurrence Group adapter is REGISTERED here — the
-		// renderStageGroup dispatch arm feeds it to
-		// renderStageGroupRelatedOccurrence, whose fail-closed
-		// validateStageRelatedOccurrenceAdapter re-read is the single
-		// contract behind the door (an adapter outside the registered
-		// shape refuses with a typed ErrUnsupportedPostgresPlan, never a
-		// silent drop: the L-13.2 law is discharged by the dispatch arm's
-		// presence). The inline single-stage door keeps its own
-		// defense-in-depth re-read (group.go) for direct door callers.
 		if stage.Group.CodingKey != nil {
 			return fmt.Errorf("CodingKey group keys are refused at the composition payload gate until their registered arm lands (group.go:444 twin, wave law)")
 		}
@@ -733,9 +437,6 @@ func validateStageKindPayload(stage ir.PhysicalConstructionStage, mappingTermina
 		}
 	case ir.PhysicalStageRelatedSourceOp, ir.PhysicalStageRelatedExpandOp,
 		ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedFieldOp:
-		// C-11: the RELATED_* stages belong to the related-route slices
-		// (their own typed refusals upstream); the composition surface
-		// refuses them fail-closed with the enabling capability.
 		return fmt.Errorf("the %s stage is a related-route capability and is refused in composition, never partially rendered (the correlated-hop child-set contracts; sets.go:82-95 hop finding cited)",
 			string(stage.Kind))
 	default:
@@ -744,58 +445,27 @@ func validateStageKindPayload(stage ir.PhysicalConstructionStage, mappingTermina
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// The composed statement
-// ---------------------------------------------------------------------------
-
-// Registered relation and internal-relation names. Every one is a
-// renderer-owned constant; no plan string ever reaches SQL text as an
-// identifier (the closed-surface law every slice shares).
 const (
 	stageSourceRelation = stageSequenceCTEPrefix + "src"
 	stageRelationPrefix = stageSequenceCTEPrefix + "stage_"
-	// stageTerminalAlias is the single relation alias of the terminal SELECT.
-	stageTerminalAlias = "s"
+	stageTerminalAlias  = "s"
 )
 
-// stageColumnFact is one materialized column of an intermediate relation:
-// its positional alias inside its own CTE and the storage class the emitter
-// minted it with. The typed-intermediate-row law: a stage column is either
-// a SQL scalar (text/numeric/boolean) or jsonb — never re-spelled SQL,
-// never an AQL document — and the class is decided by the EMITTER that
-// produced the column, because only that emitter knows whether the
-// expression it rendered is a scalar cast or a jsonb read. Downstream reads
-// consult the fact, so a stage never guesses another stage's types.
 type stageColumnFact struct {
 	alias string
 	jsonb bool
 }
 
-// stageColumnExpr is one pre-rendered output expression of a stage, keyed by
-// output column name: reshape stages (EXPAND/UNPIVOT/GROUP/PIVOT) mint the
-// expressions their own payload owns (item, ordinal, melt slots, keys,
-// cells, identities) and hand them to the shared positional emitter.
 type stageColumnExpr struct {
 	expr  string
 	jsonb bool
 }
 
-// stageRowScope binds one composed stage row variable to the prior
-// relation's materialized columns. qualification prefixes every positional
-// read (the stages read FROM one aliased relation, so "s." keeps the melt
-// and expand laterals unambiguous); the GROUP region passes "" because its
-// consuming CTEs hold exactly one relation each (the unqualified-ref law
-// group.go:556-563 states).
 type stageRowScope struct {
 	qualification string
 	columns       map[string]stageColumnFact
 }
 
-// resolveStageRowValue maps one stage row read onto its materialized
-// column. A stage row is not a stored document, so the closed read form is
-// a column name plus an optional jsonb tail path: bind values, whole-row
-// reads, and tail paths over SQL scalars are typed refusals (the
-// typed-column law; the whole-row form would be a composite).
 func (r *planRenderer) resolveStageRowValue(scope stageRowScope, value ir.PhysicalValue) (string, error) {
 	if value.BindKey != "" {
 		return "", fmt.Errorf("%w: a stage row read must name an intermediate column, not a bind value",
@@ -824,32 +494,14 @@ func (r *planRenderer) resolveStageRowValue(scope stageRowScope, value ir.Physic
 	return r.documentPathFromExpression(base, value.Path[1:])
 }
 
-// stageJSONBRead renders one jsonb intermediate column as a payload read.
-// The "#> $" marker is the package's single payload-detection contract
-// (predicates.go:354), so a jsonb stage column reaches the registered
-// three-valued comparison arms instead of the typed-column arms; the empty
-// text[] path reads the value itself, which is exactly AQL's row[@col]
-// reading of a stored JSON value, and an SQL NULL column stays SQL NULL
-// (the ABSENT reading).
 func (r *planRenderer) stageJSONBRead(base string) string {
 	return base + " #> $" + strconv.Itoa(r.textParameter("{}", "path:{}")) + "::text[]"
 }
 
-// guardCastJSONB is the guardCast barrier for a jsonb-valued CASE branch:
-// the inner integer cast raises SQLSTATE 22P02 naming the tag the moment
-// the branch is selected, while the outer text→jsonb casts keep the CASE
-// type-resolvable at parse time (an integer→jsonb cast has no registration
-// and would abort the whole statement at analysis instead of at the guard).
 func guardCastJSONB(tag string) string {
 	return "CAST(" + guardCast(tag) + "::text AS jsonb)"
 }
 
-// stageSequenceChain is the materialized composition CTE chain: the source
-// CTE plus one CTE per construction stage, with the fact maps the terminals
-// read. The single composition emitter (pg-sql-16 law) produces it once;
-// the registered terminal below and the pg-sql-22 population-mapping
-// terminal (population_mapping.go) both consume this one value, so the
-// chain can never drift between the two doors.
 type stageSequenceChain struct {
 	ctes        []string
 	relation    string
@@ -858,10 +510,6 @@ type stageSequenceChain struct {
 	last        *ir.PhysicalConstructionStage
 }
 
-// renderStageSequenceCTEChain emits the source CTE and one CTE per
-// construction stage over the immediately prior relation (stage N+1 reads
-// only stage N, the L-16.1 chain law re-read by validateStageSequenceChain
-// at the door).
 func (r *planRenderer) renderStageSequenceCTEChain(plan ir.PhysicalPlan) (stageSequenceChain, error) {
 	sequence := plan.StageSequence
 	source, sourceFacts, err := r.renderStageSequenceSource(plan)
@@ -890,12 +538,6 @@ func (r *planRenderer) renderStageSequenceCTEChain(plan ir.PhysicalPlan) (stageS
 	return stageSequenceChain{ctes: ctes, relation: relation, facts: facts, sourceFacts: sourceFacts, last: last}, nil
 }
 
-// renderStageSequenceStatement renders the whole composed plan: the source
-// CTE, one CTE per construction stage over the immediately prior relation,
-// and the terminal positional projection with the registered order and
-// preview limit. AQL ground truth is render/aql/stage_sequence.go:264-533
-// ported branch-for-branch (the LET chain becomes the WITH chain, stage N+1
-// reads only stage N).
 func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (string, error) {
 	sequence := plan.StageSequence
 	chain, err := r.renderStageSequenceCTEChain(plan)
@@ -904,7 +546,6 @@ func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (strin
 	}
 	ctes, relation, facts, last := chain.ctes, chain.relation, chain.facts, chain.last
 
-	// --- terminal: the AQL stage_sequence.go:435-528 twin. ---
 	selects := make([]string, 0, len(sequence.FinalColumns))
 	names := make([]string, 0, len(sequence.FinalColumns))
 	for index, column := range sequence.FinalColumns {
@@ -918,13 +559,6 @@ func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (strin
 	}
 	final := "SELECT " + strings.Join(selects, ", ") + " FROM " + relation + " AS " + stageTerminalAlias
 	// D-16a attribution (coordinator ruling 2026-11-11): CTE terminal re-sort over GROUP-last per coordinator ruling 2026-11-11; SQL CTE order unspecified; refines registered group total order.
-	// PostgreSQL makes no promise that a CTE's rows arrive in its own
-	// ORDER BY order, so the terminal re-applies exactly the group slice's
-	// registered total order (keys ASC NULLS FIRST with the STRING keys
-	// under COLLATE "C", the D-13c citations kept verbatim) over the
-	// materialized key columns, and every other last stage sorts the
-	// identity under COLLATE "C" — the render/aql/stage_sequence.go:450
-	// twin.
 	final += " ORDER BY " + strings.Join(stageTerminalOrder(*last, facts), ", ")
 	if sequence.PreviewLimitBindKey != "" {
 		limit, ok := plan.BindVars[sequence.PreviewLimitBindKey].(int)
@@ -939,15 +573,6 @@ func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (strin
 	return "WITH " + strings.Join(ctes, ", ") + " " + final, nil
 }
 
-// stageTerminalOrder renders the registered terminal ORDER BY terms over the
-// last stage's materialized columns. A related-occurrence GROUP keeps these
-// exact terms: keys + row identity is already total over the group rows, the
-// adapter's parent-first rank terms read the PRIOR relation inside the
-// group slice's source CTE (where s binds the prior rows, and the aggregate
-// has already dropped the rank column), and the AQL COLLECT twin sorts group
-// output by the keys alone — so the rank law is the adapter-embedded source
-// ORDER BY, the same registered CTE-order posture as every other composed
-// GROUP (D-16a ruling), not a terminal term.
 func stageTerminalOrder(stage ir.PhysicalConstructionStage, facts map[string]stageColumnFact) []string {
 	read := func(name string) string {
 		return stageTerminalAlias + "." + `"` + facts[name].alias + `"`
@@ -967,11 +592,6 @@ func stageTerminalOrder(stage ir.PhysicalConstructionStage, facts map[string]sta
 	return []string{read(stage.RowIdentityColumn) + ` COLLATE "C" ASC`}
 }
 
-// renderStageSequenceSource renders the source CTE: the group slice's spine
-// arms (one ROOT_SCAN, canonical scope filters, the canonical auth LET, the
-// renderable spine filters, at most one SORT then one LIMIT, the terminal
-// RETURN) plus the UNNEST and SET arms that close L-13.2, then the
-// positional materialization of sequence.SourceColumns.
 func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, map[string]stageColumnFact, error) {
 	if err := r.renderRootScan(plan, *plan.Operations[0].RootScan); err != nil {
 		return "", nil, err
@@ -1002,16 +622,10 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 					ErrUnsupportedPostgresPlan)
 			}
 		case ir.PhysicalUnnestOp:
-			// The registered expansion (unnest.go owns the whole contract:
-			// iterate forms, falsy arms, zero-item-kept policy, witnesses).
 			if err := r.renderUnnest(plan, *operation.Unnest); err != nil {
 				return "", nil, err
 			}
 		case ir.PhysicalSetOp:
-			// L-13.2 CLOSED (pg-sql-16): the source region renders
-			// lowering-emitted child sets through the validated sets.go
-			// correlated-set machinery. Removing this arm would silently
-			// drop the SET (the L-19.4 law; sets.go:82-95 hop finding).
 			if err := r.renderSet(plan, *operation.Set); err != nil {
 				return "", nil, err
 			}
@@ -1027,54 +641,18 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 			returnOp = operation.Return
 		}
 	}
-	// Only the DECLARED source columns are materialized: the typed source
-	// RETURN may carry hidden executor-side metadata (the spine's own
-	// reserved columns) that no stage addresses, and materializing a column
-	// nothing reads would both bloat the CTE and make the registered
-	// materializer refuse a shape the composition never addresses.
 	addressed := map[string]bool{}
 	for _, column := range plan.StageSequence.SourceColumns {
 		addressed[column.Name] = true
 	}
-	// Lowering-emitted presence companion columns (the hidden boolean
-	// sidecars of lower/recipe_construction.go:1075, declared in
-	// SourceColumns as the PresenceCompanionName of their value column) are
-	// stage presence evidence, deliberately refused by the registered group
-	// materializer's sidecar arm. The composition renders them directly
-	// over the source row document with the null_semantics.go presence
-	// renderer, as a SQL boolean scalar.
 	companionExprs := map[string]string{}
-	// The registered MANY-cardinality array-selector arm: a declared many
-	// source column reads its ValueModeAll EXTRACT through the PG twin of
-	// the AQL array selector (render/aql/selector.go extractFinalExpr
-	// ((x.f ? x.f : [])) + render/aql/selectors.go FLATTEN for ALL): the
-	// items of the iterated array in order, each read through the trailing
-	// property path, MISSING values dropped by the []-operator reading (a
-	// jsonb path read yields SQL NULL for a missing property or a non-object
-	// item; a stored JSON null is the jsonb 'null' scalar and stays), and a
-	// missing/non-array parent collapses to the empty array exactly as the
-	// AQL falsy guard + FLATTEN does.
 	declaredCardinality := map[string]string{}
 	for _, column := range plan.StageSequence.SourceColumns {
 		declaredCardinality[column.Name] = strings.ToUpper(strings.TrimSpace(column.Cardinality))
 	}
 	arrayExprs := map[string]string{}
-	// The canonical-key selector arm: a stored FHIR document never carries
-	// an "id"/"_key" property (traversal.go:490-501, graph.go:94-104), so
-	// a root single-step id/_key selector reads the logical_id sidecar,
-	// the exact registered twin of resolveValueInRows' canonicalization
-	// and of coded_group.go:873's cg_root_key. A payload-path read of the
-	// absent property would silently render SQL NULL.
 	keyExprs := map[string]string{}
 	setExprs := map[string]string{}
-	// The pg-sql-22 member witness projection: the compiler appends the
-	// hidden __loom_population_member_ids read of the population member
-	// variable to the source RETURN (compiler/population_mapping.go:195-204);
-	// it is NOT a declared StageSequence.SourceColumn, so the addressed skip
-	// below would drop it. The composition mapping terminal consumes it from
-	// the source fact set, so the mapping posture materializes it exactly
-	// once, reading the witness member array the member-collecting
-	// population root bound (population.go renderPopulationRootSource).
 	memberWitnessExpr := ""
 	memberWitnessSeen := false
 	filtered := ir.PhysicalReturn{}
@@ -1114,14 +692,6 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 			companionExprs[projection.Name] = "(" + presence + ")"
 			continue
 		}
-		// The SET slice-column arm: a representative-slice SLICE over a
-		// correlated child set renders through the registered child-set
-		// slice contract (objects.go renderSliceValue → the setBodies arm,
-		// renderSliceOverChildSet) exactly as the spine's RETURN does. The
-		// group materializer's composite refusal is never reached; a slice
-		// over anything else keeps its registered refusals (root-row slice
-		// is the spine's, child sets the composition never rendered stay
-		// the materializer's typed composite refusal).
 		if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalSliceExpression &&
 			projection.Expression.Slice != nil {
 			if _, registered := r.setBodies[projection.Expression.Slice.Source.Variable]; registered {
@@ -1133,20 +703,6 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 				continue
 			}
 		}
-		// The route-anchor identity arm (pg-sql-16 P4): the production
-		// lowering's typed source RETURN projects the materialized root
-		// _key as a hidden single-step Value read, and the composition
-		// ADDRESSES it — the RelatedOccurrence adapter anchors on "_key"
-		// (validateStageRelatedOccurrenceAdapter) and the chain law
-		// requires every declared source column materialized. It renders
-		// through the same logical_id sidecar twin as the spine's
-		// canonicalization (resolveValueInRows, coded_group.go:873
-		// cg_root_key, selectors.go:276-281 PreviewSourceResourceIDColumn
-		// arm): a payload-path read of the absent property would silently
-		// render SQL NULL. The shape law is the SHARED hiddenRootKeyRead
-		// predicate (maximum-shared-implementation with the
-		// PreviewSourceResourceIDColumn arm, selectors.go); this site
-		// adds the root-scope proof the source region must carry.
 		if projection.Hidden && hiddenRootKeyRead(projection) {
 			scope, ok := r.rows[projection.Value.Variable]
 			if !ok || scope.alias != r.rootAlias {
@@ -1164,10 +720,6 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 				len(extract.Fallbacks) == 0 && !extract.Distinct &&
 				extract.Prepared == nil && extract.UnitNormalization == nil &&
 				len(extract.Source.Path) == 1 && extract.Source.Path[0] == "payload" {
-				// Only the three registered scalar postures (scalarExtract
-				// ValueExpression, null_semantics.go:279-296) intercept; an
-				// unregistered posture stays the classifier's typed refusal,
-				// the key arm never swallows it.
 				posture := projection.Expression.NullBehavior
 				if column := canonicalKeyColumn(extract.Selector.Steps[0].Field); resourceFilterColumns[column] &&
 					(posture == ir.PhysicalPreserveNull || posture == ir.PhysicalOmitNulls ||
@@ -1181,9 +733,6 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 						return "", nil, fmt.Errorf("%w: key selector %q validates against resource type %q, but the row is scanned as %q",
 							ErrUnsupportedPostgresPlan, projection.Name, extract.ResourceType, scope.resourceType)
 					}
-					// All three registered scalar postures collapse onto the
-					// sidecar for an always-present identity: the column is
-					// never missing, never JSON null.
 					keyExprs[projection.Name] = r.rootAlias + "." +
 						r.storage.Resource.MustColumn(column).SQLText()
 					continue
@@ -1218,10 +767,6 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 	for index, column := range plan.StageSequence.SourceColumns {
 		alias := "c" + strconv.Itoa(index)
 		if presence, ok := companionExprs[column.Name]; ok {
-			// A declared presence companion column must carry the lowered
-			// boolean sidecar shape: boolean kind, never an identity or
-			// root-contributor column, and the emitter here is the
-			// registered scalar (SQL boolean) presence renderer.
 			if !strings.EqualFold(strings.TrimSpace(column.Kind), "boolean") || column.Identity {
 				return "", nil, fmt.Errorf("%w: source column %q is rendered as a presence companion but is declared kind %q identity=%v",
 					ErrUnsupportedPostgresPlan, column.Name, column.Kind, column.Identity)
@@ -1261,12 +806,6 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 				ErrUnsupportedPostgresPlan, column.Name)
 		}
 		selects = append(selects, source.expr+` AS "`+alias+`"`)
-		// The storage class of an intermediate column is decided from the
-		// rendered expression through the single registered payload-
-		// detection contract (predicates.go isPayloadExpression): the
-		// materializer's path-based jsonb flag marks the root-identity
-		// _key scalar too, and a fact must describe what the SQL actually
-		// stores, or later reads would wrap a bare scalar in jsonb casts.
 		class := isPayloadExpression(source.expr)
 		if err := r.validateStageColumnClass(column, class); err != nil {
 			return "", nil, fmt.Errorf("%w: source column %q: %v", ErrUnsupportedPostgresPlan, column.Name, err)
@@ -1274,11 +813,6 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 		facts[column.Name] = stageColumnFact{alias: alias, jsonb: class}
 	}
 	if r.mapping != nil && r.mapping.witness {
-		// The member witness column rides the source CTE beside the
-		// declared columns (pg-sql-22): its fact is what
-		// renderStageSequenceMappingStatement joins the expanded members
-		// against. The alias continues the declared positional series, so
-		// no declared column can collide with it.
 		if !memberWitnessSeen {
 			return "", nil, fmt.Errorf("%w: the composition mapping source RETURN omits the compiler-owned member witness projection %q (compiler/population_mapping.go adds it)",
 				ErrUnsupportedPostgresPlan, ir.PhysicalPopulationMappingMembersColumn)
@@ -1302,21 +836,6 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 	return sql, facts, nil
 }
 
-// stageArraySelectorExpression renders the registered MANY-cardinality
-// ValueModeAll EXTRACT of the composition source region: the PG twin of
-// the AQL array selector — the falsy-guarded iterated array
-// ((x.f ? x.f : []), render/aql/selector.go extractFinalExpr), each item
-// read through the trailing property path, MISSING items dropped exactly
-// as AQL's []-operator drops them (a jsonb path read yields SQL NULL for
-// a missing property or a non-object item, while a stored JSON null stays
-// the observable jsonb 'null' scalar), gathered back into one jsonb array
-// in document order, with the missing/non-array parent collapsing to the
-// empty array (the FLATTEN-over-guarded-[] twin, EMPTY_ON_NULL posture).
-// The registered form is one iterated property step plus trailing plain
-// property steps; indexes, multiple iterate steps, filters, fallbacks,
-// DISTINCT, prepared references, and unit normalization stay typed
-// refusals (their capabilities belong to the later array-rendering and
-// unit slices).
 func (r *planRenderer) stageArraySelectorExpression(projection ir.PhysicalProjection) (string, error) {
 	extract := projection.Expression.Extract
 	if extract == nil {
@@ -1363,10 +882,6 @@ func (r *planRenderer) stageArraySelectorExpression(projection ir.PhysicalProjec
 		return "", fmt.Errorf("%w: array source projection %q has no iterated selector step; a many column needs exactly one [] step",
 			ErrUnsupportedPostgresPlan, projection.Name)
 	}
-	// The iterated step's own field names the array: root.note[].text
-	// gathers over the note array itself, so the guarded array path
-	// includes the iterate step (the AQL FLATTEN twin iterates
-	// doc.note, not doc).
 	prefixSteps := make([]string, 0, iterate+1)
 	for _, step := range extract.Selector.Steps[:iterate+1] {
 		prefixSteps = append(prefixSteps, step.Field)
@@ -1377,8 +892,6 @@ func (r *planRenderer) stageArraySelectorExpression(projection ir.PhysicalProjec
 	}
 	arr := r.documentColumn(r.rootAlias)
 	if len(prefixSteps) > 0 {
-		// Non-empty prefix: the guarded array is read through the property
-		// path above the iterated step.
 		var err error
 		arr, err = r.documentPathFromExpression(arr, prefixSteps)
 		if err != nil {
@@ -1387,7 +900,6 @@ func (r *planRenderer) stageArraySelectorExpression(projection ir.PhysicalProjec
 	}
 	var leafTail string
 	if len(tailSteps) == 0 {
-		// The item itself: the registered whole-document reading.
 		leafTail = "{}"
 	} else {
 		leafTail = "{" + strings.Join(mapSlice(tailSteps, arrayLiteralElement), ",") + "}"
@@ -1406,29 +918,12 @@ func mapSlice(input []string, mapFn func(string) string) []string {
 	return out
 }
 
-// validateStageColumnClass is the builder-side schema contract: the declared
-// cardinality must agree with the storage class the emitter minted, so a
-// many-cardinality column can never be read as a scalar and a required
-// scalar can never arrive as an unguarded jsonb blob.
 func (r *planRenderer) validateStageColumnClass(column ir.PhysicalStageColumn, jsonb bool) error {
 	cardinality := strings.ToUpper(strings.TrimSpace(column.Cardinality))
 	if cardinality == "MANY" && !jsonb {
 		return fmt.Errorf("cardinality %q needs the jsonb storage class but the emitter rendered a SQL scalar", column.Cardinality)
 	}
 	if column.RootContributorResourceType != "" {
-		// The compiler stamps RootContributorResourceType on two distinct
-		// shapes (lower/recipe_construction.go:2075-2130): the ROOT IDENTITY
-		// scalar — internal string _key, required_one/optional_one, a
-		// registered scalar the spine already renders — and the population
-		// root-contributor SET column (__loom_root_contributor_keys, MANY),
-		// whose values are bound only by RenderPopulationRootScan
-		// (population.go). The composition renders the scalar identity; the
-		// set column renders ONLY in the pg-sql-22 mapping witness posture
-		// (population_mapping.go owns its emission), and every non-mapping
-		// renderer keeps the registered refusal byte-identically: a
-		// population-bound contributor column read over the spine would
-		// silently substitute spine rows for population rows, the exact
-		// identity-injection class the population contract isolates.
 		if r.mapping != nil && r.mapping.witness &&
 			column.Internal && column.Name == populationMappingContributorColumn &&
 			strings.EqualFold(strings.TrimSpace(column.Kind), "string") && cardinality == "MANY" {
@@ -1444,10 +939,6 @@ func (r *planRenderer) validateStageColumnClass(column ir.PhysicalStageColumn, j
 	return nil
 }
 
-// renderStageCTE renders one stage relation. Each stage gets a FRESH read
-// contract for its own input variable, so a stage can never read a
-// non-adjacent stage's columns (L-16.1: the chain re-read plus this
-// builder-side scoping).
 func (r *planRenderer) renderStageCTE(
 	plan ir.PhysicalPlan,
 	stage ir.PhysicalConstructionStage,
@@ -1483,10 +974,6 @@ func (r *planRenderer) renderStageCTE(
 	return body, ctes, out, nil
 }
 
-// renderPassThroughStage renders a FILTER or DERIVE stage: the stage filter
-// becomes the WHERE conjunct, the DERIVE LETs become materialized columns,
-// and every output column is the positional read of the prior relation
-// (render/aql/stage_sequence.go:405-428 twin).
 func (r *planRenderer) renderPassThroughStage(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage, relation string, scope stageRowScope) (string, map[string]stageColumnFact, error) {
 	r.stageRows[stage.InputRowVariable] = scope
 	r.stageRows[stage.OutputRowVariable] = scope
@@ -1502,9 +989,6 @@ func (r *planRenderer) renderPassThroughStage(plan ir.PhysicalPlan, stage ir.Phy
 			return "", nil, fmt.Errorf("derive LET %q: %w", derived.Variable, err)
 		}
 		jsonb := isPayloadExpression(expression)
-		// The spine's own LET contract (unnest.go:716-729) keeps derived
-		// reads path-aware, so a later stage or the output projection list
-		// can address a property of a derived jsonb value.
 		r.rows[derived.Variable] = rowScope{derivedValue: expression, derivedJSON: jsonb}
 		direct[derived.Variable] = stageColumnExpr{expr: expression, jsonb: jsonb}
 	}
@@ -1531,17 +1015,10 @@ func (r *planRenderer) renderPassThroughStage(plan ir.PhysicalPlan, stage ir.Phy
 	return sql, facts, nil
 }
 
-// stageRelationSource spells one stage's FROM clause over its immediately
-// prior relation, always under the same alias so one read spelling serves
-// every stage.
 func stageRelationSource(relation string) string {
 	return relation + " AS " + stageTerminalAlias
 }
 
-// renderExpandStage ports render/aql/construction_expand.go:10-69: the raw
-// read, the array-type ASSERT, the null→[] items form, the ERROR empty
-// policy raise, the positional expansion with its ordinal, the item-type
-// ASSERT, and the compact composition identity.
 func (r *planRenderer) renderExpandStage(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage, index int, relation string, scope stageRowScope) (string, map[string]stageColumnFact, error) {
 	expand := stage.Expand
 	if _, ok := plan.BindVars[expand.ConstructionIDBindKey]; !ok {
@@ -1579,11 +1056,6 @@ func (r *planRenderer) renderExpandStage(plan ir.PhysicalPlan, stage ir.Physical
 
 	raw := stageTerminalAlias + "." + `"` + input.alias + `"`
 	items := "COALESCE(NULLIF(" + raw + ", 'null'::jsonb), '[]'::jsonb)"
-	// The AQL ASSERT order is preserved inside one CASE, whose branches
-	// PostgreSQL evaluates left to right: the array-type assert, then the
-	// ERROR empty assert, then the items. Riding the LATERAL argument is
-	// what keeps the AQL raise position — the argument is evaluated for
-	// every input row, including a zero-item row a CROSS JOIN would drop.
 	guarded := "CASE WHEN NOT (" + raw + " IS NULL OR " + raw + " = 'null'::jsonb OR jsonb_typeof(" + raw + ") = $" +
 		strconv.Itoa(typeofTag) + "::text) THEN " + guardCastJSONB(stageExpandArrayTypeTag)
 	if expand.EmptyPolicy == ir.PhysicalUnnestError {
@@ -1594,23 +1066,14 @@ func (r *planRenderer) renderExpandStage(plan ir.PhysicalPlan, stage ir.Physical
 	expansion := "jsonb_array_elements(" + guarded + ") WITH ORDINALITY"
 	join := "CROSS JOIN LATERAL " + expansion + " AS " + expandRelation(index) + "(item, ord)"
 	if expand.EmptyPolicy == ir.PhysicalUnnestPreserveParent {
-		// The AQL `LENGTH(items) == 0 ? [null] : RANGE(...)` twin: a LEFT
-		// JOIN LATERAL keeps exactly one null-item row for a zero-item
-		// input (the unnest.go zero-item-kept precedent).
 		join = "LEFT JOIN LATERAL " + expansion + " AS " + expandRelation(index) + "(item, ord) ON TRUE"
 	}
 	item := expandRelation(index) + ".item"
 	ordinal := expandRelation(index) + ".ord - 1"
 
-	// The per-item ASSERT twin (construction_expand.go:57): null-exempt
-	// exactly like AQL's `item == null OR TYPENAME(item) == @type`.
 	itemGuard := "(CASE WHEN " + item + " IS NULL OR " + item + " = 'null'::jsonb OR jsonb_typeof(" + item +
 		") = $" + strconv.Itoa(itemTypeBind) + "::text THEN 1 ELSE " + guardCast(stageExpandItemTypeTag) + " END) > 0"
 
-	// The identity twin of construction_expand.go:58-60:
-	// TO_STRING([["input", row[id]], ["construction", @cid], ["ordinal", i]])
-	// — an OUTER array of MEMBER ARRAYS, JSON-compact, the ordinal a bare
-	// JSON number (the PRESERVE_PARENT null ordinal reads "null").
 	identityRead := stageTerminalAlias + "." + `"` + identity.alias + `"`
 	constructionBind := r.textParameter(bindStringVar(plan.BindVars, expand.ConstructionIDBindKey), "")
 	identityParts := []string{
@@ -1636,11 +1099,8 @@ func (r *planRenderer) renderExpandStage(plan ir.PhysicalPlan, stage ir.Physical
 	return sql, facts, nil
 }
 
-// expandRelation mints the per-stage ordinality expansion alias.
 func expandRelation(index int) string { return stageSequenceCTEPrefix + "ex" + strconv.Itoa(index) }
 
-// stageScalarTypeOf maps one registered scalar kind onto the jsonb_typeof
-// name the AQL TYPENAME assert compares against (aqlTableScalarType twin).
 func stageScalarTypeOf(kind string) (string, error) {
 	switch kind {
 	case "STRING", "CODE":
@@ -1654,9 +1114,6 @@ func stageScalarTypeOf(kind string) (string, error) {
 	}
 }
 
-// renderStageMelt renders an UNPIVOT stage over the prior relation by the
-// SAME melt region the inline door uses (unpivot.go), so a staged melt can
-// never drift from the registered melt (the byte-preservation law).
 func (r *planRenderer) renderStageMelt(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage, relation string, scope stageRowScope) (string, map[string]stageColumnFact, error) {
 	unpivot := stage.Unpivot
 	inputExprs := make(map[string]string, len(unpivot.InputProjections))
@@ -1673,8 +1130,6 @@ func (r *planRenderer) renderStageMelt(plan ir.PhysicalPlan, stage ir.PhysicalCo
 	if err != nil {
 		return "", nil, err
 	}
-	// The melt output contract routes through the registered read map, so
-	// melt outputs can never resolve through the stored-row path.
 	r.unpivotOutputs = map[string]map[string]string{unpivot.OutputRowVariable: region.columns}
 	direct := map[string]stageColumnExpr{}
 	for name, expression := range region.columns {
@@ -1692,16 +1147,8 @@ func (r *planRenderer) renderStageMelt(plan ir.PhysicalPlan, stage ir.PhysicalCo
 	return sql, facts, nil
 }
 
-// resolveStageColumnRead renders one authored projection as a read over the
-// prior relation, accepting only the registered column-name form.
 func (r *planRenderer) resolveStageColumnRead(plan ir.PhysicalPlan, scope stageRowScope, projection ir.PhysicalProjection) (string, error) {
 	if projection.Expression != nil {
-		// The lowering-minted carry-over form (the AQL MERGE(inputRow,
-		// {…}) twin, render/aql/construction_expand.go:10-69): an
-		// OBJECT_LOOKUP over the stage's registered input row variable
-		// whose key bind names one prior-stage column. It reads exactly
-		// through the named-column contract, never through the stored-row
-		// path.
 		if projection.Expression.Kind == ir.PhysicalObjectLookupExpression && projection.Expression.ObjectLookup != nil &&
 			projection.Expression.Cardinality == ir.PhysicalScalarCardinality &&
 			projection.Expression.NullBehavior == ir.PhysicalPreserveNull {
@@ -1730,10 +1177,6 @@ func (r *planRenderer) resolveStageColumnRead(plan ir.PhysicalPlan, scope stageR
 	return r.resolveStageRowValue(scope, projection.Value)
 }
 
-// renderStageGroup renders a GROUP stage through the group slice's ONE
-// aggregate region emitter (group.go), repointed at the prior relation: the
-// g_rows witnesses, the missing-key policies, the reducers, the row-value
-// pools, and the construction identity all stay the registered texts.
 func (r *planRenderer) renderStageGroup(
 	plan ir.PhysicalPlan,
 	stage ir.PhysicalConstructionStage,
@@ -1741,15 +1184,6 @@ func (r *planRenderer) renderStageGroup(
 	relation string,
 	facts map[string]stageColumnFact,
 ) (string, []string, map[string]stageColumnFact, error) {
-	// G3(c) dispatch arm (stage_related_occurrence.go, L-13.5 CLOSED): a
-	// GROUP stage carrying the related-occurrence adapter materializes its
-	// one shared correlated-hop expansion into the group slice's own source
-	// CTE. The L-13.2 "no dispatch arm ⇒ silent drop" law is discharged by
-	// this arm's presence plus the emitter's fail-closed
-	// validateStageRelatedOccurrenceAdapter re-read — an adapter no rule
-	// covers reaches a typed refusal, never a group over rows missing the
-	// adapter's columns (an adapter-owned input column absent from the
-	// region also fails the facts lookup below, never silently).
 	var relRegion *stageRelatedOccurrenceRegion
 	source := "SELECT * FROM " + relation
 	if stage.Group.RelatedOccurrence != nil {
@@ -1758,16 +1192,10 @@ func (r *planRenderer) renderStageGroup(
 			return "", nil, nil, relErr
 		}
 		relRegion = &relRendered
-		// The region's sourceText goes to the aggregate region VERBATIM —
-		// never re-wrapped or re-projected (spec rule 2): it carries the
-		// expansion joins and the registered parent-first source order.
 		source = relRegion.sourceText
 	}
 	columns := make([]groupColumn, 0, len(stage.InputColumns))
 	for _, column := range stage.InputColumns {
-		// Spec rule 1: adapter-owned input columns resolve through the
-		// region's materialized columns; everything else keeps the prior
-		// facts reading byte-identically.
 		if relRegion != nil {
 			if adapted, ok := relRegion.columns[column.Name]; ok {
 				columns = append(columns, adapted)
@@ -1779,26 +1207,15 @@ func (r *planRenderer) renderStageGroup(
 			return "", nil, nil, fmt.Errorf("%w: group input column %q is not among the prior stage's registered columns (L-16.1)",
 				ErrUnsupportedPostgresPlan, column.Name)
 		}
-		// The group region's consuming CTEs each hold exactly one relation,
-		// so its reads are unqualified (group.go:560-563).
 		columns = append(columns, groupColumn{
 			name: column.Name, alias: fact.alias, ref: `"` + fact.alias + `"`, jsonb: fact.jsonb,
 		})
 	}
 	jsonbOutputs := map[string]bool{}
 	for _, rowValue := range stage.Group.RowValues {
-		// The storage class follows the emitter exactly: an ALL policy
-		// row value materializes as to_jsonb(ARRAY_AGG(...)) — jsonb —
-		// while the ONE policy collapses through MIN(...) #>> '{}' and
-		// stays a SQL scalar. Marking a ONE row value jsonb would make a
-		// later stage read it with a document operator and abort at
-		// analysis (42883), so the fact must describe what group.go
-		// actually emits per policy (groupRowValueExpressionFor).
 		jsonbOutputs[rowValue.Output] = rowValue.Policy == "ALL"
 	}
 	if stage.Group.RootContributorOutputColumn != "" {
-		// The pg-sql-22 contributor set is emitted as a jsonb array
-		// (group.go's mapping-witness pool), the AQL SORTED_UNIQUE array.
 		jsonbOutputs[stage.Group.RootContributorOutputColumn] = true
 	}
 	region, err := r.renderGroupAggregateRegion(plan, stage, columns,
@@ -1811,12 +1228,6 @@ func (r *planRenderer) renderStageGroup(
 	return region.final, region.ctes, out, nil
 }
 
-// renderStagePivot renders a staged NON-coded PIVOT through the pivot
-// slice's ONE region emitter (pivot.go), repointed at the prior relation.
-// The consumed reads wrap the materialized column in to_jsonb so the slot
-// column is uniformly jsonb — the AQL slot array's value form — and
-// document-path category presence is refused because an intermediate row is
-// no longer a document (the presence must ride a materialized companion).
 func (r *planRenderer) renderStagePivot(
 	plan ir.PhysicalPlan,
 	stage ir.PhysicalConstructionStage,
@@ -1842,13 +1253,10 @@ func (r *planRenderer) renderStagePivot(
 	if err != nil {
 		return "", nil, nil, err
 	}
-	// Every pivot output rides a jsonb slot except the registered row
-	// identity, which the emitter renders as compact composition TEXT.
 	out := factsFromNames(region.names, func(name string) bool { return name != stage.RowIdentityColumn })
 	return region.final, region.ctes, out, nil
 }
 
-// factsFromNames mints positional facts for one emitter's output names.
 func factsFromNames(names []string, jsonb func(string) bool) map[string]stageColumnFact {
 	facts := make(map[string]stageColumnFact, len(names))
 	for index, name := range names {
@@ -1857,14 +1265,6 @@ func factsFromNames(names []string, jsonb func(string) bool) map[string]stageCol
 	return facts
 }
 
-// renderStageOutputSelects is the ONE positional emitter for every stage
-// relation: the declared OutputColumns are selected positionally as
-// renderer-minted c0..cN aliases in schema order (no plan column name ever
-// reaches SQL text), each satisfied by a reshape expression the payload
-// owns, or by the registered output projection read over the prior
-// relation. The stage row identity is emitted by its own emitter arm, so
-// the schema contract (name, Kind, Cardinality, identity) is enforced here
-// for every kind alike.
 func (r *planRenderer) renderStageOutputSelects(
 	plan ir.PhysicalPlan,
 	stage ir.PhysicalConstructionStage,
@@ -1916,10 +1316,6 @@ func (r *planRenderer) renderStageOutputSelects(
 	return selects, facts, nil
 }
 
-// stagePresenceProof renders the presence companion of one intermediate
-// column: the registered two-state jsonb boolean of null_semantics.go, over
-// the intermediate reading in which an SQL NULL or a stored JSON null is
-// the AQL absent/null state.
 func (r *planRenderer) stagePresenceProof(scope stageRowScope, projection ir.PhysicalProjection) (string, error) {
 	if len(projection.Presence.Paths) != 1 || len(projection.Presence.Paths[0]) == 0 {
 		return "", fmt.Errorf("%w: a stage presence companion needs exactly one column path (null_semantics.go contract)",

@@ -102,8 +102,6 @@ func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision,
 	return out, nil
 }
 
-// FailRevision records the only non-activation revision transition performed
-// outside the atomic activation workflows.
 func (s *Store) FailRevision(ctx context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
 	now := time.Now().UTC()
 	patch := map[string]any{"status": explorer.RevisionFailed, "diagnostics": diagnostics, "failedAt": now}

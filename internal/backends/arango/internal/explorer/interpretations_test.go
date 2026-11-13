@@ -130,7 +130,6 @@ func TestInterpretationArangoCreateRetryCollisionParentConflictAndIsolation(t *t
 	if _, err := adapter.CreateInterpretationRevision(ctx, stale, nil); !errors.Is(err, explorer.ErrInterpretationParentConflict) {
 		t.Fatalf("stale root error=%v", err)
 	}
-	// A persisted key collision with different immutable identity fails closed.
 	prepared, err := explorer.PrepareInterpretationRevision(interpretationTestRevision("project-a"))
 	if err != nil {
 		t.Fatal(err)

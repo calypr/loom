@@ -1,40 +1,3 @@
-// Package postgres implements the PostgreSQL 18 Explorer control-plane
-// stores on top of the shared pg-store pool and migration runner.
-//
-// PostgreSQL 18 is an alternative to Arango for the source graph/catalog and
-// control persistence; Arango remains supported and ClickHouse remains the
-// publication data plane. This package adds no second driver, pool, fixture,
-// or migration runner: it reuses internal/backends/postgres/internal/store (pg-store-01 pool,
-// pg-store-02 runner) and adds only the Explorer-owner, compilation-receipt,
-// and immutable-revision relational schemas and their methods. There is no
-// silent backend fallback: every failure is returned for the caller to
-// surface, and no Arango path is wired in here.
-//
-// This slice implements the owner record, the draft CAS with exact
-// preimage history (drafts.go), the state slice added by
-// pg-state-receipt-revision-immutable-v1 (compilation receipts in
-// receipts.go, immutable Explorer revisions in revisions.go), and the
-// selection lifecycle (selections.go: staged identity, project-scoped
-// idempotency, expiring writer owner, insert-once membership, completion
-// CAS, owner-conditional abort, bounded staging cleanup). The remaining
-// explorer.Store methods (publication/activation, ...) arrive with the
-// later state tickets that depend on this foundation, extending this same
-// history and adding methods beside these.
-//
-// Schema ownership (pinned by TestPostgresExplorerOwnerMixedHistoryIsRefused):
-// every MigrationRunner keys its ledger -- and therefore its authoritative
-// applied history -- by schema, so exactly one embedded history may ever
-// migrate a given schema. The pg-store-02 history
-// (internal/backends/postgres/internal/store.MigrateSchema) owns source-store schemas; this
-// package's history owns Explorer control-plane schemas, and dependent state
-// tickets extend this same history rather than starting a competing one.
-// Pointing two histories at one schema is a deployment misconfiguration: the
-// runner fails closed with a named error (for these two histories,
-// pgstore.ErrMigrationChecksumMismatch on version 1, whose bodies differ
-// deliberately: IF NOT EXISTS for this feature history versus the plain
-// CREATE TABLE of the source-store history) before applying any statement,
-// so a mixed schema never converges silently or loses state. Callers must
-// surface that failure, not route around it.
 package postgres
 
 import (
@@ -52,28 +15,11 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// OwnerTable is the table holding Explorer owner records, created by
-// migration 000002_explorer_owner.sql inside the store's schema.
 const OwnerTable = "explorers"
 
-// migrationsFS holds this package's authoritative Explorer control-plane
-// history: the per-schema ledger bootstrap and the complete Explorer
-// control-plane ledger, versions 1..11 (owner, draft revision, capability
-// artifacts, compilation receipts, immutable revisions, interpretation
-// libraries, selection revisions, explicit groups and their membership and
-// definition-guard migrations). The capability, interpretation, and selection
-// DDL moved in from their earlier state-scoped own-dir fixture directories
-// with bytes unchanged; dependent tickets append further <version>_<name>.sql
-// files here through the shared pg-store-02 runner and record the append in
-// internal/backends/postgres/internal/store/migration_ownership.go in the same change.
-//
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// OwnerMigrations returns this package's complete embedded Explorer
-// control-plane migration history, validated and sorted by version with the
-// pg-store-02 loader. Its identity is recorded in
-// internal/backends/postgres/internal/store/migration_ownership.go.
 func OwnerMigrations() ([]pgstore.Migration, error) {
 	migrations, err := pgstore.LoadMigrations(migrationsFS, "migrations")
 	if err != nil {
@@ -82,17 +28,6 @@ func OwnerMigrations() ([]pgstore.Migration, error) {
 	return migrations, nil
 }
 
-// MigrateSchema applies this package's owner history to one Explorer
-// control-plane schema of the database reachable through client, serialized
-// by the pg-store-02 advisory lock. The caller owns schema creation, and this
-// history must be the only one ever applied to that schema: a schema already
-// migrated by another history (e.g. internal/backends/postgres/internal/store.MigrateSchema)
-// fails closed with pgstore.ErrMigrationChecksumMismatch before any statement
-// runs (see the package comment; pinned by
-// TestPostgresExplorerOwnerMixedHistoryIsRefused). Re-applying the applied
-// history is a no-op: the DDL is IF NOT EXISTS, so a rerun never truncates
-// existing owner state. Failures are returned, never absorbed: there is no
-// fallback to another backend.
 func MigrateSchema(ctx context.Context, client *pgstore.Client, schema string) (pgstore.MigrateResult, error) {
 	if client == nil {
 		return pgstore.MigrateResult{}, errors.New("postgres explorer store: nil client")
@@ -108,11 +43,6 @@ func MigrateSchema(ctx context.Context, client *pgstore.Client, schema string) (
 	return runner.Migrate(ctx)
 }
 
-// VerifySchema is the read-only counterpart of MigrateSchema for the
-// explorer_control series: it reports the assigned schema's ledger state
-// against the owner history (pgstore.MigrationRunner.Verify) without taking
-// the migration lock or writing anything. Failures are returned, never
-// absorbed; there is no fallback to another backend.
 func VerifySchema(ctx context.Context, client *pgstore.Client, schema string) error {
 	if client == nil {
 		return errors.New("postgres explorer store: nil client")
@@ -128,15 +58,8 @@ func VerifySchema(ctx context.Context, client *pgstore.Client, schema string) er
 	return runner.Verify(ctx)
 }
 
-// schemaNamePattern matches a safe lowercase PostgreSQL identifier, the same
-// shape the pg-store-02 runner accepts, so a Store and its runner can never
-// disagree about the target schema.
 var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
-// ownerColumns is the single source of truth for column order: the INSERT
-// column list, the RETURNING/SELECT column list, the Create argument order,
-// and the scan order all derive from it. Ordered SQL parameters ($1..$N)
-// therefore match the Go argument slice by construction.
 var ownerColumns = []string{
 	"project",
 	"explorer_id",
@@ -157,62 +80,23 @@ var ownerColumns = []string{
 	"updated_at",
 }
 
-// Store persists Explorer control-plane records in one schema of a
-// PostgreSQL 18 database reachable through the shared pg-store-01 pool.
-// Create, Get, and List manage owner records; SaveDraft and its history
-// reads manage the draft CAS with exact preimage history (drafts.go);
-// InsertCompilationReceipt and GetCompilationReceiptForExplorer manage
-// receipts (receipts.go); InsertRevision, GetRevision,
-// GetRevisionForExplorer, FailRevision, and FailRevisionFrom manage
-// immutable revisions (revisions.go). They mirror the Arango adapter's
-// semantics (insert-once, scoped reads, byte-order listing) with relational
-// typed columns and lossless JSONB payloads.
 type Store struct {
-	client   *pgstore.Client
-	insert   string             // backend-tagged INSERT ... ON CONFLICT DO NOTHING RETURNING
-	get      string             // backend-tagged SELECT ... WHERE project = $1 AND explorer_id = $2
-	list     string             // backend-tagged SELECT ... WHERE project = $1 ORDER BY explorer_id
-	receipt  receiptStatements  // backend-tagged receipt claim/read statements
-	revision revisionStatements // backend-tagged revision claim/read/CAS statements
-	// drafts holds the draft CAS/preimage statement set (drafts.go),
-	// built once for the same schema the owner statements target.
-	drafts draftSQL
-	// selections holds the selection header/owner statement set
-	// (selections.go), built once for the same schema.
-	selections selectionSQL
-	// selectionMembers holds the selection membership statement set
-	// (selection_members.go), built once for the same schema.
-	selectionMembers selectionMemberSQL
-	// afterHistoryInsert is the test-only fault/interleaving seam of
-	// SaveDraft (see drafts.go). Production never assigns it.
-	afterHistoryInsert func(context.Context, pgx.Tx) error
-	// afterMemberInsert is the test-only fault/interleaving seam of
-	// AppendSelectionMembers (see selection_members.go). Production never
-	// assigns it.
-	afterMemberInsert func(context.Context, pgx.Tx) error
-	// beforeCleanupCommit is the test-only fault seam of
-	// CleanupSelectionStaging (see selections.go). Production never
-	// assigns it.
-	beforeCleanupCommit func(context.Context, pgx.Tx) error
-	// beforeCompleteCommit is the test-only fault seam of the fenced
-	// CompleteSelection (see selection_members.go). Production never
-	// assigns it.
+	client               *pgstore.Client
+	insert               string
+	get                  string
+	list                 string
+	receipt              receiptStatements
+	revision             revisionStatements
+	drafts               draftSQL
+	selections           selectionSQL
+	selectionMembers     selectionMemberSQL
+	afterHistoryInsert   func(context.Context, pgx.Tx) error
+	afterMemberInsert    func(context.Context, pgx.Tx) error
+	beforeCleanupCommit  func(context.Context, pgx.Tx) error
 	beforeCompleteCommit func(context.Context, pgx.Tx) error
-	// memberPageStreamed is the test-only observer of every fetched page
-	// of the paged member stream (see selection_members.go); it is how
-	// the suite proves the digest/finalize walk is bounded and
-	// keyset-driven. Production never assigns it.
-	memberPageStreamed func(rows int)
+	memberPageStreamed   func(rows int)
 }
 
-// New builds a Store for one Explorer control-plane schema of the database
-// behind client -- a schema created by the caller and migrated exclusively
-// by this package's MigrateSchema (see the package comment's schema-ownership
-// invariant). It opens no connection: the pool stays shared with other
-// control-plane users. The schema name must be a safe lowercase identifier
-// (the pg-store-02 runner accepts exactly the same shape); every statement
-// the Store runs binds the pre-qualified, sanitized table reference and uses
-// ordered SQL parameters.
 func New(client *pgstore.Client, schema string) (*Store, error) {
 	if client == nil {
 		return nil, errors.New("postgres explorer store: client is required")
@@ -236,20 +120,14 @@ func New(client *pgstore.Client, schema string) (*Store, error) {
 	}, nil
 }
 
-// sanitizeTableRef renders the pre-qualified, sanitized table reference for
-// one table of the store's schema; every statement the Store runs binds this
-// reference, never a caller-supplied string.
 func sanitizeTableRef(schema, table string) string {
 	return pgx.Identifier{schema, table}.Sanitize()
 }
 
-// sanitizeSchema renders the sanitized schema identifier, the same form the
-// pg-store-02 runner uses for SET LOCAL search_path.
 func sanitizeSchema(schema string) string {
 	return pgx.Identifier{schema}.Sanitize()
 }
 
-// orderedPlaceholders renders $1..$N for N ordered parameters.
 func orderedPlaceholders(n int) string {
 	parts := make([]string, n)
 	for i := range parts {
@@ -258,15 +136,10 @@ func orderedPlaceholders(n int) string {
 	return strings.Join(parts, ", ")
 }
 
-// ownerPlaceholders renders $1..$N for len(ownerColumns) ordered parameters.
 func ownerPlaceholders() string {
 	return orderedPlaceholders(len(ownerColumns))
 }
 
-// ownerArgs maps an Explorer to its column values in ownerColumns order.
-// json.RawMessage payloads cross the boundary explicitly: nil becomes SQL
-// NULL, while the literal bytes (including JSON null) go to the jsonb
-// parameter unchanged, preserving missing versus JSON-null.
 func ownerArgs(e explorer.Explorer) []any {
 	return []any{
 		e.Project,
@@ -289,10 +162,6 @@ func ownerArgs(e explorer.Explorer) []any {
 	}
 }
 
-// jsonParam encodes a json.RawMessage for a jsonb parameter: nil and the
-// empty payload are "missing" (SQL NULL, matching encoding/json omitempty);
-// anything else, including the four bytes "null", is passed verbatim so
-// jsonb stores it as a JSON value distinct from SQL NULL.
 func jsonParam(raw json.RawMessage) []byte {
 	if len(raw) == 0 {
 		return nil
@@ -300,16 +169,10 @@ func jsonParam(raw json.RawMessage) []byte {
 	return []byte(raw)
 }
 
-// rowScanner is the Scan surface of both pgx.Row (QueryRow) and the current
-// row of pgx.Rows.
 type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-// scanOwner decodes one row into an Explorer. Targets follow ownerColumns
-// order. The jsonb columns scan into json.RawMessage: SQL NULL yields a nil
-// (missing) payload and the jsonb value 'null' yields RawMessage("null").
-// management_mode decodes into the typed ManagementMode.
 func scanOwner(row rowScanner, e *explorer.Explorer) error {
 	var managementMode string
 	targets := []any{
@@ -338,11 +201,6 @@ func scanOwner(row rowScanner, e *explorer.Explorer) error {
 	return nil
 }
 
-// Create inserts the Explorer owner exactly once. A second Create for an
-// existing (project, explorer_id) identity inserts nothing and maps to
-// explorer.ErrDraftConflict (the same duplicate-owner classification the
-// Arango adapter returns); the stored row is never overwritten. The RETURNING
-// row -- what PostgreSQL actually persisted -- is decoded and returned.
 func (s *Store) Create(ctx context.Context, e explorer.Explorer) (*explorer.Explorer, error) {
 	conn, err := s.client.Acquire(ctx)
 	if err != nil {
@@ -354,8 +212,6 @@ func (s *Store) Create(ctx context.Context, e explorer.Explorer) (*explorer.Expl
 	err = scanOwner(conn.QueryRow(ctx, s.insert, ownerArgs(e)...), &out)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// ON CONFLICT DO NOTHING returned no row: the owner identity
-			// already exists. Insert-once semantics, never an overwrite.
 			return nil, explorer.ErrDraftConflict
 		}
 		return nil, fmt.Errorf("postgres explorer store: create explorer owner %q/%q: %w",
@@ -364,9 +220,6 @@ func (s *Store) Create(ctx context.Context, e explorer.Explorer) (*explorer.Expl
 	return &out, nil
 }
 
-// Get returns the owner record for one Explorer, scoped to its project: a
-// missing Explorer and an Explorer that exists in another project both
-// return explorer.ErrNotFound with no information leak.
 func (s *Store) Get(ctx context.Context, project, id string) (*explorer.Explorer, error) {
 	conn, err := s.client.Acquire(ctx)
 	if err != nil {
@@ -385,10 +238,6 @@ func (s *Store) Get(ctx context.Context, project, id string) (*explorer.Explorer
 	return &out, nil
 }
 
-// List returns every owner record in one project, sorted by ExplorerID in
-// exact byte order (the identity columns are COLLATE "C", matching Arango's
-// byte-order listing). The result is never nil: an empty project lists as an
-// empty slice.
 func (s *Store) List(ctx context.Context, project string) ([]explorer.Explorer, error) {
 	conn, err := s.client.Acquire(ctx)
 	if err != nil {

@@ -413,8 +413,6 @@ func TestWriteSemanticCoverageKeepsDistinctRetainedKeysWithSameLogicalFHIRIDSepa
 	second := semanticCoverageFixtureContribution()
 	second.Identity.AuthResourcePath = "Patient/scope-b"
 	second.Identity.SourceID = "retained:Observation/arango-key-b"
-	// These retained rows intentionally model distinct Arango _keys whose FHIR
-	// payloads share the same logical `id`; source identity must use _key only.
 	sharedLogicalFHIRID := "observation-duplicate"
 	if sharedLogicalFHIRID == "" {
 		t.Fatal("fixture requires a shared logical FHIR id")
@@ -582,7 +580,7 @@ func TestSemanticCoverageIncompleteReplayCannotReuseCompletedMarkerOrSummary(t *
 	}
 	client.events = nil
 	client.insertAttempts = 0
-	client.failInsertAt = 1 // The atomic envelope replacement fails before it can be acknowledged.
+	client.failInsertAt = 1
 	contribution.Paths[0].CanonicalPath = "changedPath"
 	if _, err := adapter.WriteSemanticCoverageContributions(context.Background(), buildID, []catalog.SemanticCoverageSourceContribution{contribution}, 10); err == nil {
 		t.Fatal("interrupted source-set replay returned nil")

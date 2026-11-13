@@ -1,32 +1,5 @@
 package execution_test
 
-// pg-exec-11 live acceptance: a restricted PostgreSQL-served draft output is
-// captured to a private ClickHouse workspace artifact and feeds the existing
-// terminal Combine, with real PostgreSQL 18 rows on the source side.
-//
-// Cells (fail-loud with LOOM_TEST_POSTGRES_URL, package-convention skip
-// without it):
-//   - L6/L7: two live PostgreSQL-served workspace outputs plus one published
-//     input execute the terminal Combine; every captured row carries the real
-//     auth_resource_path from the source database, out-of-scope rows (other
-//     path, other project, other generation) never reach the artifact, and
-//     the Combine query reapplies the restricted scope.
-//   - L8 negative: a port that tampers with a row's authorization path is
-//     rejected by the capture proof before the Combine runs.
-//   - L9: cancellation mid-capture leaves zero manifests and zero tables.
-//   - L10 evidence-free control: capture whose compiler-attested scope
-//     evidence was stripped is refused with zero artifacts.
-//   - L11 CH-harness-gated: the terminal Combine executes against a real
-//     ClickHouse (LOOM_CLICKHOUSE_URL, repo convention); explicit skip
-//     without the service, recorded unverified-live.
-//
-// Fixture databases are uniquely owned as verify_exec11_* and dropped by the
-// test that created them; the TestZZ audit is ownership-scoped to this file's
-// prefix, and the pre-snapshot baseline is captured before this process
-// creates anything. The sibling exec-03 batteries own the distinct
-// verify_exec03v1_* prefixes. Credential scrubbing reuses the exec-03
-// scrubber and its random-hex helper.
-
 import (
 	"context"
 	"errors"
@@ -257,11 +230,8 @@ func (s *exec11lvService) migrateAndSeed(t *testing.T) {
 		{"project-a", "generation-2", "Patient", "exec11-ada", "/programs/a", `{"id":"patient-ada"}`},
 		{"project-a", "generation-2", "Patient", "exec11-grace", "/programs/a", `{"id":"patient-grace"}`},
 		{"project-a", "generation-2", "Patient", "exec11-alan", "/programs/a", `{"id":"patient-alan"}`},
-		// Out-of-scope by authorization path: restricted capture must never see it.
 		{"project-a", "generation-2", "Patient", "exec11-hidden", "/programs/b", `{"id":"patient-hidden"}`},
-		// Out-of-scope by project.
 		{"project-b", "generation-2", "Patient", "exec11-intruder", "/programs/a", `{"id":"patient-intruder"}`},
-		// Out-of-scope by generation.
 		{"project-a", "generation-other", "Patient", "exec11-stale", "/programs/a", `{"id":"patient-stale"}`},
 	}
 	for _, row := range fixture {
@@ -274,7 +244,6 @@ func (s *exec11lvService) migrateAndSeed(t *testing.T) {
 	}
 }
 
-// witnessIDs is the independent direct-SQL truth for the restricted capture.
 func (s *exec11lvService) witnessIDs(t *testing.T) []string {
 	t.Helper()
 	rows, err := s.iso.Query(s.ctx, fmt.Sprintf(
@@ -319,9 +288,6 @@ func (exec11lvInvalidRegistry) LoadRecipeVersion(context.Context, string, string
 	return exec.Entry{}, errors.New("the exec-11 capture battery compiles authored bundles only")
 }
 
-// Recording private-artifact catalog and ClickHouse store. Shapes mirror the
-// in-package stubs; the snapshots are taken under the same locks the capture
-// writer runs against.
 type exec11lvCatalog struct {
 	mu    sync.Mutex
 	items map[string]chartifact.Manifest
@@ -512,8 +478,6 @@ func (c *exec11lvClickHouse) allRows() map[string][]map[string]any {
 	return out
 }
 
-// exec11lvPorts records Combine queries, published pins, resolutions, and
-// everything visible in the artifact plane while the consumer runs.
 type exec11lvPorts struct {
 	combineQueries []string
 	combineArgs    [][]any
@@ -569,8 +533,6 @@ func exec11lvBundle() recipe.Bundle {
 	}
 }
 
-// exec11lvCombineOutput mirrors the in-package workspace Combine terminal
-// shape (Append over value-id projections).
 func exec11lvCombineOutput(name string, inputs []ir.PhysicalCombineInputRef) lower.CompiledRecipeOutput {
 	plan := ir.PhysicalClickHouseCombine{
 		Kind: ir.PhysicalCombineAppend, Inputs: append([]ir.PhysicalCombineInputRef(nil), inputs...),
@@ -591,9 +553,6 @@ func exec11lvCombineOutput(name string, inputs []ir.PhysicalCombineInputRef) low
 	}
 }
 
-// exec11lvResolved compiles the live bundle on the PostgreSQL target and
-// attaches the workspace Combine terminal over both PostgreSQL-served
-// dependencies, optionally plus one published input.
 func exec11lvResolved(t *testing.T, engine *dataframeexecution.Engine, withPublished bool) dataframeexecution.Resolved {
 	t.Helper()
 	resolved, err := engine.CompileResolvedBundle(context.Background(), exec11lvBundle(), exec11lvBindings())
@@ -633,10 +592,6 @@ func exec11lvJoin(t *testing.T, engine *dataframeexecution.Engine, resolved data
 	return dataframeexecution.OutputStream{}
 }
 
-// L6+L7: two live PostgreSQL-served outputs and one published input feed the
-// terminal Combine. Captured rows carry the real authorization path; the
-// direct-SQL witness is the only source of expected values; the restricted
-// scope is reapplied on the Combine query; nothing leaks afterwards.
 func TestExec11lvLiveRestrictedCaptureFeedsCombine(t *testing.T) {
 	service := newExec11lvService(t)
 	service.migrateAndSeed(t)
@@ -720,8 +675,6 @@ func TestExec11lvLiveRestrictedCaptureFeedsCombine(t *testing.T) {
 	if !strings.Contains(terminal, "loom_private_") || !strings.Contains(terminal, "exec11_published_physical") {
 		t.Fatalf("Combine query did not join both private captures and the published table: %s", terminal)
 	}
-	// The renderer binds scope paths as positional argument values, which may
-	// nest (string slices inside the variadic list). Flatten before pinning.
 	var flatArgs []string
 	var flattenExec11 func(any)
 	flattenExec11 = func(value any) {
@@ -754,9 +707,6 @@ func TestExec11lvLiveRestrictedCaptureFeedsCombine(t *testing.T) {
 		t.Fatalf("restricted scope evidence was not reapplied to the Combine read: args=%v", ports.combineArgs)
 	}
 
-	// Every artifact observed while the consumer ran is a restricted,
-	// compiler-evidenced PostgreSQL capture; every captured row carries the
-	// real path and only witness values.
 	if ports.visibleDuringQ != 2 {
 		t.Fatalf("live captures visible during Combine = %d, want 2", ports.visibleDuringQ)
 	}
@@ -786,7 +736,6 @@ func TestExec11lvLiveRestrictedCaptureFeedsCombine(t *testing.T) {
 			t.Fatalf("captured values %v drifted from the direct-SQL witness %v", values, witness)
 		}
 	}
-	// The forbidden rows never entered any artifact table.
 	for table, inserted := range ch.allRows() {
 		for _, row := range inserted {
 			value := fmt.Sprintf("%v", row["value"])
@@ -800,9 +749,6 @@ func TestExec11lvLiveRestrictedCaptureFeedsCombine(t *testing.T) {
 	}
 }
 
-// L8 negative: a row port that tampers with a captured row's authorization
-// path is rejected by the compiler-attested scope proof before the Combine
-// runs, with zero artifacts.
 func TestExec11lvLiveCaptureRejectsForgedAuthPath(t *testing.T) {
 	service := newExec11lvService(t)
 	service.migrateAndSeed(t)
@@ -857,7 +803,6 @@ func TestExec11lvLiveCaptureRejectsForgedAuthPath(t *testing.T) {
 	}
 }
 
-// L9: cancellation mid-capture leaves zero manifests and zero tables.
 func TestExec11lvLiveCaptureCancellationLeavesNothing(t *testing.T) {
 	service := newExec11lvService(t)
 	service.migrateAndSeed(t)
@@ -912,11 +857,6 @@ func TestExec11lvLiveCaptureCancellationLeavesNothing(t *testing.T) {
 	}
 }
 
-// L10 evidence-free control (Q2 standing condition): with the same live
-// PostgreSQL fixture, capture whose compiler-attested scope evidence has
-// been stripped is refused before any artifact exists: zero manifests, zero
-// tables, and no Combine query -- the positive live leg above only means
-// something because the evidence-free control dies.
 func TestExec11lvLiveEvidenceFreeCaptureRefused(t *testing.T) {
 	service := newExec11lvService(t)
 	service.migrateAndSeed(t)
@@ -962,15 +902,6 @@ func TestExec11lvLiveEvidenceFreeCaptureRefused(t *testing.T) {
 	}
 }
 
-// L11 CH-harness-gated: the same live capture-into-Combine runs its terminal
-// query against a real ClickHouse service (LOOM_CLICKHOUSE_URL, repo
-// convention from internal/store/clickhouse/integration_test.go): the
-// chartifact manager writes real private tables through the production
-// client, the published input table is seeded through the same client, and
-// the Combine execution comes back through client.QueryRowsArgsVisit.
-// Without the service this leg is an explicit skip recorded as
-// unverified-live in the ticket evidence; the PG-side positive leg and the
-// recording-stub scope pins above are not softened by this gate.
 func TestExec11lvLiveCombineExecutesAgainstClickHouse(t *testing.T) {
 	service := newExec11lvService(t)
 	service.migrateAndSeed(t)

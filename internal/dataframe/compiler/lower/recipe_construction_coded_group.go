@@ -175,8 +175,6 @@ func constructionCodedGroupSourceRowsUnique(plan *ir.PhysicalPlan) error {
 			}
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp,
 			ir.PhysicalSetOp, ir.PhysicalSortOp, ir.PhysicalLimitOp:
-			// These operations can remove or annotate rows but cannot add another
-			// row for the same root identity.
 		case ir.PhysicalReturnOp:
 			returns++
 			if operation.Return == nil || index != len(plan.Operations)-1 {

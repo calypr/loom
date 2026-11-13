@@ -6,10 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// pivot14NonCodedPivotBundle authors the single-stage NON-coded
-// construction PIVOT (recipe PIVOT operation, probe C3 shape): the shape
-// that must keep the merged StageSequence refusal byte-identical because
-// the coded door keys on CodedCorrelation payload presence alone.
 func pivot14NonCodedPivotBundle(t *testing.T, name string) recipe.Bundle {
 	t.Helper()
 	alpha := "alpha"

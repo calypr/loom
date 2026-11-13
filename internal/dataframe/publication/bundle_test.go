@@ -32,11 +32,6 @@ func TestFinalSchemaDigestPreservesColumnOrder(t *testing.T) {
 	}
 }
 
-// Repair-5 (F-B21): the length-prefix PointerName encoding must stay
-// injective for exactly the pairs the archived CONFIRMED hijack used, plus
-// delimiter-spoof and multibyte neighbours; the shipped blank-component
-// exclusion semantics (whitespace-only == absent) are behaviour, so the
-// encoding change must not alter them.
 func TestBundleIdentityPointerNameIsInjective(t *testing.T) {
 	base := BundleIdentity{Project: "proj", DatasetGeneration: "gen", Name: "a", OutputName: "out"}
 	pairA := base

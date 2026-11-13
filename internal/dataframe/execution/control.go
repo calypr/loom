@@ -13,22 +13,9 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// Control adapts the production recipe engine to the backend-neutral
-// recipe control contract consumed by GraphQL and other transport adapters.
-// It resolves a recipe exactly once per operation and exposes only sanitized
-// physical diagnostics through ExplainPhysical; raw IR and AQL stay private.
 type Control struct {
-	Engine *Engine
-	// ExplainConnection is the live Arango assessment callback used for
-	// AQL-tagged (and, preserving the historical policy surface, untagged)
-	// commands.
-	ExplainConnection func(context.Context, compiler.CompiledQuery) (ExplainAssessment, error)
-	// ExplainPostgreSQLConnection is the live PostgreSQL assessment
-	// callback used for PostgreSQL-tagged commands. It receives only the
-	// parent-tagged command and must derive the EXPLAIN view through closed
-	// dispatch (see PostgreSQLExplainPlan). A PostgreSQL-tagged command is
-	// never handed to ExplainConnection and an AQL command is never handed
-	// to this callback.
+	Engine                      *Engine
+	ExplainConnection           func(context.Context, compiler.CompiledQuery) (ExplainAssessment, error)
 	ExplainPostgreSQLConnection func(context.Context, compiler.CompiledQuery) (PostgreSQLPlanAssessment, error)
 }
 
@@ -65,14 +52,6 @@ func (c Control) Explain(ctx context.Context, name string, bindings recipe.Runti
 	return validated.Plan.Explain(), nil
 }
 
-// ExplainPhysical compiles the same resolved canonical outputs consumed by
-// Preview and Materialize. The compiler-only path is always available; live
-// assessment is opt-in and backend-tagged: an AQL-tagged command is assessed
-// through ExplainConnection (the historical Arango policy surface) and a
-// PostgreSQL-tagged command through ExplainPostgreSQLConnection, each
-// requiring its own callback. No AQL, SQL, or bind values cross the recipe
-// control boundary; the PostgreSQL half carries only the sanitized
-// backend/node/estimate assessment produced by PostgreSQLExplainPlan.
 func (c Control) ExplainPhysical(ctx context.Context, name string, bindings recipe.RuntimeBindings, live bool) (PhysicalExplanation, error) {
 	if c.Engine == nil {
 		return PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
@@ -84,12 +63,6 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 	return c.ExplainResolved(ctx, resolved, live)
 }
 
-// ExplainResolved assesses an already-resolved canonical plan with the
-// identical compile-and-dispatch loop ExplainPhysical uses: every output is
-// compiled once by the selected target, so the assessment always sees the
-// exact command the stream will run. The plan's bindings supply the preview
-// limit. Server wiring resolves once and shares the Resolved across the
-// stream and its Explain instead of re-resolving per surface.
 func (c Control) ExplainResolved(ctx context.Context, resolved Resolved, live bool) (PhysicalExplanation, error) {
 	if c.Engine == nil {
 		return PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
@@ -124,10 +97,6 @@ func (c Control) ExplainResolved(ctx context.Context, resolved Resolved, live bo
 				}
 				item.LivePostgreSQL = &assessment
 			default:
-				// AQL-tagged, untagged, and unknown-tag commands keep the
-				// exact historical policy surface: only ExplainConnection
-				// sees them, and its AQL closed-dispatch check refuses
-				// anything that is not AQL.
 				if c.ExplainConnection == nil {
 					return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires an Arango connection")
 				}
@@ -170,9 +139,6 @@ func (c Control) Preview(ctx context.Context, name string, bindings recipe.Runti
 	return Preview{Plan: resolved, Outputs: outputRows(full, rows)}, nil
 }
 
-// Run executes the complete resolved recipe without a preview limit. It is an
-// explicit, bounded-by-the-caller's-memory transport operation; production
-// bulk workflows should use Materialize instead.
 func (c Control) Run(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Preview, error) {
 	if c.Engine == nil {
 		return Preview{}, fmt.Errorf("recipe engine is required")

@@ -11,11 +11,6 @@ import (
 	"strings"
 )
 
-// Profile submits a parameterized AQL query to ArangoDB's cursor endpoint
-// with profiling enabled. It returns the first cursor response, which contains
-// the complete profile metadata under extra. Callers should use a sufficiently
-// large BatchSize when they need to profile a complete result export; normal
-// dataframe execution remains on QueryRows and is never profiled implicitly.
 func (c *Client) Profile(ctx context.Context, request ProfileRequest) (ProfileResult, error) {
 	if err := c.checkOpen(); err != nil {
 		return ProfileResult{}, err

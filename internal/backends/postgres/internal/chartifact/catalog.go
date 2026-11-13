@@ -1,55 +1,3 @@
-// Package postgres implements the PostgreSQL-side catalog for temporary
-// private ClickHouse artifact manifests and their cleanup leases
-// (pg-private-clickhouse-artifact-catalog-v1).
-//
-// PostgreSQL 18 is an alternative to Arango for the source graph/catalog and
-// control persistence; Arango remains supported and ClickHouse remains the
-// publication row store. This catalog persists the chartifact.Manifest
-// metadata and lease state only: the physical tables it describes live in
-// ClickHouse, this package never reads, writes, or drops ClickHouse data,
-// and it never falls back to another backend on its own -- every failure is
-// returned for the caller to surface. It is deliberately not the published
-// BundleCatalog (internal/backends/postgres/internal/publication) and not the
-// Explorer filesystem ZIP ArtifactStore: private artifacts are never
-// registered as published outputs and never advance a visibility pointer.
-//
-// Guarantees, mirroring internal/backends/arango/internal/chartifact:
-//   - Create is conditional on the ArtifactID being absent (ON CONFLICT DO
-//     NOTHING): a concurrent duplicate reports ErrArtifactExists and the
-//     stored manifest is never replaced, so Create is immutable.
-//   - Update and Renew compare the current lease owner and the current
-//     expiry inside the single write statement; an expired or stolen lease
-//     cannot be updated (ErrLeaseLost) and Renew never resurrects an
-//     expired lease. Active-state updates extend the lease monotonically
-//     (GREATEST); only CLEANUP_PENDING may make a lease immediately
-//     reclaimable, and CLEANUP_PENDING is terminal -- an owned row cannot
-//     return to an active state. The identity, schema, and physical-table
-//     columns and their payload members are never in any UPDATE SET list,
-//     so progress writes preserve them structurally.
-//   - ListExpired is bounded (limit <= 0 empty, capped at maxExpiredPageSize)
-//     and stable: the page walks lease order with a COLLATE "C" artifact-ID
-//     tie-break, the deterministic byte-order tie Arango's _key gives.
-//   - ClaimCleanup rechecks lease_until <= expiredBefore inside its UPDATE,
-//     so a concurrent renewer wins cleanly and only one cleanup owner ever
-//     claims a manifest; the claimed manifest is returned from the same
-//     statement.
-//   - Delete and ReleaseCleanup act only while the caller is the current
-//     cleanup-pending owner, otherwise ErrLeaseLost. Every catalog operation
-//     is one statement on one connection: no catalog method opens a
-//     transaction, so the caller's ClickHouse DropTable (idempotent per the
-//     chartifact.ClickHouse contract) always runs outside any database
-//     transaction, and there is no cross-database atomicity anywhere.
-//   - The jsonb payload is authoritative for reads: nanosecond timestamps
-//     and the missing-versus-JSON-null member shape (for example a nil
-//     versus empty AuthResourcePaths) round-trip untouched. Every column is
-//     NOT NULL, so nothing silently reads back as SQL NULL; unsupported
-//     values fail explicitly, at the boundary or on decode.
-//
-// The schema is created by the publication control-plane history (migration
-// 000007_private_clickhouse_artifacts), owned and embedded by
-// internal/backends/postgres/internal/publication and applied through its
-// MigrateSchema entry point on the pg-store-02 runner; this package contains
-// no DDL.
 package postgres
 
 import (
@@ -67,11 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 )
 
-// PrivateArtifactsTable stores one row per private ClickHouse artifact
-// manifest. It is created by migration
-// 000007_private_clickhouse_artifacts of the publication control-plane
-// history owned by internal/backends/postgres/internal/publication; this file
-// contains no DDL.
 const PrivateArtifactsTable = "chartifact_private_artifacts"
 
 const (
@@ -79,33 +22,18 @@ const (
 	maxExpiredPageSize  = 1000
 )
 
-// schemaNamePattern matches the migration runner's own schema rule so a
-// catalog can only ever address a safe lowercase identifier schema.
 var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
-// ErrInvalidSchema reports a schema name that is not a safe lowercase
-// identifier; the catalog refuses to build rather than interpolate it.
 var ErrInvalidSchema = errors.New("chartifact postgres: invalid schema name")
 
-// ErrArtifactExists reports a Create whose ArtifactID is already stored. The
-// existing manifest is untouched: Create never replaces an immutable
-// manifest, and concurrent duplicate creates have exactly one winner.
 var ErrArtifactExists = errors.New("chartifact postgres: artifact manifest already exists")
 
-// DB is the statement surface the catalog needs. *pgxpool.Pool satisfies it;
-// the catalog owns no connection beyond what a call acquires. Deliberately
-// absent: Begin. No catalog operation may hold a transaction, so the
-// caller's idempotent ClickHouse DropTable always runs outside any database
-// transaction and no statement can block a drop behind a held lock.
 type DB interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// Catalog implements chartifact.Catalog on PostgreSQL 18. All statements use
-// ordered $n parameters and schema-qualified table names; nothing
-// user-supplied is interpolated into SQL.
 type Catalog struct {
 	db        DB
 	artifacts string
@@ -113,12 +41,6 @@ type Catalog struct {
 
 var _ chartifact.Catalog = (*Catalog)(nil)
 
-// NewCatalog binds a catalog to one schema of a PostgreSQL 18 database
-// served by pool. The schema must already contain chartifact_private_
-// artifacts (migration 000007 of the publication control-plane history,
-// applied via internal/backends/postgres/internal/publication.MigrateSchema);
-// NewCatalog never runs DDL and never falls back when it is missing -- the
-// first statement surfaces the failure.
 func NewCatalog(pool DB, schema string) (*Catalog, error) {
 	if pool == nil {
 		return nil, errors.New("chartifact postgres: nil pool")
@@ -132,10 +54,6 @@ func NewCatalog(pool DB, schema string) (*Catalog, error) {
 	}, nil
 }
 
-// manifestParams are the ordered $1..$19 bind values for a full row write:
-// identity, the mirrored scan columns, and the marshaled payload. The
-// payload binds as text so PostgreSQL infers jsonb from the column context;
-// []byte would be typed bytea and rejected.
 func manifestParams(manifest chartifact.Manifest) ([]any, error) {
 	payload, err := json.Marshal(manifest)
 	if err != nil {
@@ -153,12 +71,6 @@ func manifestParams(manifest chartifact.Manifest) ([]any, error) {
 	}, nil
 }
 
-// Create inserts an immutable manifest only when its ArtifactID is unused.
-// A concurrent duplicate create converges on the winner: the loser reports
-// ErrArtifactExists and the stored manifest keeps its exact bytes. Every
-// field is gated before the insert (validateCreate), so a row this catalog
-// writes can always be read back and blank inputs fail as catalog
-// validation errors rather than migration CHECK violations.
 func (c *Catalog) Create(ctx context.Context, manifest chartifact.Manifest) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -186,14 +98,6 @@ func (c *Catalog) Create(ctx context.Context, manifest chartifact.Manifest) erro
 	return nil
 }
 
-// Update changes only progress fields, and only while owner holds an
-// unexpired lease. Active states extend the lease monotonically and can
-// never shorten it; CLEANUP_PENDING may make the table immediately
-// reclaimable after the owner has stopped using it and is terminal, so an
-// owned cleanup-pending row cannot return to an active state. The identity,
-// schema, and physical-table columns and payload members are not in the SET
-// list at all, so an update preserves them structurally. An expired or
-// stolen lease fails with chartifact.ErrLeaseLost.
 func (c *Catalog) Update(ctx context.Context, artifactID, owner string, progress chartifact.Progress) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -211,11 +115,6 @@ func (c *Catalog) Update(ctx context.Context, artifactID, owner string, progress
 		return fmt.Errorf("chartifact postgres: update artifact %q: %w", artifactID, err)
 	}
 	cleanupPending := progress.State == chartifact.StateCleanupPending
-	// The payload leaseUntil follows exactly the same three-way choice as
-	// the timestamptz column so the authoritative payload and the scan
-	// column never disagree about which lease won: cleanup-pending stores
-	// the supplied lease directly, otherwise the later of stored and
-	// supplied wins.
 	tag, err := c.db.Exec(ctx,
 		"UPDATE "+c.artifacts+" AS m SET"+
 			" state = $3::text, row_count = $4, byte_count = $5,"+
@@ -241,9 +140,6 @@ func (c *Catalog) Update(ctx context.Context, artifactID, owner string, progress
 	return nil
 }
 
-// Renew extends an active, unexpired lease owned by owner. It never shortens
-// an existing lease and never resurrects an expired one; CLEANUP_PENDING is
-// not renewable, exactly as in the Arango catalog.
 func (c *Catalog) Renew(ctx context.Context, artifactID, owner string, until time.Time) (bool, error) {
 	if err := requireContext(ctx); err != nil {
 		return false, err
@@ -277,10 +173,6 @@ func (c *Catalog) Renew(ctx context.Context, artifactID, owner string, until tim
 	return tag.RowsAffected() == 1, nil
 }
 
-// ListExpired returns a bounded, stable-order page of manifests whose lease
-// is expired at or before expiredBefore: ascending lease with a byte-order
-// (COLLATE "C") artifact-ID tie-break, so repeated reconciler passes see
-// the same prefix. ClaimCleanup rechecks this condition inside its write.
 func (c *Catalog) ListExpired(ctx context.Context, expiredBefore time.Time, limit int) ([]chartifact.Manifest, error) {
 	if err := requireContext(ctx); err != nil {
 		return nil, err
@@ -321,10 +213,6 @@ func (c *Catalog) ListExpired(ctx context.Context, expiredBefore time.Time, limi
 	return manifests, nil
 }
 
-// ClaimCleanup atomically changes an expired manifest's owner, state, and
-// cleanup lease. The expiry is rechecked inside the UPDATE, so a concurrent
-// renewer wins cleanly and only one cleanup owner can claim a given expired
-// manifest; the loser rechecks against the committed lease and stands down.
 func (c *Catalog) ClaimCleanup(ctx context.Context, artifactID, owner string, expiredBefore, until time.Time) (chartifact.Manifest, bool, error) {
 	if err := requireContext(ctx); err != nil {
 		return chartifact.Manifest{}, false, err
@@ -365,10 +253,6 @@ func (c *Catalog) ClaimCleanup(ctx context.Context, artifactID, owner string, ex
 	return manifest, true, nil
 }
 
-// Delete removes a cleanup-pending manifest only for its current cleanup
-// owner. The caller drops the ClickHouse table first (idempotently, outside
-// any transaction -- this catalog never opens one), so a lost owner can
-// never delete a manifest another replica is cleaning up.
 func (c *Catalog) Delete(ctx context.Context, artifactID, owner string) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -389,9 +273,6 @@ func (c *Catalog) Delete(ctx context.Context, artifactID, owner string) error {
 	return nil
 }
 
-// ReleaseCleanup makes a failed cleanup immediately reclaimable, but only
-// while the caller still owns the cleanup lease. The stored lease becomes
-// the caller-supplied time, so the next expired page includes it.
 func (c *Catalog) ReleaseCleanup(ctx context.Context, artifactID, owner string, until time.Time) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -423,10 +304,6 @@ func (c *Catalog) ReleaseCleanup(ctx context.Context, artifactID, owner string, 
 	return nil
 }
 
-// jsonTime encodes a manifest timestamp as the exact JSON string Go would
-// marshal for it (quoted RFC 3339 with nanoseconds), so payload lease and
-// update stamps stay byte-faithful to the Arango catalog's fixed-width
-// storage and round-trip losslessly into time.Time.
 func jsonTime(value time.Time) (string, error) {
 	encoded, err := json.Marshal(value.UTC())
 	if err != nil {
@@ -435,11 +312,6 @@ func jsonTime(value time.Time) (string, error) {
 	return string(encoded), nil
 }
 
-// decodeManifest restores the authoritative manifest from its stored payload.
-// A payload whose identity or timestamps cannot be read fails explicitly:
-// json.Unmarshal silently ignores a JSON null for time.Time, so nullish
-// lease/created/updated members are refused here rather than decoding to a
-// zero time, and there is no silent reconstruction from scan columns.
 func decodeManifest(payload []byte) (chartifact.Manifest, error) {
 	var manifest chartifact.Manifest
 	if err := json.Unmarshal(payload, &manifest); err != nil {
@@ -459,14 +331,6 @@ func decodeManifest(payload []byte) (chartifact.Manifest, error) {
 	return manifest, nil
 }
 
-// validateCreate gates every field the insert persists so the write path
-// and the read path agree: decodeManifest refuses zero timestamps, so a
-// create that stored one (a timestamptz happily keeps year 1) would leave a
-// row no ListExpired page or ClaimCleanup could ever decode; and the
-// non-blank columns the migration CHECKs are refused here as catalog
-// validation errors instead of surfacing the raw SQLSTATE 23514 from the
-// insert. The same timestamp gate validateUpdate applies to progress
-// writes therefore also covers creation.
 func validateCreate(manifest chartifact.Manifest) error {
 	if strings.TrimSpace(manifest.ArtifactID) == "" || manifest.ArtifactID != strings.TrimSpace(manifest.ArtifactID) {
 		return fmt.Errorf("manifest requires a trimmed artifact ID")

@@ -1,10 +1,5 @@
 package postgres
 
-// Offline contract cells for the pg-sql-25 category terminal: the exact
-// composed statement, its parameter law, the three-state readings, the closed
-// refusal surface, and sabotage cells proving each guard is load-bearing.
-// Live real-PostgreSQL-18 legs are in category_scan_live_test.go.
-
 import (
 	"errors"
 	"fmt"
@@ -26,9 +21,6 @@ const (
 	sql25OfflineSchema  = "verify_sql25v1_offline"
 )
 
-// sql25CategoryProjection is the lowered shape a category column arrives in:
-// one scalar-cardinality DIRECT_SCALAR EXTRACT selector over the root row
-// document carrying presence metadata for its own path.
 func sql25CategoryProjection(name, field string, behavior ir.PhysicalNullBehavior, override func(*ir.PhysicalExtract, *ir.PhysicalProjection)) ir.PhysicalProjection {
 	source := ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}
 	expression := &ir.PhysicalExpression{
@@ -53,8 +45,6 @@ func sql25CategoryProjection(name, field string, behavior ir.PhysicalNullBehavio
 	return projection
 }
 
-// sql25Plan is the registered category surface: one scoped direct root scan
-// plus the terminal RETURN.
 func sql25Plan(projections ...ir.PhysicalProjection) ir.PhysicalPlan {
 	return withReturn(scopedPlan(itProject, itGeneration, nil, true), projections...)
 }
@@ -67,10 +57,6 @@ func sql25Render(t *testing.T, plan ir.PhysicalPlan, column, marker string, maxV
 	}
 	return rendered
 }
-
-// ---------------------------------------------------------------------------
-// Structure: one composed statement, positional contract, parameter law.
-// ---------------------------------------------------------------------------
 
 func TestRenderCategoryScanComposesBoundedDistinctPage(t *testing.T) {
 	plan := sql25Plan(
@@ -118,17 +104,12 @@ func TestRenderCategoryScanComposesBoundedDistinctPage(t *testing.T) {
 	if rendered.PresenceMarkerColumn != sql25Marker {
 		t.Fatalf("presence marker echoed = %q", rendered.PresenceMarkerColumn)
 	}
-	// Parameter law: AQL bind syntax never appears, and the page bound is the
-	// maxValues+1 truncation probe as the final argument.
 	if strings.Contains(rendered.Values.SQL, "@") {
 		t.Fatalf("AQL bind syntax reached the PostgreSQL category statement: %s", rendered.Values.SQL)
 	}
 	if !strings.HasSuffix(rendered.Values.SQL, "LIMIT $6") {
 		t.Fatalf("page bound is not the last placeholder: %s", rendered.Values.SQL)
 	}
-	// The category column name never becomes SQL text: it is read through the
-	// bound document path, and the statement names only renderer-owned
-	// aliases.
 	if strings.Contains(rendered.Values.SQL, `"`+sql25CategoryColumn+`"`) || strings.Contains(rendered.Values.SQL, sql25OtherColumn) {
 		t.Fatalf("a plan column name leaked into SQL text: %s", rendered.Values.SQL)
 	}
@@ -138,9 +119,6 @@ func TestRenderCategoryScanWitnessSharesTheDistinctRelation(t *testing.T) {
 	plan := sql25Plan(sql25CategoryProjection(sql25CategoryColumn, "gender", ir.PhysicalPreserveNull, nil))
 	rendered := sql25Render(t, plan, sql25CategoryColumn, sql25Marker, 8)
 	witness := rendered.Witness
-	// The witness outer SELECT carries no ORDER BY of its own: only the
-	// spine's deterministic inner resource_seq order survives, which cannot
-	// change a row count or presence bit.
 	if outer := witness.SQL[strings.Index(witness.SQL, categoryDistinctCTE):]; strings.Contains(outer, "ORDER BY") {
 		t.Fatalf("the bounded confirmation must not sort its page: %s", witness.SQL)
 	}
@@ -157,8 +135,6 @@ func TestRenderCategoryScanWitnessSharesTheDistinctRelation(t *testing.T) {
 	if !reflect.DeepEqual(witness.OutputColumns, []string{"present", "value"}) {
 		t.Fatalf("witness declares %v", witness.OutputColumns)
 	}
-	// The confirmation and the page agree on what a (present, value) group is:
-	// every clause but the ORDER BY/LIMIT pair is shared verbatim.
 	page := rendered.Values.SQL
 	pageHead, witnessHead := page[:strings.Index(page, " SELECT ")], witness.SQL[:strings.Index(witness.SQL, " SELECT ")]
 	if pageHead != witnessHead {
@@ -191,11 +167,6 @@ func TestRenderCategoryScanIsDeterministic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Three-state readings: the presence bit stays total and the value column
-// keeps the null_semantics.go behavior forms.
-// ---------------------------------------------------------------------------
-
 func TestRenderCategoryScanPreservesBehaviorFormsBesideATotalPresenceBit(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -219,24 +190,16 @@ func TestRenderCategoryScanPreservesBehaviorFormsBesideATotalPresenceBit(t *test
 			if test.rejectValue != "" && strings.Contains(sql, test.rejectValue) {
 				t.Fatalf("unexpected value form %q:\n%s", test.rejectValue, sql)
 			}
-			// The presence proof is behavior-independent, total, and never a
-			// constant: it is the jsonb_exists descent over the same path.
 			const presence = `COALESCE(jsonb_typeof(r0."payload") = 'object' AND jsonb_exists(r0."payload", $5), false) AS "c1"`
 			if !strings.Contains(sql, presence) {
 				t.Fatalf("presence proof form missing:\n%s", sql)
 			}
-			// Absent contributes NULL, not the behavior's substitute value:
-			// the CASE keeps the presence bit decisive for the value column.
 			if !strings.Contains(sql, `CASE WHEN __loom_category_row."c1" THEN __loom_category_row."c0" END AS "value"`) {
 				t.Fatalf("value is not gated by presence:\n%s", sql)
 			}
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// The closed refusal surface.
-// ---------------------------------------------------------------------------
 
 func TestRenderCategoryScanRefusals(t *testing.T) {
 	withOperation := func(plan ir.PhysicalPlan, operation ir.PhysicalOperation) ir.PhysicalPlan {
@@ -429,11 +392,6 @@ func TestRenderCategoryScanRefusals(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Sabotage cells: each guard fails on a near-miss and stays silent only on
-// the shape it exists for.
-// ---------------------------------------------------------------------------
-
 func TestRenderCategoryScanGuardsAreLoadBearing(t *testing.T) {
 	category := sql25CategoryProjection(sql25CategoryColumn, "gender", ir.PhysicalPreserveNull, nil)
 	binding := bindingFor(t, sql25OfflineSchema)
@@ -505,37 +463,14 @@ func TestRenderCategoryScanGuardsAreLoadBearing(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Owned-namespace delta audit (pg-sql-25): the live legs own
-// verify_sql25v1_* exclusively; the hook wraps the TestMain chain.
-// ---------------------------------------------------------------------------
-
 var (
 	sql25FixturesMu      sync.Mutex
 	sql25TrackedFixtures = map[string]bool{}
 )
 
-// sql25RunDeltaAudit is the outermost delta audit in the TestMain chain
-// (main_test.go): pg-sql-25 owns the disjoint verify_sql25v1_* namespace
-// exclusively and audits it through the parameterized runner.
 func sql25RunDeltaAudit(inner func() int) int {
 	return runVerifyNamespaceDeltaAudit("verify_sql25v1_", &sql25FixturesMu, sql25TrackedFixtures, inner)
 }
-
-// ---------------------------------------------------------------------------
-// Live real-PostgreSQL-18 legs (owned namespace verify_sql25v1_*). The legs
-// follow the package-wide live convention: the shared testPostgresURL gate
-// skips when LOOM_TEST_POSTGRES_URL is absent (no CI job carries it for this
-// package — the convention every merged sibling's live legs follow), and
-// when the URL is present every leg is required: newOwnedService fails
-// loudly on any service or fixture fault and the TestMain delta audit fails
-// on a lost snapshot, so a configured run can never pass on a skip. The
-// ticket's required integration is established by running this battery
-// against a real PostgreSQL 18 service with zero skips, recorded in the PR.
-// Fixtures ride the shared owned-service lifecycle; every expectation is a
-// literal row set or a direct-SQL witness computed independently of the
-// renderer.
-// ---------------------------------------------------------------------------
 
 func sortRows(rows [][]string) {
 	sort.Slice(rows, func(left, right int) bool {
@@ -579,8 +514,6 @@ func TestCategoryScanLiveExactRowsScopeAndThreeStates(t *testing.T) {
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-empty", "FHIR/Patient", map[string]any{"gender": ""})
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-false", "FHIR/Patient", map[string]any{"gender": false})
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-zero", "FHIR/Patient", map[string]any{"gender": 0})
-	// Decoys: foreign project, foreign generation, foreign auth path, and a
-	// foreign resource type, each carrying a gender that must never appear.
 	svc.insertResource(t, svc.schema, "sql25-foreign-project", itGeneration, "Patient", "p-decoy-project", "FHIR/Patient", map[string]any{"gender": "decoy-project"})
 	svc.insertResource(t, svc.schema, itProject, "sql25-foreign-generation", "Patient", "p-decoy-generation", "FHIR/Patient", map[string]any{"gender": "decoy-generation"})
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-decoy-auth", "FHIR/Encounter", map[string]any{"gender": "decoy-auth"})
@@ -589,15 +522,12 @@ func TestCategoryScanLiveExactRowsScopeAndThreeStates(t *testing.T) {
 	rendered := sql25RenderLive(t, sql25PatientPlan("FHIR/Patient"), binding, 8)
 	got := svc.runRendered(t, rendered.Values)
 	want := [][]string{
-		// pgx decodes jsonb scalars into Go values, so the stringified page
-		// carries decoded text; the direct-SQL witness below compares the
-		// raw jsonb forms, including the SQL-NULL/JSON-null distinction.
-		{"false", "<null>"}, // ABSENT: presence false, value SQL NULL
-		{"true", "false"},   // stored JSON false survives
-		{"true", "<null>"},  // stored JSON null, separated from ABSENT by presence
-		{"true", "0"},       // falsy numbers survive
-		{"true", ""},        // empty string survives
-		{"true", "female"},  // duplicate contributors collapse to one group
+		{"false", "<null>"},
+		{"true", "false"},
+		{"true", "<null>"},
+		{"true", "0"},
+		{"true", ""},
+		{"true", "female"},
 		{"true", "male"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -611,8 +541,6 @@ func TestCategoryScanLiveExactRowsScopeAndThreeStates(t *testing.T) {
 		}
 	}
 
-	// Independent direct-SQL witness: the distinct (present, value) multiset
-	// recomputed from the stored documents without the renderer's SQL.
 	direct := svc.witness(t, `
 		SELECT present::text,
 		       CASE WHEN value IS NULL THEN '<sql-null>'
@@ -639,8 +567,6 @@ func TestCategoryScanLiveExactRowsScopeAndThreeStates(t *testing.T) {
 		t.Fatalf("direct-SQL witness\ngot:  %v\nwant: %v", sortedDirect, wantDirect)
 	}
 
-	// The bounded confirmation agrees with the page: same group count, and
-	// re-running the page is row-identical (deterministic page order).
 	confirmation := svc.runRendered(t, rendered.Witness)
 	if len(confirmation) != len(want) {
 		t.Fatalf("witness row count = %d, want %d: %v", len(confirmation), len(want), confirmation)
@@ -662,7 +588,6 @@ func TestCategoryScanLiveEmptyPopulationHasNoFabricatedAggregateRow(t *testing.T
 	if got := svc.runRendered(t, rendered.Witness); len(got) != 0 {
 		t.Fatalf("the bounded confirmation must also be empty: %v", got)
 	}
-	// The same schema does produce rows once the population is in scope.
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-in-scope", "FHIR/Patient", map[string]any{"gender": "female"})
 	if got := svc.runRendered(t, rendered.Values); !reflect.DeepEqual(got, [][]string{{"true", "female"}}) {
 		t.Fatalf("in-scope population produced %v", got)
@@ -676,8 +601,6 @@ func TestCategoryScanLiveBoundedPageDetectsTruncation(t *testing.T) {
 	}
 	rendered := sql25RenderLive(t, sql25PatientPlan("FHIR/Patient"), binding, 2)
 	rows := svc.runRendered(t, rendered.Values)
-	// maxValues+1 rows: the executor sees more than the page can hold and
-	// reports truncation without a second query.
 	if len(rows) != 3 {
 		t.Fatalf("truncated page = %d rows, want maxValues+1=3: %v", len(rows), rows)
 	}
@@ -703,10 +626,6 @@ func TestCategoryScanLiveOmitNullsReadsJSONNullAsSQLNull(t *testing.T) {
 
 func TestCategoryScanLivePageOrderIsBytePinnedNotCollationDependent(t *testing.T) {
 	svc, binding := sql25LiveService(t)
-	// The fixture is collation-sensitive: raw UTF-8 bytes order "Zebra"
-	// (0x5A) before "apple" (0x61) before "zeta" (0x7A) before "Äpfel"
-	// (0xC3..), while an English ICU/default cluster collation interleaves
-	// case-insensitively and pulls the accented value next to "a".
 	for _, gender := range []string{"zeta", "apple", "Äpfel", "Zebra"} {
 		svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-"+gender, "FHIR/Patient", map[string]any{"gender": gender})
 	}
@@ -719,9 +638,6 @@ func TestCategoryScanLivePageOrderIsBytePinnedNotCollationDependent(t *testing.T
 		t.Fatalf("string page order is not byte-pinned (cluster datcollate = %s)\ngot:  %v\nwant: %v\nsql: %s", collation, got, want, rendered.Values.SQL)
 	}
 	if collation != "C" && collation != "POSIX" && collation != "C.UTF-8" {
-		// On a non-C cluster the cell must discriminate: the same rows
-		// ordered under the cluster collation alone differ from the pinned
-		// order, so a regression to a bare "value" ASC would fail above.
 		unpinned := svc.witness(t, `SELECT payload #>> '{gender}' FROM "`+svc.schema+`"."fhir_resource" `+
 			`WHERE project = $1 AND dataset_generation = $2 AND resource_type = 'Patient' `+
 			`AND auth_resource_path = ANY($3::text[]) GROUP BY 1 ORDER BY 1 ASC`,

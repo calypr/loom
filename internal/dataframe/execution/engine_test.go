@@ -1412,23 +1412,6 @@ func TestAdaptiveRelatedPreviewPagesPreserveSparseRoots(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pg-exec-05: bounded PostgreSQL root-page command sequences (offline lane).
-//
-// These tests drive the production streamRaw PostgreSQL root-page branch
-// through the single source row port with a recorder, while the live lane in
-// recipe_paging_postgres_test.go drives the same loop onto a real PostgreSQL
-// 18. All test-side parent-shaped page commands funnel through the single
-// canonical helper below; the production compiler still refuses root-key
-// output paging for PostgreSQL, so no production producer exists and
-// TestPostgreSQLRootPageProductionNeverAttaches pins that.
-// ---------------------------------------------------------------------------
-
-// newExec05PageCommand is the ONLY test-side funnel for building hand-tagged
-// parent-shaped PostgreSQL page-step commands (ratified condition R2-i). It
-// is the positional counterpart of the engine_test.go CompiledOutputPage
-// precedent: every command is frozen by the canonical constructor, so a
-// hand-assembled payload can never reach an adapter.
 func newExec05PageCommand(t *testing.T, sql string, args []command.PostgreSQLParameter) command.CompiledCommand {
 	t.Helper()
 	created, err := command.NewPostgreSQLCommand(sql, args)
@@ -1499,19 +1482,13 @@ func exec05OfflineRowsFor(root string) []map[string]any {
 	return nil
 }
 
-// exec05Recorder is a recording source row port for the offline lane. It
-// serves key pages from exec05OfflineRoots by cursor (or verbatim sabotage)
-// and row pages for the exact requested key set (or verbatim sabotage).
 type exec05Recorder struct {
-	calls          []exec05PageCall
-	sabotageKeys   []string         // when non-nil, the key step serves these verbatim
-	sabotageRows   []map[string]any // when non-nil, the rows step serves these verbatim
-	cancelAfterKey int              // cancel the context after the Nth key step (0 = never)
-	visitCount     int
-	cancel         context.CancelFunc
-	// keyPageOverride rewrites the served key page for the Nth key step
-	// (1-based), modelling a parent key statement with a non-strict or
-	// ignored cursor filter without touching the canonical construction.
+	calls           []exec05PageCall
+	sabotageKeys    []string
+	sabotageRows    []map[string]any
+	cancelAfterKey  int
+	visitCount      int
+	cancel          context.CancelFunc
 	keyPageOverride func(keyCallIndex int, served []string) []string
 }
 
@@ -1636,7 +1613,6 @@ func TestPostgreSQLRootPageLoopOfflineCore(t *testing.T) {
 	if got := countCalls(rec.calls, "rows"); got != 3 {
 		t.Fatalf("row steps = %d, want 3", got)
 	}
-	// Cursor advance and requested key pages, witnessed at the port.
 	var cursors []string
 	var keyPages []string
 	for _, call := range rec.calls {
@@ -1683,7 +1659,6 @@ func TestPostgreSQLRootPageTerminationOffline(t *testing.T) {
 		if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
-		// Five roots at page size two: 2 full pages + 1 short page + stop.
 		if keys, rows := countCalls(rec.calls, "keys"), countCalls(rec.calls, "rows"); keys != 3 || rows != 3 {
 			t.Fatalf("calls keys=%d rows=%d, want 3/3 (no fourth key query after the short page)", keys, rows)
 		}
@@ -1695,8 +1670,6 @@ func TestPostgreSQLRootPageTerminationOffline(t *testing.T) {
 		if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
-		// Five roots at page size five: one full page, then an empty key page
-		// that must not trigger a row step.
 		if keys, rows := countCalls(rec.calls, "keys"), countCalls(rec.calls, "rows"); keys != 2 || rows != 1 {
 			t.Fatalf("calls keys=%d rows=%d, want 2/1 (empty key page issues no row query)", keys, rows)
 		}
@@ -1719,15 +1692,8 @@ func TestPostgreSQLRootPageResultContractSabotageOffline(t *testing.T) {
 		return exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port)
 	}
 	cases := []struct {
-		name string
-		rec  *exec05Recorder
-		// Port-call-count witnesses (verifier-139 advisory): the shared
-		// ErrPostgreSQLResultContract sentinel alone can mask removal of a
-		// guard, because the cross-page advance check eventually rejects
-		// duplicate/non-monotone sabotage pages under the same sentinel
-		// only after the bad page already dispatched its row step. Refusal
-		// must land during key collection, so the port witnesses pin it.
-		// -1 means the case does not pin that dimension.
+		name     string
+		rec      *exec05Recorder
 		wantKeys int
 		wantRows int
 	}{
@@ -1766,10 +1732,6 @@ func TestPostgreSQLRootPageResultContractSabotageOffline(t *testing.T) {
 			}
 		})
 	}
-	// Cursor advance is a decoded-row invariant: the key statement is
-	// parent-supplied, so a non-strict cursor filter or an ignored cursor
-	// argument must be refused from the served keys, not trusted from the
-	// cursor bound handed to the statement.
 	t.Run("key page does not advance past the previous page tail", func(t *testing.T) {
 		rec := &exec05Recorder{keyPageOverride: func(keyCallIndex int, served []string) []string {
 			if keyCallIndex == 2 {
@@ -1812,20 +1774,6 @@ func TestPostgreSQLRootPageResultContractSabotageOffline(t *testing.T) {
 	})
 }
 
-// TestPostgreSQLRootPageWithinPageStrictnessOffline ports verifier-139's
-// named victim TestVerify05DWithinPageStrictness (battery sha abe3c64c,
-// restored sha 99908cfe), folded in per the coordinator ruling: removing
-// the within-page strict-ordering guard from the key collector must not
-// survive the battery. The shared ErrPostgreSQLResultContract sentinel
-// alone cannot prove that guard: an unordered page that still advances
-// past the previous page tail passes the cross-page advance check on
-// every key, and without the within-page check its rows are emitted
-// duplicated/out of order while the stream reports success; page-1
-// duplicates and non-monotone pages survive long enough to dispatch
-// their row step before the advance check catches a later page. Both
-// arms therefore pin the port witnesses (key/row call counts) next to
-// the sentinel, so the refusal must land during key collection, and the
-// control proceeds on the same recorder.
 func TestPostgreSQLRootPageWithinPageStrictnessOffline(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -1834,10 +1782,6 @@ func TestPostgreSQLRootPageWithinPageStrictnessOffline(t *testing.T) {
 		wantRows int
 	}{
 		{
-			// Unordered first page: no previous tail exists, so the
-			// cross-page advance check cannot fire at all; only the
-			// within-page guard refuses this page, and it must refuse
-			// before any row step is dispatched.
 			name: "unordered first page is refused before any row step",
 			override: func(keyCallIndex int, served []string) []string {
 				if keyCallIndex == 1 {
@@ -1849,13 +1793,6 @@ func TestPostgreSQLRootPageWithinPageStrictnessOffline(t *testing.T) {
 			wantRows: 0,
 		},
 		{
-			// Unordered-but-advancing second page: every key exceeds
-			// the previous page tail r2, so the advance check passes
-			// each key and only the within-page guard refuses. Without
-			// it the stream completes with nil error after emitting
-			// r4's rows ahead of r3's and re-serving r4 from the next
-			// natural page (duplicate emission), exactly the reported
-			// survivor.
 			name: "unordered but advancing second page is refused before its row step",
 			override: func(keyCallIndex int, served []string) []string {
 				if keyCallIndex == 2 {
@@ -2106,8 +2043,6 @@ func TestPostgreSQLRootPageProductionNeverAttaches(t *testing.T) {
 		resolved.Semantic.SemanticPlan.Bindings.OutputNames = []string{"grouped"}
 		streams, err := engine.Streams(context.Background(), resolved)
 		if err != nil {
-			// Today's RED pin: the whole-input plan fails at compile before
-			// execution, so it can never reach the loop.
 			t.Logf("whole-input bypass arm: compile-refused before execution (%v)", err)
 			if len(spies.pgFull) != 0 {
 				t.Fatalf("refused whole-input plan still reached the port: %+v", spies.pgFull)
@@ -2115,8 +2050,6 @@ func TestPostgreSQLRootPageProductionNeverAttaches(t *testing.T) {
 			return
 		}
 		t.Logf("whole-input bypass arm: compiled, structurally single-statement")
-		// Once the parent compiler supports the plan, the bypass is the
-		// structural one: exactly one statement and no page fields.
 		if len(streams) != 1 || streams[0].page != nil || streams[0].pgRootPage != nil {
 			t.Fatalf("whole-input stream carries page shape: %+v", streams)
 		}

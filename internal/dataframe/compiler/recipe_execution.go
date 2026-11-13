@@ -27,12 +27,6 @@ func workspaceOutputCaptureRequired(output lower.CompiledRecipeOutput) bool {
 	return false
 }
 
-// CompileResolvedRecipePlan is the common execution boundary for a resolved
-// recipe bundle. Lowering produces canonical physical plans; this function
-// applies the generic optimizer, inserts the typed execution window, and
-// renders each output through the renderer selected by the composition-chosen
-// compile target. The target is validated once here; there is no per-request
-// dialect default.
 func CompileResolvedRecipePlan(target Target, resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
 	if err := target.validate(); err != nil {
 		return nil, err
@@ -53,13 +47,6 @@ func CompileResolvedRecipePlan(target Target, resolved semantic.ResolvedRecipePl
 	return queries, nil
 }
 
-// CompileRecipeOutput applies the common optimizer, execution window, and
-// the target-selected canonical renderer to one already-lowered recipe
-// output. The AQL target keeps the exact existing AQL payload bytes, named
-// binds, and preview special paths. The PostgreSQL target renders the same
-// finalized plan through the PostgreSQL renderer and fails explicitly for
-// plans outside its closed supported surface; no path converts AQL to SQL
-// and no PostgreSQL plan falls back to AQL.
 func CompileRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
 	if err := target.validate(); err != nil {
 		return CompiledQuery{}, err
@@ -104,9 +91,6 @@ func CompileRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindi
 			return CompiledQuery{}, err
 		}
 	}
-	// Target-selected rendering. The PostgreSQL target never touches the AQL
-	// renderer or the AQL preview accelerators below; unsupported plans fail
-	// explicitly with the PostgreSQL renderer's typed errors.
 	if target.backend == command.CompiledBackendPostgreSQL {
 		return compilePostgreSQLRecipeOutput(target, output, bindings, limit, physical, includePreviewSourceID)
 	}
@@ -146,12 +130,6 @@ func CompileRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindi
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
 	}
-	// The rendered result becomes execution input only through the tagged
-	// command boundary: the plan's AQL rendering is tagged AQL once, here,
-	// and the parent-tagged command is the only executable CompiledQuery
-	// carries. The query text and named bind map are never re-extracted as
-	// loose execution fields. A PostgreSQL-tagged command cannot enter this
-	// path; PostgreSQL selection happens through the composition seam.
 	compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("tag canonical recipe command: %w", err)
@@ -204,32 +182,12 @@ func CompileRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindi
 	}, nil
 }
 
-// CompiledClickHousePrefix is the compiled source query of one composite
-// ClickHouse plan's typed prefix, tagged once with the command backend named
-// by the prefix's own SourceBackend. The command is the only executable
-// carrier: the query text, bind variables, and SQL arguments are never
-// re-extracted as loose execution fields.
 type CompiledClickHousePrefix struct {
 	Command       command.CompiledCommand
 	OutputColumns []string
 	Fingerprint   string
 }
 
-// CompileClickHousePrefix is the compiler seam that compiles the typed prefix
-// of one composite ClickHouse plan into a source-backend command. The prefix's
-// explicit PhysicalPrefixSourceBackend tag — never the terminal Combine, which
-// always executes on ClickHouse — selects the renderer, and the selected
-// compile target must name the same backend: an AQL-tagged prefix requires
-// the Arango target and a PostgreSQL-tagged prefix requires the PostgreSQL
-// target. There is no default and no fallback: an untagged, unknown, or
-// target-mismatched prefix fails explicitly before any rendering or I/O.
-//
-// The AQL arm renders through the canonical AQL prefix renderer, preserving
-// the exact payload bytes and named-bind contract. The PostgreSQL arm renders
-// the same closed typed stage sequence through the target-bound PostgreSQL
-// renderer as parameterized SQL and requires the statement to declare exactly
-// the prefix's typed final schema, row identity column included, in schema
-// order; any drift fails closed.
 func CompileClickHousePrefix(target Target, plan ir.PhysicalPlan) (CompiledClickHousePrefix, error) {
 	if err := target.validate(); err != nil {
 		return CompiledClickHousePrefix{}, err
@@ -237,14 +195,6 @@ func CompileClickHousePrefix(target Target, plan ir.PhysicalPlan) (CompiledClick
 	if plan.Engine != ir.PhysicalEngineClickHouse || plan.ClickHousePrefix == nil || plan.ClickHouseCombine == nil {
 		return CompiledClickHousePrefix{}, fmt.Errorf("composite ClickHouse plan with a typed prefix is required")
 	}
-	// Validate the composite before backend dispatch, not just the arm-local
-	// view. The PostgreSQL arm renders a stripped standalone clone, so with-
-	// out this call the composite contract — the restricted PostgreSQL
-	// refusal, cell-trace/row-lineage refusal, preview/LIMIT refusal,
-	// GROUP/COHORT_GROUP stage refusal, prefix-to-final-stage binding, and
-	// OutputAuthResourcePathBindKey equality — would only be enforced for
-	// callers that went through the composer. Hand-built or restored plans
-	// are validated here, before any rendering or I/O.
 	if err := plan.Validate(); err != nil {
 		return CompiledClickHousePrefix{}, fmt.Errorf("validate composite ClickHouse prefix plan: %w", err)
 	}
@@ -306,9 +256,6 @@ func clickHousePrefixSchema(plan ir.PhysicalPlan) []string {
 	return columns
 }
 
-// matchClickHousePrefixSchema requires the rendered PostgreSQL statement to
-// declare exactly the prefix's typed final schema in schema order, including
-// the row identity column the terminal Combine uses for row identity.
 func matchClickHousePrefixSchema(plan ir.PhysicalPlan, declared []string) error {
 	if plan.StageSequence == nil {
 		return fmt.Errorf("PostgreSQL ClickHouse prefix has no typed stage sequence")
@@ -338,11 +285,6 @@ func matchClickHousePrefixSchema(plan ir.PhysicalPlan, declared []string) error 
 	return nil
 }
 
-// canRenderStreamingMissingCategoryPivotPreview only enables the streaming
-// renderer for a direct typed-root scan feeding one terminal Pivot. The
-// renderer retains the full source query and all scope predicates; this gate
-// only excludes shapes whose projections or row membership need an
-// intermediate table.
 func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, plan ir.PhysicalPlan) bool {
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
@@ -414,10 +356,6 @@ func canRenderStreamingMissingCategoryPivotPreview(output lower.CompiledRecipeOu
 	return true
 }
 
-// streamingPivotInputProjectsSourceRows proves that the Pivot's row-shaped
-// inputs are a pure projection of the immediately preceding source RETURN.
-// Lowering represents that relationship through the stage input variable,
-// even when the source itself is a direct root scan.
 func streamingPivotInputProjectsSourceRows(pivot ir.PhysicalGroupedPivot, inputRowVariable string, sourceNames map[string]struct{}) bool {
 	if inputRowVariable == "" || len(pivot.InputProjections) == 0 {
 		return false
@@ -452,12 +390,6 @@ func streamingPivotInputProjectsSourceRows(pivot ir.PhysicalGroupedPivot, inputR
 	return true
 }
 
-// withoutUnusedTerminalPivotPresenceCompanions keeps category-presence
-// sidecars out of ordinary terminal Pivot previews. Lowering retains them in
-// the canonical plan so a later category-discovery scan can distinguish an
-// absent source property from explicit NULL. A frozen Pivot only consumes
-// that proof when one of its categories is MISSING; otherwise carrying the
-// hidden boolean through the preview would disable the bounded two-scan path.
 func withoutUnusedTerminalPivotPresenceCompanions(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	sequence := plan.StageSequence
 	if sequence == nil || len(sequence.Stages) != 1 || sequence.PreviewLimitBindKey == "" ||

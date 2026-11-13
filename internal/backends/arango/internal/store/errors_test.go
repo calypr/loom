@@ -1,10 +1,5 @@
 package arango
 
-// Error-boundary acceptance for the ArangoDB adapter. Golden literals in this
-// file were captured from the server composition classifier at base
-// 7c422ee8 (arch-backend-03 verbatim-port condition): codes, public messages,
-// and details must not change when vendor interpretation moves here.
-
 import (
 	"context"
 	"encoding/json"
@@ -28,9 +23,6 @@ type translateGolden struct {
 	wantDetails map[string]any
 }
 
-// translateGoldens are the frozen public semantics of the 14 classification
-// branches. wantPublic is the message the classifier produced pre-move
-// (dataframeerrors defaultMessage for the code, since the branch passes "").
 var translateGoldens = []translateGolden{
 	{
 		name:       "pivot_cell_cardinality",
@@ -152,9 +144,6 @@ func TestTranslateQueryErrorGoldenTablePreservesPreMoveSemantics(t *testing.T) {
 			} else if !reflect.DeepEqual(userErr.Details(), golden.wantDetails) {
 				t.Fatalf("details = %v, want %v", userErr.Details(), golden.wantDetails)
 			}
-			// Cause identity: the driver error stays reachable through
-			// errors.Is/errors.As exactly as the deleted server classifier
-			// preserved it.
 			if !errors.Is(translated, golden.driverErr) {
 				t.Fatal("driver cause lost through errors.Is")
 			}
@@ -174,8 +163,6 @@ func TestTranslateQueryErrorNeverInfersDomainCodeFromUnrecognizedAssert(t *testi
 	if got, ok := TranslateQueryError(unrecognized); ok || got != error(unrecognized) {
 		t.Fatalf("TranslateQueryError() = (%v, %t), want unrecognized ASSERT returned untouched", got, ok)
 	}
-	// A message merely containing a domain code without the AQL ASSERT
-	// structure must not classify.
 	textOnly := errors.New("AQL: RELATIONSHIP_CARDINALITY_VIOLATION")
 	if got, ok := TranslateQueryError(textOnly); ok || got != error(textOnly) {
 		t.Fatalf("text-only error classified: (%v, %t)", got, ok)
@@ -227,9 +214,6 @@ func TestTranslateQueryErrorIdempotenceAndPassThrough(t *testing.T) {
 	})
 }
 
-// choke-point witnesses: classification must apply on all three row-query
-// entry paths independently, not just the one production happens to use.
-
 func resourceLimitDriverError() shared.ArangoError {
 	return shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrResourceLimit, ErrorMessage: "AQL: query would use more memory than allowed"}
 }
@@ -277,10 +261,6 @@ func TestTransactionClientQueryRowsClassifiesAtSeam(t *testing.T) {
 	wantClassifiedResourceLimit(t, err, "transaction RowQueryer.QueryRows")
 }
 
-// Condition 2 also requires the two public Client entry points to classify;
-// they route through the same seam but through the exported surface callers
-// actually use.
-
 func TestClientQueryRowsClassifiesThroughExportedSurface(t *testing.T) {
 	queryer := &fakeQueryer{err: fmt.Errorf("driver: %w", resourceLimitDriverError())}
 	client := &Client{db: fakeDatabase{queryer: queryer}}
@@ -296,8 +276,6 @@ func TestClientQueryRowsWithMaxRuntimeClassifiesThroughExportedSurface(t *testin
 }
 
 func TestQueryErrorBoundaryJoinsIncludeClassification(t *testing.T) {
-	// A read failure classified by the boundary joined with a close failure
-	// still classifies: the seam translates after the join.
 	readErr := resourceLimitDriverError()
 	cursor := &fakeCursor{rows: []map[string]any{{"id": "1"}}, readErr: fmt.Errorf("read: %w", readErr), closeErr: errors.New("close failed")}
 	queryer := &fakeQueryer{cursor: cursor}

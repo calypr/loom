@@ -368,7 +368,6 @@ func TestReconcileRetiresSupersededPublishedExecutions(t *testing.T) {
 			}
 		})
 	}
-	// The stale (non-PUBLISHED) arm keeps its shipped marker verbatim.
 	t.Run("stale arm marker unchanged", func(t *testing.T) {
 		catalog := &reconcileRecheckCatalog{
 			execution: publication.BundleExecution{

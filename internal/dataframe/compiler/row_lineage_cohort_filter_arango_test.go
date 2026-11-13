@@ -38,8 +38,6 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	}
 
 	project := "loom_cohort_filter_lineage_" + uuid.NewString()
-	// Production selection/group metadata uses canonical project identity;
-	// resource documents retain the legacy storage alias.
 	selectionProject := projectid.Canonical(project)
 	if selectionProject == project {
 		t.Fatal("fixture must exercise distinct selection and resource project identities")

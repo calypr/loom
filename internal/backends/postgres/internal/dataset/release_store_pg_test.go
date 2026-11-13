@@ -1,34 +1,5 @@
 package postgres
 
-// Real PostgreSQL 18 integration for pg-publication-project-release-cas-v1.
-// Everything here runs against the service named by
-// LOOM_TEST_POSTGRES_URL: each test creates one uniquely-named isolated
-// database (pgpubrel01_it_*) plus one owned schema (pgpubrel01_it_*) inside
-// it and drops both in its cleanups, so the suite leaves zero leftovers.
-// The fixture history is the package's authoritative owner embed
-// (migrate.go: ledger bootstrap, the pg-store-03 generation-manifest
-// migration, and 000008_project_release) applied through the real pg-store-02
-// runner; the ledger rows are asserted literally.
-// Expected rows are asserted literally through a witness pool that is a
-// third, physically distinct backend connection, and stale-writer proofs run
-// over two single-connection pools with provably distinct pg_backend_pid
-// values. Skip discipline: no test in this file runs green on a skip --
-// every assertion requires the live service, and a run presented as
-// acceptance evidence fails if any test here skipped. Note the CI wiring
-// honestly: the go-unit lane runs this package WITHOUT
-// LOOM_TEST_POSTGRES_URL, so its PG-gated tests skip green there, and the
-// pg-fixture job (scripts/run-postgres-integration.mjs) pins its Go phase
-// to the pg-store-01 suite in ./internal/backends/postgres/internal/store only. This suite's
-// acceptance is therefore live PG18 runs (recipe, command, full log, and
-// exit status attached to the PR's evidence comment); extending the owned
-// namespace runner to cover ./internal/backends/postgres/internal/dataset with the
-// never-skipped assertion is a shared-infra change held for the
-// coordinator.
-// CAS schedule tests run serially (no t.Parallel anywhere). The TestZZ
-// zero-leftover audit is ownership-scoped to pgpubrel01_it_* only: sibling
-// suites sweep their own prefixes in their own files, and concurrent
-// sibling sweeps must never share a global scan.
-
 import (
 	"context"
 	"errors"
@@ -50,18 +21,12 @@ import (
 
 var pgpubrel01ResourceNamePattern = regexp.MustCompile(`^pgpubrel01_it_[0-9]+_[0-9a-f]+$`)
 
-// releaseService owns one isolated database and one owned schema inside it,
-// both named pgpubrel01_it_*, created for exactly one test and removed by
-// that test's cleanups. Three pools of one physical connection each give
-// two real writer connections (storeA over poolA, storeB over poolB) plus a
-// third backend for direct-SQL witnesses. Nothing outside these resources
-// is touched; TestZZNoLeftoverPgpubrel01Resources audits that none survive.
 type releaseService struct {
 	ctx     context.Context
-	admin   *pgxpool.Pool // service database
-	witness *pgxpool.Pool // isolated database, witness backend (MaxConns 1)
-	poolA   *pgxpool.Pool // isolated database, writer backend A (MaxConns 1)
-	poolB   *pgxpool.Pool // isolated database, writer backend B (MaxConns 1)
+	admin   *pgxpool.Pool
+	witness *pgxpool.Pool
+	poolA   *pgxpool.Pool
+	poolB   *pgxpool.Pool
 	pidA    int32
 	pidB    int32
 	pidW    int32
@@ -69,10 +34,6 @@ type releaseService struct {
 	scrub   func(any) string
 	fail    func(step string, err error)
 
-	// releases is the store under test over writer backend A; releasesB
-	// is a second store over writer backend B, the stale/concurrent
-	// writer. gen is the pg-store-03 store used only to seed the
-	// generation owner's rows.
 	releases  *ReleaseStore
 	releasesB *ReleaseStore
 	gen       *Store
@@ -133,8 +94,6 @@ func newReleaseService(t *testing.T) *releaseService {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -143,8 +102,6 @@ func newReleaseService(t *testing.T) *releaseService {
 	dsn := u.String()
 	secrets = append(secrets, dsn)
 
-	// Each pool is capped at one physical connection so the witness,
-	// writer A, and writer B are provably three distinct PG backends.
 	newPool := func(label string) *pgxpool.Pool {
 		config, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
@@ -208,8 +165,6 @@ func newReleaseService(t *testing.T) *releaseService {
 	return s
 }
 
-// backendPID asks one pool (a single physical connection) to name its
-// server backend.
 func (s *releaseService) backendPID(t *testing.T, pool *pgxpool.Pool, label string) int32 {
 	t.Helper()
 	var pid int32
@@ -222,12 +177,6 @@ func (s *releaseService) backendPID(t *testing.T, pool *pgxpool.Pool, label stri
 	return pid
 }
 
-// migrate applies this package's authoritative owner history -- the ledger
-// bootstrap, the pg-store-03 generation-manifest migration, and
-// 000008_project_release, all from the package embed (migrate.go) -- through
-// the real pg-store-02 runner, and asserts the ledger literally records all
-// three rows with their checksums: the full production setup path, not a
-// test-composed fixture assembly.
 func (s *releaseService) migrate(t *testing.T) {
 	t.Helper()
 	history, err := OwnerMigrations()
@@ -268,10 +217,6 @@ func (s *releaseService) migrate(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// direct-SQL witnesses (test's own pool, never a store connection)
-// ---------------------------------------------------------------------------
-
 func (s *releaseService) qualified(table string) string {
 	return pgx.Identifier{s.schema, table}.Sanitize()
 }
@@ -310,7 +255,6 @@ func (s *releaseService) mustWitnessText(t *testing.T, sql string, args ...any) 
 	return value
 }
 
-// pointerRow is the literal content of one active_project_release row.
 type pointerRow struct {
 	project   string
 	releaseID string
@@ -353,7 +297,6 @@ func (s *releaseService) assertPointerLiteral(t *testing.T, project, wantRelease
 	}
 }
 
-// candidateRow is the literal content of one project_release row.
 type candidateRow struct {
 	project, id, generation, gitCommit, payloadText, ctid string
 	exists                                                bool
@@ -375,10 +318,6 @@ WHERE project = $1 AND id = $2`, project, id).
 	return w
 }
 
-// assertCandidateLiteral checks one candidate row against the literal
-// expected document: exact scan columns and jsonb equality against the
-// canonical encoding of the expected release (the payload is authoritative,
-// so this pins every nested field, timestamp, and missing key).
 func (s *releaseService) assertCandidateLiteral(t *testing.T, want publication.ProjectRelease) {
 	t.Helper()
 	payload, err := marshalReleasePayload(want)
@@ -402,18 +341,10 @@ func (s *releaseService) assertCandidateLiteral(t *testing.T, want publication.P
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fixtures
-// ---------------------------------------------------------------------------
-
 func releaseSelector(recipe, version, output string) publication.DataframeSelector {
 	return publication.DataframeSelector{Recipe: recipe, TranslationVersion: version, Output: output}
 }
 
-// candidateFixture builds one richly-shaped candidate with literal, fixed
-// content: nanosecond stamps, an optional stale binding, a passing and a
-// failing required verification (the failing one exercises the missing-
-// versus-present JSON shape through omitempty fields).
 func candidateFixture(project, generation, id string) publication.ProjectRelease {
 	verified := time.Date(2026, 8, 6, 12, 0, 0, 123456789, time.UTC)
 	created := time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
@@ -434,10 +365,6 @@ func candidateFixture(project, generation, id string) publication.ProjectRelease
 	}
 }
 
-// stageGeneration persists a generation manifest through the pg-store-03
-// store and stages it, and activateGeneration makes it the project's active
-// generation. These use the generation owner's OWN production methods --
-// no duplicated schema, no direct-state hacks.
 func (s *releaseService) stageGeneration(t *testing.T, project, generation, digest string) publication.Manifest {
 	t.Helper()
 	ref := mustRef(t, project, generation)
@@ -463,7 +390,6 @@ func (s *releaseService) activateGeneration(t *testing.T, staged publication.Man
 	}
 }
 
-// mustSave saves a candidate or dies.
 func (s *releaseService) mustSave(t *testing.T, store *ReleaseStore, release publication.ProjectRelease) publication.ProjectRelease {
 	t.Helper()
 	saved, err := store.SaveRelease(s.ctx, release)
@@ -473,17 +399,11 @@ func (s *releaseService) mustSave(t *testing.T, store *ReleaseStore, release pub
 	return saved
 }
 
-// ---------------------------------------------------------------------------
-// construction contract (no server needed)
-// ---------------------------------------------------------------------------
-
 func TestNewReleaseStoreGuardsNilSourceAndUnsafeSchema(t *testing.T) {
 	if _, err := NewReleaseStore(nil, "ok_schema"); !errors.Is(err, ErrNilReleaseConnSource) {
 		t.Fatalf("NewReleaseStore(nil) = %v, want ErrNilReleaseConnSource", err)
 	}
 	for _, schema := range []string{"", "Public", "a;drop", "0starts_with_digit", "has space", "tab\tname", strings.Repeat("a", 64)} {
-		// A typed-nil pool is a non-nil interface: the schema guard is the
-		// first check that can fire, and it must fire before any use.
 		if _, err := NewReleaseStore((*pgxpool.Pool)(nil), schema); !errors.Is(err, ErrInvalidSchemaName) {
 			t.Fatalf("NewReleaseStore(schema %q) = %v, want ErrInvalidSchemaName", schema, err)
 		}
@@ -492,10 +412,6 @@ func TestNewReleaseStoreGuardsNilSourceAndUnsafeSchema(t *testing.T) {
 		t.Fatalf("NewReleaseStore(valid schema) = %v, want success", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// schema composition and the literal column contract
-// ---------------------------------------------------------------------------
 
 func TestReleaseSchemaCompositionAndColumnContract(t *testing.T) {
 	s := newReleaseService(t)
@@ -581,27 +497,17 @@ func TestReleaseSchemaCompositionAndColumnContract(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 1: immutable candidate, same-content retry accepted, changed
-// contents conflict -- and saving never moves visibility.
-// ---------------------------------------------------------------------------
-
 func TestSaveReleasePersistsImmutableCandidate(t *testing.T) {
 	s := newReleaseService(t)
 	const project = "pgpubrel01-save"
 	cand := candidateFixture(project, "gen-1", "release_"+digestA)
 
-	// Saving works with no manifest at all: candidates are persisted
-	// without generation prerequisites (activation is where the
-	// generation owner participates), matching saveReleaseAQL.
 	saved := s.mustSave(t, s.releases, cand)
 	if !reflect.DeepEqual(saved, cand) {
 		t.Fatalf("SaveRelease = %+v, want %+v", saved, cand)
 	}
 	s.assertCandidateLiteral(t, cand)
 
-	// Visibility is unmoved: no pointer row anywhere, and the generation
-	// owner's rows were never touched by the save path.
 	s.assertPointerAbsent(t, project)
 	if n := s.execCount(t, "SELECT count(*) FROM "+s.qualified(ActiveProjectReleasesTable)); n != 0 {
 		t.Fatalf("active_project_release rows after save = %d, want 0", n)
@@ -610,11 +516,6 @@ func TestSaveReleasePersistsImmutableCandidate(t *testing.T) {
 		t.Fatalf("active generation rows after save = %d, want 0", n)
 	}
 
-	// Missing versus JSON-null versus a value stay distinct in the stored
-	// document: the failing verification's omitempty STRING fields are
-	// absent keys (not JSON null, not SQL NULL), its bool is stored as
-	// false, and its zero-time verification renders as the canonical zero
-	// instant -- the same JSON shape the Arango document stores.
 	for _, absentKey := range []string{"executionId", "state"} {
 		if present := s.mustWitnessBool(t,
 			`SELECT (payload -> 'requiredVerifications' -> 1) ? $3 FROM `+s.qualified(ProjectReleasesTable)+` WHERE project = $1 AND id = $2`,
@@ -628,10 +529,6 @@ func TestSaveReleasePersistsImmutableCandidate(t *testing.T) {
 		t.Fatalf("zero-time verification stored as %q, want the canonical zero instant 0001-01-01T00:00:00Z", got)
 	}
 
-	// Same-content retry with a different caller timestamp is accepted:
-	// the id is the content identity and createdAt is excluded, matching
-	// the baseline's compatible guard. The stored document -- including
-	// the ORIGINAL createdAt -- is returned untouched.
 	retry := cand
 	retry.CreatedAt = time.Date(2027, 1, 2, 3, 4, 5, 0, time.UTC)
 	retry.Publications = append([]publication.ReleasePublication(nil), cand.Publications...)
@@ -646,10 +543,6 @@ func TestSaveReleasePersistsImmutableCandidate(t *testing.T) {
 		t.Fatalf("same-content retry rewrote the candidate: before=%+v after=%+v", before, after)
 	}
 
-	// Changed contents under the same id conflict with the typed error and
-	// change nothing: flip Required on the required binding -- the exact
-	// policy-change fold the widened releaseID framing was built for, now
-	// arriving as a colliding write at this store.
 	changed := candidateFixture(project, "gen-1", "release_"+digestA)
 	changed.Publications = append([]publication.ReleasePublication(nil), cand.Publications...)
 	changed.Publications[0].Required = false
@@ -661,8 +554,6 @@ func TestSaveReleasePersistsImmutableCandidate(t *testing.T) {
 		t.Fatalf("refused changed-content save mutated the candidate: before=%+v after=%+v", before, afterChange)
 	}
 
-	// A genuinely different candidate under its own id is a second row:
-	// inactive candidates stay retained for audit beside the old one.
 	other := candidateFixture(project, "gen-1", "release_"+digestB)
 	other.Publications = append([]publication.ReleasePublication(nil), cand.Publications...)
 	other.Publications[1].ExecutionID = "exec-9"
@@ -671,11 +562,6 @@ func TestSaveReleasePersistsImmutableCandidate(t *testing.T) {
 		t.Fatalf("candidate rows = %d, want 2 (history retained)", n)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 2: expected-revision CAS has one winner; stale activations
-// change no pointer. Two real connections prove it.
-// ---------------------------------------------------------------------------
 
 func TestReleaseActivationAtomicallyUpdatesReleasePointer(t *testing.T) {
 	s := newReleaseService(t)
@@ -695,12 +581,6 @@ func TestReleaseActivationAtomicallyUpdatesReleasePointer(t *testing.T) {
 	}
 	s.assertPointerLiteral(t, project, candA.ID, 1)
 
-	// A DIFFERENT candidate presenting the now-stale expected revision 0
-	// loses with the typed conflict and changes no pointer -- the losing
-	// write ran on writer backend B (s.pidB), a physically distinct
-	// connection from the winner's backend A (s.pidA), and the witness
-	// pool is a third backend. (Re-presenting the SAME candidate is the
-	// already-active no-op covered separately, not a race loss.)
 	candB := candidateFixture(project, "gen-1", "release_"+digestB)
 	candB.Publications = append([]publication.ReleasePublication(nil), candA.Publications...)
 	candB.Publications[0].ExecutionID = "exec-b"
@@ -714,9 +594,6 @@ func TestReleaseActivationAtomicallyUpdatesReleasePointer(t *testing.T) {
 		t.Fatalf("stale activation changed the pointer: before=%+v after=%+v", stale, fresh)
 	}
 
-	// The correct expected value on the second candidate wins the next
-	// revision; both immutable candidates stay retained (the pointer
-	// moved, history did not).
 	active, err = s.releasesB.CompareAndSwapActivateRelease(s.ctx, candB, 1)
 	if err != nil {
 		s.fail("second activation", err)
@@ -740,24 +617,16 @@ func TestReleaseActivationAtomicallyUpdatesReleasePointer(t *testing.T) {
 	}
 }
 
-// TestReleaseActivationEmptyCASResultIsConflict is the PG mirror of the
-// Arango baseline's empty-AQL-result control: every refused candidate or
-// refused generation prerequisite is the typed conflict with the pointer
-// left exactly as it was, never a silent fallback.
 func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 	s := newReleaseService(t)
 	const project = "pgpubrel01-cas-negative"
 
-	// Candidate never persisted (the "empty result" of the storedRelease
-	// lookup): typed conflict, no pointer.
 	ghost := candidateFixture(project, "gen-ghost", "release_"+digestC)
 	if _, err := s.releases.CompareAndSwapActivateRelease(s.ctx, ghost, 0); !errors.Is(err, publication.ErrReleaseActivationConflict) {
 		t.Fatalf("unpersisted candidate = %v, want ErrReleaseActivationConflict", err)
 	}
 	s.assertPointerAbsent(t, project)
 
-	// Persisted candidate but no manifest at all: the generation owner's
-	// guard refuses inside the transaction -- typed conflict, no pointer.
 	cand := candidateFixture(project, "gen-1", "release_"+digestA)
 	s.mustSave(t, s.releases, cand)
 	if _, err := s.releases.CompareAndSwapActivateRelease(s.ctx, cand, 0); !errors.Is(err, publication.ErrReleaseActivationConflict) {
@@ -765,7 +634,6 @@ func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 	}
 	s.assertPointerAbsent(t, project)
 
-	// Manifest LOADING and no active generation: still refused.
 	ref := mustRef(t, project, "gen-1")
 	schema := mustSnapshot(t, "gen-1", digestA)
 	loading, err := publication.NewManifest(ref, schema)
@@ -780,8 +648,6 @@ func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 	}
 	s.assertPointerAbsent(t, project)
 
-	// Staged manifest but the project has no active-generation pointer:
-	// refused (the baseline's generationPointer != null filter).
 	staged, err := s.gen.TransitionManifest(s.ctx, loading, publication.StateStaged)
 	if err != nil {
 		s.fail("TransitionManifest", err)
@@ -793,9 +659,6 @@ func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 
 	s.activateGeneration(t, staged)
 
-	// A persisted candidate whose stored document was edited underneath
-	// the caller (direct SQL, mirroring the sibling lane's corruption
-	// path): the CAS compares content and refuses with the typed conflict.
 	s.mustExec(t, s.witness, `UPDATE `+s.qualified(ProjectReleasesTable)+
 		` SET payload = jsonb_set(payload, '{publications,0,executionId}', '"tampered"') WHERE project = $1 AND id = $2`,
 		project, cand.ID)
@@ -803,16 +666,10 @@ func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 		t.Fatalf("tampered candidate = %v, want ErrReleaseActivationConflict", err)
 	}
 	s.assertPointerAbsent(t, project)
-	// Resaving the pre-tamper document is the same-content retry shape
-	// the compatible guard must now reject: the stored bytes differ.
 	if _, err := s.releases.SaveRelease(s.ctx, cand); !errors.Is(err, ErrReleaseContentConflict) {
 		t.Fatalf("resave over tampered payload = %v, want ErrReleaseContentConflict", err)
 	}
 
-	// A FAILED manifest cannot back an activation: stage a second
-	// generation, activate it, then corrupt the manifest to FAILED with
-	// direct SQL. The CAS guard reads the live row in-transaction and
-	// refuses; the release pointer never moves.
 	const project2 = "pgpubrel01-cas-negative-2"
 	staged2 := s.stageGeneration(t, project2, "gen-1", digestB)
 	s.activateGeneration(t, staged2)
@@ -826,10 +683,6 @@ func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 	s.assertPointerAbsent(t, project2)
 }
 
-// TestActiveReleaseReadSurfacesStoredInconsistency proves the reader
-// refuses to coerce a stored document that disagrees with its own scan
-// columns: it reports the store inconsistency instead of serving a wrong
-// release or silently falling back.
 func TestActiveReleaseReadSurfacesStoredInconsistency(t *testing.T) {
 	s := newReleaseService(t)
 	const project = "pgpubrel01-tamper-read"
@@ -841,8 +694,6 @@ func TestActiveReleaseReadSurfacesStoredInconsistency(t *testing.T) {
 		s.fail("activation", err)
 	}
 
-	// Edit only the payload's id field underneath; the pointer and scan
-	// columns still name release_<a>. The reader must notice.
 	s.mustExec(t, s.witness, `UPDATE `+s.qualified(ProjectReleasesTable)+
 		` SET payload = jsonb_set(payload, '{id}', '"release_forged"') WHERE project = $1 AND id = $2`,
 		project, cand.ID)
@@ -850,10 +701,6 @@ func TestActiveReleaseReadSurfacesStoredInconsistency(t *testing.T) {
 		t.Fatalf("read over forged payload = %v, want ErrUnexpectedStoreResult", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 3: already-active is a zero-write, revision-stable success.
-// ---------------------------------------------------------------------------
 
 func TestReleaseActivationAlreadyActiveIsZeroWriteAndRevisionStable(t *testing.T) {
 	s := newReleaseService(t)
@@ -867,9 +714,6 @@ func TestReleaseActivationAlreadyActiveIsZeroWriteAndRevisionStable(t *testing.T
 	}
 	before := s.witnessPointer(project)
 
-	// Re-activating the exact active candidate with the correct revision:
-	// success, and the pointer row is byte-identical afterwards -- same
-	// ctid (no UPDATE ran), same updated_at, same revision.
 	for i, expected := range []int64{1, 0} {
 		active, err := s.releases.CompareAndSwapActivateRelease(s.ctx, cand, expected)
 		if err != nil {
@@ -879,19 +723,11 @@ func TestReleaseActivationAlreadyActiveIsZeroWriteAndRevisionStable(t *testing.T
 			t.Fatalf("already-active activation %d = %+v, want {%+v 1}", i, active, cand)
 		}
 	}
-	// The second call above presented the STALE expected revision 0: the
-	// already-active rule takes precedence over the expected comparison
-	// (the baseline's "currentRevision == @expected_revision OR
-	// alreadyActive"), and the result is still the current revision.
 	after := s.witnessPointer(project)
 	if after != before {
 		t.Fatalf("already-active re-activation rewrote the pointer: before=%+v after=%+v", before, after)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 2 (concurrent schedule): two real connections, one winner.
-// ---------------------------------------------------------------------------
 
 func TestConcurrentReleaseActivationsSameExpectedYieldOneWinner(t *testing.T) {
 	s := newReleaseService(t)
@@ -906,9 +742,6 @@ func TestConcurrentReleaseActivationsSameExpectedYieldOneWinner(t *testing.T) {
 	candB.Publications[1].ExecutionID = "exec-b"
 	s.mustSave(t, s.releasesB, candB)
 
-	// Writer A and writer B are separate single-connection pools with
-	// distinct pg_backend_pid values (asserted at service construction),
-	// so the two racing activations genuinely run on two real backends.
 	candidates := []publication.ProjectRelease{candA, candB}
 	stores := []*ReleaseStore{s.releases, s.releasesB}
 	results := make([]error, len(candidates))
@@ -951,28 +784,14 @@ func TestConcurrentReleaseActivationsSameExpectedYieldOneWinner(t *testing.T) {
 	if winnerIDs[winner].Revision != 1 || winnerIDs[winner].Release.ID != candidates[winner].ID {
 		t.Fatalf("winner verdict = %+v, want revision 1 for %s", winnerIDs[winner], candidates[winner].ID)
 	}
-	// The pointer literally names the winner at revision 1; the loser's
-	// write changed nothing.
 	s.assertPointerLiteral(t, project, candidates[winner].ID, 1)
 
-	// The loser may re-read and converge: with the fresh expected
-	// revision its activation wins.
 	if _, err := stores[loser].CompareAndSwapActivateRelease(s.ctx, candidates[loser], 1); err != nil {
 		s.fail("loser re-activation with fresh expected", err)
 	}
 	s.assertPointerLiteral(t, project, candidates[loser].ID, 2)
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 4: the generation owner adapter participates in the same PG
-// transaction, without duplicated schema.
-// ---------------------------------------------------------------------------
-
-// observingAdapter wraps the default generation-owner adapter and proves
-// where its post-swap hook runs: it reads the active pointer INSIDE the
-// activation transaction (only possible on the writer's own connection),
-// gates the commit so an outside connection can observe the uncommitted
-// state, and can fault on demand.
 type observingAdapter struct {
 	inner    GenerationOwnerAdapter
 	pointers string
@@ -984,7 +803,7 @@ type observingAdapter struct {
 	hookErr       error
 	ensureErr     error
 	ensureOn      bool
-	hookViolation string // non-empty when the in-transaction pointer read disagreed with the activation
+	hookViolation string
 }
 
 func newObservingAdapter(inner GenerationOwnerAdapter, pointersFQN string) *observingAdapter {
@@ -1004,9 +823,6 @@ func (a *observingAdapter) EnsureGenerationPrerequisites(ctx context.Context, tx
 }
 
 func (a *observingAdapter) OnReleaseActivated(ctx context.Context, tx pgx.Tx, activation ReleaseActivation) error {
-	// Read the pointer row on the transaction's own connection: if this
-	// hook ran on any other connection, the row could not be visible with
-	// the new values before commit.
 	var (
 		seenReleaseID string
 		seenRevision  int64
@@ -1064,10 +880,6 @@ func TestGenerationOwnerAdapterParticipatesInActivationTransaction(t *testing.T)
 		if activation.Release.ID != cand.ID || activation.Revision != 1 {
 			t.Fatalf("adapter saw activation %+v, want candidate %s at revision 1", activation, cand.ID)
 		}
-		// While the hook holds the transaction open, the witness -- a
-		// THIRD physical connection -- must not see the pointer row: the
-		// write exists only inside the activation's own transaction, so
-		// the hook provably runs on that transaction's connection.
 		if w := s.witnessPointer(project); w.exists {
 			t.Fatalf("witness observed the pointer row before commit: %+v", w)
 		}
@@ -1089,9 +901,6 @@ func TestGenerationOwnerAdapterParticipatesInActivationTransaction(t *testing.T)
 		t.Fatalf("generation-owner hook did not observe its own uncommitted pointer write inside the activation transaction: %s", violation)
 	}
 
-	// The already-active zero-write path never reaches the hook (the
-	// baseline performs zero pointer patches there, so there is no
-	// activation event to announce).
 	beforeHookCalls, _ := adapter.hookCalls()
 	if _, err := s.releases.CompareAndSwapActivateRelease(s.ctx, cand, 1); err != nil {
 		s.fail("already-active re-activation", err)
@@ -1102,10 +911,6 @@ func TestGenerationOwnerAdapterParticipatesInActivationTransaction(t *testing.T)
 			len(afterHookCalls)-len(beforeHookCalls))
 	}
 
-	// A fault inside the hook after the pointer write aborts the whole
-	// transaction: the second backend never sees the pointer move at all,
-	// proving release visibility and generation-owner participation
-	// commit or roll back as one PostgreSQL transaction.
 	second := candidateFixture(project, "gen-1", "release_"+digestB)
 	second.Publications = append([]publication.ReleasePublication(nil), cand.Publications...)
 	second.Publications[1].ExecutionID = "exec-fault"
@@ -1123,8 +928,6 @@ func TestGenerationOwnerAdapterParticipatesInActivationTransaction(t *testing.T)
 		if activation.Revision != 2 {
 			t.Fatalf("faulted activation hook saw revision %d, want 2", activation.Revision)
 		}
-		// The in-flight UPDATE is invisible to the third backend while the
-		// hook holds the transaction open.
 		s.assertPointerLiteral(t, project, cand.ID, 1)
 		close(adapter2.release)
 	case <-time.After(60 * time.Second):
@@ -1145,10 +948,7 @@ func TestGenerationOwnerAdapterParticipatesInActivationTransaction(t *testing.T)
 	if _, violation := adapter2.hookCalls(); violation != "" {
 		t.Fatalf("faulted activation hook did not observe its own uncommitted pointer write: %s", violation)
 	}
-	// The pointer still names the FIRST candidate at revision 1 -- the
-	// in-transaction UPDATE was rolled back with the hook fault.
 	s.assertPointerLiteral(t, project, cand.ID, 1)
-	// And with a healthy hook the same activation now converges.
 	s.releases.adapter = adapter
 	if _, err := s.releases.CompareAndSwapActivateRelease(s.ctx, second, 1); err != nil {
 		s.fail("activation after hook recovery", err)
@@ -1156,9 +956,6 @@ func TestGenerationOwnerAdapterParticipatesInActivationTransaction(t *testing.T)
 	s.assertPointerLiteral(t, project, second.ID, 2)
 }
 
-// TestInjectedFailureBeforeCommitKeepsPointerUnchanged closes the commit
-// window itself: the pointer write and the candidate state converge to
-// pre-activation facts when COMMIT is faulted.
 func TestInjectedFailureBeforeCommitKeepsPointerUnchanged(t *testing.T) {
 	s := newReleaseService(t)
 	const project = "pgpubrel01-commitfault"
@@ -1181,11 +978,6 @@ func TestInjectedFailureBeforeCommitKeepsPointerUnchanged(t *testing.T) {
 	}
 	s.assertPointerLiteral(t, project, cand.ID, 1)
 }
-
-// ---------------------------------------------------------------------------
-// no-fallback guarantee: a schema without the release tables surfaces the
-// missing relation instead of falling back.
-// ---------------------------------------------------------------------------
 
 func TestReleaseStoreFailsClosedWithoutItsTables(t *testing.T) {
 	s := newReleaseService(t)
@@ -1218,11 +1010,6 @@ func TestReleaseStoreFailsClosedWithoutItsTables(t *testing.T) {
 		t.Fatalf("activate against unmigrated schema = %v, want SQLSTATE 42P01, never a typed conflict or fallback", s.scrub(err))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// schema constraint negatives: SQL NULL, absent-pointer-as-NULL, revision
-// floor, FK, and payload shape are all refused by the schema itself.
-// ---------------------------------------------------------------------------
 
 func TestReleaseSchemaConstraintsRejectInvalidRows(t *testing.T) {
 	s := newReleaseService(t)
@@ -1302,8 +1089,6 @@ func TestReleaseSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		}
 	}
 
-	// The FK also pins the cross-table invariant the CAS relies on: with
-	// the pointer live, the candidate it names cannot be deleted.
 	staged := s.stageGeneration(t, project, "gen-1", digestA)
 	s.activateGeneration(t, staged)
 	if _, err := s.releases.CompareAndSwapActivateRelease(s.ctx, cand, 0); err != nil {
@@ -1319,15 +1104,6 @@ func TestReleaseSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// zero leftovers, ownership-scoped: the suite must not leave any
-// pgpubrel01_it_* resource. This test MUST stay the last test declared in
-// this file. It sweeps ONLY this ticket's prefix: concurrent sibling suites
-// (pgstore03_it_*, pgleases01_it_*, ...) audit their own prefixes in their
-// own files, and a global scan here would couple unrelated tickets' CI
-// results to each other.
-// ---------------------------------------------------------------------------
 
 func TestZZNoLeftoverPgpubrel01Resources(t *testing.T) {
 	raw := testPostgresURL(t)
@@ -1364,9 +1140,6 @@ func TestZZNoLeftoverPgpubrel01Resources(t *testing.T) {
 		`SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'pgpubrel01\_it\_%' ESCAPE '\'`).Scan(&leftoverSchemas); err != nil {
 		t.Fatalf("count leftover schemas: %v", err)
 	}
-	// Owned schemas live only inside the isolated databases, so a hit here
-	// can only mean a pgpubrel01_it_* schema leaked into the shared
-	// service database itself.
 	if leftoverSchemas != 0 {
 		t.Fatalf("%d owned schemas left behind in the service database", leftoverSchemas)
 	}

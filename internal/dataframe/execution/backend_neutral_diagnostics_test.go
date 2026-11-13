@@ -13,22 +13,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// TestBackendNeutralDiagnosticsAndPlanIdentity is the cross-backend witness
-// for one diagnostic meaning and two identity families:
-//
-//   - the public planFingerprint (Explain output and PreviewSummary) is the
-//     value-free SourcePlanFingerprint on both lanes, and Explain and
-//     preview report identical bytes for the same plan;
-//   - the value-bound artifact identity (query.PlanDiagnostics.Fingerprint,
-//     which feeds chartifact.Identity.PlanDigest) moves with bound values
-//     while the public diagnostic shape does not;
-//   - one internal cursor timer produces literal, materialization-excluded
-//     source-query durations for both the AQL and PostgreSQL adapters under
-//     a controlled clock, with cancellation/error accounting intact.
-//
-// Identity-interchange sabotage (bound digest projected publicly, or the
-// value-free shape used as the artifact key) fails the equality and
-// distinctness assertions below, not just a golden.
 func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 	ctx := context.Background()
 
@@ -69,10 +53,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 		if again := SourcePlanFingerprint(arch12PGCompile(t, resolved, 5)); again != shape {
 			t.Fatalf("diagnostic shape is not deterministic: %q vs %q", again, shape)
 		}
-		// Bound-value-only change (scope argument rebound): the public
-		// diagnostic shape stays byte-identical while the value-bound
-		// artifact identity moves. If diagnostic and artifact identity
-		// were interchanged this is the assertion that fails.
 		scopeChange := exec02TestResolved()
 		scopeChange.Compiled.Outputs[0].Plan.BindVars["project"] = "P2"
 		rebound := arch12PGCompile(t, scopeChange, 5)
@@ -82,8 +62,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 		if rebound.PlanDiagnostics.Fingerprint == bound {
 			t.Fatal("bound-value-only change left the value-bound artifact digest unchanged")
 		}
-		// SQL/text change, parameter-type change, and output-metadata
-		// change each move the diagnostic shape.
 		sqlTextA, _, err := baseline.Command.PostgreSQLParameters()
 		if err != nil {
 			t.Fatal(err)
@@ -123,8 +101,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 		if SourcePlanFingerprint(pivotChange) == SourcePlanFingerprint(shapeQuery) {
 			t.Fatal("pivot metadata change did not move the diagnostic shape")
 		}
-		// Projection-level interchange guard: the preview summary and the
-		// Explain output report the shape, never the bound artifact digest.
 		spies := &dispatchSpies{}
 		engine, _ := exec02pgEngine(t, spies, exec02Rows())
 		limited := exec02TestResolved()
@@ -151,9 +127,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 	})
 
 	t.Run("postgresql pinned diagnostic shape bytes", func(t *testing.T) {
-		// The versioned domain-separated encoding (loom:source-plan-shape:v1
-		// inside the hash input, 64-hex output) is pinned so a careless
-		// change to the field set or framing cannot pass unnoticed.
 		query := compiler.CompiledQuery{Command: mustPGCommand(t, "SELECT id, name FROM loom.fhir_resource WHERE project = $1 AND dataset_generation = $2", []command.PostgreSQLParameter{
 			{Type: command.PostgreSQLParameterText, Value: "P1"},
 			{Type: command.PostgreSQLParameterText, Value: "G1"},
@@ -174,8 +147,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 		if shape == "" || bound == "" || shape == bound {
 			t.Fatalf("aql shape and bound artifact digest must both exist and differ: shape=%q bound=%q", shape, bound)
 		}
-		// Bound-value-only change: bind VALUES stay out of the public shape
-		// while the value-bound physical digest follows them.
 		scopeChange := exec02TestResolved()
 		scopeChange.Compiled.Outputs[0].Plan.BindVars["project"] = "P2"
 		rebound := arch12AQLCompile(t, scopeChange, 5)
@@ -185,15 +156,12 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 		if rebound.PlanDiagnostics.Fingerprint == bound {
 			t.Fatal("AQL bound-value-only change left the value-bound artifact digest unchanged")
 		}
-		// Output metadata participates.
 		metadataChange := baseline
 		metadataChange.Columns = append([]string(nil), baseline.Columns...)
 		metadataChange.Columns[0] = "identifier"
 		if SourcePlanFingerprint(metadataChange) == shape {
 			t.Fatal("AQL output column change did not move the public shape")
 		}
-		// Preview and Explain report the same public shape per lane, and
-		// the preview summary never carries the bound artifact digest.
 		spies := &dispatchSpies{}
 		config := spies.arangoEngine()
 		engine := config.newEngineForTest(t)
@@ -273,8 +241,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 					return lane.ported(request, visit, clock)
 				}})
 				streamed, err := service.streamQuery(ctx, compiled, func(map[string]any) error {
-					// The caller's row handling is Loom-side work: it must be
-					// attributed to row materialization, never to the source.
 					clock.advance(rowMaterialization)
 					return nil
 				})
@@ -323,8 +289,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 				if !errors.Is(err, visitorFailure) {
 					t.Fatalf("visitor failure must surface unchanged: %v", err)
 				}
-				// A canceled caller must not open a backend cursor at all and
-				// reports zero source time rather than a stale interval.
 				canceled, cancel := context.WithCancel(ctx)
 				cancel()
 				blocked := false
@@ -406,11 +370,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 	})
 
 	t.Run("projection gate refuses an empty public fingerprint", func(t *testing.T) {
-		// The public projections never surface an empty planFingerprint with
-		// a nil error: a compiled command that cannot dispatch its payload
-		// (an invariant violation the command constructors make unreachable
-		// on the happy path) fails the projection closed instead, on the
-		// compile-only Explain path included, where nothing else dispatches.
 		if err := requireProjectedPlanFingerprint("resources", "86d795c00159019f31b5270e5b4f20b4406e939475e3980646866d513427394d"); err != nil {
 			t.Fatalf("a real shape digest must pass the gate: %v", err)
 		}
@@ -425,17 +384,11 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 			if !strings.Contains(err.Error(), "resources") || !strings.Contains(err.Error(), "fingerprint") {
 				t.Fatalf("the gate error must name the output and the field: %v", err)
 			}
-			// The refusal is typed and non-retryable: a compiled-command
-			// defect, never a caller fault the transport may retry.
 			userErr, typed := dataframeerrors.AsUserError(err)
 			if !typed || userErr.Code() != string(dataframeerrors.CodeInternalError) || userErr.Retryable() {
 				t.Fatalf("the gate must refuse with typed non-retryable INTERNAL_ERROR, got typed=%v err=%v", typed, err)
 			}
 		}
-		// The compile-only Explain path is dispatch-free for a PG-tagged
-		// command, so the gate is the only enforcement there; witness that
-		// ExplainResolved projects a real shape (the gate passed) with the
-		// hex bytes the fingerprint family guarantees.
 		spies := &dispatchSpies{}
 		engine, _ := exec02pgEngine(t, spies, exec02Rows())
 		limited := exec02TestResolved()
@@ -450,9 +403,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 	})
 
 	t.Run("clickhouse combine preview keeps its ClickHouse-owned digest", func(t *testing.T) {
-		// The unified source shape applies to source commands only; the
-		// ClickHouse combine preview summary keeps reporting the combine
-		// fingerprint it carried before this ticket.
 		query := compiler.CompiledQuery{PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "combine-fingerprint"}}
 		stream := OutputStream{physicalEngine: ir.PhysicalEngineClickHouse}
 		if got := previewPlanFingerprint(query, stream); got != "combine-fingerprint" {
@@ -461,7 +411,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 	})
 }
 
-// arch12Clock is a manually advanced clock behind the package clock seam.
 type arch12Clock struct {
 	current time.Time
 }

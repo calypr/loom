@@ -714,13 +714,6 @@ func TestCompileCategoryScanTracksPresenceThroughExpandForDiscoveryProbe(t *test
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pg-sql-25: the PostgreSQL dispatch at the compiler boundary. The scan is
-// tagged as a PostgreSQL command, keeps the present/value positional contract,
-// carries no Arango-only fields, and shares every refusal code with the AQL
-// path. Real-server execution evidence lives with the render package.
-// ---------------------------------------------------------------------------
-
 func mustPostgreSQLCategoryTarget(t *testing.T) Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("verify_sql25v1_compile")
@@ -781,16 +774,12 @@ func TestCompileCategoryScanOutputForPostgreSQLTagsTheRegisteredCategoryStatemen
 	if scanned.PresentColumn != "present" || scanned.ValueColumn != "value" {
 		t.Fatalf("positional contract = %q/%q", scanned.PresentColumn, scanned.ValueColumn)
 	}
-	// The Arango-only execution aids never travel on a PostgreSQL command:
-	// no index advice and no separate witness command.
 	if scanned.CategoryIndex != nil || scanned.PreviewCoveringIndex != nil {
 		t.Fatalf("Arango index advice reached the PostgreSQL scan: %#v %#v", scanned.CategoryIndex, scanned.PreviewCoveringIndex)
 	}
 	if scanned.OverflowWitness != nil {
 		t.Fatalf("Arango overflow witness reached the PostgreSQL scan: %#v", scanned.OverflowWitness)
 	}
-	// The proof stays bound to the request, and presence is always tracked:
-	// the statement carries the total presence bit on every shape.
 	if scanned.Proof.Output != "Patients" || scanned.Proof.Column != "gender" || scanned.Proof.MaxValues != 64 ||
 		scanned.Proof.OutputSchemaDigest == "" || scanned.Proof.PlanFingerprint == "" ||
 		scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" || !scanned.Proof.PresenceTracked {
@@ -799,7 +788,6 @@ func TestCompileCategoryScanOutputForPostgreSQLTagsTheRegisteredCategoryStatemen
 	if scanned.Proof.OverflowWitnessFingerprint != "" {
 		t.Fatalf("proof cites a witness this scan does not carry: %#v", scanned.Proof)
 	}
-	// Determinism at the boundary: the same request compiles byte-identically.
 	again, err := CompileCategoryScanOutput(mustPostgreSQLCategoryTarget(t), output, "gender", 64, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -808,14 +796,11 @@ func TestCompileCategoryScanOutputForPostgreSQLTagsTheRegisteredCategoryStatemen
 	if againSQL != sql || !reflect.DeepEqual(againArgs, args) || again.Proof.Fingerprint != scanned.Proof.Fingerprint {
 		t.Fatal("PostgreSQL category compilation was not deterministic")
 	}
-	// A different selected column is a different proof and a different query.
 	other, err := CompileCategoryScanOutput(mustPostgreSQLCategoryTarget(t), output, "id", 64, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
 	otherSQL, otherArgs := mustPostgreSQLCategorySQL(t, other.Command)
-	// The statement template is column-independent by design (the category
-	// path travels as a bound parameter); the proof and the arguments bind it.
 	if other.Proof.Fingerprint == scanned.Proof.Fingerprint || reflect.DeepEqual(otherArgs, args) {
 		t.Fatalf("proof and arguments were not bound to the selected category column: %#v %#v", other.Proof.Fingerprint, otherArgs)
 	}
@@ -854,7 +839,6 @@ func TestCompileCategoryScanPostgreSQLRefusalsMatchTheAQLPath(t *testing.T) {
 			t.Fatalf("typed PostgreSQL code = %q/%t", code, ok)
 		}
 	}
-	// The bound check runs before any plan work, on both backends.
 	for _, maxValues := range []int{0, MaxCategoryScanValues + 1} {
 		_, pgErr := CompileCategoryScanOutput(target, base, "status", maxValues, ir.DefaultPhysicalOptimizationPolicy())
 		if code, ok := CategoryScanRefusalCodeOf(pgErr); !ok || code != CategoryScanInvalidLimit {
@@ -887,9 +871,6 @@ func TestCompileCategoryScanStageForPostgreSQLKeepsTheSourceProjectionAndRefuses
 		t.Fatalf("Arango witness reached the PostgreSQL stage scan: %#v", scanned.OverflowWitness)
 	}
 
-	// A composed construction stage has no registered PostgreSQL category
-	// terminal: the scan refuses with the typed capability gap instead of
-	// falling back to AQL or translating the composition.
 	for _, stageID := range []string{"derive_total", "keep_positive"} {
 		_, stageErr := CompileCategoryScanStage(target, compiled, stageID, "status_id", "amount_id", 64, ir.DefaultPhysicalOptimizationPolicy())
 		if !errors.Is(stageErr, postgresrender.ErrUnsupportedPostgresPlan) {
@@ -901,13 +882,6 @@ func TestCompileCategoryScanStageForPostgreSQLKeepsTheSourceProjectionAndRefuses
 	}
 }
 
-// TestCompileCategoryScanStageForPostgreSQLCollapsesProvenRelatedPrefixToSourceRead
-// is the positive cell for the source-preserving proof arm: a stage whose
-// prefix is a parent-preserving RELATED_EXPAND plus a row-preserving
-// RELATED_FIELD arrives with a StageSequence, passes the shared
-// categoryScanPreservesSourceCategories proof, and is narrowed to the source
-// read before the PostgreSQL terminal renders. The AQL twin is
-// TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategories.
 func TestCompileCategoryScanStageForPostgreSQLCollapsesProvenRelatedPrefixToSourceRead(t *testing.T) {
 	compiled := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, false, false))
 	if _, found := compiledStageByID(compiled.Stages, "add_status"); !found {
@@ -951,9 +925,6 @@ func TestCompileCategoryScanStageForPostgreSQLCollapsesProvenRelatedPrefixToSour
 			scanned.CategoryIndex, scanned.PreviewCoveringIndex, scanned.OverflowWitness)
 	}
 
-	// The arm is proof-gated, not blanket-accepted: inserting a FILTER into
-	// the same prefix invalidates the source-category proof and the same
-	// stage scan refuses with the typed capability gap.
 	filtered := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, true, false))
 	_, refusalErr := CompileCategoryScanStage(mustPostgreSQLCategoryTarget(t), filtered, "add_status", "category_id", "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
 	if !errors.Is(refusalErr, postgresrender.ErrUnsupportedPostgresPlan) {

@@ -4,11 +4,6 @@ import "strings"
 
 import "testing"
 
-// dsn_redaction tests run white-box because the redaction helpers are an
-// internal composition tool; the externally observable half (Open errors
-// carrying no credential while errors.Is still reaches the cause) lands with
-// Open in the live half of TestPostgresFactoryOwnershipContract.
-
 func TestDSNRedactionKeepsTheRegisteredSecret(t *testing.T) {
 	const secret = "Ab06Reg1st3redS3cret!"
 	cases := []struct {
@@ -76,7 +71,6 @@ func TestDSNRedactionKeepsTheRegisteredSecret(t *testing.T) {
 		if strings.Contains(ScrubSecretText(dirty, secret), secret) {
 			t.Fatalf("scrubSecretText left the secret in: %s", dirty)
 		}
-		// Alive control: empty secret never erases ordinary text.
 		if ScrubSecretText(dirty, "") != dirty {
 			t.Fatal("empty secret altered ordinary text")
 		}

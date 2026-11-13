@@ -1,53 +1,5 @@
 package published
 
-// F-B24 (CONFIRMED Round 24; converted Round 30 to a naturally-PASSING
-// regression control after the NULL-aware keyset repair): sorting a published
-// dataset by a legitimate NULLABLE column used to make browser pagination
-// silently drop every NULL-sort row (both directions) while TotalCount
-// advertised them; the archived discovery reds (FB24 RED-ON-PURPOSE: "5 of 7",
-// deterministic, real ClickHouse 25.3, production Reader.Page) are the
-// before-fault witnesses, and the guardless pre-fix copy of this package
-// re-raises them verbatim (see FINDINGS Round 30).
-//
-// The repair (published/page.go + read.go, cursor Version 2):
-//   - ORDER BY pins "`col` DIR NULLS LAST, `__loom_row_id` ASC" so the engine
-//     default can never disagree with the predicate;
-//   - pageCursorPredicate always admits `col IS NULL` rows after a non-NULL
-//     cursor and resumes inside the NULL bucket with
-//     "`col` IS NULL AND `__loom_row_id` > ?";
-//   - a page ending on a NULL row now ENCODES a null-bucket cursor instead of
-//     failing with INVALID_CURSOR (the latent second defect: the former
-//     `if sortValue == nil { return Page{}, invalidCursor() }`).
-// If any of those guarantees regresses, the traversal assertions below fail
-// again through the original harm (unreachable rows / mid-list error), and
-// the source gate below retires this artifact loudly if page.go drifts.
-//
-// User-visible path quoted by the source gate below:
-//   - internal/api/graphql/graph/dataframe/rows.go forwards the CLIENT-chosen
-//     sort column verbatim: `Sort: convertSort(input)` into
-//     `s.reader.Page(ctx, value, dfmaterialization.PageRequest{...})`.
-//   - internal/dataframe/published/page.go builds that cursor and its
-//     predicate; NULL is legitimate author data: the production writer maps
-//     Nullable logical columns to `Nullable(<type>)` ClickHouse columns
-//     (publication/clickhouse/bundle_store.go: `columnType = "Nullable(" +
-//     columnType + ")"`) and the schema carries Column.Nullable.
-//   - internal/dataframe/published/errors.go keeps invalidCursor
-//     (`dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")`)
-//     reserved for genuinely malformed cursors only.
-
-// Experiment (real ClickHouse, production Reader.Page; Unrestricted=true for
-// harness simplicity — the cursor code path is independent of the auth
-// predicate, which is prepended separately at page.go `auth_resource_path`
-// IN ?`): a 7-row table, `middle Nullable(String)` with NULLs interleaved,
-// sorted pagination through production Reader.Page:
-//   ASC, first=1: ClickHouse sorts NULLs first, so the FIRST page's last row
-//     is NULL -> entire first read errors.
-//   DESC, first=2: traversal g,f | d,b | then the page ending on NULL errors;
-//     rows past the NULL block can never be listed via sort traversal.
-//   Control (no NULLs on the boundary: sort by val): same traversal completes
-//     all 7 rows — the harness and cursor machinery work when NULLs are absent,
-//     so the failure is attributable to NULL sort values, not to setup.
-
 import (
 	"context"
 	"fmt"
@@ -70,9 +22,6 @@ func nspColumns() []storeclickhouse.Column {
 	}
 }
 
-// middles arranged so that a DESC traversal ends a page exactly on a NULL:
-// sorted DESC: g,f,d,b,a,NULL,NULL ; first=2 -> [g,f],[d,b],[a,NULL] boom.
-// With ASC + NULLs-first, page size 1 dies on page 1: first row is NULL.
 var nspRows = []map[string]any{
 	{"middle": "a", "val": int64(1), "__loom_row_id": "r1"},
 	{"middle": "b", "val": int64(2), "__loom_row_id": "r2"},
@@ -94,7 +43,6 @@ func nspMaterialization(table string) Materialization {
 }
 
 func TestFB24NullSortPageEnumerationIsComplete(t *testing.T) {
-	// --- source gates (quote drift retires the claim loudly) ---
 	for path, fragments := range map[string][]string{
 		"page.go": {
 			"sortValueNull = sortValue == nil",
@@ -137,7 +85,7 @@ func TestFB24NullSortPageEnumerationIsComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clickhouse client: %v", err)
 	}
-	t.Cleanup(func() { _ = client.Close() }) // registered before the drop => runs after it (LIFO)
+	t.Cleanup(func() { _ = client.Close() })
 	if err := client.Ping(ctx); err != nil {
 		t.Fatalf("ping: %v", err)
 	}
@@ -160,7 +108,6 @@ func TestFB24NullSortPageEnumerationIsComplete(t *testing.T) {
 	reader := &Reader{ClickHouse: client}
 	m := nspMaterialization(table)
 
-	// Helper: full sort traversal, mirroring what a browser does with First/After.
 	traverse := func(sort *Sort, first int) (map[string]bool, int64, string, error) {
 		seen, total, cursor := map[string]bool{}, int64(-1), ""
 		for i := 0; i < 20; i++ {
@@ -199,25 +146,18 @@ func TestFB24NullSortPageEnumerationIsComplete(t *testing.T) {
 		return gone
 	}
 
-	// Control A: unsorted (row-id) traversal shows ALL rows, proving the NULL
-	// rows exist in the table and are absent ONLY from sorted pagination.
 	seenPlain, _, _, errPlain := traverse(nil, 2)
 	if errPlain != nil || len(seenPlain) != 7 {
 		t.Fatalf("F-B24 control A lost — unsorted traversal must enumerate 7 rows, got seen=%d err=%v", len(seenPlain), errPlain)
 	}
 	t.Logf("FB24 CONTROL-A | unsorted traversal shows every row | rows=%d (including the 2 NULL-middle rows)", len(seenPlain))
 
-	// Control B: sort by non-null column completes the full enumeration.
 	seenB, _, _, err := traverse(&Sort{Column: "val"}, 2)
 	if err != nil || len(seenB) != 7 {
 		t.Fatalf("F-B24 control B lost — non-null sort traversal must enumerate 7 rows, got seen=%d err=%v", len(seenB), err)
 	}
 	t.Logf("FB24 CONTROL-B | nullable-free sort traversal completes | rows=%d", len(seenB))
 
-	// The converted checks: sorted traversal by the nullable column must reach
-	// all 7 unique rows in BOTH directions with no error — including both
-	// NULL-sort rows — and TotalCount must agree. These branches carry the
-	// archived discovery reds as their regression direction.
 	seenAsc1, totalAsc1, cursorAsc1, errAsc := traverse(&Sort{Column: "middle"}, 1)
 	seenDesc2, totalDesc2, cursorDesc2, errDesc := traverse(&Sort{Column: "middle", Desc: true}, 2)
 
@@ -242,9 +182,6 @@ func TestFB24NullSortPageEnumerationIsComplete(t *testing.T) {
 		t.Logf("FB24 PASS | DESC first=2 reaches all 7 unique rows incl. both NULL-sort rows")
 	}
 
-	// Ordered-completeness witness: NULLS LAST is pinned, so a fine-grained
-	// ASC walk must observe val 3 and 5 (the NULL-middle rows) exactly last,
-	// in row-id order, after every non-NULL middle.
 	seenAsc3, _, _, errAsc3 := traverse(&Sort{Column: "middle"}, 3)
 	if errAsc3 != nil || len(seenAsc3) != 7 || !seenAsc3["3"] || !seenAsc3["5"] {
 		t.Fatalf("F-B24 ordering witness broken: ASC first=3 must include both NULL-sort rows vals {3,5}, got seen=%d err=%v", len(seenAsc3), errAsc3)

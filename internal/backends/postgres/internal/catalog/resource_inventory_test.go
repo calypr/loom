@@ -1,18 +1,5 @@
 package postgres
 
-// Real-PostgreSQL acceptance tests for the pg-catalog-02 resource inventory
-// (check-3: go test ./internal/backends/postgres/internal/catalog -run ResourceInventory).
-//
-// Every test drives the real internal/backends/postgres/internal/store repository against the
-// PostgreSQL 18 service named by LOOM_TEST_POSTGRES_URL. Fixtures are
-// literal rows inserted by direct SQL; witnesses are literal rows read back
-// by direct SQL. Nothing is mocked: the only injected behavior is a
-// pass-through fault wrapper around the real repository that fails one write
-// call, which the acceptance contract requires (injected count-write
-// failure). Fixture databases and schemas are uniquely owned as
-// pgcat02_it_* and dropped by the test that created them; a final audit
-// fails on any leftover.
-
 import (
 	"context"
 	"crypto/rand"
@@ -102,12 +89,6 @@ func newCatalogInventoryService(t *testing.T) *catalogInventoryService {
 
 	var dbName, schema string
 
-	// Registered while the admin pool is open, so (LIFO) it runs after every
-	// drop. Ownership-based zero-leftover audit: every resource this test
-	// created (ownership began at verified create, per the canonical fixture
-	// runner) must be gone afterward. The names are pgcat02_it_*-patterned
-	// below; an ownership-scoped audit is what makes this race-free when
-	// another test or package holds live pgcat02_it_* fixtures in parallel.
 	t.Cleanup(func() {
 		var dbCount int
 		if err := admin.QueryRow(context.WithoutCancel(ctx),
@@ -282,9 +263,6 @@ func (s *catalogInventoryService) totals(result catalog.ResourceInventoryResult)
 	return got
 }
 
-// faultedInventory passes every call through to the real repository and
-// injects at most one named failure so the publish-last failure semantics
-// can be exercised against real PostgreSQL.
 type faultedInventory struct {
 	*storepostgres.InventoryRepository
 	calls catalogInventoryCalls
@@ -313,9 +291,6 @@ func (f *faultedInventory) InsertCounts(ctx context.Context, rows []catalog.Reso
 	f.calls.insert++
 	if f.failOnInsert > 0 && f.calls.insert == f.failOnInsert {
 		if f.splitBeforeFail && len(rows) > 1 {
-			// Commit the first row, then fail: the committed rows are the
-			// evidence that a partial build stays physically present yet
-			// invisible while the marker still names the previous build.
 			if err := f.InventoryRepository.InsertCounts(ctx, rows[:1], batchSize); err != nil {
 				return err
 			}
@@ -360,8 +335,6 @@ func requireUnavailable(t *testing.T, result catalog.ResourceInventoryResult, er
 	}
 }
 
-// literalFixture seeds the shared scenario: Patient 2 rows under "a" and 5
-// rows under "b", Practitioner 1 unscoped row, Observation none.
 func (s *catalogInventoryService) literalFixture(t *testing.T, project, generation string) {
 	t.Helper()
 	s.seedResource(t, project, generation, "Patient", "p1", "a")
@@ -406,9 +379,6 @@ func TestResourceInventoryRebuildGroupsSourceRowsAndPublishesMarkerLast(t *testi
 		t.Fatalf("summary = %#v", summary)
 	}
 
-	// The scan grouped by authorization path: one source scan per declared
-	// type, and exactly four committed rows — including the zero row for
-	// Observation, the only type with no retained rows.
 	if faulted.calls.scan != 3 {
 		t.Fatalf("source scans = %d, want one per declared type", faulted.calls.scan)
 	}
@@ -432,8 +402,6 @@ func TestResourceInventoryRebuildGroupsSourceRowsAndPublishesMarkerLast(t *testi
 		}
 	}
 
-	// The marker — the only evidence readers trust — exists exactly once,
-	// complete, and names this build.
 	markers := s.witnessMarkers(t, "p", "g")
 	if len(markers) != 1 {
 		t.Fatalf("markers = %v, want one", markers)
@@ -445,7 +413,6 @@ func TestResourceInventoryRebuildGroupsSourceRowsAndPublishesMarkerLast(t *testi
 		t.Fatalf("marker key = %q, want %q", markers[0].MarkerKey, catalog.ResourceInventoryBuildKey("p", "g"))
 	}
 
-	// Reads bind the marker and observe the exact per-type totals.
 	result, err := adapter.DiscoverResourceInventory(s.ctx, inventoryReadOptions("p", "g", true, nil, "Observation", "Patient", "Practitioner"))
 	if err != nil || result.Status != catalog.EvidenceAvailable {
 		t.Fatalf("inventory = %#v err=%v", result, err)
@@ -474,11 +441,9 @@ func TestResourceInventoryCountWriteFailureKeepsPriorReadAndExposesTypedErrors(t
 	}
 	beforeDigest := before.Digest
 
-	// Grow the source so the second build differs from the first, then fail
-	// its count write after one row commits.
 	s.seedResource(t, "p", "g", "Patient", "p8", "a")
 	injected := errors.New("injected count-write failure")
-	faulted.failOnInsert = 2 // the second rebuild's count call
+	faulted.failOnInsert = 2
 	faulted.splitBeforeFail = true
 	faulted.injected = injected
 
@@ -494,9 +459,6 @@ func TestResourceInventoryCountWriteFailureKeepsPriorReadAndExposesTypedErrors(t
 		t.Fatalf("write error is not actionable: %v", err)
 	}
 
-	// Publish-last witness: the failed build's first row is physically
-	// committed under its own content-addressed build id, yet no marker
-	// names it — exactly the state that must be invisible to readers.
 	failedBuild, _, err := catalog.NewResourceInventoryBuild("p", "g",
 		[]string{"Observation", "Patient", "Practitioner"},
 		[]catalog.ResourceInventoryCount{
@@ -512,8 +474,6 @@ func TestResourceInventoryCountWriteFailureKeepsPriorReadAndExposesTypedErrors(t
 		t.Fatalf("partial rows of the failed build = %v, want the committed first row", rows)
 	}
 
-	// Witness: the failed build's first row physically committed, yet no
-	// marker names it — the prior marker is intact and reads are intact.
 	after := s.witnessMarkers(t, "p", "g")
 	if len(after) != 1 || after[0].BuildID != first.BuildID || !after[0].Complete {
 		t.Fatalf("marker after failure = %+v, want the first build intact", after)
@@ -525,8 +485,6 @@ func TestResourceInventoryCountWriteFailureKeepsPriorReadAndExposesTypedErrors(t
 	if fmt.Sprint(s.totals(intact)) != fmt.Sprint(map[string]int64{"Practitioner": 1, "Observation": 0, "Patient": 7}) {
 		t.Fatalf("totals after failure = %v, want the prior totals", s.totals(intact))
 	}
-	// The unmarked build's committed rows are invisible: nothing summed the
-	// failed build (reads only ever summed the marker's build id).
 	faulted.calls = catalogInventoryCalls{}
 	if _, err := adapter.DiscoverResourceInventory(s.ctx, inventoryReadOptions("p", "g", true, nil, "Patient")); err != nil {
 		t.Fatalf("read: %v", err)
@@ -535,8 +493,6 @@ func TestResourceInventoryCountWriteFailureKeepsPriorReadAndExposesTypedErrors(t
 		t.Fatalf("count reads = %d, want exactly one (marker-bound)", faulted.calls.readSums)
 	}
 
-	// Fresh scope: with no prior marker, a failed first rebuild leaves
-	// nothing published and the reader exposes the typed unavailable error.
 	s.seedResource(t, "p", "g2", "Patient", "q1", "z")
 	faulted.failOnInsert = faulted.calls.insert + 1
 	faulted.splitBeforeFail = false
@@ -549,8 +505,6 @@ func TestResourceInventoryCountWriteFailureKeepsPriorReadAndExposesTypedErrors(t
 	if markers := s.witnessMarkers(t, "p", "g2"); len(markers) != 0 {
 		t.Fatalf("markers after failed first rebuild = %+v, want none", markers)
 	}
-	// Nothing committed for the failed build either: split was disabled, and
-	// the identity is the deterministic one the shared contract assigns.
 	expected, _, err := catalog.NewResourceInventoryBuild("p", "g2", []string{"Patient"},
 		[]catalog.ResourceInventoryCount{{Project: "p", DatasetGeneration: "g2", AuthResourcePath: "z", ResourceType: "Patient", DocumentCount: 1}})
 	if err != nil {
@@ -575,8 +529,6 @@ func TestResourceInventoryMarkerPublishFailureKeepsPriorMarkerReadable(t *testin
 		t.Fatalf("first rebuild: %v", err)
 	}
 
-	// Every count row of the second build commits, then the marker publish
-	// fails: the counts are durable but invisible, the prior marker governs.
 	s.seedResource(t, "p", "g", "Observation", "o1", "a")
 	injected := errors.New("injected marker-publish failure")
 	faulted.failOnPublish = 2
@@ -595,7 +547,6 @@ func TestResourceInventoryMarkerPublishFailureKeepsPriorMarkerReadable(t *testin
 		t.Fatalf("read after publish failure = %v err=%v, want prior totals", s.totals(result), err)
 	}
 
-	// Retrying the rebuild succeeds and swaps the marker last.
 	faulted.failOnPublish = 0
 	third, err := adapter.RebuildResourceInventory(s.ctx, inventoryRebuildOptions("p", "g", "Observation", "Patient", "Practitioner"))
 	if err != nil {
@@ -633,8 +584,6 @@ func TestResourceInventoryRepeatedBuildIsStableAndIsolatesOtherScopes(t *testing
 		first.CountRowCount != second.CountRowCount || first.DocumentCount != second.DocumentCount {
 		t.Fatalf("repeated build identity changed: %#v vs %#v", first, second)
 	}
-	// Stable identity also means stable storage: no duplicate rows, one
-	// marker.
 	if rows := s.witnessCountRows(t, first.BuildID); len(rows) != 4 {
 		t.Fatalf("rows after repeat = %d, want 4", len(rows))
 	}
@@ -642,8 +591,6 @@ func TestResourceInventoryRepeatedBuildIsStableAndIsolatesOtherScopes(t *testing
 		t.Fatalf("markers after repeat = %+v, want one", markers)
 	}
 
-	// A second generation with different data and paths rebuilds
-	// independently; neither the identity nor the reads of "g" move.
 	s.seedResource(t, "p", "g2", "Patient", "q1", "z")
 	s.seedResource(t, "p", "g2", "Patient", "q2", "z")
 	s.seedResource(t, "p", "g2", "Patient", "q3", "y")
@@ -659,8 +606,6 @@ func TestResourceInventoryRepeatedBuildIsStableAndIsolatesOtherScopes(t *testing
 	if err != nil || fmt.Sprint(s.totals(g)) != fmt.Sprint(map[string]int64{"Practitioner": 1, "Observation": 0, "Patient": 7}) {
 		t.Fatalf("g read after sibling rebuild = %v err=%v", s.totals(g), err)
 	}
-	// A path that only exists in the sibling generation reads as zero in g;
-	// a path that only exists in g reads as zero in the sibling.
 	gPathZ, err := adapter.DiscoverResourceInventory(s.ctx, inventoryReadOptions("p", "g", false, []string{"z"}, "Patient"))
 	if err != nil || fmt.Sprint(s.totals(gPathZ)) != fmt.Sprint(map[string]int64{"Patient": 0}) {
 		t.Fatalf("g restricted [z] = %v err=%v, want Patient=0", s.totals(gPathZ), err)
@@ -688,10 +633,6 @@ func TestResourceInventoryReadSumsOnlyAuthorizedPaths(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 
-	// Adversary: an unmarked abandoned build with enormous counts in the
-	// same scope and types. Readers bind the marker's build id, so it must
-	// never contribute, and a full-scope rebuild later must conflict-proof
-	// identity (its own keys differ from this forged row's keys).
 	s.exec(t, "INSERT INTO "+pgx.Identifier{s.schema, "fhir_resource_inventory_count"}.Sanitize()+
 		" (count_key, build_id, project, dataset_generation, resource_type, auth_resource_path, document_count)"+
 		" VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -716,14 +657,11 @@ func TestResourceInventoryReadSumsOnlyAuthorizedPaths(t *testing.T) {
 	if err != nil || fmt.Sprint(s.totals(unrestricted)) != fmt.Sprint(map[string]int64{"Practitioner": 1, "Observation": 0, "Patient": 7}) {
 		t.Fatalf("unrestricted totals = %v err=%v", s.totals(unrestricted), err)
 	}
-	// Digest stability across identical reads.
 	unrestrictedAgain, err := adapter.DiscoverResourceInventory(s.ctx, inventoryReadOptions("p", "g", true, nil, "Observation", "Patient", "Practitioner"))
 	if err != nil || unrestrictedAgain.Digest != unrestricted.Digest || unrestricted.Digest == "" {
 		t.Fatalf("digest unstable: %q vs %q err=%v", unrestricted.Digest, unrestrictedAgain.Digest, err)
 	}
 
-	// A full rebuild over the forged scope still converges: the forged row
-	// belongs to a foreign build id and the marker never names it.
 	retry, err := adapter.RebuildResourceInventory(s.ctx, inventoryRebuildOptions("p", "g", "Observation", "Patient", "Practitioner"))
 	if err != nil {
 		t.Fatalf("rebuild over forged scope: %v", err)
@@ -757,7 +695,6 @@ func TestResourceInventoryRestrictedEmptyScopeReturnsNoRows(t *testing.T) {
 	if !result.Available || !result.Complete || result.Status != catalog.EvidenceEmpty || len(result.Values) != 0 {
 		t.Fatalf("restricted empty result = %#v", result)
 	}
-	// The scope read nothing from the count table: only the marker was read.
 	if faulted.calls.readSums != 0 || faulted.calls.readBuild != 1 {
 		t.Fatalf("restricted empty scope queried counts: %+v", faulted.calls)
 	}
@@ -771,7 +708,6 @@ func TestResourceInventoryStaleMarkerIsUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// (a) Nothing was ever published: typed unavailable, no count query.
 	faulted.calls = catalogInventoryCalls{}
 	result, err := adapter.DiscoverResourceInventory(s.ctx, inventoryReadOptions("p", "g", true, nil, "Patient"))
 	requireUnavailable(t, result, err, "marker is missing")
@@ -785,9 +721,6 @@ func TestResourceInventoryStaleMarkerIsUnavailable(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 
-	// (b) An incomplete marker over intact committed rows: unavailable, and
-	// the count table is never touched — unmarked/incomplete evidence can
-	// never be summed into a partial truth.
 	s.exec(t, "UPDATE "+pgx.Identifier{s.schema, "fhir_resource_inventory_build"}.Sanitize()+
 		" SET complete = false WHERE project = $1 AND dataset_generation = $2", "p", "g")
 	faulted.calls = catalogInventoryCalls{}
@@ -800,22 +733,17 @@ func TestResourceInventoryStaleMarkerIsUnavailable(t *testing.T) {
 		t.Fatalf("count rows vanished under an incomplete marker: %v", rows)
 	}
 
-	// (c) A tampered coverage digest fails re-validation.
 	s.exec(t, "UPDATE "+pgx.Identifier{s.schema, "fhir_resource_inventory_build"}.Sanitize()+
 		" SET complete = true, coverage_digest = $3 WHERE project = $1 AND dataset_generation = $2",
 		"p", "g", "sha256:"+strings.Repeat("0", 64))
 	result, err = adapter.DiscoverResourceInventory(s.ctx, inventoryReadOptions("p", "g", true, nil, "Patient"))
 	requireUnavailable(t, result, err, "stale or incomplete marker")
 
-	// (d) A valid marker that does not cover a requested type is
-	// unavailable for that read rather than a silent zero. Restore the
-	// authentic coverage digest directly.
 	s.exec(t, "UPDATE "+pgx.Identifier{s.schema, "fhir_resource_inventory_build"}.Sanitize()+
 		" SET complete = true, coverage_digest = $3 WHERE project = $1 AND dataset_generation = $2",
 		"p", "g", summary.CoverageDigest)
 	result, err = adapter.DiscoverResourceInventory(s.ctx, inventoryReadOptions("p", "g", true, nil, "Practitioner"))
 	requireUnavailable(t, result, err, "does not cover Practitioner")
-	// The same scope still answers for covered types.
 	ok, err := adapter.DiscoverResourceInventory(s.ctx, inventoryReadOptions("p", "g", true, nil, "Patient"))
 	if err != nil || ok.Status != catalog.EvidenceAvailable {
 		t.Fatalf("covered-type read after restore = %#v err=%v", ok, err)
