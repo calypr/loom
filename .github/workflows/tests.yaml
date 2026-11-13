@@ -283,6 +283,22 @@ jobs:
         run: timeout 180s node --test scripts/run-postgres-integration.test.mjs
       - name: Run owned-namespace real PostgreSQL acceptance
         run: timeout 540s node scripts/run-postgres-integration.mjs --out "$RUNNER_TEMP/pg-fixture"
+      - name: Run the post-window live reducer leg on PostgreSQL 18
+        run: |
+          set -euo pipefail
+          go test -timeout=240s -count=1 -v \
+            -run 'TestPostWindowLive' \
+            ./internal/dataframe/compiler/render/postgres \
+            | tee "$RUNNER_TEMP/pg-post-window-live.log"
+      - name: Assert the post-window live leg executed and never skipped
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/pg-post-window-live.log"
+          grep -q -- '--- PASS: TestPostWindowLiveReducersExecuteWithPredicates' "$log"
+          if grep -q -- '--- SKIP: TestPostWindowLiveReducersExecuteWithPredicates' "$log"; then
+            echo '::error/post-window live reducer leg skipped despite the PostgreSQL 18 service being configured'
+            exit 1
+          fi
       - name: Preserve fixture evidence
         if: always()
         uses: actions/upload-artifact@v4

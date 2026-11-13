@@ -571,7 +571,7 @@ func (r *planRenderer) renderPopulationRootSource(plan ir.PhysicalPlan, scan ir.
 		seq := r.nextTraversalSequence()
 		edgeAlias := "e" + strconv.Itoa(seq)
 		targetAlias := "x" + strconv.Itoa(seq)
-		edgeWhere, targetOn := r.edgeOccurrencePredicates(verified, edgeAlias, targetAlias, sourceScope.alias)
+		edgeWhere, targetOn := r.edgeOccurrencePredicates(&verified, edgeAlias, targetAlias, sourceScope.alias)
 		fromParts = append(fromParts,
 			"INNER JOIN "+r.storage.Edge.Identifier().SQLText()+" AS "+edgeAlias+" ON "+edgeWhere,
 			"INNER JOIN "+resource.Identifier().SQLText()+" AS "+targetAlias+" ON "+targetOn)
