@@ -143,9 +143,9 @@ var gacCitations = []gacCitation{
 	// the fix shape that exists elsewhere in the same package (contrast)
 	{"internal/backends/arango/internal/dataset/release_store.go", 223, `FILTER currentRevision == @expected_revision OR alreadyActive`},
 	// bulk-load check-then-act: candidate resolved, only IsStaged rechecked, then Activate
-	{"internal/api/bulk/load/service.go", 206, `manifest, err := s.generationActivator.ReadManifest(ctx, ref)`},
-	{"internal/api/bulk/load/service.go", 210, `if !manifest.IsStaged() {`},
-	{"internal/api/bulk/load/service.go", 217, `if err := s.generationActivator.Activate(ctx, manifest); err != nil {`},
+	{"internal/api/bulk/load/service.go", 202, `manifest, err := s.generationActivator.ReadManifest(ctx, ref)`},
+	{"internal/api/bulk/load/service.go", 206, `if !manifest.IsStaged() {`},
+	{"internal/api/bulk/load/service.go", 209, `if err := s.generationActivator.Activate(ctx, manifest); err != nil {`},
 	// third writer of the same pointer document (writer inventory)
 	{"internal/backends/arango/internal/explorer/activation.go", 98, `if err := updateActivationDocument(txCtx, tx, datasetarango.LifecycleCollection, activeKey, map[string]any{"dataset": dataset, "manifestKey": manifestKey}); err != nil {`},
 	{"internal/backends/arango/internal/explorer/activation.go", 38, `UPDATE d WITH @patch IN @@c`},

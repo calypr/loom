@@ -104,8 +104,8 @@ var danglingCitations = []danglingCitation{
 	{"internal/dataset/release.go", 193, "return ProjectRelease{}, &ReleaseRequirementsError{Verifications: failed}"},
 	{"internal/dataset/release.go", 210, "prior.Stale = prior.Generation != ref.Generation"},
 	{"internal/dataset/release.go", 255, "return ReleasePublication{Selector: result.Selector, ExecutionID: result.ExecutionID, Generation: result.Generation, Required: required, Stale: result.Generation != generation, VerifiedAt: result.VerifiedAt}"},
-	{"internal/api/graphql/graph/dataframe/rows.go", 27, "values, err := s.reader.CurrentProjectDatasets(ctx, legacyProjectID(projectID))"},
-	{"internal/api/graphql/graph/dataframe/rows.go", 29, "return nil, mapReaderError(err)"},
+	{"internal/api/graphql/graph/dataframe/rows.go", 25, "values, err := s.reader.CurrentProjectDatasets(ctx, legacyProjectID(projectID))"},
+	{"internal/api/graphql/graph/dataframe/rows.go", 27, "return nil, mapReaderError(err)"},
 }
 
 // danglingAbsentIdentifiers are the identifiers the brief claims exist; the

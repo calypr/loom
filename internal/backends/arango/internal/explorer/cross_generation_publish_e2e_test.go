@@ -86,9 +86,9 @@ var cgpCitations = []cgpCitation{
 	{"internal/backends/arango/internal/dataset/release_store.go", 205, `LET generationPointer = DOCUMENT(@@lifecycle_collection, @active_key)`},
 	{"internal/backends/arango/internal/dataset/release_store.go", 219, `  AND generationPointer.dataset.generation == @generation`},
 	{"internal/backends/arango/internal/dataset/release_store.go", 229, `  {document: generationPointer, patch: {dataset: manifest.dataset, manifestKey: manifest._key, releaseId: @release_id, releaseRevision: selectedRevision}}`},
-	{"internal/server/explorer_capability.go", 177, `func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {`},
-	{"internal/server/explorer_capability.go", 208, `func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {`},
-	{"internal/server/explorer_capability.go", 218, `if authorized.Snapshot.Identity.Generation != manifest.Dataset.Generation {`},
+	{"internal/server/explorer_capability.go", 162, `func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {`},
+	{"internal/server/explorer_capability.go", 189, `func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {`},
+	{"internal/server/explorer_capability.go", 199, `if authorized.Snapshot.Identity.Generation != manifest.Dataset.Generation {`},
 }
 
 // cgpAbsentIdentifiers prove the Explorer publish preflight does not substitute
