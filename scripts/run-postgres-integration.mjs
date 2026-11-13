@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// Opt-in runner for the isolated PostgreSQL 18 integration fixture.
-//
-// The default developer stack in experimental/docker-compose.yml stays
-// Arango + ClickHouse. This runner is the acceptance path for the opt-in
-// postgres-test profile (or any owned PostgreSQL 18 test service exposed
-// through LOOM_TEST_POSTGRES_URL). A compose-up command alone is never
-// acceptance: readiness must be proven against the live server (PostgreSQL
-// 18 only), the run owns exactly one uniquely-named pgfixture_* database,
-// the real Go integration case must execute (never skip) with
-// LOOM_TEST_POSTGRES_URL propagated to the child process, and cleanup in
-// finally removes only the run's own namespace. A missing compose runtime
-// is recorded as an explicit blocked capability, never faked healthy.
 
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -21,65 +9,27 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { verificationTimeoutMs } from './lib/verification-budget.mjs';
 
-// Aligned CI budget: the Go test timeout never exceeds the child kill, the
-// child kill plus a cleanup reserve fits inside the runner's internal
-// deadline, and the workflow step (540s) stays under the enforced 10-minute
-// job budget from scripts/tests/test_ui_ci_workflow.py.
 const goTestBudgetMs = Math.min(verificationTimeoutMs, 180_000);
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const composeFile = resolve(root, 'experimental', 'docker-compose.yml');
 
-// Mirrors postgres.RequiredMajorVersion in internal/backends/postgres/internal/store.
 export const REQUIRED_MAJOR_VERSION = 18;
-// Every database this runner may ever touch starts with this prefix and
-// matches the full owned-namespace pattern; the probe refuses anything else.
 export const NAMESPACE_PREFIX = 'pgfixture_';
-// The merged pg-store-01 real-PG case: creates its own isolated database,
-// opens/pings/acquires a bounded pool and drops only that database.
 export const REQUIRED_INTEGRATION_TEST = 'TestPostgres18PoolIntegration';
-// Positive and negative checks the fixture probe must execute literally.
 export const EXPECTED_CHECKS = ['pg18', 'literal-rows', 'aggregate', 'unique-negative', 'numeric-negative'];
-// The dataset PG suite (pg-store-03 manifests/active-generation CAS, and the
-// release store once merged) runs as a second never-skipped lane. The whole
-// package runs with no -run filter, so checkGoEvents' zero-skip assertion
-// covers every PG-gated case it holds, present and future; the anchors below
-// additionally prove the core real-PG behaviors executed. The suite owns its
-// isolated *_it_* databases and audits them itself; this phase administers
-// no databases and reuses the run's owned-service propagation only.
 export const DATASET_INTEGRATION_PACKAGE = './internal/backends/postgres/internal/dataset';
 export const DATASET_INTEGRATION_TESTS = [
   'TestManifestLifecyclePersistsLiteralRows',
   'TestActivateCompareAndSwapAgainstPointerValue',
   'TestConcurrentActivationsSameExpectedYieldOneWinner',
 ];
-// The Explorer PG suite (Explorer-owner store and draft CAS, merged from
-// pg-state-explorer-draft-cas-v1) runs as a third never-skipped lane with the
-// same whole-package, zero-skip guarantee; its suites were only ever exercised
-// by authors' local runs. The anchors prove the draft CAS one-winner core, the
-// exact-preimage/history guarantee, and the owner round-trip executed. Like the
-// dataset lane, this phase administers no databases: the suites own their
-// isolated *_it_* databases and audit them themselves.
 export const EXPLORER_INTEGRATION_PACKAGE = './internal/backends/postgres/internal/explorer';
 export const EXPLORER_INTEGRATION_TESTS = [
   'TestDraftCASConcurrentSameVersionWritesHaveOneWinnerTwoConnections',
   'TestDraftCASStoresExactPreimageAndPreservesPublishedHead',
   'TestPostgresExplorerOwnerCreateGetRoundTripLiteralRows',
 ];
-// The pg-ingest-01 resource-writer suite (the store ResourceWriter facade
-// and the ingest PostgresResourceWriter) runs as a fourth never-skipped
-// lane over both packages. Unlike the dataset and explorer lanes this one
-// carries an explicit -run filter: the store package holds every
-// other PG-gated suite (pool, batch writer, edge, inventory, migrate,
-// field profile), and pulling them all into this lane would stress the
-// 180s-lane, 540s-step, and 10-minute-job budgets alongside this suite's
-// 12-round two-connection races with per-test CREATE/DROP DATABASE. The
-// filter matches exactly the TestPostgresResourceWriter* acceptance cases
-// plus both packages' TestZZ fixture-cleanup audit, so checkGoEvents'
-// zero-skip assertion makes every one of them mandatory; the anchors prove
-// the exact-column commit, ledger replay with tampered-digest mutation,
-// crash-window injection, and cleanup cores actually executed on the real
-// server.
 export const RESOURCE_WRITER_INTEGRATION_PACKAGES = ['./internal/ingest', './internal/backends/postgres/internal/store'];
 export const RESOURCE_WRITER_INTEGRATION_FILTER = '^(TestPostgresResourceWriter\\w*|TestZZZeroLeftover\\w*PostgresResourceWriterFixtures)$';
 export const RESOURCE_WRITER_INTEGRATION_TESTS = [
@@ -93,17 +43,6 @@ export const RESOURCE_WRITER_INTEGRATION_TESTS = [
   'TestPostgresResourceWriterCanonicalPayloadEncoding',
   'TestZZZeroLeftoverIngestPostgresResourceWriterFixtures',
 ];
-// The pg-ingest-02 edge-writer suite (the store EdgeWriter facade and the
-// ingest PostgresEdgeWriter) runs as a fifth never-skipped lane over both
-// packages, mirroring the resource-writer lane's filter pattern: the store
-// package holds every other PG-gated suite, so the explicit -run filter
-// (matching exactly the TestPostgresEdgeWriter* acceptance cases plus both
-// packages' TestZZ fixture-cleanup audits) keeps this lane scoped to the
-// edge surface while checkGoEvents' zero-skip assertion makes every matched
-// case mandatory. The anchors prove the duplicate-reference exact-column
-// commit, ledger replay, seam-level failure injection, the two-connection
-// one-winner race, the commit-visibility race, the refusal matrix, and both
-// cleanup cores actually executed on the real server.
 export const EDGE_WRITER_INTEGRATION_PACKAGES = ['./internal/ingest', './internal/backends/postgres/internal/store'];
 export const EDGE_WRITER_INTEGRATION_FILTER = '^(TestPostgresEdgeWriter\\w*|TestZZZeroLeftoverEdgeWriterFixtures|TestZZZeroLeftoverIngestPostgresEdgeFixtures)$';
 export const EDGE_WRITER_INTEGRATION_TESTS = [
@@ -120,55 +59,17 @@ export const EDGE_WRITER_INTEGRATION_TESTS = [
   'TestPostgresEdgeWriterCountsChangeOnlyAtCommit',
   'TestZZZeroLeftoverIngestPostgresEdgeFixtures',
 ];
-// The arch-backend-05 migration-ownership contract runs as a sixth
-// never-skipped lane: the single named suite TestPostgresMigrationOwnership
-// Contract proves the authored manifest equals every owner package's
-// embedded bytes, the frozen pre-refactor snapshots upgrade through the
-// production owner entry points, incompatible histories are refused with
-// witnesses unchanged, a representative domain operation runs on each
-// migrated series, and the suite's own TestZZ sweep leaves zero
-// verify_ab05_* schemas. The explicit -run filter keeps this lane scoped to
-// the contract suite while checkGoEvents' zero-skip assertion makes every
-// subtest mandatory: a PG half that skips is a failure here, never a pass.
 export const OWNERSHIP_INTEGRATION_PACKAGE = './internal/backends/postgres/internal/store';
 export const OWNERSHIP_INTEGRATION_FILTER = '^TestPostgresMigrationOwnershipContract$';
 export const OWNERSHIP_INTEGRATION_TESTS = ['TestPostgresMigrationOwnershipContract'];
-// The arch-backend-06 factory ownership contract runs as a seventh
-// never-skipped lane: the single named suite
-// TestPostgresFactoryOwnershipContract proves the public factory is the
-// only entry to the private implementation tree (driver register, leaf law,
-// refusal sentinels with alive controls, and the real-PG Open assembly
-// half), so a skipped PostgreSQL half of the contract fails this lane.
 export const FACTORY_INTEGRATION_PACKAGE = './internal/backends/postgres';
 export const FACTORY_INTEGRATION_FILTER = '^(TestPostgresFactoryOwnershipContract|TestZZZeroLeftoverAB06LiveOpenFixtures)$';
-// The anchors name the contract suite, its live Open-assembly subtest
-// (open_live_test.go: real postgres.Open over the server — typed Runtime
-// ports, readiness-gated 18, own-prefix connection tag, caller-owned-schema
-// bootstrap, literal SourceRows row, EXPLAIN-retagged PlanJSON,
-// column-contract and cross-tag refusals, close semantics, and zero-leak
-// failure cleanup), and the verify_ab06_* zero-leftover sweep. The
-// zero-skip assertion therefore makes the live half mandatory: a skipped
-// PostgreSQL subtest is a lane failure, never acceptance.
 export const FACTORY_INTEGRATION_TESTS = [
   'TestPostgresFactoryOwnershipContract',
   'TestPostgresFactoryOwnershipContract/live_open_assembly',
   'TestZZZeroLeftoverAB06LiveOpenFixtures',
 ];
 
-// The arch-backend-06 generation-load suite runs as an eighth
-// never-skipped lane: the ingest generation-load acceptance (multi-resource
-// staging, late-row failure marking, writer-failure preservation, semantic
-// contribution boundaries, application-name tagging, explicit-CAS
-// activation, no-SQL source proof, crash-injection at every durability
-// seam, separate-process replay convergence, load/activation races, and
-// cancellation branches) plus the offline shipped-config composition gate
-// and the verify_ing03_load_* zero-survivor audit. The fixture drives the
-// production two-schema composition (source series plus the dataset_release
-// manifest lane, one caller-owned schema each) through
-// ingest.PGLoadConfig, so a regression in that composition fails here on
-// the real server. The explicit -run filter excludes the child-process
-// replay helper (a deliberate skip unless invoked with a helper config);
-// checkGoEvents' zero-skip assertion makes every matched case mandatory.
 export const GENERATION_LOAD_INTEGRATION_PACKAGE = './internal/ingest';
 export const GENERATION_LOAD_INTEGRATION_FILTER = '^(TestPostgresGenerationLoad(?:PreflightRunsBeforePostgresContact|StagesMultiResourceAndNeverActivates|MalformedLateRowMarksFailedAndBlocksActivation|WriterFailuresLeaveManifestFailedAndPreserveRows|SemanticContributionsPersistWithServedStateBoundary|ApplicationNameTagging|ActivationIsExplicitCASPinned|OwnSourceHasNoSQL|ZZZeroSurvivorAudit|KillInjectionAtEveryDurabilitySeam|SeparateProcessCrashReplayConvergence|SameGenerationLoadRace|ActivationCASRace|CancellationBranches|SemanticSpillMidLoadKillReplayConvergence|ReplaySummaryCountsOnlyNewRows)$|TestPostgresShippedLoadConfigsValidateOffline)$';
 export const GENERATION_LOAD_INTEGRATION_TESTS = [
@@ -190,18 +91,6 @@ export const GENERATION_LOAD_INTEGRATION_TESTS = [
   'TestPostgresGenerationLoadReplaySummaryCountsOnlyNewRows',
   'TestPostgresShippedLoadConfigsValidateOffline',
 ];
-// The arch-backend-10 runtime capability-evidence assembly witnesses run as
-// an eighth never-skipped lane. Runtime.Catalog must serve all three
-// evidence boundaries (inventory, relationship observations, field
-// enrichment) through one assembled store, because the Explorer capability
-// resolver dereferences each on the first Builder capability read; an
-// assembly that drops a boundary panics there, so the two named witnesses
-// drive every method through the production composition. The package's own
-// harness skips without LOOM_TEST_POSTGRES_URL, which no go-unit or
-// conformance lane sets — without this lane a green CI proves nothing about
-// the assertions. The explicit -run filter keeps the lane scoped to the two
-// witnesses while checkGoEvents' zero-skip assertion makes each one
-// mandatory: a skipped witness is a failure here, never a silent pass.
 export const CAPABILITY_EVIDENCE_INTEGRATION_PACKAGE = './internal/backends/postgres/control';
 export const CAPABILITY_EVIDENCE_INTEGRATION_FILTER = '^(TestRuntimeCatalogServesAllThreeEvidenceSources|TestRuntimeCatalogServesScopedEvidenceUnderAuthPaths)$';
 export const CAPABILITY_EVIDENCE_INTEGRATION_TESTS = [
@@ -211,11 +100,6 @@ export const CAPABILITY_EVIDENCE_INTEGRATION_TESTS = [
 
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
-// Administered through the repository's own pgx dependency: the runner writes
-// this program into a fresh private temporary directory and executes it with
-// `go run` from the repository root. The admin DSN travels in the
-// LOOM_PG_FIXTURE_ADMIN_URL environment variable, never argv, and the probe
-// scrubs credentials from every line it prints.
 export const PROBE_SOURCE = `// Command pgfixture-probe administers exactly one owned PostgreSQL 18
 // fixture database for scripts/run-postgres-integration.mjs. Every mutation
 // is restricted to names matching the runner's owned pgfixture namespace
@@ -555,16 +439,12 @@ export function extractSecrets(rawUrl) {
       secrets.push(password);
       if (url.username) secrets.push(`${decodeURIComponent(url.username)}:${password}@`);
     }
-  } catch { /* not a URL: the raw-string scrub above still applies */ }
+  } catch { }
   return [...new Set(secrets)].filter(secret => secret.length >= 4);
 }
 
-// Redacts credential material (raw URL, password, userinfo) from any text
-// before it reaches evidence, console output, or child-process logs.
 export function scrubSecrets(text, secrets = []) {
   let out = String(text);
-  // Material shorter than four characters is treated as ordinary text, not
-  // credential material, so redaction cannot mangle the whole log.
   for (const secret of [...secrets].filter(secret => secret.length >= 4).sort((a, b) => b.length - a.length)) out = out.split(secret).join('[redacted]');
   return out;
 }
@@ -579,10 +459,6 @@ export function parseAdminUrl(raw) {
   assert.ok(url.password !== '', 'LOOM_TEST_POSTGRES_URL must carry the test password');
   const database = decodeURIComponent(url.pathname.replace(/^\//, ''));
   assert.ok(database !== '', 'LOOM_TEST_POSTGRES_URL must name the maintenance database');
-  // pgconn lets a dbname query parameter outrank the URL path (see the
-  // client_test.go precedent in internal/backends/postgres/internal/store): rejecting it here
-  // covers every probe call, so fixture writes can never redirect outside
-  // the owned namespace. The probe additionally asserts current_database().
   assert.ok(!url.searchParams.has('dbname') && !url.searchParams.has('database'), 'LOOM_TEST_POSTGRES_URL must not pin a database in the query string; the runner owns the fixture namespace');
   return { raw: raw.trim(), host: url.hostname, port: url.port || '5432', username: decodeURIComponent(url.username), database };
 }
@@ -597,8 +473,6 @@ export function ownedDatabaseName(runId) {
   return name;
 }
 
-// The real Go integration case must run and pass. A skip is a blocker, never
-// a substitute for real-PG acceptance.
 export function checkGoEvents(stdout, required) {
   const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   assert.ok(!events.some(e => e.Action === 'fail'), 'Go reported failure');
@@ -615,7 +489,6 @@ export function checkGoEvents(stdout, required) {
   return { passes };
 }
 
-// Detects a usable compose runtime explicitly. Never assumes a Docker socket.
 export function selectComposeRuntime(probe) {
   if (probe('docker', ['compose', 'version']).status === 0) return ['docker', 'compose'];
   if (probe('podman', ['compose', 'version']).status === 0) return ['podman', 'compose'];
@@ -629,8 +502,6 @@ export function composeServices(probe, command, args) {
   return result.stdout.trim().split('\n').filter(Boolean).sort();
 }
 
-// Verifies the compose contract offline-by-config: the default stack stays
-// Arango + ClickHouse and the PG service stays behind the opt-in profile.
 export function inspectComposeContract(probe) {
   const command = selectComposeRuntime(probe);
   if (!command) {
@@ -684,7 +555,6 @@ function defaultGoTest(args, env) {
     cwd: root,
     env,
     encoding: 'utf8',
-    // The Go test timeout must fire first; the spawn kill is the backstop.
     timeout: goTestBudgetMs + 30_000,
     maxBuffer: 64 * 1024 * 1024,
     detached: true,
@@ -705,8 +575,6 @@ export async function runPostgres(output, deps = {}) {
   mkdirSync(directory, { recursive: true });
   const runId = deps.runId ?? makeRunId(now());
   const database = ownedDatabaseName(runId);
-  // Created after every pre-flight assertion so a throw below can never
-  // strand the private temporary probe directory.
   const probe = deps.probe ?? createProbeRunner();
   const deadline = performance.now() + 8 * 60 * 1000;
   const evidence = {
@@ -721,14 +589,10 @@ export async function runPostgres(output, deps = {}) {
     cleanup: [],
   };
   const owned = [];
-  // reserveMs keeps room for the child kill plus finally-cleanup probes so a
-  // hung phase can never consume the time GitHub needs for summary.json.
   const budget = (reserveMs = 0) => assert.ok(performance.now() + reserveMs < deadline, 'Eight-minute fixture budget exhausted; reserve remaining CI time for cleanup');
   try {
     const admin = parseAdminUrl(rawUrl);
     evidence.postgres = { host: admin.host, port: admin.port, username: admin.username, maintenanceDatabase: admin.database };
-    // Compose capability is recorded, never required: compose-up alone is not
-    // acceptance, and a missing runtime is an explicit blocked item.
     const compose = deps.compose ?? (() => inspectComposeContract(deps.composeProbe ?? defaultComposeProbe));
     try {
       evidence.compose = compose();
@@ -746,7 +610,6 @@ export async function runPostgres(output, deps = {}) {
     evidence.phases.push('namespace');
     const created = await probe('create', [database], { adminUrl: rawUrl });
     assert.equal(created.ok, true, `Refusing unavailable fixture database ${database}: ${created.error}`);
-    // Cleanup authority begins only after a verified create of the owned name.
     owned.push(database);
     evidence.namespace = { status: 'owned', database };
     budget();
@@ -759,14 +622,9 @@ export async function runPostgres(output, deps = {}) {
     evidence.acceptance = { status: 'passed', database, rows: acceptance.rows, checked: acceptance.checked };
     budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('integration');
-    // Propagation proof: the child sees LOOM_TEST_POSTGRES_URL only because
-    // this run passed it; without it the required case skips, which is a
-    // failure above, never a pass.
     const childEnv = { ...env, GOTOOLCHAIN: 'local', GOMAXPROCS: '2', LOOM_TEST_POSTGRES_URL: rawUrl };
     const goArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', `^${REQUIRED_INTEGRATION_TEST}$`, './internal/backends/postgres/internal/store'];
     const go = await Promise.resolve(goTest(goArgs, childEnv));
-    // Every evidence file is scrubbed before it lands on disk; checkGoEvents
-    // still parses the in-memory stdout, so behavior is unchanged.
     writeFileSync(join(directory, 'integration.jsonl'), scrubSecrets(go.stdout || '', secrets));
     writeFileSync(join(directory, 'integration.stderr'), scrubSecrets(go.stderr || '', secrets));
     assert.equal(go.status, 0, `${REQUIRED_INTEGRATION_TEST} failed: ${scrubSecrets(go.error?.message || go.stderr || '', secrets)}`);
@@ -779,11 +637,6 @@ export async function runPostgres(output, deps = {}) {
     };
     budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('dataset-integration');
-    // Same owned-service propagation pattern as pg-store-01: the child sees
-    // LOOM_TEST_POSTGRES_URL only because this run passed it, so a package
-    // whose cases skip is a failure here, never a pass. Whole-package
-    // execution (no -run filter) makes every PG-gated case in the dataset
-    // package mandatory, and the anchors prove the CAS/literal-row core ran.
     const datasetArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, DATASET_INTEGRATION_PACKAGE];
     const dataset = await Promise.resolve(goTest(datasetArgs, childEnv));
     writeFileSync(join(directory, 'dataset-integration.jsonl'), scrubSecrets(dataset.stdout || '', secrets));
@@ -800,10 +653,6 @@ export async function runPostgres(output, deps = {}) {
     };
     budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('explorer-integration');
-    // Same owned-service propagation pattern as the previous lanes: whole
-    // package, no -run filter, so every PG-gated Explorer case is mandatory
-    // and a skip is a failure here, never a pass. The anchors prove the
-    // draft CAS one-winner, exact-preimage, and owner round-trip core ran.
     const explorerArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, EXPLORER_INTEGRATION_PACKAGE];
     const explorer = await Promise.resolve(goTest(explorerArgs, childEnv));
     writeFileSync(join(directory, 'explorer-integration.jsonl'), scrubSecrets(explorer.stdout || '', secrets));
@@ -820,12 +669,6 @@ export async function runPostgres(output, deps = {}) {
     };
     budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('resource-writer-integration');
-    // Same owned-service propagation pattern: the child sees
-    // LOOM_TEST_POSTGRES_URL only because this run passed it, so a matched
-    // case that skips is a failure here, never a pass. The explicit -run
-    // filter (kept in the recorded command) is what makes this lane
-    // never-skipped while leaving the other PG-gated store suites to their
-    // own lanes and budgets.
     const resourceWriterArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', RESOURCE_WRITER_INTEGRATION_FILTER, ...RESOURCE_WRITER_INTEGRATION_PACKAGES];
     const resourceWriter = await Promise.resolve(goTest(resourceWriterArgs, childEnv));
     writeFileSync(join(directory, 'resource-writer-integration.jsonl'), scrubSecrets(resourceWriter.stdout || '', secrets));
@@ -842,10 +685,6 @@ export async function runPostgres(output, deps = {}) {
     };
     budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('edge-writer-integration');
-    // Same owned-service propagation and explicit-filter pattern as the
-    // resource-writer lane: a matched case that skips is a failure here,
-    // never a pass, and the other PG-gated store suites keep their own
-    // lanes and budgets.
     const edgeWriterArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', EDGE_WRITER_INTEGRATION_FILTER, ...EDGE_WRITER_INTEGRATION_PACKAGES];
     const edgeWriter = await Promise.resolve(goTest(edgeWriterArgs, childEnv));
     writeFileSync(join(directory, 'edge-writer-integration.jsonl'), scrubSecrets(edgeWriter.stdout || '', secrets));
@@ -862,10 +701,6 @@ export async function runPostgres(output, deps = {}) {
     };
     budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('ownership-integration');
-    // arch-backend-05: same owned-service propagation and explicit-filter
-    // pattern as the writer lanes. checkGoEvents' zero-skip assertion makes
-    // every matched case (and subtest) mandatory, so the contract cannot
-    // pass by skipping its PostgreSQL halves.
     const ownershipArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', OWNERSHIP_INTEGRATION_FILTER, OWNERSHIP_INTEGRATION_PACKAGE];
     const ownership = await Promise.resolve(goTest(ownershipArgs, childEnv));
     writeFileSync(join(directory, 'ownership-integration.jsonl'), scrubSecrets(ownership.stdout || '', secrets));
@@ -882,10 +717,6 @@ export async function runPostgres(output, deps = {}) {
     };
     budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('factory-integration');
-    // arch-backend-06: same owned-service propagation and explicit-filter
-    // pattern. FACTORY_INTEGRATION_TESTS names the live Open-assembly
-    // subtest and the owned-namespace sweep, so a skipped PostgreSQL half
-    // fails the zero-skip assertion in checkGoEvents, never a pass.
     const factoryArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', FACTORY_INTEGRATION_FILTER, FACTORY_INTEGRATION_PACKAGE];
     const factory = await Promise.resolve(goTest(factoryArgs, childEnv));
     writeFileSync(join(directory, 'factory-integration.jsonl'), scrubSecrets(factory.stdout || '', secrets));
@@ -900,21 +731,8 @@ export async function runPostgres(output, deps = {}) {
       anchors: [...FACTORY_INTEGRATION_TESTS],
       passes: factoryPasses,
     };
-    // Honest reserve: the suite measures ~33s end to end (35x under the
-    // 180s cap) and owns its database cleanup in-suite, so it reserves
-    // the timeout plus a minute rather than the 90s database-administration
-    // margin the store lanes carry.
     budget(goTestBudgetMs + 30_000 + 60_000);
     evidence.phases.push('generation-load-integration');
-    // arch-backend-06: the generation-load suite owns its verify_ing03_load_*
-    // isolated databases and audits them itself (ZZZeroSurvivorAudit), so
-    // this phase administers nothing. The explicit filter plus the anchor
-    // list make the whole acceptance surface mandatory on the real server;
-    // the child-process replay helper stays outside the filter by design.
-    // This suite carries 18 cases including crash-injection and replay
-    // rounds (measured ~33s on a warm host), above the 30s focused-local
-    // budget other lanes fit inside, so it gets its own ceiling: four
-    // times the measurement locally, aligned 180s under CI.
     const generationLoadGoTestMs = Math.min(180_000, Math.max(goTestBudgetMs, 120_000));
     const generationLoadArgs = ['test', '-json', '-count=1', `-timeout=${generationLoadGoTestMs / 1000}s`, '-run', GENERATION_LOAD_INTEGRATION_FILTER, GENERATION_LOAD_INTEGRATION_PACKAGE];
     const generationLoad = await Promise.resolve(goTest(generationLoadArgs, childEnv));
@@ -930,21 +748,9 @@ export async function runPostgres(output, deps = {}) {
       anchors: [...GENERATION_LOAD_INTEGRATION_TESTS],
       passes: generationLoadPasses,
     };
-    // arch-backend-10: the capability-evidence witnesses own their isolated
-    // database end to end (newCTLService mints it, migrates through the
-    // production policy, and audits it away), so this phase administers
-    // nothing either. Honest reserve: measured 8.0s wall cold-cache and
-    // 0.7s warm for the filtered pair; the 60s Go timeout already carries
-    // ~7.5x the worst measurement, so this lane reserves timeout plus a
-    // 30s kill margin and a 30s cleanup margin, never the 90s
-    // database-administration block the store lanes carry.
     const capabilityEvidenceGoTestMs = 60_000;
     budget(capabilityEvidenceGoTestMs + 30_000 + 30_000);
     evidence.phases.push('capability-evidence-integration');
-    // Same owned-service propagation and explicit-filter pattern as the
-    // writer lanes. checkGoEvents' zero-skip assertion makes both witnesses
-    // mandatory, so the assembly guarantee cannot pass by skipping its
-    // PostgreSQL halves — the exact gap this lane exists to close.
     const capabilityEvidenceArgs = ['test', '-json', '-count=1', `-timeout=${capabilityEvidenceGoTestMs / 1000}s`, '-run', CAPABILITY_EVIDENCE_INTEGRATION_FILTER, CAPABILITY_EVIDENCE_INTEGRATION_PACKAGE];
     const capabilityEvidence = await Promise.resolve(goTest(capabilityEvidenceArgs, childEnv));
     writeFileSync(join(directory, 'capability-evidence-integration.jsonl'), scrubSecrets(capabilityEvidence.stdout || '', secrets));
@@ -959,14 +765,6 @@ export async function runPostgres(output, deps = {}) {
       anchors: [...CAPABILITY_EVIDENCE_INTEGRATION_TESTS],
       passes: capabilityEvidencePasses,
     };
-    // The dual-backend backend-architecture conformance suite is NOT a
-    // lane here by design: its adjudication lane is the dedicated
-    // backend-conformance workflow job, which boots both real services and
-    // runs both arms with zero-skip acceptance in its own 10-minute budget.
-    // This runner's enforced 8-minute internal deadline is reserved for the
-    // store/ingest acceptance lanes it already carries; an ./internal/server
-    // arm (cold compile plus full-runtime fixtures) cannot fit honestly
-    // inside it, and a duplicate gate buys no additional proof.
     evidence.status = 'passed';
   } catch (error) {
     evidence.status = 'failed';
@@ -985,8 +783,6 @@ export async function runPostgres(output, deps = {}) {
       }
     }
     try {
-      // Zero leftovers is proven for this run's owned namespace only; other
-      // pgfixture_* databases belong to other owners and are never removed.
       const audit = await probe('list', [database], { adminUrl: rawUrl });
       assert.equal(audit.ok, true, `leftover audit failed: ${audit.error}`);
       evidence.leftovers = audit.databases;
@@ -994,7 +790,6 @@ export async function runPostgres(output, deps = {}) {
     } catch (auditError) {
       evidence.status = 'failed';
       const auditMessage = scrubSecrets(auditError.message, secrets);
-      // Keep the primary failure visible; the audit failure is appended.
       evidence.error = evidence.error ? `${evidence.error}; leftover audit: ${auditMessage}` : auditMessage;
     }
     evidence.finishedAt = new Date(now()).toISOString();

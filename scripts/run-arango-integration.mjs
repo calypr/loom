@@ -10,22 +10,13 @@ import { apiDoctor, apiSourceFingerprint } from './lib/formal-api.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceFingerprint = () => createHash('sha256').update(apiSourceFingerprint()).update(readFileSync(fileURLToPath(import.meta.url))).digest('hex');
-// These cases require a different fixture or are exercised by a separately
-// routed CI job. Their explicit skips remain visible in the proof summary.
 const formalReplay = new Set([
-    // Both tests run with generated fixtures in builder-formal.yml through
-    // scripts/lib/formal-core-protocol-replay.mjs.
     'TestCoreAuthoringProtocolModelReplay',
     'TestCoreAuthoringProtocolConcretePrefixReplay',
 ]);
 const dualStore = new Set([
-    // Runs as an explicit API proof in go-publication-rows, which owns both stores.
     'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse',
 ]);
-// pg-exec-02: the engine's PostgreSQL dispatch cases require the separate
-// PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never Arango. They
-// run against the real PG18 server under the ticket check-2 harness; in this
-// Arango-only lane their explicit skips stay visible in the proof summary.
 const pgExecDispatch = new Set([
     'TestPostgresEngineExecutesCompiledCommandThroughRealAdapter',
     'TestPostgresEnginePreviewBoundsCompletionOnRealServer',
@@ -35,17 +26,10 @@ const pgExecDispatch = new Set([
     'TestPostgresEngineCrossTagRefusedBeforeServer',
     'TestPostgresEngineBackendKillConverges',
     'TestZZZeroLeftoverExec02PostgresFixtures',
-    // arch-backend-01: typed compiled-command boundary evidence against the
-    // real PG18 service; skipped (explicitly) in this Arango-only lane.
     'TestVerifyArch01PostgreSQLDispatchZeroChurnRealServer',
     'TestVerifyArch01PostgreSQLBoundaryRaceDistinctBackendsOverlapRounds',
     'TestVerifyArch01PostgreSQLNamedRefusalsTouchNoServer',
     'TestVerifyArch01PostgreSQLCrashBeforeDriverNeverReachesServer',
-    // pg-exec-10: the sanitized live PostgreSQL Explain suites require the
-    // separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
-    // Arango. They run against the real PG18 server under the ticket check-2
-    // harness; in this Arango-only lane their explicit skips stay visible in
-    // the proof summary.
     'TestPostgresExplainLivePG18IndexedAndSequentialPlans',
     'TestPostgresExplainLivePG18PermissionAndAbsence',
     'TestPostgresExplainLivePG18ConcurrentRounds',
@@ -53,11 +37,6 @@ const pgExecDispatch = new Set([
     'TestPostgresExplainWiringLivePG18SanitizedPlan',
     'TestZZZeroLeftoverExec10WiringPostgresFixtures',
 ]);
-// pg-exec-05: the bounded PostgreSQL root-page live battery requires the
-// separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
-// Arango. It runs against the real PG18 server under the ticket check-2
-// harness; in this Arango-only lane its explicit skips stay visible in the
-// proof summary.
 const pgExecRootPaging = new Set([
     'TestPostgresRootPagingMultisetAcrossPages',
     'TestPostgresRootPagingTerminatesWithoutExtraQuery/short_final_page_stops_without_another_key_query',
@@ -73,15 +52,6 @@ const pgExecRootPaging = new Set([
     'TestPostgresRootPagingWholeInputBypass/control:_non-group_PostgreSQL_stream_never_carries_page_fields',
     'TestZZPostgresRootPagingOwnershipAudit',
 ]);
-// pg-exec-04: the bounded PostgreSQL preview live battery (PreviewOutput
-// acceptance, the streamRaw root-page loop leg, and the server-wiring
-// fail-close cell) requires the separate PostgreSQL 18 fixture service
-// (LOOM_TEST_POSTGRES_URL), never Arango. They run against the real PG18
-// server under the ticket check-2 harness (go test ./internal/dataframe/
-// execution -run PostgresPreview; go test ./internal/server -run
-// PostgresPreview); in this Arango-only lane their explicit skips stay
-// visible in the proof summary, following the pg-exec-02/#99 and
-// pg-exec-05/#123 registration precedent.
 const pgExec04Preview = new Set([
     'TestPostgresPreviewTruncatedAtLimit',
     'TestPostgresPreviewNaturalExhaustion',
@@ -97,21 +67,6 @@ const pgExec04Preview = new Set([
     'TestPostgresPreviewServerWiringFailClosesPGPlan',
     'TestZZPostgresPreviewServerZeroLeftoverFixtures',
 ]);
-// pg-exec-08: the bounded row-lineage contributor-page live battery (the
-// known-row contributor triples, typed not-found, paging progression,
-// foreign-witness exclusion, and the stored-null contributor-id contract
-// refusal, plus the live stale-receipt statement-count-0 leg) requires the
-// separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
-// Arango. It runs against the real PG18 server under the ticket check-2
-// harness (go test ./internal/dataframe/execution -run PostgresRowLineage);
-// in this Arango-only lane their explicit skips stay visible in the proof
-// summary, following the pg-exec-02/#99, pg-exec-04, and pg-exec-05/#123
-// registration precedent. Membership is byte-exact against the offline
-// go test -json skip capture for this package. The offline cells in the
-// same file never skip and are therefore not registered here:
-// TestPostgresRowLineageStaleReceiptClassification runs its stale-receipt
-// classification in every profile, and TestZZPostgresRowLineageZeroLeftover
-// Fixtures returns without a skip when no service was used.
 const pgExec08RowLineage = new Set([
     'TestPostgresRowLineageKnownRowExplainsContributors',
     'TestPostgresRowLineageUnknownRowReturnsTypedNotFound',
@@ -120,24 +75,6 @@ const pgExec08RowLineage = new Set([
     'TestPostgresRowLineageMalformedContributorIdentityIsContractError',
     'TestPostgresRowLineageStaleReceiptRejectsBeforeExecution',
 ]);
-// pg-exec-09: the cell-value trace live battery (arm B preview round trip
-// through the sealed six-column port contract, the null-state distinctness,
-// the sealed offset gate, the authored-Identity explicit-identity spelling,
-// the forged-identity typed not-found, the witness-cap INCOMPLETE, the
-// foreign-witness exclusion, the arm A reduced-set pages and the lossy
-// FIRST AMBIGUOUS reading through the public CellTraceCompiled seam, and
-// the live stale-receipt statement-count-0 leg) requires the separate
-// PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never Arango. It
-// runs against the real PG18 server under the ticket check-2 harness
-// (go test ./internal/dataframe/execution -run PostgresCellTrace); in this
-// Arango-only lane their explicit skips stay visible in the proof summary,
-// following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and
-// pg-exec-08 registration precedent. Membership is byte-exact against the
-// offline go test -json skip capture for this package. The offline cells in
-// the same files never skip and are therefore not registered here:
-// TestPostgresCellTraceStaleReceiptClassification runs its stale-receipt
-// classification in every profile, and TestZZPostgresCellTraceZeroLeftover
-// Fixtures returns without a skip when no service was used.
 export const pgExec09CellTrace = new Set([
     'TestPostgresCellTracePreviewRoundTripServesEvidenceThroughThePort',
     'TestPostgresCellTraceNullValueStatesStayDistinctFromAValue',
@@ -150,21 +87,6 @@ export const pgExec09CellTrace = new Set([
     'TestPostgresCellTraceArmALossyFirstReadsAmbiguous',
     'TestPostgresCellTraceStaleReceiptRejectsBeforeExecution',
 ]);
-// pg-exec-07: the population-mapping witness-terminal live battery (exact
-// membership and unmapped reporting, group dedupe over real PostgreSQL
-// state, cap/cancellation INCOMPLETE-at-request, the hard-error port
-// failure, the live stale-receipt statement-count-0 leg, and the named
-// capability-gap zero-statement refusal) requires the separate PostgreSQL
-// 18 fixture service (LOOM_TEST_POSTGRES_URL), never Arango. It runs
-// against the real PG18 server under the ticket check-2 harness
-// (go test ./internal/dataframe/execution -run PostgresPopulationMapping);
-// in this Arango-only lane their explicit skips stay visible in the proof
-// summary, following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and
-// pg-exec-08 registration precedent. Membership is byte-exact against the
-// offline go test -json skip capture for this package. The offline cells
-// in the same file never skip and are therefore not registered here:
-// TestZZPostgresPopulationMappingZeroLeftoverFixtures returns without a
-// skip when no service was used.
 const pgExec07PopulationMapping = new Set([
     'TestPostgresPopulationMappingLiveFlatExactMembership',
     'TestPostgresPopulationMappingLiveGroupDedupe',
@@ -173,18 +95,6 @@ const pgExec07PopulationMapping = new Set([
     'TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution',
     'TestPostgresPopulationMappingLiveNamedGapRefusesAtZeroStatements',
 ]);
-// pg-exec-03: the PostgreSQL post-query marker live battery (RawMessage
-// marker flow through the shared materializer, named-UUID computation,
-// three-state values, and the cross-target JSON-null convergence cell)
-// requires the separate PostgreSQL 18 fixture service
-// (LOOM_TEST_POSTGRES_URL), never Arango. They run against the real PG18
-// server under the ticket check-2 harness (go test ./internal/dataframe/
-// execution -run PostgresPostQuery); in this Arango-only lane their
-// explicit skips stay visible in the proof summary, following the
-// pg-exec-02/#99, pg-exec-04, and pg-exec-05/#123 registration
-// precedent. Membership is byte-exact against the offline
-// go test -json skip capture for this package (see
-// scripts/pg-exec-03-skipset-verify.mjs and its pinned capture).
 export const pgExec03PostQuery = new Set([
     'TestPostgresPostQueryPreviewComputesNamedUUID5',
     'TestPostgresPostQueryStreamComputesNamedUUID3',
@@ -197,18 +107,6 @@ export const pgExec03PostQuery = new Set([
     'TestPostgresPostQueryMutationControls',
     'TestZZPostgresPostQueryZeroLeftoverFixtures',
 ]);
-// pg-exec-06: the category presence/value scan live battery (exact
-// CategoryValue pages, deterministic rerun against the direct-SQL witness,
-// page-owned truncation, scope-empty no-leak, cancellation honesty, auth
-// scope travel, the stage form, and the zero-touch refusals including the
-// compiler-entry identity refusals) requires the separate PostgreSQL 18
-// fixture service (LOOM_TEST_POSTGRES_URL), never Arango. It runs against
-// the real PG18 server under the ticket check-2 harness (go test
-// ./internal/dataframe/execution -run PostgresCategory); in this Arango-only
-// lane their explicit skips stay visible in the proof summary, following the
-// pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and pg-exec-10/#144
-// registration precedent. Membership is byte-exact against the offline
-// go test -json skip capture for this package.
 const pgExec06Category = new Set([
     'TestPostgresCategoryExactValuesLivePG18',
     'TestPostgresCategoryDeterministicRerunLivePG18',
@@ -220,61 +118,19 @@ const pgExec06Category = new Set([
     'TestPostgresCategoryRefusalsZeroTouchLivePG18',
     'TestZZPostgresCategoryZeroLeftoverFixtures',
 ]);
-// pg-runtime-first-query-route: the public fhirDataframe query-route live
-// battery (census through the production handler, the exact-literals
-// serving leg, the dead-endpoint bound witness, and the N-5 census audit)
-// requires the separate PostgreSQL fixture service
-// (LOOM_TEST_POSTGRES_URL), never Arango. It runs against the real
-// PostgreSQL service under the ticket check-1 harness (go test
-// ./internal/server); in this Arango-only lane its explicit skips stay
-// visible in the proof summary, following the pg-exec-02/#99, pg-exec-04,
-// and pg-exec-05/#123 registration precedent. Membership is byte-exact
-// against the offline go test -json skip capture for this package (the
-// parents skip before any sub-leg runs, so no slash-qualified names).
 const pgQueryRoute = new Set([
     'TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable',
     'TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler',
     'TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded',
-    // pg-runtime-health-readiness: first-query-route liveness/readiness leg
-    // (LOOM_TEST_POSTGRES_URL-gated, never Arango), same registration
-    // precedent as the query-route battery above.
     'TestPostgreSQLFirstQueryRouteLivenessAndReadiness',
     'TestZZQRouteZeroLeftoverFixtures',
 ]);
-// pg-ir-03: the ClickHouse prefix seam's PostgreSQL-arm live leg executes
-// the tagged prefix command against the real PostgreSQL 18 source store
-// (LOOM_TEST_POSTGRES_URL), never Arango. It runs against the real
-// PostgreSQL service under the ticket check harness (go test
-// ./internal/dataframe/compiler with LOOM_TEST_POSTGRES_URL); in this
-// Arango-only lane its explicit skip stays visible in the proof summary,
-// following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, pg-exec-03,
-// and pg-query-route registration precedent. The package's TestMain census
-// exits without touching a server when the URL is unset, so no census
-// identity skips in this lane.
 const pgIr03PrefixSeam = new Set([
     'TestCompileClickHousePrefixPostgreSQLExecutesExactRows',
 ]);
-// pg-runtime-server-composition: the full-runtime live battery (ladder serve
-// through the production composition, the server-side load+activate
-// end-to-end leg, and the N-5 verify_pgcomp_ census audit) requires the
-// separate PostgreSQL fixture service (LOOM_TEST_POSTGRES_URL), never
-// Arango. It runs against the real PostgreSQL service under the ticket
-// check-2 harness (go test ./internal/server); in this Arango-only lane its
-// explicit skips stay visible in the proof summary, following the
-// pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and pg-runtime-first-query-
-// route registration precedent. The offline cells in the same package
-// (assignment ladder, refusal posture, census-vocabulary correspondence)
-// never skip and are therefore not registered here.
 const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeFullLadderServesProductionReads',
     'TestPostgresRuntimeServerLoadRouteServesEndToEnd',
-    // pg-runtime-health-readiness: the readiness battery (independence +
-    // corrupt-ledger schema_mismatch/repair, never-migrated schema_unmigrated,
-    // never-created schema_missing on a non-source series, and the read-only
-    // probe proof) all drive the real PostgreSQL service under
-    // LOOM_TEST_POSTGRES_URL, never Arango; in this Arango-only lane their
-    // explicit skips stay visible in the proof summary, following the
-    // pg-runtime-server-composition registration precedent above.
     'TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware',
     'TestPostgresRuntimeReadinessReportsNeverMigratedSchema',
     'TestPostgresRuntimeReadinessReportsMissingSchema',
@@ -283,32 +139,9 @@ const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
-// arch-backend-08: the backend-composition contract matrix's single live leg
-// boots the production full-runtime compose over pass-through open-seam
-// spies against the real PostgreSQL 18 fixture (LOOM_TEST_POSTGRES_URL),
-// never Arango; it runs against the real PostgreSQL service under the
-// ticket check-2 harness (go test ./internal/server), following the
-// pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and pg-runtime-server-
-// composition registration precedent. The identity is slash-qualified
-// because the parent TestBackendCompositionContract never skips in this
-// lane: its seven offline spy cells (open ledgers, sentinel pre-dial,
-// no-fallthrough, liveness) execute against Arango-less, PG-less offline,
-// and only the liveProductionCompose_ledgerHolds sub-leg skips.
 const archBackend08Matrix = new Set([
     'TestBackendCompositionContract/liveProductionCompose_ledgerHolds',
 ]);
-// pg-exec-12: the table-shape exclusion-evidence live battery (exact
-// seven-term evidence, bounded paging, identity omission, the category
-// three-state, cancellation, the renderer-unsupported refusal, the auth
-// scope leg, the no-policy status distinctness leg, and the N-5 census
-// audit) requires the separate PostgreSQL 18 fixture service
-// (LOOM_TEST_POSTGRES_URL), never Arango. They run against the real PG18
-// server under the ticket check-2 harness (go test
-// ./internal/dataframe/execution -run 'TestPostgresExclusions|TestZZPostgresExclusions');
-// in this Arango-only lane their explicit skips stay visible in the proof
-// summary, following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and
-// pg-exec-10 registration precedent. All nine cells are parent-level and
-// skip before any fixture write, so no slash-qualified names.
 const pgExec12Exclusions = new Set([
     'TestPostgresExclusionsExactEvidenceLivePG18',
     'TestPostgresExclusionsBoundedPagingLivePG18',
@@ -320,22 +153,6 @@ const pgExec12Exclusions = new Set([
     'TestPostgresExclusionsNoPolicyStatusDistinctLivePG18',
     'TestZZPostgresExclusionsZeroLeftoverFixtures',
 ]);
-// pg-exec-11: the PostgreSQL draft-output private-capture Combine live
-// battery (restricted capture feeding the terminal workspace Combine with
-// real authorization paths, the forged-path refusal, the mid-capture
-// cancellation cell, the evidence-free control, the real-ClickHouse
-// execution leg, and the verify_exec11_* census audit) requires the
-// separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
-// Arango; the real-ClickHouse leg additionally requires LOOM_CLICKHOUSE_URL
-// (repo convention, internal/store/clickhouse/integration_test.go). They
-// run against the real PostgreSQL service under the ticket check harness
-// (go test ./internal/dataframe/execution -run Exec11lv); in this
-// Arango-only lane their explicit skips stay visible in the proof summary,
-// following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, pg-exec-03,
-// pg-query-route, pg-ir-03, and pg-runtime-server-composition registration
-// precedent. Membership is byte-exact against the offline go test -json
-// skip capture for this package (six cells; the offline capture matrix
-// cells TestPostgreSQLPrivateCapture* never skip).
 const pgExec11Capture = new Set([
     'TestExec11lvLiveRestrictedCaptureFeedsCombine',
     'TestExec11lvLiveCaptureRejectsForgedAuthPath',
@@ -344,29 +161,9 @@ const pgExec11Capture = new Set([
     'TestExec11lvLiveCombineExecutesAgainstClickHouse',
     'TestZZPostgresCaptureZeroLeftoverFixtures',
 ]);
-// arch-backend-12: the backend-neutral diagnostics PostgreSQL live leg
-// drives runFhirDataframe with a diagnostics selection through the
-// production first-query handler against the real PostgreSQL 18 fixture
-// (LOOM_TEST_POSTGRES_URL), never Arango. It runs against the real
-// PostgreSQL service under the ticket check-2 harness (go test
-// ./internal/server); in this Arango-only lane its explicit skip stays
-// visible in the proof summary, following the pg-query-route registration
-// precedent. Its Arango sibling TestBackendNeutralDiagnosticsAgainstArango
-// never skips in this lane: it is registered as a required server-profile
-// witness instead. The AQL-lane offline witnesses never skip and are not
-// registered here.
 export const archBackend12Diagnostics = new Set([
     'TestBackendNeutralDiagnosticsLivePostgreSQL',
 ]);
-// arch-backend-10: the dual-backend backend-architecture conformance suite
-// (thirteen frozen scenario cells per arm, literal oracles, production
-// composition on both backends). In this Arango-only lane the PostgreSQL
-// arm's explicit skip stays visible in the proof summary, following the
-// pg-query-route registration precedent; the ArangoDB arm never skips here
-// — it is registered as a required server-profile witness with all
-// thirteen cell identities. Both arm identities are listed for the
-// absent-service case so a missing service is blocked acceptance, never an
-// unregistered skip.
 export const backendArchitectureConformance = new Set([
     'TestBackendArchitectureConformance/postgresql',
     'TestBackendArchitectureConformance/arangodb',
@@ -409,8 +206,6 @@ export const profiles = [
     ['publication', './internal/backends/arango/internal/publication', 'TestExecutionReadPinArbitrationAgainstArango'],
     ['backfill', './internal/ingest', 'TestRetainedSemanticInventoryBackfillArangoIntegration'],
 ].map(([id, pkg, required]) => ({ id, package: pkg, required, ...(id === 'backfill' ? { run: required } : {}) }));
-// The store package's retained cases require external seeded data. Its ordinary
-// unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
 profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango', 'TestBackendNeutralDiagnosticsAgainstArango',
     'TestBackendArchitectureConformance', 'TestBackendArchitectureConformance/arangodb',
@@ -421,7 +216,6 @@ profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoli
         'backendUnavailableAndWrongTagNoFallback', 'upgradeFromPinnedPreRefactorReopensSafely']
         .map(cell => 'TestBackendArchitectureConformance/arangodb/' + cell)];
 profiles.find(p => p.id === 'explorer').alsoRequired = ['TestDraftCASConcurrentWritersAgainstArango', 'TestDraftCASAfterWinnerCommitAgainstArango', 'TestDraftCASPublicApplyConflictClassAgainstArango', 'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango'];
-// The assembled dual-store checkpoint has its own API/CI route with both services.
 profiles.find(p => p.id === 'server').skip = '^(TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestCurrentDraftAppendRowsAgainstArangoClickHouse)$';
 export function checkEvents(stdout, profile) {
     const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -480,7 +274,6 @@ export async function runArango(output) {
     };
     try {
         for (const name of [database, c01, sc02]) await ownDatabase(url, name, owned);
-        // Compilation is reported separately and never treated as test evidence.
         for (const profile of profiles) child(profile, true);
         for (const profile of profiles) child(profile, false);
         evidence.status = evidence.profiles.some(p => p.unverified?.length) ? 'passed-with-explicit-unverified-external-cases' : 'passed';

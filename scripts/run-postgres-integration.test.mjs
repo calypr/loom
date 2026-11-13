@@ -173,7 +173,6 @@ test('parseAdminUrl accepts an owned postgresql service and rejects substitutes'
   assert.throws(() => parseAdminUrl('not a url at all'), /postgresql:\/\/ connection URL/);
   assert.throws(() => parseAdminUrl('postgresql://u:pwd4test@h/db?x=1#frag'.replace('pwd4test', '')), /test password/);
   assert.throws(() => parseAdminUrl('postgresql://u:pwd4test@h/'), /maintenance database/);
-  // pgconn lets a query dbname outrank the URL path; the runner must refuse it.
   assert.throws(() => parseAdminUrl('postgresql://u:pwd4test@h:5432/db?sslmode=disable&dbname=other'), /must not pin a database in the query string/);
   assert.throws(() => parseAdminUrl('postgresql://u:pwd4test@h/db?database=other'), /must not pin a database in the query string/);
   assert.ok(parseAdminUrl('postgresql://u:pwd4test@h:5432/db?sslmode=disable').database === 'db');
@@ -250,10 +249,7 @@ test('the embedded probe keeps its credential and namespace guards', () => {
   assert.ok(!PROBE_SOURCE.includes('s3cret-test-password'));
   assert.ok(PROBE_SOURCE.includes('WITH (FORCE)'), 'cleanup must be able to finish against idle connections');
   assert.ok(PROBE_SOURCE.includes('23505') && PROBE_SOURCE.includes('22P02'), 'negative checks must classify SQLSTATEs');
-  // The version constant is interpolated from the runner, so runner, probe and
-  // the Go package mirror one value.
   assert.ok(PROBE_SOURCE.includes(`const requiredMajor = ${REQUIRED_MAJOR_VERSION}`), 'probe version constant must be interpolated');
-  // The effective-target guard must run before any fixture write.
   assert.ok(PROBE_SOURCE.includes('current_database()'), 'probe must prove the effective target database');
   assert.ok(PROBE_SOURCE.indexOf('current_database()') < PROBE_SOURCE.indexOf('CREATE TABLE loom_fixture_rows'), 'target guard must precede writes');
   assert.ok(PROBE_SOURCE.includes("ESCAPE 'x'"), 'leftover audit must escape LIKE wildcards');
@@ -300,23 +296,18 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
   assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration', 'factory-integration', 'generation-load-integration', 'capability-evidence-integration']);
-  // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
   assert.ok(!goCalls[1].args.includes('-run'), 'whole-package execution is the never-skipped guarantee');
   assert.ok(goCalls[1].args.includes('-json') && goCalls[1].args.includes('-count=1'));
   assert.deepEqual(evidence.datasetIntegration.anchors, [...DATASET_INTEGRATION_TESTS]);
   for (const name of DATASET_INTEGRATION_TESTS) assert.ok(evidence.datasetIntegration.passes.includes(name));
-  // The explorer lane runs whole-package too: no -run filter, same URL.
   assert.equal(goCalls[2].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[2].args.at(-1), EXPLORER_INTEGRATION_PACKAGE);
   assert.ok(!goCalls[2].args.includes('-run'), 'whole-package execution is the never-skipped guarantee');
   assert.ok(goCalls[2].args.includes('-json') && goCalls[2].args.includes('-count=1'));
   assert.deepEqual(evidence.explorerIntegration.anchors, [...EXPLORER_INTEGRATION_TESTS]);
   for (const name of EXPLORER_INTEGRATION_TESTS) assert.ok(evidence.explorerIntegration.passes.includes(name));
-  // The resource-writer lane carries an explicit -run filter over both
-  // packages (never whole-package: the store package holds every other
-  // PG-gated suite), and the filter itself is the never-skipped guarantee.
   assert.equal(goCalls[3].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.ok(goCalls[3].args.includes('-run'), 'the resource-writer lane must carry its never-skipped -run filter');
   assert.ok(goCalls[3].args.includes(RESOURCE_WRITER_INTEGRATION_FILTER), 'the recorded command must show the exact acceptance filter');
@@ -326,9 +317,6 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
     'the resource-writer lane stays within the aligned 180s Go budget');
   assert.deepEqual(evidence.resourceWriterIntegration.anchors, [...RESOURCE_WRITER_INTEGRATION_TESTS]);
   for (const name of RESOURCE_WRITER_INTEGRATION_TESTS) assert.ok(evidence.resourceWriterIntegration.passes.includes(name));
-  // The edge-writer lane mirrors the resource-writer lane's explicit-filter
-  // pattern over both packages, and its filter is its never-skipped
-  // guarantee.
   assert.equal(goCalls[4].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.ok(goCalls[4].args.includes('-run'), 'the edge-writer lane must carry its never-skipped -run filter');
   assert.ok(goCalls[4].args.includes(EDGE_WRITER_INTEGRATION_FILTER), 'the recorded command must show the exact acceptance filter');
@@ -338,10 +326,6 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
     'the edge-writer lane stays within the aligned 180s Go budget');
   assert.deepEqual(evidence.edgeWriterIntegration.anchors, [...EDGE_WRITER_INTEGRATION_TESTS]);
   for (const name of EDGE_WRITER_INTEGRATION_TESTS) assert.ok(evidence.edgeWriterIntegration.passes.includes(name));
-  // The arch-backend-05 ownership lane carries an explicit -run filter over
-  // the store package (never whole-package: it holds every other PG-gated
-  // suite), and the filter plus zero-skip gate is its never-skipped
-  // guarantee.
   assert.equal(goCalls[5].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.ok(goCalls[5].args.includes('-run'), 'the ownership lane must carry its never-skipped -run filter');
   assert.ok(goCalls[5].args.includes(OWNERSHIP_INTEGRATION_FILTER), 'the recorded command must show the exact acceptance filter');
@@ -367,10 +351,6 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.generationLoadIntegration.anchors, [...GENERATION_LOAD_INTEGRATION_TESTS]);
   for (const name of GENERATION_LOAD_INTEGRATION_TESTS) assert.ok(evidence.generationLoadIntegration.passes.includes(name));
   assert.ok(readFileSync(join(out, 'generation-load-integration.jsonl'), 'utf8').includes(GENERATION_LOAD_INTEGRATION_TESTS[0]));
-  // The capability-evidence lane (arch-backend-10) is a filtered never-skipped
-  // lane: without it the two witnesses skip in every lane that lacks
-  // LOOM_TEST_POSTGRES_URL, so the runner must invoke them by filter under
-  // the owned service URL and record both as mandatory anchors.
   assert.equal(goCalls[8].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'the capability-evidence lane must receive the owned service URL');
   assert.ok(goCalls[8].args.includes('-run'), 'the capability-evidence lane must carry its never-skipped -run filter');
   assert.ok(goCalls[8].args.includes(CAPABILITY_EVIDENCE_INTEGRATION_FILTER), 'the recorded command must show the exact witness filter');
@@ -628,10 +608,6 @@ test('an ownership lane that never runs its anchor case fails the run', async ()
   assert.match(evidence.error, /did not run/);
 });
 
-// arch-backend-10: the capability-evidence witnesses skip without
-// LOOM_TEST_POSTGRES_URL, which no other lane sets; this lane is the only
-// machine-enforcement of the assembly guarantee, so a skip here — the exact
-// failure mode that made the witnesses decorative before — must be fatal.
 test('a skipped capability-evidence witness cannot masquerade as real-PG acceptance', async () => {
   const { out, run } = harness({
     go: args => args.includes(CAPABILITY_EVIDENCE_INTEGRATION_FILTER)
@@ -797,7 +773,6 @@ test('credentials never reach evidence or summary output on failure paths', asyn
       if (command === 'acceptance') return { ok: true, token: args[1], rows: 3, checked: [...EXPECTED_CHECKS] };
       if (command === 'drop') return { ok: true, database: args[0] };
       if (command === 'list') return { ok: true, databases: [] };
-      // Probe failures leak the DSN; the runner must scrub before recording.
       return { ok: false, op: command, error: `authentication failed for ${ADMIN_URL}` };
     },
     goTest: () => ({ status: 1, stdout: `panic: pool dial failed for ${ADMIN_URL}\n`, stderr: `pool dial failed for ${ADMIN_URL}` }),
@@ -808,7 +783,6 @@ test('credentials never reach evidence or summary output on failure paths', asyn
   assert.ok(!dump.includes(ADMIN_URL), 'evidence must never carry the raw URL');
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'));
-  // Every evidence file on disk is scrubbed, including the Go event stream.
   const stdoutEvidence = readFileSync(join(out, 'integration.jsonl'), 'utf8');
   assert.ok(!stdoutEvidence.includes('s3cret-test-password'), 'integration.jsonl must be credential-free');
   assert.ok(stdoutEvidence.includes('[redacted]'), 'integration.jsonl must record the redaction');

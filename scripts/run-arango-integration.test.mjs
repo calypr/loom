@@ -48,9 +48,6 @@ test('every additional real database witness must execute and pass', () => {
     }
 });
 
-// arch-backend-12: the AQL witness is a required server-profile case that
-// must execute against the live Arango service, while the PostgreSQL leg
-// may only appear as the registered explicit skip in this Arango-only lane.
 test('arch-backend-12 diagnostics witnesses keep their lane obligations', () => {
     const server = profiles.find(p => p.id === 'server');
     assert.ok(server.alsoRequired.includes('TestBackendNeutralDiagnosticsAgainstArango'), 'AQL diagnostics witness must be a required server-profile case');
@@ -64,10 +61,7 @@ test('arch-backend-12 diagnostics witnesses keep their lane obligations', () => 
     ];
     const result = checkEvents(stream(events), server);
     assert.ok(result.unverified.map(e => e.test).includes('TestBackendNeutralDiagnosticsLivePostgreSQL'), 'the PostgreSQL leg must surface as an explicit unverified external case');
-    // Negative control: the AQL witness skipping instead of executing is
-    // not a legal outcome in this lane.
     assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== 'TestBackendNeutralDiagnosticsAgainstArango' || e.Action !== 'run')), server), /did not run/);
-    // Negative control: an unregistered skip is refused.
     assert.throws(() => checkEvents(stream([...events, { Test: 'TestBackendNeutralDiagnosticsUnregistered', Action: 'skip' }]), server), /Unexpected skipped case/);
 });
 test('backend-architecture conformance: required legs run, skip and rename fail the gate', () => {
@@ -84,15 +78,11 @@ test('backend-architecture conformance: required legs run, skip and rename fail 
     ];
     const result = checkEvents(stream(good), profile);
     assert.ok(result.unverified.some(skip => skip.test === 'TestBackendArchitectureConformance/postgresql'), 'absent PG arm must stay visible as unverified');
-    // A required leg that skips instead of running never passes.
     assert.throws(() => checkEvents(stream(good.filter(e => !(e.Test === 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars' && e.Action === 'run'))), profile), /did not run/);
     assert.throws(() => checkEvents(stream(good.map(e => e.Test === 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars' && e.Action === 'run' ? { ...e, Action: 'skip' } : e)), profile), /did not run/);
-    // A renamed cell identity (no run event under the frozen name) fails.
     const renamed = good.map(e => e.Test === 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars' ? { ...e, Test: 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalarsRenamed' } : e);
     assert.throws(() => checkEvents(stream(renamed), profile), /did not run/);
-    // An unregistered conformance skip fails; only allowlisted identities skip.
     assert.throws(() => checkEvents(stream(good.concat([{ Test: 'TestBackendArchitectureConformance/postgresl', Action: 'skip' }])), profile), /Unexpected skipped case/);
-    // Membership of both arm identities is pinned by the exported set.
     assert.ok(backendArchitectureConformance.has('TestBackendArchitectureConformance/postgresql'));
     assert.ok(backendArchitectureConformance.has('TestBackendArchitectureConformance/arangodb'));
 });
