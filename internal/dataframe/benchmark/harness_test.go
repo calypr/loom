@@ -26,26 +26,56 @@ type fakeArm struct {
 	failWith   map[string]int // output -> status
 	uploads    int
 	publish    int
+	noSnapshot bool
+	authoring  []string // ordered create/builder/reconcile calls
+}
+
+func (f *fakeArm) authoringCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.authoring...)
 }
 
 func newFakeArm(backend string) *fakeArm {
 	f := &fakeArm{rows: map[string][]map[string]any{}, columns: []string{"patient_id", "gender"}, failWith: map[string]int{}}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/datasets/", func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		f.uploads++
-		f.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{"summary": map[string]any{"resources": map[string]any{"Patient": 12}}})
-	})
 	mux.HandleFunc("/api/v1/projects/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/explorer-config") {
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/explorers") && r.Method == http.MethodPost:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			name, _ := body["name"].(string)
+			source, _ := body["sourceExplorerId"].(string)
+			if source != "default" {
+				http.Error(w, `{"error":"sourceExplorerId must be default"}`, 400)
+				return
+			}
+			f.mu.Lock()
+			f.authoring = append(f.authoring, "create:"+name)
+			f.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"explorerId": "exp-created"})
+			return
+		case strings.Contains(path, "/authoring/v2/builder"):
+			explorer := path[strings.LastIndex(path, "/explorers/")+len("/explorers/") : strings.Index(path, "/authoring")]
+			f.mu.Lock()
+			f.authoring = append(f.authoring, "builder:"+explorer)
+			noSnap := f.noSnapshot
+			f.mu.Unlock()
+			state := map[string]any{"draftVersion": 1, "draftDigest": "dig-1",
+				"catalog": map[string]any{"snapshotToken": "snap-1"}}
+			if noSnap {
+				state = map[string]any{"draftVersion": 1}
+			}
+			_ = json.NewEncoder(w).Encode(state)
+			return
+		case strings.Contains(path, "/explorer-config"):
 			f.mu.Lock()
 			f.publish++
 			f.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"recipe": "bench", "translationVersion": "t1", "output": "out"})
 			return
-		}
-		if strings.Contains(r.URL.Path, "/authoring/v2/preview") {
+		case strings.Contains(path, "/authoring/v2/preview"):
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			output, _ := body["outputId"].(string)
@@ -62,8 +92,28 @@ func newFakeArm(backend string) *fakeArm {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"columns": columns, "rows": rows, "rowCount": len(rows), "sampled": sampled})
 			return
+		case strings.Contains(path, "/authoring/v2/reconcile"):
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["snapshotToken"] != "snap-1" || body["draftVersion"].(float64) != 1 {
+				http.Error(w, `{"error":"stale draft token"}`, 409)
+				return
+			}
+			output, _ := body["outputId"].(string)
+			explorer := path[strings.LastIndex(path, "/explorers/")+len("/explorers/") : strings.Index(path, "/authoring")]
+			f.mu.Lock()
+			f.authoring = append(f.authoring, "reconcile:"+explorer+":"+output)
+			f.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"receiptId": "rcpt-" + output})
+			return
 		}
 		http.NotFound(w, r)
+	})
+	mux.HandleFunc("/api/v1/datasets/", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.uploads++
+		f.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"summary": map[string]any{"resources": map[string]any{"Patient": 12}}})
 	})
 	f.server = httptest.NewServer(mux)
 	return f
@@ -349,5 +399,37 @@ func TestBuildServerConfigYAMLDisablesClickHouseBothArms(t *testing.T) {
 		if !strings.Contains(yaml, "mode: calypr") || !strings.Contains(yaml, "trusted_issuer") {
 			t.Fatalf("%s arm config must wire scoped auth: %s", backend, yaml)
 		}
+	}
+}
+
+func TestAuthorWorkloadFlowPinsRoutesAndTokens(t *testing.T) {
+	f := newFakeArm(BackendPostgres)
+	defer f.close()
+	arm := f.arm(BackendPostgres)
+	explorerID, receiptID, err := arm.AuthorWorkload(context.Background(), "Bearer t", "proj", "gen1",
+		[]byte(`{"kind":"ExplorerBuilderWorkspace"}`), "abc", "bench-wl", "out_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explorerID != "exp-created" || receiptID != "rcpt-out_1" {
+		t.Fatalf("unexpected identities: %s %s", explorerID, receiptID)
+	}
+	if f.publish != 1 {
+		t.Fatalf("workspace must be published exactly once, got %d", f.publish)
+	}
+	if got := f.authoringCalls(); len(got) != 3 ||
+		got[0] != "create:bench-wl" || got[1] != "builder:exp-created" || got[2] != "reconcile:exp-created:out_1" {
+		t.Fatalf("route order wrong: %v", got)
+	}
+}
+
+func TestFetchBuilderStateRefusesMissingToken(t *testing.T) {
+	f := newFakeArm(BackendPostgres)
+	defer f.close()
+	f.noSnapshot = true
+	arm := f.arm(BackendPostgres)
+	if _, err := arm.FetchBuilderState(context.Background(), "Bearer t", "proj", "exp-1"); err == nil ||
+		!strings.Contains(err.Error(), "snapshot token") {
+		t.Fatalf("missing snapshot token must fail closed, got %v", err)
 	}
 }

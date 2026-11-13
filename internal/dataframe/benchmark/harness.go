@@ -334,3 +334,145 @@ func rowCountOr(result PreviewResult, err error) int {
 	}
 	return result.RowCount
 }
+
+// authoring/v2 lifecycle routes, matching the handlers in
+// internal/server/openapi_explorer_direct.go and the reconcile/preview
+// direct handlers. Each workload is authored onto its own explorer cloned
+// from the seeded default so drafts do not collide.
+
+// BuilderState is the draft state the Builder GET returns: it carries the
+// optimistic-concurrency tokens reconcile needs.
+type BuilderState struct {
+	DraftVersion int    `json:"draftVersion"`
+	DraftDigest  string `json:"draftDigest"`
+	Snapshot     struct {
+		SnapshotToken string `json:"snapshotToken"`
+	} `json:"snapshot"`
+	Catalog struct {
+		SnapshotToken string `json:"snapshotToken"`
+	} `json:"catalog"`
+}
+
+// SnapshotToken prefers the catalog token, falling back to the inline one.
+func (b BuilderState) SnapshotToken() string {
+	if b.Catalog.SnapshotToken != "" {
+		return b.Catalog.SnapshotToken
+	}
+	return b.Snapshot.SnapshotToken
+}
+
+func (a *Arm) authoringURL(project, explorer string) string {
+	return a.BaseURL + "/api/v1/projects/" + url.PathEscape(project) + "/explorers/" + url.PathEscape(explorer) + "/authoring/v2"
+}
+
+// CreateExplorer clones a new explorer from sourceExplorerID (usually the
+// seeded "default") so each workload owns an independent draft.
+func (a *Arm) CreateExplorer(ctx context.Context, token, project, name, title, sourceExplorerID string) (string, error) {
+	endpoint := a.BaseURL + "/api/v1/projects/" + url.PathEscape(project) + "/explorers"
+	body, _ := json.Marshal(map[string]any{"name": name, "title": title, "sourceExplorerId": sourceExplorerID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	a.authed(req, token)
+	value, err := doArmRequest(a.Client, req)
+	if err != nil {
+		return "", fmt.Errorf("benchmark: create explorer on %s: %w", a.Backend, err)
+	}
+	explorerID, _ := value["explorerId"].(string)
+	if strings.TrimSpace(explorerID) == "" {
+		if summary, ok := value["explorer"].(map[string]any); ok {
+			explorerID, _ = summary["explorerId"].(string)
+		}
+	}
+	if strings.TrimSpace(explorerID) == "" {
+		return "", fmt.Errorf("benchmark: create explorer on %s returned no explorerId", a.Backend)
+	}
+	return explorerID, nil
+}
+
+// FetchBuilderState reads the draft state and its optimistic-concurrency
+// tokens. The token must be present: reconcile without it would race.
+func (a *Arm) FetchBuilderState(ctx context.Context, token, project, explorer string) (BuilderState, error) {
+	endpoint := a.authoringURL(project, explorer) + "/builder"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return BuilderState{}, err
+	}
+	a.authed(req, token)
+	value, err := doArmRequest(a.Client, req)
+	if err != nil {
+		return BuilderState{}, fmt.Errorf("benchmark: builder state on %s: %w", a.Backend, err)
+	}
+	raw, _ := json.Marshal(value)
+	var state BuilderState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return BuilderState{}, fmt.Errorf("benchmark: builder state shape on %s: %w", a.Backend, err)
+	}
+	if strings.TrimSpace(state.SnapshotToken()) == "" {
+		return BuilderState{}, fmt.Errorf("benchmark: builder state on %s omitted the snapshot token", a.Backend)
+	}
+	return state, nil
+}
+
+// Reconcile compiles the current draft and returns its receipt id. The
+// receipt is what ties a preview to an exact authored revision.
+func (a *Arm) Reconcile(ctx context.Context, token, project, explorer, outputID string, state BuilderState) (string, error) {
+	endpoint := a.authoringURL(project, explorer) + "/reconcile"
+	body := map[string]any{
+		"snapshotToken": state.SnapshotToken(),
+		"draftVersion":  state.DraftVersion,
+	}
+	if state.DraftDigest != "" {
+		body["draftDigest"] = state.DraftDigest
+	}
+	if outputID != "" {
+		body["outputId"] = outputID
+	}
+	raw, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	a.authed(req, token)
+	value, err := doArmRequest(a.Client, req)
+	if err != nil {
+		return "", fmt.Errorf("benchmark: reconcile on %s: %w", a.Backend, err)
+	}
+	receiptID, _ := value["receiptId"].(string)
+	if strings.TrimSpace(receiptID) == "" {
+		if nested, ok := value["receipt"].(map[string]any); ok {
+			receiptID, _ = nested["receiptId"].(string)
+		}
+	}
+	if strings.TrimSpace(receiptID) == "" {
+		return "", fmt.Errorf("benchmark: reconcile on %s returned no receiptId", a.Backend)
+	}
+	return receiptID, nil
+}
+
+// AuthorWorkload drives the four-route authoring flow for one workload on
+// one arm and returns the (explorer, receipt) pair the preview route needs.
+// Order is load-bearing: publish the workspace on the generation, clone an
+// explorer from the seeded default so the draft equals the active revision,
+// read the builder tokens, reconcile for a receipt bound to that draft.
+func (a *Arm) AuthorWorkload(ctx context.Context, token, project, generation string, workspace []byte, sourceCommit, name, outputID string) (explorerID, receiptID string, err error) {
+	if _, err := a.PublishWorkspace(ctx, token, project, generation, workspace, sourceCommit); err != nil {
+		return "", "", err
+	}
+	explorerID, err = a.CreateExplorer(ctx, token, project, name, name, "default")
+	if err != nil {
+		return "", "", err
+	}
+	state, err := a.FetchBuilderState(ctx, token, project, explorerID)
+	if err != nil {
+		return "", "", err
+	}
+	receiptID, err = a.Reconcile(ctx, token, project, explorerID, outputID, state)
+	if err != nil {
+		return "", "", err
+	}
+	return explorerID, receiptID, nil
+}
