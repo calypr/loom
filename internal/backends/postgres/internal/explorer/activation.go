@@ -39,7 +39,7 @@ func NewActivationStore(client *pgstore.Client, explorerSchema, datasetSchema, p
 		return nil, errors.New("postgres explorer store: activation client is required")
 	}
 	for _, schema := range []string{explorerSchema, datasetSchema, publicationSchema} {
-		if !schemaNamePattern.MatchString(schema) {
+		if !pgstore.ValidSchemaName(schema) {
 			return nil, fmt.Errorf("postgres explorer store: invalid activation schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 		}
 	}
