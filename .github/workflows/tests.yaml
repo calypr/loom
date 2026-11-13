@@ -436,7 +436,7 @@ jobs:
     # gate fails closed if either arm is planned/not_run/excluded or
     # produces no real timing samples; a disclosure artifact can never
     # turn this check green.
-    timeout-minutes: 20
+    timeout-minutes: 10
     services:
       arangodb:
         image: arangodb:3.12
