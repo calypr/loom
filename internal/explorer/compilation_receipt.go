@@ -880,6 +880,12 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return receiptIDWithCompilationKey(r, key)
+}
+
+// receiptIDWithCompilationKey reuses only a key verified during this same
+// validation call. Public identity functions always calculate their own key.
+func receiptIDWithCompilationKey(r CompilationReceipt, key string) (string, error) {
 	compiledConfig, err := canonicalRaw(r.CompiledConfig)
 	if err != nil {
 		return "", fmt.Errorf("canonical compiled config: %w", err)
@@ -946,6 +952,7 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 
 // Validate checks that a receipt is a supported, executable artifact.
 func (r CompilationReceipt) Validate() error {
+	var verifiedCompilationKey string
 	if r.ColumnPolicyProposal != nil {
 		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
 			return fmt.Errorf("column policy proposals require the current receipt and compiler contract")
@@ -1047,6 +1054,7 @@ func (r CompilationReceipt) Validate() error {
 		if r.CompilationKey != key {
 			return fmt.Errorf("receipt compilation key mismatch: got %q want %q", r.CompilationKey, key)
 		}
+		verifiedCompilationKey = key
 		resolvedDigest, err := r.Bundle.Digest()
 		if err != nil {
 			return fmt.Errorf("digest resolved recipe: %w", err)
@@ -1084,22 +1092,22 @@ func (r CompilationReceipt) Validate() error {
 		return err
 	}
 	if r.ID != "" {
-		if err := r.ValidateID(); err != nil {
+		if err := r.validateIDWithCompilationKey(verifiedCompilationKey); err != nil {
 			return err
 		}
 	}
 	if len(r.NormalizedBundle) > 0 {
-		if _, err := canonicalJSONBytes(r.NormalizedBundle); err != nil {
+		if err := validateReceiptRawJSON(r.NormalizedBundle); err != nil {
 			return fmt.Errorf("invalid normalized bundle: %w", err)
 		}
 	}
 	if len(r.CompiledConfig) > 0 {
-		if _, err := canonicalJSONBytes(r.CompiledConfig); err != nil {
+		if err := validateReceiptRawJSON(r.CompiledConfig); err != nil {
 			return fmt.Errorf("invalid compiled config: %w", err)
 		}
 	}
 	if len(r.PublicOutputContract) > 0 {
-		if _, err := canonicalJSONBytes(r.PublicOutputContract); err != nil {
+		if err := validateReceiptRawJSON(r.PublicOutputContract); err != nil {
 			return fmt.Errorf("invalid public output contract: %w", err)
 		}
 	}
@@ -1165,10 +1173,20 @@ func validateResolvedInterpretations(project string, values []ResolvedInterpreta
 
 // ValidateID verifies the stored ID against the receipt's content identity.
 func (r CompilationReceipt) ValidateID() error {
+	return r.validateIDWithCompilationKey("")
+}
+
+func (r CompilationReceipt) validateIDWithCompilationKey(key string) error {
 	if strings.TrimSpace(r.ID) == "" {
 		return fmt.Errorf("receipt id is required")
 	}
-	expected, err := ReceiptID(r)
+	var expected string
+	var err error
+	if key == "" {
+		expected, err = ReceiptID(r)
+	} else {
+		expected, err = receiptIDWithCompilationKey(r, key)
+	}
 	if err != nil {
 		return fmt.Errorf("calculate receipt id: %w", err)
 	}
@@ -1207,4 +1225,14 @@ func (b ColumnPolicyProposalBinding) Validate(intentDigest, snapshotToken string
 		return fmt.Errorf("column policy proposal projectionMode is unsupported")
 	}
 	return nil
+}
+
+// Successful syntax-only checks do not need another decoded tree and canonical
+// allocation. On invalid input retain the canonical decoder's exact error.
+func validateReceiptRawJSON(raw []byte) error {
+	if json.Valid(raw) {
+		return nil
+	}
+	_, err := canonicalJSONBytes(raw)
+	return err
 }
