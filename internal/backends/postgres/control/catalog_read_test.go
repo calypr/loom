@@ -150,10 +150,14 @@ func newCTLService(t *testing.T, assignSource bool) *ctlService {
 }
 
 func ctlFieldDoc(path, authPath, resourceType string, docCount int64) catalog.FieldCatalogDocument {
+	return ctlFieldDocAt(crProject, crGenA, path, authPath, resourceType, docCount)
+}
+
+func ctlFieldDocAt(project, generation, path, authPath, resourceType string, docCount int64) catalog.FieldCatalogDocument {
 	complete := true
 	return catalog.FieldCatalogDocument{
 		Key:     resourceType + "|" + path,
-		Project: crProject, DatasetGeneration: crGenA, AuthResourcePath: authPath,
+		Project: project, DatasetGeneration: generation, AuthResourcePath: authPath,
 		ResourceType: resourceType, Path: path, Kind: "scalar",
 		DocCount: docCount, EnrichmentComplete: &complete,
 	}
@@ -204,6 +208,49 @@ func (s *ctlService) writeProfiles(t *testing.T) {
 	}
 }
 
+// writeCrossGenerationProfiles stages the rows the all-generations union
+// witness needs on top of writeProfiles: a second generation sharing one
+// path and adding one of its own, the legacy unscoped namespace, and a
+// foreign project whose paths must stay out of the union. None of these
+// touch the crGenA-scoped assertions above -- the exact-bind isolation the
+// scoped witnesses pin stays intact.
+func (s *ctlService) writeCrossGenerationProfiles(t *testing.T) {
+	t.Helper()
+	if s.runtime.FieldProfiles == nil {
+		t.Fatal("runtime assembled without the field-profile write port")
+	}
+	batches := []struct {
+		scope pgstore.FieldProfileScope
+		docs  []catalog.FieldCatalogDocument
+	}{
+		{pgstore.FieldProfileScope{Project: crProject, DatasetGeneration: "generation-b",
+			AuthResourcePath: "/fhir/clinical", ResourceType: "Patient"},
+			[]catalog.FieldCatalogDocument{
+				ctlFieldDocAt(crProject, "generation-b", "gender", "/fhir/clinical", "Patient", 2),
+			}},
+		{pgstore.FieldProfileScope{Project: crProject, DatasetGeneration: "generation-b",
+			AuthResourcePath: "/fhir/archive", ResourceType: "Observation"},
+			[]catalog.FieldCatalogDocument{
+				ctlFieldDocAt(crProject, "generation-b", "status", "/fhir/archive", "Observation", 5),
+			}},
+		{pgstore.FieldProfileScope{Project: crProject, DatasetGeneration: "",
+			AuthResourcePath: "/fhir/legacy", ResourceType: "Patient"},
+			[]catalog.FieldCatalogDocument{
+				ctlFieldDocAt(crProject, "", "gender", "/fhir/legacy", "Patient", 1),
+			}},
+		{pgstore.FieldProfileScope{Project: "ctl-other", DatasetGeneration: crGenA,
+			AuthResourcePath: "/fhir/foreign", ResourceType: "Patient"},
+			[]catalog.FieldCatalogDocument{
+				ctlFieldDocAt("ctl-other", crGenA, "gender", "/fhir/foreign", "Patient", 1),
+			}},
+	}
+	for _, batch := range batches {
+		if err := s.runtime.FieldProfiles.WriteFieldProfile(s.ctx, batch.scope, batch.docs, 100); err != nil {
+			s.fail("write cross-generation field profile "+batch.scope.ResourceType, err)
+		}
+	}
+}
+
 func TestRuntimeCatalogReadsOverSourceAssignment(t *testing.T) {
 	s := newCTLService(t, true)
 	s.writeProfiles(t)
@@ -244,12 +291,63 @@ func TestRuntimeCatalogReadsOverSourceAssignment(t *testing.T) {
 	if want := []string{"/fhir/clinical", "/fhir/finance", "/fhir/research"}; !reflect.DeepEqual(paths, want) {
 		t.Fatalf("runtime auth paths = %v, want %v", paths, want)
 	}
+}
 
-	_, err = s.runtime.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+// TestRuntimeAllGenerationsListingIsCrossGenerationUnion is the control-
+// plane counterpart of the Arango project-binding pin and the defect
+// witness for PG-PG-AUTH-PATH-DISCOVERY-ALLGENS: the F-B27 caller shape
+// (AllGenerations with no selected generation) must return the union of
+// every generation's recorded paths -- the second generation's paths, the
+// legacy unscoped namespace's path, and the shared path deduplicated --
+// with the foreign project held out. It replaces the retired typed refusal
+// that made this listing (and the resolver's bootstrap branch)
+// unreachable on PostgreSQL.
+func TestRuntimeAllGenerationsListingIsCrossGenerationUnion(t *testing.T) {
+	s := newCTLService(t, true)
+	s.writeProfiles(t)
+	s.writeCrossGenerationProfiles(t)
+
+	union, err := s.runtime.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
 		Project: crProject, AllGenerations: true,
 	})
-	if !errors.Is(err, catalogstore.ErrAllGenerationsUnsupported) {
-		t.Fatalf("all-generations runtime refusal = %v, want %v", err, catalogstore.ErrAllGenerationsUnsupported)
+	if err != nil {
+		s.fail("all-generations runtime listing", err)
+	}
+	want := []string{"/fhir/archive", "/fhir/clinical", "/fhir/finance", "/fhir/legacy", "/fhir/research"}
+	if !reflect.DeepEqual(union, want) {
+		t.Fatalf("all-generations union = %v, want %v", union, want)
+	}
+	for _, p := range union {
+		if p == "/fhir/foreign" {
+			t.Fatalf("foreign project path crossed the bind: %v", union)
+		}
+	}
+
+	// The F-2 conflict stays a named refusal on the runtime port too.
+	if _, err := s.runtime.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+		Project: crProject, DatasetGeneration: crGenA, AllGenerations: true,
+	}); !errors.Is(err, catalogstore.ErrAllGenerationsWithGeneration) {
+		t.Fatalf("runtime F-2 conflict = %v, want %v", err, catalogstore.ErrAllGenerationsWithGeneration)
+	}
+}
+
+// TestRuntimeAllGenerationsListingUnrecordedProjectIsHonestEmpty documents
+// that the fix leaves the F-B27 bootstrap posture unchanged: a project
+// with no recorded paths lists an honest empty through the runtime port --
+// a real zero-row union read, never a refusal -- which is exactly the
+// value scope_resolver.AuthorizeWrite consumes as "no recorded paths" for
+// the first-generation bootstrap, identical to the Arango lane's semantics.
+func TestRuntimeAllGenerationsListingUnrecordedProjectIsHonestEmpty(t *testing.T) {
+	s := newCTLService(t, true)
+	s.writeProfiles(t) // evidence exists for crProject; the empty must be project-scoped truth
+	empty, err := s.runtime.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+		Project: "ctl-unrecorded", AllGenerations: true,
+	})
+	if err != nil {
+		t.Fatalf("unrecorded project must list an honest empty, got error: %v", err)
+	}
+	if empty == nil || len(empty) != 0 {
+		t.Fatalf("unrecorded project union = %#v, want a non-nil empty slice", empty)
 	}
 }
 
@@ -268,6 +366,14 @@ func TestRuntimeCatalogReadsRefusedWithoutSourceSeries(t *testing.T) {
 		Project: crProject,
 	}); !errors.Is(err, ErrSourceSeriesUnassigned) {
 		t.Fatalf("unassigned-source listing error = %v, want %v", err, ErrSourceSeriesUnassigned)
+	}
+	// The union arm is the same configuration refusal: an unassigned
+	// source series never degrades into an empty union that would reach
+	// the F-B27 bootstrap branch as fabricated evidence of absence.
+	if _, err := s.runtime.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+		Project: crProject, AllGenerations: true,
+	}); !errors.Is(err, ErrSourceSeriesUnassigned) {
+		t.Fatalf("unassigned-source all-generations listing error = %v, want %v", err, ErrSourceSeriesUnassigned)
 	}
 }
 

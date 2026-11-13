@@ -47,9 +47,13 @@ func (r *Runtime) DiscoverFields(ctx context.Context, opts catalog.PopulatedFiel
 // DiscoverExistingAuthResourcePaths lists the distinct non-empty auth
 // paths recorded for one project/generation in the source assignment,
 // derived from the same persisted field-profile rows the Arango reference
-// collects. AllGenerations is refused as typed unsupported on this lane
-// (see the adapter's file comment); the F-2 conflict with a selected
-// generation is the named conflict error.
+// collects. AllGenerations returns the cross-generation union in one
+// distinct-path read over the source assignment -- the PostgreSQL shape of
+// the reference union query, with no dataset-series dependency (see the
+// adapter's file comment); a genuinely unrecorded project lists an honest
+// empty, which is the F-B27 bootstrap posture, unchanged from the
+// reference. The F-2 conflict with a selected generation is the named
+// conflict error.
 func (r *Runtime) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	store, err := r.catalogReadStore()
 	if err != nil {

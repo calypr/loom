@@ -1766,6 +1766,10 @@ func (f *injectedFieldProfileStore) ReadProfileCoverage(ctx context.Context, fil
 	return f.inner.ReadProfileCoverage(ctx, filter)
 }
 
+func (f *injectedFieldProfileStore) ListDistinctAuthResourcePaths(ctx context.Context, project string) ([]string, error) {
+	return f.inner.ListDistinctAuthResourcePaths(ctx, project)
+}
+
 type injectedInventoryStore struct {
 	inner      control.InventoryStore
 	failOnCall int
