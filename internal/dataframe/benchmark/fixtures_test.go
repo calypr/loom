@@ -153,13 +153,20 @@ func TestFactsAgeValuesAreExactIntegers(t *testing.T) {
 			t.Fatal(err)
 		}
 		maxSum := 0.0
+		bands := map[string]bool{}
 		for _, o := range facts.Observations {
 			if o.Code != ObservationCodeAge || o.ValueNumber == nil {
 				continue
 			}
 			v := *o.ValueNumber
-			if v != float64(int64(v)) || v < 1000 || v >= 10000 {
-				t.Fatalf("age value %s breaks the integer [1000,10000) invariant", strconv.FormatFloat(v, 'g', -1, 64))
+			if v != float64(int64(v)) || v < 1 || v > AgeBandFixtureMax {
+				t.Fatalf("age value %s breaks the integer [1,%d] invariant", strconv.FormatFloat(v, 'g', -1, 64), AgeBandFixtureMax)
+			}
+			bands[AgeBandFor(v)] = true
+		}
+		for _, band := range []string{"young", "middle", "senior"} {
+			if !bands[band] {
+				t.Fatalf("fixture age domain never produces band %q: the derivation branches would be dead", band)
 			}
 		}
 		for _, sum := range facts.SumAgeByPatient {

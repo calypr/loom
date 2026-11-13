@@ -228,31 +228,43 @@ func oracleDeriveAgeBand(facts *Facts) []map[string]any {
 		if o.Code != ObservationCodeAge || o.ValueNumber == nil {
 			continue
 		}
-		v := *o.ValueNumber
-		band := "unknown"
-		switch {
-		case v < 30:
-			band = "young"
-		case v < 60:
-			band = "middle"
-		default:
-			band = "senior"
-		}
-		rows = append(rows, map[string]any{"observation_id": o.ID, "age_band": band})
+		rows = append(rows, map[string]any{"observation_id": o.ID, "age_band": AgeBandFor(*o.ValueNumber)})
 	}
 	return rows
 }
 
-// AgeBandThresholds are shared between the recipe (matrix.go) and the oracle
-// so the two cannot drift apart silently; a change is a single edit here.
+// AgeBandThresholds are shared between the recipe (authoring recode
+// mappings, matrix domain) and the oracle so the two cannot drift apart
+// silently; a change is a single edit here.
 const (
 	AgeBandYoungUnder  = 30
 	AgeBandMiddleUnder = 60
 	TopNLimit          = 25
+	// AgeBandFixtureMax is the inclusive upper bound of the fixture age
+	// domain [1, AgeBandFixtureMax]: it straddles both thresholds so all
+	// three bands occur, and it is the domain the workspace recode map
+	// enumerates (the offline witness pins this coverage).
+	AgeBandFixtureMax = 90
 )
 
+// AgeBandFor is the single banding function: the oracle applies it to the
+// numeric quantity, the workspace recode maps are generated from it, and
+// the fixture domain is checked against it. The derived labels therefore
+// cannot drift from the independent threshold expectation by construction.
+func AgeBandFor(v float64) string {
+	switch {
+	case v < AgeBandYoungUnder:
+		return "young"
+	case v < AgeBandMiddleUnder:
+		return "middle"
+	default:
+		return "senior"
+	}
+}
+
 // Exact float equality note: age valueQuantity values are integers in
-// [1000, 10000) (fixtures.go), and per-patient sums stay far inside float64
-// exact integer range at every preset, so canonicalNumberText's
-// shortest-round-trip spelling matches backend output exactly; the fixtures
-// test re-asserts the integer invariant so the oracle cannot drift silently.
+// [1, AgeBandFixtureMax] (fixtures.go), and per-patient sums stay far
+// inside float64 exact integer range at every preset, so
+// canonicalNumberText's shortest-round-trip spelling matches backend output
+// exactly; the fixtures test re-asserts the integer invariant so the oracle
+// cannot drift silently.

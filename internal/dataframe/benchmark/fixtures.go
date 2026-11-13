@@ -72,6 +72,14 @@ const (
 	ObservationCodeGender = "BENCH-CODE-GENDER" // valueString feeds Unpivot column keys
 )
 
+// BenchAgeIdentifierSystem is the identifier namespace on age observations
+// whose value is the age as a decimal string. It is the scalar-string source
+// the derive-age-band workspace recodes through EXACT_CATEGORY_RECODE. It is
+// emitted exactly when valueQuantity.value is (the missing-value observations
+// carry neither, so the oracle's skip and the workspace's null-exclusion
+// agree by construction).
+const BenchAgeIdentifierSystem = "https://bench.example/identifier/age-days"
+
 // Specimen type codes (duplicate-contributor and filter workloads).
 const (
 	SpecimenTypePrimary    = "PRIMARY"
@@ -319,7 +327,11 @@ func GenerateFacts(params DatasetParams) (*Facts, error) {
 			}
 			switch obs.Code {
 			case ObservationCodeAge:
-				value := float64(1000 + hashU64(params.Seed, "age", obs.ID)%9000)
+				// Integer ages in [1, AgeBandFixtureMax] days: the domain
+				// straddles both band thresholds so young/middle/senior all
+				// occur, and it is exactly the domain the workspace recode
+				// map enumerates (fixtures tests pin both invariants).
+				value := float64(1 + hashU64(params.Seed, "age", obs.ID)%uint64(AgeBandFixtureMax))
 				if p%19 == 0 {
 					obs.ValueNumber = nil // missing numeric: aggregation must skip, not zero
 				} else {
@@ -475,6 +487,11 @@ func (d DatasetParams) buildObservationDocument(f ObservationFacts) map[string]a
 				"value": *f.ValueNumber, "unit": "days",
 				"system": "http://unitsofmeasure.org", "code": "d",
 			}
+			// Scalar-string twin of the quantity for the recode workload.
+			doc["identifier"] = []any{map[string]any{
+				"use": "secondary", "system": BenchAgeIdentifierSystem,
+				"value": strconv.FormatFloat(*f.ValueNumber, 'f', -1, 64),
+			}}
 		}
 	case ObservationCodeStage:
 		doc["valueCodeableConcept"] = map[string]any{"coding": []any{map[string]any{

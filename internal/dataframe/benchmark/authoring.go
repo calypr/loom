@@ -3,6 +3,7 @@ package benchmark
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -43,12 +44,13 @@ type authoringNote struct {
 
 // wire shapes, verbatim families from the acceptance fixture
 type wsColumnDef struct {
-	Column       string         `json:"column"`
-	Label        string         `json:"label"`
-	LogicalType  string         `json:"logicalType"`
-	OccurrenceID string         `json:"occurrenceId"`
-	Source       map[string]any `json:"source"`
-	Table        wsTable        `json:"table"`
+	Column              string         `json:"column"`
+	Label               string         `json:"label"`
+	LogicalType         string         `json:"logicalType"`
+	OccurrenceID        string         `json:"occurrenceId"`
+	Source              map[string]any `json:"source"`
+	ValueTransformation map[string]any `json:"valueTransformation,omitempty"`
+	Table               wsTable        `json:"table"`
 }
 
 type wsTable struct {
@@ -156,6 +158,18 @@ func extensionCol(column, occurrence, matchURL string, order int) wsColumnDef {
 	}
 }
 
+// identifierCol projects identifier[].value where system == matchSystem via
+// the acceptance-proven identifierBySystem source shape.
+func identifierCol(column, occurrence, matchSystem string, order int) wsColumnDef {
+	return wsColumnDef{
+		Column: column, Label: column, LogicalType: "string", OccurrenceID: occurrence,
+		Source: map[string]any{"kind": "identifierBySystem", "lookup": map[string]any{
+			"match": matchSystem, "path": "identifier[]", "projectionMode": "FIRST",
+		}},
+		Table: wsTable{Visible: true, Order: order},
+	}
+}
+
 func observationChildren() []wsChild {
 	return []wsChild{
 		{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "subject_Patient"},
@@ -165,6 +179,16 @@ func observationChildren() []wsChild {
 }
 
 func patientWorkspace(outputID string, columns []wsColumnDef, children []wsChild, filters []wsFixed) []byte {
+	return rootWorkspace("Patient", outputID, columns, children, filters)
+}
+
+// observationRootWorkspace authors an output whose rows are the Observation
+// resources themselves (one row per observation, no child occurrences).
+func observationRootWorkspace(outputID string, columns []wsColumnDef, filters []wsFixed) []byte {
+	return rootWorkspace("Observation", outputID, columns, nil, filters)
+}
+
+func rootWorkspace(rootType, outputID string, columns []wsColumnDef, children []wsChild, filters []wsFixed) []byte {
 	if children == nil {
 		children = []wsChild{}
 	}
@@ -174,8 +198,8 @@ func patientWorkspace(outputID string, columns []wsColumnDef, children []wsChild
 		Documents: []wsDoc{{
 			Kind:             wsDocKind,
 			Output:           wsOutputDef{ID: outputID, Title: outputID, RowLabel: "row"},
-			RootResourceType: "Patient",
-			Route:            wsRouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: children},
+			RootResourceType: rootType,
+			Route:            wsRouteNode{OccurrenceID: "base", ResourceType: rootType, Children: children},
 			Columns:          columns,
 			FixedFilters:     filters,
 		}},
@@ -262,23 +286,50 @@ func BuildWorkspace(workloadID string) ([]byte, error) {
 			extensionCol("study_ref", "base", partOfStudyURL, 1),
 		}, nil, nil), nil
 	case WorkloadDeriveAgeBand:
-		// No acceptance precedent for value transformations in the workspace
-		// wire shape, and the authored approximation cannot pass its own
-		// oracle (raw distinct values vs band labels): LiveBatteryExclusions
-		// ships this workload planned/not_run with the named defect until
-		// the ClickHouse lane rehearses a proven derivation.
-		return patientWorkspace(OutputIDFor(workloadID), []wsColumnDef{
-			aggregateCol("observation_id", "Observation id", "string", "observation", "DISTINCT_VALUES",
-				"id", "code.coding[].code", ObservationCodeAge, 0),
-			{Column: "age_band", Label: "Age band", LogicalType: "string", OccurrenceID: "observation",
-				Source: map[string]any{"kind": "aggregate", "aggregate": map[string]any{
-					"operation": "DISTINCT_VALUES", "path": "valueQuantity.value",
-					"where": map[string]any{"path": "code.coding[].code", "equals": ObservationCodeAge},
-				}},
-				Table: wsTable{Visible: true, Order: 1}},
-		}, observationChildren(), nil), nil
+		// Derivation intent, authored with the repository's closed value
+		// transformation: age_band recodes the scalar-string age identifier
+		// (fixtures.go) through the exhaustive exact-category map generated
+		// from the same AgeBandFor function the oracle thresholds
+		// independently. unknownPolicy ERROR: any value outside the pinned
+		// fixture domain is a contract violation, never silent misbanding.
+		// The fixed filter keeps exactly the age observations (missing-value
+		// observations have no identifier, so their null band is excluded
+		// and the oracle skips them too). The map itself has no
+		// acceptance-fixture precedent, so the workload stays
+		// AuthoringUnverified — planned/not_run with a named reason — until
+		// the ClickHouse-lane rehearsal; TestDeriveAgeBandOfflineWitness
+		// proves offline that its output bag equals the oracle's.
+		ageBandCol := identifierCol("age_band", "base", BenchAgeIdentifierSystem, 1)
+		ageBandCol.ValueTransformation = map[string]any{
+			"kind": "EXACT_CATEGORY_RECODE",
+			"exactCategoryRecode": map[string]any{
+				"mappings":      ageRecodeMappings(),
+				"unknownPolicy": "ERROR",
+			},
+		}
+		return observationRootWorkspace(OutputIDFor(workloadID), []wsColumnDef{
+			fieldCol("observation_id", "base", "id", "VALUE", "string", 0),
+			ageBandCol,
+		}, []wsFixed{
+			{Column: "age_band", Values: []string{"young", "middle", "senior"}},
+		}), nil
 	}
 	return nil, fmt.Errorf("benchmark: no workspace template for workload %q", workloadID)
+}
+
+// ageRecodeMappings enumerates the exhaustive exact-category map over the
+// pinned fixture domain [1, AgeBandFixtureMax], deriving every label from
+// AgeBandFor — the same function the oracle thresholds independently. A
+// drift between workspace and oracle is unrepresentable by construction;
+// TestDeriveAgeBandOfflineWitness re-checks coverage against the fixtures.
+func ageRecodeMappings() []map[string]string {
+	mappings := make([]map[string]string, 0, AgeBandFixtureMax)
+	for v := 1; v <= AgeBandFixtureMax; v++ {
+		mappings = append(mappings, map[string]string{
+			"from": strconv.Itoa(v), "to": AgeBandFor(float64(v)),
+		})
+	}
+	return mappings
 }
 
 // BuildEmptyFloorWorkspace authors the identical-request empty-result floor
@@ -325,7 +376,7 @@ func AuthoringVerification() map[string]AuthoringStatus {
 var unverifiedWorkloads = map[string]bool{
 	WorkloadFilterActiveGender: true, // fixedFilters over a boolean field column
 	WorkloadDistinctFamily:     true, // DISTINCT_VALUES at the root occurrence
-	WorkloadDeriveAgeBand:      true, // transformation intent approximated
+	WorkloadDeriveAgeBand:      true, // EXACT_CATEGORY_RECODE map: no acceptance precedent (passability witnessed offline)
 	WorkloadStudyCorrelation:   true, // extensionByUrl returning a reference string
 	WorkloadStageCounts:        true, // DISTINCT_VALUES + COUNT pair at one occurrence (per-row grain expectation)
 	WorkloadSortLimitTopN:      true, // VALUE over multi-valued name[].family: row expansion unproven (review r4559430560)
@@ -338,7 +389,7 @@ var unverifiedWorkloads = map[string]bool{
 var workloadNotRunReasons = map[string]string{
 	WorkloadFilterActiveGender: "shape has no acceptance-fixture precedent: fixedFilters over a boolean field column; live rehearsal (ClickHouse lane) must prove the oracle/output agreement before this leg runs",
 	WorkloadDistinctFamily:     "shape has no acceptance-fixture precedent: DISTINCT_VALUES at the root occurrence; live rehearsal must prove the oracle/output agreement before this leg runs",
-	WorkloadDeriveAgeBand:      "oracle/output agreement disproven in source: the workspace authors age_band as DISTINCT_VALUES over raw valueQuantity.value while the oracle emits band labels, and fixture ages [1000,10000) make the young/middle branches dead; needs a proven case/if derivation (see AgeBandYoungUnder/AgeBandMiddleUnder) or an oracle re-model, rehearsed in the ClickHouse lane",
+	WorkloadDeriveAgeBand:      "shape has no acceptance-fixture precedent: the EXACT_CATEGORY_RECODE map (identifierBySystem source, ERROR unknown policy, fixed filter on the derived column) has never run end to end; TestDeriveAgeBandOfflineWitness proves offline that its output bag equals the independently thresholded oracle over the pinned fixture domain [1,90], so the workload can pass; the ClickHouse-lane rehearsal must confirm the backends apply recode+filter as specified before this leg runs",
 	WorkloadStudyCorrelation:   "shape has no acceptance-fixture precedent: extensionByUrl returning a reference string; live rehearsal must prove the oracle/output agreement before this leg runs",
 	WorkloadStageCounts:        "shape has no acceptance-fixture precedent: DISTINCT_VALUES + COUNT pair at one occurrence with a per-row grain expectation; live rehearsal must prove the oracle/output agreement before this leg runs",
 	WorkloadSortLimitTopN:      "oracle/output agreement unproven: VALUE columns over multi-valued name[].family with a second family entry on every 4th patient; the oracle assumes first-only while preview row expansion (first-only vs row-per-value) has no acceptance precedent; live rehearsal must pin the scalarization contract",

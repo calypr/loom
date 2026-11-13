@@ -59,7 +59,7 @@ var Battery = []WorkloadSpec{
 		Description: "active patients with gender=female"},
 	{ID: WorkloadDeriveAgeBand, Category: CategoryDerive,
 		Columns: []string{"observation_id", "age_band"}, OracleAvailable: true,
-		Description: "if/case derivation of an age band from BENCH-CODE-AGE quantities"},
+		Description: "closed category-recode derivation of an age band from BENCH-CODE-AGE identifiers over [1,90] days"},
 	{ID: WorkloadAggregateSumAgeByPatient, Category: CategoryAggregate,
 		Columns: []string{"patient_id", "sum_age", "count_age", "min_age", "max_age"}, OracleAvailable: true,
 		Description: "sum/count/min/max of age quantities grouped by patient"},
