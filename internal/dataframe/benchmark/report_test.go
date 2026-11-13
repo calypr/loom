@@ -132,6 +132,14 @@ func TestReportRoundTrips(t *testing.T) {
 }
 
 func forge(t *testing.T, mutate func(*Report)) func(*testing.T) {
+	return forgeErr(t, mutate, "")
+}
+
+// forgeErr additionally pins WHICH rule rejected the artifact: a case
+// meant to exercise a specific guard must not survive by tripping some
+// earlier check (review r4562338071) — otherwise deleting the guard
+// would leave the case falsely green.
+func forgeErr(t *testing.T, mutate func(*Report), wantErrSubstr string) func(*testing.T) {
 	return func(t *testing.T) {
 		t.Helper()
 		report := validReport(t)
@@ -142,6 +150,8 @@ func forge(t *testing.T, mutate func(*Report)) func(*testing.T) {
 		}
 		if _, err := LoadReport(data); err == nil {
 			t.Fatal("forged report survived verification")
+		} else if wantErrSubstr != "" && !strings.Contains(err.Error(), wantErrSubstr) {
+			t.Fatalf("forged report rejected by the wrong rule (%v); want an error naming %q", err, wantErrSubstr)
 		}
 	}
 }
@@ -205,14 +215,44 @@ func TestReportForgerySuite(t *testing.T) {
 			// recomputation from samples can.
 			r.Controls.SelfRatioArango = 1.0
 		},
+		// Review r4562338071: each new verifier guard needs a case that
+		// fails ONLY on it. Both cases below keep every other derived
+		// value honest and pin the rejecting rule by message, so deleting
+		// the guard turns the case RED instead of silently re-routing it
+		// to an earlier check.
 		"unstable-cell-hidden-from-control": func(r *Report) {
-			// Inject a wildly unstable warm cell for the primary timing
-			// on arango; the honest control list (still empty) claims no
-			// unstable cells, so the claim path hides an unstable cell.
-			for i, ms := range []float64{1, 100, 1} {
-				_ = i
-				r.Samples = append(r.Samples, sample(BackendArango, primaryTiming(), OutcomePassed, ms, false))
+			// Rewrite the primary timing's arango warm samples as
+			// alternating 1,100,1,100: half medians stay equal, so the
+			// honest self-ratio (worst deviation across cells) still
+			// matches the reported 1.03. Summaries are recomputed from
+			// the samples and claims rebuilt from those summaries, so
+			// every other derived value stays in sync. The cell's warm
+			// CV (~0.98) is far over the ceiling: only the
+			// ControlUnstableCells recompute can catch this shape.
+			ms := []float64{1, 100, 1, 100}
+			i := 0
+			for j := range r.Samples {
+				s := &r.Samples[j]
+				if s.WorkloadID == primaryTiming() && s.Backend == BackendArango && !s.Warmup {
+					s.Millis = ms[i]
+					i++
+				}
 			}
+			for j := range r.Summaries {
+				row := &r.Summaries[j]
+				if row.WorkloadID == primaryTiming() && row.Backend == BackendArango {
+					row.Summary = Summarize(cellSamples(r.Samples, row.WorkloadID, row.Backend))
+				}
+			}
+			r.Claims = buildClaims(r.GateReports, r.Summaries, r.Controls)
+			r.Controls.UnstableCells = nil
+		},
+		"stability-limit-smuggled-ceiling": func(r *Report) {
+			// 0.9 passes every plausibility rule the old verifier had
+			// (it only rejected <= 0): a run may not smuggle its own
+			// ceiling. Only the equality with the exported constant
+			// catches this.
+			r.Controls.StabilityCVLimit = 0.9
 		},
 		"empty-floor-never-run":      func(r *Report) { r.Controls.EmptyFloorMillis = 0 },
 		"stability-limit-never-set":  func(r *Report) { r.Controls.StabilityCVLimit = 0 },
@@ -286,8 +326,15 @@ func TestReportForgerySuite(t *testing.T) {
 			})
 		},
 	}
+	// Cases exercising one specific guard name the rule that must reject
+	// them (review r4562338071); everything else just has to RED.
+	wantErr := map[string]string{
+		"self-ratio-borrowed-perfect":       "self-ratio 1 does not match",
+		"unstable-cell-hidden-from-control": "unstable cells",
+		"stability-limit-smuggled-ceiling":  "stability limit must equal",
+	}
 	for name, mutate := range cases {
-		t.Run(name, forge(t, mutate))
+		t.Run(name, forgeErr(t, mutate, wantErr[name]))
 	}
 }
 
