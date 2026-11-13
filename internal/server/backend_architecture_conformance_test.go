@@ -98,8 +98,9 @@ type ab10Literal = map[string]map[string]string
 // ab10PatientLines is the exact NDJSON staged for Patient.ndjson. The
 // literals below are also the oracles: gender/birthDate values, the
 // explicit-null vs missing distinction on p-nullfield/p-nogender, and the
-// _key set. Observation rows carry subject references so the repeated
-// occurrence cell can bind both occurrences to p-ada.
+// _key set. Observation rows carry the schema-required code (CodeableConcept)
+// and subject references so the repeated occurrence cell can bind both
+// occurrences to p-ada.
 func ab10PatientLines(t *testing.T) []string {
 	t.Helper()
 	return ab10JSONLines(t,
@@ -112,8 +113,8 @@ func ab10PatientLines(t *testing.T) []string {
 func ab10ObservationLines(t *testing.T) []string {
 	t.Helper()
 	return ab10JSONLines(t,
-		map[string]any{"resourceType": "Observation", "id": "ab10-obs-1", "status": "final", "subject": map[string]any{"reference": "Patient/ab10-patient-ada"}},
-		map[string]any{"resourceType": "Observation", "id": "ab10-obs-2", "status": "final", "subject": map[string]any{"reference": "Patient/ab10-patient-ada"}},
+		map[string]any{"resourceType": "Observation", "id": "ab10-obs-1", "status": "final", "code": map[string]any{"coding": []map[string]any{{"system": "http://loinc.org", "code": "13457-7", "display": "Cholesterol in LDL [Mass/volume] in Serum or Plasma"}}}, "subject": map[string]any{"reference": "Patient/ab10-patient-ada"}},
+		map[string]any{"resourceType": "Observation", "id": "ab10-obs-2", "status": "final", "code": map[string]any{"coding": []map[string]any{{"system": "http://loinc.org", "code": "13457-7", "display": "Cholesterol in LDL [Mass/volume] in Serum or Plasma"}}}, "subject": map[string]any{"reference": "Patient/ab10-patient-ada"}},
 	)
 }
 
@@ -640,6 +641,9 @@ func (f *ab10PGFixture) load(t *testing.T, project, generation, authPath string,
 		Dataset:          &ref,
 		AuthResourcePath: authPath,
 		StageOnly:        true,
+		// The literals are authored; a malformed row is a test bug and
+		// must name file/line/resource instead of aggregating.
+		FailFast: true,
 	}
 	pg := f.pgOptions("verify-ab10pg")
 	pg.Catalog = ingest.GenerationCatalogWriters{
