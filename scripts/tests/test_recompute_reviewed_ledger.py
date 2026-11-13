@@ -214,6 +214,50 @@ class Fixture(unittest.TestCase):
         self.assertEqual({r["class"] for r in heads},
                          {"SNAPSHOT-DRIFT", "MATCH"})
 
+    def test_apply_noop_on_converged_artifact_verifications(self):
+        doc = {"confirmed": [
+            {"id": "S", "sourceSnapshot": self.commit1,
+             "artifacts": [
+                 {"path": BLOB, "sha256": sha256b(self.b2),
+                  "sha256Verification": {"method": "head-blob",
+                                         "commit": self.commit2[:8],
+                                         "queriedPath": BLOB}},
+                 {"path": BLOB, "sha256": sha256b(self.b1),
+                  "sha256Verification": {"method": "file-history-blob",
+                                         "commit": self.commit1,
+                                         "matchingCommits":
+                                             [self.commit1[:8]],
+                                         "queriedPath": BLOB}}]}]}
+        self.put_ledger(doc)
+        before = self.read_ledger()
+        code, out = self.run_main("--apply", "--ticket", "FIXTURE")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_ledger(), before)
+        self.assertNotIn("verified via", out)
+        self.assertIn("no rewrite", out)
+        code, _ = self.run_main("--apply", "--ticket", "FIXTURE")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_ledger(), before)
+
+    def test_stale_artifact_verification_is_rewritten(self):
+        doc = {"confirmed": [
+            {"id": "X", "sourceSnapshot": self.commit2,
+             "artifacts": [{"path": BLOB, "sha256": sha256b(self.b2),
+                            "sha256Verification":
+                                {"method": "file-history-blob",
+                                 "commit": self.commit1,
+                                 "queriedPath": BLOB}}]}]}
+        self.put_ledger(doc)
+        before = self.read_ledger()
+        code, out = self.run_main("--apply", "--ticket", "FIXTURE")
+        self.assertEqual(code, 0)
+        self.assertNotEqual(self.read_ledger(), before)
+        self.assertIn("claim verified via", out)
+        ver = (self.doc()["confirmed"][0]["artifacts"][0]
+               ["sha256Verification"])
+        self.assertEqual(ver["method"], "sourceSnapshot-blob")
+        self.assertEqual(ver["commit"], self.commit2)
+
     def test_superseded_quote_reported_then_stamped_idempotent(self):
         quote = ("r9 SELF-RUN: live md5 == git show "
                  f"{self.commit1[:8]}:{WIDGET} == on-disk")

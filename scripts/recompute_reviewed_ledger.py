@@ -36,6 +36,13 @@ A-class keys to their relocated tracked paths (RELOCATIONS table), retires
 keys with reasons (RETIREMENTS table), and appends pubbundleRepin receipt
 blocks recording pre/post values per touched row.
 
+--apply is a byte no-op once converged: an artifact row whose sha256 claim
+already matches the live head (or sourceSnapshot) blob AND whose recorded
+sha256Verification block re-verifies against its cited blob (git show for
+sourceSnapshot-blob/file-history-blob/head-blob, object-index membership
+for object-db-scan) is left untouched, with no restamp. A claim or evidence
+block that fails re-verification is always re-adjudicated and rewritten.
+
 Usage:
   recompute_reviewed_ledger.py [--ledger PATH] [--ref REF] [--table]
                                [--json-out PATH] [--apply] [--ticket TEXT]
@@ -863,6 +870,18 @@ def apply_fixes(doc, ledger_rel, ref, ticket):
             return {"method": "object-db-scan", "blob": objdb[claim][0][:12]}
         return None
 
+    def verification_reverifies(ver, claim):
+        method = ver.get("method")
+        if method in ("sourceSnapshot-blob", "file-history-blob", "head-blob"):
+            commit, queried = ver.get("commit"), ver.get("queriedPath")
+            if isinstance(commit, str) and isinstance(queried, str):
+                raw = git.blob(commit, queried)
+                return raw is not None and digest(raw, "sha256") == claim
+            return False
+        if method == "object-db-scan":
+            return claim in git.object_db_sha256s()
+        return False
+
     def adjudicate_artifact(ident, art, snap):
         if not isinstance(art, dict) or "sha256" not in art:
             return
@@ -875,6 +894,17 @@ def apply_fixes(doc, ledger_rel, ref, ticket):
         if head_path is None and old_path in RELOCATIONS:
             head_path = resolve(RELOCATIONS[old_path])
             relocated = RELOCATIONS[old_path]
+        ver = art.get("sha256Verification")
+        if isinstance(ver, dict) and verification_reverifies(ver, claim):
+            true_at_head = (head_path is not None and
+                            true_value(head_path, "sha256") == claim)
+            true_at_snap = (isinstance(snap, str) and
+                            git.blob(snap, old_path) is not None and
+                            digest(git.blob(snap, old_path), "sha256") == claim)
+            if true_at_head or true_at_snap:
+                notes.append(f"artifact {ident} {old_path}: recorded "
+                             f"sha256Verification re-verified; no rewrite")
+                return
         trace = trace_claim(old_path, claim, snap)
         if trace:
             art["sha256Verification"] = trace
