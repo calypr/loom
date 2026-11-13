@@ -163,8 +163,14 @@ def scan(paths, json_out=None):
     allowed = []
     ts_paths = [p for p in paths if b.classify(p) == "ts"]
     ts_results = {}
+    ts_scanner_ok = True
     if ts_paths:
-        ts_results = b.detect_ts_family([os.path.join(REPO, p) for p in ts_paths], REPO)
+        try:
+            ts_results = b.detect_ts_family([os.path.join(REPO, p) for p in ts_paths], REPO)
+        except RuntimeError:
+            """Fail closed: without the TypeScript scanner, ts-family files are
+            inventoried unsupported (gate-red), never silently passed."""
+            ts_scanner_ok = False
     ts_batch = {}
     for p in ts_paths:
         ts_batch[p] = ts_results.get(os.path.join(REPO, p), [])
@@ -175,6 +181,9 @@ def scan(paths, json_out=None):
             inventory["asset"].append(rel)
             continue
         if backend == "UNSUPPORTED":
+            inventory["unsupported"].append(rel)
+            continue
+        if backend == "ts" and not ts_scanner_ok:
             inventory["unsupported"].append(rel)
             continue
         if is_checksum_payload(relkey):

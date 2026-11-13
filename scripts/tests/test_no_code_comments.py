@@ -154,6 +154,8 @@ class LedgerBound(Harness):
         self.assertEqual([], [(v["path"], v["line"]) for v in s["violations"]])
 
     def test_unresolvable_ledger_keys_are_inventory_not_red(self):
+        if not ts_available():
+            self.skipTest("typescript module not resolvable (vet.mjs is scanner-backed)")
         s = self.scan(os.path.join(chk.REPO, "scripts/ci/vet.mjs"))
         bad = {e["path"] for e in s["inventory"]["unresolvable-ledger-key"]}
         self.assertIn("release_dangle_reconcile_e2e_test.go [arango pkg]", bad)
@@ -163,6 +165,7 @@ class LedgerBound(Harness):
                               if v["path"] in bad])
 
 
+@unittest.skipUnless(ts_available(), "typescript module not resolvable")
 class ToolSentinels(Harness):
     def test_extract_sentinels_pass_as_directives(self):
         p = self.write("s.mjs", "// EXTRACT-START:killTree\nconst killTree = async () => {\n"
@@ -304,6 +307,18 @@ class InventoryAndCli(Harness):
         p = self.write("broken.json", '{"a": ')
         s = self.scan(p)
         self.assertEqual(["parse"], [v["kind"] for v in s["violations"]])
+
+    def test_scanner_absence_routes_ts_family_to_unsupported_fail_closed(self):
+        p = self.write("f.mjs", "// handwritten prose note\nconst x = 1;\n")
+        original = b.detect_ts_family
+        def unavailable(*a, **k):
+            raise RuntimeError("ts scanner unavailable: typescript module not found")
+        b.detect_ts_family = unavailable
+        self.addCleanup(setattr, b, "detect_ts_family", original)
+        s = self.scan(p)
+        self.assertIn(p, s["inventory"]["unsupported"])
+        self.assertEqual([], s["violations"])
+        self.assertEqual([], s["allowed"])
 
     def test_unsupported_is_reported_and_exit_code_nonzero(self):
         c = self.write("mystery.zzz", "content\n")
