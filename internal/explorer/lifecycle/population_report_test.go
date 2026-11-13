@@ -14,9 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// Keep the vertical contract test close to the lifecycle boundary. The
-// receipt and membership are intentionally assembled from public domain
-// values; the mapping callback stands in for the configured execution engine.
 func TestPopulationMappingReportLiteralResult(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
 	receipt := populationTestReceipt(snapshot)

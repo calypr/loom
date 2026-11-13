@@ -12,8 +12,6 @@ func (s *HTTPServer) register() {
 	s.app.Use(s.requestIDMiddleware, s.recoveryMiddleware, s.loggingMiddleware, s.authenticationMiddleware)
 }
 
-// Health computes the cached dependency health response for generated HTTP
-// routes without requiring a Fiber context.
 func (s *HTTPServer) Health(parent context.Context) (map[string]any, int) {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
@@ -42,38 +40,13 @@ func (s *HTTPServer) Readiness(parent context.Context) (map[string]any, int) {
 	return healthBody(result), result.httpStatus
 }
 
-// checkDependencies evaluates the selected source backend and ClickHouse
-// independently (pg-runtime-health-readiness): each consulted check runs
-// concurrently under its own budget derived from the parent, so a hung or
-// dead core check can neither consume the ClickHouse budget nor fabricate
-// the ClickHouse verdict, and a ClickHouse failure can never hide the core
-// verdict (or vice versa). Both fields are always reported: core ∈
-// {ready, not_ready} and dataframe ∈ {ready, backend_unavailable, disabled}.
-// Status rules are the published contract: core not_ready dominates
-// (not_ready/503); core ready with an unavailable ClickHouse is
-// degraded/200 here and Readiness keeps its own override to 503.
-// core_state is reported only when the composition supplied the optional
-// CoreState classifier and the core check failed; ArangoDB arms, which do
-// not supply one, keep their exact published bodies.
-// Per-check budget: each consulted check gets its own context bounded by
-// readinessCheckBudget, derived from the parent (never from the other
-// check), plus a small collection grace so the HTTP layer stays bounded
-// even against a check that ignores its context entirely.
 const (
 	readinessCheckBudget  = 2 * time.Second
 	readinessCollectGrace = 500 * time.Millisecond
 )
 
-// errReadinessCheckTimedOut is the bounded-wait verdict for a check that
-// never returned within its budget plus grace. It is a plain error, so a
-// composition classifier reports it as its unknown-state token rather than
-// fabricating a connectivity or schema attribution.
 var errReadinessCheckTimedOut = errors.New("readiness check exceeded its budget")
 
-// runBoundedCheck starts one dependency check with its own budgeted context
-// and returns a buffered channel for its verdict. The send never blocks, so
-// an abandoned (wedged) check can never block the HTTP layer or leak a
-// half-written shared variable.
 func runBoundedCheck(parent context.Context, check func(context.Context) error) <-chan error {
 	out := make(chan error, 1)
 	go func() {
@@ -84,12 +57,6 @@ func runBoundedCheck(parent context.Context, check func(context.Context) error) 
 	return out
 }
 
-// awaitCheck collects a check verdict under the shared deadline (both
-// checks run concurrently, so one deadline bounds the pair). A verdict that
-// has already landed is preferred over the deadline decision, so a slow
-// first check can never retroactively fabricate a timeout for the second.
-// On expiry the check is reported failed-as-unknown instead of the endpoint
-// hanging.
 func awaitCheck(parent context.Context, results <-chan error, deadlineAt time.Time) error {
 	select {
 	case err := <-results:

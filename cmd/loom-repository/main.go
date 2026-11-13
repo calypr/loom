@@ -355,7 +355,6 @@ func publish(ctx context.Context, client *http.Client, base string, manifest rep
 	return value, nil
 }
 
-// Generation storage uses legacy project IDs while Explorer APIs expose canonical IDs.
 func uploadURL(base string, manifest repositoryseed.Manifest) string {
 	return strings.TrimRight(base, "/") + "/api/v1/datasets/" + url.PathEscape(projectid.Legacy(manifest.Project)) + "/generations/" + url.PathEscape(manifest.Generation)
 }

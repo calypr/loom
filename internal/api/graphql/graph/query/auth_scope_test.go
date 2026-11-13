@@ -37,9 +37,6 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 	preparedCatalogCalls := 0
 
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		// This intentionally has no ScopeResolver. The one-shot GraphQL recipe
-		// is already catalog- and scope-resolved before reaching execution, so
-		// execution must not perform a second recipe preparation pass.
 		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
 			_, bindVars, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {

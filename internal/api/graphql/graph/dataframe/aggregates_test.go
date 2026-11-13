@@ -102,10 +102,6 @@ func enqueueAndAwait(t *testing.T, wait *sync.WaitGroup, state *aggregateOperati
 	}()
 }
 
-// The 10ms fallback debounce may legitimately split the burst under
-// preemption; wall-clock single-batch behavior is not a product guarantee.
-// Synchronize on completion and pin the observable contract: every call
-// resolves and each call is dispatched exactly once across all batches.
 func TestAggregateSchedulerDispatchesExpectedConcurrentCallsOnce(t *testing.T) {
 	const burstCalls = 158
 	state, recorder := newAggregateSchedulerHarness(t, burstCalls)

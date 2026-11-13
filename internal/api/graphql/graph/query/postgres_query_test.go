@@ -1,17 +1,5 @@
 package queryapi
 
-// pg-runtime-first-query-route: the PostgreSQL first scoped scalar read
-// through the public fhirDataframe route. The offline witnesses prove the
-// wiring posture: with discovery ports unwired the service fails closed as
-// the named typed BACKEND_UNAVAILABLE before any row-port contact -- the
-// route is driven by its ports, and an unwired port can never leak into a
-// zero-value "success" or an ArangoDB fall-through. The live legs run the
-// real service over the real factory row port and the backend catalog
-// read lane's DiscoverFields behind the same discovery cache the server
-// composition uses; auth and generation filtering ride the real
-// compiled-SQL binds. Counters observe port contact without
-// substitution.
-
 import (
 	"context"
 	"crypto/rand"
@@ -45,10 +33,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// qRoutePostgreSQLCompileTarget builds the same closed PostgreSQL compile
-// target the server composition selects once from the source schema
-// placement, so this file exercises the route's real target, not the Arango
-// default the rest of this package's fixtures compile against.
 func qRoutePostgreSQLCompileTarget(t *testing.T) compiler.Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("verify_qroute_source")
@@ -62,12 +46,6 @@ func qRoutePostgreSQLCompileTarget(t *testing.T) compiler.Target {
 	return target
 }
 
-// TestFhirDataframeNilDiscoveryRefusesTyped pins the composition-side claim
-// on the query service: with DiscoverFields/DiscoverReferences unwired (the
-// posture runPostgreSQLFirstQueryRoute uses until the backend catalog read
-// lane lands), every discovery-backed query fails closed as the named typed
-// BACKEND_UNAVAILABLE -- and the row port is never contacted, so a refusal
-// can never be "answered" with rows from any other backend.
 func TestFhirDataframeNilDiscoveryRefusesTyped(t *testing.T) {
 	rowPortCalls := 0
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
@@ -102,16 +80,6 @@ func TestFhirDataframeNilDiscoveryRefusesTyped(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Pre-staged live legs (reachable mints in this file's verify_qroute_q
-// sub-namespace, registered and dropped by enumerated name only; see the
-// N-5 audit at the foot of this file). Every port is the production one:
-// the backend read lane supplies field discovery, auth and generation
-// filtering ride the compiled-SQL binds (render/postgres/scope.go
-// deny-by-default mapping), so the paired controls below are load-bearing
-// witnesses, not fixture luck.
-// ---------------------------------------------------------------------------
-
 const (
 	qrLiveProject = "qroute-p1"
 	qrLiveGenA    = "generation-a"
@@ -128,33 +96,12 @@ type qrLiveFixture struct {
 	bootstrap *backendspostgres.Runtime
 }
 
-// N-5 ownership for this file's mints: the verify_qroute_q sub-namespace
-// (the bare verify_qroute_ mint shape belongs to internal/server's census
-// harness, whose shape-scoped audit never counts these names). Every mint
-// is registered before any use, dropped by enumerated name only, and the
-// TestZZ audit below requires baseline parity plus all-registered-dropped.
-//
-// The shape-scoping is not decoration -- it is the registered adjudication
-// of an OBSERVED parallel-package race: `go test ./internal/api/graphql/
-// graph/query ./internal/server` runs the two packages concurrently, and
-// this file's live legs hold `verify_qroute_q<unixnano>_<hex>` databases in
-// flight while internal/server's census test counted `datname LIKE
-// 'verify\_qroute\_%'`. Those in-flight sub-namespace mints matched the
-// server prefix and pushed its census above baseline -- a foreign-straggler
-// false positive that package must never delete or attribute (N-5). Each
-// package now counts only its own mint shape, and
-// TestQRouteLiveCensusVocabularyCorrespondence below pins the separation
-// (and every mint-vs-regex correspondence) with assertions, not log claims.
 var (
-	qrDBPattern = regexp.MustCompile(`^verify_qroute_q[0-9]+_[0-9a-f]+$`)
-	// qrCensusSibling mirrors internal/server/postgres_query_test.go's
-	// qRouteDBPattern literal; the two files' tables keep the literals
-	// byte-identical and assert neither vocabulary matches the other's
-	// census, which is exactly what keeps the parallel run race-free.
+	qrDBPattern     = regexp.MustCompile(`^verify_qroute_q[0-9]+_[0-9a-f]+$`)
 	qrCensusSibling = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+$`)
 	qrOwnedMu       sync.Mutex
-	qrOwned         = map[string]qrMint{} // database -> minting leg + dropped
-	qrStrayMarks    = []string{}          // drop marks for unregistered names
+	qrOwned         = map[string]qrMint{}
+	qrStrayMarks    = []string{}
 	qrBaselineMu    sync.Mutex
 	qrBaseline      int64
 	qrBaselineSet   bool
@@ -166,11 +113,6 @@ type qrMint struct {
 	dropped bool
 }
 
-// qrMintInventory is the checked-in enumeration of this file's minting
-// legs: exactly these tests mint, each exactly this many databases. The
-// TestZZ audit asserts the runtime registry matches it leg-for-leg, so a
-// new minting leg without an inventory row fails the census instead of
-// leaking quietly.
 var qrMintInventory = map[string]int{
 	"TestFhirDataframePostgreSQLLiveExactScalarRows":                 1,
 	"TestFhirDataframePostgreSQLLiveRestrictedPrincipalSeesNoRows":   1,
@@ -191,8 +133,6 @@ func qrMarkDropped(db string) {
 	defer qrOwnedMu.Unlock()
 	rec, ok := qrOwned[db]
 	if !ok {
-		// A drop witnessed for a name this process never minted: recorded,
-		// never folded into the registry, and the audit fails on it.
 		qrStrayMarks = append(qrStrayMarks, db)
 		return
 	}
@@ -225,8 +165,6 @@ func qrCaptureBaseline(t *testing.T, raw string) {
 	qrBaseline, qrBaselineSet = count, true
 }
 
-// scrubQRStatic redacts credentials that could appear in connection errors
-// without depending on a per-fixture scrubber (baseline runs pre-fixture).
 func scrubQRStatic(err error, raw string) string {
 	s := err.Error()
 	if u, perr := url.Parse(raw); perr == nil {
@@ -264,8 +202,6 @@ func qrRandomHex(t *testing.T) string {
 	return fmt.Sprintf("%x", b[:])
 }
 
-// newQRLiveFixture mints one isolated database plus the two consumed-series
-// schemas and bootstraps both series through the public factory.
 func newQRLiveFixture(t *testing.T) *qrLiveFixture {
 	t.Helper()
 	raw := qrTestPostgresURL(t)
@@ -306,7 +242,7 @@ func newQRLiveFixture(t *testing.T) *qrLiveFixture {
 	qrRegister(database, t.Name())
 	qrCaptureBaseline(t, raw)
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+database+`"`); err != nil {
-		qrMarkDropped(database) // never existed; the audit must not double-count
+		qrMarkDropped(database)
 		t.Fatalf("create isolated database: %s", scrub(err))
 	}
 	t.Cleanup(func() {
@@ -329,8 +265,6 @@ func newQRLiveFixture(t *testing.T) *qrLiveFixture {
 		srcSchema: fmt.Sprintf("verify_qroute_q%d_%s_src", time.Now().UnixNano(), qrRandomHex(t)),
 		relSchema: fmt.Sprintf("verify_qroute_q%d_%s_rel", time.Now().UnixNano(), qrRandomHex(t))}
 
-	// The factory owns table setup, not schema lifecycle: create both
-	// series schemas first, as cmd/loom-data and the ingest fixtures do.
 	iso, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatalf("connect to isolated database: %s", scrub(err))
@@ -363,8 +297,6 @@ func newQRLiveFixture(t *testing.T) *qrLiveFixture {
 	return f
 }
 
-// load stages one generation through the production ingest entry with the
-// four catalog writers, exactly as cmd/loom-data composes them.
 func (f *qrLiveFixture) load(t *testing.T, project, generation string, files map[string][]string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -415,7 +347,6 @@ func (f *qrLiveFixture) activate(t *testing.T, project, generation string) {
 	}
 }
 
-// serviceRuntime opens the SetupNone runtime the service row port rides.
 func (f *qrLiveFixture) serviceRuntime(t *testing.T) *backendspostgres.Runtime {
 	t.Helper()
 	rt, err := backendspostgres.Open(context.Background(), control.Config{
@@ -477,11 +408,6 @@ func qrPatientInput(paths []string) *model.FhirDataframeInput {
 	return input
 }
 
-// qrDispatchGuardedRows mirrors the server composition's dispatch guard:
-// only PostgreSQL-tagged commands reach the factory executor, and a
-// non-PostgreSQL command is refused before any driver call. The stub exists
-// so this file fails loudly rather than silently executing an AQL command
-// through the PostgreSQL port.
 func qrDispatchGuardedRows(execute dataframeexecution.SourceRows) dataframeexecution.SourceRows {
 	return func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
 		if _, _, err := request.Command.PostgreSQLParameters(); err != nil {
@@ -491,17 +417,11 @@ func qrDispatchGuardedRows(execute dataframeexecution.SourceRows) dataframeexecu
 	}
 }
 
-// qrCounters observe port contact without changing port behavior.
 type qrCounters struct {
 	rowCalls      atomic.Int64
 	discoverCalls atomic.Int64
 }
 
-// qrService wires the query service exactly as the server composition
-// does: the backend read lane's DiscoverFields behind the same
-// catalog.NewCache the Arango lane uses, the factory row executor behind
-// the dispatch guard, and the manifest port as ActiveManifestResolver.
-// The counters delegate: they observe, never substitute.
 func qrService(t *testing.T, f *qrLiveFixture, rt *backendspostgres.Runtime, counters *qrCounters) *Service {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding(f.srcSchema)
@@ -603,14 +523,11 @@ func TestFhirDataframePostgreSQLLiveRestrictedPrincipalSeesNoRows(t *testing.T) 
 	var counters qrCounters
 	service := qrService(t, f, f.serviceRuntime(t), &counters)
 
-	// Alive control first: the identical unrestricted query returns both.
 	control, err := service.Run(context.Background(), *qrPatientInput(nil), nil)
 	if err != nil || control == nil || control.RowCount != 2 {
 		t.Fatalf("unrestricted control = %+v err=%v, want 2 rows (fixture is not vacuous)", control, f.scrub(err))
 	}
 
-	// A principal scoped away from the loaded path must read zero rows
-	// through the deny-by-default SQL binds -- success envelope, no error.
 	restrictedCtx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Subject: "verify_qroute_nurse", AuthResourcePaths: []string{"/fhir-nurse"},
 	})
@@ -659,7 +576,6 @@ func TestFhirDataframePostgreSQLLiveBackendOutageTyped(t *testing.T) {
 	rt := f.serviceRuntime(t)
 	service := qrService(t, f, rt, &counters)
 
-	// Alive control: rows first, then the outage.
 	control, err := service.Run(context.Background(), *qrPatientInput(nil), nil)
 	if err != nil || control == nil || control.RowCount != 1 {
 		t.Fatalf("alive control = %+v err=%v, want 1 row before the outage", control, f.scrub(err))
@@ -705,20 +621,6 @@ func TestFhirDataframePostgreSQLLivePreCancellationTyped(t *testing.T) {
 	t.Logf("cancellation classification witness: code=%q retryable=%v", typed.Code(), typed.Retryable())
 }
 
-// TestQRouteLiveCensusVocabularyCorrespondence pins, offline and with no
-// database contact, the two vocabularies this batch minted: this file's
-// verify_qroute_q<unixnano>_<hex> sub-namespace and internal/server's bare
-// verify_qroute_<unixnano>_<hex> census shape. Conditions it makes
-// test-enforced (coordinator ruling on the census narrowing):
-//
-//   - every name shape this process mints matches its own census regex, so
-//     a leak can never go uncensused;
-//   - near-miss shapes never minted -- including the fuzz names the
-//     verifier was told to try (verify_qroute_q_zz, verify_qroute_1_x) --
-//     do NOT match, so the census cannot silently claim foreign churn;
-//   - neither vocabulary matches the other package's census, which is the
-//     exact separation that makes the parallel `go test` of this package
-//     and internal/server race-free (see the registry comment above).
 func TestQRouteLiveCensusVocabularyCorrespondence(t *testing.T) {
 	qrHex := func() string {
 		var b [6]byte
@@ -727,7 +629,6 @@ func TestQRouteLiveCensusVocabularyCorrespondence(t *testing.T) {
 		}
 		return fmt.Sprintf("%x", b[:])
 	}
-	// Positive: 200 samples through the exact mint format.
 	for i := 0; i < 200; i++ {
 		name := fmt.Sprintf("verify_qroute_q%d_%s", time.Now().UnixNano(), qrHex())
 		if !qrDBPattern.MatchString(name) {
@@ -738,16 +639,13 @@ func TestQRouteLiveCensusVocabularyCorrespondence(t *testing.T) {
 		}
 	}
 	ownPositives := []string{"verify_qroute_q1731234567890_0123456789ab"}
-	// Negative: shapes this file never mints. The first two are the
-	// verifier's named fuzz examples. The bare server shape and the _src /
-	// _rel suffix shapes are the neighbouring vocabularies.
 	ownNegatives := []string{
 		"verify_qroute_q_zz",
 		"verify_qroute_1_x",
 		"verify_qroute_zz",
-		"verify_qroute_1731234567890_0123456789ab", // internal/server's mint shape
+		"verify_qroute_1731234567890_0123456789ab",
 		"verify_qroute_qq1731234567890_0123456789ab",
-		"verify_qroute_q1731234567890_0123456789AB", // uppercase hex is never minted
+		"verify_qroute_q1731234567890_0123456789AB",
 		"verify_qroute_q_0123456789ab",
 		"verify_qroute_q1731234567890_",
 		"verify_qroute_q1731234567890_0123456789ab_src",
@@ -767,9 +665,6 @@ func TestQRouteLiveCensusVocabularyCorrespondence(t *testing.T) {
 			t.Errorf("never-minted shape %q matched the own census regex: the census can now hide foreign churn under this file's name", name)
 		}
 	}
-	// Sibling direction: the server's mint shape is census-invisible here,
-	// and this file's shape is census-invisible there (mirror assertions
-	// live in internal/server/postgres_query_test.go).
 	for i := 0; i < 200; i++ {
 		sibling := fmt.Sprintf("verify_qroute_%d_%s", time.Now().UnixNano(), qrHex())
 		if qrDBPattern.MatchString(sibling) {
@@ -787,7 +682,6 @@ func TestFhirDataframePostgreSQLLiveGarbagePrincipalPathsFailClosed(t *testing.T
 	var counters qrCounters
 	service := qrService(t, f, f.serviceRuntime(t), &counters)
 
-	// Alive control first so the refusal is proven load-bearing.
 	control, err := service.Run(context.Background(), *qrPatientInput(nil), nil)
 	if err != nil || control == nil || control.RowCount != 1 {
 		t.Fatalf("alive control = %+v err=%v, want 1 row before the refusal", control, f.scrub(err))
@@ -795,9 +689,6 @@ func TestFhirDataframePostgreSQLLiveGarbagePrincipalPathsFailClosed(t *testing.T
 	counters.rowCalls.Store(0)
 	counters.discoverCalls.Store(0)
 
-	// A principal whose only paths normalize to nothing (control bytes)
-	// is refused as typed FORBIDDEN at input resolution -- before field
-	// discovery and before the row port see anything (F-B22 law).
 	garbageCtx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Subject: "verify_qroute_garbage", AuthResourcePaths: []string{"\x00\x01\x02"},
 	})
@@ -818,19 +709,6 @@ func TestFhirDataframePostgreSQLLiveGarbagePrincipalPathsFailClosed(t *testing.T
 	}
 }
 
-// TestZZQRouteLiveZeroLeftoverFixtures is this file's N-5 audit: every
-// verify_qroute_q mint this process registered must be witnessed dropped,
-// and the sub-namespace count must return to the first-use baseline. The
-// mismatch enumeration lists own sub-namespace names only; nothing outside
-// it is ever deleted or attributed (N-5). The audit additionally asserts
-// (not logs) drop-list == minted-list, mint-name/regex correspondence, and
-// per-leg equality against qrMintInventory.
-//
-// Go runs tests in source order, so this function is deliberately the last
-// function in the file: every minting leg above it (including
-// TestFhirDataframePostgreSQLLiveGarbagePrincipalPathsFailClosed) has
-// registered and dropped its database before the census compares. Any new
-// minting leg must be added ABOVE this audit, never below it.
 func TestZZQRouteLiveZeroLeftoverFixtures(t *testing.T) {
 	raw := qrTestPostgresURL(t)
 	if !qrBaselineSet {
@@ -870,22 +748,12 @@ func TestZZQRouteLiveZeroLeftoverFixtures(t *testing.T) {
 	if len(outstanding) > 0 {
 		t.Fatalf("owned fixtures still live at audit: %v", outstanding)
 	}
-	// Drop-list == minted-list, asserted (not logged): every registered
-	// mint was witnessed dropped above, and a drop mark can only land on a
-	// registered name -- anything else went to qrStrayMarks:
 	if len(strays) > 0 {
 		t.Fatalf("drop marks for names this process never minted: %v", strays)
 	}
-	// Every minted name matches the census regex, so no leak of this
-	// process can hide outside the census that watches for leaks.
 	if len(unmatched) > 0 {
 		t.Fatalf("registered mints outside the census regex: %v", unmatched)
 	}
-	// Checked-in per-leg enumeration == runtime registry, both directions:
-	// every inventoried leg minted its declared count, and no leg outside
-	// the inventory minted anything. (This is the full-package census run;
-	// a -run subset that skips inventoried legs fails here on purpose so
-	// the subset is never mistaken for the census.)
 	for leg, want := range qrMintInventory {
 		if got := perLeg[leg]; got != want {
 			t.Errorf("mint inventory: leg %q minted %d databases, inventoried %d", leg, got, want)

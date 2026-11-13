@@ -23,9 +23,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// The repository and materializer are explicit test boundaries. Production
-// compiler, lifecycle policy, strict HTTP routes and Viewer projection execute;
-// this is not a database-restart, real materialization, or browser-row proof.
 type agreementPublicationStore struct {
 	*testExplorerStore
 	publishCalls    int
@@ -98,8 +95,6 @@ func TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead(t *testing.T
 	if persisted.ID != result.RevisionID || persisted.CompilationReceiptID != receipt.ID || persisted.IntentDigest != receipt.IntentDigest || persisted.RecipeDigest != receipt.RecipeDigest || persisted.ResolvedSchemaDigest != receipt.ResolvedSchemaDigest || !reflect.DeepEqual(persisted.PublicOutputContract, receipt.PublicOutputContract) {
 		t.Fatalf("persisted publication identity diverged from receipt: revision=%#v receipt=%#v", persisted, receipt)
 	}
-	// Deliberately change the live draft after publication. A new GET must
-	// continue projecting the immutable published receipt, not this draft.
 	unpublished, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)

@@ -62,10 +62,6 @@ const (
 	InitialPresentationChart             = "CHART"
 )
 
-// ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
-// idempotency token retained only for the last successfully applied command,
-// never a durable authoring identity; retrying an older command is a draft
-// conflict after a later command advances the draft.
 type ApplyCommandsRequest struct {
 	CommandID            string    `json:"commandId"`
 	SemanticsVersion     int       `json:"semanticsVersion"`
@@ -76,8 +72,6 @@ type ApplyCommandsRequest struct {
 	draftSourceContext   *DraftSourceContext
 }
 
-// DraftSourceContext is attached by lifecycle after resolving the request's
-// authorized snapshot. It is never accepted from the browser.
 type DraftSourceContext struct {
 	SnapshotToken            string
 	SourceGeneration         string
@@ -160,8 +154,6 @@ type Command struct {
 	resolvedDraftRevision    *Workspace
 }
 
-// ConstructionOutputPresentation updates user-facing metadata for a stable
-// construction output. Name and Type remain compiler-owned identities.
 type ConstructionOutputPresentation struct {
 	StepID   string             `json:"stepId"`
 	ColumnID string             `json:"columnId"`
@@ -186,8 +178,6 @@ func (p ConstructionOutputPresentation) Validate() error {
 	return nil
 }
 
-// ResolveDraftRevision binds a restore command to a workspace resolved by the
-// lifecycle service from the owner's exact previous-draft pointer.
 func (c *Command) ResolveDraftRevision(workspace Workspace) error {
 	if c == nil || c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID) == "" || c.DraftRevisionID != strings.TrimSpace(c.DraftRevisionID) {
 		return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact server-resolved draft revision")
@@ -200,8 +190,6 @@ func (c *Command) ResolveDraftRevision(workspace Workspace) error {
 	return nil
 }
 
-// ColumnTransformationChange replaces or removes the one typed value
-// transformation attached to an authored column.
 type ColumnTransformationChange struct {
 	Kind           string                               `json:"kind"`
 	Transformation *columntransform.ValueTransformation `json:"transformation,omitempty"`
@@ -224,8 +212,6 @@ func (c ColumnTransformationChange) Validate() error {
 	}
 }
 
-// ConstructionChoiceSelection carries only the server-issued source identity
-// and the form the author chose from its current supported options.
 type ConstructionChoiceSelection struct {
 	RowValuePolicy ConstructionRowValuePolicy        `json:"rowValuePolicy,omitempty"`
 	ChoiceID       string                            `json:"choiceId"`
@@ -271,8 +257,6 @@ func (s ConstructionChoiceSelection) validate() error {
 	}
 }
 
-// ResolvedConstructionChoice is populated by lifecycle after it re-authorizes
-// and reconstructs the choice against the current compiler snapshot.
 type ResolvedConstructionChoice struct {
 	CandidateID string
 	Source      ColumnSource
@@ -281,8 +265,6 @@ type ResolvedConstructionChoice struct {
 	FrameID     string
 }
 
-// SemanticSelection is client intent plus an internal-only resolution filled
-// by lifecycle after authorization and context checks.
 type SemanticSelection struct {
 	ConceptID           string                          `json:"conceptId"`
 	BindingID           string                          `json:"bindingId"`
@@ -302,10 +284,6 @@ func (s *SemanticSelection) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ApplyInterpretationCandidate is the closed, receipt-backed payload for an
-// interpretation repair. The receipt ID and revision ID are both required:
-// the former proves the preview that was shown to the user, while the latter
-// prevents replaying that preview with a different immutable revision.
 type ApplyInterpretationCandidate struct {
 	CandidateReceiptID string `json:"candidateReceiptId"`
 	RevisionID         string `json:"revisionId"`
@@ -403,9 +381,6 @@ func rejectUnknownProposalCommandFields(raw []byte, commandType string) error {
 	return nil
 }
 
-// ResolveRowDefinitionProposal attaches the lifecycle-validated row definition
-// to an apply command. The resolved value is deliberately not part of the
-// browser command or its serialized payload.
 func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 	if c == nil || c.Type != CommandApplyRowDefinitionProposal {
 		return fmt.Errorf("row definition can only be resolved for APPLY_ROW_DEFINITION_PROPOSAL")
@@ -425,8 +400,6 @@ func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 	return nil
 }
 
-// ResolveTableShapeProposal attaches the lifecycle-validated table shape to an
-// apply command. A nil shape is a resolved removal, not an unresolved command.
 func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
 	if c == nil || c.Type != CommandApplyTableShapeProposal {
 		return fmt.Errorf("table shape can only be resolved for APPLY_TABLE_SHAPE_PROPOSAL")
@@ -444,9 +417,6 @@ func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
 	return nil
 }
 
-// ResolveConstructionProposal attaches the lifecycle-validated candidate
-// document's construction and row intent to an apply command. Both values are
-// server-resolved state and never appear in the browser command payload.
 func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	if c == nil || c.Type != CommandApplyConstructionProposal {
 		return fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
@@ -475,9 +445,6 @@ func (c *Command) ResolveConstructionProposal(candidate *Document) error {
 	return nil
 }
 
-// ResolvePopulationMemberProposal attaches the server-revalidated candidate
-// population to a closed proposal apply command. The browser can submit only
-// outputId and proposalId; selection and route data are never caller supplied.
 func (c *Command) ResolvePopulationMemberProposal(selectionRevisionID string, route []PopulationRouteStep) error {
 	if c == nil || c.Type != CommandApplyPopulationMemberProposal {
 		return fmt.Errorf("population can only be resolved for APPLY_POPULATION_MEMBER_PROPOSAL")
@@ -835,8 +802,6 @@ func (c Command) validate() error {
 	return nil
 }
 
-// ApplyCommands is a pure reducer over canonical authoring state. It clones
-// the input and either returns one fully valid workspace or no mutation.
 func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID string, commands []Command) (Workspace, []CommandResult, error) {
 	working, err := cloneWorkspace(workspace)
 	if err != nil {
@@ -1379,8 +1344,6 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 				Kind:   FeatureInterpretationPinned,
 				Pinned: &PinnedInterpretation{RevisionID: revisionID},
 			}
-			// A pinned human interpretation owns the feature meaning. Any inline
-			// contributor is stale for this exact candidate and must not survive.
 			current.Contributor = nil
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}
@@ -1594,10 +1557,6 @@ func setPopulationRoute(document *Document, selectionRevisionID string, route []
 	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
 }
 
-// editableSource adds the explicit related-resource policy to new child
-// selections. A child column is rendered through a first matching resource
-// even when its projection mode is VALUE or INDEXED, so publication must not
-// silently present that reduction as lossless.
 func editableSource(occurrenceID string, source ColumnSource) ColumnSource {
 	source = source.Normalized()
 	mode := strings.ToUpper(strings.TrimSpace(source.ProjectionMode()))
@@ -1673,9 +1632,6 @@ func cloneWorkspace(value Workspace) (Workspace, error) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return Workspace{}, err
 	}
-	// SourceWhere is a private persisted-draft compatibility payload and is
-	// intentionally omitted from current JSON. Preserve it for transactional
-	// legacy migration and frozen in-memory callers while keeping it unwritable.
 	for documentIndex := range value.Documents {
 		if documentIndex >= len(result.Documents) {
 			break
@@ -1756,10 +1712,6 @@ func validateWorkspaceContributors(workspace Workspace, catalog CatalogSnapshot)
 	return nil
 }
 
-// ValidateContributorForCatalog proves one authored contributor against the
-// pinned occurrence and catalog. It is shared by command application and the
-// compilation boundary so a stale/foreign candidate cannot become a recipe
-// selector.
 func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, predicate ContributorPredicate) error {
 	if source.Kind != SourceAggregate || source.Aggregate == nil {
 		return fmt.Errorf("contributor is only supported for aggregate sources")
@@ -1835,8 +1787,6 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, *source.Lookup.Binding); err != nil {
 			return fmt.Errorf("source binding: %w", err)
 		}
-		// Correlated lookups carry their structural source in Binding. They do
-		// not have a legacy field path to resolve against a catalog candidate.
 		return nil
 	}
 	if source.OwnerRecords != nil && source.Kind == SourceOwnerRecords {
@@ -2160,7 +2110,6 @@ func applyInitialPresentation(column *Column, presentation string, tableOrder in
 func nextTableOrder(document Document) int {
 	result := 0
 	if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == GroupSourceExplicit {
-		// Cohort label, ordinal and members precede the contributed fields.
 		result = 3 + len(document.Rows.Groups.RowValues)
 	}
 	for _, column := range document.Columns {

@@ -15,38 +15,6 @@ import (
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// This file is the durable F-B20 authorization control for the production
-// GraphQL execution reader.
-//
-// History. The original suite characterized the shipped defect: NewAuthorizedRecipeExecutionReader
-// performed no project-membership assertion at all (the entire block was gated
-// on a non-nil scope resolver) and its restricted-mode gate compared path
-// COUNTS rather than sets, so a caller whose project allowlist excluded the
-// execution's project could disclose cross-project execution metadata by
-// holding a colliding auth-path string, and any caller without a resolver was
-// served unconditionally. The repair makes the project assertion unconditional
-// (authscope.AuthorizeProject, the shipped semantics that keep the anonymous
-// single-operator deployment allowed by design) and replaces the count
-// comparison with the shared scope.CoversExecutionPaths set rule in both the
-// GraphQL reader and its REST sibling internal/server/openapi_recipe_execution.go.
-//
-// Contract verified here: an authenticated principal whose Projects excludes
-// the execution's project is refused with the same concealed
-// RECIPE_EXECUTION_NOT_FOUND result as a missing id, before the scope resolver
-// is consulted; a member principal keeps full read access; the restricted-mode
-// gate is a normalized path-SET rule (duplicates or blank variants alone can
-// no longer deny a caller authorized on every declared path, and a restricted
-// execution that declares no non-blank path can no longer be served);
-// a principal-less request keeps the shipped anonymous posture.
-//
-// Why the scope resolver is not a hand-written fake. The constructor takes the
-// concrete *authscope.ScopeResolver, so no fake type can be substituted. Cases
-// B and C build the production authscope.NewScopeResolver and control only its
-// declared seams, which is what internal/authscope/scope_test.go does too.
-//
-// REST sibling behaviour coverage lives in package server
-// (openapi_recipe_execution_test.go); this file keeps source-level quotes
-// proving the twin carries the same unconditional membership call and set gate.
 const (
 	fb20ForeignProject    = "Q"
 	fb20ForeignGeneration = "gQ"
@@ -71,16 +39,6 @@ const (
 	fb20SourceTwin       = "../../../../server/openapi_recipe_execution.go"
 )
 
-// Denial origin is proven behaviourally: catalog consultation counts
-// (fb20ScopeProbe.calls) distinguish the membership short-circuit from the
-// resolver path, so the concealed user-facing result stays bit-identical
-// regardless of which gate refused.
-
-// fb20QuotedFacts are the exact source fragments this control is built on.
-// The membership call is pinned outside the resolver-conditional block in
-// BOTH twins, the restricted gate is the shared set rule, and the archived
-// count comparison must stay absent. Any disappearance is drift and must fail
-// the suite rather than let a stale guarantee pass.
 var fb20QuotedFacts = []struct {
 	name   string
 	source string
@@ -143,10 +101,6 @@ var fb20QuotedFacts = []struct {
 	},
 }
 
-// fb20ArchivedPreFixFacts record the repaired defect. Their absence from both
-// twins is required: these are the shipped shapes the F-B20 reproduction
-// demonstrated (unconditional cross-tenant disclosure with a nil resolver, and
-// count-blind restricted-mode acceptance).
 var fb20ArchivedPreFixFacts = []struct {
 	name   string
 	source string
@@ -167,9 +121,6 @@ var fb20ArchivedPreFixFacts = []struct {
 	},
 }
 
-// fb20ExecutionStore is the smallest fake for the reader's own RecipeExecutionStore
-// interface. It yields one published, ready-output execution that belongs to
-// the foreign project.
 type fb20ExecutionStore struct {
 	execution materialization.BundleExecution
 	err       error
@@ -184,10 +135,6 @@ func (s *fb20ExecutionStore) GetExecution(_ context.Context, id string) (materia
 	return s.execution, nil
 }
 
-// fb20ScopeProbe drives the declared seams of authscope.ScopeResolverConfig so
-// the production resolver can resolve restricted scopes without a live Fence
-// or a catalog. Call history also proves whether the membership gate precedes
-// any resolver consultation.
 type fb20ScopeProbe struct {
 	existingByProject map[string][]string
 	calls             []catalog.AuthResourcePathOptions
@@ -233,10 +180,6 @@ func fb20ReadScopeResolver(t *testing.T, probe *fb20ScopeProbe) *authscope.Scope
 	})
 }
 
-// fb20RequireRepairedGuards is STEP 0. It pins every quoted fragment and
-// requires the archived pre-fix shapes to remain absent from the production
-// twins. A regression that restores either fails here with an explicit
-// message instead of letting the behavioural cases below pass on drift.
 func fb20RequireRepairedGuards(t *testing.T) {
 	t.Helper()
 	contents := make(map[string]string, len(fb20QuotedFacts))
@@ -282,9 +225,6 @@ func fb20LineOf(source, needle string) int {
 	return strings.Count(source[:index], "\n") + 1
 }
 
-// fb20AssertConcealedDenial asserts the refused read is indistinguishable from
-// a missing execution: no payload, the concealed user-facing code, and the
-// forbidden condition for callers that inspect the chain.
 func fb20AssertConcealedDenial(t *testing.T, got *RecipeExecution, err error) string {
 	t.Helper()
 	if got != nil {
@@ -304,10 +244,6 @@ func fb20AssertConcealedDenial(t *testing.T, got *RecipeExecution, err error) st
 	return "code=" + userErr.Code()
 }
 
-// fb20AssertMembershipDeniedByTheRealAuthorizer proves the caller genuinely
-// lacks project membership using the shipped AuthorizeProject. Without it, a
-// denial result would be vacuous because the "foreign" caller might not have
-// been authorized in the first place.
 func fb20AssertMembershipDeniedByTheRealAuthorizer(t *testing.T, principal *authscope.Principal) {
 	t.Helper()
 	err := authscope.AuthorizeProject(principal, fb20ForeignProject, false)
@@ -364,10 +300,6 @@ func fb20Itoa(value *int) string {
 	return strconv.Itoa(*value)
 }
 
-// Case A: the archived primary defect arm. scopeResolver == nil (server.go
-// passes auth.scopeResolver, nil whenever no Fence is configured) and a
-// principal whose project allowlist holds only "P". Pre-fix this disclosed
-// foreign metadata unconditionally; the repaired reader must conceal.
 func TestFB20NilScopeResolverRefusesForeignPrincipal(t *testing.T) {
 	fb20RequireRepairedGuards(t)
 	store := &fb20ExecutionStore{execution: fb20ForeignBundle([]string{fb20CallerPath})}
@@ -393,10 +325,6 @@ func TestFB20NilScopeResolverRefusesForeignPrincipal(t *testing.T) {
 			" and errors.Is(err, authscope.ErrForbidden); the anonymous (principal-less) posture stays allowed by design")
 }
 
-// Case A2: a scope resolver IS configured but the caller carries neither
-// auth_resource_paths nor a bearer token, so the production resolver would
-// treat the caller as unrestricted. Pre-fix the unrestricted mode skipped the
-// reader gate entirely; now membership alone refuses.
 func TestFB20ResolverPresentWithoutCallerGrantsIsRefused(t *testing.T) {
 	fb20RequireRepairedGuards(t)
 	store := &fb20ExecutionStore{execution: fb20ForeignBundle([]string{fb20CallerPath})}
@@ -422,10 +350,6 @@ func TestFB20ResolverPresentWithoutCallerGrantsIsRefused(t *testing.T) {
 			"; zero listExisting calls prove the ordering (archived shape required unrestricted mode to fall through)")
 }
 
-// Case B1: the exact archived acceptance arm. A restricted-mode caller holds
-// the very auth-path string the foreign execution carries while its project
-// allowlist excludes the foreign project. Pre-fix the reader accepted on the
-// path string alone.
 func TestFB20RestrictedPathStringAloneNoLongerAdmits(t *testing.T) {
 	fb20RequireRepairedGuards(t)
 	store := &fb20ExecutionStore{execution: fb20ForeignBundle([]string{fb20CallerPath})}
@@ -439,8 +363,6 @@ func TestFB20RestrictedPathStringAloneNoLongerAdmits(t *testing.T) {
 	}
 	ctx := authscope.ContextWithPrincipal(context.Background(), principal)
 
-	// Proof the acceptance arm is real: the resolver itself would authorize
-	// the held path for the foreign generation (it did pre-fix).
 	scope, scopeErr := resolver.ResolveReadScopeForGeneration(ctx, principal, fb20ForeignProject, fb20ForeignGeneration, []string{fb20CallerPath})
 	if scopeErr != nil {
 		t.Fatalf("precondition: production resolver should authorize the held path, got %v", scopeErr)
@@ -467,9 +389,6 @@ func TestFB20RestrictedPathStringAloneNoLongerAdmits(t *testing.T) {
 			"authorized, yet the reader refused with "+denied+" before any catalog call")
 }
 
-// Case B2: a member principal whose grants miss the execution's path stays
-// concealed through the resolver; a non-member is refused before the resolver.
-// Both arrive indistinguishable.
 func TestFB20PathMismatchStaysConcealedForMemberAndNonMember(t *testing.T) {
 	fb20RequireRepairedGuards(t)
 	alienPrincipal := &authscope.Principal{
@@ -477,8 +396,6 @@ func TestFB20PathMismatchStaysConcealedForMemberAndNonMember(t *testing.T) {
 		Projects:          []string{fb20ForeignProject},
 		AuthResourcePaths: []string{fb20AlienPath},
 	}
-	// Control: the member/missing-path denial must come from the resolver, so
-	// the non-member denial below cannot silently share the wrong source.
 	storeM := &fb20ExecutionStore{execution: fb20ForeignBundle([]string{fb20CallerPath})}
 	probeM := &fb20ScopeProbe{existingByProject: map[string][]string{fb20ForeignProject: {fb20AlienPath}}}
 	readerM := NewAuthorizedRecipeExecutionReader(storeM, fb20ReadScopeResolver(t, probeM))
@@ -510,11 +427,6 @@ func TestFB20PathMismatchStaysConcealedForMemberAndNonMember(t *testing.T) {
 			"remain indistinguishable to callers")
 }
 
-// Case C: the count-compare's over-rejection side finding and the fail-closed
-// blank-declaration rule. Pre-fix, recipe_execution_reader.go:40 denied a
-// caller authorized on every distinct path purely because raw and normalized
-// counts differed; a restricted execution with no non-blank path was servable
-// whenever the restricted scope's count matched.
 func TestFB20SetRuleReplacesCountCompare(t *testing.T) {
 	fb20RequireRepairedGuards(t)
 	t.Run("authorized-caller-duplicate-declaration-is-served", func(t *testing.T) {
@@ -563,9 +475,6 @@ func TestFB20SetRuleReplacesCountCompare(t *testing.T) {
 	})
 }
 
-// TestFB20PreventionPrecedentsAndRESTTwinStayQuoted keeps the contrast evidence
-// honest and records the REST sibling's repaired posture. Its live behaviour is
-// covered by package server tests.
 func TestFB20PreventionPrecedentsAndRESTTwinStayQuoted(t *testing.T) {
 	fb20RequireRepairedGuards(t)
 	service, err := os.ReadFile(fb20SourceService)

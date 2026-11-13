@@ -18,8 +18,6 @@ const (
 	explicitGroupMaxRelations    = 100_000
 )
 
-// ExplicitGroupInput is intentionally generic: members are opaque keys
-// returned by the source selection API, not serialized resource references.
 type ExplicitGroupInput struct {
 	ID        string
 	Label     string
@@ -52,9 +50,6 @@ type ExplicitGroupCreateResult struct {
 	Groups                    []ExplicitGroupSummary
 }
 
-// CreateExplicitGroupRevision creates one complete immutable relation set
-// bound to the exact authorized selection. Opaque member keys are resolved
-// against that selection before any staging write begins.
 func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request ExplicitGroupCreateRequest) (result ExplicitGroupCreateResult, err error) {
 	if s == nil || s.config.ExplicitGroupRepository == nil || s.config.Capability.ForCompilation == nil {
 		return result, unavailable("explicit-groups", "AUTHORING_UNAVAILABLE", "explicit group authoring is not configured", nil)

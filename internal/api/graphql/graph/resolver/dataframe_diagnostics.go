@@ -20,11 +20,6 @@ func dataframeDiagnostics(in dataframeexecution.QueryDiagnostics) *model.Datafra
 		TotalMs:              milliseconds(in.Total),
 		Plan:                 compilerPlanDiagnostics(in.Plan),
 	}
-	// arangoQueryMs is a transport projection of the same source-query
-	// measurement, kept only for compatibility with existing consumers: it
-	// carries the actual Arango cursor time for AQL-served requests and is
-	// explicitly zero for PostgreSQL, which never had an Arango query. There
-	// is no second internal timer behind this field.
 	if in.SourceBackend == command.CompiledBackendAQL {
 		out.ArangoQueryMs = milliseconds(in.SourceQuery)
 	}

@@ -24,9 +24,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// Recovers the deleted saved-route journey's command/identity guarantees at the
-// real public HTTP/service/compiler boundary. Preview execution is deliberately
-// empty: this does not pretend a stubbed preview proves graph-row semantics.
 func TestSavedRelatedRouteProposalApplyRestoreAndFreshRead(t *testing.T) {
 	savedRelatedRouteRoundtrip(t, nil)
 }
@@ -257,7 +254,6 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *arangofactory.Client) {
 	if proposed.ProposalId == nil || proposed.Preview == nil || proposed.Preview.ReceiptId != *proposed.ProposalId {
 		t.Fatalf("proposal missing reviewed preview: %#v", proposed)
 	}
-	// Cancel is client-local: merely reviewing a proposal must not mutate the draft.
 	canceled := load()
 	raw, _ := canceled.Workspace.CanonicalJSON()
 	if canceled.Version != 3 || canceled.Digest != digest || !bytes.Equal(raw, original) {
@@ -318,8 +314,6 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *arangofactory.Client) {
 		t.Fatal("draft roundtrip changed published revision")
 	}
 	if rowClient != nil {
-		// A fresh repository instance reads persisted bytes rather than the service's
-		// response or the in-memory fixture used by the fast structural case.
 		fresh, err := arangofactory.NewExplorerStore(rowClient)
 		if err != nil {
 			t.Fatal(err)

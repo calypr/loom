@@ -284,7 +284,6 @@ func TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBod
 		t.Fatalf("migrated body predicates = %d, want 7", got)
 	}
 
-	// Match RunScenario's idempotency path: publish the one selected body twice.
 	for range 2 {
 		if _, err := publishWorkspace(context.Background(), cfg, client, migratedBody); err != nil {
 			t.Fatal(err)

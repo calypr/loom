@@ -35,9 +35,9 @@ var gacCitations = []gacCitation{
 	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 327, `UPDATE active WITH { dataset: candidate.dataset, manifestKey: candidate._key } IN @@lifecycle_collection`},
 	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 328, `OPTIONS { ignoreRevs: false, mergeObjects: false }`},
 	{"internal/backends/arango/internal/dataset/release_store.go", 197, `FILTER currentRevision == @expected_revision OR alreadyActive`},
-	{"internal/api/bulk/load/service.go", 206, `manifest, err := s.generationActivator.ReadManifest(ctx, ref)`},
-	{"internal/api/bulk/load/service.go", 210, `if !manifest.IsStaged() {`},
-	{"internal/api/bulk/load/service.go", 217, `if err := s.generationActivator.Activate(ctx, manifest); err != nil {`},
+	{"internal/api/bulk/load/service.go", 202, `manifest, err := s.generationActivator.ReadManifest(ctx, ref)`},
+	{"internal/api/bulk/load/service.go", 206, `if !manifest.IsStaged() {`},
+	{"internal/api/bulk/load/service.go", 209, `if err := s.generationActivator.Activate(ctx, manifest); err != nil {`},
 	{"internal/backends/arango/internal/explorer/activation.go", 94, `if err := updateActivationDocument(txCtx, tx, datasetarango.LifecycleCollection, activeKey, map[string]any{"dataset": dataset, "manifestKey": manifestKey}); err != nil {`},
 	{"internal/backends/arango/internal/explorer/activation.go", 38, `UPDATE d WITH @patch IN @@c`},
 }

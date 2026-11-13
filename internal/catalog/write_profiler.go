@@ -22,8 +22,6 @@ func NewShapePlanCacheWithLimits(maxPlans, maxBytes int) *ShapePlanCache {
 	return &ShapePlanCache{plans: make(map[string]*shapePlan), maxPlans: maxPlans, maxBytes: maxBytes, budget: newRetentionBudget(maxBytes)}
 }
 
-// NewProfilerForGenerationWithLimits constructs a profiler with explicit
-// bounds for every write-side catalog structure.
 func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache, limits ProfileLimits) *Profiler {
 	limits = limits.normalized()
 	if cache == nil {
@@ -47,15 +45,10 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	return p.observePayload(payload, timings, "", nil, nil, "", nil)
 }
 
-// ObservePayloadWithInventory profiles a source record and emits each semantic
-// observation through the same extractor used by the bounded field summary.
 func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) error {
 	return p.observePayload(payload, timings, sourceID, sink, nil, "", nil)
 }
 
-// ObservePayloadWithCoverage profiles one source record, emits semantic
-// observations and ephemeral concrete-owner evidence, then writes exactly one
-// aggregated source coverage contribution through coverageSink.
 func (p *Profiler) ObservePayloadWithCoverage(
 	payload map[string]any,
 	timings map[string]float64,
@@ -142,10 +135,6 @@ func (p *Profiler) observePayload(
 	return semanticErr
 }
 
-// ErrProfilerIdentityMismatch reports an attempted merge between independently
-// scoped catalog profilers. Combining those stats would let one project,
-// generation, authorization path, or resource type claim observations from
-// another scope.
 var ErrProfilerIdentityMismatch = errors.New("catalog profiler identity mismatch")
 
 type profilerIdentity struct {
@@ -164,10 +153,6 @@ func (p *Profiler) normalizedIdentity() profilerIdentity {
 	}
 }
 
-// Merge aggregates worker-local observations only when both profilers describe
-// the same persisted catalog namespace. It validates every identity component
-// before changing any statistics so a rejected merge is observationally a
-// no-op for the destination profiler.
 func (p *Profiler) Merge(other *Profiler) error {
 	if p == nil || other == nil {
 		return fmt.Errorf("%w: nil profiler", ErrProfilerIdentityMismatch)
@@ -673,8 +658,6 @@ func (p *Profiler) ensureExtensionURLStat(path string) *fieldCatalogStats {
 }
 
 func extensionValueMapping(path string, value any) (string, string) {
-	// FHIR complex value[x] payloads and arrays require lossless JSON fallback;
-	// an empty value path is the resolver's explicit canonical-JSON marker.
 	switch value.(type) {
 	case map[string]any, []any:
 		return "", "string"

@@ -15,8 +15,6 @@ func constructionShapesRows(kind ConstructionOperationKind) bool {
 	}
 }
 
-// CanPopulateConstructionRows proves that a source column can reach every
-// shaping boundary and continue through the remaining construction.
 func CanPopulateConstructionRows(construction *Construction) bool {
 	if construction == nil {
 		return false

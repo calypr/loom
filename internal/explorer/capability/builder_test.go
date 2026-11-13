@@ -202,7 +202,6 @@ func TestIDsAreBoundToSnapshotIdentity(t *testing.T) {
 
 func TestBuilderRejectsMalformedEvidenceAndCompilerFailures(t *testing.T) {
 	obs := Evidence{Resources: []ResourceObservation{{ResourceType: "Patient"}}, Relationships: []RelationshipObservation{{SourceResourceType: "Patient", TargetResourceType: "Bad/Type", Label: "x"}}, Fields: []FieldObservation{{ResourceType: "Patient", Path: "name..given"}}}
-	// Build with a rejecting node leaves no usable root and retains audit data.
 	b := testBuilder(obs)
 	got, buildErr := b.Build(context.Background())
 	if buildErr != nil {

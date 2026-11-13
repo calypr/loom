@@ -1228,10 +1228,6 @@ func TestProposeTableShapeUnpivotReproducesInternalError(t *testing.T) {
 		t.Run(variant.name, func(t *testing.T) {
 			service, store, snapshot, workspace := tableShapeProposalService(t)
 			if variant.realCompile {
-				// Rewrite the fixture draft onto real Patient element paths so the
-				// real workspace compiler can resolve selectors. The two unpivot
-				// inputs keep their authored names; code+date both melt to the
-				// same canonical table scalar class as the capability menu admits.
 				reproColumns := []authoringv2.Column{
 					{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
 						Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
@@ -1276,18 +1272,6 @@ func TestProposeTableShapeUnpivotReproducesInternalError(t *testing.T) {
 			request.ReshapeResolutionID = unpivot.ResolutionID
 			request.DerivedResolutionIDs = nil
 			if variant.realCompile {
-				// Mirror the production s.config.CompileReceipt wiring via
-				// compileTraceReceipt: the real workspace compiler/lowering path plus
-				// the CompiledOutputSchemas population that store-time arango
-				// validateReceipt runs. The harness wraps the validate error with a
-				// "validate trace compiler receipt:" prefix, so it does not reproduce
-				// production's exact *errors.errorString 500 causal type; the shared
-				// invariant is the validateReceiptCompiledOutputSchemas check itself.
-				// Production independently enforces the same check at apply time via
-				// verifyProposalReceipt -> receipt.Validate (proposal_receipt.go:19),
-				// so the adapter's red does not rest on harness-internal validation.
-				// Snapshot capability nodes/candidates are derived from the table's
-				// own source columns, matching the proven real-compile harness.
 				compileSnapshot := snapshot
 				rootType := "Patient"
 				if len(workspace.Documents) > 0 && workspace.Documents[0].RootResourceType != "" {

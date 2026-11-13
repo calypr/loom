@@ -30,7 +30,6 @@ const (
 	DefaultFetchTimeout        = 5 * time.Minute
 )
 
-// FixtureDigest identifies both a fixture lock and its content-addressed cache directory.
 type FixtureDigest string
 
 type RunID string
@@ -48,9 +47,6 @@ type SelectionRule struct {
 	Limit        int    `json:"limit"`
 }
 
-// FixtureLock is intentionally metadata-only.  Resources contains the exact
-// IDs, upstream version IDs, and canonical payload digests needed to detect
-// drift without redistributing potentially restricted FHIR payloads.
 type FixtureLock struct {
 	Version   int                       `json:"version"`
 	Endpoint  string                    `json:"endpoint"`
@@ -207,9 +203,6 @@ func (f *Fetcher) Acquire(ctx context.Context) (ValidatedFixture, error) {
 	if err := os.MkdirAll(f.CacheDir, 0o755); err != nil {
 		return ValidatedFixture{}, fmt.Errorf("create fixture cache: %w", err)
 	}
-	// Every process writes a unique temporary directory. The lock is held only
-	// in-process; the rename is atomic across processes and an already-created
-	// valid directory wins a race harmlessly.
 	tmp, err := os.MkdirTemp(f.CacheDir, ".fixture-")
 	if err != nil {
 		return ValidatedFixture{}, fmt.Errorf("create fixture staging directory: %w", err)
@@ -661,9 +654,6 @@ func minInt(a, b int) int {
 	return b
 }
 
-// RefreshLock discovers a new metadata-only lock. It is intentionally an
-// explicit operation: normal acceptance runs call LoadLock and never rewrite
-// the checked-in oracle or lock after an upstream response changes.
 func RefreshLock(ctx context.Context, endpoint, studyID, path string, client *http.Client, limits Limits) (FixtureLock, error) {
 	limits = limits.normalize()
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")

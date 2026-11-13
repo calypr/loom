@@ -453,10 +453,6 @@ enum FhirValueMode {
   DISTINCT
 }
 
-# Typed, storage-independent dataframe predicates. `select` is a FHIR path
-# (or a resolved catalog selector), while `fieldRef` is optional frontend
-# provenance used during scoped field resolution. Values are a strict tagged
-# union; exactly one member matching `kind` is accepted by recipe validation.
 enum FhirFilterOperator {
   EQUALS
   NOT_EQUALS
@@ -507,8 +503,6 @@ input FhirFilterInput {
   select: String!
   fieldRef: String
   operator: FhirFilterOperator!
-  # Scalar selectors do not accept an array quantifier. Repeated selectors
-  # must opt into ANY, ALL, or NONE explicitly after schema resolution.
   quantifier: FhirFilterQuantifier
   values: [FhirFilterValueInput!]! = []
 }
@@ -606,9 +600,6 @@ input FhirDataframeInput {
   cursor: String
 }
 
-# Explicit, bounded FHIR graph traversal. Graph mode defaults each edge to
-# REQUIRED (unlike the dataframe builder's OPTIONAL default) and returns
-# complete node paths rather than flattened rows.
 input FhirGraphQueryInput {
   project: String!
   authResourcePaths: [String!]
@@ -676,13 +667,6 @@ type FhirDataframeResult {
   diagnostics: DataframeQueryDiagnostics!
 }
 
-# Server-side timings for one dataframe request. `sourceQueryMs` is the
-# backend-neutral source cursor interval for whichever backend serves the
-# query, excluding Loom's per-row flattening/delivery time; together with
-# `rowMaterializationMs` those fields identify whether the database plan or
-# result materialization is dominant. `arangoQueryMs` is the legacy transport
-# projection of the same measurement: the actual Arango cursor time for AQL
-# and explicitly zero for PostgreSQL.
 type DataframeQueryDiagnostics {
   inputResolutionMs: Float!
   requestPreparationMs: Float!
@@ -695,8 +679,6 @@ type DataframeQueryDiagnostics {
   plan: DataframeCompilerPlanDiagnostics!
 }
 
-# Compiler facts for deciding which AQL rewrite to implement next. These are
-# not Arango estimates; pair them with a live PROFILE for operator-level cost.
 type DataframeCompilerPlanDiagnostics {
   traversalSets: Int!
   sharedTraversalCount: Int!

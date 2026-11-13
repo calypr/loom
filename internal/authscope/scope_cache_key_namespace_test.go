@@ -9,14 +9,6 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 )
 
-// Key-namespace durable controls for the F-B27 project-write-binding cache
-// (REPAIR-15). The cache key carries an explicit all-generations
-// discriminator, so a generation-scoped entry can never answer an
-// all-generations lookup and vice versa, and the reserved-literal generation
-// string is just one more ordinary generation key.
-
-// fb27ctlSeed writes a cache entry directly so a control can prove which
-// namespace a decision came from by the value it returns.
 func fb27ctlSeed(r *ScopeResolver, project, datasetGeneration string, allGenerations bool, paths ...string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -132,8 +124,6 @@ func TestFB27LiteralSentinelGenerationIsAnOrdinaryKey(t *testing.T) {
 		t.Fatalf("VERDICT=UNEXPECTED the literal must reach the catalog as a plain generation, got %+v", got)
 	}
 
-	// The all-generations entry is untouched by the literal-keyed read entry:
-	// it needs its own listing and returns the project union.
 	allGenerations, err := resolver.listExistingPathsAllGenerations(ctx, "projA")
 	if err != nil {
 		t.Fatalf("VERDICT=UNEXPECTED all-generations listing = %v", err)
@@ -180,8 +170,6 @@ func TestFB27AuthoritativeProjectBindingProducerUsesModeTrueOnly(t *testing.T) {
 		t.Fatalf("VERDICT=UNEXPECTED warm write must reuse the mode=true entry, calls=%d", l.calls)
 	}
 
-	// The same project and empty generation must still be a distinct
-	// (mode,false) lookup: it re-lists and intersects against that result.
 	scope, err := resolver.ResolveReadScopeForGeneration(ctx, principal, "HTAN_INT/cohort", "", nil)
 	if err != nil {
 		t.Fatalf("VERDICT=UNEXPECTED empty-generation read scope = %v", err)

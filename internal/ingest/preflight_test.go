@@ -102,8 +102,6 @@ func TestLoadReturnsPreflightReportBeforeOpeningArango(t *testing.T) {
 	summary, err := Load(context.Background(), LoadOptions{
 		Schema:  schemaPath,
 		MetaDir: dir,
-		// A connection to this endpoint would fail. Receiving a structured
-		// preflight error instead proves validation happens before backend open.
 		ConnectionOptions: ConnectionOptions{
 			URL:      "http://127.0.0.1:1",
 			Database: "preflight_must_not_connect",

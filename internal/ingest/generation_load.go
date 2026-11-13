@@ -1,88 +1,3 @@
-// PostgreSQL generation-load orchestrator (pg-ingest-03).
-//
-// LoadPostgresGeneration composes the completed PostgreSQL adapters — the
-// resource-batch and edge-occurrence writers (pg-ingest-01/02), the
-// field-profile, resource-inventory, relationship-evidence, and
-// semantic-contribution surfaces (pg-catalog-01/02/03/05), and the
-// generation-manifest CAS store (pg-store-03) — behind one bounded
-// generation load with the existing staged and failure states. It adds no
-// new SQL: every statement runs inside a merged adapter or repository, so
-// this file contains no SQL strings at all.
-//
-// Lifecycle (mirrors the ordering the Arango path proves in
-// generation_orchestration.go, with the PG writers substituted):
-//
-//  1. DiscoverNDJSON, graph.Load + loadSchemaSnapshot, PreflightFiles, and
-//     newGenerationLoadPlan all run before any PostgreSQL connection is
-//     opened or generation state is touched. A malformed staged payload
-//     inside the preflight sample window, a missing schema, or an invalid
-//     dataset reference fails here without a single database round trip.
-//  2. The pool opens (bounded, validated through the store's Config) and
-//     MigrateSchema apply the embedded ledgers (source and dataset_release
-//     series, on their own schemas); all passes are idempotent and
-//     advisory-locked.
-//  3. CreateManifest is the load claim: the CAS insert either creates the
-//     LOADING manifest (this attempt owns the lifecycle) or refuses a
-//     second claim. A same-generation retry whose stored manifest carries
-//     exactly the same immutable schema identity and is still LOADING
-//     resumes it — replayed batches are ledger no-ops — but never rewrites
-//     it; a STAGED manifest is reported as committed success
-//     (ErrGenerationAlreadyStaged) and a FAILED one as terminal
-//     (ErrGenerationLoadAlreadyFailed). A manifest with different immutable
-//     bytes is never claimed (ErrGenerationManifestIdentityConflict), and
-//     no path here writes the active-generation pointer.
-//  4. Bounded write passes, in commit order: resource rows first (all
-//     files), then edge occurrences (all files, so every typed edge source
-//     is already committed for the store's source precondition), then the
-//     catalog evidence — field profiles, the resource-inventory build, the
-//     derived relationship evidence, and the retained semantic
-//     contributions. Batch identities are content-independent digests of
-//     (project, generation, staged-file identity, pass, window ordinal), so
-//     a retry from any process offers byte-identical batches and the
-//     store's ledger classifies them as replays. Semantic contributions
-//     may spill to the store in bounded chunks during the resource pass
-//     (they are content-addressed and replay-safe); the remainder always
-//     lands in the semantic step. See the served-state note below for
-//     what PostgreSQL readers observe from these rows today.
-//  5. Only after every pass commits does TransitionManifest CAS the
-//     manifest LOADING->STAGED. Activation is never implicit here: the
-//     separate explicit call ActivatePostgresGeneration performs the CAS
-//     through the generation repository. The load never changes the
-//     active-generation pointer.
-//
-// Failure states follow the same discipline as the Arango path:
-//   - The creator of the manifest marks it FAILED whenever a failure has a
-//     known commit outcome (server-answered refusals, guard drops, row
-//     errors, cancellation observed at a safe point).
-//   - When a batch/commit outcome is genuinely unknown (connection loss,
-//     backend termination, cancellation racing an in-flight statement) the
-//     manifest stays LOADING — never downgraded, because the commit may
-//     have landed — and a later replay from any process converges it.
-//   - A resumed load (one that did not create the manifest) never marks
-//     FAILED: it cannot prove no concurrent loader owns the shared state,
-//     which is exactly the unknown-outcome case the LOADING state encodes.
-//   - After STAGED, nothing is rolled back; an activation error is an
-//     unknown outcome surfaced as ActivationOutcomeError.
-//
-// Served state of PostgreSQL semantic evidence: the Arango route wraps
-// its contribution writes in the file-sourced semantic-inventory build
-// lifecycle (Begin/Advance/CompleteSemanticInventoryBuild with the Fail
-// pairing), and its page read serves only from a complete build row. The
-// PostgreSQL side has no production creator of that build row yet: the
-// merged catalog/postgres build slice deliberately refuses file-sourced
-// claims (semantic_build.go), so PageSemanticInventory reports
-// Unknown/empty for a loaded generation until the follow-up catalog slice
-// that owns the file-sourced PG build lifecycle lands — the load must not
-// invent that state here. Contributions persist with deterministic keys
-// and digests, so the evidence is already durable and replay-idempotent
-// for that slice to serve; TestPostgresGenerationLoadSemanticContributions
-// PersistWithServedStateBoundary pins the current behavior and flips into
-// the tripwire when the owning slice wires the lifecycle.
-//
-// The Arango Load behavior and default route are untouched: this entry
-// point is explicit and the separate cutover owner alone decides when
-// configuration selects it.
-
 package ingest
 
 import (
@@ -106,108 +21,34 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
-// Batch identities are "ing03:<pass>:<digest>" where the digest covers the
-// stable provenance (project, generation, staged-file identity, pass,
-// window ordinal) — never a per-attempt nonce, so every retry offers the
-// same identity and the store's ledger decides replay versus conflict.
 const (
-	pgResourceBatchPass   = "r"
-	pgEdgeBatchPass       = "e"
-	pgBatchIDPrefix       = "ing03:"
-	pgApplicationNameBase = "loom-ing03"
-	// pgSemanticFlushMinimum floors the in-memory semantic contribution
-	// buffer before a bounded spill to the store.
+	pgResourceBatchPass    = "r"
+	pgEdgeBatchPass        = "e"
+	pgBatchIDPrefix        = "ing03:"
+	pgApplicationNameBase  = "loom-ing03"
 	pgSemanticFlushMinimum = 2000
 )
 
-// PGSourceOptions locates one explicit PostgreSQL 18 generation load.
-// There are no hidden defaults beyond the pool bounds named below: every
-// field is validated by the store layer before a connection is opened.
 type PGSourceOptions struct {
-	// DSN is the PostgreSQL connection string for the source store.
-	DSN string
-	// Schema is the source-series schema the load writes resource, edge,
-	// inventory, field-profile, relationship, and contribution rows into;
-	// the load's bootstrap stage applies the source-series migrations to it
-	// (idempotent, advisory-locked).
-	Schema string
-	// ManifestSchema is the schema hosting the dataset_release series — the
-	// generation manifests and the active-generation CAS pointer the load
-	// and activation drive. It must be a distinct schema: the migration
-	// ownership law gives every schema exactly one series' history, and
-	// source and dataset_release pinned ledgers disagree at version 8, so
-	// assigning both to one schema is a named pre-dial refusal
-	// (control.ErrSeriesAssignment), not a connect failure. The load's
-	// bootstrap stage applies the dataset_release migrations here as well.
-	ManifestSchema string
-	// MaxConns bounds the load's connection pool. Zero selects 4.
-	MaxConns int32
-	// AcquireTimeout bounds waiting for a pool connection. Zero or negative
-	// selects 30 seconds.
-	AcquireTimeout time.Duration
-	// ApplicationName tags this load's backends in pg_stat_activity so
-	// operators (and tests) can witness exactly which connections a load
-	// owns. The zero value selects a generated loom-ing03-<nonce> name; an
-	// explicitly set name is used verbatim.
-	ApplicationName string
-	// SemanticFlushThreshold bounds the in-memory semantic contribution
-	// buffer before bounded spill; zero or negative selects
-	// max(2*normalized BatchSize, 2000).
+	DSN                    string
+	Schema                 string
+	ManifestSchema         string
+	MaxConns               int32
+	AcquireTimeout         time.Duration
+	ApplicationName        string
 	SemanticFlushThreshold int
-	// Catalog wires the four catalog evidence writers the load drives
-	// after the resource and edge passes (see GenerationCatalogWriters
-	// for the production wiring recipe). All four are required: the load
-	// fails with ErrGenerationLoadRequiresCatalogWriters before opening
-	// any connection when any is nil, so a miswired caller can never
-	// stage a generation with silently missing catalog evidence.
-	Catalog GenerationCatalogWriters
+	Catalog                GenerationCatalogWriters
 }
 
-// Manifest-claim outcomes for a same-generation retry.
 var (
-	// ErrGenerationAlreadyStaged reports that the generation reached STAGED
-	// in an earlier (or concurrent) attempt: read-back distinguishes this
-	// committed success from an unknown commit acknowledgement, and the
-	// retry wrote nothing.
-	ErrGenerationAlreadyStaged = errors.New("dataset generation is already staged")
-	// ErrGenerationLoadAlreadyFailed reports a retry against a FAILED
-	// generation. FAILED is terminal: a new generation is required.
-	ErrGenerationLoadAlreadyFailed = errors.New("dataset generation load already failed")
-	// ErrGenerationManifestIdentityConflict reports a retry whose immutable
-	// schema identity differs from the stored manifest: one load can never
-	// claim another load's manifest, and nothing was written.
-	ErrGenerationManifestIdentityConflict = errors.New("dataset generation manifest identity conflict")
-	// ErrGenerationManifestOutcomeUnknown reports that a manifest commit
-	// outcome itself could not be established (the store was unreachable
-	// when the load tried to create or stage it). The manifest keeps its
-	// prior state; a later replay from any process converges it.
-	ErrGenerationManifestOutcomeUnknown = errors.New("dataset generation manifest commit outcome is unknown")
-	// ErrPGGenerationDatasetRequired reports a PostgreSQL generation load
-	// requested without an explicit dataset generation: the PG entry point
-	// is generation-only and refuses the unversioned namespace outright.
-	ErrPGGenerationDatasetRequired = errors.New("postgres generation load requires an explicit dataset generation")
-	// ErrGenerationLoadRequiresCatalogWriters reports a PostgreSQL
-	// generation load whose PGSourceOptions.Catalog is missing any of the
-	// four catalog evidence writers. It fires before any connection or
-	// staging write, so a half-wired caller can never produce a STAGED
-	// generation with silently missing catalog evidence.
+	ErrGenerationAlreadyStaged              = errors.New("dataset generation is already staged")
+	ErrGenerationLoadAlreadyFailed          = errors.New("dataset generation load already failed")
+	ErrGenerationManifestIdentityConflict   = errors.New("dataset generation manifest identity conflict")
+	ErrGenerationManifestOutcomeUnknown     = errors.New("dataset generation manifest commit outcome is unknown")
+	ErrPGGenerationDatasetRequired          = errors.New("postgres generation load requires an explicit dataset generation")
 	ErrGenerationLoadRequiresCatalogWriters = errors.New("postgres generation load requires all four catalog evidence writers")
 )
 
-// The four catalog evidence writers a PostgreSQL generation load drives
-// after the resource and edge passes. The interfaces are declared on the
-// consumer side so internal/ingest composes the load without importing
-// internal backend implementations (whose in-package tests import ingest,
-// which would form an import cycle). The production adapters are the typed
-// catalog ports assembled by the public factory (arch-backend-06): a single
-// postgres.Open over the load's DSN/schema returns them pre-wired on the
-// Runtime (FieldProfiles, Inventory, Relationships, Contributions), so the
-// caller packs them straight into PGSourceOptions.Catalog; the exported
-// postgres.NewCatalog* constructors remain for deliberately custom wiring.
-//
-// The store-layer constructors keep their full validation and commit
-// guards: the load performs no catalog computation of its own and keeps no
-// SQL here.
 type GenerationFieldProfileWriter interface {
 	WriteFieldProfile(ctx context.Context, scope control.FieldProfileScope, docs []catalog.FieldCatalogDocument, batchSize int) error
 }
@@ -224,10 +65,6 @@ type GenerationSemanticContributor interface {
 	WriteSemanticInventoryContributions(ctx context.Context, contributions []catalog.SemanticInventoryContribution, batchSize int) error
 }
 
-// GenerationCatalogWriters bundles the catalog evidence writers required
-// by one PostgreSQL generation load. All four are required; the load
-// refuses to start with any of them nil so a miswired caller can never
-// silently skip catalog evidence.
 type GenerationCatalogWriters struct {
 	FieldProfiles GenerationFieldProfileWriter
 	Inventory     GenerationInventoryRebuilder
@@ -235,13 +72,11 @@ type GenerationCatalogWriters struct {
 	Contributions GenerationSemanticContributor
 }
 
-// Complete reports whether all four catalog writers are wired.
 func (w GenerationCatalogWriters) Complete() bool {
 	return w.FieldProfiles != nil && w.Inventory != nil &&
 		w.Relationships != nil && w.Contributions != nil
 }
 
-// pgGenerationLoad carries one orchestrator run's mutable state.
 type pgGenerationLoad struct {
 	opts LoadOptions
 	pg   PGSourceOptions
@@ -266,29 +101,12 @@ type pgGenerationLoad struct {
 	semanticBuffer  []catalog.SemanticInventoryContribution
 	semanticFlush   int
 
-	// The merged PostgreSQL writers name their own hard bounds
-	// (MaxBatchResources/MaxBatchEdges per offered batch,
-	// MaxFieldProfileWriteBatch, MaxInventoryWriteBatch); the ingest
-	// BatchSize default (5000, shared with the Arango route) exceeds
-	// them, so every write path clamps its window/chunk to the store's
-	// bound instead of forwarding the raw option.
 	resourceWindow int
 	edgeWindow     int
 	profileBatch   int
 	inventoryBatch int
 }
 
-// LoadPostgresGeneration loads every staged NDJSON file into the PostgreSQL
-// source store as one immutable generation and leaves it STAGED. It is the
-// explicit PG entry point: it never touches Arango and never activates.
-// Activation is the separate explicit ActivatePostgresGeneration CAS call.
-//
-// The load requires opts.Dataset (an exact project/generation), refuses
-// truncation, and runs the full pre-backend evidence chain (discovery,
-// schema identity, preflight, plan) before opening the PG source
-// transaction or mutating generation state. A successful return means the
-// manifest is STAGED; summary.Dataset is populated even on failure so
-// operators can identify the inactive manifest needing inspection.
 func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOptions) (summary LoadSummary, err error) {
 	start := time.Now()
 	opts = normalizeLoadOptions(opts)
@@ -296,13 +114,6 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 		return LoadSummary{}, fmt.Errorf("%w: field profiles, inventory, relationships, and semantic contributions must all be wired", ErrGenerationLoadRequiresCatalogWriters)
 	}
 
-	// ------------------------------------------------------------------
-	// Pre-backend evidence chain: identical order to loadGeneration. No
-	// PostgreSQL connection exists anywhere in this block.
-	// ------------------------------------------------------------------
-	// The PG route loads exactly one staging directory: a bare file path
-	// (which the Arango route may accept) has no directory-scoped identity
-	// for the ledger batch keys, so it is refused before any other work.
 	if info, statErr := os.Stat(opts.MetaDir); statErr != nil || !info.IsDir() {
 		return LoadSummary{}, fmt.Errorf("%w: %s", ErrGenerationLoadRequiresDirectory, opts.MetaDir)
 	}
@@ -380,9 +191,6 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 		load.application = fmt.Sprintf("%s-%d-%s", pgApplicationNameBase, time.Now().UnixNano(), pgRandomHexToken())
 	}
 
-	// ------------------------------------------------------------------
-	// The PostgreSQL source transaction boundary begins here.
-	// ------------------------------------------------------------------
 	emitEvent(opts.EventSink, "go_pg_connect_start", map[string]any{
 		"backend": "postgres",
 		"schema":  pg.Schema,
@@ -412,8 +220,6 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 	if _, err := load.runtime.MigrateSchema(ctx); err != nil {
 		return summary, err
 	}
-	// The manifest lane lives on its own schema and its own series'
-	// history, so its runner bootstraps alongside the source runner.
 	if _, err := load.runtime.MigrateDatasetReleaseSchema(ctx); err != nil {
 		return summary, err
 	}
@@ -426,9 +232,6 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 	if err := load.claimManifest(ctx); err != nil {
 		return summary, err
 	}
-	// The lifecycle deferred cleanup: the manifest creator marks FAILED on
-	// every known-outcome failure and leaves LOADING whenever the commit
-	// outcome is unknown. After STAGED nothing is ever rolled back.
 	defer func() {
 		if err == nil || load.staged || !load.ownsManifest {
 			return
@@ -444,9 +247,6 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 			})
 	}()
 
-	// Row-error candidates are kept per file and sampled into the summary
-	// only when the load returns, exactly as loadGeneration does; the
-	// deferred assignment covers every early return.
 	var rowErrorCandidates [][]RowErrorSample
 	defer func() {
 		summary.RowErrors = selectGenerationRowErrorSamples(rowErrorCandidates)
@@ -488,9 +288,6 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 				ErrGenerationManifestOutcomeUnknown, plan.Dataset.Project, plan.Dataset.Generation, transitionErr)
 		}
 		if errors.Is(transitionErr, control.ErrManifestTransitionConflict) {
-			// A concurrent loader of the same immutable identity decided
-			// the outcome first: the stored terminal state is read back
-			// and named, never re-run and never overwritten.
 			if stored, readErr := load.lifecycle.ReadManifest(ctx, load.ref); readErr == nil {
 				if stored.IsStaged() {
 					return summary, fmt.Errorf("%w: %s/%s is already STAGED (a concurrent loader of the same identity won the transition); read back the committed load instead of re-running it",
@@ -521,15 +318,6 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 	return summary, nil
 }
 
-// ActivatePostgresGeneration explicitly activates one STAGED generation by
-// compare-and-swap through the pg-store-03 generation repository: nothing
-// is ever activated without this call. A generation that is not STAGED
-// (LOADING or FAILED) is refused with publication.ErrGenerationNotReady; a
-// concurrent pointer move yields the repository's typed
-// control.ErrActivationConflict and leaves the pointer untouched.
-// An unreachable repository is surfaced as ActivationOutcomeError, which —
-// like the Arango path — leaves STAGED for an operator to reconcile and
-// never downgrades it.
 func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGSourceOptions) error {
 	if err := ref.Validate(); err != nil {
 		return err
@@ -567,9 +355,6 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 	case errors.Is(resolveErr, publication.ErrNoActiveGeneration):
 		expected = nil
 	default:
-		// A pointer naming a non-staged manifest is a store inconsistency.
-		// Keep expected=nil: the repository's CAS then compares against the
-		// real pointer row and refuses the swap instead of clobbering it.
 		expected = nil
 	}
 	if activationErr := store.ActivateGeneration(ctx, manifest, expected); activationErr != nil {
@@ -586,16 +371,6 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 	return nil
 }
 
-// openPGGenerationClient opens the load's PostgreSQL runtime through the
-// public backend factory: control.Config validates the pool bounds and the
-// schema assignment through the store's own authoritative validators before
-// any network dial, so blank or malformed settings are named refusals rather
-// than connect failures. The runtime owns exactly one readiness-gated pool,
-// the schema setup policy, and the assembled control-plane ports. The
-// application-name witness tag is joined into the DSN here (not through
-// Config.ApplicationName, which is reserved for the factory's own-prefix
-// nonce) so an operator's attribution tag survives verbatim into
-// pg_stat_activity; the factory preserves an already-tagged DSN.
 func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*postgres.Runtime, error) {
 	maxConns := pg.MaxConns
 	if maxConns == 0 {
@@ -611,38 +386,15 @@ func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*postgres.
 		var tagged bool
 		dsn, tagged = joinApplicationName(dsn, application)
 		if !tagged {
-			// Operators (and the durability witnesses) attribute backends
-			// through pg_stat_activity.application_name; say so when the
-			// DSN shape prevents tagging instead of failing silently.
 			emitEvent(eventSink, "go_pg_application_name_skipped", map[string]any{
 				"application": application,
 				"reason":      "DSN is not URL-form; keyword/value DSNs keep an untagged connection rather than a guessed syntax",
 			})
 		}
 	}
-	// Config.Validate is the single refusal gate, in its documented field
-	// order (dsn, pool, application name, setup policy, then per-series
-	// assignment): a blank ManifestSchema surfaces as the named
-	// ErrSeriesAssignment blank-schema refusal rather than pre-empting
-	// more specific classifications of other malformed fields.
 	return postgres.Open(context.Background(), PGLoadConfig(pg, dsn, control.SetupNone))
 }
 
-// PGLoadConfig assembles the exact factory configuration every PostgreSQL
-// generation-lane caller uses — the load, activation, and the CLI's
-// staging-verification route — from one authoritative place so a caller can
-// never drift into an invalid composition. It assigns exactly the two
-// series those lanes drive: SeriesSource (resource/edge/catalog writes,
-// bootstrapped explicitly by the load) and SeriesDatasetRelease (manifest
-// lifecycle CAS, likewise). Every other series stays unassigned: the
-// callers never write their series' tables, and the ownership law refuses
-// co-assignment of series whose pinned ledgers disagree, so asking for all
-// of them on two schemas would be rejected before any dial. Setup is left
-// to the caller and is SetupNone on every shipped lane: activation in
-// particular is not a deployment step and must never migrate; DDL lives
-// only in the load's explicit bootstrap stage. The dial-free test in
-// generation_load_postgres_test.go runs each shipped configuration through
-// Config.Validate so composition regressions fail offline.
 func PGLoadConfig(pg PGSourceOptions, taggedDSN string, setup control.SetupPolicy) control.Config {
 	maxConns := pg.MaxConns
 	if maxConns == 0 {
@@ -699,9 +451,6 @@ func (l *pgGenerationLoad) bind() error {
 	if l.edgeW, err = NewPostgresEdgeWriter(l.runtime.ConnSource(), schema); err != nil {
 		return err
 	}
-	// The catalog evidence writers arrive wired via PGSourceOptions.Catalog
-	// (consumer-side interfaces; the store-layer constructors and their
-	// validation/guards run at the caller's wiring site, never here).
 	l.profiles = l.pg.Catalog.FieldProfiles
 	l.inventory = l.pg.Catalog.Inventory
 	l.relations = l.pg.Catalog.Relationships
@@ -720,8 +469,6 @@ func (l *pgGenerationLoad) bind() error {
 	return nil
 }
 
-// claimManifest runs the pg-store-03 create CAS and resolves every
-// same-generation retry outcome.
 func (l *pgGenerationLoad) claimManifest(ctx context.Context) error {
 	created, err := l.lifecycle.CreateManifest(ctx, l.plan.Manifest)
 	if err == nil {
@@ -762,9 +509,6 @@ func (l *pgGenerationLoad) claimManifest(ctx context.Context) error {
 		return fmt.Errorf("%w: %s/%s; a new dataset generation is required",
 			ErrGenerationLoadAlreadyFailed, l.ref.Project, l.ref.Generation)
 	default:
-		// Same immutable identity, still LOADING: resume. This attempt did
-		// not create the manifest, so it never marks FAILED — a concurrent
-		// loader may own the outcome, which is exactly what LOADING encodes.
 		l.manifest = stored
 		l.ownsManifest = false
 		emitEvent(l.opts.EventSink, "go_pg_manifest_resume", map[string]any{
@@ -775,10 +519,6 @@ func (l *pgGenerationLoad) claimManifest(ctx context.Context) error {
 	}
 }
 
-// writeResourcePass streams every staged file, builds rows with the same
-// generation-qualified builders loadFile uses, commits bounded resource
-// batches through the ledgered writer, profiles every accepted payload, and
-// buffers (or bounded-spills) its semantic contributions.
 func (l *pgGenerationLoad) writeResourcePass(
 	ctx context.Context,
 	schema *graph.GraphSchema,
@@ -914,9 +654,6 @@ func (l *pgGenerationLoad) writeResourcePass(
 	return nil
 }
 
-// commitResourceWindow commits one deterministic row window of one staged
-// file. A window with no accepted rows writes nothing at all: a row-error
-// sweep must never fabricate an empty batch.
 func (l *pgGenerationLoad) commitResourceWindow(ctx context.Context, fileID string, window int, rows []rowBuildResult, summary *LoadSummary) error {
 	if len(rows) == 0 {
 		return nil
@@ -934,10 +671,6 @@ func (l *pgGenerationLoad) commitResourceWindow(ctx context.Context, fileID stri
 	if err != nil {
 		return fmt.Errorf("commit postgres resource batch %s (%d rows): %w", batchID, len(rows), err)
 	}
-	// A replay's Committed is the ledger's prior count, not new work: the
-	// summary counts only what this attempt actually inserted, so a
-	// resumed load never reports the already-durable table as freshly
-	// written. Replays remain visible through the *_batch_replay counts.
 	if !result.Replay {
 		summary.VerticesInserted += int(result.Committed)
 	}
@@ -955,11 +688,6 @@ func (l *pgGenerationLoad) commitResourceWindow(ctx context.Context, fileID stri
 	return nil
 }
 
-// writeEdgePass re-streams every staged file with the identical builders
-// and commits bounded edge-occurrence batches. Running it only after every
-// resource batch committed is what lets the store's typed source
-// precondition hold for cross-file references; a genuinely missing source
-// is the store's named refusal and fails the load.
 func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.GraphSchema, files []string, summary *LoadSummary) error {
 	for _, file := range files {
 		if err := ctx.Err(); err != nil {
@@ -1002,27 +730,8 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 				}
 				built, _, buildErr := rowBuilder.Build(resourceType, []byte(line), localTimings)
 				if buildErr != nil {
-					// Row errors were counted (and already refused the
-					// stage) in the resource pass; this pass rebuilds
-					// identical rows, so a rebuild that now fails is a
-					// staged-input inconsistency, not a row error.
 					return fmt.Errorf("%s %s row %d rebuilt with error: %w", filepath.Base(file), resourceType, lineNumber, buildErr)
 				}
-				// The store bounds a batch by OFFERED EDGES
-				// (control.MaxBatchEdges), not rows, while BatchSize
-				// bounds rows per window: a reference-heavy row emits
-				// several edges, so a full row window can overflow the edge
-				// cap (this is exactly what a large reference-heavy fixture
-				// hit). Windows therefore split on the row window OR when
-				// APPENDING the next row would push the accumulation past
-				// the cap — the commit fires before the crossing row is
-				// appended (lookahead bin-packing), so no offered batch can
-				// ever exceed the cap even when the crossing row alone
-				// carries nearly the whole budget. Both boundaries are pure
-				// functions of the staged bytes and schema identity, so a
-				// retry from any process reproduces identical window
-				// boundaries and the content-independent batch digest stays
-				// replay-stable.
 				if len(built.edges) > control.MaxBatchEdges {
 					return fmt.Errorf("%s %s row %d produces %d edges, exceeding the %d-per-batch edge bound; nothing was written",
 						filepath.Base(file), resourceType, lineNumber, len(built.edges), control.MaxBatchEdges)
@@ -1080,10 +789,6 @@ func (l *pgGenerationLoad) commitEdgeWindow(ctx context.Context, fileID string, 
 	if err != nil {
 		return fmt.Errorf("commit postgres edge batch %s (%d rows): %w", batchID, len(rows), err)
 	}
-	// Same contract as the resource side: EdgeBatchResult reports the
-	// ledger's original commit count with Replay=true, so only non-replay
-	// batches count as newly inserted; replays stay visible through
-	// edge_batch_replay.
 	if !result.Replay {
 		summary.EdgesInserted += int(result.Committed)
 	}
@@ -1101,11 +806,6 @@ func (l *pgGenerationLoad) commitEdgeWindow(ctx context.Context, fileID string, 
 	return nil
 }
 
-// writeCatalogEvidence commits the catalog evidence in the acceptance
-// order: field profiles, the resource-inventory build, the derived
-// relationship evidence, then the remaining semantic contributions. Every
-// write is replay-safe; a known-outcome failure here keeps the manifest
-// pre-STAGED and the creator deferral marks it FAILED.
 func (l *pgGenerationLoad) writeCatalogEvidence(ctx context.Context, schemaIdentity publication.SchemaSnapshot, summary *LoadSummary) error {
 	fieldStart := time.Now()
 	keys := sortedGenerationCatalogKeys(l.pendingCatalogs)
@@ -1128,14 +828,6 @@ func (l *pgGenerationLoad) writeCatalogEvidence(ctx context.Context, schemaIdent
 	emitEvent(l.opts.EventSink, "go_pg_catalog_field_profiles", map[string]any{"scopes": len(keys)})
 
 	inventoryStart := time.Now()
-	// Concurrent loaders of one generation (creator plus resumed attempts)
-	// compute the identical content-addressed build and publish the same
-	// marker; PostgreSQL's speculative-insert path can report a unique
-	// violation on those identical concurrent reinserts, so the rebuild —
-	// scan, count insert, publish — runs serialized on one session-scoped
-	// advisory lock. Every loader still derives the build from its own
-	// scan of the committed rows; the lock orders persistence, never
-	// fabricates results.
 	var inventory catalog.ResourceInventoryRebuildSummary
 	inventoryErr := control.WithAdvisoryLock(ctx, l.runtime.ConnSource(),
 		control.GenerationAdvisoryLockKey(
@@ -1190,14 +882,6 @@ func (l *pgGenerationLoad) writeCatalogEvidence(ctx context.Context, schemaIdent
 	return nil
 }
 
-// flushSemanticContributions persists the buffered contributions in bounded
-// chunks. The store classifies every skipped row exactly (byte replay versus
-// named conflict), so a retry from any process rewrites identical rows as
-// no-ops. Served-state caveat (see the file header): PostgreSQL page reads
-// report Unknown/empty for these rows until the catalog slice owning the
-// file-sourced semantic-inventory build lifecycle creates the build row;
-// unlike the Arango route, no begin/advance/complete pairing exists to
-// drive here yet.
 func (l *pgGenerationLoad) flushSemanticContributions(ctx context.Context, summary *LoadSummary) error {
 	if len(l.semanticBuffer) == 0 {
 		return nil
@@ -1216,8 +900,6 @@ func (l *pgGenerationLoad) flushSemanticContributions(ctx context.Context, summa
 	return nil
 }
 
-// newRowBuilder reproduces exactly the builder selection loadFile uses,
-// generation-qualified through generationRowBuilder.
 func (l *pgGenerationLoad) newRowBuilder(schema *graph.GraphSchema, resourceType string) (RowBuilder, error) {
 	class := schema.GetClass(resourceType)
 	if class == nil {
@@ -1236,22 +918,12 @@ func (l *pgGenerationLoad) newRowBuilder(schema *graph.GraphSchema, resourceType
 	return qualified, nil
 }
 
-// pgGenerationBatchID derives one deterministic batch identity from stable
-// provenance: project, generation, staged-file identity, pass, and the
-// file-local window ordinal. Content never enters the identity — the
-// ledger digest does that job — so a retry offers the same identity and
-// either replays (identical content) or is refused by name (different
-// content under a claimed identity).
 func pgGenerationBatchID(project, generation, fileID, pass string, window int) string {
 	return pgBatchIDPrefix + pass + ":" + generationHash(
 		"pg-ingest-03/batch/v1", project, generation, fileID, pass, strconv.Itoa(window),
 	)
 }
 
-// pgSafePointCancelError marks a cancellation observed at a load checkpoint:
-// no commit was in flight, so the failure outcome is known and the creator
-// deferral may mark FAILED. Errors surfacing from inside a store call are
-// never wrapped this way and stay outcome-unknown.
 type pgSafePointCancelError struct{ err error }
 
 func (e *pgSafePointCancelError) Error() string { return e.err.Error() }
@@ -1264,10 +936,6 @@ func safePointCancel(err error) error {
 	return &pgSafePointCancelError{err: err}
 }
 
-// surfaceStoreError gives a genuinely outcome-unknown store failure its
-// caller-visible identity: the manifest stays LOADING for a replay to
-// converge, and the error names the dataset generation load as
-// outcome-unknown so no caller can mistake it for a known refusal.
 func (l *pgGenerationLoad) surfaceStoreError(err error, stage string) error {
 	if err == nil || !pgCommitOutcomeUnknown(err) {
 		return err
@@ -1276,13 +944,6 @@ func (l *pgGenerationLoad) surfaceStoreError(err error, stage string) error {
 		ErrGenerationManifestOutcomeUnknown, l.ref.Project, l.ref.Generation, stage, err)
 }
 
-// pgCommitOutcomeUnknown reports whether err leaves a database commit
-// outcome genuinely unknown: the server never answered (or answered only
-// with a backend-shutdown/connectivity class), so the in-flight transaction
-// may or may not have committed. Every such failure keeps the manifest in
-// LOADING for a replay to converge; every known-outcome failure (a
-// server-answered refusal, a safe-point cancellation) lets the creator mark
-// FAILED.
 func pgCommitOutcomeUnknown(err error) bool {
 	if err == nil {
 		return false
@@ -1291,12 +952,6 @@ func pgCommitOutcomeUnknown(err error) bool {
 	if errors.As(err, &safeCancel) {
 		return false
 	}
-	// The driver-aware half of the classification — SQLSTATE 08xx/57P01/
-	// 57P02, the store sentinels (ErrCommitOutcomeUnknown, ErrConnect,
-	// ErrBatchWrite), context cancellation outside safe points, and
-	// net.Error — belongs to the backend, which owns the driver surface.
-	// Only the domain-specific case above (a safe-point cancellation is a
-	// known outcome) is decided here.
 	if control.CommitOutcomeUnknown(err) {
 		return true
 	}
@@ -1306,11 +961,6 @@ func pgCommitOutcomeUnknown(err error) bool {
 	return false
 }
 
-// joinApplicationName appends application_name to a URL-form DSN that does
-// not already carry one. Keyword/value DSNs have no URL query to set, so
-// those callers keep an untagged connection rather than a guessed syntax.
-// tagged is false only for a DSN shape that prevents tagging (keyword/value
-// form); a DSN that already carries an application_name counts as tagged.
 func joinApplicationName(dsn, application string) (string, bool) {
 	parsed, err := url.Parse(dsn)
 	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
@@ -1325,8 +975,6 @@ func joinApplicationName(dsn, application string) (string, bool) {
 	return parsed.String(), true
 }
 
-// pgRandomHexToken returns 12 hex characters of crypto-random entropy for
-// unique application names.
 func pgRandomHexToken() string {
 	var b [6]byte
 	if _, err := rand.Read(b[:]); err != nil {

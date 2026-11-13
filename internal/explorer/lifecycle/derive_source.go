@@ -12,10 +12,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// ConstructionDeriveSourceCapability advertises the authorized populated root
-// scalar fields a DERIVE step can consume through signed source choices,
-// beside the existing Pivot, Group, and Filter source inputs. DERIVE operands
-// feed arithmetic, so only integer and decimal scalar fields qualify.
 type ConstructionDeriveSourceCapability struct {
 	Supported  bool                             `json:"supported"`
 	StageID    string                           `json:"stageId"`
@@ -24,12 +20,6 @@ type ConstructionDeriveSourceCapability struct {
 	Choices    []ConstructionDeriveSourceChoice `json:"choices"`
 }
 
-// ConstructionDeriveSourceChoice is pinned to exactly six wire fields. The
-// UI capabilities schema is strict, so pivot-style extras (occurrenceId,
-// fhirType, valueType, isIdentifier, isReference) must never be added.
-// ColumnID is the signed materialized column id from durable server-derived
-// state, mirroring pivot's choice.columnId, so the UI can restore a saved
-// source-backed DERIVE operand; it is "" while no live materialization exists.
 type ConstructionDeriveSourceChoice struct {
 	ChoiceID    string `json:"choiceId"`
 	FieldPath   string `json:"fieldPath"`
@@ -39,18 +29,11 @@ type ConstructionDeriveSourceChoice struct {
 	ColumnID    string `json:"columnId"`
 }
 
-// ConstructionDeriveSourceSelection binds one server-signed root scalar field
-// choice to the exact columnId the edited DERIVE step will consume as its
-// left or right arithmetic operand.
 type ConstructionDeriveSourceSelection struct {
 	ChoiceID string `json:"choiceId"`
 	ColumnID string `json:"columnId"`
 }
 
-// maxDeriveSourceSelections bounds one proposal to the two arithmetic operand
-// slots a single DERIVE step owns. This is the mirror of the pivot category
-// cap discipline: the request channel can never grow past what one step can
-// consume, and a duplicate columnId between the two slots is refused.
 const maxDeriveSourceSelections = 2
 
 func validateConstructionDeriveSourceSelections(selections []ConstructionDeriveSourceSelection) error {
@@ -74,11 +57,6 @@ func validateConstructionDeriveSourceSelections(selections []ConstructionDeriveS
 	return nil
 }
 
-// deriveSourceLogicalTypeIsNumeric reports whether a root scalar field can
-// feed DERIVE arithmetic. The recipe compiler refuses any derived operand
-// whose compiled kind is not integer or decimal, so discovery and admission
-// here are pinned to exactly the kinds the compiler accepts (expression.
-// ValueKind(mapping) rejects "number" and every non-numeric logical type).
 func deriveSourceLogicalTypeIsNumeric(logicalType string) bool {
 	switch strings.ToLower(strings.TrimSpace(logicalType)) {
 	case "integer", "decimal":
@@ -88,10 +66,6 @@ func deriveSourceLogicalTypeIsNumeric(logicalType string) bool {
 	}
 }
 
-// deriveOperandColumnIDs returns the column ids the two arithmetic operands
-// of a DERIVE operation consume. This is the documented divergence from the
-// filter source channel, which binds one selection set to the single
-// Filter.ColumnID; DERIVE consumes a list of up to two operand columns.
 func deriveOperandColumnIDs(derive *authoringv2.ConstructionDerive) []string {
 	if derive == nil {
 		return nil
@@ -239,12 +213,6 @@ func (s *Service) resolveConstructionDeriveSource(
 	}, nil
 }
 
-// constructionCandidateWithDeriveSources resolves the signed field choices,
-// derives the durable server-owned projection facts for the edited DERIVE
-// step, and carries those slots through the row-preserving prefix. It mirrors
-// the Filter source contract; the documented divergence is that DERIVE owns
-// two arithmetic operand slots, so every selection columnId must be one of
-// the step's COLUMN operand ids instead of a single filter column.
 func (s *Service) constructionCandidateWithDeriveSources(
 	ctx context.Context,
 	base constructionBase,
@@ -428,13 +396,6 @@ func clearConstructionDeriveOwnedSources(base, candidate authoringv2.Constructio
 	return candidate, nil
 }
 
-// constructionOwnedDeriveSourceColumnID returns the durable server-derived
-// materialized column for a root numeric field at one exact stage, mirroring
-// constructionOwnedFilterSourceColumnID. A DERIVE owns the slot only while an
-// owner DERIVE step consuming this exact stage still lists the projection
-// column as one of its two arithmetic operand ids. A vanished, re-pointed, or
-// foreign-owned materialization returns "", so the UI never renders a restore
-// into a column the server can no longer sign.
 func constructionOwnedDeriveSourceColumnID(construction authoringv2.Construction, stageID, path string) string {
 	for _, projection := range construction.SourceProjections {
 		if projection.OwnerStepID == "" || canonicalRowPath(projection.FieldPath) != canonicalRowPath(path) {
@@ -455,12 +416,6 @@ func constructionOwnedDeriveSourceColumnID(construction authoringv2.Construction
 	return ""
 }
 
-// ConstructionDeriveSourceFacts derives the server-owned projection facts for
-// one root numeric field from the authorized snapshot plus generated FHIR
-// metadata. Apply reauthorization and receipt reconcile share this single
-// derivation so a persisted derive-owned claim can never drift from the facts
-// the server would have signed it from. Column and owner identities stay
-// claim-sourced, exactly as the Apply-side DeepEquals expects them.
 func ConstructionDeriveSourceFacts(snapshot capability.Snapshot, rootResourceType, fieldPath string) (authoringv2.ConstructionSourceProjection, bool) {
 	path := canonicalRowPath(fieldPath)
 	if strings.TrimSpace(rootResourceType) == "" || path == "" {
@@ -518,10 +473,6 @@ func isDeriveOwnedSourceProjection(construction authoringv2.Construction, projec
 		containsConstructionColumnIDLocal(deriveOperandColumnIDs(step.Operation.Derive), projection.ColumnID)
 }
 
-// reauthorizeConstructionDeriveSources re-derives the server-owned facts for
-// every derive-owned projection from the live authorized snapshot so an Apply
-// cannot stage a derived column whose operand field stopped qualifying after
-// the proposal.
 func (s *Service) reauthorizeConstructionDeriveSources(ctx context.Context, base constructionBase, outputID string, construction authoringv2.Construction) error {
 	if s.config.RowChoicePlanner == nil {
 		return unavailable("commands", "ROW_CHOICE_UNAVAILABLE", "authorized derive source choice planning is not configured", nil)

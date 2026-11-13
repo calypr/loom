@@ -7,18 +7,6 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 )
 
-// The F-2 durable control for the F-B27 all-generations discovery (REPAIR-15)
-// is split with arch-backend-07 Wave B: the adapter-side guard controls
-// (rejected option shape refuses to reach Arango) live with the adapter at
-// internal/backends/arango/internal/catalog/all_generations_auth_path_conflict_test.go;
-// the producer-side control below stays here because authscope is the only
-// producer of AllGenerations requests, which makes the boundary part of its
-// contract.
-
-// TestFB27ResolverNeverEmitsTheConflictingShape pins the producer side of the
-// same boundary: every all-generations request the resolver makes carries an
-// empty generation, and every generation-bearing request leaves AllGenerations
-// false, so the rejected combination is unreachable from the authz path.
 func TestFB27ResolverNeverEmitsTheConflictingShape(t *testing.T) {
 	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
 		if opts.AllGenerations && catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) != "" {

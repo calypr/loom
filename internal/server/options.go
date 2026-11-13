@@ -23,39 +23,31 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Listen                        string                      `yaml:"listen"`
-	Backend                       string                      `yaml:"backend"`
-	URL                           string                      `yaml:"url"`
-	Database                      string                      `yaml:"database"`
-	Schema                        string                      `yaml:"schema"`
-	PostgreSQL                    PostgreSQLConfig            `yaml:"postgresql"`
-	ClickHouse                    ClickHouseConfig            `yaml:"clickhouse"`
-	Dataframer                    DataframerConfig            `yaml:"dataframer"`
-	RecipeBatchRows               int                         `yaml:"recipe_batch_rows"`
-	RecipeBatchBytes              int                         `yaml:"recipe_batch_bytes"`
-	RecipeQueryPageRows           int                         `yaml:"recipe_query_page_rows"`
-	RecipeQualityMaxRows          int64                       `yaml:"recipe_quality_max_rows"`
-	RecipeQualityMaxDistinctKeys  int64                       `yaml:"recipe_quality_max_distinct_keys"`
-	ArtifactDirectory             string                      `yaml:"artifact_directory"`
-	ArtifactTTL                   time.Duration               `yaml:"artifact_ttl"`
-	ArtifactMaxRows               int64                       `yaml:"artifact_max_rows"`
-	ArtifactMaxBytes              int64                       `yaml:"artifact_max_bytes"`
-	PopulationMappingCursorSecret string                      `yaml:"population_mapping_cursor_secret"`
-	AllowUnauthenticated          bool                        `yaml:"allow_unauthenticated"`
-	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
-	LocalWorkspaceWriteback       string                      `yaml:"local_workspace_writeback"`
-	LocalWorkspaceProject         string                      `yaml:"local_workspace_project"`
-	// DevActivationConflictOnce is intentionally not configurable through YAML.
-	// It is a one-shot fault injector for the isolated, --no-auth development
-	// stack and is ignored unless both server and auth are unauthenticated.
-	DevActivationConflictOnce bool `yaml:"-"`
-	// DevRepositoryActivationConflictOnce is the repository-publish sibling of
-	// DevActivationConflictOnce. It is intentionally not configurable through
-	// YAML, arms the one-shot corrupted-compare fault on the repository
-	// activation leg, and is honored only under the same local no-auth mode
-	// gate as the other dev fault switches.
-	DevRepositoryActivationConflictOnce bool          `yaml:"-"`
-	DevArtifactRowDelay                 time.Duration `yaml:"-"`
+	Listen                              string                      `yaml:"listen"`
+	Backend                             string                      `yaml:"backend"`
+	URL                                 string                      `yaml:"url"`
+	Database                            string                      `yaml:"database"`
+	Schema                              string                      `yaml:"schema"`
+	PostgreSQL                          PostgreSQLConfig            `yaml:"postgresql"`
+	ClickHouse                          ClickHouseConfig            `yaml:"clickhouse"`
+	Dataframer                          DataframerConfig            `yaml:"dataframer"`
+	RecipeBatchRows                     int                         `yaml:"recipe_batch_rows"`
+	RecipeBatchBytes                    int                         `yaml:"recipe_batch_bytes"`
+	RecipeQueryPageRows                 int                         `yaml:"recipe_query_page_rows"`
+	RecipeQualityMaxRows                int64                       `yaml:"recipe_quality_max_rows"`
+	RecipeQualityMaxDistinctKeys        int64                       `yaml:"recipe_quality_max_distinct_keys"`
+	ArtifactDirectory                   string                      `yaml:"artifact_directory"`
+	ArtifactTTL                         time.Duration               `yaml:"artifact_ttl"`
+	ArtifactMaxRows                     int64                       `yaml:"artifact_max_rows"`
+	ArtifactMaxBytes                    int64                       `yaml:"artifact_max_bytes"`
+	PopulationMappingCursorSecret       string                      `yaml:"population_mapping_cursor_secret"`
+	AllowUnauthenticated                bool                        `yaml:"allow_unauthenticated"`
+	RequiredDataframeSelectors          []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
+	LocalWorkspaceWriteback             string                      `yaml:"local_workspace_writeback"`
+	LocalWorkspaceProject               string                      `yaml:"local_workspace_project"`
+	DevActivationConflictOnce           bool                        `yaml:"-"`
+	DevRepositoryActivationConflictOnce bool                        `yaml:"-"`
+	DevArtifactRowDelay                 time.Duration               `yaml:"-"`
 }
 
 type ClickHouseConfig struct {
@@ -66,37 +58,17 @@ type ClickHouseConfig struct {
 	Password string `yaml:"password"`
 }
 
-// PostgreSQLConfig holds the connection contract for the PostgreSQL source
-// backend. It is validated only when server.backend is postgres. Password is
-// a credential: it must never be interpolated into errors or rendered output
-// (see Config.String and the secret-redaction regressions).
 type PostgreSQLConfig struct {
-	Host            string        `yaml:"host"`
-	Port            int           `yaml:"port"`
-	Database        string        `yaml:"database"`
-	User            string        `yaml:"user"`
-	Password        string        `yaml:"password"`
-	SSLMode         string        `yaml:"sslmode"`
-	MaxOpenConns    int           `yaml:"max_open_conns"`
-	MaxIdleConns    int           `yaml:"max_idle_conns"`
-	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
-	// Schemas is the declaration of schema ownership for each production
-	// migration series (see
-	// internal/backends/postgres/internal/store/migration_ownership.go).
-	// Since pg-runtime-server-composition it is CONSUMED in exactly two
-	// shapes: the complete six-series ladder (the full PostgreSQL runtime,
-	// internal/server runPostgreSQLFullRuntime) and the first-query-route
-	// pair (source and dataset_release only, runPostgreSQLFirstQueryRoute).
-	// Both pass the assignment through the backend factory, where
-	// storepostgres.ValidateAssignment is the authoritative pre-pool gate.
-	// Any other shape -- an extra entry, a typo'd series, or a subset of the
-	// ladder beyond the pair -- is rejected at configuration time (fail
-	// closed) instead of being silently ignored: a deployment can never
-	// believe an unconsumed series is isolated in the named schema. A
-	// missing map is valid here (no error), but the route's pre-dial
-	// consumability gates then keep the deployment on the
-	// ErrPostgreSQLRuntimeNotWired refusal, never a partial composition.
-	Schemas map[string]string `yaml:"schemas"`
+	Host            string            `yaml:"host"`
+	Port            int               `yaml:"port"`
+	Database        string            `yaml:"database"`
+	User            string            `yaml:"user"`
+	Password        string            `yaml:"password"`
+	SSLMode         string            `yaml:"sslmode"`
+	MaxOpenConns    int               `yaml:"max_open_conns"`
+	MaxIdleConns    int               `yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration     `yaml:"conn_max_lifetime"`
+	Schemas         map[string]string `yaml:"schemas"`
 }
 
 const (
@@ -115,8 +87,6 @@ const (
 
 var postgresSSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 
-// postgresCLIFlagNames lists the PostgreSQL connection flags. With --config
-// they are rejected explicitly rather than silently dropped.
 var postgresCLIFlagNames = []string{
 	"pg-host", "pg-port", "pg-database", "pg-user", "pg-password", "pg-sslmode",
 	"pg-max-open-conns", "pg-max-idle-conns", "pg-conn-max-lifetime",
@@ -237,10 +207,6 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		if err != nil {
 			return Config{}, err
 		}
-		// --no-auth is an explicit local-development override. Keep the
-		// configuration file authoritative for normal server settings, but honor
-		// this flag even when the server is started with --config (as the Helm
-		// local-development path does).
 		if noAuth {
 			cfg.Server.AllowUnauthenticated = true
 			cfg.Auth.AllowUnauthenticated = true
@@ -350,9 +316,6 @@ func applyEnvironment(cfg Config) (Config, error) {
 	return cfg, nil
 }
 
-// applyDevFaultOverrides is deliberately gated by the local no-auth mode.
-// These switches provide deterministic fault scenarios for the isolated dev
-// Compose stack without creating a production request or OpenAPI surface.
 func applyDevFaultOverrides(cfg *Config) error {
 	if cfg == nil || !cfg.Server.AllowUnauthenticated || !cfg.Auth.AllowUnauthenticated {
 		return nil
@@ -402,9 +365,6 @@ func applyDevFaultOverrides(cfg *Config) error {
 	return nil
 }
 
-// normalizeSourceBackend resolves the strict source-backend selector. An
-// empty value is the legacy default (arango); anything outside the enum is
-// rejected. There is deliberately no URL-based auto-detection.
 func normalizeSourceBackend(value string) (string, error) {
 	backend := strings.ToLower(strings.TrimSpace(value))
 	if backend == "" {
@@ -418,18 +378,6 @@ func normalizeSourceBackend(value string) (string, error) {
 	}
 }
 
-// checkSourceBackendConflicts keeps the resolved source backend honest about
-// how it was selected and canonicalizes it onto the configuration. With
-// --config the configuration file owns backend selection and the PostgreSQL
-// connection contract, so an explicit --backend or --pg-* override is
-// rejected instead of being silently dropped next to the file's choice: an
-// ignored selector could otherwise start the server on the wrong backend, and
-// an ignored TLS flag could silently downgrade the connection. On the pure
-// flag path the PostgreSQL flags are authoritative, but explicitly passed
-// legacy ArangoDB overrides (--url/--database) still conflict with a postgres
-// selection even when they repeat the ArangoDB defaults, so an ignored
-// override can never silently coexist with a postgres selection. Error
-// messages name settings only and never echo values.
 func checkSourceBackendConflicts(cfg *Config, explicitFlags map[string]bool, usingConfigFile bool) error {
 	backend, err := normalizeSourceBackend(cfg.Server.Backend)
 	if err != nil {
@@ -466,9 +414,6 @@ func checkSourceBackendConflicts(cfg *Config, explicitFlags map[string]bool, usi
 	return nil
 }
 
-// validate enforces the PostgreSQL connection contract. It is only invoked
-// when the postgres backend is selected. Errors reference field names and
-// non-secret values only; Password is never interpolated.
 func (p PostgreSQLConfig) validate() error {
 	if strings.TrimSpace(p.Host) == "" {
 		return errors.New("server.postgresql.host is required when server.backend is postgres")
@@ -502,20 +447,6 @@ func (p PostgreSQLConfig) validate() error {
 	if p.ConnMaxLifetime < 0 {
 		return errors.New("server.postgresql.conn_max_lifetime cannot be negative")
 	}
-	// The field comment anticipated exactly this moment, verbatim: "Entries
-	// become acceptable once a factory honors the map, at which point
-	// storepostgres.ValidateAssignment is the authoritative pre-pool gate
-	// (it stays authoritative and fully tested at the store layer in the
-	// meantime)." pg-runtime-first-query-route opened that door for the
-	// source and dataset_release pair, and pg-runtime-server-composition now
-	// consumes the complete six-series ladder through the full PostgreSQL
-	// runtime (runPostgreSQLFullRuntime). Both shapes pass through the
-	// factory's Config.Validate, where storepostgres.ValidateAssignment
-	// remains the authoritative pre-dial ledger gate. The fail-closed law
-	// still governs every shape: silently ignoring an explicit entry would
-	// let a deployment believe a series is hosted in the named schema while
-	// the assignment has no effect, so any map that is neither the exact
-	// first-query-route pair nor the exact full ladder is rejected here.
 	if len(p.Schemas) == 0 {
 		return nil
 	}
@@ -534,8 +465,6 @@ func (p PostgreSQLConfig) validate() error {
 	fullLadder := len(p.Schemas) == len(ladder)
 	for _, series := range ladder {
 		if _, assigned := p.Schemas[series]; !assigned && fullLadder {
-			// A 6-entry map missing a ladder member carries a foreign key;
-			// neither consumable shape accepts it.
 			fullLadder = false
 			break
 		}
@@ -560,14 +489,6 @@ func (p PostgreSQLConfig) validate() error {
 			return fmt.Errorf("server.postgresql.schemas: the %s entry cannot be blank", series)
 		}
 	}
-	// Compare the TRIMMED values pairwise: the composition gates trim before
-	// handing the map to the factory, so names that differ only by
-	// surrounding whitespace would collapse to one schema downstream and
-	// surface as the generic not-wired sentinel. Refusing them here keeps the
-	// precise shared-schema message for the operator
-	// (review e22c4825 optional 3; both paths already failed closed). The
-	// migration-ownership law gives every schema exactly one series' history,
-	// so every consumed pair must be distinct.
 	trimmed := make(map[string]string, len(p.Schemas))
 	for series, schema := range p.Schemas {
 		name := strings.TrimSpace(schema)
@@ -594,10 +515,6 @@ func redactConfigURL(value string) string {
 	return configURLCredentials.ReplaceAllString(value, "${1}[redacted]@")
 }
 
-// String renders a single-line, log-safe summary of the configuration. Every
-// credential (PostgreSQL, ClickHouse, basic auth, and the population mapping
-// cursor secret) is replaced with a redaction marker, and URL credentials are
-// stripped, so rendering a Config never prints a password or DSN credential.
 func (c Config) String() string {
 	return fmt.Sprintf(
 		"server{listen=%q backend=%q url=%q database=%q schema=%q postgresql{host=%q port=%d database=%q user=%q password=%q sslmode=%q max_open_conns=%d max_idle_conns=%d conn_max_lifetime=%s} clickhouse{enabled=%t url=%q database=%q username=%q password=%q} artifact_directory=%q population_mapping_cursor_secret=%q} auth{mode=%q basic{username=%q password=%q}}",
@@ -628,10 +545,6 @@ func (c Config) Validate() error {
 		return err
 	}
 	if backend == sourceBackendPostgres {
-		// The legacy ArangoDB settings stay untouched for the arango backend,
-		// but a customized one beside a postgres selection is a conflict that
-		// must fail before startup. Values are never echoed: an Arango URL can
-		// carry embedded credentials.
 		if strings.TrimSpace(cfg.Server.URL) != defaultServerURL || strings.TrimSpace(cfg.Server.Database) != defaultServerDatabase {
 			return errors.New("server.url and server.database are ArangoDB settings and cannot be customized while server.backend is postgres")
 		}

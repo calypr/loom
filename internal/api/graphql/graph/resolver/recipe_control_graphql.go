@@ -254,9 +254,6 @@ func fullRecipeResult(result recipePreviewView, name string) (*model.DataframeRe
 	}, nil
 }
 
-// dataframeCSV serializes one logical output using the compiler-resolved
-// column order. Repeated and object values are represented as JSON in one CSV
-// cell so the flat export remains lossless.
 func dataframeCSV(columns []string, rows []map[string]any) (string, error) {
 	var buffer bytes.Buffer
 	writer := csv.NewWriter(&buffer)

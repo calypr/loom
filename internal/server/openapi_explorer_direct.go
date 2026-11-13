@@ -14,9 +14,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// explorerLegacyOperationError carries the legacy Explorer response contract.
-// It is a server-side transport value; lifecycle errors are mapped into it at
-// the generated OpenAPI boundary.
 type explorerLegacyOperationError struct {
 	status      int
 	code        string
@@ -74,9 +71,6 @@ func lifecycleLegacyFailure(err error) error {
 	return legacyOperationFailureDetails(status, value.Code, value.Message, value.Details, err)
 }
 
-// legacyOperationFailureDetails keeps the lifecycle-error details (explicit
-// retryability and other safe structured diagnostics) so the legacy encoder can
-// emit them; the contract forbids clients inferring retryability from status.
 func legacyOperationFailureDetails(status int, code, message string, details map[string]any, cause error) error {
 	return &explorerLegacyOperationError{status: status, code: code, message: message, details: details, cause: cause}
 }

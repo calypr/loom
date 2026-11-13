@@ -1,6 +1,3 @@
-// dataframe-profile compiles one checked-in dataframe fixture and profiles
-// the exact rendered AQL directly against ArangoDB. It is intentionally a
-// diagnostic command: normal GraphQL execution never enables PROFILE.
 package main
 
 import (
@@ -154,10 +151,6 @@ func main() {
 		fatalf("compile GDC request %q produced %d outputs; profiling requires exactly one", label, len(compiledQueries))
 	}
 	compiled := compiledQueries[0]
-	// The profiler is an Arango diagnostic: the AQL view for the file dump,
-	// EXPLAIN, and PROFILE is derived from the compiled command through
-	// closed dispatch, so a non-AQL-tagged command is refused here rather
-	// than profiled.
 	aqlText, compiledBinds, dispatchErr := compiled.Command.AQLParameters()
 	if dispatchErr != nil {
 		fatalf("dispatch GDC request %q to AQL profiling: %v", label, dispatchErr)

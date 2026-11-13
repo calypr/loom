@@ -12,10 +12,6 @@ import (
 
 const defaultPreflightSampleRows = 10
 
-// IngestionMode describes the loader selected for a resource type after
-// checking the active graph schema. Generated is a fast path; Generic remains
-// the supported schema-backed path for resources outside that optimized
-// switch.
 type IngestionMode string
 
 const (
@@ -24,9 +20,6 @@ const (
 	IngestionModeUnsupported IngestionMode = "unsupported"
 )
 
-// PreflightResource is a deterministic per-resource report. Resource types
-// come from the staged file names because that is the load contract; sampled
-// payload resourceType values are checked below before any database mutation.
 type PreflightResource struct {
 	ResourceType             string        `json:"resourceType"`
 	Files                    []string      `json:"files"`
@@ -36,9 +29,6 @@ type PreflightResource struct {
 	Mode                     IngestionMode `json:"mode"`
 }
 
-// PreflightIssue is intentionally structured so an HTTP or CLI caller can
-// present every actionable issue rather than leaving a partially loaded
-// project behind after the first invalid file.
 type PreflightIssue struct {
 	Code         string `json:"code"`
 	File         string `json:"file"`
@@ -56,8 +46,6 @@ func (r PreflightReport) Valid() bool {
 	return len(r.Issues) == 0
 }
 
-// PreflightError preserves the complete report for callers while retaining a
-// compact Error implementation for the existing synchronous Load API.
 type PreflightError struct {
 	Report PreflightReport
 }
@@ -70,10 +58,6 @@ func (e *PreflightError) Error() string {
 	return fmt.Sprintf("ingestion preflight failed: %s", issue.Message)
 }
 
-// PreflightFiles validates the staged filename-to-resource contract and
-// chooses the generated or generic loader for every active graph-schema class.
-// It samples a bounded number of records per file; full validation remains in
-// the streaming loader so large imports are not read twice.
 func PreflightFiles(files []string, schema *graph.GraphSchema, sampleRows int) (PreflightReport, error) {
 	if schema == nil {
 		return PreflightReport{}, fmt.Errorf("graph schema is required")

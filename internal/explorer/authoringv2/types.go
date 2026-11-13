@@ -1,6 +1,3 @@
-// Package authoringv2 contains the hard-cut Explorer Builder authoring
-// protocol. It is deliberately separate from the V1 HTTP and persistence
-// contracts: this package describes user intent and catalog facts only.
 package authoringv2
 
 import (
@@ -24,8 +21,6 @@ const (
 	tableShapeSemanticsVersion              = 9
 )
 
-// Document is the complete durable Builder intent. Route occurrences form a
-// semantic resource tree rooted at RootResourceType.
 type Document struct {
 	APIVersion       string            `json:"-"`
 	Kind             string            `json:"kind"`
@@ -37,17 +32,11 @@ type Document struct {
 	Frames           []FrameDefinition `json:"frames,omitempty"`
 	Columns          []Column          `json:"columns"`
 	TableShape       *TableShape       `json:"tableShape,omitempty"`
-	// Construction is the canonical post-source operation sequence. When it is
-	// present, Route/Rows/Columns describe only the source projection and
-	// TableShape must be nil. A nil value preserves the existing V2 document
-	// semantics and compiler path.
-	Construction *Construction `json:"construction,omitempty"`
-	FixedFilters []FixedFilter `json:"fixedFilters,omitempty"`
-	Actions      []Action      `json:"actions,omitempty"`
+	Construction     *Construction     `json:"construction,omitempty"`
+	FixedFilters     []FixedFilter     `json:"fixedFilters,omitempty"`
+	Actions          []Action          `json:"actions,omitempty"`
 }
 
-// Population constrains an output's row roots to resources reachable from a
-// completed immutable selection.
 type Population struct {
 	SelectionRevisionID string                `json:"selectionRevisionId"`
 	Route               []PopulationRouteStep `json:"route"`
@@ -81,14 +70,10 @@ type Output struct {
 	RowLabel string `json:"rowLabel,omitempty"`
 }
 
-// Workspace is the atomic authoring unit. Documents are independent table
-// intents; tabs provide their ordered, visible runtime presentation.
 type Workspace struct {
-	APIVersion       string `json:"apiVersion"`
-	Kind             string `json:"kind"`
-	SemanticsVersion int    `json:"semanticsVersion,omitempty"`
-	// MigrationDecisions records automatic interpretation of ambiguous legacy
-	// intent so the choice remains visible and part of the workspace digest.
+	APIVersion         string                           `json:"apiVersion"`
+	Kind               string                           `json:"kind"`
+	SemanticsVersion   int                              `json:"semanticsVersion,omitempty"`
 	MigrationDecisions []string                         `json:"migrationDecisions,omitempty"`
 	Explorer           ExplorerMetadata                 `json:"explorer"`
 	Documents          []Document                       `json:"documents"`
@@ -121,8 +106,6 @@ type ChartPresentation struct {
 	Order *int   `json:"order,omitempty"`
 }
 
-// CatalogSnapshot is an immutable, authorization-scoped projection. The
-// token identifies the exact snapshot used to validate a document.
 type CatalogSnapshot struct {
 	APIVersion               string               `json:"-"`
 	Kind                     string               `json:"-"`
@@ -194,8 +177,6 @@ type CatalogCandidate struct {
 	ConceptCandidates     []ConceptCandidate                        `json:"conceptCandidates,omitempty"`
 }
 
-// ConceptCandidate is an observed structural terminology/value candidate.
-// It is evidence for authoring, not a claim of clinical equivalence.
 type ConceptCandidate struct {
 	SourceResourceType     string   `json:"sourceResourceType"`
 	SourcePath             string   `json:"sourcePath,omitempty"`
@@ -226,8 +207,6 @@ type RepeatedBoundary struct {
 	MaxItems int    `json:"maxItems"`
 }
 
-// RoutePolicy has no default hop ceiling: nil MaxHops means every finite
-// route is valid. Repeated edges and self-loops are explicit capabilities.
 type RoutePolicy struct {
 	MaxHops            *int `json:"maxSteps"`
 	Unbounded          bool `json:"-"`
@@ -235,7 +214,6 @@ type RoutePolicy struct {
 	AllowSelfLoops     bool `json:"allowSelfLoops"`
 }
 
-// BuilderState joins one workspace to the one catalog snapshot that proves it.
 type BuilderState struct {
 	APIVersion              string          `json:"apiVersion"`
 	Kind                    string          `json:"kind"`

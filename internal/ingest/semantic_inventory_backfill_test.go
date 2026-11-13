@@ -24,7 +24,7 @@ func TestBackfillSemanticInventoryResumesPartialPageWithoutDuplicates(t *testing
 		backfillSourceRow(t, "c", "scope-a", backfillObservation("third", "v1", true)),
 	}
 	original := cloneBackfillRows(backend.rows["Observation"])
-	backend.failWriteAt = 4 // First event for source c persists, its next event is interrupted.
+	backend.failWriteAt = 4
 	options := SemanticInventoryBackfillOptions{Project: "project", DatasetGeneration: "generation", PageSize: 2, BatchSize: 1}
 	manifest := backfillManifest(t, publication.StateStaged)
 

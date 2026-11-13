@@ -38,9 +38,6 @@ func classifyReceiptPreviewResolutionError(receiptID string, err error) error {
 	return err
 }
 
-// previewRouteError maps execution failures to the stable authoring error
-// contract without requiring a Fiber context. The generated OpenAPI adapter
-// uses this form directly.
 func previewRouteError(err error) error {
 	if errors.Is(err, ErrPreviewResponseTooLarge) {
 		return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "RESPONSE_TOO_LARGE", Message: "preview response exceeds the maximum size"}, Cause: err}

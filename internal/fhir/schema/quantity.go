@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-// QuantityIdentityPaths validates a scalar FHIR Quantity value and returns its
-// sibling system and code paths.
 func QuantityIdentityPaths(resourceType, valuePath string) (string, string, error) {
 	valuePath = CanonicalizePath(valuePath)
 	if !strings.HasSuffix(valuePath, ".value") {
