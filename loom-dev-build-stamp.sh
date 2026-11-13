@@ -2,9 +2,6 @@
 set -eu
 
 source_digest() {
-  # The source digest includes file contents and names, so edits and deletions
-  # cannot be mistaken for the prior process merely because a timestamp is
-  # unchanged.
   {
   sha256sum /workspace/go.mod /workspace/go.sum
   find /workspace/cmd /workspace/internal /workspace/generated /workspace/schemas \
@@ -47,10 +44,6 @@ if [ "${1:-}" = "--check" ]; then
     esac
   done
   printf '%s %s %s\n' "$expected_source" "$source_digest" "$running_binary"
-  # Air may unlink its build artifact after exec. The running executable
-  # remains readable through /proc, so compare it with the digest recorded
-  # immediately after the successful build instead of requiring the path to
-  # remain present.
   [ "$expected_source" = "$source_digest" ] && [ "$running_binary" = "$expected_binary" ]
   exit
 fi

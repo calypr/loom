@@ -11,12 +11,6 @@ const uniqueRequestMembership = (requests, request) => {
     requests.filter((candidate) => candidate.requestId === request.requestId).length === 1;
 };
 
-/**
- * Prove that a failed capabilities request was aborted as a stale read after a
- * concrete column mutation changed the draft key and a matching fresh read began.
- * Returns detailed chronology evidence or undefined; it never classifies by error
- * text, endpoint, or later response alone.
- */
 export function proveSupersededCapabilitiesAbort(requests, abortedRequest) {
   if (!Array.isArray(requests)) throw new TypeError('requests must be an array');
   if (!capabilityPath(abortedRequest) || abortedRequest.method !== 'POST' || abortedRequest.failure !== 'net::ERR_ABORTED' ||

@@ -133,19 +133,7 @@ func (s *FieldProfileAdapter) DiscoverFieldEnrichment(ctx context.Context, opts 
 			result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{Code: "INVALID_FIELD_RESOURCE_TYPE", Message: "field enrichment resource type is not concrete/generated", ResourceType: doc.ResourceType})
 			continue
 		}
-		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{
-			Project: doc.Project, DatasetGeneration: doc.DatasetGeneration, AuthResourcePath: doc.AuthResourcePath,
-			ResourceType: resourceType, Path: doc.Path, Kind: doc.Kind,
-			DocCount: doc.DocCount, MaxItems: doc.MaxItems, SampleCount: doc.SampleCount,
-			DistinctValues: append([]string(nil), doc.DistinctValues...), DistinctTruncated: doc.DistinctTruncated,
-			ExtensionValues:      append([]catalog.ExtensionValueObservation(nil), doc.ExtensionValues...),
-			SemanticObservations: append([]catalog.SemanticObservation(nil), doc.SemanticObservations...),
-			PivotCandidate:       doc.PivotCandidate, PivotKind: doc.PivotKind,
-			PivotColumns: append([]string(nil), doc.PivotColumns...),
-			PivotFamily:  doc.PivotFamily, PivotColumnSelect: doc.PivotColumnSelect, PivotValueSelect: doc.PivotValueSelect,
-			PivotItemSource: doc.PivotItemSource, PivotItemResourceType: doc.PivotItemResourceType,
-			PivotValueSelectors: append([]string(nil), doc.PivotValueSelectors...),
-		})
+		result.Values = append(result.Values, fieldObservationFromProfileDocument(doc, resourceType))
 		if doc.EnrichmentTruncated {
 			result.Truncated = true
 		}
@@ -175,6 +163,22 @@ func (s *FieldProfileAdapter) DiscoverFieldEnrichment(ctx context.Context, opts 
 	result.Digest, _ = catalog.FieldEnrichmentDigest(result.Values, result.FieldCoverageKnown, result.Complete, result.Truncated)
 	result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 	return result, nil
+}
+
+func fieldObservationFromProfileDocument(doc catalog.FieldCatalogDocument, resourceType string) catalog.FieldEnrichmentObservation {
+	return catalog.FieldEnrichmentObservation{
+		Project: doc.Project, DatasetGeneration: doc.DatasetGeneration, AuthResourcePath: doc.AuthResourcePath,
+		ResourceType: resourceType, Path: doc.Path, Kind: doc.Kind,
+		DocCount: doc.DocCount, MaxItems: doc.MaxItems, SampleCount: doc.SampleCount,
+		DistinctValues: append([]string(nil), doc.DistinctValues...), DistinctTruncated: doc.DistinctTruncated,
+		ExtensionValues:      append([]catalog.ExtensionValueObservation(nil), doc.ExtensionValues...),
+		SemanticObservations: append([]catalog.SemanticObservation(nil), doc.SemanticObservations...),
+		PivotCandidate:       doc.PivotCandidate, PivotKind: doc.PivotKind,
+		PivotColumns: append([]string(nil), doc.PivotColumns...),
+		PivotFamily:  doc.PivotFamily, PivotColumnSelect: doc.PivotColumnSelect, PivotValueSelect: doc.PivotValueSelect,
+		PivotItemSource: doc.PivotItemSource, PivotItemResourceType: doc.PivotItemResourceType,
+		PivotValueSelectors: append([]string(nil), doc.PivotValueSelectors...),
+	}
 }
 
 func validateFieldProfileBatchScope(scope storepostgres.FieldProfileScope, docs []catalog.FieldCatalogDocument) error {

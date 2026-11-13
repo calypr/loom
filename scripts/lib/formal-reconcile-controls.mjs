@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { join } from 'node:path';
-// Bounded implementation checks, not a proof of the React caller or transport.
 export async function checkReconcileImplementation(root) {
     const source = readFileSync(join(root, 'ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileRecovery.ts'), 'utf8');
     const load = (text) => import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(text)).toString('base64')}`);

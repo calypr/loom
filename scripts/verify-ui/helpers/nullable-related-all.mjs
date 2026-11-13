@@ -23,7 +23,5 @@ export function expectedNullableRelatedAll({ relatedCount, sourceState }) {
   if (sourceState !== 'missing' && sourceState !== 'explicit-null') {
     throw new TypeError('The gender-null ALL mode accepts only a missing or explicit-null source value.');
   }
-  // ALL retains one member per linked owner. A missing optional scalar reads as
-  // null in the projection, while an empty owner population has no members.
   return [null];
 }

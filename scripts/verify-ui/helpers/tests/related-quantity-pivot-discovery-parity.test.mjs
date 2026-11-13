@@ -190,11 +190,6 @@ const patientBatchB = {
   }],
 };
 
-// The request result is grouped by Patient and does not retain Observation IDs.
-// This second Patient's identical one-row FINAL/d numeric group models the same
-// Observation value (2) reached through a distinct Patient lineage; the host
-// must count that Patient's route separately while preserving each Patient's
-// source group until the final cross-root merge.
 const patientBatchC = {
   project: 'case018-project',
   generation: 'case018-generation',
@@ -315,8 +310,6 @@ test('CASE-018 paged discovery weights shared routes and matches literal typed h
     assert.equal(Object.hasOwn(builder.bindVars, 'visible_text_keys'), false, 'Raw key discovery must not depend on preview-derived text keys');
   }
 
-  // Scope is enforced independently at every collection and edge boundary in
-  // each query; a filter on one join endpoint cannot stand in for another.
   assert.match(firstPageQuery.query, /s\._key > \@after_specimen_key/);
   assertEntityScope(firstPageQuery.query, {
     alias: 's', resourceType: 'Specimen', allowedVariable: 'allowed', filterPrefix: 's\\._key > @after_specimen_key\\s+AND',
@@ -573,8 +566,6 @@ test('CASE-018 streaming discovery preserves one shared Observation on distinct 
     nextAfterSpecimenKey: null,
   });
 
-  // Each duplicate raw edge pair is represented once in the bounded AQL
-  // response, while the same Observation remains paired with both Patients.
   const specimenPatientEdges = [
     ['Specimen/root-a', 'Patient/patient-a'], ['Specimen/root-a', 'Patient/patient-a'],
     ['Specimen/root-b', 'Patient/patient-b'], ['Specimen/root-b', 'Patient/patient-b'],
@@ -605,8 +596,6 @@ test('CASE-018 streaming discovery preserves one shared Observation on distinct 
   ]);
   assert.deepEqual(accumulator.nextPatientBatch(2), ['Patient/patient-a', 'Patient/patient-b']);
 
-  // The query groups by (observationId, patientId); its bounded response then
-  // carries one aggregate group for each Patient lineage.
   const sharedObservationGroups = uniqueObservationPatientEdges.map(([observationId, patientId]) => {
     assert.equal(observationId, 'Observation/shared');
     return {

@@ -30,7 +30,6 @@ const completePopulationRowKey = row => JSON.stringify(row.map((value) => Array.
   ? [...value].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
   : value));
 
-/** Compare complete row populations independent of row order and ALL cell item order. */
 export function assertCompletePopulationRowsMatchOracle(actualRows, oracleRows, { label = 'complete row population' } = {}) {
   assert(Array.isArray(actualRows), `${label}: browser result must be an array`);
   assert(Array.isArray(oracleRows), `${label}: independent oracle must be an array`);

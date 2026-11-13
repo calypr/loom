@@ -176,7 +176,7 @@ export const cdaNullableEmptyRemovalPreviewEvidence = ({ proposal, outputId, tar
   const snapshotToken = currentDraft?.catalog?.snapshotToken;
   const expectedRoute = `/api/v1/projects/${encodeURIComponent(project ?? '')}/explorers/${encodeURIComponent(explorer ?? '')}/authoring/v2/construction-proposals`;
   let expectedOrigin = null;
-  try { expectedOrigin = new URL(uiOrigin).origin; } catch { /* invalid scope fails below */ }
+  try { expectedOrigin = new URL(uiOrigin).origin; } catch { }
   const readyResponse = response?.previewStatus === 'READY';
   const createdCatalog = targetCreateBase?.catalog;
   const createdTargets = (targetCreateBase?.workspace?.documents ?? []).filter(document => document?.output?.id === outputId);

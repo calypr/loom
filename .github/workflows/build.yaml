@@ -29,7 +29,6 @@ jobs:
   build-and-push:
     name: Build and push ${{ matrix.arch }} image
     needs: tests
-    # Never expose Quay credentials to code from a forked pull request.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     strategy:

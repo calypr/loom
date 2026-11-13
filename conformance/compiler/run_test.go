@@ -14,9 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// Result is the pure-compiler outcome for one oracle fixture. It intentionally
-// stops before execution; result-row parity against META belongs to the Arango
-// integration corpus.
 type Result struct {
 	FixtureID string
 	Compiled  compiler.CompiledQuery

@@ -31,11 +31,6 @@ func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, co
 	return client.Explain(ctx, arango.ExplainRequest{Query: query, BindVars: bindVars})
 }
 
-// TestGDCOptimizationPolicyAblationAgainstArango is opt-in because it reads
-// the local development database and profiles four complete GDC executions.
-// It proves that independent policy switches preserve the same dataframe
-// result before a later work package uses the measurements to enable a new
-// rewrite.
 func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run policy ablation against Arango")
@@ -117,8 +112,6 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 					if index >= len(expectedRows) {
 						break
 					}
-					// JSON object encoding sorts map keys, making this a stable
-					// row-level diagnostic even though rows are decoded into maps.
 					left, _ := json.Marshal(rows[index])
 					right, _ := json.Marshal(expectedRows[index])
 					if string(left) != string(right) {
@@ -133,10 +126,6 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	}
 }
 
-// TestTraversalSharingAblationAgainstArango profiles focused sibling and
-// deep-traversal fixtures with sharing isolated from prepared selectors. The
-// fixtures intentionally use an oracle project; this test rewrites only the
-// project bind to the loaded local dataset and leaves route semantics intact.
 func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run traversal sharing profile")
@@ -238,11 +227,6 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	}
 }
 
-// TestPreparedSelectorAblationAgainstArango profiles the prepared selector
-// payload independently from traversal sharing. It intentionally covers a
-// child aggregate+slice, a child pivot, a nested child, and the full GDC
-// dataframe so WP3 can make a generic payload decision instead of relying on
-// one resource-specific query.
 func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run prepared-selector profile")
@@ -343,12 +327,6 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 	}
 }
 
-// TestRichConsumerReuseProfileAgainstArango records the baseline work for
-// WP4's proposed rich-consumer fusion. It deliberately uses the production
-// default (prepared selectors disabled after WP3) and reports the physical
-// reuse groups plus the rendered loop count. There is no fused candidate in
-// this test: fusion must be added only after a compatible group and a profile
-// benefit are demonstrated.
 func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run rich-consumer profile")
@@ -434,9 +412,6 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 	}
 }
 
-// TestCompactSetProjectionAblationAgainstArango compares full stored nodes
-// with the typed identity-safe set projection while keeping traversal sharing
-// and prepared selectors fixed. It is the WP5 evidence gate.
 func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run compact-set profile")

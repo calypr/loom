@@ -152,10 +152,6 @@ def request_contract(
     }
 
 
-# Request contracts are transcribed from the LoomClient API constructor and
-# its request schemas. A new endpoint without a source-backed row here remains
-# an explicit normalization failure; HTTP method and body presence are never
-# inferred from a POST default.
 API_REQUEST_CONTRACTS = {
     "/semantic-inventory": request_contract("POST", "browseSemanticInventory", ["snapshotToken", "rowRoot"], ["frameId", "sourceChoiceId", "selectionMode", "outputId", "resourceType", "query", "cursor", "limit", "fieldPresentation"], schema="semanticInventoryBrowseRequestSchema", source=["ui/packages/loom-ui/src/api.ts:1484-1503", "ui/packages/loom-ui/src/types.ts:3549-3570"]),
     "/construction-choices": request_contract("POST", "searchConstructionChoices", ["snapshotToken", "outputId", "source"], ["occurrenceId", "limit", "cursor"], schema="SearchConstructionChoicesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1544-1552", "ui/packages/loom-ui/src/api.ts:355-363"]),
@@ -559,9 +555,6 @@ def seed_for(affordance_id: str, row: dict, lifecycle: bool) -> dict:
             "COLUMN_PRESENTATION": "configured_table_columns",
         }.get(operation_family, "rooted_builder_workspace")
         source_requirements = []
-    # Machine-readable fixture preconditions; sourceRequirements retain the
-    # original UI-language statements for review without making the generator
-    # parse prose.
     lifecycle_preconditions = {
         "builder.demo_entry_route": [("demo.query", "available", True), ("demo.mode", "oneOf", ["builder", "viewer"])],
         "builder.workspace_hydration_and_explorer_selection": [("identity.projectId", "nonEmpty", True)],
@@ -694,8 +687,6 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
             extra_paths.setdefault("builder.add_columns.related_field", []).append(row)
             continue
         if fid == "builder.add_columns.related_field":
-            # This record documents both a RELATED_SOURCE choice flow and an
-            # active-record RELATED_FIELD flow. Split those into canonical rows.
             related_source = dict(row)
             related_source["id"] = "builder.related_source_column"
             related_source["operation"] = {"family": "ADD_COLUMNS", "variant": "RELATED_SOURCE"}
@@ -717,13 +708,11 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
             else:
                 rows[canonical_id]["sources"].append(row)
 
-    # Include new actions from the supplemental fragment as real affordances.
     supplemental = root / "docs/ui-contract-inventory/additional-mounted.fragment.json"
     if supplemental.exists():
         doc = json.loads(supplemental.read_text())
         mapping_rows.extend(doc.get("surfaceMappings", []))
 
-    # Translate a fragment record into one stable, model-facing affordance.
     out = []
     for fid, bundle in rows.items():
         fragment = bundle["fragment"]
@@ -756,20 +745,11 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
         for src in sources:
             flow = "primary" if src is primary else f"source-{sources.index(src)+1}"
             if fid == "builder.add_columns.source_selection" and src.get("id") == "builder.add_columns_source_selection":
-                # The lifecycle fragment also lists the nested child add flow;
-                # those are separate canonical affordances, so keep only the
-                # source-browse reads under this local selection action.
                 requests.extend(req for req in normalize_request(src, flow) if req["kind"] == "read" and "frame-source-options" in req["endpoint"])
                 continue
             if fid == "builder.add_columns.related_field" and src.get("id") == "builder.related_field_column":
-                # Keep this row as an alternate saved-step path and domain
-                # evidence, but the expression source carries its complete
-                # request sequence for the same RELATED_FIELD operation.
                 continue
             if fid == "builder.related_source_column" and src.get("id") == "builder.related_source_column" and not src.get("request"):
-                # The expression source row contributes the ordered choice /
-                # proposal / preview / apply sequence; relational source row
-                # remains the candidate constructor evidence.
                 continue
             requests.extend(normalize_request(src, flow))
         if fid == "builder.population.exclude_unmapped_member":
@@ -844,9 +824,6 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                 "condition": "Combine editor is open; source catalog identity matches selected draft",
                 "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1040-1048", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1059-1098", "ui/packages/loom-ui/src/api.ts:1668-1673"],
             })
-        # Specialized editors share an ordered proposal/preview/apply transport.
-        # Keep separate row-definition and construction paths when one UI action
-        # can be reached from both surfaces, such as Group and summarize.
         flow_specs = []
         base = "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/"
         if any(kind.startswith("ROW_DEFINITION:") for kind in backend_kinds):
@@ -945,9 +922,6 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                         "condition": None,
                         "evidence": refs,
                     })
-        # Source fragments may list endpoint fields in object order rather than
-        # interaction order. For specialized non-lifecycle flows, derive the
-        # order from the UI transition kind.
         by_flow: dict[str, list[dict]] = {}
         for item in requests:
             by_flow.setdefault(str(item.get("flowId")), []).append(item)
@@ -1139,7 +1113,6 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                     "candidateOrRequestConstructor": constructor,
                     "evidence": source_refs(src),
                 })
-        # Capture exact request evidence even if it occurs only as source refs.
         out.append({
             "id": fid,
             "domain": family,
@@ -1167,7 +1140,6 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
             "coverage": {"modelStatus": "pending", "adapterStatus": "pending", "adapterId": None, "runnerActionId": None, "runnerActions": {"status": "pending", "bindings": {}}, "modelStateId": None},
         })
     out.sort(key=lambda x: x["id"])
-    # Annotate aliases on canonical rows for the consumers.
     alias_by_target: dict[str, list[str]] = {}
     for alias in aliases:
         alias_by_target.setdefault(alias["canonicalId"], []).append(alias["id"])
