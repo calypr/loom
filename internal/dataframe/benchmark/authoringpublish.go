@@ -26,18 +26,30 @@ import (
 // green report can never sit on a tolerated activation gap.
 var ErrActivationRefusal = errors.New("benchmark: activation-style refusal (fail-closed, never tolerated)")
 
-// activationRefusalMarkers are the server's own typed codes and words for
-// activation-stage refusals; matching is on codes and the retained-revision
-// phrase, not on status codes (which overlap with retryable transport
-// faults elsewhere). Codes are matched bare so JSON formatting drift cannot
-// hide a refusal from the fail-closed posture.
+// activationRefusalMarkers are the server's own typed codes for
+// activation-stage refusals; matching is on codes and the structured
+// adapter posture, never on message prose (coordinator ruling 2026-11-13).
+// Codes are matched bare so JSON formatting drift cannot hide a refusal
+// from the fail-closed posture. PUBLICATION_ACTIVATION_CONFLICT and
+// RELEASE_ACTIVATION_FAILED are deterministic contract failures: losing
+// them means the harness setup violated a contract, so they are fatal, not
+// retried.
 var activationRefusalMarkers = []string{
 	"GENERATION_ACTIVATION_FAILED",
 	"PUBLICATION_ACTIVATION_CONFLICT",
 	"RELEASE_ACTIVATION_FAILED",
 	"MATERIALIZATION_ACTIVATION_FAILED",
-	"activate ExplorerConfigV2 failed",
-	"prior Explorer revision was retained",
+}
+
+// adapterRefusalMarkers together identify the typed named refusal the
+// PostgreSQL runtime answers for capabilities with no adapter (postgreSQL
+// RuntimeUnavailable: CodeBackendUnavailable + details stage=adapter).
+// Both must appear: the code alone could in principle ride an unrelated
+// envelope, and the stage detail alone is not an identity.
+var adapterRefusalMarkers = []string{
+	"BACKEND_UNAVAILABLE",
+	`"stage"`,
+	`"adapter"`,
 }
 
 func activationRefusalIn(body string) bool {
@@ -46,7 +58,12 @@ func activationRefusalIn(body string) bool {
 			return true
 		}
 	}
-	return false
+	for _, marker := range adapterRefusalMarkers {
+		if !strings.Contains(body, marker) {
+			return false
+		}
+	}
+	return true
 }
 
 // PublicationOutput is one materialized output as the authoring publish

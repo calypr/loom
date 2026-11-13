@@ -81,8 +81,28 @@ func TestActivationRefusalIsFatalOnEveryRoute(t *testing.T) {
 	if _, err := arm.PublishWorkspace(context.Background(), "Bearer x", "proj", "gen-1", workspace, "a"); !errors.Is(err, ErrActivationRefusal) {
 		t.Fatalf("repository publish must fail closed on the same refusal: %v", err)
 	}
-	// a plain scripted failure (no activation marker) must NOT be labeled as
-	// an activation refusal: the detection is content-based, not status-based
+
+	// the typed adapter posture (CodeBackendUnavailable + stage=adapter
+	// details) is the structural key (coordinator ruling: not prose)
+	f.mu.Lock()
+	f.activationBody = `{"error":{"code":"BACKEND_UNAVAILABLE","message":"Explicit-selection reference validation has no PostgreSQL adapter yet","retryable":false,"details":{"backend":"postgresql","stage":"adapter"}}}`
+	f.mu.Unlock()
+	if _, err := arm.PublishReceipt(context.Background(), "Bearer x", "proj", "exp-1", "rcpt-1"); !errors.Is(err, ErrActivationRefusal) {
+		t.Fatalf("adapter-posture refusal must fail closed: %v", err)
+	}
+
+	// message prose alone is no longer a key: a body carrying the old
+	// retained-revision wording without any typed code is an ordinary
+	// failure, not an activation refusal (ruling: key on codes/structure)
+	f.mu.Lock()
+	f.activationBody = `{"error":{"code":"SCRIPTED_NOTHING","message":"the prior Explorer revision was retained"}}`
+	f.mu.Unlock()
+	if _, err := arm.PublishReceipt(context.Background(), "Bearer x", "proj", "exp-1", "rcpt-1"); errors.Is(err, ErrActivationRefusal) {
+		t.Fatal("prose without a typed code must not be labeled an activation refusal")
+	}
+
+	// a plain scripted failure (no markers at all) must NOT be labeled as
+	// an activation refusal either
 	f.mu.Lock()
 	f.activationBody = ""
 	f.failWith["anyout"] = 503
