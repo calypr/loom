@@ -18,11 +18,15 @@
 //       [--iterations N>=5 --warmup N>=1 --rounds N] [--source-commit SHA]
 //       [--benchcli <path>] [--window-note <text>]
 //       The operator-mandated comparison: the same matched battery runs
-//       against BOTH real drivers (LOOM_TEST_ARANGO_URL + 
+//       against BOTH real drivers (LOOM_TEST_ARANGO_URL +
 //       LOOM_TEST_POSTGRES_URL), correctness gates first, then >=5
-//       alternating timings per driver. Writes comparison.md next to the
-//       verified report. FAILS (never skips) when a service is missing,
-//       an arm is planned/not_run/excluded, or a driver has no timings.
+//       alternating timings per driver. With LOOM_BENCH_ADMIN_DSN set it
+//       first provisions its own fresh loom_bench_* database (drop-pg +
+//       setup-pg: database, six-series schema ladder, migrated tables),
+//       because the PostgreSQL backend does not own schema lifecycle.
+//       Writes comparison.md next to the verified report. FAILS (never
+//       skips) when a service is missing, an arm is
+//       planned/not_run/excluded, or a driver has no timings.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -115,6 +119,29 @@ export function pairedServices(env) {
     if (!withoutScheme.includes('/')) arangoUrl = `${arangoUrl.replace(/\/$/, '')}/loom_bench_ci`;
   }
   return { arangoUrl, postgresDsn, problems };
+}
+
+// The PostgreSQL backend refuses to own schema lifecycle ("the caller owns
+// schema lifecycle" is its readiness posture). When the lane supplies an
+// admin DSN, the paired run provisions its own fresh database first:
+// drop-pg (best effort) then setup-pg, which creates the database, the
+// six-series schema ladder, and the migrated tables — the same bootstrap
+// the server's live composition fixtures use. Both subcommands refuse
+// anything outside the loom_bench_* namespace.
+export function pairedDatabaseFromDsn(dsn) {
+  const match = /^[a-z]+:\/\/[^/]*\/([^?#]+)/.exec(dsn ?? '');
+  const database = match ? match[1] : '';
+  if (!database.startsWith('loom_bench_')) {
+    return { database, problem: `paired postgres database ${JSON.stringify(database)} is outside the loom_bench_* namespace` };
+  }
+  return { database, problem: null };
+}
+
+export function buildSetupInvocation(flags, action, database) {
+  const bin = flags.benchcli ?? 'go';
+  const args = flags.benchcli ? [action, '--database', database]
+    : ['run', './internal/dataframe/benchmark/cmd/benchcli', action, '--database', database];
+  return { cmd: bin, args };
 }
 
 export function buildPairedInvocation(flags, services) {
@@ -376,6 +403,27 @@ function runPaired(flags, { exec, log, env }) {
   if (problems.length > 0) {
     log(formatCheckLine(CHECK_PAIRED, 'fail', problems.join('; ')));
     return 1;
+  }
+  const { database, problem } = pairedDatabaseFromDsn(postgresDsn);
+  if (problem) {
+    log(formatCheckLine(CHECK_PAIRED, 'fail', problem));
+    return 1;
+  }
+  // Idempotent provisioning: the PostgreSQL backend does not create its
+  // own schemas, so the lane drops and re-creates its own loom_bench_*
+  // database when an admin DSN is supplied. A failed setup is a hard
+  // failure, not a silently unprovisioned arm timing out at readiness.
+  if ((env.LOOM_BENCH_ADMIN_DSN ?? '').trim() !== '') {
+    exec(buildSetupInvocation(flags, 'drop-pg', database).cmd, buildSetupInvocation(flags, 'drop-pg', database).args, {
+      stdio: 'inherit', env,
+    }); // best effort: absent database is the normal first-run case
+    const setup = exec(buildSetupInvocation(flags, 'setup-pg', database).cmd, buildSetupInvocation(flags, 'setup-pg', database).args, {
+      stdio: 'inherit', env,
+    });
+    if (setup.status !== 0) {
+      log(formatCheckLine(CHECK_PAIRED, 'fail', `benchcli setup-pg exited ${setup.status}: the PostgreSQL arm cannot serve without its six-series schema ladder`));
+      return 1;
+    }
   }
   const invocation = buildPairedInvocation(flags, { arangoUrl, postgresDsn });
   // The paired lane is its own granted window: it runs in a CI job with

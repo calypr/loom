@@ -103,7 +103,13 @@ runs the same matched battery against BOTH real drivers discovered from
 `LOOM_TEST_ARANGO_URL` + `LOOM_TEST_POSTGRES_URL` (the same variables the
 `backend-conformance` job exports; the CI job
 `factory/paired-driver-benchmark` in `.github/workflows/tests.yaml` runs
-this exact command with services `arangodb:3.12` + `postgres:18`).
+this exact command with services `arangodb:3.12` + `postgres:18`). With
+`LOOM_BENCH_ADMIN_DSN` set it first provisions its own fresh
+`loom_bench_*` database via `benchcli drop-pg`/`setup-pg` (database,
+six-series schema ladder, migrated tables) — the PostgreSQL backend
+readiness answers `schema_missing ... the caller owns schema lifecycle`,
+so the lane, not the server, bootstraps. A failed `setup-pg` fails the
+check before any timing attempt.
 Correctness gates decide first; then >= 5 alternating measured timings per
 driver are required. The check FAILS — never skips, never passes — when a
 service is missing, an arm is planned/not_run/excluded (beyond the two

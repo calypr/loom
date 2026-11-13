@@ -195,6 +195,7 @@ test('planned artifact with escaped samples fails the check', async () => {
 
 import {
   pairedServices,
+  pairedDatabaseFromDsn,
   buildPairedInvocation,
   classifyPairedReport,
   renderComparisonTable,
@@ -355,4 +356,52 @@ test('paired run end-to-end: zero-timing report fails the check even with exit 0
   const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci' } });
   assert.equal(failures, 1);
   assert.match(logs.join('\n'), /check paired-driver-benchmark: fail/);
+});
+
+test('paired: postgres dsn must name a loom_bench_ database', () => {
+  assert.equal(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable').problem, null);
+  assert.equal(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable').database, 'loom_bench_ci');
+  assert.match(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_test?sslmode=disable').problem, /loom_bench_\*/);
+});
+
+test('paired: admin DSN drives drop-pg then setup-pg before the benchmark', () => {
+  const dir = '/tmp/paired-prov-test';
+  const calls = [];
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--benchcli', '/bin/benchcli', '--out', dir, '--source-commit', SHA40]);
+  const exec = (cmd, args) => { calls.push([cmd, args.join(' ')]); return { status: 0 }; };
+  const logs = [];
+  run(flags, {
+    exec,
+    log: (l) => logs.push(l),
+    env: {
+      LOOM_TEST_ARANGO_URL: 'http://h:8529',
+      LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable',
+      LOOM_BENCH_ADMIN_DSN: 'postgresql://u:p@h:5432/postgres?sslmode=disable',
+    },
+  });
+  assert.match(calls[0][1], /^drop-pg --database loom_bench_ci$/, `first call was: ${calls[0]?.[1]}`);
+  assert.match(calls[1][1], /^setup-pg --database loom_bench_ci$/);
+  assert.match(calls[2][1], /run --scope=both-arms/);
+});
+
+test('paired: failed setup-pg fails the check before any timing attempt', () => {
+  const calls = [];
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--benchcli', '/bin/benchcli', '--out', '/tmp/paired-fail', '--source-commit', SHA40]);
+  const logs = [];
+  const failures = run(flags, {
+    exec: (cmd, args) => {
+      calls.push(args.join(' '));
+      if (args[0] === 'setup-pg') return { status: 1 };
+      return { status: 0 };
+    },
+    log: (l) => logs.push(l),
+    env: {
+      LOOM_TEST_ARANGO_URL: 'http://h:8529',
+      LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable',
+      LOOM_BENCH_ADMIN_DSN: 'postgresql://u:p@h:5432/postgres',
+    },
+  });
+  assert.equal(failures, 1);
+  assert.equal(calls.some((c) => c.includes('both-arms')), false, 'no benchmark may start when provisioning failed');
+  assert.match(logs.join('\n'), /setup-pg exited 1/);
 });
