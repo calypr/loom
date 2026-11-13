@@ -190,6 +190,24 @@ export const GENERATION_LOAD_INTEGRATION_TESTS = [
   'TestPostgresGenerationLoadReplaySummaryCountsOnlyNewRows',
   'TestPostgresShippedLoadConfigsValidateOffline',
 ];
+// The arch-backend-10 runtime capability-evidence assembly witnesses run as
+// an eighth never-skipped lane. Runtime.Catalog must serve all three
+// evidence boundaries (inventory, relationship observations, field
+// enrichment) through one assembled store, because the Explorer capability
+// resolver dereferences each on the first Builder capability read; an
+// assembly that drops a boundary panics there, so the two named witnesses
+// drive every method through the production composition. The package's own
+// harness skips without LOOM_TEST_POSTGRES_URL, which no go-unit or
+// conformance lane sets — without this lane a green CI proves nothing about
+// the assertions. The explicit -run filter keeps the lane scoped to the two
+// witnesses while checkGoEvents' zero-skip assertion makes each one
+// mandatory: a skipped witness is a failure here, never a silent pass.
+export const CAPABILITY_EVIDENCE_INTEGRATION_PACKAGE = './internal/backends/postgres/control';
+export const CAPABILITY_EVIDENCE_INTEGRATION_FILTER = '^(TestRuntimeCatalogServesAllThreeEvidenceSources|TestRuntimeCatalogServesScopedEvidenceUnderAuthPaths)$';
+export const CAPABILITY_EVIDENCE_INTEGRATION_TESTS = [
+  'TestRuntimeCatalogServesAllThreeEvidenceSources',
+  'TestRuntimeCatalogServesScopedEvidenceUnderAuthPaths',
+];
 
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
@@ -912,6 +930,43 @@ export async function runPostgres(output, deps = {}) {
       anchors: [...GENERATION_LOAD_INTEGRATION_TESTS],
       passes: generationLoadPasses,
     };
+    // arch-backend-10: the capability-evidence witnesses own their isolated
+    // database end to end (newCTLService mints it, migrates through the
+    // production policy, and audits it away), so this phase administers
+    // nothing either. Honest reserve: measured 8.0s wall cold-cache and
+    // 0.7s warm for the filtered pair; the 60s Go timeout already carries
+    // ~7.5x the worst measurement, so this lane reserves timeout plus a
+    // 30s kill margin and a 30s cleanup margin, never the 90s
+    // database-administration block the store lanes carry.
+    const capabilityEvidenceGoTestMs = 60_000;
+    budget(capabilityEvidenceGoTestMs + 30_000 + 30_000);
+    evidence.phases.push('capability-evidence-integration');
+    // Same owned-service propagation and explicit-filter pattern as the
+    // writer lanes. checkGoEvents' zero-skip assertion makes both witnesses
+    // mandatory, so the assembly guarantee cannot pass by skipping its
+    // PostgreSQL halves — the exact gap this lane exists to close.
+    const capabilityEvidenceArgs = ['test', '-json', '-count=1', `-timeout=${capabilityEvidenceGoTestMs / 1000}s`, '-run', CAPABILITY_EVIDENCE_INTEGRATION_FILTER, CAPABILITY_EVIDENCE_INTEGRATION_PACKAGE];
+    const capabilityEvidence = await Promise.resolve(goTest(capabilityEvidenceArgs, childEnv));
+    writeFileSync(join(directory, 'capability-evidence-integration.jsonl'), scrubSecrets(capabilityEvidence.stdout || '', secrets));
+    writeFileSync(join(directory, 'capability-evidence-integration.stderr'), scrubSecrets(capabilityEvidence.stderr || '', secrets));
+    assert.equal(capabilityEvidence.status, 0, `capability-evidence real-PG witnesses failed: ${scrubSecrets(capabilityEvidence.error?.message || capabilityEvidence.stderr || '', secrets)}`);
+    const capabilityEvidencePasses = checkGoEvents(capabilityEvidence.stdout, CAPABILITY_EVIDENCE_INTEGRATION_TESTS).passes;
+    evidence.capabilityEvidenceIntegration = {
+      status: 'passed',
+      package: CAPABILITY_EVIDENCE_INTEGRATION_PACKAGE,
+      command: ['go', 'test', '-count=1', '-timeout=60s', '-run', CAPABILITY_EVIDENCE_INTEGRATION_FILTER, CAPABILITY_EVIDENCE_INTEGRATION_PACKAGE],
+      propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
+      anchors: [...CAPABILITY_EVIDENCE_INTEGRATION_TESTS],
+      passes: capabilityEvidencePasses,
+    };
+    // The dual-backend backend-architecture conformance suite is NOT a
+    // lane here by design: its adjudication lane is the dedicated
+    // backend-conformance workflow job, which boots both real services and
+    // runs both arms with zero-skip acceptance in its own 10-minute budget.
+    // This runner's enforced 8-minute internal deadline is reserved for the
+    // store/ingest acceptance lanes it already carries; an ./internal/server
+    // arm (cold compile plus full-runtime fixtures) cannot fit honestly
+    // inside it, and a duplicate gate buys no additional proof.
     evidence.status = 'passed';
   } catch (error) {
     evidence.status = 'failed';

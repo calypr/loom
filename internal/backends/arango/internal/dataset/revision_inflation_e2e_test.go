@@ -22,7 +22,7 @@ import (
 // pre-repair production ReleaseService.Activate path was NOT a no-op. Each identical
 // activation mints revision+1 into the sha-derived release ID
 // (internal/dataset/release.go:227,273-280) so the AQL alreadyActive guard
-// (internal/backends/arango/internal/dataset/release_store.go:158-159) can never match for
+// (internal/backends/arango/internal/dataset/release_store.go:209-210) can never match for
 // callers that re-enter via Create, and both pointer documents churn while the
 // release CONTENT (project/generation/gitCommit/publications/verifications) is
 // byte-identical. Recorded CONFIRMED in
@@ -238,7 +238,7 @@ func TestRevisionInflationAgainstArango(t *testing.T) {
 
 	switch {
 	case inflated && contentIdentical:
-		t.Fatalf("FAILED-ON-PURPOSE CONFIRMED: 4 identical activations of %q through the production ReleaseService.Activate path (server.go live-revision pattern) are NOT no-ops: revision %d -> %d, release ID %s -> %s, project_release docs %d -> %d, active_project_release._rev %s -> %s, active_generation._rev %s -> %s (releaseRevision %v -> %v), WHILE the release content is byte-identical (%s). Layer: ReleaseService.Create mints release.ID = releaseID(release, currentRevision+1) (internal/dataset/release.go:227,273-280; sha over project/generation/REVISION/publications); the alreadyActive short-circuit requires re-submitting the SAME releaseId (internal/backends/arango/internal/dataset/release_store.go:158-159) which the Create-then-CAS callers never do. Harm: every repeat activation click mints a fresh immutable release document + revision forever (unbounded Arango lifecycle growth, audit inflation, phantom release-ID churn for ID-keyed consumers).",
+		t.Fatalf("FAILED-ON-PURPOSE CONFIRMED: 4 identical activations of %q through the production ReleaseService.Activate path (server.go live-revision pattern) are NOT no-ops: revision %d -> %d, release ID %s -> %s, project_release docs %d -> %d, active_project_release._rev %s -> %s, active_generation._rev %s -> %s (releaseRevision %v -> %v), WHILE the release content is byte-identical (%s). Layer: ReleaseService.Create mints release.ID = releaseID(release, currentRevision+1) (internal/dataset/release.go:227,273-280; sha over project/generation/REVISION/publications); the alreadyActive short-circuit requires re-submitting the SAME releaseId (internal/backends/arango/internal/dataset/release_store.go:209-210) which the Create-then-CAS callers never do. Harm: every repeat activation click mints a fresh immutable release document + revision forever (unbounded Arango lifecycle growth, audit inflation, phantom release-ID churn for ID-keyed consumers).",
 			generation, baseline.revision, last.revision, baseline.id, last.id, baseline.releaseDocs, last.releaseDocs, baseline.relDocRev, last.relDocRev, baseline.genDocRev, last.genDocRev, baseline.genDocRevNum, last.genDocRevNum, last.content)
 	case !inflated && contentIdentical:
 		t.Log("PREVENTED (sound): identical re-activation is a true no-op — revision, release ID, doc count, and both pointer _revs stable with byte-identical content.")

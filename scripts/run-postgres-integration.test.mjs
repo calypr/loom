@@ -22,6 +22,9 @@ import {
   GENERATION_LOAD_INTEGRATION_FILTER,
   GENERATION_LOAD_INTEGRATION_PACKAGE,
   GENERATION_LOAD_INTEGRATION_TESTS,
+  CAPABILITY_EVIDENCE_INTEGRATION_FILTER,
+  CAPABILITY_EVIDENCE_INTEGRATION_PACKAGE,
+  CAPABILITY_EVIDENCE_INTEGRATION_TESTS,
   PROBE_SOURCE,
   REQUIRED_INTEGRATION_TEST,
   REQUIRED_MAJOR_VERSION,
@@ -43,7 +46,15 @@ const ADMIN_URL = 'postgresql://loom_test:s3cret-test-password@127.0.0.1:55432/l
 const events = list => list.map(event => JSON.stringify(event)).join('\n');
 const passingGo = (args = []) => ({
   status: 0,
-  stdout: events(args.includes(GENERATION_LOAD_INTEGRATION_FILTER)
+  stdout: events(args.includes(CAPABILITY_EVIDENCE_INTEGRATION_FILTER)
+    ? [
+      ...CAPABILITY_EVIDENCE_INTEGRATION_TESTS.flatMap(name => [
+        { Action: 'run', Package: 'controlpkg', Test: name },
+        { Action: 'pass', Package: 'controlpkg', Test: name },
+      ]),
+      { Action: 'pass', Package: 'controlpkg' },
+    ]
+    : args.includes(GENERATION_LOAD_INTEGRATION_FILTER)
     ? [
       ...GENERATION_LOAD_INTEGRATION_TESTS.flatMap(name => [
         { Action: 'run', Package: 'generationloadpkg', Test: name },
@@ -281,14 +292,14 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 8, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, ownership, factory, and generation-load lanes must all run');
+  assert.equal(goCalls.length, 9, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, ownership, factory, generation-load, and capability-evidence lanes must all run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/backends/postgres/internal/store'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
-  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration', 'factory-integration', 'generation-load-integration']);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration', 'factory-integration', 'generation-load-integration', 'capability-evidence-integration']);
   // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
@@ -356,6 +367,20 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.generationLoadIntegration.anchors, [...GENERATION_LOAD_INTEGRATION_TESTS]);
   for (const name of GENERATION_LOAD_INTEGRATION_TESTS) assert.ok(evidence.generationLoadIntegration.passes.includes(name));
   assert.ok(readFileSync(join(out, 'generation-load-integration.jsonl'), 'utf8').includes(GENERATION_LOAD_INTEGRATION_TESTS[0]));
+  // The capability-evidence lane (arch-backend-10) is a filtered never-skipped
+  // lane: without it the two witnesses skip in every lane that lacks
+  // LOOM_TEST_POSTGRES_URL, so the runner must invoke them by filter under
+  // the owned service URL and record both as mandatory anchors.
+  assert.equal(goCalls[8].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'the capability-evidence lane must receive the owned service URL');
+  assert.ok(goCalls[8].args.includes('-run'), 'the capability-evidence lane must carry its never-skipped -run filter');
+  assert.ok(goCalls[8].args.includes(CAPABILITY_EVIDENCE_INTEGRATION_FILTER), 'the recorded command must show the exact witness filter');
+  assert.deepEqual(goCalls[8].args.slice(-1), [CAPABILITY_EVIDENCE_INTEGRATION_PACKAGE]);
+  assert.ok(goCalls[8].args.includes('-json') && goCalls[8].args.includes('-count=1'));
+  assert.ok(goCalls[8].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) === 60),
+    'the capability-evidence lane runs the measured 60s Go budget');
+  assert.deepEqual(evidence.capabilityEvidenceIntegration.anchors, [...CAPABILITY_EVIDENCE_INTEGRATION_TESTS]);
+  for (const name of CAPABILITY_EVIDENCE_INTEGRATION_TESTS) assert.ok(evidence.capabilityEvidenceIntegration.passes.includes(name));
+  assert.ok(readFileSync(join(out, 'capability-evidence-integration.jsonl'), 'utf8').includes(CAPABILITY_EVIDENCE_INTEGRATION_TESTS[0]));
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
   assert.equal(JSON.parse(summary).status, 'passed');
@@ -596,6 +621,43 @@ test('an ownership lane that never runs its anchor case fails the run', async ()
   const { out, run } = harness({
     go: args => args.includes(OWNERSHIP_INTEGRATION_FILTER)
       ? { status: 0, stdout: events([{ Action: 'pass', Package: 'postgrespkg' }]), stderr: '' }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /did not run/);
+});
+
+// arch-backend-10: the capability-evidence witnesses skip without
+// LOOM_TEST_POSTGRES_URL, which no other lane sets; this lane is the only
+// machine-enforcement of the assembly guarantee, so a skip here — the exact
+// failure mode that made the witnesses decorative before — must be fatal.
+test('a skipped capability-evidence witness cannot masquerade as real-PG acceptance', async () => {
+  const { out, run } = harness({
+    go: args => args.includes(CAPABILITY_EVIDENCE_INTEGRATION_FILTER)
+      ? {
+        status: 0,
+        stdout: events([
+          { Action: 'run', Package: 'controlpkg', Test: CAPABILITY_EVIDENCE_INTEGRATION_TESTS[0] },
+          { Action: 'output', Package: 'controlpkg', Test: CAPABILITY_EVIDENCE_INTEGRATION_TESTS[0], Output: 'set LOOM_TEST_POSTGRES_URL to run the PostgreSQL control catalog read tests' },
+          { Action: 'skip', Package: 'controlpkg', Test: CAPABILITY_EVIDENCE_INTEGRATION_TESTS[0] },
+          { Action: 'run', Package: 'controlpkg', Test: CAPABILITY_EVIDENCE_INTEGRATION_TESTS[1] },
+          { Action: 'skip', Package: 'controlpkg', Test: CAPABILITY_EVIDENCE_INTEGRATION_TESTS[1] },
+          { Action: 'pass', Package: 'controlpkg' },
+        ]),
+        stderr: '',
+      }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed', 'a skipped capability-evidence witness cannot masquerade as real-PG acceptance');
+  assert.match(evidence.error, new RegExp(CAPABILITY_EVIDENCE_INTEGRATION_TESTS[0]));
+});
+
+test('a capability-evidence lane that never runs its anchor cases fails the run', async () => {
+  const { out, run } = harness({
+    go: args => args.includes(CAPABILITY_EVIDENCE_INTEGRATION_FILTER)
+      ? { status: 0, stdout: events([{ Action: 'pass', Package: 'controlpkg' }]), stderr: '' }
       : passingGo(args),
   });
   const evidence = await run();

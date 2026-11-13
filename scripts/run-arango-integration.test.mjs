@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkEvents, ownDatabase, profiles, archBackend12Diagnostics } from './run-arango-integration.mjs';
+import { checkEvents, ownDatabase, profiles, archBackend12Diagnostics, backendArchitectureConformance } from './run-arango-integration.mjs';
 const stream = events => events.map(e => JSON.stringify(e)).join('\n');
 test('real case must pass; empty package and skip cannot masquerade as proof', () => {
     const profile = { required: 'TestReal' };
@@ -69,4 +69,46 @@ test('arch-backend-12 diagnostics witnesses keep their lane obligations', () => 
     assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== 'TestBackendNeutralDiagnosticsAgainstArango' || e.Action !== 'run')), server), /did not run/);
     // Negative control: an unregistered skip is refused.
     assert.throws(() => checkEvents(stream([...events, { Test: 'TestBackendNeutralDiagnosticsUnregistered', Action: 'skip' }]), server), /Unexpected skipped case/);
+});
+test('backend-architecture conformance: required legs run, skip and rename fail the gate', () => {
+    const profile = { required: 'TestBackendArchitectureConformance', alsoRequired: [
+        'TestBackendArchitectureConformance/arangodb',
+        'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars',
+    ] };
+    const good = [
+        { Action: 'pass' },
+        { Test: 'TestBackendArchitectureConformance', Action: 'run' }, { Test: 'TestBackendArchitectureConformance', Action: 'pass' },
+        { Test: 'TestBackendArchitectureConformance/arangodb', Action: 'run' }, { Test: 'TestBackendArchitectureConformance/arangodb', Action: 'pass' },
+        { Test: 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars', Action: 'run' }, { Test: 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars', Action: 'pass' },
+        { Test: 'TestBackendArchitectureConformance/postgresql', Action: 'run' }, { Test: 'TestBackendArchitectureConformance/postgresql', Action: 'skip' },
+    ];
+    const result = checkEvents(stream(good), profile);
+    assert.ok(result.unverified.some(skip => skip.test === 'TestBackendArchitectureConformance/postgresql'), 'absent PG arm must stay visible as unverified');
+    // A required leg that skips instead of running never passes.
+    assert.throws(() => checkEvents(stream(good.filter(e => !(e.Test === 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars' && e.Action === 'run'))), profile), /did not run/);
+    assert.throws(() => checkEvents(stream(good.map(e => e.Test === 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars' && e.Action === 'run' ? { ...e, Action: 'skip' } : e)), profile), /did not run/);
+    // A renamed cell identity (no run event under the frozen name) fails.
+    const renamed = good.map(e => e.Test === 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars' ? { ...e, Test: 'TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalarsRenamed' } : e);
+    assert.throws(() => checkEvents(stream(renamed), profile), /did not run/);
+    // An unregistered conformance skip fails; only allowlisted identities skip.
+    assert.throws(() => checkEvents(stream(good.concat([{ Test: 'TestBackendArchitectureConformance/postgresl', Action: 'skip' }])), profile), /Unexpected skipped case/);
+    // Membership of both arm identities is pinned by the exported set.
+    assert.ok(backendArchitectureConformance.has('TestBackendArchitectureConformance/postgresql'));
+    assert.ok(backendArchitectureConformance.has('TestBackendArchitectureConformance/arangodb'));
+});
+test('backend-architecture conformance skip-set capture is pinned and self-consistent', async () => {
+    const { createHash } = await import('node:crypto');
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const capturePath = join(import.meta.dirname, 'backend-conformance-skipset-capture.json');
+    const raw = readFileSync(capturePath);
+    const verifier = readFileSync(join(import.meta.dirname, 'backend-conformance-skipset-verify.mjs'), 'utf8');
+    const pinned = verifier.match(/CAPTURE_SHA256 = '([0-9a-f]{64})'/)?.[1];
+    assert.ok(pinned, 'verifier does not pin the capture sha256');
+    assert.equal(createHash('sha256').update(raw).digest('hex'), pinned, 'skip-set capture drifted from its pinned sha256');
+    const capture = JSON.parse(raw);
+    assert.deepEqual([...capture.skips].sort(), [
+        'TestBackendArchitectureConformance/arangodb',
+        'TestBackendArchitectureConformance/postgresql',
+    ]);
 });
