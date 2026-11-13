@@ -14,19 +14,10 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-// receiptExecutionFinder is the neutral seam for the one durable-read
-// capability the receipt materializer needs from the publication registry:
-// loading the stored execution by its identity key. Both the ArangoDB bundle
-// registry and the PostgreSQL bundle catalog satisfy it structurally, so the
-// materializer decides nothing about backends (pg-runtime-server-composition:
-// the PostgreSQL lane passes its bundle catalog through this same function).
 type receiptExecutionFinder interface {
 	FindExecutionByKey(ctx context.Context, key string) (publication.BundleExecution, error)
 }
 
-// explorerReceiptMaterializer keeps publication bound to the immutable
-// compilation receipt. The receipt is the only artifact crossing the HTTP to
-// execution boundary; its resolved recipe is lowered in memory by the execution package.
 func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry receiptExecutionFinder, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) lifecycle.ReceiptMaterializer {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
 		if receipt == nil {

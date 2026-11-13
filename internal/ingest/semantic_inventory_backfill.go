@@ -71,9 +71,6 @@ type semanticInventoryBackfillBackend interface {
 	EnsureSemanticInventoryEntries(context.Context, catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, error)
 }
 
-// BackfillSemanticInventory reconstructs the inventory from retained immutable
-// generation vertices. Source rows are read in bounded pages; contribution
-// batches are replaced by deterministic keys before the typed checkpoint moves.
 func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBackfillBackend, manifest publication.Manifest, opts SemanticInventoryBackfillOptions) (SemanticInventoryBackfillReport, error) {
 	started := time.Now()
 	if backend == nil {

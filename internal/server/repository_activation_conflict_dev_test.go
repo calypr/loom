@@ -12,13 +12,6 @@ import (
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 )
 
-// Dev-only one-shot fault for the REPOSITORY publish activation leg, the
-// parallel of LOOM_DEV_ACTIVATION_CONFLICT_ONCE (authoring/revision leg).
-// These tests pin both the no-auth-only wiring of the knob and the consumption
-// seam: the armed fault must make the real release CAS reject by corrupting
-// exactly the expected-revision CAS input once, never by returning a synthetic
-// error that hides a successful activation.
-
 func TestDevRepositoryActivationConflictOnceIsNoAuthOnly(t *testing.T) {
 	t.Setenv("LOOM_DEV_REPOSITORY_ACTIVATION_CONFLICT_ONCE", "true")
 
@@ -74,14 +67,6 @@ func (r *devFaultReleaseRepository) ReadActiveRelease(_ context.Context, _ strin
 	return *r.active, nil
 }
 
-// CompareAndSwapActivateRelease mirrors the shipped store guard in
-// internal/backends/arango/internal/dataset/release_store.go: activateReleaseAQL compares the
-// pointer revision with FILTER currentRevision == @expected_revision OR
-// alreadyActive, and an emptied result becomes
-// dataset.ErrReleaseActivationConflict (release_store.go:99-100). The
-// comparison (and the pointer mutation on success) belongs to this fake
-// store, not to the fault: the fault's only visible act is the CAS input it
-// feeds in.
 func (r *devFaultReleaseRepository) CompareAndSwapActivateRelease(_ context.Context, release publicationcontract.ProjectRelease, expectedRevision int64) (publicationcontract.ActiveRelease, error) {
 	r.casComparisons++
 	current := int64(0)
@@ -129,9 +114,6 @@ func newDevFaultReleaseService(repository publicationcontract.ReleaseRepository)
 	}
 }
 
-// seedActiveRelease establishes a prior active release so the CAS guard is
-// the discriminator: with a pointer at revision 7, a correct expected value of
-// 7 wins and a corrupted 8 must lose through the store's own comparison.
 func seedActiveRelease(t *testing.T, repository *devFaultReleaseRepository, project string, revision int64) publicationcontract.ProjectRelease {
 	t.Helper()
 	release := publicationcontract.ProjectRelease{ID: "release_prior", Project: project, GitCommit: "generation-prior", Generation: "generation-prior", CreatedAt: time.Now().UTC()}
@@ -159,18 +141,13 @@ func TestDevRepositoryActivationConflictOnceTripsTheRealStoreCASOnce(t *testing.
 	if repository.casComparisons != 1 {
 		t.Fatalf("armed activation performed %d CAS attempts, want exactly one", repository.casComparisons)
 	}
-	// The fault corrupted the CAS input: the store saw expected=8 while its
-	// pointer still read 7, so the store's guard rejected.
 	if len(repository.casExpectedSeen) != 1 || repository.casExpectedSeen[0] != 8 || repository.casCurrentSeen[0] != 7 {
 		t.Fatalf("fault did not corrupt exactly the CAS input once: expected=%v current=%v", repository.casExpectedSeen, repository.casCurrentSeen)
 	}
-	// A rejected CAS moves nothing: the prior active release pointer stands.
 	if repository.active == nil || repository.active.Release.ID != prior.ID || repository.active.Revision != 7 {
 		t.Fatalf("lost CAS moved the prior active pointer: %#v", repository.active)
 	}
 
-	// Consumption is one-shot: the next activation feeds the true CAS input and
-	// the store's own guard lets it win, converging the pointer.
 	if err := activate(context.Background(), project, generation, nil); err != nil {
 		t.Fatalf("post-fault activation error = %v, want success after the one-shot was consumed", err)
 	}
@@ -206,11 +183,6 @@ func TestDevRepositoryActivationConflictUnarmedNeverFaults(t *testing.T) {
 	}
 }
 
-// Reviewer finding C-F1 (adopted, root-caused): the one-shot arm was consumed
-// only inside the successful-Active branch, so an armed request with no active
-// pointer left the fault live to silently hijack a LATER publish (proven on a
-// copy: request 1 unconsumed, request 2 corrupted from 7 to 8). Consumption
-// must belong to the request that arrived, not to the branch that can corrupt.
 func TestDevRepositoryActivationConflictOnceCannotJumpToLaterRequest(t *testing.T) {
 	const project, generation = "project-a", "generation-a"
 	repository := &devFaultReleaseRepository{}

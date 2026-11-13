@@ -14,10 +14,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// PreviewInterpretationCandidate compiles the current draft and an immutable
-// candidate workspace, then executes both receipts with one authorization
-// binding. It deliberately has no persistence side effect other than the
-// immutable compilation receipts returned by the configured compiler.
 func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request PreviewInterpretationCandidateRequest) (PreviewInterpretationCandidateResult, error) {
 	if err := validateInterpretationCandidatePreviewRequest(request); err != nil {
 		return PreviewInterpretationCandidateResult{}, malformed("interpretation-preview", err.Error(), err)
@@ -177,9 +173,6 @@ func (s *Service) previewInterpretationReceipt(ctx context.Context, receipt *exp
 		}
 		copy := make(map[string]any, len(row))
 		for key, item := range row {
-			// Preview rows are already transport-safe values. Keep their native
-			// numeric representation instead of a JSON round trip that could
-			// turn int64/uint64 values into float64.
 			copy[key] = item
 		}
 		rows.Rows[rowID] = copy
@@ -197,8 +190,6 @@ func authoredInterpretationEmissions(receipt *explorer.CompilationReceipt, outpu
 	}
 	emissions := make([]explorer.EmittedColumn, 0)
 	for _, emission := range receipt.EmittedColumns {
-		// Preview rows expose public column names. An internal emission ID is
-		// not a row key and must never leak into the comparison sample.
 		if emission.OutputID != outputID || emission.PublicColumn == "" || !containsString(emission.AuthoredColumns, column) {
 			continue
 		}

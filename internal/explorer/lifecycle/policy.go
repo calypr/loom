@@ -190,7 +190,6 @@ func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest strin
 			return fmt.Errorf("unrestricted scope must not carry resource paths")
 		}
 	case authscope.ReadScopeRestricted:
-		// Empty restricted scopes intentionally remain deny-all.
 	default:
 		return fmt.Errorf("authorization scope mode is missing or invalid")
 	}

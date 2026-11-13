@@ -1,19 +1,5 @@
 package server
 
-// TestBackendCompositionContract is the arch-backend-08 composition matrix:
-// every backend selection must open exactly its own factories, once, and
-// nothing else — before any other startup work, never falling through to a
-// different backend, and never constructing a client the configuration did
-// not ask for. The three startup-only open seams (compose.go) are spied
-// here; they are composition-private package vars, not a runtime locator, so
-// substituting them in a test is the sanctioned observation point.
-//
-// Offline cells fault the seams with a sentinel so composition stops at the
-// open and the call ledger is the entire evidence. The live cell boots the
-// PRODUCTION full-runtime compose over pass-through spies against the shared
-// PostgreSQL fixture, proving the ledger holds with the real factories too
-// and that liveness adds no opens.
-
 import (
 	"context"
 	"errors"
@@ -32,8 +18,6 @@ import (
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// errCompositionSpyFault stops a spied open so the ledger, not downstream
-// behavior, is what the offline cells assert.
 var errCompositionSpyFault = errors.New("composition spy: open refused")
 
 type compositionLedger struct {
@@ -42,10 +26,6 @@ type compositionLedger struct {
 	ch     []clickhousestore.Options
 }
 
-// installCompositionSpies replaces the three startup-only open seams for
-// the duration of t. With passthrough the spies record and delegate to the
-// production factories (live cells); otherwise they record and fault
-// (offline cells). The original seams are always restored.
 func installCompositionSpies(t *testing.T, passthrough bool) *compositionLedger {
 	t.Helper()
 	ledger := &compositionLedger{}
@@ -86,8 +66,6 @@ const (
 	spyPGUser     = "spy_pg_user"
 )
 
-// spyLadderConfig is the complete six-series placement shape with dummy
-// credentials; offline cells never dial because the PG seam faults first.
 func spyLadderConfig() Config {
 	cfg := Config{}
 	cfg.Server.Backend = sourceBackendPostgres
@@ -108,8 +86,6 @@ func spyLadderConfig() Config {
 	return cfg
 }
 
-// spyFirstQueryConfig is the only consumable first-query shape: exactly the
-// source and dataset_release pair.
 func spyFirstQueryConfig() Config {
 	cfg := spyLadderConfig()
 	cfg.Server.PostgreSQL.Schemas = map[string]string{
@@ -167,7 +143,6 @@ func TestBackendCompositionContract(t *testing.T) {
 		if opened.Setup != control.SetupNone {
 			t.Fatalf("production compose must never ask the factory to mutate schema state, got Setup=%v", opened.Setup)
 		}
-		// Credential discipline on the refusal path (arch-backend-06 law).
 		if strings.Contains(err.Error(), spyPGPassword) {
 			t.Fatal("open refusal echoed the PostgreSQL password")
 		}
@@ -194,8 +169,6 @@ func TestBackendCompositionContract(t *testing.T) {
 	})
 
 	t.Run("invalidShape_sentinelPreDial_zeroOpens", func(t *testing.T) {
-		// Every shape neither arm can consume must receive the byte-stable
-		// refusal through the REAL dispatch (run), with zero opens.
 		shapes := map[string]func(cfg *PostgreSQLConfig){
 			"no-schemas": func(pg *PostgreSQLConfig) { pg.Schemas = nil },
 			"one-schema": func(pg *PostgreSQLConfig) { pg.Schemas = map[string]string{"source": "spy_src"} },
@@ -227,8 +200,6 @@ func TestBackendCompositionContract(t *testing.T) {
 		if !errors.Is(err, errCompositionSpyFault) {
 			t.Fatalf("the postgres open fault must propagate, got %v", err)
 		}
-		// The arch-backend-06 law, now also witnessed at the dispatch: a
-		// failing PostgreSQL open must never route the start to ArangoDB.
 		assertLedger(t, "open fault", ledger, 0, 1, 0)
 	})
 
@@ -249,9 +220,6 @@ func TestBackendCompositionContract(t *testing.T) {
 
 	t.Run("liveness_doesNoDatabaseWork", func(t *testing.T) {
 		ledger := installCompositionSpies(t, false)
-		// The liveness handler must answer from nothing: no readiness check
-		// consulted, no open seam touched, on a server wired with checks that
-		// would observe a dependency if liveness ever reached them.
 		observed := 0
 		server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{
 			Authorizer:     authscope.AllowAllAuthorizer{},
@@ -270,9 +238,6 @@ func TestBackendCompositionContract(t *testing.T) {
 		assertLedger(t, "liveness", ledger, 0, 0, 0)
 	})
 
-	// Live cell: never skipped when the fixture URL is set (repo convention
-	// in pgCompTestPostgresURL). Boots the PRODUCTION compose over
-	// pass-through spies and re-checks the whole ledger with real factories.
 	t.Run("liveProductionCompose_ledgerHolds", func(t *testing.T) {
 		fixture := newPgCompFixture(t)
 		ledger := installCompositionSpies(t, true)
@@ -286,7 +251,6 @@ func TestBackendCompositionContract(t *testing.T) {
 		if ledger.pg[0].Setup != control.SetupNone || len(ledger.pg[0].Schemas) != 6 {
 			t.Fatalf("live compose opened the wrong shape: Setup=%v series=%d", ledger.pg[0].Setup, len(ledger.pg[0].Schemas))
 		}
-		// Liveness on the served production app adds zero opens.
 		response, err := server.App().Test(httptest.NewRequest(http.MethodGet, "/livez", nil))
 		if err != nil {
 			t.Fatalf("livez request: %s", fixture.scrub(err))
@@ -300,11 +264,6 @@ func TestBackendCompositionContract(t *testing.T) {
 			t.Errorf("production closer: %s", fixture.scrub(err))
 		}
 		assertLedger(t, "live close", ledger, 0, 1, 0)
-		// The closer law is single-owner and re-entry safe: a second call
-		// tears down the same stack (the backend factory Close is once-
-		// guarded, reconciler stops are idempotent), reports no new error,
-		// and -- the ledger point a closer-law regression would surface --
-		// performs no open.
 		if err := closeRuntime(); err != nil {
 			t.Errorf("second production closer call: %s", fixture.scrub(err))
 		}

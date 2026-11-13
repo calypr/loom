@@ -12,11 +12,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// Padded spelling of the live RED project (verification/publication-bundle/
-// evidence/recipe-identity-keying). The keying contract is surrounding-space
-// trimming only: the registry key keeps the raw trimmed spelling, so a
-// boundary canonicalization (program-project rewrite) would break these
-// assertions and is deliberately not the contract.
 const (
 	keyingPaddedProject = "  loom_dev_verify_zzz-padkey-7k  "
 	keyingCleanProject  = "loom_dev_verify_zzz-padkey-7k"
@@ -28,9 +23,6 @@ const (
 	keyingBundlePatients = `{"recipeSchemaVersion":1,"name":"patients","translationVersion":"1","fragments":{"fragments":{}},"outputs":[]}`
 )
 
-// keyingRevisionStore mirrors a key-exact store: it keys solely by the
-// project argument it receives, so padded and clean spellings become two
-// revision sets unless the boundary normalizes first.
 type keyingRevisionStore struct {
 	registeredProjects []string
 	listedProjects     []string
@@ -83,9 +75,6 @@ func assertKeyedOnce(t *testing.T, keys []string, want string, site string) {
 	}
 }
 
-// The live RED: register under the padded spelling and query with the clean
-// spelling. Both spellings must address ONE revision set, keyed clean at
-// every register/Get/List consult.
 func TestRecipeRevisionResolversAddressOneProjectKey(t *testing.T) {
 	store := &keyingRevisionStore{}
 	resolver := keyingResolver(store)
@@ -136,7 +125,6 @@ func TestRecipeRevisionResolversAddressOneProjectKey(t *testing.T) {
 	keys := store.gotProjects[len(store.gotProjects)-1:]
 	assertKeyedOnce(t, keys, keyingCleanProject, "revision padded")
 
-	// Valid clean path still works and folds onto the same key.
 	second, err := resolver.Mutation().RegisterDataframeRecipeRevision(ctx, model.RegisterDataframeRecipeRevisionInput{
 		ProjectID: keyingCleanProject,
 		Recipe:    []byte(keyingBundlePatients),
@@ -161,10 +149,6 @@ func TestRecipeRevisionResolversAddressOneProjectKey(t *testing.T) {
 	}
 }
 
-// The authorizer must hand every downstream consumer (scope resolution,
-// SelectionProject derivation, engine, registry) one key:
-// bindings.Project normalized to the trimmed spelling, while the guard keeps
-// rejecting blank-after-trim with the typed PROJECT_REQUIRED error.
 func TestRecipeAuthorizationWritesBackTrimmedProject(t *testing.T) {
 	authorizer := recipeAuthorization{}
 	for _, leg := range []struct {
@@ -205,10 +189,6 @@ func (l *keyingPathLister) list(_ context.Context, options catalog.AuthResourceP
 	return l.paths, nil
 }
 
-// Scope resolution receives the same spelling the registry keys off: the
-// padded and clean inputs must produce an identical store consult.
-// (listExistingPaths canonicalizes internally, so byte equality there is a
-// contract lock, not a mutation detector; the detector is bindings.Project.)
 func TestRecipeAuthorizationScopeResolutionSeesNormalizedProject(t *testing.T) {
 	principal := &authscope.Principal{Subject: "keying-tester", AuthResourcePaths: []string{"myproj/padata"}}
 	ctx := authscope.ContextWithPrincipal(context.Background(), principal)

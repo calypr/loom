@@ -10,10 +10,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
-// explainCompiledQuery is an AQL policy surface: the EXPLAIN view is derived
-// from the command through closed dispatch, so a PostgreSQL-tagged, untagged,
-// or unknown-tag command is refused here and never sent to the Arango EXPLAIN
-// endpoint.
 func explainCompiledQuery(ctx context.Context, client *arangofactory.Client, compiled compiler.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
 	query, bindVars, dispatchErr := compiled.Command.AQLParameters()
 	if dispatchErr != nil {
@@ -26,11 +22,6 @@ func explainCompiledQuery(ctx context.Context, client *arangofactory.Client, com
 	return arangoAssessment(arangofactory.AssessExplainResult(result)), nil
 }
 
-// arangoAssessment converts the Arango store's explain assessment to the
-// sanitized control-plane DTO. It lives at this adapter boundary (not in
-// shared execution) so the execution package never names a concrete Arango
-// plan or index type, and it copies every slice so callers cannot mutate
-// shared assessment state.
 func arangoAssessment(input arangofactory.ExplainAssessment) dataframeexecution.ExplainAssessment {
 	out := dataframeexecution.ExplainAssessment{
 		Plans:                 make([]dataframeexecution.ExplainPlanEstimate, 0, len(input.Plans)),
@@ -58,16 +49,6 @@ func arangoAssessment(input arangofactory.ExplainAssessment) dataframeexecution.
 	return out
 }
 
-// PreviewCollectionScanEvidenceFromExplain decodes one Arango explain
-// response into the neutral preview scan evidence consumed by shared
-// execution. Vendor plan decoding lives here, at the Arango adapter
-// boundary: only a single decodable plan (a lone Plan, or a lone alternative)
-// yields evidence — any other shape yields the zero value, which certifies
-// nothing. Nodes are filtered to the queried collection, a full collection
-// enumeration is recorded as a blocking fact, and each index node keeps the
-// names of the indexes attributed to that collection plus one coverage
-// tri-state: both coverage flags true is covering, both false is not
-// covering, and an incomplete or inconsistent pair is Unknown.
 func PreviewCollectionScanEvidenceFromExplain(result arangofactory.ExplainResult, collection string) dataframeexecution.PreviewCollectionScanEvidence {
 	var plan *arangofactory.ExplainPlan
 	switch {
@@ -111,8 +92,6 @@ func previewIndexNodeEvidence(node arangofactory.ExplainNode, collection string)
 	return evidence
 }
 
-// previewCollectionIndexesFromStore converts the Arango store's filtered
-// preview index listing to the neutral definition execution consumes.
 func previewCollectionIndexesFromStore(indexes []arangofactory.PreviewCoveringIndex) []dataframeexecution.PreviewCollectionIndex {
 	if indexes == nil {
 		return nil
@@ -129,13 +108,6 @@ func previewCollectionIndexesFromStore(indexes []arangofactory.PreviewCoveringIn
 	return out
 }
 
-// explainPostgreSQLCompiledQuery is the PostgreSQL policy surface of live
-// recipe Explain. It refuses a nil executor fail-closed — the PostgreSQL
-// source runtime is wired by a later slice, and until then a PostgreSQL-
-// tagged command must report a typed backend failure rather than fall back
-// to the Arango EXPLAIN endpoint. With an executor, the sanitized assessment
-// comes from execution.PostgreSQLExplainPlan, which reaches PostgreSQL only
-// through the parent-tagged EXPLAIN command.
 func explainPostgreSQLCompiledQuery(ctx context.Context, executor dataframeexecution.PostgreSQLPlanJSONExecutor, compiled compiler.CompiledQuery) (dataframeexecution.PostgreSQLPlanAssessment, error) {
 	if executor == nil {
 		return dataframeexecution.PostgreSQLPlanAssessment{}, dataframeerrors.Wrap(

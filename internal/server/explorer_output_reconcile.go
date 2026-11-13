@@ -74,8 +74,6 @@ func groupFieldSourceOutputIdentityForReconcile(
 			identity.SourcePath = related.CodingSelector
 		}
 	case binding.Input == nil:
-		// Saved flat bindings are retained for direct-stage recipes written before
-		// the tagged source input was added.
 		identity.CandidateID = binding.CandidateID
 		identity.OccurrenceID = binding.OccurrenceID
 		identity.SourceResourceType = binding.ResourceType
@@ -401,11 +399,6 @@ func reconcileFinalOutputMetadataWithCombineInputs(
 	return reconciled, nil
 }
 
-// orderReconciledOutputColumns keeps physical execution order in the resolved
-// compiler schema while making the durable receipt's public columns follow the
-// authored table presentation order. The presentation records the original
-// physical position as a deterministic tie breaker for legacy duplicate
-// orders and synthesized outputs.
 func orderReconciledOutputColumns(contract *explorer.PublicOutputContract, presentation []explorercompilation.PresentationColumn, emitted []explorer.EmittedColumn) {
 	tableOrder := make(map[string]int, len(presentation))
 	physicalOrder := make(map[string]int, len(presentation))
@@ -489,11 +482,6 @@ func explicitGroupEmissionID(revisionID, column string) string {
 	return "explicit-group:" + revisionID + ":" + column
 }
 
-// compiledFilterSourceSlotMatches ties a durable filter-owned projection to
-// the compiled source-stage column the accepted plan materialized: same ID,
-// derived public name, claimed FHIR path, logical kind, and label. Compiled
-// slots mirror the accepted claim, so a durable claim that drifted from the
-// compiled artifact of the plan that produced it fails here.
 func compiledFilterSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
 	if len(compiledOutput.Stages) == 0 || compiledOutput.Stages[0].ID != recipe.ConstructionSourceProjectionID {
 		return false
@@ -511,22 +499,10 @@ func compiledFilterSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, 
 	return false
 }
 
-// compiledDeriveSourceSlotMatches ties a durable derive-owned projection to
-// the compiled source-stage column the accepted plan materialized: same ID,
-// derived public name, claimed FHIR path, logical kind, and label. Compiled
-// slots mirror the accepted claim, so a durable claim that drifted from the
-// compiled artifact of the plan that produced it fails here. A signed source
-// projection compiles through the same source-stage slot contract as a filter
-// source, so both channels share one predicate.
 func compiledDeriveSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
 
-// compiledUnpivotSourceSlotMatches ties a durable unpivot-owned projection to
-// the compiled source-stage column the accepted plan materialized: same ID,
-// derived public name, claimed FHIR path, logical kind, and label. A signed
-// melt input compiles through the same source-stage slot contract as a filter
-// or derive source, so the channel shares the one slot predicate.
 func compiledUnpivotSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
@@ -1178,11 +1154,6 @@ func authoredConstructionOutputsWithCombineInputs(
 					}
 				}
 				if declared == nil && stepIndex == 0 && compiledUnpivotSourceSlotMatches(compiledOutput, projection) {
-					// Melt-first signed input: the compiler legitimately seeds the
-					// melt-owned projection into the SOURCE_PROJECTION stage, so no
-					// authored step can carry a column the melt itself consumes. Guard
-					// the compiler-materialized source slot instead of mislabelling it
-					// receipt corruption; genuine corruption still leaves declared nil.
 					for _, column := range compiledOutput.Stages[0].Columns {
 						if column.ID == projection.ColumnID && !column.Internal && !column.Identity {
 							declared = &authoringv2.StageColumn{ID: column.ID, Name: column.Name, Label: column.Label}
@@ -1211,10 +1182,6 @@ func authoredConstructionOutputsWithCombineInputs(
 				if !ok || expected != projection {
 					return fmt.Errorf("unpivot step %q source projection output %q no longer matches the authorized unpivot source derivation for field %q", step.ID, declared.ID, projection.FieldPath)
 				}
-				// Unlike Filter and Derive sources, an UNPIVOT melt input is
-				// consumed and never surfaces in the final table schema, so
-				// this channel validates identity and authorization but does
-				// not claim the slot as an authored table-shape output.
 			}
 		case authoringv2.ConstructionOperationFilter:
 			if step.Operation.Filter == nil {

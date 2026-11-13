@@ -76,7 +76,11 @@ var (
 	_ catalog.FieldProfileWriter            = (*catalogstore.Store)(nil)
 	_ catalog.InventoryRebuilder            = (*catalogstore.Store)(nil)
 	_ catalog.RelationshipDiscoverer        = (*catalogstore.Store)(nil)
+	_ catalog.CapabilityEvidenceReader      = (*catalogstore.Store)(nil)
 	_ catalog.SemanticContributor           = (*catalogstore.SemanticContributionRepository)(nil)
+	_ catalog.InventoryRebuilder            = (*catalogstore.InventoryAdapter)(nil)
+	_ catalog.FieldProfileWriter            = (*catalogstore.FieldProfileAdapter)(nil)
+	_ catalog.RelationshipDiscoverer        = (*catalogstore.RelationshipAdapter)(nil)
 )
 
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {

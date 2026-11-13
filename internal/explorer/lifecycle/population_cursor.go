@@ -9,9 +9,6 @@ import (
 	"strings"
 )
 
-// PopulationMappingCursor is the complete, non-sensitive binding carried by
-// a population report page cursor. It is signed as one payload so callers
-// cannot move a cursor between reports or change the member position.
 type PopulationMappingCursor struct {
 	Version             int    `json:"version"`
 	ReceiptID           string `json:"receiptId"`
@@ -26,16 +23,11 @@ type PopulationMappingCursor struct {
 	MemberKey           string `json:"memberKey"`
 }
 
-// PopulationMappingCursorCodec is injected by the deployment boundary. A
-// stable configured key, rather than process state, keeps cursors valid across
-// replicas and restarts.
 type PopulationMappingCursorCodec interface {
 	Encode(PopulationMappingCursor) (string, error)
 	Decode(string) (PopulationMappingCursor, error)
 }
 
-// HMACPopulationMappingCursorCodec signs cursors with a server-configured
-// secret. The wire format is base64url(payload).base64url(signature).
 type HMACPopulationMappingCursorCodec struct {
 	key []byte
 }

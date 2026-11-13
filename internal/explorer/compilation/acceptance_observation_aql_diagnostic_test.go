@@ -243,8 +243,6 @@ func executeAcceptanceObservationAQL(
 	edges := []json.RawMessage{
 		acceptanceRawDocument(t, acceptanceEdge("patient_condition", conditionCollection+"/c1", patientCollection+"/p1", "Condition", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_specimen", specimenCollection+"/s1", patientCollection+"/p1", "Specimen", "Patient", "subject_Patient", project, generation)),
-		// This deliberately inconsistent stored edge models the case scalar traversal rejects:
-		// its endpoint is a Specimen, but its discriminator claims Condition.
 		acceptanceRawDocument(t, acceptanceEdge("patient_specimen_wrong_edge_type", specimenCollection+"/s_wrong_edge_type", patientCollection+"/p1", "Condition", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_age", observationCollection+"/o_age", patientCollection+"/p1", "Observation", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_method", observationCollection+"/o_method", patientCollection+"/p1", "Observation", "Patient", "subject_Patient", project, generation)),
@@ -305,8 +303,6 @@ func executeAcceptanceObservationAQL(
 		}
 	}
 
-	// Compare the direct renderer output with the canonical execution compiler
-	// and the selected-root page template used by production preview streams.
 	rawRows := execute("direct-render", query, cloneBinds(bindVars))
 	expectValues("direct-render", rawRows[0])
 	previewBindings := bindings.Clone()

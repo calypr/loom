@@ -289,13 +289,13 @@ func (s *relationshipEvidenceService) witnessRowCount(t *testing.T, project, gen
 	return count
 }
 
-func (s *relationshipEvidenceService) newStore(t *testing.T) *Store {
+func (s *relationshipEvidenceService) newStore(t *testing.T) *RelationshipAdapter {
 	t.Helper()
 	repo, err := NewRelationshipEvidenceRepository(s.openClient(t), s.schema)
 	if err != nil {
 		s.fail("new relationship evidence repository", err)
 	}
-	store, err := NewRelationshipEvidenceStore(repo)
+	store, err := NewRelationshipAdapter(repo)
 	if err != nil {
 		s.fail("new relationship evidence store", err)
 	}
@@ -889,7 +889,7 @@ func TestRelationshipObservationsConcurrentIdenticalOccurrenceRace(t *testing.T)
 	if err != nil {
 		s.fail("aggregation repository", err)
 	}
-	store, err := NewRelationshipEvidenceStore(adapterRepo)
+	store, err := NewRelationshipAdapter(adapterRepo)
 	if err != nil {
 		s.fail("evidence store", err)
 	}
@@ -958,7 +958,7 @@ func TestRelationshipObservationsConcurrentAbortConvergenceRace(t *testing.T) {
 	if err != nil {
 		s.fail("aggregation repository", err)
 	}
-	store, err := NewRelationshipEvidenceStore(adapterRepo)
+	store, err := NewRelationshipAdapter(adapterRepo)
 	if err != nil {
 		s.fail("evidence store", err)
 	}

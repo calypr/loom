@@ -1,12 +1,5 @@
 package server
 
-// Offline contract cells for the full PostgreSQL server runtime
-// (pg-runtime-server-composition). These run without any database: they pin
-// the consumability ladder, the dispatch order, the typed explicit-unavailable
-// postures, the Arango-collection honesty of the PostgreSQL authorizer, the
-// neutrality of the receipt-materializer seam, and the no-Arango-import law
-// of the composition file itself.
-
 import (
 	"context"
 	"errors"
@@ -32,8 +25,6 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 )
 
-// The receipt-materializer seam must be satisfied by BOTH registries purely
-// structurally: this compile-time pair is the no-backend-decision proof.
 var (
 	_ receiptExecutionFinder = (*backendsarango.PublishedRegistry)(nil)
 	_ receiptExecutionFinder = (*control.BundleCatalog)(nil)
@@ -111,12 +102,6 @@ func TestPostgresRuntimeAssignmentKeepsTheSentinelForEveryOtherShape(t *testing.
 	}
 }
 
-// TestPostgresRuntimeDispatchReachesThePostgreSQLPathPreDial proves the
-// three-way dispatch selects the full runtime for a ladder config WITHOUT
-// dialing: an unsafe schema identifier must surface the factory's own pre-dial
-// identifier law -- never the consumability sentinel (the shape IS
-// consumable) and never an ArangoDB path. 192.0.2.1 is TEST-NET-1: the pass
-// condition is the named refusal arriving long before the deadline.
 func TestPostgresRuntimeDispatchReachesThePostgreSQLPathPreDial(t *testing.T) {
 	cfg := Config{}
 	cfg.Server.Backend = sourceBackendPostgres
@@ -125,7 +110,7 @@ func TestPostgresRuntimeDispatchReachesThePostgreSQLPathPreDial(t *testing.T) {
 		Password: "pgcomp-Canary-Pa55w0rd", SSLMode: "require",
 		MaxOpenConns: 2, MaxIdleConns: 1,
 		Schemas: map[string]string{
-			"source":                 "Loom Source", // unsafe: identifier law
+			"source":                 "Loom Source",
 			"explorer_control":       "loom_explorer",
 			"publication_control":    "loom_publication",
 			"dataset_release":        "loom_release",
@@ -194,9 +179,6 @@ func TestPostgresRuntimeExplorerStoreTypedRefusals(t *testing.T) {
 	}
 }
 
-// isTypedExplicitUnavailable asserts the named typed posture produced by
-// postgreSQLRuntimeUnavailable: BACKEND_UNAVAILABLE, retryable=false,
-// postgresql-tagged details.
 func isTypedExplicitUnavailable(err error, operationSubstring string) bool {
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok {
@@ -215,17 +197,6 @@ func isTypedExplicitUnavailable(err error, operationSubstring string) bool {
 	return backend == "postgresql"
 }
 
-// TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection is the
-// wired-not-vacuous contrast: the Arango lane's authorizer stamps the Arango
-// selection-members collection onto every binding; the PostgreSQL authorizer
-// must leave the field empty on both read and write.
-//
-// Witness migrated by arch-backend-08: the dedicated pgRecipeAuthorization
-// type (runtime.go) was retired into the shared recipeAuthorization core
-// (recipe_authorization.go), so the PostgreSQL posture is now the zero value
-// of that core and the Arango half is the explicit collection argument, the
-// same value the Arango lane passes at construction. The contrast itself is
-// unchanged.
 func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
 	pgRead, err := recipeAuthorization{}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
 	if err != nil {
@@ -244,9 +215,6 @@ func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
 	if pgWrite.SelectionMembersCollection != "" {
 		t.Fatalf("the PostgreSQL write authorizer must leave SelectionMembersCollection empty, got %q", pgWrite.SelectionMembersCollection)
 	}
-	// The contrast half: same package, same input, Arango lane stamps the
-	// collection. Without this half the assertion above could pass on a
-	// broken authorizer that simply drops every binding field.
 	arangoRead, err := recipeAuthorization{selectionMembersCollection: backendsarango.SelectionMembersCollection}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatalf("arango-lane read authorization: %v", err)
@@ -256,10 +224,6 @@ func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
 	}
 }
 
-// TestPostgresRuntimeCompositionHasNoArangoImport is the source-level proof
-// of the no-fall-through law for the composition file: internal/server/
-// runtime.go may not import, mention, or construct any ArangoDB adapter or
-// AQL surface.
 func TestPostgresRuntimeCompositionHasNoArangoImport(t *testing.T) {
 	source, err := os.ReadFile("runtime.go")
 	if err != nil {
@@ -272,9 +236,6 @@ func TestPostgresRuntimeCompositionHasNoArangoImport(t *testing.T) {
 			importBlock = text[start : start+end]
 		}
 	}
-	// One owned factory package holds every ArangoDB adapter tree
-	// (arch-backend-07); the PostgreSQL composition must import none of it.
-	// The AQL renderer stayed in the compiler tree and is forbidden too.
 	forbidden := []string{
 		"backends/arango",
 		"compiler/render/aql",
@@ -291,23 +252,6 @@ func TestPostgresRuntimeCompositionHasNoArangoImport(t *testing.T) {
 	}
 }
 
-// ---- closer ordering law (compose must not own deferred cleanup) ----
-
-// TestPostgresRuntimeComposeOwnsNoDeferredCleanup is the witness for the
-// close-ordering law: a compose returns while the server is still about to
-// Listen, so nothing that must outlive compose may be deferred in its body.
-// The pre-fix shape deferred clickhouse.Close() and both reconciler
-// cancel-and-wait closures inside compose, closing the client and cancelling
-// the reconcilers before a single request was served. This cell goes red if
-// any defer reappears directly in the compose body: exactly one defer is
-// legal -- the zero-argument error-path sweep that drains the cleanups
-// stack, as the first statement.
-//
-// arch-backend-08 Unit C extends the law to both production composes. The
-// Arango arm's cleanup previously lived in server.go run()'s serve-loop
-// defers (old: server.go::run) and moved into the compose closer
-// (new: compose.go::composeArangoRuntime), so both arms must show the same
-// stack shape: one deferred sweep, four pushes, reverse-order closer.
 func TestPostgresRuntimeComposeOwnsNoDeferredCleanup(t *testing.T) {
 	for _, arm := range []struct{ file, funcName string }{
 		{file: "runtime.go", funcName: "composePostgreSQLFullRuntime"},
@@ -390,10 +334,6 @@ func assertComposeOwnsNoDeferredCleanup(t *testing.T, file, funcName string) {
 	if !expressionReferences(literal.Body, "runRuntimeCloseSteps") {
 		t.Fatal("the deferred sweep must tear down through runRuntimeCloseSteps (one ordering implementation for both paths)")
 	}
-	// The full composition must hand its closer the four acquired resources:
-	// pool, ClickHouse client, private-artifact reconciler, artifact-fs
-	// reconciler. A dropped push (e.g. the ClickHouse close deleted instead
-	// of moved) fails here as well.
 	composeText := string(source)[fileSet.Position(compose.Pos()).Offset:fileSet.Position(compose.End()).Offset]
 	if got := strings.Count(composeText, "cleanups = append("); got != 4 {
 		t.Fatalf("the full composition must push exactly four closer steps (pool, ClickHouse client, private-artifact reconciler, artifact-fs reconciler), found %d", got)
@@ -414,10 +354,6 @@ func expressionReferences(node ast.Node, name string) bool {
 	return found
 }
 
-// TestPostgresRuntimeCloseStepsTearDownInReverseAndKeepFirstError pins the
-// shared teardown semantics: reverse acquisition order, every step runs
-// even after a failure, and the first failure encountered (the
-// most-recently-acquired failing resource) is the reported one.
 func TestPostgresRuntimeCloseStepsTearDownInReverseAndKeepFirstError(t *testing.T) {
 	var order []int
 	errAcquiredThird := errors.New("third-acquired step failed")
@@ -446,12 +382,6 @@ func TestPostgresRuntimeCloseStepsTearDownInReverseAndKeepFirstError(t *testing.
 	}
 }
 
-// ---- activation outcome classification (CLI-parity law) ----
-
-// activationMatrixStore is a ManifestLifecycle double that only answers the
-// two calls the activation path makes: the active-pointer read and the CAS
-// itself. Anything else means the activator grew an uncontracted store call
-// and the cell crashes on it.
 type activationMatrixStore struct {
 	activateErr error
 }
@@ -511,14 +441,6 @@ func (activationTimeoutError) Temporary() bool { return false }
 
 var _ net.Error = activationTimeoutError{}
 
-// TestPostgresRuntimeActivationOutcomeClassification is the CLI-parity
-// cell for pgGenerationActivator.Activate: every error class that the CLI
-// lane's pgCommitOutcomeUnknown treats as commit-outcome-unknown must
-// surface wrapped as *ingest.ActivationOutcomeError, and every known typed
-// refusal must surface unchanged. Narrowing the mapping back to the single
-// ErrCommitOutcomeUnknown sentinel -- the pre-fix shape -- fails every
-// connectivity-class row; broadening it to wrap-everything fails the
-// known-refusal rows.
 func TestPostgresRuntimeActivationOutcomeClassification(t *testing.T) {
 	manifest := stagedActivationManifest(t)
 	outcomeUnknownCases := []struct {

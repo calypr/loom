@@ -1,11 +1,5 @@
 package server
 
-// Offline adapter-boundary tests for the Arango preview evidence and
-// assessment translation (arch-backend-02). Shared execution consumes only
-// the neutral shapes from internal/dataframe/execution; these tests pin the
-// vendor decoding that used to live inside the engine so the relocation
-// preserves the exact decision inputs.
-
 import (
 	"reflect"
 	"testing"
@@ -29,7 +23,6 @@ func TestPreviewCollectionScanEvidenceFromExplainSinglePlanRule(t *testing.T) {
 	if got := PreviewCollectionScanEvidenceFromExplain(arangofactory.ExplainResult{Plans: []arangofactory.ExplainPlan{{Nodes: []arangofactory.ExplainNode{node}}}}, "Observation"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("lone alternative Plans evidence = %+v, want %+v", got, want)
 	}
-	// Ambiguous shapes certify nothing, matching the pre-change single-plan rule.
 	for _, result := range []arangofactory.ExplainResult{
 		{},
 		{Plan: &arangofactory.ExplainPlan{Nodes: []arangofactory.ExplainNode{node}}, Plans: []arangofactory.ExplainPlan{{Nodes: []arangofactory.ExplainNode{node}}}},
@@ -61,7 +54,6 @@ func TestPreviewCollectionScanEvidenceFromExplainFiltersToQueriedCollection(t *t
 	if !blocked.FullCollectionEnumeration {
 		t.Fatal("an enumeration on the queried collection must block every optimization")
 	}
-	// Node kinds without scan meaning are dropped; node order is preserved.
 	ordered := PreviewCollectionScanEvidenceFromExplain(arangofactory.ExplainResult{Plan: &arangofactory.ExplainPlan{Nodes: []arangofactory.ExplainNode{
 		{Type: "FilterNode", Collection: "Observation"},
 		{Type: "IndexNode", Collection: "Observation"},
@@ -149,17 +141,12 @@ func TestArangoAssessmentCopiesStoreAssessmentFieldForField(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("assessment translation drift: got %+v want %+v", got, want)
 	}
-	// The copy must be ownership-safe: mutating the store assessment must not
-	// disturb the transport DTO.
 	input.Plans[0].EstimatedCost = 999
 	input.Indexes[0].Fields[0] = "mutated"
 	input.Indexes[0].Uses[0].NodeID = 77
 	if got.Plans[0].EstimatedCost != 12.5 || got.Indexes[0].Fields[0] != "id" || got.Indexes[0].Uses[0].NodeID != 2 {
 		t.Fatalf("assessment shared mutable state with the store: %+v", got)
 	}
-	// Empty-list semantics are pinned to the pre-change copy verbatim: the
-	// four make-built slices are always non-nil (JSON arrays), while the
-	// append-built rules and fields keep nil for empty (JSON null).
 	empty := arangoAssessment(arangofactory.ExplainAssessment{})
 	if empty.Plans == nil || empty.FullCollectionScans == nil || empty.Indexes == nil || empty.Warnings == nil {
 		t.Fatalf("empty assessment lost the non-nil list shape: %+v", empty)
@@ -187,14 +174,6 @@ func TestPreviewCollectionIndexesFromStoreConvertsFieldForField(t *testing.T) {
 	}
 }
 
-// TestPreviewCollectionScanEvidenceFromExplainUnknownNodeKindNeverImpliesEnumeration
-// pins the decoder half of the tri-state guarantee (verdict F-1): the
-// full-collection-enumeration fact has exactly one source — the adapter's
-// EnumerateCollectionNode decode. Every other node kind, named or foreign,
-// must leave evidence silent so UNKNOWN can never degrade into a blocking
-// enumeration (or out of it). Assertion strength matters here: an
-// enumeration-bit check per node kind is the minimum that dies when a
-// catch-all default starts setting the bit.
 func TestPreviewCollectionScanEvidenceFromExplainUnknownNodeKindNeverImpliesEnumeration(t *testing.T) {
 	for _, nodeType := range []string{
 		"FilterNode", "CalculationNode", "SortNode", "LimitNode",
@@ -212,9 +191,6 @@ func TestPreviewCollectionScanEvidenceFromExplainUnknownNodeKindNeverImpliesEnum
 			t.Fatalf("node kind %q produced index-node evidence: %+v", nodeType, got.IndexNodes)
 		}
 	}
-	// Exhaustiveness posture: the two recognized kinds keep their exclusive
-	// meanings, and unknown kinds riding alongside stay inert — the
-	// enumeration bit moves only with EnumerateCollectionNode.
 	mixed := PreviewCollectionScanEvidenceFromExplain(arangofactory.ExplainResult{Plan: &arangofactory.ExplainPlan{
 		Nodes: []arangofactory.ExplainNode{
 			{Type: "FilterNode", Collection: "Observation"},

@@ -26,8 +26,6 @@ func TestLoadGenerationIsSignalGuarded(t *testing.T) {
 	if !signalGuardedCommands()["load-generation"] {
 		t.Fatal("load-generation must run under the SIGINT/SIGTERM-cancellable context: it mutates a lifecycle manifest")
 	}
-	// Alive control: an unlisted command name is genuinely unguarded, so the
-	// membership assertion above could have failed.
 	if signalGuardedCommands()["no-such-command"] {
 		t.Fatal("signal guard membership test is vacuous")
 	}
@@ -71,10 +69,6 @@ func keysOf[V any](m map[string]V) []string {
 const dispatchSignalChildEnv = "LOOM_CLI_DISPATCH_SIGNAL_CHILD"
 const dispatchSignalReadyEnv = "LOOM_CLI_DISPATCH_SIGNAL_READY"
 
-// TestLoadGenerationSignalCancelsProcessContext follows the established
-// child-process pattern in cmd/arango-fhir-proto/main_test.go:24-68: a
-// SIGTERM must cancel the guarded load context so the loader observes
-// context.Canceled at a safe point instead of being killed mid-write.
 func TestLoadGenerationSignalCancelsProcessContext(t *testing.T) {
 	if os.Getenv(dispatchSignalChildEnv) == "1" {
 		readyPath := os.Getenv(dispatchSignalReadyEnv)

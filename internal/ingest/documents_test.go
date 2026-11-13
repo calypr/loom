@@ -35,7 +35,6 @@ func TestVertexFromFHIRWithExtraRejectsNonConcreteResourceTypes(t *testing.T) {
 }
 
 func TestSplitCollectionIDInvertsCollectionEndpoints(t *testing.T) {
-	// Round trip against the exact endpoints EdgeFromGrip produces.
 	edge, err := EdgeFromGrip("project", " patient ", &model.Edge{Id: "edge-1", From: "patient-1", To: "specimen-1", Label: "subject_Specimen"})
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +60,6 @@ func TestSplitCollectionIDInvertsCollectionEndpoints(t *testing.T) {
 		}
 	}
 
-	// collectionID sanitizes; the split of a sanitized value returns the
-	// sanitized halves, so the pair is stable under re-splitting.
 	remade := collectionID("Patient", "patient-1")
 	if gotType, gotID, ok := SplitCollectionID(remade); !ok || gotType != "Patient" || gotID != "patient-1" {
 		t.Errorf("SplitCollectionID(collectionID(...)) = (%q, %q, %t), want (Patient, patient-1, true)", gotType, gotID, ok)

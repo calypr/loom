@@ -13,7 +13,7 @@ import (
 
 var ErrAllGenerationsWithGeneration = errors.New("AllGenerations conflicts with a selected datasetGeneration")
 
-func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+func (s *FieldProfileAdapter) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 	if err := requireLeg("field-profile", s.profiles != nil, "DiscoverFields"); err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldO
 	return fields, nil
 }
 
-func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+func (s *FieldProfileAdapter) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	if err := requireLeg("field-profile", s.profiles != nil, "DiscoverExistingAuthResourcePaths"); err != nil {
 		return nil, err
 	}
@@ -103,28 +103,5 @@ func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts cata
 }
 
 func populatedFieldFromProfileDocument(doc catalog.FieldCatalogDocument, resourceType string) catalog.PopulatedField {
-	return catalog.PopulatedField{
-		Project:               doc.Project,
-		DatasetGeneration:     doc.DatasetGeneration,
-		AuthResourcePath:      doc.AuthResourcePath,
-		ResourceType:          resourceType,
-		Path:                  doc.Path,
-		Kind:                  doc.Kind,
-		DocCount:              doc.DocCount,
-		MaxItems:              doc.MaxItems,
-		SampleCount:           doc.SampleCount,
-		DistinctValues:        append([]string(nil), doc.DistinctValues...),
-		DistinctTruncated:     doc.DistinctTruncated,
-		ExtensionValues:       append([]catalog.ExtensionValueObservation(nil), doc.ExtensionValues...),
-		SemanticObservations:  append([]catalog.SemanticObservation(nil), doc.SemanticObservations...),
-		PivotCandidate:        doc.PivotCandidate,
-		PivotKind:             doc.PivotKind,
-		PivotColumns:          append([]string(nil), doc.PivotColumns...),
-		PivotFamily:           doc.PivotFamily,
-		PivotColumnSelect:     doc.PivotColumnSelect,
-		PivotValueSelect:      doc.PivotValueSelect,
-		PivotItemSource:       doc.PivotItemSource,
-		PivotItemResourceType: doc.PivotItemResourceType,
-		PivotValueSelectors:   append([]string(nil), doc.PivotValueSelectors...),
-	}
+	return catalog.PopulatedField(fieldObservationFromProfileDocument(doc, resourceType))
 }

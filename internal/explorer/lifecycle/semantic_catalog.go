@@ -46,8 +46,6 @@ const (
 	fieldPresentationReplacementLimit = 100
 )
 
-// FieldPresentationRequest scopes one bounded batch of raw candidates to an
-// exact current output, draft, source node, and saved route occurrence.
 type FieldPresentationRequest struct {
 	ExpectedDraftVersion int64
 	ExpectedDraftDigest  string
@@ -353,9 +351,6 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		req.ResourceType = frame.Source.ResourceType
 		bindingFilter = frame.Source.BindingID
 		if isPriorPrimaryOnlySemanticFrameFamily(frame.Source) {
-			// The current inventory uses semantic-binding/v2 IDs. Query the
-			// authorized resource page without the obsolete v1 filter, then require
-			// an exact reconstructed v1 identity in semanticEntryForFrameFamily.
 			bindingFilter = ""
 		}
 		result.FrameID, result.FrameSource = frame.ID, frame
@@ -1291,10 +1286,6 @@ type semanticCandidateRouteProof struct {
 	ok        bool
 }
 
-// semanticInventoryChoicesForOutput keeps table applicability separate from
-// global semantic inventory. Routes are planned once per distinct candidate
-// node; repeated entries reuse the exact candidate+route compiler proof, while
-// each semantic binding still gets its own choice ID.
 func semanticInventoryChoicesForOutput(
 	ctx context.Context,
 	authorized AuthorizedCapability,
@@ -1437,10 +1428,6 @@ func semanticInventoryChoicesForOutput(
 	return choices, nil
 }
 
-// semanticInventoryReachableNodes uses the authorized snapshot graph only as
-// a negative prefilter. Every retained route is still reauthorized and
-// compiler-probed below; disconnected resource nodes never trigger a full
-// alternate-route search.
 func semanticInventoryReachableNodes(snapshot capability.Snapshot, rootResourceType string) map[string]bool {
 	adjacency := make(map[string][]string)
 	for _, edge := range snapshot.Edges {
@@ -1487,9 +1474,6 @@ func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextTo
 func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
 	observation := entry.Observation
 	if observation.RuleHint == catalog.SemanticRuleHintCodedConceptV1 {
-		// Owner-record output is defined over the enclosing semantic owner. A
-		// standalone Coding choice must stay attached to the exact matched
-		// Coding, so expose only the compiler-proved scalar/list choices.
 		ownerRecordsProved = false
 	}
 	logicalType := observation.LogicalType
@@ -1681,11 +1665,6 @@ func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFr
 		current.LogicalType == pinned.LogicalType && reflect.DeepEqual(current.ChoiceArms, pinned.ChoiceArms)
 }
 
-// semanticEntryForFrameFamily projects a current inventory observation back
-// to the exact value binding pinned by a saved frame. The only supported
-// transition is the immediately preceding semantic build, whose new behavior
-// adds fallback selectors. A legacy frame without fallbacks keeps its primary
-// selector and cannot silently acquire the new fallback behavior.
 func semanticEntryForFrameFamily(
 	entry catalog.SemanticInventoryEntry,
 	family capability.SemanticFrameFamily,
@@ -1855,9 +1834,6 @@ func semanticCandidateWithFallback(snapshot capability.Snapshot, observation cat
 	return combined, true
 }
 
-// Coded-value observations keep key and value selectors relative to the object
-// that owns their correlation. Capability candidates address the scalar from
-// the resource root, so the owning scope is restored only at this boundary.
 func semanticObservationValuePath(observation catalog.SemanticObservation) string {
 	valuePath := canonicalInventoryPath(observation.Value.Selector)
 	ownerPath := canonicalInventoryPath(observation.OwningScope)

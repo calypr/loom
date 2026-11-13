@@ -5,10 +5,6 @@ import (
 	"sort"
 )
 
-// DefinitionStructure is a bounded, detached snapshot of one definition's
-// declared JSON shape. Named references remain typed expansion edges instead
-// of being recursively expanded, so recursive FHIR definitions cannot make
-// the structure infinite.
 type DefinitionStructure struct {
 	Root             DefinitionName
 	Title            string
@@ -17,9 +13,6 @@ type DefinitionStructure struct {
 	Members          []StructureMember
 }
 
-// StructureMember retains the complete generated metadata for one member.
-// Members contains inline structure only. ReferencedType identifies the named
-// definition a consumer may expand separately through Index.Structure.
 type StructureMember struct {
 	CanonicalPath  string
 	Element        Element
@@ -28,7 +21,6 @@ type StructureMember struct {
 	Members        []StructureMember
 }
 
-// Structure returns a finite copy of one definition's declared structure.
 func (i *Index) Structure(root DefinitionName) (DefinitionStructure, bool) {
 	if i == nil {
 		return DefinitionStructure{}, false
@@ -77,9 +69,6 @@ func structureMembers(elements []Element, prefix string) []StructureMember {
 	return members
 }
 
-// RepeatedCodingPaths returns generated root-relative paths that end at a
-// repeated Coding element. Named definitions are followed once per branch so
-// recursive FHIR types cannot produce an unbounded list of paths.
 func (i *Index) RepeatedCodingPaths(root DefinitionName) ([]string, error) {
 	if i == nil {
 		return nil, fmt.Errorf("schema index is unavailable")
@@ -149,8 +138,6 @@ func (i *Index) RepeatedCodingPaths(root DefinitionName) ([]string, error) {
 	return result, nil
 }
 
-// HasRepeatedCodingPath reports whether a reachable element is a repeated Coding.
-// It visits named definitions once without enumerating root-relative paths.
 func (i *Index) HasRepeatedCodingPath(root DefinitionName) (bool, error) {
 	if i == nil {
 		return false, fmt.Errorf("schema index is unavailable")

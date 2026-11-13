@@ -1807,8 +1807,6 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 		OutputFingerprints:     fingerprints,
 		OutputColumnProvenance: provenance,
 		EmittedColumns: []explorer.EmittedColumn{
-			// Presentation order is intentionally different from compiler field
-			// order. It must not invalidate an otherwise identical receipt.
 			{OutputID: "patients", PublicColumn: "patient_gender"},
 			{OutputID: "patients", PublicColumn: "patient_id"},
 			{OutputID: "specimens", PublicColumn: "specimen_id"},

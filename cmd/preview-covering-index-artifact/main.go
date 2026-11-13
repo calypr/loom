@@ -1,6 +1,3 @@
-// Command preview-covering-index-artifact recreates one captured Builder
-// proposal with Loom's production authoring and dataframe compilers. It only
-// writes the requested JSON artifact and never contacts Loom or ArangoDB.
 package main
 
 import (
@@ -392,11 +389,6 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 	if actual.PreviewCoveringIndex == nil {
 		return errors.New("current production recompile has no PreviewCoveringIndexSpec")
 	}
-	// The golden comparison is a compiler-side diagnostic: the AQL text and
-	// bind map used for SHA-256 equality are derived from the recompiled
-	// command through closed dispatch, so the comparison digests exactly what
-	// the AQL adapter would receive and a non-AQL-tagged command is refused
-	// instead of being compared as AQL.
 	actualQuery, actualBindVars, dispatchErr := actual.Command.AQLParameters()
 	if dispatchErr != nil {
 		return fmt.Errorf("dispatch current production recompile to AQL comparison: %w", dispatchErr)
@@ -955,11 +947,6 @@ func validateCapturedScope(report capturedReport, captured capturedQuery, reconc
 	return nil
 }
 
-// The captured catalog includes signed ConstructionChoice values whose Go
-// domain representation is an interface. They are not needed to recreate a
-// compile: CompileWorkspace issues fresh compiler choices from the mapped
-// capability snapshot. Strip only that opaque field before decoding the
-// public catalog facts.
 func withoutCapturedChoiceInterfaces(raw json.RawMessage) ([]byte, error) {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &response); err != nil {
@@ -1193,9 +1180,6 @@ func proveCandidateCorrespondence(base authoringv2.Workspace, proposal proposalR
 	if len(finalSchema) != len(publicSchema)+1 {
 		return candidateProof{}, fmt.Errorf("final output schema has %d columns including internal identity, want %d", len(finalSchema), len(publicSchema)+1)
 	}
-	// The single-root-scan shape check inspects the AQL view derived through
-	// closed dispatch; a non-AQL-tagged recompile cannot satisfy a Pivot
-	// proof and is refused here.
 	compiledQueryText, _, compiledDispatchErr := compiled.Command.AQLParameters()
 	if compiledDispatchErr != nil {
 		return candidateProof{}, fmt.Errorf("dispatch current Pivot recompile to AQL shape check: %w", compiledDispatchErr)

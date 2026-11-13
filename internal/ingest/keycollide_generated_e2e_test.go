@@ -1,32 +1,5 @@
 package ingest
 
-// F-B25 (hypothesis probe): internal/ingest/documents.go SanitizeKey (:107-113)
-// collapses every disallowed char to `_` via validKeyPart (:17) — non-injective.
-// The vertex insert path posts with onDuplicate=replace
-// (internal/backends/arango/internal/store/client.go:450-451,494-495 region) and the summary
-// counter adds len(task.docs) SENT, not persisted
-// (internal/ingest/generation_workers.go:426 region). If two DIFFERENT FHIR
-// resource ids sanitize onto one `_key`, the second write silently replaces
-// the first while LoadSummary still reports both as VerticesInserted — a lost
-// acknowledged write.
-//
-// This artifact drives the REAL production Load() entry point on a fresh
-// verification Arango database, per builder path (UseGeneric false and true —
-// spelling matches LoadOptions field), and compares the acknowledged counter
-// against the real collection count:
-//   acknowledged == collected          -> the path prevents the collision
-//     (typically via id charset validation; the RowErrors/ValidationErrors
-//      samples logged per path classify WHICH prevention fired).
-//   acknowledged >  collected           -> CONFIRMED silent replacement on
-//     that path.
-//
-// Collision pair: "coll/1" and "coll_1" — both non-blank strings; SanitizeKey
-// maps '/' -> '_', so both land on _key "coll_1" while the JSON payload keeps
-// the different ids. Control id "x9" must survive next to them.
-//
-// Cleanup: every created database is dropped via the registered first (runs
-// last, LIFO) helper; final DB list is asserted to exclude the prefix.
-
 import (
 	"context"
 	"encoding/json"
@@ -81,8 +54,6 @@ func TestFB25SanitizeKeyCollisionLosesAcknowledgedWrite(t *testing.T) {
 			database := kcollPrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 			defer cancel()
-			// Registered FIRST => runs LAST: drop the verification database
-			// after all sub-assertions, then nothing else holds it.
 			t.Cleanup(func() { kcollDropDatabase(t, endpoint, database) })
 
 			metaDir := t.TempDir()
@@ -141,9 +112,6 @@ func TestFB25SanitizeKeyCollisionLosesAcknowledgedWrite(t *testing.T) {
 			case summary.VerticesInserted == 0 && (summary.ValidationErrors+summary.GenerationErrors) > 0:
 				t.Errorf("FB25 %s unexpected total rejection (all %d rows errored): row_errors=%s — probe premise about this path's validation strength lost; classify separately", label, len(lines), samples)
 			default:
-				// Partial rejection: validation caught the disallowed id on
-				// this path. Honest PREVENTED via validation — but only if the
-				// SURVIVING pair still round-trips with x9 absent collisions.
 				if collected == int64(summary.VerticesInserted) {
 					t.Logf("FB25 %s verdict | PREVENTED by validation on this path | acknowledged=%d persisted=%d, %d row(s) rejected before write (see row_errors above)", label, summary.VerticesInserted, collected, summary.ValidationErrors+summary.GenerationErrors)
 				} else {
@@ -152,7 +120,6 @@ func TestFB25SanitizeKeyCollisionLosesAcknowledgedWrite(t *testing.T) {
 			}
 		})
 	}
-	// Residue: no verification databases may survive.
 	t.Cleanup(func() { kcollAssertNoResidue(t, endpoint) })
 	_ = fmt.Sprint()
 }

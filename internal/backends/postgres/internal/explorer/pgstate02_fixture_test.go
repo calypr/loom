@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -216,7 +217,7 @@ func (f *pgState02Fixture) rerunMigration(t *testing.T, version int64) {
 				f.fail("begin migration rerun transaction", err)
 			}
 			if _, err := tx.Exec(f.ctx,
-				"SET LOCAL search_path TO "+sanitizeSchema(f.schema)); err != nil {
+				"SET LOCAL search_path TO "+pgx.Identifier{f.schema}.Sanitize()); err != nil {
 				tx.Rollback(f.ctx)
 				f.fail("set search_path for migration rerun", err)
 			}

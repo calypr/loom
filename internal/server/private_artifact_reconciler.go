@@ -28,9 +28,6 @@ func startPrivateArtifactReconciler(ctx context.Context, manager privateArtifact
 	return startTickerReconciler(ctx, sweep, logger, privateArtifactReconcileInterval, "private ClickHouse artifact")
 }
 
-// startArtifactFSReconciler enforces the exported-archive expiry promise on
-// the filesystem artifact store, mirroring the ClickHouse artifact sweep so
-// committed archives do not outlive their advertised TTL on disk.
 func startArtifactFSReconciler(ctx context.Context, store artifactFSReconcileTarget, logger *slog.Logger) <-chan struct{} {
 	if store == nil {
 		done := make(chan struct{})
@@ -55,9 +52,6 @@ func startTickerReconciler(ctx context.Context, sweep func(context.Context) erro
 	return done
 }
 
-// runPrivateArtifactReconciler performs an immediate sweep, then one bounded
-// sweep per tick. It processes ticks serially so a slow cleanup cannot overlap
-// with the next pass.
 func runPrivateArtifactReconciler(ctx context.Context, manager privateArtifactReconcileTarget, ticks <-chan time.Time, logger *slog.Logger) {
 	if manager == nil {
 		return

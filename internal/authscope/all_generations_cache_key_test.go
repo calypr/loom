@@ -11,32 +11,8 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 )
 
-// F-B27 durable controls (REPAIR-15). The project-write-binding entry that
-// backs AuthorizeWrite must live in its own cache namespace, separated by a
-// discriminator on the key type and not by a reserved string. Read-path
-// datasetGeneration values arrive from request payloads and are only
-// TrimSpace'd (catalog.NormalizeDatasetGeneration), unlike publish-time
-// validateOpaqueIdentifier, so any byte sequence is an ordinary generation
-// key on the read side. That is exactly why a string sentinel was unsafe: a
-// restricted caller could address the write-binding entry directly.
-
-// fb27ctlSentinelGeneration is the literal that the first F-B27 fix used as
-// its all-generations cache sentinel. The promoted probe below replays it as
-// the poison payload.
 const fb27ctlSentinelGeneration = "\x00all-generations"
 
-// fb27ctlLister is a catalog-discovery test double. It records every invocation
-// so the controls below can prove which decisions re-consulted the catalog. It
-// is SHARED mutable state across a test's resolver calls, which is why the
-// recording is mutex-guarded: ScopeResolver invokes its lister OUTSIDE the
-// cache lock (scope_resolver.go:378,421), so a distinct-key burst on a cold
-// cache drives several goroutines into list() concurrently — the counters-map
-// flake class this helper shares with the pre-hygiene authscope doubles (the
-// per-subtest recorder standard recorded in
-// covers_execution_paths_control_test.go:102-105). Guarding here keeps a
-// -count>1 / concurrent driver race-clean in addition to the already-serial
-// single-threaded controls. The behind callback is invoked outside the lock so
-// it never runs while the recorder is held.
 type fb27ctlLister struct {
 	mu     sync.Mutex
 	calls  int
@@ -53,23 +29,18 @@ func (l *fb27ctlLister) list(_ context.Context, opts catalog.AuthResourcePathOpt
 	return result, err
 }
 
-// count returns the number of recorded invocations under the recorder lock.
 func (l *fb27ctlLister) count() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.calls
 }
 
-// snapshotCalls returns a copy of every recorded options value under the
-// recorder lock, safe to read while other goroutines keep invoking list().
 func (l *fb27ctlLister) snapshotCalls() []catalog.AuthResourcePathOptions {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]catalog.AuthResourcePathOptions(nil), l.opts...)
 }
 
-// lastCall returns the most recently recorded options value under the recorder
-// lock.
 func (l *fb27ctlLister) lastCall() (catalog.AuthResourcePathOptions, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -90,23 +61,11 @@ func fb27ctlPrincipal(paths ...string) *Principal {
 	return &Principal{Subject: "u", AuthResourcePaths: append([]string(nil), paths...)}
 }
 
-// TestFB27SentinelGenerationPoisonCannotReachAuthorizeWrite promotes the
-// adversarial probe TestFB27RevSentinelCollisionPoisonsWriteBinding into the
-// repo suite. A restricted principal performs a read whose datasetGeneration
-// is the reserved all-generations literal, so an empty path list lands under
-// {victim, "\x00all-generations"}, and then asks to publish a path it holds
-// for another project into that victim. Repaired contract: the poisoned entry
-// is never served to AuthorizeWrite, the victim's project lister is consulted
-// on the decision, and the write stays forbidden for the TTL.
 func TestFB27SentinelGenerationPoisonCannotReachAuthorizeWrite(t *testing.T) {
 	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
 		if opts.AllGenerations {
-			// The victim genuinely records this path: the exact state that
-			// made the pre-repair path-membership check exploitable.
 			return []string{"projB/data"}, nil
 		}
-		// No real catalog holds a control-character generation, because
-		// publish rejects it, so a generation-scoped listing is empty.
 		return nil, nil
 	}}
 	r := fb27ctlResolver(l)
@@ -147,26 +106,9 @@ func TestFB27SentinelGenerationPoisonCannotReachAuthorizeWrite(t *testing.T) {
 	t.Logf("VERDICT=REPAIRED sentinel-literal generation %q stayed an ordinary generation key; the write decision re-listed projB (%d fresh call) and denied /projA/data", fb27ctlSentinelGeneration, l.count()-callsAfterPoison)
 }
 
-// TestFB27ConcurrentDistinctKeyBurstKeepsSharedRecorderConsistent is the
-// durability control for the counters-map flake class: it drives ONE shared
-// fb27ctlLister from many goroutines at once. ScopeResolver consults the lister
-// outside its cache lock (scope_resolver.go:378,421), so a cold-cache burst
-// across DISTINCT project/generation keys — which never collide in the resolver
-// cache — runs list() concurrently on the shared recorder. Under the pre-hygiene
-// unlocked counter this is exactly where `go test -race` flagged the shared
-// calls/opts mutation; the recorder mutex added above makes it race-clean. The
-// assertions confirm the shared control stayed internally consistent (one
-// recording per invocation, no lost/torn appends) while the resolvers returned
-// the correct per-key answers. The behind callback is read-only so the only
-// shared mutable state exercised here is the recorder under test.
 func TestFB27ConcurrentDistinctKeyBurstKeepsSharedRecorderConsistent(t *testing.T) {
 	const goroutines = 64
 	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
-		// Read-only dispatch: an all-generations lookup (the write-binding
-		// namespace) yields the held path; a generation-scoped read yields
-		// none. Deterministic per opts only — the behind closure touches no
-		// shared state, so the only shared mutable state under test is the
-		// recorder itself.
 		if opts.AllGenerations {
 			return []string{opts.Project + "/data"}, nil
 		}
@@ -182,9 +124,6 @@ func TestFB27ConcurrentDistinctKeyBurstKeepsSharedRecorderConsistent(t *testing.
 		go func(i int) {
 			defer wg.Done()
 			project := "proj" + strconv.Itoa(i)
-			// Distinct project per goroutine guarantees distinct resolver cache
-			// keys on a cold cache, so BOTH lookups below are concurrent lister
-			// misses that funnel into the shared recorder at once.
 			if _, err := r.listExistingPaths(ctx, project, "gen-"+strconv.Itoa(i)); err != nil {
 				errCh <- err
 				return
@@ -201,8 +140,6 @@ func TestFB27ConcurrentDistinctKeyBurstKeepsSharedRecorderConsistent(t *testing.
 		t.Fatalf("VERDICT=UNEXPECTED concurrent resolver error = %v", err)
 	}
 
-	// Exactly one generation-scoped read plus one all-generations listing per
-	// goroutine landed in the recorder, with none lost or torn.
 	if got := l.count(); got != 2*goroutines {
 		t.Fatalf("VERDICT=UNEXPECTED lost/torn recorder increments: count=%d want=%d", got, 2*goroutines)
 	}

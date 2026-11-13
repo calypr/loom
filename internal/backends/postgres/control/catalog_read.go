@@ -28,7 +28,7 @@ func (r *Runtime) DiscoverExistingAuthResourcePaths(ctx context.Context, opts ca
 	return store.DiscoverExistingAuthResourcePaths(ctx, opts)
 }
 
-func (r *Runtime) catalogReadStore() (*catalogstore.Store, error) {
+func (r *Runtime) catalogReadStore() (*catalogstore.FieldProfileAdapter, error) {
 	if r.isClosed() {
 		return nil, fmt.Errorf("%w: discover catalog fields", ErrRuntimeClosed)
 	}
@@ -40,7 +40,7 @@ func (r *Runtime) catalogReadStore() (*catalogstore.Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres backend: compose field profile read repository: %w", err)
 	}
-	store, err := catalogstore.NewFieldProfileStore(repo)
+	store, err := catalogstore.NewFieldProfileAdapter(repo)
 	if err != nil {
 		return nil, fmt.Errorf("postgres backend: compose field profile read store: %w", err)
 	}

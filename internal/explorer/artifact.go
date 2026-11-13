@@ -21,8 +21,6 @@ const (
 	ArtifactFailed    ArtifactState = "FAILED"
 )
 
-// ArtifactRecord is the durable server-side identity of one exact training
-// artifact. The archive is downloadable only when State is COMPLETE.
 type ArtifactRecord struct {
 	ID                       string                            `json:"id"`
 	Project                  string                            `json:"project"`
@@ -82,8 +80,6 @@ type ArtifactCompletion struct {
 	CompletedAt   time.Time
 }
 
-// ArtifactStage is an uncommitted archive. Abort must be idempotent and Commit
-// must make the completed file and metadata visible atomically to readers.
 type ArtifactStage interface {
 	io.WriteCloser
 	Commit(context.Context, ArtifactCompletion) (*ArtifactRecord, error)

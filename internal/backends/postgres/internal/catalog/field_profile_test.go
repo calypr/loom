@@ -200,9 +200,9 @@ func (s *fieldProfileService) realRepository(t *testing.T) *storepostgres.FieldP
 	return repo
 }
 
-func (s *fieldProfileService) adapter(t *testing.T) *Store {
+func (s *fieldProfileService) adapter(t *testing.T) *FieldProfileAdapter {
 	t.Helper()
-	store, err := NewFieldProfileStore(s.realRepository(t))
+	store, err := NewFieldProfileAdapter(s.realRepository(t))
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -1008,8 +1008,8 @@ func TestFieldProfileWriteRejectionsLeaveNothingBehind(t *testing.T) {
 		" pivot_family, pivot_column_selector, pivot_value_selector, pivot_item_source, pivot_item_resource_type, extension_values)"+
 		" VALUES ('pgcat01-dbcontract','','','Patient','gender','k','','scalar',0,0,0,false,false,false,'','','','','','','42'::jsonb)")
 
-	if _, err := NewFieldProfileStore(nil); err == nil {
-		t.Fatal("NewFieldProfileStore(nil) accepted a nil persistence boundary")
+	if _, err := NewFieldProfileAdapter(nil); err == nil {
+		t.Fatal("NewFieldProfileAdapter(nil) accepted a nil persistence boundary")
 	}
 	if _, err := storepostgres.NewFieldProfileRepository(s.openClient(t), "Bad-Name"); !errors.Is(err, storepostgres.ErrInvalidSchemaName) {
 		t.Fatalf("NewFieldProfileRepository invalid schema = %v, want ErrInvalidSchemaName", err)

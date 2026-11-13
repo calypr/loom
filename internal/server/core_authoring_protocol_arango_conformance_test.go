@@ -26,15 +26,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestCoreAuthoringProtocolAgainstArango is the joined authoring-protocol witness
-// against the real Arango Explorer repository (plan C10/C12/C16/C17): every claim is
-// read back from persisted Arango bytes through the repository (or a second
-// independent client), never from a service echo or the in-memory fixture. It drives
-// the same production generated strict adapter, handlers, lifecycle service and
-// compile chain as newCoreProtocolFixture, and owns assertions the map-store
-// witnesses cannot make: restart persistence through a fresh repository instance,
-// compare-and-swap rejection against real Arango transaction state, and
-// exactly-one-document integrity through a raw AQL count.
 func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
 	if endpoint == "" {
@@ -76,9 +67,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Seed through the same store with the exact identity values used by the
-	// map-store fixture (core_authoring_protocol_test.go:126-149) so both witnesses
-	// describe the same protocol; the DraftConfig raw bytes are identical.
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace := authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
@@ -151,9 +139,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
 	fixture := &coreProtocolFixture{t: t, app: app, snapshot: snapshot, workspace: workspace, initialDigest: digest, basePath: "/api/v1/projects/project-a/explorers/core-protocol/authoring/v2"}
 
-	// (17) Ack identity is what the Arango document actually carries. The map-store
-	// witness sees the same in-memory object the handler manipulated; this reads the
-	// committed document back through the Arango repository.
 	saved, ack := fixture.saveLabel("core-arango-save-1", "Patient Identifier", 1, digest)
 	if saved.StatusCode != http.StatusOK {
 		t.Fatalf("commands status=%d body=%s", saved.StatusCode, saved.Body)
@@ -182,7 +167,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("persisted head points to previousDraftRevisionId=%q, acknowledged=%q", persisted.PreviousDraftRevisionID, *ack.PreviousDraftRevisionId)
 	}
 
-	// The persisted bytes themselves round-trip to the exact post-command workspace.
 	expectedPost := workspace
 	expectedPost.SemanticsVersion = authoringv2.CurrentSemanticsVersion
 	expectedPost.Documents[0].Columns[0].Label = "Patient Identifier"
@@ -202,8 +186,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("persisted Arango draft config differs from the expected post-command workspace\nexpected=%s\npersisted=%s", expectedRaw, persistedRaw)
 	}
 
-	// The acknowledged previous revision id resolves to the exact pre-command head
-	// bytes in Arango (the revision id scheme lives in drafts.go; never hardcoded).
 	prior, err := store.GetDraftRevision(ctx, "project-a", "core-protocol", *ack.PreviousDraftRevisionId)
 	if err != nil {
 		t.Fatalf("read acknowledged previous revision %s from Arango: %v", *ack.PreviousDraftRevisionId, err)
@@ -226,11 +208,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("previous revision bytes differ from the pre-command head\nexpected=%s\npersisted=%s", raw, priorRaw)
 	}
 
-	// (16) The compile receipt is persisted in Arango and references the exact
-	// committed head identity. CompilationReceipt carries no draftVersion/draftDigest
-	// header field; the strongest identity binding the type actually has is the
-	// workspace content IntentDigest, the content-addressed ID, and admission
-	// through the store's validateReceipt on read — asserted below.
 	compiled := fixture.decodeCompile(fixture.MustReconcile(ack.DraftVersion, ack.DraftDigest, "core-arango-reconcile"))
 	persistedReceipt, err := store.GetCompilationReceiptForExplorer(ctx, "project-a", "core-protocol", compiled.ReceiptId)
 	if err != nil {
@@ -269,9 +246,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("persisted receipt public contract label=%q want %q", receiptLabel, "Patient Identifier")
 	}
 
-	// (16) Receipt-bound preview re-execution keeps the accepted identity: rows are
-	// the fixture's controlled empty array and the single contract label is the
-	// saved label (same expectations as TestCoreAuthoringProtocolVerticalWitness).
 	previewed := fixture.preview(compiled.ReceiptId)
 	if previewed.StatusCode != http.StatusOK {
 		t.Fatalf("preview status=%d body=%s", previewed.StatusCode, previewed.Body)
@@ -291,8 +265,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("preview contract labels=%v want [Patient Identifier]", previewLabels)
 	}
 
-	// (12) Restart persistence: a fresh Open + fresh repository + fresh service on
-	// the same database must reproduce the committed truth from persisted bytes.
 	restartBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatal(err)
@@ -340,10 +312,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("fresh service previous revision identity drifted: got version=%d digest=%q want version=1 digest=%q", restartedPrior.DraftVersion, restartedPrior.DraftDigest, digest)
 	}
 
-	// (10) Compare-and-swap truth on real Arango: replaying a save with the
-	// pre-command identity must be refused at the store's transactional CAS, and
-	// the committed document must be unchanged (no partial write, no phantom
-	// second revision).
 	stale, staleAck := fixture.saveLabel("core-arango-stale-save", "Patient Stale Ghost", 1, digest)
 	if stale.StatusCode != http.StatusConflict || !strings.Contains(stale.Body, "DRAFT_CONFLICT") {
 		t.Fatalf("stale save expected 409 DRAFT_CONFLICT, got status=%d body=%s ack=%+v", stale.StatusCode, stale.Body, staleAck)
@@ -370,9 +338,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		t.Fatalf("refused stale save wrote ghost bytes into the persisted draft")
 	}
 
-	// (10) Independent-probe integrity: raw AQL counts through the second, exec-free
-	// client prove exactly one explorer document and exactly one draft revision for
-	// this identity — the rejected save and repeated compiles created no shadows.
 	if count := countDocuments(ctx, t, restartClient, arangofactory.ExplorersCollection, "project-a", "core-protocol"); count != 1 {
 		t.Fatalf("loom_explorers holds %d documents for project-a/core-protocol, want exactly 1", count)
 	}
@@ -381,8 +346,6 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	}
 }
 
-// digestForWorkspace is the committed-head digest the server itself reports for an
-// expected post-command workspace.
 func digestForWorkspace(t *testing.T, workspace authoringv2.Workspace) string {
 	t.Helper()
 	value, err := workspace.Digest()
@@ -392,8 +355,6 @@ func digestForWorkspace(t *testing.T, workspace authoringv2.Workspace) string {
 	return value
 }
 
-// countDocuments runs an exec-free raw AQL count through the given client for one
-// (project, explorerId) identity.
 func countDocuments(ctx context.Context, t *testing.T, client *arangofactory.Client, collection, project, explorerID string) int64 {
 	t.Helper()
 	var count int64

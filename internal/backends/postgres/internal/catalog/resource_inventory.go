@@ -50,7 +50,7 @@ func (e *ResourceInventoryWriteError) Unwrap() []error {
 	return []error{ErrResourceInventoryWrite, e.Err}
 }
 
-func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.ResourceInventoryRebuildOptions) (catalog.ResourceInventoryRebuildSummary, error) {
+func (s *InventoryAdapter) RebuildResourceInventory(ctx context.Context, opts catalog.ResourceInventoryRebuildOptions) (catalog.ResourceInventoryRebuildSummary, error) {
 	if err := requireLeg("inventory", s.inventory != nil, "RebuildResourceInventory"); err != nil {
 		return catalog.ResourceInventoryRebuildSummary{}, err
 	}
@@ -120,11 +120,11 @@ func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.Resou
 	}, nil
 }
 
-func (s *Store) ReadResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
+func (s *InventoryAdapter) ReadResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	return s.DiscoverResourceInventory(ctx, opts)
 }
 
-func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
+func (s *InventoryAdapter) DiscoverResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.ResourceInventoryResult{Values: make([]catalog.ResourceInventoryObservation, 0, len(resourceTypes)), Available: true, Complete: true, Diagnostics: diagnostics}
 	if err := requireLeg("inventory", s.inventory != nil, "DiscoverResourceInventory"); err != nil {
