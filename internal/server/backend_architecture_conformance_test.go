@@ -849,8 +849,19 @@ func ab10ArangoOwnDatabase(t *testing.T, endpoint, leg string) string {
 		t.Fatalf("mint owned database: %v", err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("mint owned database %q: HTTP %d (refusing a pre-existing name)", database, response.StatusCode)
+	// Arango answers a successful create with HTTP 201; only a 2xx whose
+	// body says result:true is an owned mint (matching the runner's
+	// response.ok semantics in run-arango-integration.mjs).
+	var minted struct {
+		Result bool `json:"result"`
+	}
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<16))
+	if readErr != nil {
+		t.Fatalf("read create-database response: %v", readErr)
+	}
+	if !(response.StatusCode >= 200 && response.StatusCode < 300) ||
+		json.Unmarshal(body, &minted) != nil || !minted.Result {
+		t.Fatalf("mint owned database %q: HTTP %d body %s (refusing a pre-existing name)", database, response.StatusCode, body)
 	}
 	ab10Register(database, "arangodb", leg)
 	t.Cleanup(func() {
@@ -983,7 +994,8 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 		t.Fatalf("census cursor: %v", err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
+	// POST /_api/cursor answers 201 on cursor creation (200 also accepted).
+	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusCreated) {
 		payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 		t.Fatalf("census cursor HTTP %d: %s", response.StatusCode, payload)
 	}
