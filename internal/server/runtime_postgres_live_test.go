@@ -745,11 +745,18 @@ func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
-	client, err := control.OpenPool(ctx, control.ClientConfig{DSN: fixture.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 30 * time.Second})
+	backendRuntime, err := backendspostgres.Open(ctx, control.Config{
+		DSN:            fixture.dsn,
+		MaxConns:       4,
+		MinConns:       1,
+		AcquireTimeout: 30 * time.Second,
+		Schemas:        control.SeriesSchemas(fixture.schemas),
+		Setup:          control.SetupNone,
+	})
 	if err != nil {
-		t.Fatalf("open store client for read-only proof: %s", fixture.scrub(err))
+		t.Fatalf("open setup-none control runtime for readiness witness: %s", fixture.scrub(err))
 	}
-	defer client.Close()
+	defer backendRuntime.Close()
 	pool, err := pgxpool.New(ctx, fixture.dsn)
 	if err != nil {
 		t.Fatalf("connect fingerprint reader: %s", fixture.scrub(err))
@@ -787,38 +794,33 @@ func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
 		return out
 	}
 
+	assigned := map[control.Series]string{}
 	for _, series := range control.AllSeries() {
-		schema, assigned := fixture.schemas[series]
-		if !assigned {
+		if schema, ok := fixture.schemas[series]; ok {
+			assigned[series] = schema
+		}
+	}
+	if len(assigned) == 0 {
+		t.Fatal("fixture assigned no series; the readiness read-only witness would be vacuous")
+	}
+	pre := map[control.Series]map[string]string{}
+	for series, schema := range assigned {
+		pre[series] = fingerprint(schema)
+	}
+	if err := backendRuntime.Readiness(ctx); err != nil {
+		t.Fatalf("Readiness over the migrated assigned schemas must pass: %s", fixture.scrub(err))
+	}
+	for _, series := range control.AllSeries() {
+		schema, ok := assigned[series]
+		if !ok {
 			continue
 		}
 		series, schema := series, schema
 		t.Run(string(series), func(t *testing.T) {
-			pre := fingerprint(schema)
-			var err error
-			switch series {
-			case control.SeriesSource:
-				err = control.VerifySchema(ctx, client, schema)
-			case control.SeriesExplorerControl:
-				err = control.VerifyExplorerControlSchema(ctx, client, schema)
-			case control.SeriesPublicationControl:
-				err = control.VerifyPublicationControlSchema(ctx, client, schema)
-			case control.SeriesDatasetRelease:
-				err = control.VerifyDatasetReleaseSchema(ctx, client, schema)
-			case control.SeriesRecipeChains:
-				err = control.VerifyRecipeChainsSchema(ctx, client, schema)
-			case control.SeriesRecipeExecRegistries:
-				err = control.VerifyRecipeExecRegistriesSchema(ctx, client, schema)
-			default:
-				t.Fatalf("series %q is assigned but outside the probe dispatch", series)
-			}
-			if err != nil {
-				t.Fatalf("VerifySchema on a migrated %s schema must pass: %s", series, fixture.scrub(err))
-			}
 			post := fingerprint(schema)
-			for key, before := range pre {
+			for key, before := range pre[series] {
 				if post[key] != before {
-					t.Fatalf("VerifySchema on series %q mutated %s of schema %s: fingerprint %s -> %s", series, key, schema, before, post[key])
+					t.Fatalf("Readiness on series %q mutated %s of schema %s: fingerprint %s -> %s", series, key, schema, before, post[key])
 				}
 			}
 		})

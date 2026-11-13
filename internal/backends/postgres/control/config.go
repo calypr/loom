@@ -44,8 +44,6 @@ const ApplicationNamePrefix = "loom-pg-"
 
 var applicationNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
-var assignedSchemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
-
 type Config struct {
 	DSN             string
 	MaxConns        int32
@@ -85,7 +83,7 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(schema) == "" {
 			return fmt.Errorf("%w: series %q is assigned a blank schema name", ErrSeriesAssignment, series)
 		}
-		if !assignedSchemaNamePattern.MatchString(schema) {
+		if !pgstore.ValidSchemaName(schema) {
 			return fmt.Errorf("%w: series %q schema %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, series, schema)
 		}
 	}

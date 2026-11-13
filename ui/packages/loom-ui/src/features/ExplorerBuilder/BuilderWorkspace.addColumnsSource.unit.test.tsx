@@ -2702,8 +2702,6 @@ describe('BuilderWorkspace Add columns source selection', () => {
       expect(applyExplorerCommands).toHaveBeenCalledTimes(2);
       expect(releaseAddColumn).toBeDefined();
     });
-    // The second command is deliberately unresolved, so this is the intermediate
-    // draftVersion 1 window between CREATE_TABLE and default-ID provisioning.
     expect(mockLoomClient.configuredColumnContextsQuery.mock.calls.every(([args]) => args === undefined)).toBe(true);
 
     const release = releaseAddColumn;

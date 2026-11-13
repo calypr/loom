@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-// RS03-03 (docs/BUILDER_VERIFICATION.tsv row 96) four-state focused-native journey: the
-// healthy / per-field-refusal / inventory-fault / empty-data contract of the signed-source
-// table-shape lane, raw-CDP against the owned loom-dev stack, following the
-// scripts/verify-ui/workflows raw-CDP convention (see verify-explorer-filter-row-source.mjs).
-// Label authority: /tmp/opencode/label-journey-coupling.md (catalog-path literals are the
-// contract; construction-lane humanized text is the only flip family). Reason-class
-// authority: internal/explorer/lifecycle/construction_pivot_source.go (rowSourceLaneReasons:
-// codeStem + _SOURCE_INVENTORY_UNAVAILABLE ; NO_OBSERVED_VALUES_/NO_ELIGIBLE_POPULATED_/
-// NO_ROUTE_ELIGIBLE_/NO_TYPE_ELIGIBLE_/STALE_/ROOT_SOURCE_PROJECTION_UNAVAILABLE).
-// Live window execution is pending; --dry-run runs the full static self-validation now.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -42,9 +32,6 @@ const expectedChecks = [
   'row96-expand-policy-matrix',
 ];
 
-// ROW-SOURCE-08 policy matrix (docs/ROW_OPERATION_NEXT_BATCH.md §ROW-SOURCE-08): five
-// parents carrying [red, red, blue] + [green] + empty + missing + null arrays; the contract
-// row counts EXCLUDE=4 / PRESERVE_PARENT=7 and the ERROR wire code are asserted in-window.
 const matrixParents = [
   { id: 'rs08m-red', values: ['red', 'red', 'blue'] },
   { id: 'rs08m-green', values: ['green'] },
@@ -54,19 +41,8 @@ const matrixParents = [
 ];
 const matrixExcludeMultiset = [['rs08m-red', 'red'], ['rs08m-red', 'red'], ['rs08m-red', 'blue'], ['rs08m-green', 'green']];
 const matrixKeptParentIds = ['rs08m-empty', 'rs08m-missing', 'rs08m-null'];
-// Wire-code authority: internal/dataframe/errors/errors.go:77 defines CodeConstructionExpansionEmpty
-// = CONSTRUCTION_EXPANSION_EMPTY; internal/dataframe/compiler/render/aql/construction_expand.go:33
-// ASSERTs it against LENGTH(items)==0 under EmptyPolicy ERROR; internal/server/
-// explorer_preview_response.go:65 + server.go:96 map it to the 422 preview failure body.
 const matrixErrorWireCode = 'CONSTRUCTION_EXPANSION_EMPTY';
 
-// Honest-absence family: row-choice verdicts (lane reason authority above) plus the
-// compiler capability gates emitted for an under-seeded table (dataframe/compiler/lower/
-// recipe_construction.go:2242-2289: NO_NUMERIC_COLUMN/NO_PUBLIC_COLUMNS/
-// INSUFFICIENT_SCALAR_COLUMNS/NO_COMPATIBLE_UNPIVOT_COLUMNS/NO_ARRAY_COLUMNS/
-// NO_PUBLIC_SOURCE_COLUMNS) and related-field identity refusal
-// (construction_proposal.go:983/993 NO_ACTIVE_RELATED_RECORD). Inventory-unavailable
-// remains disjoint — that split is the S-B guarantee under test.
 const emptyDataFamily = /^(NO_OBSERVED_VALUES_|NO_ELIGIBLE_POPULATED_|NO_ROUTE_ELIGIBLE_|NO_TYPE_ELIGIBLE_|STALE_|ROOT_SOURCE_PROJECTION_UNAVAILABLE$|NO_NUMERIC_COLUMN$|NO_PUBLIC_COLUMNS$|NO_PUBLIC_SOURCE_COLUMNS$|NO_COMPATIBLE_UNPIVOT_COLUMNS$|INSUFFICIENT_SCALAR_COLUMNS$|NO_ARRAY_COLUMNS$|NO_ACTIVE_RELATED_RECORD$)/;
 const inventoryClass = /_SOURCE_INVENTORY_UNAVAILABLE$/;
 
@@ -111,13 +87,6 @@ const record = (name, evidence) => {
   report.checks.push({ name, status: 'passed', evidence });
 };
 
-// ROW-SOURCE-08: this journey's signed-EXPAND check needs a direct-root
-// primitive array carried by real data. The generated schema admits none on the
-// shipped fixture resources (Patient, Observation, DiagnosticReport,
-// DocumentReference, Group, ResearchStudy, Specimen), so the run seeds a
-// per-run fixture copy plus three Procedures whose instantiatesUri[] arrays
-// (the lane's only honest primitive root array here: 2 + 1 + 0 values) give the
-// offer, refusal, and EXCLUDE-policy paths real data to work on.
 const rs08FixtureDir = (() => {
   if (options.dryRun || process.env.LOOM_DEV_FIXTURE_DIR) return process.env.LOOM_DEV_FIXTURE_DIR;
   const dir = mkdtempSync(join(tmpdir(), 'rs96-fixture-'));
@@ -140,11 +109,6 @@ const rs08FixtureDir = (() => {
 })();
 if (rs08FixtureDir) process.env.LOOM_DEV_FIXTURE_DIR = rs08FixtureDir;
 
-// ROW-SOURCE-08 policy matrix: the contract parents [red, red, blue] / [green] / empty /
-// missing / null must land in a row space the signed-expand-lane check's byte-stable
-// four-row Procedure preview never traverses, so the matrix gets its OWN per-run fresh
-// fixture project (createFreshVerificationFixture design) seeded from this second copy.
-// Same runner machinery as above; nothing on the shared stack is mutated.
 const rs08MatrixFixtureDir = (() => {
   if (options.dryRun) return undefined;
   const dir = mkdtempSync(join(tmpdir(), 'rs96-matrix-'));
@@ -168,9 +132,6 @@ const rs08MatrixFixtureDir = (() => {
 const session = createDevSession(process.env, REPO_ROOT);
 const collectBuildIdentity = () => {
   const identity = sharedCollectBuildIdentity(session, { repoRoot: REPO_ROOT });
-  // Test-harness escape hatch used ONLY by the lifecycle contract test (staged copy has
-  // no gitdir by design). Never overrides a resolvable real HEAD: an ambient pin must
-  // not forge recorded identity or neutralise the mid-run HEAD-move guard.
   const pin = process.env.LOOM_DEV_HEAD_OVERRIDE;
   if (pin) {
     if (!/^[a-f0-9]{40}$/.test(pin)) throw new Error('LOOM_DEV_HEAD_OVERRIDE must be a 40-char commit hash');
@@ -195,9 +156,6 @@ const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--disable-d
   { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
 let chromeErr = '';
 chrome.stderr.on('data', (chunk) => { chromeErr = (chromeErr + chunk).slice(-4000); });
-// F3: an async spawn failure (EACCES/EISDIR/EAGAIN) surfaces as an 'error' EVENT, not the
-// :98 existsSync assert; record it and let main()'s CDP gate fail, so the tail still runs
-// (journey.json written, tree killed, profile removed) instead of crashing the module.
 let chromeSpawnError = null;
 chrome.on('error', (error) => { chromeSpawnError = String(error?.message ?? error).slice(0, 300); });
 chrome.unref();
@@ -227,12 +185,9 @@ const moduleSend = (method, params = {}, ms = 25000) => withDeadline(client.send
 // EXTRACT-START:killTree
 const killTree = async () => {
   clearTrackedTimers();
-  try { client.close(); } catch { /* already closed */ }
-  try { chrome.stderr?.destroy(); } catch { /* stream already released */ }
-  // F1: escalation must not hinge on the leader's exit. A helper that ignores SIGTERM
-  // (or exits late) would otherwise survive while the journey prints JOURNEY_OK.
+  try { client.close(); } catch { }
+  try { chrome.stderr?.destroy(); } catch { }
   const groupMembers = () => {
-    // zombie entries awaiting reap are terminally dead; only live group members count
     if (!Number.isInteger(chrome.pid)) return [];
     try {
       return readdirSync('/proc').filter((entry) => {
@@ -245,24 +200,20 @@ const killTree = async () => {
       }).map(Number);
     } catch { return []; }
   };
-  // Some sandboxes deny kill(-pgid) even for own children (EPERM): try the group
-  // signal, then fall back to leader, then to each enumerated group member.
   const groupSignal = (signal) => {
     let groupOk = false;
     if (Number.isInteger(chrome.pid)) { try { process.kill(-chrome.pid, signal); groupOk = true; } catch { groupOk = false; } }
     let leaderOk = false;
     if (!groupOk) { try { leaderOk = chrome.kill(signal); } catch { leaderOk = false; } }
-    for (const pid of groupMembers()) { try { process.kill(pid, signal); } catch { /* racing exit */ } }
+    for (const pid of groupMembers()) { try { process.kill(pid, signal); } catch { } }
     return true;
   };
   if (chrome.exitCode === null && chrome.signalCode === null) {
-    // await BEFORE sending: a fast exit can land between send and listen and strand the promise
     const exited = new Promise((done) => chrome.once('exit', done));
     if (groupSignal('SIGTERM')) {
       await withDeadline(exited, 5000, 'chrome SIGTERM exit').catch(() => { groupSignal('SIGKILL'); });
     }
   }
-  // bounded drain of stragglers (zombies are reaped by this parent, so members are live)
   for (let attempt = 0; attempt < 10 && groupMembers().length > 0; attempt += 1) {
     if (attempt === 5) groupSignal('SIGKILL');
     await wait(100);
@@ -297,9 +248,6 @@ const main = async () => {
   for (let i = 0; i < 150 && !existsSync(portFile); i += 1) await wait(100);
   assert.ok(existsSync(portFile), `chrome devtools port not advertised; spawnError=${chromeSpawnError ?? 'none'}; stderr=${chromeErr.slice(-400)}`);
   const [port] = readFileSync(portFile, 'utf8').trim().split('\n');
-  // Bounded like every other transport wait (adversarial review G3: a chrome that
-  // advertises DevToolsActivePort then wedges previously hung the journey forever with
-  // zero artifacts; SIGSTOP'd-tree probe: R6b log).
   const targetResponse = await withDeadline(fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' }), 20000, 'devtools /json/new');
   const target = await withDeadline(targetResponse.json(), 10000, 'devtools /json/new body');
   client = await withDeadline(CDPClient.connect(target.webSocketDebuggerUrl), 30000, 'CDP websocket open');
@@ -315,7 +263,7 @@ const main = async () => {
       const value = await probe();
       if (value) return value;
       if (Date.now() > deadline) {
-        try { writeFileSync(join(out, `FAIL-${String(message).replace(/\W+/g, '_')}.html`), await evaluate('document.documentElement.outerHTML')); } catch { /* best effort */ }
+        try { writeFileSync(join(out, `FAIL-${String(message).replace(/\W+/g, '_')}.html`), await evaluate('document.documentElement.outerHTML')); } catch { }
         assert.fail(`condition failed: ${message}`);
       }
       await wait(80);
@@ -335,8 +283,6 @@ const main = async () => {
   };
   const navigateToLane = async (label) => {
     await send('Page.navigate', { url: laneURL() });
-    // Readiness, not wall-clock: settle when chrome has mounted the workspace or the
-    // app has entered its degraded alert path; bounded so a hung SPA still fails loudly.
     await until(async () => (await mounted('[data-testid="construction-workspace"]'))
       || Boolean(await evaluate(`(()=>{const a=document.querySelector('[role="alert"]');return a?a.textContent:null;})()`)), `${label} settled`, 18000);
   };
@@ -369,10 +315,6 @@ const main = async () => {
   });
   const created = await commands('row96-table', [{ type: 'CREATE_TABLE', title: 'RS96 four-state shape', rootNodeId: root.nodeId }], builder.value);
   assert.equal(created.status, 200, `CREATE_TABLE failed (${created.status}): ${JSON.stringify(created.value).slice(0, 300)}`);
-  // Public-column prerequisite (identical seed command to the certified filter journey,
-  // verify-explorer-filter-row-source.mjs:88-92): without a public output column the
-  // lane editor legitimately refuses with "filter requires a public output column" and
-  // the signed-source picker never renders its option/title set.
   const afterCreate = await api('builder');
   const idCandidate = (afterCreate.value?.catalog?.candidates ?? []).find((candidate) => candidate.nodeId === root.nodeId
     && String(candidate.fieldPath || '').replace(/^root\./, '') === 'id');
@@ -389,8 +331,6 @@ const main = async () => {
   assert.ok(outputId, 'seeded table has no output; downstream lane asserts would be vacuous');
   await navigateToLane('post-seed nav');
 
-  // Dataset-load gate: the app renders role=alert "Couldn't load this dataset." on an
-  // initial fetch miss; retry the reload (bounded) before the window's asserts start.
   const datasetLoaded = async () => {
     if (await mounted('[data-testid="construction-workspace"]')) return true;
     const alert = await evaluate(`(()=>{const a=document.querySelector('[role="alert"]');return a?a.textContent:null;})()`);
@@ -417,11 +357,6 @@ const main = async () => {
   report.steps.push({ step: 'seed-and-healthy', outputId, stageId });
   await screenshot('step1-healthy-lane');
 
-  // The default table view exposes no titled <option> elements. The catalog-path label
-  // contract (title=fieldPath on dataset-field options) is rendered by the signed-source
-  // picker in the row-operation lane editor (ConstructionOperationEditor.tsx:1082 option
-  // text=filterSourceLabel+logicalType with title=fieldPath) — the same surface the
-  // certified filter journey discovers at step-1, so open the keep-rows lane editor.
   await realClick('[data-testid="construction-action-keep-rows"]');
   await until(() => mounted('[data-testid="construction-filter-editor"]'), 'lane source picker mounted', 20000);
   const fieldOptionFacts = await evaluate(`(()=>{const els=[...document.querySelectorAll('option[title],[role="option"][title]')];return els.slice(0,240).map(e=>({title:e.getAttribute('title'),text:(e.textContent||'').trim(),tag:e.tagName.toLowerCase()}));})()`);
@@ -439,12 +374,6 @@ const main = async () => {
   await realClick('[data-testid="construction-close-operation-editor"]');
   await until(async () => !(await mounted('[data-testid="construction-filter-editor"]')), 'lane source picker closed', 10000);
 
-  // ROW-SOURCE-06: the signed picker explains zero-eligible-field states. On this
-  // populated seed the eligible set is non-empty, so the certified guarantee here is the
-  // false-positive control (no explanation may appear while eligible populated fields
-  // exist); if a seed ever legitimately yields zero eligible fields the same live path
-  // asserts the exact explanatory sentence (hard-coded contract copy, not derived from
-  // the component). Positive-state rendering authority: the picker unit tests.
   const pickerState = (await api('builder')).value;
   const pickerCaps = await api('construction-capabilities', {
     outputId, stageId, snapshotToken: pickerState.catalog.snapshotToken,
@@ -468,8 +397,6 @@ const main = async () => {
       'No eligible dataset field contains values in this dataset yet.',
       'Loom has not listed any dataset fields for this step.',
     ];
-    // The phase opens a fresh lane editor with no prior bindings in this session,
-    // so the count-derived class below mirrors the picker's own classification.
     assert.ok(contractCopy.some((sentence) => String(explanationText).includes(sentence)), `zero-eligible explanation text drifted from all approved contract copies: ${JSON.stringify(explanationText)}`);
     if (pickerChoices.length > 0) {
       const listed = await evaluate(`[...document.querySelectorAll('[data-testid="source-picker-empty-list-item"]')].map((e)=>e.getAttribute('title'))`);
@@ -494,10 +421,6 @@ const main = async () => {
   });
   markPhase('picker-explanations');
 
-  // ROW-SOURCE-07: an already-projected field must be reused as its existing
-  // column instead of offered again as a duplicate signed choice of the same
-  // authoritative identity. Apply a signed selection live, require the server
-  // to record the sourceProjection, then prove suppression + reuse in a fresh lane.
   const setSelectValue = (selector, value) => evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)return 'missing';const setter=Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set;setter.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('change',{bubbles:true}));return el.value;})()`);
   const laneColumnOptions = () => evaluate(`(()=>{const s=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]');return s?[...s.options].map((o)=>o.value):[];})()`);
   const reuseState0 = (await api('builder')).value;
@@ -559,14 +482,6 @@ const main = async () => {
   });
   markPhase('existing-column-reuse');
 
-  // ROW-SOURCE-08: the signed EXPAND source lane end-to-end in the browser.
-  // A Procedure table (seeded by this run's fixture copy) must offer the
-  // populated primitive root array instantiatesUri[] as a signed choice, the
-  // pick must produce a server-signed EXPAND step — client never authors the
-  // trusted payload — and Apply must record the owning sourceProjection.
-  // Physical row expansion is compiled-lane territory certified in Go tests
-  // (lower expand + worker suite); the browser here proves offer/select/apply
-  // wiring and the signature discipline on the live join.
   const expandProcedureSeed = await commands('rs08-procedure-table', [{
     type: 'CREATE_TABLE', title: 'RS08 signed expand', rootNodeId: (await api('builder')).value?.catalog?.nodes
       ?.find((node) => node.resourceType === 'Procedure' && node.rowRootEligible)?.nodeId,
@@ -636,16 +551,6 @@ const main = async () => {
     && String(expandProjection.fieldPath).replace(/^root\./, '') === 'instantiatesUri[]',
     `signed-expand-lane: EXPAND step has no sourceProjection owned by it for instantiatesUri[]: ${JSON.stringify(expandCaps1.value?.baseConstruction?.sourceProjections ?? null).slice(0, 300)}`);
   const clientSignedLeak = JSON.stringify(appliedExpand).includes('"expandedField":null');
-  // Contract clause "Compare independently expected rows with the existing
-  // selected-column path": after apply, the live preview must contain exactly
-  // the rows the shipped renderer produces for the fixture under the CURRENT
-  // shipped expand-editor default (ConstructionReshapeEditor emptyPolicy
-  // 'PRESERVE_PARENT', pre-existing at HEAD — the contract requires preserving
-  // it): rs08-procedure-a contributes two item rows, b one, and c (missing
-  // array) keeps its parent row with an empty item cell — four rows total.
-  // Expected values come from THIS fixture copy, independently of any server
-  // response; other empty policies are renderer behavior already pinned by
-  // the selected-column renderer tests this lane reuses verbatim.
   const expectedItemValues = ['urn:protocol:alpha', 'urn:protocol:beta', 'urn:protocol:gamma'];
   const readExpandPreview = () => evaluate(`(()=>{const sec=document.querySelector('[data-testid="construction-preview"]');const t=sec?.querySelector('[data-testid="preview-table-content"]')||sec;if(!t)return null;const trs=[...t.querySelectorAll('[role="row"]')].filter(r=>!r.className.includes('construction-preview-header-row'));const rows=trs.map(tr=>[...tr.querySelectorAll('[role="cell"]')].map(td=>td.textContent.trim())).filter(cells=>cells.length>0);return{rowCount:rows.length,cells:rows,previewStatus:sec?.getAttribute('data-preview-status')??null,previewReceipt:sec?.getAttribute('data-preview-receipt-id')??null};})()`);
   let expandPreview = null;
@@ -653,8 +558,6 @@ const main = async () => {
   for (;;) {
     expandPreview = await readExpandPreview();
     const flat = expandPreview ? expandPreview.cells.flat() : [];
-    // Require the expanded item values, not just a row count: the pre-expand
-    // preview of this table also has three rows (one per Procedure).
     if (expandPreview && expandPreview.rowCount === 4 && expectedItemValues.every((value) => flat.includes(value))
       && expandPreview.cells.some((cells) => cells[0] === 'rs08-procedure-a' && cells[1] === 'urn:protocol:alpha')
       && expandPreview.cells.some((cells) => cells[0] === 'rs08-procedure-a' && cells[1] === 'urn:protocol:beta')
@@ -682,12 +585,6 @@ const main = async () => {
   });
   markPhase('signed-expand-lane');
 
-  // ROW-SOURCE-08 policy/lifecycle evidence: EXCLUDE / PRESERVE_PARENT / ERROR plus the
-  // Cancel, Apply-persists, reload-restores, removal-cleans-sourceProjection legs, all
-  // in-window against a dedicated fresh fixture project carrying the contract parents
-  // ([red, red, blue], [green], empty, missing, null). The signed-expand-lane check's
-  // four-row PRESERVE_PARENT preview stays byte-stable because these rows live in the
-  // second project, never in this table's row space.
   const matrixEvidence = { fieldPath: null, choiceId: null, uiDefaultEmptyPolicy: null, legs: {}, errorWire: { candidates: [], assertedCode: null }, disclosures: [] };
   {
     assert.ok(rs08MatrixFixtureDir, 'expand-policy-matrix: no per-run matrix fixture directory was seeded');
@@ -723,17 +620,9 @@ const main = async () => {
       return { state, value: payload.value };
     };
 
-    // In-window wire capture: the ERROR leg must assert the SERVER wire code, not a
-    // paraphrase; proposal/preview bodies also carry __loom_row_id, the row-identity
-    // authority that proves repeated values stay separate rows.
     await send('Network.enable');
     const matrixWire = [];
     const matrixCmdWire = [];
-    // CDP response bodies are held in a bounded buffer and can be evicted long before
-    // a late query (root-caused 2026-11-03: identical parses succeeded in one read and
-    // returned null seconds later in the same tick's successor). Capture the body at
-    // loadingFinished instead and read synchronously later; the fallback re-fetch
-    // covers requests whose finish event does not arrive.
     const matrixBody = async (entry) => {
       if (typeof entry.body === 'string') return entry.body;
       try {
@@ -755,7 +644,7 @@ const main = async () => {
         try {
           const result = await send('Network.getResponseBody', { requestId: event.requestId });
           entry.body = result?.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : String(result?.body ?? '');
-        } catch { /* keep the late re-fetch fallback */ }
+        } catch { }
       })();
     });
     const wireShape = (body) => {
@@ -764,16 +653,6 @@ const main = async () => {
         return { code: typeof parsed?.code === 'string' ? parsed.code : null, nestedCode: typeof parsed?.error?.code === 'string' ? parsed.error.code : null, message: String(parsed?.message ?? parsed?.error?.message ?? '').slice(0, 200) };
       } catch { return { unparsedPrefix: body.slice(0, 120) }; }
     };
-    // F1 fix (adversarial reviewer A) preserved through the commands-echo binding:
-    // the wire row-identity proof must bind to the matrix project AND to the current
-    // leg. Without both, a 4-row/7-row 200 captured for the PRELUDE project
-    // (signed-expand lane) or an earlier leg satisfies the distinctness asserts
-    // vacuously (proven: /tmp/reviewer-a/stale_wire_capture_probe.mjs).
-    // The wire project identity arrives in different encodings per surface (raw
-    // 'X-b', raw already carrying '%2F', page double-encoding the sub-scope '-' as
-    // '%252F'). Decoding both sides to canonical form keeps other projects (the
-    // signed-expand PRELUDE lane) out while staying encoding-independent; a strict
-    // encodeURIComponent compare matched nothing on the exact same four-row 200s.
     const decodeWireSurface = (value) => {
       try { return decodeURIComponent(decodeURIComponent(String(value))); } catch { return null; }
     };
@@ -795,7 +674,7 @@ const main = async () => {
           const parsed = JSON.parse(body);
           const rows = parsed?.acceptedConstruction?.preview?.rows;
           if (Array.isArray(rows)) sets.push(rows);
-        } catch { /* commands response without a preview echo */ }
+        } catch { }
       }
       return sets;
     };
@@ -857,10 +736,6 @@ const main = async () => {
     const openMatrixStepEditor = async (stepId) => {
       await until(() => mounted(`[data-testid="construction-history-step-${stepId}"]`), `matrix: EXPAND history step ${stepId} rendered`, 20000);
       await realClick(`[data-testid="construction-history-step-${stepId}"]`);
-      // Live-frame truth (diagf probes): activation alone never mounts the row-definition
-      // panel from a clean frame; the panel (listing construction-row-edit-<step-id> ->
-      // editConstructionStep, RowDefinitionSettingsPanel.tsx:1059) opens through the
-      // table's rows-settings trigger. If a prior leg left it mounted, edit directly.
       for (let i = 0; i < 50; i += 1) {
         if (await mounted('[data-testid="construction-reshape-expand"]')) return;
         if (await mounted(`[data-testid="construction-row-edit-${stepId}"]`)) break;
@@ -877,7 +752,6 @@ const main = async () => {
         await until(() => mounted('[data-testid="construction-reshape-expand"]'), `matrix: Edit opened the signed expand editor for ${stepId}`, 20000);
         return;
       }
-      // Fallback for alternative renderings: drive the dialog entries directly.
       for (let i = 0; i < 150; i += 1) {
         if (await mounted('[data-testid="construction-reshape-expand"]')) return;
         if (await mounted('[data-testid="construction-row-intent-reshape"]')) { await realClick('[data-testid="construction-row-intent-reshape"]'); continue; }
@@ -904,8 +778,6 @@ const main = async () => {
     await navigateToLaneB();
     await until(datasetLoaded, 'matrix dataset loaded (construction-workspace mounted)', 60000);
 
-    // Leg 1: the shipped UI default stays PRESERVE_PARENT (contract: never a new default),
-    // and a fully-selected signed candidate CANCELs without leaving a step or draft bump.
     const draftAtCancelBase = await matrixDraft();
     await openMatrixCreateEditor();
     matrixEvidence.uiDefaultEmptyPolicy = await evaluate(`document.querySelector(${JSON.stringify(matrixPolicySelect)})?.value ?? null`);
@@ -914,8 +786,6 @@ const main = async () => {
     await setSelectValue(repeatFieldSelect, `source:${matrixChoice.choiceId}`);
     await untilApplyReady('matrix: apply present for the signed selection (pre-cancel)');
     await realClick('[data-testid="construction-cancel-proposal"]');
-    // Reviewer A F4: pin CANCEL as an action, not "proposal happened to be pending":
-    // the shared proposal surface (Apply + Cancel) must be gone afterwards.
     await until(async () => !(await mounted(applySelector)) && !(await mounted('[data-testid="construction-cancel-proposal"]')),
       'matrix: CANCEL removed the pending proposal surface', 10000);
     const afterCancel = await matrixCaps();
@@ -925,9 +795,6 @@ const main = async () => {
     matrixEvidence.legs.cancel = { draftUnchanged: true, expandStepsAfterCancel: 0 };
     await screenshot('step3a-matrix-cancel');
 
-    // Leg 2: EXCLUDE — exactly the four expanded rows, no parent-kept rows.
-    // Watermark at LEG start: this leg's applying commands echo arrives after this
-    // line, and every earlier leg's traffic completed through its awaited round-trips.
     const cmdBeforeExclude = matrixCmdWire.length;
     if (!(await mounted('[data-testid="construction-reshape-expand"]'))) await openMatrixCreateEditor();
     await setSelectValue(repeatFieldSelect, `source:${matrixChoice.choiceId}`);
@@ -962,9 +829,6 @@ const main = async () => {
     matrixEvidence.signedPayload = matrixSignedPayload;
     await closeMatrixEditor();
 
-    // Leg 3: EDIT the applied step to PRESERVE_PARENT — seven rows: the same four
-    // expanded rows plus the empty/missing/null parents kept, red twice as two
-    // separately identified rows. Watermark at leg start (same rule as Leg 2).
     const cmdBeforePreserve = matrixCmdWire.length;
     await openMatrixStepEditor(matrixStep.id);
     await setMatrixPolicy('PRESERVE_PARENT');
@@ -978,9 +842,6 @@ const main = async () => {
     assert.ok(preserveRowSets.length >= 1, 'expand-policy-matrix: no 200 commands response carried an acceptedConstruction.preview with the seven PRESERVE_PARENT rows');
     const preserveIdentities = preserveRowSets[preserveRowSets.length - 1].map(rowIdentity);
     assert.equal(new Set(preserveIdentities).size, 7, `PRESERVE_PARENT: all seven preview rows need distinct __loom_row_id values, got ${JSON.stringify(preserveIdentities)}`);
-    // Repeated-value proof on captured wire rows: __loom_row_id is the server's opaque
-    // identity, so the two red rows are located by their expanded cell value, then each
-    // must carry its own distinct __loom_row_id (repeated values stay separate rows).
     const preserveLastRows = preserveRowSets[preserveRowSets.length - 1];
     const redPreserveRows = preserveLastRows.filter((row) => Object.entries(row).some(([key, value]) => key !== '__loom_row_id' && value === 'red'));
     assert.equal(redPreserveRows.length, 2, 'matrix: the repeated rs08m array must contribute two separate preview rows carrying value red');
@@ -994,9 +855,6 @@ const main = async () => {
     };
     await screenshot('step3c-matrix-preserve');
 
-    // Leg 4: ERROR — the named empty-parent failure must surface in the browser AND
-    // on the wire with the server reasonCode (authority: errors.go:77 +
-    // construction_expand.go:33 + explorer_preview_response.go:65; asserted, not guessed).
     await closeMatrixEditor();
     await openMatrixStepEditor(matrixStep.id);
     await setMatrixPolicy('ERROR');
@@ -1024,8 +882,6 @@ const main = async () => {
     assert.equal(persistedStep[0].operation.expand.emptyPolicy, 'PRESERVE_PARENT', 'the cancelled ERROR edit must not have persisted the ERROR policy');
     matrixEvidence.legs.error.persistedPolicyUnchanged = 'PRESERVE_PARENT';
 
-    // Leg 5: reload restores the persisted EXPAND step, its signature, its owned
-    // sourceProjection, and the seven-row rendering.
     await send('Page.reload', {});
     await until(datasetLoaded, 'matrix dataset restored after reload', 60000);
     const afterReload = await matrixCaps();
@@ -1050,8 +906,6 @@ const main = async () => {
     matrixEvidence.legs.reload = { stepRestored: true, projectionRestored: reloadProjection, rowCount: reloadPreview.rowCount, viaEditor: reloadPreviewViaEditor };
     await screenshot('step3e-matrix-reload');
 
-    // Leg 6: removal yields source restoration — after removing the step the server
-    // must drop the step-owned array sourceProjection (mirrors the check #9 readback).
     if (!(await mounted('[data-testid="construction-reshape-expand"]'))) await openMatrixStepEditor(matrixStep.id);
     await until(() => mounted(`[data-testid="construction-remove-step-${matrixStep.id}"]`), 'matrix: Remove control for the EXPAND step', 20000);
     const draftBeforeRemoval = await matrixDraft();
@@ -1081,7 +935,7 @@ const main = async () => {
       'null-array and missing-array parents exercise the same server-side no-items branch under each policy (construction_expand.go treats raw==null as []); the null literal survived fixture ingestion if this check passed with seven PRESERVE_PARENT rows',
     );
     record('row96-expand-policy-matrix', matrixEvidence);
-    try { rmSync(rs08MatrixFixtureDir, { recursive: true, force: true }); } catch { /* disposable tmp copy */ }
+    try { rmSync(rs08MatrixFixtureDir, { recursive: true, force: true }); } catch { }
   }
   markPhase('expand-policy-matrix');
 
@@ -1093,10 +947,6 @@ const main = async () => {
   const allRefusals = [...refusalRecords, ...laneLevelRefusals];
   const inventoryFlavored = allRefusals.filter((entry) => inventoryClass.test(entry.reasonCode));
   const refusalOnly = allRefusals.filter((entry) => !inventoryClass.test(entry.reasonCode));
-  // Falsifiable non-vacuity: under this fixture (no numeric/array/related assets) the
-  // lane decision classes MUST be advertised (rowSourceEnumeration.decision is total for
-  // unsupported lanes: a class or the honest generic fallback). Zero refusals here means
-  // the capability assembly regressed to supported-everything, not a healthy table.
   assert.ok(allRefusals.length >= 1, `fixture must classify at least one unsupported lane decision class (onlySkipClass/decision is total for unsupported lanes); zero refusals means the class emission regressed: ${JSON.stringify(laneCaps.map((cap) => `${cap.kind}:${cap.supported}`))}`);
   assert.ok(refusalOnly.length >= 1, `at least one refusal must be in the honest (non-inventory) class family while the inventory is healthy: ${JSON.stringify(allRefusals.slice(0, 8))}`);
   for (const entry of allRefusals) {
@@ -1122,33 +972,18 @@ const main = async () => {
   const urlById = new Map();
   client.on('Network.requestWillBeSent', (event) => { if (event?.request?.url) { seenRequests.push(event.request.url); if (event.requestId) urlById.set(event.requestId, event.request.url); } });
   const failedRequests = [];
-  // Registered BEFORE the block is applied: loadingFailed must be able to observe the
-  // very block burst (registering after the reload systematically misses it).
   client.on('Network.loadingFailed', (event) => { if (event?.requestId) failedRequests.push(event.requestId); });
-  // Session-wide raw counter: diagnostics only, never an assertion input (page reload
-  // aborts every in-flight request with ERR_ABORTED, so unfiltered counts are noise).
   const strictBlockedFailures = () => failedRequests.filter((id) => strictBlockedUrl(urlById.get(id) ?? '')).length;
   const seenBlocked = [];
-  // Strict block-equivalent patterns: '*'=='.*', explicit lower-case, matching Chrome's
-  // case-sensitive setBlockedURLs semantics — the counting rule cannot be a superset of
-  // what is blocked (a case-insensitive broader regex counted served healthy requests).
   const strictBlockedUrl = (url) => /authoring\/v2\/capability|semantic-inventory/.test(url);
   const inventoryHintPattern = /(populated|capabilit|catalog|inventory|field-observation|profile)/i;
   const healthyHits = seenRequests.filter((url) => inventoryHintPattern.test(url));
   if (healthyHits.length === 0) {
     report.sideFindings.push({ id: 'row96-inventory-route-not-observed-browser-side', note: 'Network.requestWillBeSent did not include the documented capability/populated-observation request; falling back to server-truth injectable route via blocking the same pattern used by the server-side capability assembly; the honest boundary assert remains (unsupported with reasonCode *_SOURCE_INVENTORY_UNAVAILABLE)' });
   }
-  // The dataset chrome is already loaded; block now and reopen the editor so its own
-  // inventory fetches (populated-field observations/capabilities) fail in the served
-  // app. Reload with block active would also kill the chrome's own bootstrap (it needs
-  // catalog/capability routes), which is not the fault under test.
   const blockedAttemptsAtBlock = seenRequests.filter(strictBlockedUrl).length;
   await send('Network.setBlockedURLs', { urls: ['*authoring/v2/capability*', '*semantic-inventory*'] });
-  // Snapshot so the post-block window counts only requests issued while blocked.
   const seenAtBlock = [...seenRequests];
-  // Reload is the only way to make the APP itself re-issue inventory-class fetches (the
-  // editor is draft-cached — proven live). The dev UI proxies API calls through the UI
-  // origin, so seen-URL matching must not assume the API port.
   await send('Page.reload', {});
   await wait(4000);
   await realClick('[data-testid="construction-action-keep-rows"]');
@@ -1178,31 +1013,9 @@ const main = async () => {
   await realClick('[data-testid="construction-close-operation-editor"]');
   await until(async () => !(await mounted('[data-testid="construction-filter-editor"]')), 'lane source picker closed after fault probe', 10000);
   await send('Network.setBlockedURLs', { urls: [] });
-  // Honest boundary, live-PROVEN 2026-11-02 (three block strategies + request capture:
-  // the editor is cache-fed and the inventory/row-choice probe is an IN-PROCESS server
-  // dependency no browser block can touch): the browser can never observe this class.
-  // What this control still proves, fault-sensitively: (1) the block genuinely broke the
-  // app's own inventory-class routes, (2) the served UI refused/degraded rather than
-  // silently rendering healthy-with-empty, (3) the server never reports the
-  // inventory-unavailable class FALSE-POSITIVELY while the inventory is actually healthy
-  // (out-of-band lanes must stay clear of it — the S-B misclassification bug would strike
-  // here). The positive emission guarantee is carried by the four Go per-lane tests
-  // (filter/derive/unpivot/pivot *_SOURCE_INVENTORY_UNAVAILABLE wantFail cases). If this
-  // window gains a real server-side inventory injector, the positive browser-observable
-  // assert (faultCodes.length > 0) must be reinstated alongside these, not instead.
   assert.ok(blockedApiAttempts >= 2, `inventory block struck none of the app's own inventory-class routes (attempted ${blockedApiAttempts}; load-failed ${blockedApiFailures}; no failure injected; block patterns or app wiring changed): ${JSON.stringify(faultFacts).slice(0, 200)}`);
-  // Falsifiable strike proof: the app must re-ISSUE blocked routes while the block is
-  // active (pre-block-only counts certify nothing about the block window).
   assert.ok(blockedAttemptsPostBlock >= 1, `app never re-issued an inventory-class route while blocked (post-block attempts ${blockedAttemptsPostBlock}; block patterns or app wiring changed; ${blockedApiAttempts} attempts were pre-block only): ${JSON.stringify(seenAfterBlock.filter(strictBlockedUrl).slice(0, 4))}`);
-  // Inert-block control: a silently-ineffective setBlockedURLs (Chrome/pattern drift)
-  // would still count served-healthy attempts. Disk-cache replays legitimately omit
-  // loadingFailed, so assert at least one network-level failure, not equality.
   const strictFailures = strictBlockedFailures();
-  // Inert-block control: a silently-ineffective setBlockedURLs (Chrome/pattern drift)
-  // would still count served-healthy attempts. Failures are URL-filtered to the strict
-  // block patterns — session-wide loadingFailed counts include page-reload aborts and
-  // prove nothing. Disk-cache replays legitimately omit loadingFailed, so the bar is
-  // >= 1, not equality with attempts.
   assert.ok(strictFailures >= 1, `inventory block produced no URL-filtered network failures on blocked routes (attempts ${blockedApiAttempts}, post-block ${blockedAttemptsPostBlock}, filtered failures ${strictFailures}, raw failures ${blockedApiFailures}; setBlockedURLs may be inert: pattern/Chrome drift): ${JSON.stringify(seenAfterBlock.filter(strictBlockedUrl).slice(0, 4))}`);
   const degradeObserved = faultFacts.length > 0 || faultCodes.length > 0;
   if (!degradeObserved) {
@@ -1226,14 +1039,6 @@ const main = async () => {
   const emptyDataCodes = [...new Set(emptyCaps.filter((cap) => cap.supported === false && typeof cap.reasonCode === 'string').map((cap) => cap.reasonCode))];
   const classes = emptyDataCodes.filter((code) => emptyDataFamily.test(code));
   const leaks = emptyDataCodes.filter((code) => inventoryClass.test(code));
-  // Honest scope (contract-reviewer F2): this seed is a structurally under-seeded TABLE
-  // (no columns), so its classes are the compiler capability gates; a populated dataset
-  // can legitimately never surface honest-absence codes here. The honest-absence
-  // (NO_OBSERVED_VALUES_*/NO_ELIGIBLE_POPULATED_ family) guarantee is carried by the four
-  // per-lane Go tests (onlySkipClass rowSourceSkipObserved path); this check certifies
-  // (1) class emission is non-empty and well-formed on an under-seeded table and
-  // (2) class-disjointness from the inventory family IN BOTH DIRECTIONS (neither seed may
-  // mix the families) — the S-B distinction. It does NOT certify honest-absence emission.
   assert.ok(classes.length > 0, `under-seeded table verdict must be classifiable in the capability-gate family; saw ${JSON.stringify(emptyDataCodes.slice(0, 8))}`);
   assert.deepEqual(leaks, [], 'under-seeded table must NOT collapse into the inventory-unavailable class (the S-B distinction is the whole point of this check)');
   const healthyCodes = [...new Set(faultCaps.filter((cap) => cap.supported === false && typeof cap.reasonCode === 'string').map((cap) => cap.reasonCode)).values()];
@@ -1277,7 +1082,7 @@ try {
     const failShotPath = join(out, 'FAIL-latest.png');
     writeFileSync(failShotPath, Buffer.from(shot.data, 'base64'));
     report.screenshots.push(failShotPath);
-  } catch (screenshotError) { report.failureScreenshotError = String(screenshotError?.message || screenshotError).slice(0, 300); /* browser may be gone or wedged; the saved HTML from until() is the fallback artifact */ }
+  } catch (screenshotError) { report.failureScreenshotError = String(screenshotError?.message || screenshotError).slice(0, 300); }
   report.exceptions.push(report.error);
   summaryLine = `JOURNEY_FAILED ${String(error?.message ?? error).slice(0, 400)}`;
 }
@@ -1285,7 +1090,6 @@ await killTree();
 try {
   rmSync(profile, { recursive: true, force: true });
 } catch (profileError) {
-  // volume-stale handles throw transiently; retry once after the tree is provably dead
   try { rmSync(profile, { recursive: true, force: true }); }
   catch (retryError) {
     report.teardownProfileError = String(retryError?.message || retryError).slice(0, 300);
@@ -1298,7 +1102,7 @@ try { writeFileSync(join(out, 'journey.json'), JSON.stringify(report, null, 2));
 catch (reportError) {
   exitCode = 1;
   summaryLine = `JOURNEY_FAILED journey-report-unwritable: ${String(reportError?.message ?? reportError).slice(0, 200)}`;
-  try { writeFileSync(join(out, 'telemetry.json'), JSON.stringify({ status: 'failed', teardownError: String(reportError?.message ?? reportError).slice(0, 300) })); } catch { /* out dir is likely the failure */ }
+  try { writeFileSync(join(out, 'telemetry.json'), JSON.stringify({ status: 'failed', teardownError: String(reportError?.message ?? reportError).slice(0, 300) })); } catch { }
 }
 console.log(summaryLine);
 console.log(`PHASE_TIMINGS total=${report.phaseTimings.totalMs}ms ` + phaseTimings.phases.map((p) => `${p.phase}=${p.ms}ms`).join(' '));

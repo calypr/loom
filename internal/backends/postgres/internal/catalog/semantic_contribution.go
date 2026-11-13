@@ -125,7 +125,7 @@ func NewSemanticContributionRepository(src storepostgres.ConnSource, schema stri
 	if src == nil {
 		return nil, errors.New("postgres: nil semantic contribution connection source")
 	}
-	if !semanticBuildSchemaPattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", storepostgres.ErrInvalidSchemaName, schema)
 	}
 	return &SemanticContributionRepository{

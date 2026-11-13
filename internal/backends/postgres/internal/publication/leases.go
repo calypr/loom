@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -39,7 +40,7 @@ func NewLeaseKeeper(pool DB, schema string) (*FencedLeases, error) {
 	if pool == nil {
 		return nil, errors.New("publication postgres: nil pool")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !pgstore.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchema, schema)
 	}
 	return &FencedLeases{

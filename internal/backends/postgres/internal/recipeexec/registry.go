@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -63,8 +62,6 @@ func VerifySchema(ctx context.Context, src pgstore.ConnSource, schema string) er
 	return runner.Verify(ctx)
 }
 
-var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
-
 var ErrRecipeVersionConflict = errors.New("recipe version already registered with a different digest")
 
 type DB interface {
@@ -86,7 +83,7 @@ func New(pool DB, schema string) (*Registry, error) {
 	if pool == nil {
 		return nil, errors.New("recipe exec postgres: nil pool")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !pgstore.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("recipe exec postgres: invalid schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 	}
 	return &Registry{

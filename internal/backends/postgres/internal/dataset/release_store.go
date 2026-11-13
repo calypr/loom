@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	storepostgres "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"reflect"
 
 	publication "github.com/calypr/loom/internal/dataset"
@@ -49,7 +50,7 @@ func NewReleaseStore(src ConnSource, schema string) (*ReleaseStore, error) {
 	if src == nil {
 		return nil, ErrNilReleaseConnSource
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, schema)
 	}
 	s := &ReleaseStore{

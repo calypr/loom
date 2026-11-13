@@ -355,9 +355,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     unmount();
   });
 
-  // Finite coverage: 2 proposal orders × 3 stale results × 5 current results,
-  // 2 fallback-preview orders × 5 current preview results, and the listed
-  // one-field identity, cancellation, retry, A→B→A, and stale-beginApply schedules.
   const proposalOrders: ReadonlyArray<'old response first' | 'current response first'> = [
     'old response first',
     'current response first',
@@ -914,7 +911,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     unmount();
   });
 
-  // Regressions for Apply completion targeting the owner that began Apply.
   it('regression: old Apply success after replacement must not cancel the replacement owner', async () => {
     startTrace('BuilderLifecycle', baseRequest);
     vi.useFakeTimers();

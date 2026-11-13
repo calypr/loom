@@ -1,9 +1,6 @@
 ---------------------------- MODULE BuilderLifecycle ----------------------------
 EXTENDS Naturals, TLC
 
-(* A bounded model of the proposal -> preview -> apply lifecycle.             *)
-(* Render identity switches hide an owner; explicit cancellation or a new    *)
-(* request changes its generation. A brief A -> B -> A can reuse that owner.  *)
 
 Identities == {"A", "B"}
 Epochs == 0..2

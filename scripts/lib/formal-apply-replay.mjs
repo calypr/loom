@@ -8,7 +8,6 @@ const productionFile = join(root, 'ui/packages/loom-ui/src/features/ExplorerBuil
 export async function loadApplyImplementation(source = readFileSync(productionFile, 'utf8')) {
     return import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString('base64')}`);
 }
-/** Each adapter invokes the real synchronous production ownership component. */
 export function replayApplyPath(path, implementation, property) {
     const owners = { A: { name: 'A' }, B: { name: 'B' } };
     const names = new Map(Object.entries(owners).map(([name, owner]) => [owner, name]));
@@ -130,7 +129,6 @@ export async function checkApplyGraph(graph, { source, witnessFile, property } =
     assert.deepEqual([...coverage].sort(), ['ApplyReturns', 'BeginApply', 'Cancel', 'ChangeContext', 'SetCurrentOwner']);
     return { states: graph.states.length, transitions: graph.steps.length, replays: paths.length, maxDepth: Math.max(...paths.map((path) => path.length)) };
 }
-/** Run one serializable input against the real component, including duplicate completion. */
 export function replayIdentityInput(inputs, implementation, property = 'Inv_CompletionOwnsCurrentContext') {
     const { submittedOwner, liveOwner, submittedKey, liveKey, submittedGeneration, liveGeneration, applied } = inputs;
     assert.ok(['A', 'B'].includes(submittedOwner) && ['A', 'B'].includes(liveOwner), 'Invalid identity witness owner');
@@ -154,7 +152,6 @@ export function replayIdentityInput(inputs, implementation, property = 'Inv_Comp
         throw error;
     }
 }
-/** Independent bounded reader inputs include identity dimensions collapsed by W1/W2. */
 export async function checkApplyIdentityInputs(source, property = 'Inv_CompletionOwnsCurrentContext') {
     const implementation = await loadApplyImplementation(source);
     let count = 0;
@@ -170,8 +167,6 @@ export async function checkApplyIdentityInputs(source, property = 'Inv_Completio
                             }
     return count;
 }
-/** Replay recorded inputs, not the model's predicted outputs. A held property is
- * model drift/unreproduced, never an assertion that the whole application passed. */
 export async function replayWitness(witness, { source } = {}) {
     assert.equal(witness.schemaVersion, 1, 'Unknown witness schema');
     assert.equal(witness.model, 'ApplySettlementRace', 'Unsupported witness model');

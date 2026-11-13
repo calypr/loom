@@ -5,9 +5,6 @@ import (
 
 	datasetstore "github.com/calypr/loom/internal/backends/postgres/internal/dataset"
 	explorerstore "github.com/calypr/loom/internal/backends/postgres/internal/explorer"
-	publicationstore "github.com/calypr/loom/internal/backends/postgres/internal/publication"
-	recipeexecstore "github.com/calypr/loom/internal/backends/postgres/internal/recipeexec"
-	recipesstore "github.com/calypr/loom/internal/backends/postgres/internal/recipes"
 	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 
 	"github.com/calypr/loom/internal/catalog"
@@ -76,30 +73,6 @@ func MigrateSchema(ctx context.Context, client *Client, schema string) (MigrateR
 
 func MigrateDatasetReleaseSchema(ctx context.Context, client *Client, schema string) (MigrateResult, error) {
 	return datasetstore.MigrateSchema(ctx, client, schema)
-}
-
-func VerifySchema(ctx context.Context, client *Client, schema string) error {
-	return pgstore.VerifySchema(ctx, client, schema)
-}
-
-func VerifyExplorerControlSchema(ctx context.Context, client *Client, schema string) error {
-	return explorerstore.VerifySchema(ctx, client, schema)
-}
-
-func VerifyPublicationControlSchema(ctx context.Context, client *Client, schema string) error {
-	return publicationstore.VerifySchema(ctx, client, schema)
-}
-
-func VerifyDatasetReleaseSchema(ctx context.Context, client *Client, schema string) error {
-	return datasetstore.VerifySchema(ctx, client, schema)
-}
-
-func VerifyRecipeChainsSchema(ctx context.Context, client *Client, schema string) error {
-	return recipesstore.VerifySchema(ctx, client, schema)
-}
-
-func VerifyRecipeExecRegistriesSchema(ctx context.Context, client *Client, schema string) error {
-	return recipeexecstore.VerifySchema(ctx, client, schema)
 }
 
 var ErrResourceConflict = pgstore.ErrResourceConflict

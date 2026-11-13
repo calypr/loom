@@ -1231,7 +1231,6 @@ describe('ConstructionReshapeEditor', () => {
       constructionChoice: undefined,
     };
     const browseFrameSourceOptions = vi.fn().mockResolvedValue({ snapshotToken: 'snapshot', outputId: 'table', sources: [source], complete: true, truncated: false });
-    // An unscoped catalog page starts with another binding; coded choices should use the signed family instead.
     const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string; readonly cursor?: string }) => {
       const scope = { state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'unproven' };
       if (!request.sourceChoiceId) return Promise.resolve({ ...scope, entries: [unrelatedItem], nextCursor: 'next-coded-page' });
@@ -1746,7 +1745,6 @@ describe('ConstructionReshapeEditor', () => {
       },
     ];
     const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string; readonly query?: string }) => Promise.resolve({
-      // The saved category is reauthorized by exact family-scoped lookup.
       state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'unproven',
       entries: request.query ? [inventoryEntries[0]] : inventoryEntries,
     }));
@@ -4730,9 +4728,6 @@ describe('unpivot signed unselected-field melt inputs', () => {
 
   it('melts a signed field and emits a request that passes the strict contract schemas', () => {
     const capabilities = unpivotCapabilities({ supported: true, stageId: unpivotScalarStage.id, choices: unpivotWireChoices });
-    // Anti-masking (ROW-SOURCE-01 lesson): the fixture must be the exact
-    // server wire shape — the strict response schema rejects even an extra
-    // pivot-style field on a choice, so a zod-level mismatch cannot hide.
     const parsed = constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify(capabilities)));
     expect(parsed.unpivotSourceInput?.choices).toHaveLength(2);
     const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();
@@ -4752,13 +4747,6 @@ describe('unpivot signed unselected-field melt inputs', () => {
       outputId: 'table-1', changedStepId: intent?.changedStepId,
       candidateConstruction: intent?.candidateConstruction, unpivotSources: intent?.unpivotSources,
     });
-    // Contract-twin replay evidence: the exact UI-emitted propose body is
-    // captured here (env opt-in, mirroring the BUILDER_CONTRACT_OUTPUT
-    // formal-test pattern) and fed to the server-owned fiber contract twin
-    // (internal/server/openapi_explorer_construction_unpivot_source_test.go),
-    // which POSTs this same wire shape through the live HTTP stack. The
-    // evidence run sets RS02_UNPIVOT_UI_CAPTURE; assertions above and below
-    // run unconditionally either way.
     const capturePath = process.env.RS02_UNPIVOT_UI_CAPTURE;
     if (capturePath) {
       mkdirSync(dirname(capturePath), { recursive: true });
@@ -4779,11 +4767,6 @@ describe('unpivot signed unselected-field melt inputs', () => {
     expect([...rowSelect.querySelectorAll('option')].map((option) => option.value)).not.toContain('source:choice-hidden');
   });
 
-  // F-B durable: the server's canonical string-family spelling is
-  // 'date_time' (lower.TableReshapeScalarKind / unpivot_source.go). The
-  // editor's scalar gate must accept it, or a date_time melt row — public or
-  // signed — silently falls to the incomplete form (pre-fix proof
-  // /tmp/opencode/upsrc-run-3/FAIL-melt_proposal_ready.html).
   it('melts a signed date_time field to a proposal-ready candidate and lists a public date_time column', () => {
     const stage = {
       ...unpivotScalarStage,

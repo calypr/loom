@@ -41,7 +41,7 @@ func NewPublishStore(client *pgstore.Client, explorerSchema, datasetSchema strin
 		return nil, errors.New("postgres explorer store: publish client is required")
 	}
 	for _, schema := range []string{explorerSchema, datasetSchema} {
-		if !schemaNamePattern.MatchString(schema) {
+		if !pgstore.ValidSchemaName(schema) {
 			return nil, fmt.Errorf("postgres explorer store: invalid publish schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 		}
 	}

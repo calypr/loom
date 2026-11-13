@@ -84,9 +84,6 @@ export const RouteExtensionPanel = ({
     );
   }
 
-  // The graph click applies the first occurrence of a single unambiguous
-  // relationship directly. Adding another occurrence is explicit so clicking
-  // a resource already in the route never changes the query by surprise.
   if (inspectedEdges.length === 1) {
     if (!alreadyInQuery) return null;
     const edge = inspectedEdges[0];

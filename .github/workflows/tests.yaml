@@ -52,10 +52,6 @@ jobs:
           go-version: 1.26.5
           cache: true
       - name: Install ripgrep for the boundary check
-        # scripts/check_dataframe_package_boundaries.sh runs rg-powered
-        # text rules and refuses to pass vacuously without rg; ubuntu
-        # runners do not ship ripgrep, so install it. The boundary script
-        # still hard-fails if this ever produces no usable rg.
         run: |
           if ! command -v rg >/dev/null 2>&1; then
             sudo apt-get update -qq
@@ -252,11 +248,6 @@ jobs:
   pg-fixture:
     name: PostgreSQL 18 opt-in fixture runner
     runs-on: ubuntu-latest
-    # Aligned budget under the workflow-wide 10-minute job contract: the Go
-    # test timeout (180s) fires before the child kill (+30s), the runner only
-    # starts the Go phase when its eight-minute internal deadline still has
-    # kill + cleanup headroom, and the 540s step timeout leaves time for the
-    # runner's finally-cleanup and summary.json before GitHub can kill the job.
     timeout-minutes: 10
     services:
       postgres18:
@@ -289,11 +280,6 @@ jobs:
       - name: Run fixture runner coverage without any service
         run: timeout 180s node --test scripts/run-postgres-integration.test.mjs
       - name: Run owned-namespace real PostgreSQL acceptance
-        # Readiness, a uniquely owned pgfixture_* database, literal-row and
-        # negative checks, propagated LOOM_TEST_POSTGRES_URL with the merged
-        # pg-store-01 case executed (never skipped), and finally-cleanup of
-        # only its own namespace. The runner also verifies the compose
-        # contract offline-by-config; a compose-up alone is not acceptance.
         run: timeout 540s node scripts/run-postgres-integration.mjs --out "$RUNNER_TEMP/pg-fixture"
       - name: Preserve fixture evidence
         if: always()
@@ -394,12 +380,6 @@ jobs:
   backend-conformance:
     name: Backend architecture conformance across Arango and PostgreSQL
     runs-on: ubuntu-latest
-    # arch-backend-10: the primary adjudication lane for the dual-backend
-    # conformance suite. Both arms execute against the actual services;
-    # the named event gate demands run+pass and zero skips for the frozen
-    # twenty-nine-identity CI gate (parent, both arms, thirteen cells per
-    # arm). The Go timeout fires before the step timeout, which leaves the
-    # job time to finish under the ten-minute contract.
     timeout-minutes: 10
     services:
       arangodb:
@@ -442,14 +422,8 @@ jobs:
         with:
           node-version: 24.x
       - name: Verify the offline skip-set capture against the frozen allowlist
-        # Offline by construction: both service endpoints are unset for this
-        # step, so the parent passes and exactly the two arm identities skip,
-        # byte-equal to the pinned capture and the Arango runner allowlist.
         run: env -u LOOM_TEST_ARANGO_URL -u LOOM_TEST_POSTGRES_URL node scripts/backend-conformance-skipset-verify.mjs
       - name: Run both conformance arms against the actual services
-        # Zero-skip acceptance semantics shared with the live runners via
-        # check-go-test-events.mjs: a filtered run that selects zero tests,
-        # any skip, or a silent rename of a frozen identity fails the gate.
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/backend-conformance"
@@ -533,9 +507,6 @@ jobs:
         working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Record executable routes and fail on a broken retained closure
-        # --out writes the document only after the full inventory succeeds, via an
-        # atomic rename, so a broken retained dependency closure fails without
-        # leaving a truncated or stale file for the always() upload to publish.
         run: node scripts/verify-builder-formal-core.mjs --phase inventory --out "$RUNNER_TEMP"
       - name: Preserve verification inventory
         if: always()
