@@ -90,16 +90,22 @@ func (r *planRenderer) validateTraversalContract(
 		verified.anchoredType, verified.anchoredID = "target_resource_type", "target_logical_id"
 		verified.reachedType, verified.reachedID = "source_resource_type", "source_logical_id"
 	}
-	verified.labelIndex = r.textParameter(label, "text:"+label)
-	verified.anchoredIndex = r.textParameter(source.resourceType, "text:"+source.resourceType)
-	verified.reachedIndex = r.textParameter(targetType, "text:"+targetType)
 	return verified, nil
 }
 
 func (r *planRenderer) edgeOccurrencePredicates(
-	verified validatedTraversal,
+	verified *validatedTraversal,
 	edgeAlias, targetAlias, sourceAlias string,
 ) (edgeWhere string, targetOn string) {
+	if verified.labelIndex == 0 {
+		verified.labelIndex = r.textParameter(verified.label, "text:"+verified.label)
+	}
+	if verified.anchoredIndex == 0 {
+		verified.anchoredIndex = r.textParameter(verified.sourceType, "text:"+verified.sourceType)
+	}
+	if verified.reachedIndex == 0 {
+		verified.reachedIndex = r.textParameter(verified.targetType, "text:"+verified.targetType)
+	}
 	edgeColumns := r.storage.Edge
 	resourceColumns := r.storage.Resource
 
@@ -134,7 +140,7 @@ func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.Physic
 	edgeAlias := "e" + strconv.Itoa(seq)
 	innerAlias := "x" + strconv.Itoa(seq)
 	lateralAlias := "r" + strconv.Itoa(seq)
-	edgeWhere, targetOn := r.edgeOccurrencePredicates(verified, edgeAlias, innerAlias, source.alias)
+	edgeWhere, targetOn := r.edgeOccurrencePredicates(&verified, edgeAlias, innerAlias, source.alias)
 
 	if routeInner {
 		join := "INNER JOIN " + r.storage.Edge.Identifier().SQLText() + " AS " + edgeAlias +
@@ -213,7 +219,7 @@ func (r *planRenderer) renderRequiredMatchExists(
 			seq := r.nextTraversalSequence()
 			edgeAlias := "e" + strconv.Itoa(seq)
 			targetAlias := "x" + strconv.Itoa(seq)
-			edgeWhere, targetOn := r.edgeOccurrencePredicates(verified, edgeAlias, targetAlias, nextSource.alias)
+			edgeWhere, targetOn := r.edgeOccurrencePredicates(&verified, edgeAlias, targetAlias, nextSource.alias)
 			if !sawTraversal {
 				fromParts = append(fromParts, "FROM "+r.storage.Edge.Identifier().SQLText()+" AS "+edgeAlias)
 				whereParts = append(whereParts, edgeWhere)
@@ -428,13 +434,29 @@ func (r *planRenderer) renderSelectorMatchFragment(
 		return predicateFragment{}, fmt.Errorf("%w: array quantifier %q is not part of the registered traversal predicate surface",
 			ErrUnsupportedPostgresPlan, string(predicate.Quantifier))
 	}
-	quantifier := predicate.Quantifier
-	if quantifier == "" {
-		quantifier = spec.QuantifierAny
-	}
 	values, err := r.selectorValuesExpression(*predicate.LeftExpression, rows)
 	if err != nil {
 		return predicateFragment{}, err
+	}
+	return r.quantifiedMatchFragment(plan, predicate, values)
+}
+
+func (r *planRenderer) quantifiedMatchFragment(
+	plan ir.PhysicalPlan,
+	predicate ir.PhysicalPredicate,
+	values string,
+) (predicateFragment, error) {
+	if predicate.Correlation != nil {
+		return predicateFragment{}, fmt.Errorf("%w: correlated predicates are not yet implemented for PostgreSQL",
+			ErrUnsupportedPostgresPlan)
+	}
+	if predicate.Quantifier != "" && !predicate.Quantifier.Valid() {
+		return predicateFragment{}, fmt.Errorf("%w: array quantifier %q is not part of the registered predicate surface",
+			ErrUnsupportedPostgresPlan, string(predicate.Quantifier))
+	}
+	quantifier := predicate.Quantifier
+	if quantifier == "" {
+		quantifier = spec.QuantifierAny
 	}
 	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
 	if err := validateDirectOperatorKind(operator, predicate.ValueKind); err != nil {

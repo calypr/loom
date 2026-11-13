@@ -288,7 +288,7 @@ func TestNilReductionWithoutSliceConsumerKeepsTheSetsRefusal(t *testing.T) {
 		setsReturn())
 	_, err := RenderPhysicalPlan(plan, mustBinding(t))
 	wantUnsupported(t, err, "nil-Reduction set without a slice consumer")
-	want := `postgres renderer: unsupported physical plan: set "child_set_0" has no reduction contract; the registered surface renders sets only through their FIRST/ALL/DISTINCT selector reductions, because no other consumer of the item array is registered`
+	want := `postgres renderer: unsupported physical plan: set "child_set_0" has no reduction contract; the registered surface renders sets only through their FIRST/ALL/DISTINCT selector reductions, SLICE consumers, and SUM/COUNT/MIN/MAX aggregate reducers over the registered projection slots, because no other consumer of the item array is registered`
 	if err.Error() != want {
 		t.Fatalf("no-consumer refusal drifted:\n got: %s\nwant: %s", err.Error(), want)
 	}

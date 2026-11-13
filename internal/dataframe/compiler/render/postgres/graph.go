@@ -359,7 +359,7 @@ func (r *planRenderer) renderGraphStatement(plan ir.PhysicalPlan) (string, []str
 		seq := r.nextTraversalSequence()
 		edgeAlias := "e" + strconv.Itoa(seq)
 		targetAlias := "x" + strconv.Itoa(seq)
-		edgeWhere, targetOn := r.edgeOccurrencePredicates(verified, edgeAlias, targetAlias, parentAlias)
+		edgeWhere, targetOn := r.edgeOccurrencePredicates(&verified, edgeAlias, targetAlias, parentAlias)
 
 		localRows := map[string]rowScope{extend.Traversal.TargetVariable: {alias: targetAlias, resourceType: verified.targetType}}
 		var extendConjuncts []string

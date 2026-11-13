@@ -81,6 +81,16 @@ func danglingRepoRoot(t *testing.T) string {
 	}
 }
 
+func citationLineMismatch(lines []string, line int, want string) string {
+	if line < 1 || line > len(lines) {
+		return fmt.Sprintf("cited :%d is past EOF (file has %d lines)", line, len(lines))
+	}
+	if strings.TrimSpace(lines[line-1]) != strings.TrimSpace(want) {
+		return fmt.Sprintf("cited :%d holds %q, want %q", line, lines[line-1], want)
+	}
+	return ""
+}
+
 func danglingCheckCitations(t *testing.T) {
 	t.Helper()
 	root := danglingRepoRoot(t)
@@ -95,18 +105,8 @@ func danglingCheckCitations(t *testing.T) {
 			lines = strings.Split(string(raw), "\n")
 			contents[c.file] = lines
 		}
-		if c.line < 1 || c.line > len(lines) {
-			t.Fatalf("citation drift: %s has %d lines, cited :%d == %q", c.file, len(lines), c.line, c.want)
-		}
-		found := false
-		for _, line := range lines {
-			if strings.TrimSpace(line) == strings.TrimSpace(c.want) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("citation drift: %s no longer contains %q (cited :%d)", c.file, c.want, c.line)
+		if mismatch := citationLineMismatch(lines, c.line, c.want); mismatch != "" {
+			t.Fatalf("citation drift: %s %s (want %q)", c.file, mismatch, c.want)
 		}
 	}
 	for _, a := range danglingAbsentIdentifiers {

@@ -18,6 +18,8 @@ jobs:
       - name: Install UI dependencies
         working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: No-code-comments gate
+        run: python3 scripts/check_no_code_comments.py --all-tracked
       - name: Check reviewed UI source checkpoint
         run: python3 scripts/verify_ui_contract_inventory.py --source-only
       - name: Check UI boundaries
@@ -281,6 +283,22 @@ jobs:
         run: timeout 180s node --test scripts/run-postgres-integration.test.mjs
       - name: Run owned-namespace real PostgreSQL acceptance
         run: timeout 540s node scripts/run-postgres-integration.mjs --out "$RUNNER_TEMP/pg-fixture"
+      - name: Run the post-window live reducer leg on PostgreSQL 18
+        run: |
+          set -euo pipefail
+          go test -timeout=240s -count=1 -v \
+            -run 'TestPostWindowLive' \
+            ./internal/dataframe/compiler/render/postgres \
+            | tee "$RUNNER_TEMP/pg-post-window-live.log"
+      - name: Assert the post-window live leg executed and never skipped
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/pg-post-window-live.log"
+          grep -q -- '--- PASS: TestPostWindowLiveReducersExecuteWithPredicates' "$log"
+          if grep -q -- '--- SKIP: TestPostWindowLiveReducersExecuteWithPredicates' "$log"; then
+            echo '::error/post-window live reducer leg skipped despite the PostgreSQL 18 service being configured'
+            exit 1
+          fi
       - name: Preserve fixture evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -292,12 +310,6 @@ jobs:
   pg-repository-publish:
     name: PostgreSQL repository-publish spine across PostgreSQL 18 and ClickHouse
     runs-on: ubuntu-latest
-    # Acceptance lane for the repository publish spine: the POST
-    # explorer-config route runs real ClickHouse materialization between
-    # compile and the second-CAS activation flip, so this job is the only
-    # environment where the spine leg is honest. Both services are job-local
-    # and ephemeral: the loom_test ClickHouse database is created per job, so
-    # the leg never touches shared state.
     timeout-minutes: 10
     services:
       postgres18:
@@ -343,10 +355,6 @@ jobs:
           go-version: 1.26.5
           cache: true
       - name: Run the pgComp battery with the repository-publish spine leg
-        # The spine leg shares the pgComp census, mint inventory, and
-        # TestZZ zero-leftover audit with the rest of the battery, so the
-        # battery contract must be invoked whole. With ClickHouse configured
-        # the gated-mint inventory holds the spine leg to its one database.
         run: |
           set -euo pipefail
           go test -timeout=8m -count=1 -v \
@@ -354,8 +362,6 @@ jobs:
             ./internal/server \
             | tee "$RUNNER_TEMP/pg-repository-publish.log"
       - name: Assert the spine leg executed and never skipped
-        # Silent-skip is a red gate: the acceptance proof is the PASS line
-        # for the spine leg, and any SKIP of it means an env wiring regress.
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/pg-repository-publish.log"
@@ -665,8 +671,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run retained Python tests
         run: |
+          export LOOM_TYPESCRIPT_DIR="$GITHUB_WORKSPACE/ui/node_modules/typescript"
           python3 -m unittest discover -s scripts/tests
           python3 -m unittest scripts.test_validate_architecture_plan
 

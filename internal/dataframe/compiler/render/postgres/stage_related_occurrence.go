@@ -400,7 +400,7 @@ func (r *planRenderer) renderStageRelatedRoute(
 		seq := r.nextTraversalSequence()
 		edgeAlias := "e" + strconv.Itoa(seq)
 		targetAlias := "x" + strconv.Itoa(seq)
-		edgeWhere, targetOn := r.edgeOccurrencePredicates(verified, edgeAlias, targetAlias, currentAlias)
+		edgeWhere, targetOn := r.edgeOccurrencePredicates(&verified, edgeAlias, targetAlias, currentAlias)
 		fromParts = append(fromParts,
 			"INNER JOIN "+r.storage.Edge.Identifier().SQLText()+" AS "+edgeAlias+" ON "+edgeWhere,
 			"INNER JOIN "+resource.Identifier().SQLText()+" AS "+targetAlias+" ON "+targetOn)

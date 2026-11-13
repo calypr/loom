@@ -201,7 +201,8 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 	}
 	phase := 0
 	sawSort, sawLimit := false, false
-	for index, operation := range plan.Operations {
+	for index := 0; index < len(plan.Operations); index++ {
+		operation := plan.Operations[index]
 		last := index == len(plan.Operations)-1
 		switch operation.Kind {
 		case ir.PhysicalRootScanOp:
@@ -242,6 +243,15 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 				ErrUnsupportedPostgresPlan, string(operation.Kind))
 		case ir.PhysicalTraversalOp:
 			if phase != 0 {
+				if operation.Traversal == nil {
+					return fmt.Errorf("%w: operation %d: traversal payload is missing", ErrUnsupportedPostgresPlan, index)
+				}
+				if handled, next, acceptErr := r.acceptPostWindowTraversal(plan, index); acceptErr != nil {
+					return acceptErr
+				} else if handled {
+					index = next - 1
+					continue
+				}
 				return fmt.Errorf("%w: traversals must precede the execution window", ErrUnsupportedPostgresPlan)
 			}
 			if err := r.renderTraversal(plan, *operation.Traversal, false); err != nil {
@@ -259,7 +269,12 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			}
 		case ir.PhysicalSetOp:
 			if phase != 0 {
-				return fmt.Errorf("%w: sets must precede the execution window", ErrUnsupportedPostgresPlan)
+				if operation.Set == nil {
+					return fmt.Errorf("%w: operation %d: set payload is missing", ErrUnsupportedPostgresPlan, index)
+				}
+				if !acceptPostWindowSet(plan, *operation.Set) {
+					return fmt.Errorf("%w: sets must precede the execution window", ErrUnsupportedPostgresPlan)
+				}
 			}
 			if operation.Set == nil {
 				return fmt.Errorf("%w: operation %d: set payload is missing", ErrUnsupportedPostgresPlan, index)
@@ -481,6 +496,13 @@ func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn)
 			value, err := r.renderUnitNormalizedProjection(projection)
 			if err != nil {
 				return err
+			}
+			expression = value
+		case extractionAggregate:
+			value, err := r.renderSetAggregateExpression(plan, projection.projection)
+			if err != nil {
+				return fmt.Errorf("%w: %s expression has no registered PostgreSQL rendering for this shape: %s",
+					ErrUnsupportedPostgresPlan, ir.PhysicalAggregateExpression, err.Error())
 			}
 			expression = value
 		}

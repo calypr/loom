@@ -539,7 +539,7 @@ func TestSetSurfaceRefusals(t *testing.T) {
 			},
 		},
 		{
-			name:          "set after the execution window",
+			name:          "set after the execution window without a registered consumer",
 			want:          "sets must precede the execution window",
 			rendererLevel: true,
 			mutate: func(plan *ir.PhysicalPlan) {
@@ -547,6 +547,8 @@ func TestSetSurfaceRefusals(t *testing.T) {
 					Keys: []ir.PhysicalValue{{Variable: "root", Path: []string{"logical_id"}}},
 				}}
 				rootScan, setOp, ret := plan.Operations[0], plan.Operations[1], plan.Operations[2]
+				setOp.Set.Reduction = nil
+				ret.Return.Projections = ret.Return.Projections[:1]
 				plan.Operations = []ir.PhysicalOperation{rootScan, sortOp, setOp, ret}
 			},
 		},

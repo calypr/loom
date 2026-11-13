@@ -13,10 +13,24 @@
     }
   ],
   "canonicalProbe": {
-    "expectedMD5": "14d341f86d6f4f072a585434334dfc7a",
+    "expectedMD5": "36c66fb5af5edbcf89bb9ca6867986dc",
     "file": "BundleCommitLifecycle.tla",
-    "lastVerified": "2026-11-01T20:35:45.458202+00:00",
-    "note": "r27: no drift. Apparent mismatch was MY diagnostic error (compared sha256 against the md5-convention pin). md5sum re-verified identical to 14d341f8; mtime 17:38 pre-dates the pin write. Lesson encoded: hash comparisons must match the pinned algorithm; ledger now records both digests for the canonical model. Full falsifier battery re-established on current bytes: baseline full-bound violation (InvariantNoDropUnderPointer, 5445-state run, depth 9, /tmp/opencode/maint-BundleCommitLifecycle-pre.log) + Horizon=3 per-invariant fault/ctrl matrix 6/6 match (/tmp/opencode/r27-matrix-can2; controls ~320s each complete no-error; first timeouts were stale shared metadir contamination)."
+    "lastVerified": "2026-11-13T14:23:00+00:00",
+    "note": "r27: no drift. Apparent mismatch was MY diagnostic error (compared sha256 against the md5-convention pin). md5sum re-verified identical to 14d341f8; mtime 17:38 pre-dates the pin write. Lesson encoded: hash comparisons must match the pinned algorithm; ledger now records both digests for the canonical model. Full falsifier battery re-established on current bytes: baseline full-bound violation (InvariantNoDropUnderPointer, 5445-state run, depth 9, /tmp/opencode/maint-BundleCommitLifecycle-pre.log) + Horizon=3 per-invariant fault/ctrl matrix 6/6 match (/tmp/opencode/r27-matrix-can2; controls ~320s each complete no-error; first timeouts were stale shared metadir contamination).",
+    "noteAmendment": "lane05 2026-11-13: probe re-run against post-strip bytes (SKILL.md procedure); expectedMD5 re-pinned to true post-strip md5; prior value 14d341f86d6f4f072a585434334dfc7a was the pre-strip digest; strip was comment-only, token sequence identical (trail: model.lane05RepinCanonical).",
+    "lane05Repin": {
+      "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+      "date": "2026-11-13",
+      "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+      "tokenIdentity": "reproducible: lex git blob 90f6b7be04 (at 90267c06) vs post-strip blob f3ba485241 -- token streams identical (lever proof retained in lane05 artifact)",
+      "command": "git add verification/publication-bundle/BundleCommitLifecycle.tla && md5sum verification/publication-bundle/BundleCommitLifecycle.tla && sha256sum verification/publication-bundle/BundleCommitLifecycle.tla && git hash-object verification/publication-bundle/BundleCommitLifecycle.tla",
+      "fields": {
+        "expectedMD5": {
+          "pre": "14d341f86d6f4f072a585434334dfc7a",
+          "post": "36c66fb5af5edbcf89bb9ca6867986dc"
+        }
+      }
+    }
   },
   "confirmed": [
     {
@@ -490,10 +504,34 @@
       "role": "F-B22 query-side durable controls: client NUL path refused CodeInvalidRequest; mixed request normalized (control entry dropped, dedupe+sort); garbage-only principal CodeForbidden never Unrestricted; slash-variant membership authorized (raw-equality side finding closed)"
     },
     "internal/api/graphql/graph/resolver/recipe_execution_reader.go": {
-      "sha256": "c5c43c474eb7c1a42d1d130445d6c3c0a11f5f7c6f09b8d5f246debde56d7f41",
+      "sha256": "c9cfd2c27c0325cab317501f670eec033ca37040e7abc953a561e2a2adaf8576",
       "role": "GraphQL execution reader (Repair-6 F-B20 auth base preserved): C2 @87ee09c7 lease-lost demotion is now health-gated -- raw {READY,PUBLISHED} outputs never carry the failure trio; leaseLostDemotionApplied gates the demotion to lease.ErrLeaseLost + FAILED/MISSING_REVISION shape-6 only (reader.go:501-513). RECORD UPGRADE: replaces the md5-era entry (74d8385ac2133c5407cc926ab0175c6c, Repair-6 F-B20 era, no pin field).",
       "pin": "87ee09c7",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/api/graphql/graph/resolver/recipe_execution_reader.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes md5-era entry 74d8385ac2133c5407cc926ab0175c6c (Repair-6 F-B20, pre-sha256 convention, no pin); NOT a duplicate (bytes moved at 87ee09c7; live-byte re-derivation, zero hand-typed digests)"
+      "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/api/graphql/graph/resolver/recipe_execution_reader.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes md5-era entry 74d8385ac2133c5407cc926ab0175c6c (Repair-6 F-B20, pre-sha256 convention, no pin); NOT a duplicate (bytes moved at 87ee09c7; live-byte re-derivation, zero hand-typed digests)",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 11b3807fa7 (at 90267c06) vs post-strip blob 6cc749a535 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add internal/api/graphql/graph/resolver/recipe_execution_reader.go && md5sum internal/api/graphql/graph/resolver/recipe_execution_reader.go && sha256sum internal/api/graphql/graph/resolver/recipe_execution_reader.go && git hash-object internal/api/graphql/graph/resolver/recipe_execution_reader.go",
+        "fields": {
+          "sha256": {
+            "pre": "c5c43c474eb7c1a42d1d130445d6c3c0a11f5f7c6f09b8d5f246debde56d7f41",
+            "post": "b00d64740dce31e5806e159891b79338f67e9879d48797f09e87e48f30f34238",
+            "postStrip": "c9cfd2c27c0325cab317501f670eec033ca37040e7abc953a561e2a2adaf8576"
+          }
+        },
+        "preExistingDrift": {
+          "finding": "prior sha256 c5c43c474eb7c1a4 did NOT match the blob at 90267c06 (live pre-strip sha256 b00d64740dce31e5): the pin drifted before this ticket; lane05 re-pin restores a true value against post-strip bytes and also corrects the pre-existing drift (discovered by C3 recompute)."
+        },
+        "guardQuoteRestore": {
+          "discoveredBy": "CI Go unit tests on PR #189 head 1e52b4e5: TestFB20* in recipe_execution_reader_authz_e2e_test.go STEP 0 drift -- fb20QuotedFacts reader-promise-ids-are-not-credentials quotes the stripped doc-comment prose",
+          "precedent": "lane02 retained guard-quoted doc promises through its strip wave (retain commits recorded inside 48783199); systematic orphaned-quote sweep re-run at lane05 shows 0 remaining orphaned quotes",
+          "action": "restored byte-identical to base blob 11b3807fa79e2b5151755a1eb9e7007dbe642ee1 (git checkout 90267c06 -- path); sha256 field re-set to the true base-blob value, equal to the pre-existing-drift live value recorded in preExistingDrift",
+          "gateDisposition": "retained under the guard-quoted allowlist class: allowed iff a tracked test file quotes a >=25-char comment line verbatim; fail-closed (corpus failure allows nothing); fixtures GuardQuotedAnchors in scripts/tests/test_no_code_comments.py",
+          "recheck": "go test ./internal/api/graphql/graph/resolver/ -> ok (6 FB20 tests green)"
+        }
+      }
     },
     "internal/api/graphql/graph/resolver/recipe_execution_reader_authz_e2e_test.go": {
       "md5": "2ca07086a0af9abbd45697bb8bc04edb",
@@ -528,10 +566,32 @@
     },
     "internal/dataframe/publication/clickhouse/abort_ackloss_e2e_test.go": "Worker A sanctioned F-B2 harness (prevented-by-code assertion + control; both PASS); residue empty",
     "internal/dataframe/publication/clickhouse/bundle_store.go": {
-      "sha256": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42",
+      "sha256": "b034db9a50f1ac221e04dbc5eb29632ac3af4301d0c884459b4435d2ec6bda5c",
       "role": "R85 DDL admission boundary (reviewed, unchanged): CreateOutput gates name via bundleOutputRE and every column via validateBundleColumn (schemaIdentifierRE + anchored closed-set scalar regex; Nullable/Array literal-prefix peel only). In-package probe: all clause-suffix and unbalanced payloads rejected.",
       "pin": "e68c7d6b",
-      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/dataframe/publication/clickhouse/bundle_store.go == blob at feature/postgres-backend tip 48783199; supersedes d5b5491b attestation (pin a5db5f5588420722f72d4bf889d4c63e1be4d560f6854c4da5c33a727ad69254 -> 1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42): comment sweep 80bca9a5 (#161, out-of-lane) stripped comments from this pinned file without re-anchor; re-pinned by PR #183 per coordinator directive, precedent a4d29f01"
+      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/dataframe/publication/clickhouse/bundle_store.go == blob at feature/postgres-backend tip 48783199; supersedes d5b5491b attestation (pin a5db5f5588420722f72d4bf889d4c63e1be4d560f6854c4da5c33a727ad69254 -> 1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42): comment sweep 80bca9a5 (#161, out-of-lane) stripped comments from this pinned file without re-anchor; re-pinned by PR #183 per coordinator directive, precedent a4d29f01",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 36c04c4123 (at 90267c06) vs post-strip blob 9c0ff4717a -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add internal/dataframe/publication/clickhouse/bundle_store.go && md5sum internal/dataframe/publication/clickhouse/bundle_store.go && sha256sum internal/dataframe/publication/clickhouse/bundle_store.go && git hash-object internal/dataframe/publication/clickhouse/bundle_store.go",
+        "fields": {
+          "sha256": {
+            "pre": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42",
+            "post": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42",
+            "postStrip": "b034db9a50f1ac221e04dbc5eb29632ac3af4301d0c884459b4435d2ec6bda5c"
+          }
+        },
+        "guardQuoteRestore": {
+          "discoveredBy": "CI Go unit tests on PR #189 head 1e52b4e5: TestPublishPartialPointerNeverAdvertisedAgainstArango claim-source drift -- publish_partial_pointer_e2e_test.go quotes \"Prevent the runner from deleting possibly published tables.\"",
+          "precedent": "lane02 retained guard-quoted doc promises through its strip wave (retain commits recorded inside 48783199); systematic orphaned-quote sweep re-run at lane05 shows 0 remaining orphaned quotes",
+          "action": "restored byte-identical to base blob 36c04c412304104adf52a3737d4fb05af4db5630 (git checkout 90267c06 -- path); net lane05 wave effect on this file is nil -- sha256 returns to the pre-strip value",
+          "gateDisposition": "retained under the guard-quoted allowlist class: allowed iff a tracked test file quotes a >=25-char comment line verbatim; fail-closed (corpus failure allows nothing); fixtures GuardQuotedAnchors in scripts/tests/test_no_code_comments.py",
+          "recheck": "go test ./internal/dataframe/publication/clickhouse/ -> ok"
+        }
+      },
+      "rederivedAmendment": "lane05 2026-11-13: the sha256 quoted in 'rederived' is the pre-strip value; file was comment-stripped token-identically in the lane05 wave, then restored byte-identical to base after the CI guard-quote drift failure (see lane05Repin.guardQuoteRestore); final sha256 equals the pre-strip value, net wave effect nil"
     },
     "internal/dataframe/publication/clickhouse/bundle_store_test.go": {
       "md5": "22fd74544b8198d890f42bf5370ccb33",
@@ -665,8 +725,21 @@
     },
     "verification/publication-bundle/PUBLISHED_IMMORTALITY_PROPOSAL.md": "F-B8 proposal: invariant statement, 9-site removal enumeration (parent-verified anchors incl. lease-only :338-340 and PrivateArtifacts-only chartifact removal), three-tier enforcement proposal; docs-only, no product change",
     "verification/publication-bundle/ReconcileDangleTrust.tla": {
-      "md5": "29d78f41fac2e454971f26ff911a1176",
-      "role": "r29 header: RecheckBeforeDrop SHIPPED; m-dangle-atomic-recheck = validated implemented shape; comments only, no semantic change"
+      "md5": "4c196436bd1d37a57534b55cfd19e8f3",
+      "role": "r29 header: RecheckBeforeDrop SHIPPED; m-dangle-atomic-recheck = validated implemented shape; comments only, no semantic change",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 0fc2e195c9 (at 90267c06) vs post-strip blob 84c7cf3e7f -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/ReconcileDangleTrust.tla && md5sum verification/publication-bundle/ReconcileDangleTrust.tla && sha256sum verification/publication-bundle/ReconcileDangleTrust.tla && git hash-object verification/publication-bundle/ReconcileDangleTrust.tla",
+        "fields": {
+          "md5": {
+            "pre": "29d78f41fac2e454971f26ff911a1176",
+            "post": "4c196436bd1d37a57534b55cfd19e8f3"
+          }
+        }
+      }
     },
     "internal/explorer/lifecycle/publish_release_requirements_classification_test.go": {
       "md5": "1a7ea43cdeb6376b8b8d49406e985485 (r59 re-pin: evolved at 0e3b4c5b authz wave; git-clean == HEAD blob 2ed0775ef5607c93fe08283fe81138dbf5949b76)",
@@ -742,10 +815,23 @@
       "rederived": "r62 SELF-RUN live-sha256 == blob @fdf2969e == on-disk"
     },
     "verification/publication-bundle/ConstructionPrepareLanes.tla": {
-      "sha256": "6ae0790a60e9a963a02216d4947dd45ad1a62596ef131bac7fa42fc5b1e72f4c",
+      "sha256": "cd16422a9a07aeafa5cef9f939d9f3c16f2894a66e33147c66d4c5147dc1aefe",
       "role": "@49d6999e post-C1 model re-pin: PrepareLanes mapping shifted to the GUARDED SET loops (post-8459f080 :606/:618/:625/:781 cites; shared helpers re-verified :701-710/:772-801); clean arm re-derived verbatim 61,456 distinct states (parent arm tlc-parent-gated.log, exit 0, 22:37:48); persist falsifier arm violates ClearedStaysCleared @9,236 (tlc-parent-persist.log, exit 12) -- the C1-revert falsifier. Violated arms still violate; bounds unchanged. 11/12 models IN SYNC this pass (formal-resync65.md).",
       "pin": "49d6999e",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 49d6999e:verification/publication-bundle/ConstructionPrepareLanes.tla == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 pin f1e3595a80295f92ceb2229a47e293a31beca368f7ecd8bd97a60672dd3b5e0b @ea6df079 (description predated C1); NOT a duplicate (bytes moved at 49d6999e; live-byte re-derivation, zero hand-typed digests)"
+      "rederived": "r65 SELF-RUN: live sha256 == git show 49d6999e:verification/publication-bundle/ConstructionPrepareLanes.tla == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 pin f1e3595a80295f92ceb2229a47e293a31beca368f7ecd8bd97a60672dd3b5e0b @ea6df079 (description predated C1); NOT a duplicate (bytes moved at 49d6999e; live-byte re-derivation, zero hand-typed digests)",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob f68b38ebc2 (at 90267c06) vs post-strip blob 4da340c1c8 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/ConstructionPrepareLanes.tla && md5sum verification/publication-bundle/ConstructionPrepareLanes.tla && sha256sum verification/publication-bundle/ConstructionPrepareLanes.tla && git hash-object verification/publication-bundle/ConstructionPrepareLanes.tla",
+        "fields": {
+          "sha256": {
+            "pre": "6ae0790a60e9a963a02216d4947dd45ad1a62596ef131bac7fa42fc5b1e72f4c",
+            "post": "cd16422a9a07aeafa5cef9f939d9f3c16f2894a66e33147c66d4c5147dc1aefe"
+          }
+        }
+      }
     },
     "internal/catalog/arango/all_generations_project_binding_integration_test.go": {
       "sha256": "17f2414092154737db70f2b366e5dcc6e7f672a8e512bc431ae8a30d6dc5e97f",
@@ -772,10 +858,23 @@
       "rederived": "r63 SELF-RUN: live sha256 == git show 9d092c5b:internal/api/graphql/graph/dataframe/aggregates_test.go == on-disk"
     },
     "verification/publication-bundle/ConstructionProjectionOwnership.tla": {
-      "sha256": "1dbd72f6e8f3b549068095f9301ab656cc795f818019fc64d7b3e989101176b6",
+      "sha256": "8116350dc9e7a64cc6d18a2da491ac108457921675f6bff33a0d4bbf5fbc0239",
       "role": "NEW formal model in this writer's directory (U1 CLOSED, cf0ca558): exhaustive 5-owners x 4-bits prune x validate (2^20 input product); clean arm CLEAN at 3,517,009 distinct states against the shipped kept-rule; all 8 violated-by-design arms exit 12 on their named invariants; 3 named prune Go tests green, branch-reject strings model-side only; companion 9 cfgs (m-prj-*).",
       "pin": "cf0ca558",
-      "rederived": "r63 SELF-RUN: live sha256 == git show cf0ca558:verification/publication-bundle/ConstructionProjectionOwnership.tla == on-disk"
+      "rederived": "r63 SELF-RUN: live sha256 == git show cf0ca558:verification/publication-bundle/ConstructionProjectionOwnership.tla == on-disk",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob ff0efe3dbd (at 90267c06) vs post-strip blob f85c618c64 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/ConstructionProjectionOwnership.tla && md5sum verification/publication-bundle/ConstructionProjectionOwnership.tla && sha256sum verification/publication-bundle/ConstructionProjectionOwnership.tla && git hash-object verification/publication-bundle/ConstructionProjectionOwnership.tla",
+        "fields": {
+          "sha256": {
+            "pre": "1dbd72f6e8f3b549068095f9301ab656cc795f818019fc64d7b3e989101176b6",
+            "post": "8116350dc9e7a64cc6d18a2da491ac108457921675f6bff33a0d4bbf5fbc0239"
+          }
+        }
+      }
     },
     "internal/acceptance/runner_status_test.go": {
       "sha256": "d9949b79e11d669d37cf093a2996ec8b63324b60543d66ee3565d2da26f752d8",
@@ -850,16 +949,42 @@
       "rederived": "r65 SELF-RUN: live sha256 == git show 49d6999e:verification/publication-bundle/SKILL.md == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 first pin 8ac0c3c5f79526a0a7a0804baac5293bf893325bc2e49804fb2477b64cf018c8 @ea6df079; NOT a duplicate (bytes moved at 49d6999e; live-byte re-derivation, zero hand-typed digests)"
     },
     "scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs": {
-      "sha256": "04219d511d4b44d7644560c0ff8ff8d871364d67af98543953c1fe07809a1573",
+      "sha256": "7bbcddd13458dd66e522088de47d8e8f2f7beafb714a4c84767d1f8383ba038b",
       "role": "Row-96 four-state focused-native journey (RS03-03), authored offline @7fcb640f during operator port-forward block -- NO browser execution claimed: 6-check closed set (healthy lane; catalog-path labels per /tmp/opencode/label-journey-coupling.md; precise refusal reasonClasses consumed visibly; *_SOURCE_INVENTORY_UNAVAILABLE naming; empty-data disjointness per S-B; UI reason-consumption channel incl. honest UI-gap sideFinding), stamp pre/post fail-closed identity wiring, refuse-overwrite --out. Registry sha-gated artifact unchanged by the coordinator fix. Live window still owes JOURNEY_OK checks=6.",
       "pin": "7fcb640f",
-      "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)"
+      "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "in-scope C3 truthfulness repair: pin was stale at PR base 90267c06 (pre-existing drift, bytes unchanged by the lane05 wave -- comments are tool-directives kept by design); replaced with true live digest for this wave-scoped path",
+        "waveBytesChanged": false,
+        "fields": {
+          "sha256": {
+            "pre": "04219d511d4b44d7644560c0ff8ff8d871364d67af98543953c1fe07809a1573",
+            "post": "7bbcddd13458dd66e522088de47d8e8f2f7beafb714a4c84767d1f8383ba038b"
+          }
+        },
+        "command": "sha256sum scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs"
+      }
     },
     "scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs": {
-      "sha256": "2285aa23e030e16bae105ceeca0a17cc79251e4c06fe3e7b3f96127b76b7ff60",
+      "sha256": "2cdc879c1ef6a3f2911fdf3a49848f7d2567e6d2c0ba816f7188fec58d7f4e58",
       "role": "Offline durables x4 for the four-state journey (--dry-run, registry<->script machine identity, structural guards, no-vacuity + UI-gap channel); 4/4 green at 7fcb640f; live browser execution NOT claimed.",
       "pin": "7fcb640f",
-      "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)"
+      "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "in-scope C3 truthfulness repair: pin was stale at PR base 90267c06 (pre-existing drift, bytes unchanged by the lane05 wave -- comments are tool-directives kept by design); replaced with true live digest for this wave-scoped path",
+        "waveBytesChanged": false,
+        "fields": {
+          "sha256": {
+            "pre": "2285aa23e030e16bae105ceeca0a17cc79251e4c06fe3e7b3f96127b76b7ff60",
+            "post": "2cdc879c1ef6a3f2911fdf3a49848f7d2567e6d2c0ba816f7188fec58d7f4e58"
+          }
+        },
+        "command": "sha256sum scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs"
+      }
     },
     "scripts/verify-ui/registry.mjs": {
       "sha256": "bd8053144d127fd4b125a0993e50bc93c82862e861c94ffa17f96922505b4fe4",
@@ -928,16 +1053,42 @@
       "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:internal/explorer/authoringv2/construction_projection_replay_test.go == on-disk"
     },
     "scripts/lib/formal-projection-replay.mjs": {
-      "sha256": "5422aece9e47903b3241f87e527024c6acd772c94eed4de8bb3dbf3ee179a590",
+      "sha256": "80ac3e9f4c6583450807eaa0b304d779f5b91caf78ecbabf85860b20a87a67da",
       "role": "NEW lane: batch channel driver mirroring the expectation table; nine source-fault falsification pairs (pivot/filter/derive/unpivot arms, owner dispatch x2, carry modes x2), each fires its named branch with positive+negative+restored; chain-lane hash-set unaffected.",
       "pin": "2f6e64ea",
-      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/lib/formal-projection-replay.mjs == on-disk"
+      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/lib/formal-projection-replay.mjs == on-disk",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 70a48408ce (at 90267c06) vs post-strip blob e4b6d065fb -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add scripts/lib/formal-projection-replay.mjs && md5sum scripts/lib/formal-projection-replay.mjs && sha256sum scripts/lib/formal-projection-replay.mjs && git hash-object scripts/lib/formal-projection-replay.mjs",
+        "fields": {
+          "sha256": {
+            "pre": "5422aece9e47903b3241f87e527024c6acd772c94eed4de8bb3dbf3ee179a590",
+            "post": "80ac3e9f4c6583450807eaa0b304d779f5b91caf78ecbabf85860b20a87a67da"
+          }
+        }
+      }
     },
     "scripts/verify-ui/contracts/source-projection-contracts.mjs": {
-      "sha256": "77d5484c50db8af8192b43cc945bb91f1ba50fd2b0508cdfce17f0e25ed13fac",
+      "sha256": "97aa78503f6726d5476eccba5d7ca2d4ed3c3c91953a1f48d1486996df2c7082",
       "role": "NEW Node contract: reject-direction durable assertions for the U1 arms; fails naming the branch on renamed/removed/swapped reject strings; single expectation-table import.",
       "pin": "2f6e64ea",
-      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/verify-ui/contracts/source-projection-contracts.mjs == on-disk"
+      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/verify-ui/contracts/source-projection-contracts.mjs == on-disk",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob c725ecb167 (at 90267c06) vs post-strip blob 6a1e77d09e -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add scripts/verify-ui/contracts/source-projection-contracts.mjs && md5sum scripts/verify-ui/contracts/source-projection-contracts.mjs && sha256sum scripts/verify-ui/contracts/source-projection-contracts.mjs && git hash-object scripts/verify-ui/contracts/source-projection-contracts.mjs",
+        "fields": {
+          "sha256": {
+            "pre": "77d5484c50db8af8192b43cc945bb91f1ba50fd2b0508cdfce17f0e25ed13fac",
+            "post": "97aa78503f6726d5476eccba5d7ca2d4ed3c3c91953a1f48d1486996df2c7082"
+          }
+        }
+      }
     },
     "scripts/verify-ui/contracts/source-projection-contracts.test.mjs": {
       "sha256": "f4a6e702e46cf082028bb446c699b0fa85907db6528ed5ce154eadbf5172de79",
@@ -946,10 +1097,23 @@
       "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/verify-ui/contracts/source-projection-contracts.test.mjs == on-disk"
     },
     "scripts/ci/vet.mjs": {
-      "sha256": "67440ca7581aa59a73b897dcc757141347f8d3326fb878e579bda41bdc22995d",
+      "sha256": "07ab138831ef403d100b78a1d8a0cc636b457ed4c5a9a9d2096b9f1e2faab80e",
       "role": "CI-62-01 boundary gate CLI (Round 67): full go vet + explicit copylocks passes over configurable package patterns; overlay-supported; analyzerArgs guard blocks -overlay injection through the analyzer channel. Executed durably by internal/ci TestNodeVetCliSmoke.",
       "pin": "661de7b3",
-      "rederived": "SELF-RUN live sha256 == git show 661de7b3:scripts/ci/vet.mjs == on-disk"
+      "rederived": "SELF-RUN live sha256 == git show 661de7b3:scripts/ci/vet.mjs == on-disk",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 51a425e07f (at 90267c06) vs post-strip blob b79867bba8 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add scripts/ci/vet.mjs && md5sum scripts/ci/vet.mjs && sha256sum scripts/ci/vet.mjs && git hash-object scripts/ci/vet.mjs",
+        "fields": {
+          "sha256": {
+            "pre": "67440ca7581aa59a73b897dcc757141347f8d3326fb878e579bda41bdc22995d",
+            "post": "07ab138831ef403d100b78a1d8a0cc636b457ed4c5a9a9d2096b9f1e2faab80e"
+          }
+        }
+      }
     },
     "internal/ci/vet_gate_test.go": {
       "sha256": "44b47d61f217ad2d82fe24a828e10becdb871da08a2ee0804527ca30afa33c08",
@@ -988,10 +1152,23 @@
       "rederived": "SELF-RUN live sha256 == git show 4e15704f:internal/ci/gofmt_gate_test.go == on-disk"
     },
     "conformance/compiler/benchmark_test.go": {
-      "sha256": "774308e9a2baac5238efe74326d0d15b788f55bcd0422305c779886a051c7727",
+      "sha256": "c792757bb99c7fbfad03910693c8bce35a90f04733c92efaa4a1358f190fd512",
       "role": "BS-67-1 class completion: gofmt-canonical repair (import sort/whitespace only), AST-identical with comments removed + imports normalized.",
       "pin": "4e15704f",
-      "rederived": "SELF-RUN live sha256 == git show 4e15704f:conformance/compiler/benchmark_test.go == on-disk"
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:conformance/compiler/benchmark_test.go == on-disk",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob b106d209be (at 90267c06) vs post-strip blob b56c4fa317 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add conformance/compiler/benchmark_test.go && md5sum conformance/compiler/benchmark_test.go && sha256sum conformance/compiler/benchmark_test.go && git hash-object conformance/compiler/benchmark_test.go",
+        "fields": {
+          "sha256": {
+            "pre": "774308e9a2baac5238efe74326d0d15b788f55bcd0422305c779886a051c7727",
+            "post": "c792757bb99c7fbfad03910693c8bce35a90f04733c92efaa4a1358f190fd512"
+          }
+        }
+      }
     },
     "conformance/compiler/generated_semantics_coverage_test.go": {
       "sha256": "6d37b4dfe7d255a8c3b6c10aa08d22a01301fde9b9555615b6ec790ad737a94d",
@@ -1067,19 +1244,36 @@
   "lastUpdated": "2026-11-02T22:45:18.002896+00:00",
   "model": {
     "activeGenerationTrust": {
-      "contentMD5": "685239667df000fe6549494f4939f5b2",
+      "contentMD5": "961347fd5dd0d9b55938a515bb90f21f",
       "file": "ActiveGenerationTrust.tla",
-      "md5": "685239667df000fe6549494f4939f5b2",
+      "md5": "961347fd5dd0d9b55938a515bb90f21f",
       "models": "F-B13 stale-receipt cross-generation downgrade (release_store.go:163-170 unconditional generationPointer patch)",
       "toollesson": "state predicate under cfg PROPERTY silently passed; under INVARIANT violated — use INVARIANT for state predicates in cfgs",
       "verdicts": {
         "m-downgrade-bug (CrossGen=FALSE)": "NoSilentDowngrade VIOLATED; trace Init;Load(g1);Compile;Load(g2);PublishCAS; 9 distinct",
         "m-downgrade-fixed (CrossGen=TRUE)": "complete clean, 7 distinct"
       },
-      "warnings": "0 both configs"
+      "warnings": "0 both configs",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 040c174aa9 (at 90267c06) vs post-strip blob 529d3f5bfb -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/ActiveGenerationTrust.tla && md5sum verification/publication-bundle/ActiveGenerationTrust.tla && sha256sum verification/publication-bundle/ActiveGenerationTrust.tla && git hash-object verification/publication-bundle/ActiveGenerationTrust.tla",
+        "fields": {
+          "contentMD5": {
+            "pre": "685239667df000fe6549494f4939f5b2",
+            "post": "961347fd5dd0d9b55938a515bb90f21f"
+          },
+          "md5": {
+            "pre": "685239667df000fe6549494f4939f5b2",
+            "post": "961347fd5dd0d9b55938a515bb90f21f"
+          }
+        }
+      }
     },
-    "canonicalTlaMd5": "14d341f86d6f4f072a585434334dfc7a",
-    "canonicalTlaMd5Algorithm": "md5 (convention); sha256=c557221898275fccea612a18bf21dec070c08e8cf895ef5e50e4f538869e223d",
+    "canonicalTlaMd5": "36c66fb5af5edbcf89bb9ca6867986dc",
+    "canonicalTlaMd5Algorithm": "md5 (convention); sha256=76a073e7ae4ea3bd9a69d62c06866135fd4cfccbc812f739da70237e836b043a",
     "cfg": "verification/publication-bundle/BundleCommitLifecycle.cfg",
     "fB22DigestAudit": "see status_updates F-B22; reviewer context is same-model background agent, not cross-model assurance",
     "fB22Tier1Md5s": "{\"internal/api/graphql/graph/query/input_resolution.go\": \"df658e046d1bbf56cd4928f890cc27d1\", \"internal/api/graphql/graph/query/read_scope_ingress_control_chars_e2e_test.go\": \"a4d48d8e743cc6db093fb8fe92f4e255\", \"internal/authscope/auth_path_control_ingress_test.go\": \"e65c7bc98c3306b2ca44b9d665a69216\", \"internal/authscope/fence_resource_access.go\": \"2da4e1e7b00860b1c4864053cec44c6c\"}",
@@ -1088,11 +1282,24 @@
         "bug": "NoBlindCommit violated (stale-gate commit over moved pointer)",
         "cas": "completes clean (expected-value CAS + lawful late-gate retry)"
       },
-      "contentMD5": "c08a62a07ef38bace10ee2f3004297d7",
+      "contentMD5": "fe578a8511e339a3bea7154d86764f8f",
       "file": "GenerationActivationCas.tla",
       "honestNote": "initial formulation at-most-one-success was WRONG (last-writer-wins legit); harm predicate ghosts blinded-at-commit",
       "tlcRun": "/sandbox/.local/bin/tlc-run -metadir /tmp/opencode/gac-<arm> -fp 21 -config m-gac-<arm>.cfg GenerationActivationCas",
-      "warnings": 0
+      "warnings": 0,
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob d81fe78d5a (at 90267c06) vs post-strip blob 70756ad0b1 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/GenerationActivationCas.tla && md5sum verification/publication-bundle/GenerationActivationCas.tla && sha256sum verification/publication-bundle/GenerationActivationCas.tla && git hash-object verification/publication-bundle/GenerationActivationCas.tla",
+        "fields": {
+          "contentMD5": {
+            "pre": "c08a62a07ef38bace10ee2f3004297d7",
+            "post": "fe578a8511e339a3bea7154d86764f8f"
+          }
+        }
+      }
     },
     "matrixSignatures": {
       "lease-fence-fault": "InvariantNoForeignPublish violated (H=4)",
@@ -1114,19 +1321,46 @@
         "/tmp/opencode/nullcov-shipped.log",
         "/tmp/opencode/nullcov-fixed.log"
       ],
-      "tla": "055cc546a9a2095b40aab0d1e152e6d9",
+      "tla": "1372a87cbf2ee82f8366df1d525b9f96",
       "verdicts": {
         "m-null-fixed": "CLEAN (Round 30 shipped shape)",
         "m-null-shipped": "INVARIANT CoverageComplete VIOLATED (NULL-bucket loss; F-B24 fault control)"
+      },
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 77adb80f7e (at 90267c06) vs post-strip blob 719499e075 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/NullPageCoverage.tla && md5sum verification/publication-bundle/NullPageCoverage.tla && sha256sum verification/publication-bundle/NullPageCoverage.tla && git hash-object verification/publication-bundle/NullPageCoverage.tla",
+        "fields": {
+          "tla": {
+            "pre": "055cc546a9a2095b40aab0d1e152e6d9",
+            "post": "1372a87cbf2ee82f8366df1d525b9f96"
+          }
+        }
       }
     },
     "pointerOrphanLifecycle": {
-      "md5": "9a9ff841696820a16e272274a1cfeb68",
+      "md5": "481a2d3c7cd260f97a4a5e307b8c7787",
       "status": "IN SYNC Round 32: SOURCE-SYNC header records Repair-4 shipped shape. Trio re-run direct java tlc2.TLC: m-po-bug VIOLATES temporal (OrphanGC), m-po-fixed CLEAN, m-po-janitor-blind VIOLATES NoBoundDeleted (/tmp/opencode/po-{bug,fixed,janitor-blind}-r32.log)",
       "tla": "verification/publication-bundle/PointerOrphanLifecycle.tla",
       "lastSyncCommit": "218edabb121e1c14e9466f4f47b1b635f0b9511e",
       "maintenance20261102": "First TRUE TLC runs of current bytes (wave F recorded structural-review-only). As-is run: m-po-fixed CLEAN (1056 gen/266 distinct/depth 8), m-po-bug Temporal VIOLATED (OrphanGC, 667/202), m-po-janitor-blind NoBoundDeleted VIOLATED (139/67), logs /tmp/opencode/maint-a/m-po-*.log, all warnings=0. Covered-code reads: clickhouse/bundle_store.go + arango/bundle_registry.go untouched since 8160bb97-shipped shape; Reconcile sweep-conditional (:1091-1100), pre-claim filter, fail-closed reads, post-claim pointer+binding re-check, lease+pinned claim all verified in source. 8c21eb64 PointerName length-prefix: NO-EFFECT on this model (no PointerName/byte variable; abstract single pointer row; injective encoding makes the one-row-per-identity abstraction faithful — pre-fix fold-hijack class remains UNMODELED, covered only by go witnesses).",
-      "recordVerificationR56": "Record-writer SELF-RUN nine-arm matrix 2026-11-02 (/sandbox/.local/bin/tlc-run, TLC_WORKERS=2 TLC_HEAP_MB=1024, -fp 21, private -metadir per arm; logs+exits /tmp/opencode/r56-tlc/m-po-*.log|.exit): m-po-fixed exit=0 CLEAN (1056 gen/266 distinct/depth 8), m-po-bug exit=13 Temporal VIOLATED (OrphanGC formula :130-131; 667/202), m-po-janitor-blind exit=12 NoBoundDeleted VIOLATED (156/73; violated-arm generated counts vary run-to-run at the counterexample frontier, worker runs 139/67 — verdict+invariant bind, counts illustrative), warnings=0 all three. md5 9a9ff841696820a16e272274a1cfeb68 re-verified on disk; file byte-identical to 218edabb (comment-drift touched only RBT/RRI). IN SYNC."
+      "recordVerificationR56": "Record-writer SELF-RUN nine-arm matrix 2026-11-02 (/sandbox/.local/bin/tlc-run, TLC_WORKERS=2 TLC_HEAP_MB=1024, -fp 21, private -metadir per arm; logs+exits /tmp/opencode/r56-tlc/m-po-*.log|.exit): m-po-fixed exit=0 CLEAN (1056 gen/266 distinct/depth 8), m-po-bug exit=13 Temporal VIOLATED (OrphanGC formula :130-131; 667/202), m-po-janitor-blind exit=12 NoBoundDeleted VIOLATED (156/73; violated-arm generated counts vary run-to-run at the counterexample frontier, worker runs 139/67 — verdict+invariant bind, counts illustrative), warnings=0 all three. md5 9a9ff841696820a16e272274a1cfeb68 re-verified on disk; file byte-identical to 218edabb (comment-drift touched only RBT/RRI). IN SYNC.",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob cf04d9dfb0 (at 90267c06) vs post-strip blob 37c228985d -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/PointerOrphanLifecycle.tla && md5sum verification/publication-bundle/PointerOrphanLifecycle.tla && sha256sum verification/publication-bundle/PointerOrphanLifecycle.tla && git hash-object verification/publication-bundle/PointerOrphanLifecycle.tla",
+        "fields": {
+          "md5": {
+            "pre": "9a9ff841696820a16e272274a1cfeb68",
+            "post": "481a2d3c7cd260f97a4a5e307b8c7787"
+          }
+        }
+      },
+      "recordVerificationR56Amendment": "lane05 2026-11-13: digest(s) quoted in this record are pre-strip values for PointerOrphanLifecycle.tla; the file was comment-stripped token-identically in the lane05 wave (record itself unchanged). Post-strip digests + trail: 'lane05Repin' in this object."
     },
     "properties": [
       "InvariantNoDropUnderPointer: dropped[w] => pointer # w (state-level; baseline-red = F-B1)",
@@ -1135,22 +1369,42 @@
       "InvariantNoForeignPublish: publishedForeign[w] = FALSE"
     ],
     "publishPartialPointer": {
-      "contentMD5": "90f1d668b801b7b6cdec55ad160a1e4c",
+      "contentMD5": "ba039a337ee453cb3357ceedcb9eb30e",
       "file": "PublishPartialPointer.tla",
       "mappingNote": "r27: header updated -> AtomicPublish=TRUE is the shipped shape (r26 WithTransaction); m-ppp-atomic CLEAN = current-code baseline; m-ppp-bug VIOLATED = pre-fix fault control + legacy pre-repair rows. Comments-only edit; semantics unchanged.",
-      "md5": "456e459523d4b6fadb6c47e3e8623f69",
+      "md5": "ba039a337ee453cb3357ceedcb9eb30e",
       "models": "F-B16 class: Commit outcomes + retry/sweep repair controls; temporal Agreement leads-to with fairness",
       "verdicts": {
         "m-ppp-atomic": "complete clean",
         "m-ppp-bug": "temporal properties VIOLATED (permanent split-brain stutter)",
         "m-ppp-repair": "complete clean",
         "m-ppp-sweep": "complete clean (after removing one-shot latch; first pass violated -> one-shot boot sweep insufficient)"
+      },
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 0a0af7132a (at 90267c06) vs post-strip blob 94e9e29417 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/PublishPartialPointer.tla && md5sum verification/publication-bundle/PublishPartialPointer.tla && sha256sum verification/publication-bundle/PublishPartialPointer.tla && git hash-object verification/publication-bundle/PublishPartialPointer.tla",
+        "fields": {
+          "contentMD5": {
+            "pre": "90f1d668b801b7b6cdec55ad160a1e4c",
+            "post": "ba039a337ee453cb3357ceedcb9eb30e"
+          },
+          "md5": {
+            "pre": "456e459523d4b6fadb6c47e3e8623f69",
+            "post": "ba039a337ee453cb3357ceedcb9eb30e"
+          }
+        },
+        "priorValueUntraceable": {
+          "contentMD5": "prior contentMD5 value 90f1d668b801b7b6cdec55ad160a1e4c matched no committed blob of this path (git-log --follow scan at re-pin time): stale credential, not proof; replaced with true post-strip md5 per C3."
+        }
       }
     },
     "reconcileDangleTrust": {
       "contentMD5": "13b8bf3a27411016d1d8561c0d9cf67f",
       "file": "ReconcileDangleTrust.tla",
-      "md5": "29d78f41fac2e454971f26ff911a1176",
+      "md5": "4c196436bd1d37a57534b55cfd19e8f3",
       "models": "F-B12 interleaving + three fix tiers + AtomicPublish boundary (r26 repaired publish)",
       "repairNote": "Round 29: RecheckBeforeDrop shipped in bundle_store.go (reconcile+Abort live recheck, fail-closed); m-dangle-atomic-current stays as pre-repair fault control",
       "verdicts": {
@@ -1162,10 +1416,23 @@
         "m-dangle-reader": "HealthyDiscovery holds only (reader tier = discovery-only protection; data integrity NOT claimed)",
         "r27-reruns": "bug/reader/RecheckBeforeDrop/PinAtActivation re-run after AtomicPublish gating, expectations all matched (logs /tmp/opencode/r27-matrix)"
       },
-      "warnings": "0 all four configs"
+      "warnings": "0 all four configs",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 0fc2e195c9 (at 90267c06) vs post-strip blob 84c7cf3e7f -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/ReconcileDangleTrust.tla && md5sum verification/publication-bundle/ReconcileDangleTrust.tla && sha256sum verification/publication-bundle/ReconcileDangleTrust.tla && git hash-object verification/publication-bundle/ReconcileDangleTrust.tla",
+        "fields": {
+          "md5": {
+            "pre": "29d78f41fac2e454971f26ff911a1176",
+            "post": "4c196436bd1d37a57534b55cfd19e8f3"
+          }
+        }
+      }
     },
     "releaseBindingTrust": {
-      "contentMD5": "3b0cd15edeaa3534c03c0812948c8e5b",
+      "contentMD5": "ae4f380fbac8fd99071a63b41539a76b",
       "evidence": {
         "final": "violation: CorrectBinding violated, min trace depth 3 (Publish; PrepareRelease; Activate); holds: 206 gen/69 distinct/0 queue depth 5, no deadlock, collision prob 5.1E-16; 0 warnings both",
         "launch": " java -XX:+UseParallelGC -Xmx1024m -cp $TLA2TOOLS_JAR tlc2.TLC -workers 2 -metadir <per-run> -config <cfg> ReleaseBindingTrust",
@@ -1173,7 +1440,7 @@
       },
       "file": "ReleaseBindingTrust.tla",
       "maintainNote": "round-18 anchor audit; comment path fixed (server/release_verifier.go); 6 arms re-ran identical verdicts; m-downgrade arms belong to ActiveGenerationTrust",
-      "md5": "3b0cd15edeaa3534c03c0812948c8e5b",
+      "md5": "ae4f380fbac8fd99071a63b41539a76b",
       "md5Note": "pinned post Round-18 comment fix (path citation server/release_verifier.go:31); re-verified at Round 22 health sweep",
       "notes": "fidelity fixes during bring-up: ~activated guard on PrepareRelease (production single-transition CAS), stutter UNCHANGED vars in Next, timestamps bounded by MaxStamps=4, '==>' rejected by this SANY build (use =>), E_e/\\E quirk.",
       "purpose": "F-B6 release-binding trust gap: name-latest echo bound verbatim by release Create; Recheck constant models activation-time identity re-verification (proposed fix)",
@@ -1190,10 +1457,28 @@
       "round42": "UPDATED (comment-only): release_verifier.go:31 pin re-pointed to :35-39 after round-41 adapter insert shifted the echoed literal. Four-arm re-run r42 identical verdicts (m-rebind-case+rebind-violation VIOLATE CorrectBinding exit=12 durable breaks; rebind-caseholds+rebind-holds exit=0 complete, holds 206 gen/69 distinct/0 queue). Logs /tmp/opencode/rbt-m?-*; actual names rbt-rebind-*-r42.log/.exit. tlc-run launcher recovered.",
       "lastSyncCommit": "218edabb121e1c14e9466f4f47b1b635f0b9511e",
       "maintenance20261102": "UPDATED (comment-only) + in sync: release_store.go:178 anchors re-pointed to :175-178 (F-B15 comment block in 8160bb97 shifted the CAS patch lines; verified LET updates/patch lines at :175-177). Verified true in code: FindExecutionBySelector :170-182 with lowercase-only SORT publishedAt :179, release_verifier.go:35-39 verbatim ExecutionID echo. Four arms re-ran identical (holds/caseholds clean 206-class space, violation/case CorrectBinding VIOLATED), logs /tmp/opencode/maint-b/m-rebind-*.log, warnings=0. 8c21eb64 NO-EFFECT: selector lookup filters discrete doc columns, never the PointerName string. Name opaque — cross-identity name-fold not described; covered by go witnesses only.",
-      "recordVerificationR56": "Record-writer SELF-RUN 2026-11-02 (/tmp/opencode/r56-tlc/m-rebind-*.log|.exit): holds+caseholds exit=0 CLEAN (206 gen/69 distinct each), violation+case exit=12 CorrectBinding VIOLATED with witness action-depth 3 (Publish;PrepareRelease;Activate — trace-action count; consistent with r42 depth-3 wording; generated-count run variance: self 108/58 and 102/59 vs worker 108/56 and 100/54), warnings=0 all four. md5 3b0cd15edeaa3534c03c0812948c8e5b re-verified. Anchor audit SELF-RUN: release_store.go :175-178 EXACT (LET-update patch :175-177, close :178; alreadyActive :162/:163); bundle_registry.go FindExecutionBySelector :170 with lowercase-only publishedAt SORT :179; release_verifier.go:35-39 verbatim ExecutionID echo. Diff vs 218edabb = 2 comment lines only; all cfgs byte-identical to 218edabb."
+      "recordVerificationR56": "Record-writer SELF-RUN 2026-11-02 (/tmp/opencode/r56-tlc/m-rebind-*.log|.exit): holds+caseholds exit=0 CLEAN (206 gen/69 distinct each), violation+case exit=12 CorrectBinding VIOLATED with witness action-depth 3 (Publish;PrepareRelease;Activate — trace-action count; consistent with r42 depth-3 wording; generated-count run variance: self 108/58 and 102/59 vs worker 108/56 and 100/54), warnings=0 all four. md5 3b0cd15edeaa3534c03c0812948c8e5b re-verified. Anchor audit SELF-RUN: release_store.go :175-178 EXACT (LET-update patch :175-177, close :178; alreadyActive :162/:163); bundle_registry.go FindExecutionBySelector :170 with lowercase-only publishedAt SORT :179; release_verifier.go:35-39 verbatim ExecutionID echo. Diff vs 218edabb = 2 comment lines only; all cfgs byte-identical to 218edabb.",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob 1395c72fe5 (at 90267c06) vs post-strip blob 70de7f8cf8 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/ReleaseBindingTrust.tla && md5sum verification/publication-bundle/ReleaseBindingTrust.tla && sha256sum verification/publication-bundle/ReleaseBindingTrust.tla && git hash-object verification/publication-bundle/ReleaseBindingTrust.tla",
+        "fields": {
+          "contentMD5": {
+            "pre": "3b0cd15edeaa3534c03c0812948c8e5b",
+            "post": "ae4f380fbac8fd99071a63b41539a76b"
+          },
+          "md5": {
+            "pre": "3b0cd15edeaa3534c03c0812948c8e5b",
+            "post": "ae4f380fbac8fd99071a63b41539a76b"
+          }
+        }
+      },
+      "recordVerificationR56Amendment": "lane05 2026-11-13: digest(s) quoted in this record are pre-strip values for ReleaseBindingTrust.tla; the file was comment-stripped token-identically in the lane05 wave (record itself unchanged). Post-strip digests + trail: 'lane05Repin' in this object."
     },
     "releaseRevisionIdempotence": {
-      "md5": "56558ef9ffa913eb16b524ab43f5e5b1",
+      "md5": "8817857eba7ba057aaed53035a85f3b0",
       "status": "UPDATED + IN SYNC Round 42: stale source pins re-pointed to current code (Create call :247, Create :147, releaseID :288-295, release_store alreadyActive :162-163, live-revision wiring internal/server/server.go:569-580 -- earlier cite 'internal/explorer/lifecycle/server.go:565-581' was wrong-path). Round-41 product change (verifier fault branch) is an unmodeled early return; no modeled shape change (idempotence granularity unchanged). MISSING COMMENT OPENER: SOURCE SYNC block had lost its `(*` (prose parsed as code; TLC lexical error line 23) -- restored `(*` pre-open; origin undetermined (r31 /tmp logs already recycled; possible drop by an earlier header edit -- the mangled 'e00a...' line suggests prior manual surgery). Pair re-run current bytes via tlc-run (launcher RECOVERED, contrary to r27 record): m-rri-shipped exit=12 Invariant Idempotence VIOLATED (durable fault control / break proves check can still fail), m-rri-fixed exit=0 complete clean 2 distinct states, 0 violations; fp-fingerprint warnings = small-state-space noise, logged. Logs /tmp/opencode/rri-{shipped,fixed}-r42.log.",
       "tla": "verification/publication-bundle/ReleaseRevisionIdempotence.tla",
       "tlaMd5Algorithm": "md5",
@@ -1201,23 +1486,71 @@
       "lastSyncCommit": "218edabb121e1c14e9466f4f47b1b635f0b9511e",
       "maintenance20261102": "UPDATED (comment-only) + in sync: pointer-churn re-patch cite :163-170 -> :163,173-178 (8160bb97 comment insertion). Citations verified against code: Create :147, Activate->Create :247, releaseID content fold :288-295 (revision EXCLUDED per F-B15), alreadyActive :162-163 zero-write :175, server live-revision pattern :569-581. 1973b9ae store-fault early return already adjudicated round-42 as unmodeled early return, NO-EFFECT on idempotence granularity. 8c21eb64 NO-EFFECT (no file overlap): Identity() abstracts the releaseId as a content string — the model never described the byte-level fold. The pre-fix hazard flagged below is SUPERSEDED by this hardening bundle: releaseID now uses length-prefixed framing (release.go:345 releaseID -> releaseIDFraming :356-365 / writeLengthPrefixed :367-371, len:content for Project/Generation/ExecutionID, Selector.Key emitted verbatim) replacing the bare-NUL join, so the fold is injective by construction (witness internal/dataset/release_id_framing_test.go). NO TLC RE-RUN required: m-rri Identity() abstracts the releaseId as an opaque content string and never modeled the byte-level fold, so the concrete framing change cannot alter any modeled state or verdict - reviewer-verified (abstract Identity()), consistent with the round-57 record 8c21eb64 NO-EFFECT: Identity() abstracts the releaseId as a content string Pair re-ran: m-rri-fixed CLEAN (2 distinct), m-rri-shipped Idempotence VIOLATED, logs /tmp/opencode/maint-b/m-rri-*.log.",
       "recordVerificationR56": "Record-writer SELF-RUN 2026-11-02 (/tmp/opencode/r56-tlc/m-rri-*.log|.exit): m-rri-fixed exit=0 CLEAN (3 gen/2 distinct), m-rri-shipped exit=12 Idempotence VIOLATED, warnings=0. md5 ba0976d3c80c6399922c56102438bccc re-verified. Anchor audit SELF-RUN: release.go Create :147, Activate->Create :247, releaseID fold :288-295 (revision excluded); release_store alreadyActive :162-163, zero-write patch :175-177 — CAVEAT on the r56 comment cite ':163,173-178': region-correct but the F-B15 comment block :172-174 sits inside the span; prefer ':163,175-178'. 4-line NUL-reachability closure self-probed (see sideFindings releaseID-fold-hardening); diff vs 218edabb = 1 comment line only.",
-      "recordVerificationR57": "Record-writer round 57: applied the DISCLOSED anchor alignment inside the booked formal-pass edit — pointer-churn witness comment 'release_store.go:163,173-178; alreadyActive arms skip writes' -> ':163,175-178; alreadyActive arms skip writes' (comment-only; EXCLUDES the F-B15 comment block :172-174 that sat inside the older span; the round-57 brief booked the edit as carrying the r56-recorded improvement but on-disk still read 173). Anchors re-verified against current release_store.go bytes this session: alreadyActive :162, selectedRevision :163, comment block :172-174, LET-updates patch statements :175-177, closing bracket :178. Post-edit arms re-ran via /sandbox/.local/bin/tlc-run (TLC_WORKERS=2 TLC_HEAP_MB=1024 -fp 21, one private -metadir each; /tmp/opencode/r57-tlc/m-rri-fixed.log|.exit + m-rri-shipped.log|.exit): m-rri-fixed exit=0 COMPLETE CLEAN 3 states/2 distinct; m-rri-shipped exit=12 Invariant Idempotence VIOLATED (5/5); warnings=0. md5 re-pinned f86d248cba7f5efbd38f73ce56a3323a (supersedes ba0976d3... recorded at r56 for the 173-span byte)."
+      "recordVerificationR57": "Record-writer round 57: applied the DISCLOSED anchor alignment inside the booked formal-pass edit — pointer-churn witness comment 'release_store.go:163,173-178; alreadyActive arms skip writes' -> ':163,175-178; alreadyActive arms skip writes' (comment-only; EXCLUDES the F-B15 comment block :172-174 that sat inside the older span; the round-57 brief booked the edit as carrying the r56-recorded improvement but on-disk still read 173). Anchors re-verified against current release_store.go bytes this session: alreadyActive :162, selectedRevision :163, comment block :172-174, LET-updates patch statements :175-177, closing bracket :178. Post-edit arms re-ran via /sandbox/.local/bin/tlc-run (TLC_WORKERS=2 TLC_HEAP_MB=1024 -fp 21, one private -metadir each; /tmp/opencode/r57-tlc/m-rri-fixed.log|.exit + m-rri-shipped.log|.exit): m-rri-fixed exit=0 COMPLETE CLEAN 3 states/2 distinct; m-rri-shipped exit=12 Invariant Idempotence VIOLATED (5/5); warnings=0. md5 re-pinned f86d248cba7f5efbd38f73ce56a3323a (supersedes ba0976d3... recorded at r56 for the 173-span byte).",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob aa164c0e95 (at 90267c06) vs post-strip blob 0c8684085b -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/ReleaseRevisionIdempotence.tla && md5sum verification/publication-bundle/ReleaseRevisionIdempotence.tla && sha256sum verification/publication-bundle/ReleaseRevisionIdempotence.tla && git hash-object verification/publication-bundle/ReleaseRevisionIdempotence.tla",
+        "fields": {
+          "md5": {
+            "pre": "56558ef9ffa913eb16b524ab43f5e5b1",
+            "post": "8817857eba7ba057aaed53035a85f3b0"
+          }
+        }
+      },
+      "hardeningFollowup20261102Amendment": "lane05 2026-11-13: digest(s) quoted in this record are pre-strip values for ReleaseRevisionIdempotence.tla; the file was comment-stripped token-identically in the lane05 wave (record itself unchanged). Post-strip digests + trail: 'lane05Repin' in this object."
     },
     "repairNote": "repo spec had unassigned-var corruption from earlier edits (backup post-damage, stale md5); repaired via manual BeginAcquire tuple fix + TLC-guided UNCHANGED completion; verified warnings-free; matrix reproduced with f3 depth restated.",
     "startupReconcileWedge": {
-      "contentMD5": "d9bae1796c97cdafc329baebfe2a312a",
+      "contentMD5": "894e5e961b0f3def5316e8354c9d9a84",
       "file": "StartupReconcileWedge.tla",
-      "md5": "d9bae1796c97cdafc329baebfe2a312a",
+      "md5": "894e5e961b0f3def5316e8354c9d9a84",
       "models": "F-B3 pin-blocked startup wedge (bundle_store.go:1033-1052/1076-1079/301-313, server.go:556-559)",
       "verdicts": {
         "m-wedge (PinnedExpiry=10 > TimeMax=8)": "EventuallyReady temporal VIOLATED, complete space 9 distinct, via tlc-run",
         "m-wedge-clear (PinnedExpiry=10 <= TimeMax=12)": "Model checking completed, no error, 44/16 complete"
       },
-      "warnings": "0 both configs"
+      "warnings": "0 both configs",
+      "lane05Repin": {
+        "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+        "date": "2026-11-13",
+        "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+        "tokenIdentity": "reproducible: lex git blob afbbe165e7 (at 90267c06) vs post-strip blob 22afd38282 -- token streams identical (lever proof retained in lane05 artifact)",
+        "command": "git add verification/publication-bundle/StartupReconcileWedge.tla && md5sum verification/publication-bundle/StartupReconcileWedge.tla && sha256sum verification/publication-bundle/StartupReconcileWedge.tla && git hash-object verification/publication-bundle/StartupReconcileWedge.tla",
+        "fields": {
+          "contentMD5": {
+            "pre": "d9bae1796c97cdafc329baebfe2a312a",
+            "post": "894e5e961b0f3def5316e8354c9d9a84"
+          },
+          "md5": {
+            "pre": "d9bae1796c97cdafc329baebfe2a312a",
+            "post": "894e5e961b0f3def5316e8354c9d9a84"
+          }
+        }
+      }
     },
     "tla": "verification/publication-bundle/BundleCommitLifecycle.tla",
     "tool": "TLA2TOOLS_JAR pinned tla2tools.jar sha256 936a2620 matched against verification/builder-interactions/tools.lock.json",
-    "tooling": "TLC via /sandbox/.local/bin/tlc-run; state predicates as INVARIANT; logs /tmp/opencode/rbt-*.log"
+    "tooling": "TLC via /sandbox/.local/bin/tlc-run; state predicates as INVARIANT; logs /tmp/opencode/rbt-*.log",
+    "lane05RepinCanonical": {
+      "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
+      "date": "2026-11-13",
+      "reason": "unified comment-strip wave: comment-only removal; token/AST sequence identical pre/post per language; no semantic edit",
+      "tokenIdentity": "reproducible: lex git blob 90f6b7be04 (at 90267c06) vs post-strip blob f3ba485241 -- token streams identical (lever proof retained in lane05 artifact)",
+      "command": "git add verification/publication-bundle/BundleCommitLifecycle.tla && md5sum verification/publication-bundle/BundleCommitLifecycle.tla && sha256sum verification/publication-bundle/BundleCommitLifecycle.tla && git hash-object verification/publication-bundle/BundleCommitLifecycle.tla",
+      "fields": {
+        "canonicalTlaMd5": {
+          "pre": "14d341f86d6f4f072a585434334dfc7a",
+          "post": "36c66fb5af5edbcf89bb9ca6867986dc"
+        },
+        "canonicalTlaMd5Algorithm": {
+          "pre": "md5 (convention); sha256=c557221898275fccea612a18bf21dec070c08e8cf895ef5e50e4f538869e223d",
+          "post": "md5 (convention); sha256=76a073e7ae4ea3bd9a69d62c06866135fd4cfccbc812f739da70237e836b043a"
+        }
+      }
+    }
   },
   "operator": {
     "byReading": [
@@ -1669,7 +2002,8 @@
     "round63": "reviewRecords 54->62 (+8 live-byte pins across wave dc52ed0a..c63b622e; TableShapeSettingsPanel pair booked as 2, journey scripts+registry as 1) + 6 disclosed re-pins (3 wave @dc52ed0a/7e9d1449 + 3 unpivot-lane @cd39eeaf). Sweep 62/62 / 0 drift (19 annot-only; 2 self pre-tail); canonical roundtrip BYTE-IDENTICAL; 3-way agreement at 62. BS-62: 4 closed (2/3/4/7 w/ commit refs), 2 not-a-defect (1,6 w/ proof), BS-62-5 restated to 4 byte-derived cases (Case1 CLOSED c63b622e; Cases2-4 -> OPS-63-01) with coordinate corrections (TableShapeUnpivotProposal:5069-5080 not :3907; drop :830; Case1 400 MALFORMED_REQUEST not 422). genbind AllGenerations product defect CONFIRMED+CLOSED dc52ed0a (F-B27-adjacent, live-Arango RED->GREEN + F-B27 counterfactual). U1 CLOSED (ConstructionProjectionOwnership cf0ca558). New rows: genbind closed; picker re-key pending-verification (:321 uncommitted); RS03 S-A in flight (S-C next, S-B/D later); T4/bridge restart caveat. sideFindings 39->42. Sole-writer honored.",
     "round64": "round 64 part-1 records lane (sole writer verification/publication-bundle + docs/BUILDER_WORKLIST.tsv): RS03 row-96 server-side clauses landed -- S-A ebf97a40 (precise reason classes; reviewer PASS, 24 dispatch-branch mutant kills), S-C 29d63f6f (single meaningful-label builder + control-byte refusal; adversarial REQUEST-CHANGES C6 -> fix -> PASS with control-byte witness), S-B d3a1d12a (fail-closed inventory-unavailable codes, typed wrap, no-leak; adversarial PASS 6/6); zero-value Runner named fault f177a9ed (adversarial PASS 5/5); formal portfolio re-sync ea6df079 (all IN SYNC, verbatim clean-arm counts). reviewRecords 62->71 (+9 new hash-records, 4 disclosed re-pins, sweep 71/71 drift 0). sideFindings 42->44. Worklist row 96 -> server-side clauses landed; closure pending focused-native-journey + journey re-accept runtime (3 WILL-FLIP families per /tmp/opencode/label-journey-coupling.md). 403-masking triage lane IN FLIGHT, disclosed without claiming result. docs/BUILDER_VERIFICATION.tsv + backlog doc untouched this half; no commits.",
     "round64_part2": "round 64 part-2 records lane: parent-committed 7fcb640f (row-96 four-state focused-native journey AUTHORED pending live window; caught-gap disclosed: worker registry entry omitted mandatory coverage array -> lifecycleAcceptanceDrift crash in full 99-file offline suite -> coordinator drift-legal probe-kind coverage fix, status untested) + 3cfec1b7 (403-masking CLOSED: typed 503 BACKEND_UNAVAILABLE + isArangoPermissionResponse deny guard; adversarial REQUEST-CHANGES->PASS-after-repair). reviewRecords 71->78 (+7 new live-byte records; registry.mjs FIRST standalone pin supersedes r63 inline booking, marked NOT-a-duplicate; docs/BUILDER_VERIFICATION.tsv pinned read-only @7fcb640f, journey lane owns writes). sideFindings 44->45 (+UI four-state met-by-code audit w/ 2 EXPAND-family proposals operator-triage); 403-masking entry CLOSED. WORKLIST row 96 next_action += journey authored pending live window (7fcb640f). 3-way agreement re-verified at 78; canonical byte-stable; audit on parent HEAD 3cfec1b7 via detached worktree.",
-    "round65": "round 65 records lane (sole writer verification/publication-bundle + docs/BUILDER_WORKLIST.tsv): discovery-pass dispositions folded -- C1 CLEARED-OWNER RE-IMPORT FIXED @8459f080 (RED-first x2, reviewer exact-replay), C2 LEASE-LOST PHANTOM TRIO FIXED @87ee09c7 (health-gated demotion both twins, R20 4/4 + R20B 64/64, M1/M2 load-bearing), C3 SIGNED-SET-NON-MATCHING-KIND needs-operator-decision (digest draft section (g); D10-dead-code sideFinding REFUTED -- arms ALIVE), C4 POPULATION-FLAGS PREVENTED-BY-CODE (residual-low optional witness), C5 PREPARE-LANES RESOLVED-VIA-MODEL-UPDATE @49d6999e. Formal resync: 11/12 IN SYNC; A3 stale-clean-pass finding quoted honestly (old CLEAN pass described the C1 defect pre-8459f080). 403 sibling spot-check SELF-RUN: construction_inputs_catalog.go correct polarity; repo-wide no-other-literal-403 attributed to the f403-lane sweep (flagged, not re-derived). reviewRecords 78->83 (11 touched keys = 5 standalone new + 6 re-pins/record-upgrades; count honesty vs the assignment rough +11 disclosed; sideFindings 45->48 (incl +1 second-discovery-pass NO-BUG-FOUND: authoring-command idempotency/replay PROTECTED-BY-CODE, 6 scenarios + batch atomicity; disclosed design note = digest excludes ExpectedDraftVersion @commands.go:591, safe because version-guard follows replay arm; idem-probe-P1..P7 7/7 exit 0 @87ee09c7 -- guards additionally SELF-RUN by this writer)). WORKLIST row 96 evidence += formal resync refs. All pins script-derived live==cited-blob==blob@HEAD==on-disk@HEAD via detached worktree /tmp/opencode/wt-r65 @49d6999e."
+    "round65": "round 65 records lane (sole writer verification/publication-bundle + docs/BUILDER_WORKLIST.tsv): discovery-pass dispositions folded -- C1 CLEARED-OWNER RE-IMPORT FIXED @8459f080 (RED-first x2, reviewer exact-replay), C2 LEASE-LOST PHANTOM TRIO FIXED @87ee09c7 (health-gated demotion both twins, R20 4/4 + R20B 64/64, M1/M2 load-bearing), C3 SIGNED-SET-NON-MATCHING-KIND needs-operator-decision (digest draft section (g); D10-dead-code sideFinding REFUTED -- arms ALIVE), C4 POPULATION-FLAGS PREVENTED-BY-CODE (residual-low optional witness), C5 PREPARE-LANES RESOLVED-VIA-MODEL-UPDATE @49d6999e. Formal resync: 11/12 IN SYNC; A3 stale-clean-pass finding quoted honestly (old CLEAN pass described the C1 defect pre-8459f080). 403 sibling spot-check SELF-RUN: construction_inputs_catalog.go correct polarity; repo-wide no-other-literal-403 attributed to the f403-lane sweep (flagged, not re-derived). reviewRecords 78->83 (11 touched keys = 5 standalone new + 6 re-pins/record-upgrades; count honesty vs the assignment rough +11 disclosed; sideFindings 45->48 (incl +1 second-discovery-pass NO-BUG-FOUND: authoring-command idempotency/replay PROTECTED-BY-CODE, 6 scenarios + batch atomicity; disclosed design note = digest excludes ExpectedDraftVersion @commands.go:591, safe because version-guard follows replay arm; idem-probe-P1..P7 7/7 exit 0 @87ee09c7 -- guards additionally SELF-RUN by this writer)). WORKLIST row 96 evidence += formal resync refs. All pins script-derived live==cited-blob==blob@HEAD==on-disk@HEAD via detached worktree /tmp/opencode/wt-r65 @49d6999e.",
+    "round58Amendment": "lane05 2026-11-13: ReleaseRevisionIdempotence.tla md5 quoted in round58 is the pre-strip value; token-identical comment strip in the lane05 wave; post-strip value + trail: model.releaseRevisionIdempotence.lane05Repin."
   },
   "findingsWithRepairs": {},
   "backlogTriage": {
