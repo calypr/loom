@@ -79,6 +79,10 @@ func TestActivationStatementsCarryTheCompositeGuards(t *testing.T) {
 			"SET status = 'ACTIVE', activated_at = $2, failed_at = NULL, diagnostics = $3, publication = $4",
 			"WHERE id = $1 AND status = 'READY'",
 		}},
+		{"candidateRevive", stmts.publish.candidateRevive, []string{
+			"SET status = 'ACTIVE', activated_at = $2, failed_at = NULL, diagnostics = $3, publication = $4",
+			"WHERE id = $1 AND status = 'FAILED'",
+		}},
 		{"ownerActivate", stmts.publish.ownerActivate, []string{
 			"SET active_revision_id = $3, updated_at = $4", "WHERE project = $1 AND explorer_id = $2",
 		}},
