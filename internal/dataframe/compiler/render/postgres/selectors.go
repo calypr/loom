@@ -230,8 +230,6 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 				return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q carries presence metadata on an AGGREGATE expression; presence proofs pair with selector extractions only",
 					ErrUnsupportedPostgresPlan, projection.Name)
 			}
-			// Shape validation continues in renderSetAggregateExpression, which needs the
-			// registered set bodies and projections; the classifier is row-scoped.
 			return classifiedExtractionProjection{
 				kind:       extractionAggregate,
 				projection: projection,

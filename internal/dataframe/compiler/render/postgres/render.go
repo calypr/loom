@@ -499,8 +499,6 @@ func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn)
 			}
 			expression = value
 		case extractionAggregate:
-			// The aggregate gate keeps its canonical refusal text: shapes outside the
-			// registered correlated-sublink surface stay pg-sql-13 territory.
 			value, err := r.renderSetAggregateExpression(plan, projection.projection)
 			if err != nil {
 				return fmt.Errorf("%w: %s expression has no registered PostgreSQL rendering for this shape: %s",

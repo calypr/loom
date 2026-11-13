@@ -92,15 +92,6 @@ func pwin01RunDeltaAudit(inner func() int) int {
 	return code
 }
 
-// TestPostWindowLiveReducersExecuteWithPredicates executes the accepted post-window aggregate
-// statements on a live PostgreSQL 18 instance. The items subselect is (SELECT ... FROM edge
-// JOIN resource WHERE <predicate over the target payload>) AS a<seq>: a FROM alias is not
-// visible inside the subselect it defines, so a predicate built over the items alias must be
-// rejected at plan analysis ("invalid reference to FROM-clause entry") even though substring
-// assertions on the rendered SQL cannot see it. Seeded fixtures pin the semantics too: two
-// edge occurrences that reach the same child collapse into one item, matching the AQL arm's
-// UNIQUE-wrapped set LET (lower/child_sets.go:88 always sets Unique), and a
-// predicate-mismatched child is excluded from every reducer.
 func TestPostWindowLiveReducersExecuteWithPredicates(t *testing.T) {
 	svc := newPWin01Service(t)
 	pwin01TrackFixtures(t, svc)
@@ -141,9 +132,6 @@ func TestPostWindowLiveReducersExecuteWithPredicates(t *testing.T) {
 	}
 	got := svc.runRendered(t, rendered)
 
-	// p-1: obs-a (value 10, asthma) is reached by two stored occurrences but contributes one
-	// item (AQL UNIQUE parity); obs-b (30, asthma) contributes one; obs-c (diabetes) and obs-d
-	// (no code) fail the predicate. So SUM 10+30=40, COUNT 2, MIN 10, MAX 30.
 	want := [][]string{
 		{"p-1", "40", "2", "10", "30"},
 		{"p-2", "<null>", "0", "<null>", "<null>"},

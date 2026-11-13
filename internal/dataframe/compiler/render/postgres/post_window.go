@@ -8,26 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// This file registers the post-window render surface. The compiler scheduler places the
-// execution window (the generic SORT/LIMIT from compiler/output.go) at ir.PhysicalScopeWindowEnd,
-// which stops at the first TRAVERSAL, SET, or RETURN operation. Child-route traversals, child
-// sets, and aggregate RETURN expressions therefore legally follow the window; the AQL arm
-// renders them as LET collections and FLATTEN reducers (render/aql). The guards in
-// renderOperations stay the fail-closed default: an operation after the window is accepted
-// only through the structural contracts below.
-//
-// Soundness: the window is ORDER BY/LIMIT over root rows, so an accepted post-window operation
-// must not multiply or filter root rows. Dead traversals render nothing. Child sets and
-// SUM/COUNT/MIN/MAX reducers render as scalar correlated sublinks on the sets.go
-// setReductionSublink model: they never append to r.joins, r.laterals, or r.where.
-
-// acceptPostWindowTraversal accepts a post-window TRAVERSAL only when it is dead: it passes the
-// registered traversal contract, closes with the canonical scope block, and no operation after
-// its scope block reads its edge or target variable. Rendering then emits nothing, matching the
-// AQL arm, which binds a LET collection that no downstream stage consumes.
-// On acceptance it returns handled=true and the index just past the traversal and its scope
-// block. On a contract miss it returns handled=false so the caller keeps the window guard; on a
-// located consumer it returns a specific unsupported-plan error naming the consuming operation.
 func (r *planRenderer) acceptPostWindowTraversal(plan ir.PhysicalPlan, index int) (handled bool, next int, err error) {
 	_ = r
 	traversal := plan.Operations[index].Traversal
@@ -53,17 +33,11 @@ func (r *planRenderer) acceptPostWindowTraversal(plan ir.PhysicalPlan, index int
 	return true, after, nil
 }
 
-// acceptPostWindowSet accepts a post-window SET only when every consumer is a registered
-// reducer: the FIRST/ALL/DISTINCT reduction, a SLICE over the item array, or a SUM/COUNT/MIN/MAX
-// aggregate expression with this set as its source. None of those consumers joins root rows;
-// they all render as correlated sublinks, so the window stays a final ORDER BY/LIMIT.
 func acceptPostWindowSet(plan ir.PhysicalPlan, set ir.PhysicalSet) bool {
 	return set.Reduction != nil || sliceConsumesSetVariable(plan, set.Variable) ||
 		aggregateConsumesSetVariable(plan, set.Variable)
 }
 
-// aggregateConsumesSetVariable reports whether a RETURN projection reduces the registered set
-// variable with one of the four registered aggregate operations over that exact set source.
 func aggregateConsumesSetVariable(plan ir.PhysicalPlan, setVariable string) bool {
 	for _, operation := range plan.Operations {
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
@@ -91,8 +65,6 @@ func aggregateReadsSet(aggregate *ir.PhysicalAggregate, setVariable string) bool
 	return aggregate.Source.Variable == setVariable && aggregate.Source.BindKey == "" && len(aggregate.Source.Path) == 0
 }
 
-// operationReferencesVariables conservatively reports whether an operation could read any of
-// the named variables. Unregistered operation kinds and expression forms answer true.
 func operationReferencesVariables(operation ir.PhysicalOperation, variables map[string]bool) bool {
 	switch operation.Kind {
 	case ir.PhysicalFilterOp:
@@ -322,13 +294,6 @@ func valueReferencesVariables(value ir.PhysicalValue, variables map[string]bool)
 	return value.Variable != "" && variables[value.Variable]
 }
 
-// renderSetAggregateExpression renders a RETURN AGGREGATE expression over a registered child
-// set as a scalar correlated sublink, mirroring the AQL reducer reading
-// (render/aql/collections.go renderAggregate): items are the set's distinct reached documents,
-// values are the flattened selector values per item, SUM raises ASSERT NUMERIC_AGGREGATE_NON_NUMERIC
-// on a non-numeric value like the AQL ASSERT, an empty reduction yields null, and MIN/MAX pick
-// the extreme by the AQL value-type ranking (number < boolean < string < array < object) over
-// non-null values.
 func (r *planRenderer) renderSetAggregateExpression(plan ir.PhysicalPlan, projection ir.PhysicalProjection) (string, error) {
 	aggregate := projection.Expression.Aggregate
 	if aggregate == nil {
@@ -377,24 +342,12 @@ func (r *planRenderer) renderSetAggregateExpression(plan ir.PhysicalPlan, projec
 
 	whereParts := []string{corr.where}
 	if aggregate.Predicate != nil {
-		// The predicate lands in the items subselect's WHERE, where the items alias a<seq> is
-		// not yet visible (it names that very subselect; PostgreSQL rejects the back-reference
-		// with SQLSTATE 42P01). The item row there is corr.targetAlias, whose payload column
-		// the subselect projects — the only legal base. The value slot keeps itemAlias because
-		// it renders in the outer query's CROSS JOIN LATERAL, where itemAlias is in scope.
 		clause, clauseErr := r.aggregatePredicateFragment(plan, setVariable, fields, corr, corr.targetAlias, aggregate.Predicate)
 		if clauseErr != nil {
 			return "", fmt.Errorf("projection %q: aggregate predicate: %w", projection.Name, clauseErr)
 		}
 		whereParts = append(whereParts, clause)
 	}
-	// One row per reached document: lower/child_sets.go:88 builds every child set with
-	// Unique: true / SortByKey: true (this package refuses their absence at sets.go:174-177),
-	// so the AQL set LET always wraps the item array in UNIQUE(...)
-	// (render/aql/navigation_render.go:294-296). Two edge occurrences that reach the same
-	// target document therefore collapse into one item there, and the items subselect must
-	// collapse identically here or COUNT/SUM and the per-item predicate filtering diverge
-	// from the AQL arm. Same shape as setReductionSublink's SELECT DISTINCT (sets.go:274).
 	items := "(SELECT DISTINCT " + corr.targetAlias + "." + logicalIDColumn + " AS " + logicalIDColumn +
 		", " + corr.targetAlias + "." + resourceTypeColumn + " AS " + resourceTypeColumn +
 		", " + corr.targetAlias + "." + payloadColumn + " AS " + payloadColumn +
@@ -423,9 +376,6 @@ func (r *planRenderer) renderSetAggregateExpression(plan ir.PhysicalPlan, projec
 		messageIndex := r.textParameter("NUMERIC_AGGREGATE_NON_NUMERIC", "")
 		raise := "to_jsonb(CAST('ASSERT:' || $" + strconv.Itoa(messageIndex) +
 			" || COALESCE(current_setting(" + quoteSQLLiteral(guardBarrierGUC) + ", true), '') AS integer))"
-		// The SUM runs on the registered numeric-parity helpers (groupBoundedDoubleSum's shape:
-		// per-operand clamp then the IEEE double band), so out-of-band operands converge exactly
-		// as the staged group SUM does instead of erroring or drifting from AQL's double math.
 		numericSum := groupDoubleBandCast("SUM(" + callBandOperandClamp(
 			"(("+elementAlias+".v #>> '{}')::numeric)") + ")")
 		return "(SELECT CASE WHEN COUNT(*) = 0 THEN NULL::jsonb" +
@@ -436,17 +386,9 @@ func (r *planRenderer) renderSetAggregateExpression(plan ir.PhysicalPlan, projec
 		if aggregate.Operation == ir.PhysicalMaxAggregate {
 			direction = "DESC"
 		}
-		// ::numeric, not ::double precision: jsonb numbers are numeric-backed, and a value
-		// outside the double range (jsonb accepts 1e400) must order, not raise out-of-range.
 		numberKey := "CASE WHEN jsonb_typeof(" + elementAlias + ".v) = 'number' THEN (" + elementAlias + ".v #>> '{}')::numeric END"
-		// COLLATE "C" pins byte-order ranking so string/boolean winners match ArangoDB's
-		// byte-order MIN/MAX in any database locale (category_scan.go:287 and
-		// groupAggregateExpression, group.go:943-954, pin the same shape).
 		booleanKey := "CASE WHEN jsonb_typeof(" + elementAlias + ".v) = 'boolean' THEN (" + elementAlias + ".v #>> '{}') END COLLATE \"C\""
 		stringKey := "CASE WHEN jsonb_typeof(" + elementAlias + ".v) = 'string' THEN (" + elementAlias + ".v #>> '{}') END COLLATE \"C\""
-		// ArangoDB sorts values by type: null < booleans < numbers < strings < arrays < objects
-		// (the order MIN/MAX consume); nulls are already excluded above. Within booleans, the
-		// text keys order false before true.
 		rank := "CASE jsonb_typeof(" + elementAlias + ".v) WHEN 'boolean' THEN 1 WHEN 'number' THEN 2 WHEN 'string' THEN 3 WHEN 'array' THEN 4 ELSE 5 END"
 		orderBy := rank + " " + direction + " NULLS LAST, " +
 			numberKey + " " + direction + " NULLS LAST, " +
@@ -459,9 +401,6 @@ func (r *planRenderer) renderSetAggregateExpression(plan ir.PhysicalPlan, projec
 		ErrUnsupportedPostgresPlan, projection.Name, string(aggregate.Operation))
 }
 
-// aggregatePredicateFragment renders the per-item predicate over a registered projection slot of
-// the set, mirroring the AQL per-item predicate loop (renderAggregateItems) and the quantifier
-// semantics of renderSelectorMatchFragment.
 func (r *planRenderer) aggregatePredicateFragment(
 	plan ir.PhysicalPlan,
 	setVariable string,
@@ -485,10 +424,6 @@ func (r *planRenderer) aggregatePredicateFragment(
 	return fragment.sql, nil
 }
 
-// aggregateSlotValues renders a registered set-projection slot over one item document using the
-// pivot repeated-step chain (pivot.go pivotSelectorArray), which covers the DIRECT_SCALAR and
-// CONDITIONAL_ARRAY selector modes the child-set lowering emits. A missing expression renders
-// as the empty string so the caller can require-or-reject it per operation.
 func (r *planRenderer) aggregateSlotValues(
 	setVariable string,
 	fields map[string]ir.PhysicalSetProjectionField,
@@ -559,12 +494,6 @@ func (r *planRenderer) aggregateSlotValues(
 	return r.pivotSelectorArray(base, field.Selector, name)
 }
 
-// validateDeadPostWindowTraversal is the shape gate for a post-window traversal that will be
-// dropped. Because nothing renders, the native-join restrictions in validateTraversalContract
-// (which protect the registered join surface) are too narrow: the AQL arm legally renders both
-// the native and the ENDPOINT_LOOKUP strategy for child routes, so a dead LET may carry either.
-// The gate still requires the shared lowering shape: a bounded direction, a known strategy,
-// the single registered edge relation, canonical type field, named variables, and typed binds.
 func validateDeadPostWindowTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal, source rowScope) error {
 	switch traversal.Direction {
 	case ir.PhysicalOutbound, ir.PhysicalInbound:

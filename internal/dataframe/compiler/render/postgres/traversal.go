@@ -93,9 +93,6 @@ func (r *planRenderer) validateTraversalContract(
 	return verified, nil
 }
 
-// edgeOccurrencePredicates renders the edge-scoped WHERE and the target join ON, registering
-// the label and resource-type bind parameters on first use. Validation alone (for example the
-// dead post-window traversal probe) must not leave orphan parameters in the rendered plan.
 func (r *planRenderer) edgeOccurrencePredicates(
 	verified *validatedTraversal,
 	edgeAlias, targetAlias, sourceAlias string,
@@ -444,9 +441,6 @@ func (r *planRenderer) renderSelectorMatchFragment(
 	return r.quantifiedMatchFragment(plan, predicate, values)
 }
 
-// quantifiedMatchFragment renders the operator/quantifier match of a comparison predicate
-// against an already-rendered jsonb values array expression. It backs both the traversal
-// required-match filter and the aggregate predicate over a set projection slot.
 func (r *planRenderer) quantifiedMatchFragment(
 	plan ir.PhysicalPlan,
 	predicate ir.PhysicalPredicate,

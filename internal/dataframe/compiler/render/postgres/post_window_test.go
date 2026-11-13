@@ -10,12 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// The post-window surface (post_window.go) registers what the compiler scheduler legally emits
-// after the execution window: dead child-route traversals, child sets, and SUM/COUNT/MIN/MAX
-// AGGREGATE RETURN expressions over the registered child-set projection slots. The witness plan
-// is the AuthorWorkload output aggregate_sum_age_by_patient from the #159 paired benchmark
-// (compiler/output.go places the SORT window before the child-route LETs).
-
 func postWindowSetField(name string, steps ...spec.SelectorStep) ir.PhysicalSetProjectionField {
 	return ir.PhysicalSetProjectionField{
 		Name: name, ResourceType: "Observation",
@@ -32,9 +26,6 @@ func postWindowValueSteps() []spec.SelectorStep {
 	return []spec.SelectorStep{{Field: "valueQuantity"}, {Field: "value"}}
 }
 
-// postWindowAggregateSet is the lowering's child set (lower/child_sets.go
-// buildOptionalChildPhysicalSet): one depth-one hop plus its canonical scope block, two
-// projection slots, no reduction — the set is consumed only by the RETURN aggregates.
 func postWindowAggregateSet(endpointStrategy bool) ir.PhysicalSet {
 	traversal := setsTraversal()
 	if endpointStrategy {
@@ -111,8 +102,6 @@ func postWindowAggregateProjection(name string, operation ir.PhysicalAggregateOp
 	}
 }
 
-// postWindowAggregatePlan places the SORT window before the child set and the aggregate RETURN,
-// exactly where compiler/output.go puts the generic window relative to the child-route LETs.
 func postWindowAggregatePlan(set ir.PhysicalSet, projections ...ir.PhysicalProjection) ir.PhysicalPlan {
 	plan := setsPlan()
 	plan.BindVars[setsPrefix+"_predicate_value"] = "asthma"
@@ -136,13 +125,6 @@ func TestPostWindowAggregateReducersRenderAsCorrelatedSublinks(t *testing.T) {
 	rendered := renderOK(t, plan)
 	sql := rendered.SQL
 
-	// Alias-scope structure (live-proven by TestPostWindowLiveReducersExecuteWithPredicates):
-	// the items subselect's predicate must read the reached target row's payload, never the
-	// items alias that names the subselect itself — PostgreSQL rejects that back-reference
-	// (SQLSTATE 42P01) and substring checks alone cannot see it.
-	// Items carry SELECT DISTINCT: lower/child_sets.go:88 always sets Unique and the AQL arm
-	// always wraps the item array in UNIQUE (render/aql/navigation_render.go:294-296), so two
-	// occurrences reaching one document must collapse to one item on both arms.
 	itemsRegion := regexp.MustCompile(`(?s)\(SELECT DISTINCT x1\."logical_id".*?\) AS a\d+`)
 	regions := itemsRegion.FindAllString(sql, -1)
 	if len(regions) != 4 {
@@ -161,19 +143,14 @@ func TestPostWindowAggregateReducersRenderAsCorrelatedSublinks(t *testing.T) {
 		t.Fatalf("aggregate sublinks must not add outer joins:\n%s", sql)
 	}
 	for _, want := range []string{
-		// SUM: registered numeric parity (operand clamp + IEEE band), empty -> NULL, non-numeric guard.
 		"CASE WHEN COUNT(*) = 0 THEN NULL::jsonb",
 		"bool_and(jsonb_typeof(",
 		"SUM(",
 		"ASSERT:",
-		// COUNT over the raw set array (Value-less): counts items, no slot unnest.
 		"to_jsonb(COUNT(*))",
-		// MIN/MAX: ArangoDB type order (booleans before numbers) with the reached-item sublink.
 		"WHEN 'boolean' THEN 1 WHEN 'number' THEN 2 WHEN 'string' THEN 3 WHEN 'array' THEN 4",
 		"ORDER BY",
 		"LIMIT 1",
-		// The predicate is the ANY-quantified match over the code slot; the reached items join
-		// the edge occurrence table (SELECT DISTINCT collapses occurrences of one document).
 		"EXISTS (SELECT 1 FROM jsonb_array_elements(",
 		"fhir_edge_occurrence",
 	} {
@@ -184,7 +161,6 @@ func TestPostWindowAggregateReducersRenderAsCorrelatedSublinks(t *testing.T) {
 }
 
 func TestPostWindowCountWithValueCountsSlotsNotRows(t *testing.T) {
-	// AQL: LENGTH(FOR v IN FLATTEN(values) FILTER v != null RETURN 1) (render/aql/collections.go:395-402).
 	bare := renderOK(t, postWindowAggregatePlan(postWindowAggregateSet(false),
 		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false)))
 	withValue := renderOK(t, postWindowAggregatePlan(postWindowAggregateSet(false),
@@ -243,7 +219,6 @@ func TestPostWindowSetWithoutRegisteredConsumerKeepsTheWindowGuard(t *testing.T)
 	set := postWindowAggregateSet(false)
 	plan := postWindowAggregatePlan(set,
 		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
-	// Break the only consumer: the RETURN no longer reads the set.
 	plan.Operations[3].Return.Projections = plan.Operations[3].Return.Projections[:1]
 	_, err := RenderPhysicalPlan(plan, mustBinding(t))
 	wantUnsupported(t, err, "unconsumed post-window set")
@@ -253,8 +228,6 @@ func TestPostWindowSetWithoutRegisteredConsumerKeepsTheWindowGuard(t *testing.T)
 }
 
 func TestPostWindowEndpointLookupIsAdmittedOnlyForAggregateConsumers(t *testing.T) {
-	// The aggregate surface registered AQL parity for both access-path strategies; the
-	// reduction surface keeps the fail-closed refusal until its owner adjudicates the shape.
 	rendered := renderOK(t, postWindowAggregatePlan(postWindowAggregateSet(true),
 		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false)))
 	aggregateSQL := rendered.SQL
@@ -266,7 +239,6 @@ func TestPostWindowEndpointLookupIsAdmittedOnlyForAggregateConsumers(t *testing.
 		t.Fatalf("endpoint-lookup must normalize to the registered join byte-identically:\n%s\n---\n%s", aggregateSQL, nativeSQL)
 	}
 
-	// The reduction-consumed surface keeps the typed refusal.
 	reductionPlan := setsPlanWithSet(setsChildSet(ir.PhysicalSetReductionFirst), "__loom_reduced_0")
 	for index := range reductionPlan.Operations {
 		if reductionPlan.Operations[index].Kind == ir.PhysicalSetOp {
@@ -284,10 +256,6 @@ func TestPostWindowEndpointLookupIsAdmittedOnlyForAggregateConsumers(t *testing.
 }
 
 func TestPostWindowEndpointLookupRefusesFieldsThatDisagreeWithDirection(t *testing.T) {
-	// The rewrite to Native renders the direction-derived join; the AQL arm renders on the
-	// named fields (render/aql/navigation_render.go:44-51). Equating them is sound only when
-	// the planner paired the fields with the direction (lower/storage_route.go:30-39); a
-	// plan whose fields disagree must fail closed rather than silently render AQL's other join.
 	withTraversal := func(mutate func(*ir.PhysicalTraversal)) ir.PhysicalPlan {
 		set := postWindowAggregateSet(true)
 		mutate(set.Subplan.Operations[0].Traversal)
@@ -311,9 +279,6 @@ func TestPostWindowEndpointLookupRefusesFieldsThatDisagreeWithDirection(t *testi
 	_, err = RenderPhysicalPlan(swapOnlyJoinField, mustBinding(t))
 	wantUnsupported(t, err, "endpoint join field swapped against the direction")
 
-	// A direction outside {inbound, outbound} never reaches the rewrite: plan validation
-	// (ir/navigation.go:11) already refuses it, and the renderer's own default branch keeps
-	// a fail-closed guard for any value that validation changes to admit.
 	unknownDirection := withTraversal(func(traversal *ir.PhysicalTraversal) {
 		traversal.Direction = ir.PhysicalTraversalDirection("SELF")
 	})
@@ -328,8 +293,6 @@ func TestPostWindowDeadTraversalRendersNothingAndLocatedConsumersRefuse(t *testi
 		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
 	baseline := renderOK(t, base).SQL
 
-	// A second child-route traversal after the window whose target nobody reads is a dead LET;
-	// the AQL arm binds it and drops it, so the PostgreSQL arm must emit the identical statement.
 	dead := postWindowAggregatePlan(postWindowAggregateSet(false),
 		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
 	deadTraversal := setsTraversal()
@@ -345,7 +308,6 @@ func TestPostWindowDeadTraversalRendersNothingAndLocatedConsumersRefuse(t *testi
 		t.Fatalf("a dead post-window traversal must not change the statement:\n%s\n---\n%s", rendered, baseline)
 	}
 
-	// The same traversal whose target IS read must refuse, naming the consuming operation.
 	live := postWindowAggregatePlan(postWindowAggregateSet(false),
 		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
 	liveTraversal := setsTraversal()
@@ -365,9 +327,6 @@ func TestPostWindowDeadTraversalRendersNothingAndLocatedConsumersRefuse(t *testi
 	}
 }
 
-// TestPostWindowAggregateOverNonSetSourceRefused keeps the aggregate gate honest on a plan
-// whose SET is accepted for another reason: the reducer must still refuse a source that is not
-// a registered child set.
 func TestPostWindowAggregateOverNonSetSourceRefused(t *testing.T) {
 	plan := setsPlanWithSet(setsChildSet(ir.PhysicalSetReductionFirst), "__loom_reduced_0")
 	plan.BindVars[setsPrefix+"_predicate_value"] = "asthma"
@@ -383,8 +342,6 @@ func TestPostWindowAggregateOverNonSetSourceRefused(t *testing.T) {
 	}
 }
 
-// deadTraversalOps inserts a second child-route traversal (with its canonical scope block)
-// after the execution window: scan, sort, set, dead hop + block, return.
 func deadTraversalOps(plan ir.PhysicalPlan, edgeVariable, targetVariable string) ir.PhysicalPlan {
 	traversal := setsTraversal()
 	traversal.EdgeVariable, traversal.TargetVariable = edgeVariable, targetVariable
@@ -397,10 +354,6 @@ func deadTraversalOps(plan ir.PhysicalPlan, edgeVariable, targetVariable string)
 	return plan
 }
 
-// TestPostWindowDeadTraversalNearMisses proves the consumer scan is load-bearing: every read
-// of the dead hop's variables, wherever it sits after the scope block, must refuse with the
-// typed "not dead" voice naming the read variable. An acceptor that only checked the RETURN
-// projection would wrongly pass all three.
 func TestPostWindowDeadTraversalNearMisses(t *testing.T) {
 	const deadEdge, deadTarget = "dead_edge", "dead_node"
 
@@ -408,7 +361,6 @@ func TestPostWindowDeadTraversalNearMisses(t *testing.T) {
 		base := postWindowAggregatePlan(postWindowAggregateSet(false),
 			postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
 		plan := deadTraversalOps(base, deadEdge, deadTarget)
-		// A second set whose subplan captures the dead target reads it from inside a later block.
 		poison := postWindowAggregateSet(false)
 		poison.Subplan.Captures = []string{"root", deadTarget}
 		poison.Variable = "child_set_1"
@@ -456,12 +408,6 @@ func TestPostWindowDeadTraversalNearMisses(t *testing.T) {
 	})
 }
 
-// TestPostWindowUnrimmedAggregateOperationsRefuse pins the rim: operations the AQL arm
-// registers (collections.go renderAggregate) but this unit does not stay refused. Each
-// fixture stays validator-legal (value presence, CONTAINS_ALL bind, FIRST_ORDERED window
-// and ordering) so the refusal comes from this unit's gate, not plan validation. A
-// registered COUNT reducer on the same set keeps the SET accepted through the whitelist,
-// isolating the gate as the refusal source.
 func TestPostWindowUnrimmedAggregateOperationsRefuse(t *testing.T) {
 	for _, operation := range []ir.PhysicalAggregateOperation{
 		ir.PhysicalMeanAggregate, ir.PhysicalExistsAggregate, ir.PhysicalCountDistinctAggregate,
@@ -497,10 +443,6 @@ func TestPostWindowUnrimmedAggregateOperationsRefuse(t *testing.T) {
 	}
 }
 
-// TestPostWindowReducersPreserveRowCounts is the window-final soundness class: an accepted
-// post-window SET and its reducers must not multiply or filter root rows. The scalar sublinks
-// may only extend the SELECT list; the outer FROM/WHERE/ORDER BY tail, and therefore the row
-// set and window position, must be byte-identical to the same plan without them.
 func TestPostWindowReducersPreserveRowCounts(t *testing.T) {
 	const tailMarker = `."fhir_resource" AS r0 WHERE r0."project"`
 
@@ -526,9 +468,6 @@ func TestPostWindowReducersPreserveRowCounts(t *testing.T) {
 	}
 }
 
-// TestPostWindowReducersUnderPreviewLimit pins the preview path (limit>0, the form
-// CompileRecipeOutput receives for previews; the #159 benchmark runs limit=0): the bind-backed
-// LIMIT stays on the window, and every reducer sublink renders unchanged besides the tail.
 func TestPostWindowReducersUnderPreviewLimit(t *testing.T) {
 	plan := postWindowAggregatePlan(postWindowAggregateSet(false),
 		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))

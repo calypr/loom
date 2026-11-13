@@ -16,11 +16,6 @@ type correlatedSetBody struct {
 	targetVar   string
 }
 
-// renderCorrelatedChildSteps renders one hop per TRAVERSAL of a correlated subplan as the
-// registered typed-identity join. allowEndpointStrategy admits the planner's
-// ENDPOINT_LOOKUP access-path hint only for consumers whose registered surface was
-// adjudicated for both strategies (the aggregate reducers); every other consumer keeps the
-// fail-closed refusal inside validateTraversalContract.
 func (r *planRenderer) renderCorrelatedChildSteps(
 	plan ir.PhysicalPlan,
 	subplan ir.PhysicalSubplan,
@@ -62,14 +57,6 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 					ErrUnsupportedPostgresPlan, index)
 			}
 			traversal := *operation.Traversal
-			// The AQL arm renders child-route hops with either access-path strategy
-			// (render/aql/navigation_render.go:44-47); PostgreSQL has no graph, so
-			// edgeOccurrencePredicates renders the same typed-identity join for both. The
-			// registered related-route surface normalizes the same way after requiring the
-			// planner-named payload (stage_related_occurrence.go:373-379). Only the
-			// aggregate-consumed set registers this today: the reduction-consumed and
-			// related-existence surfaces keep the fail-closed refusal in
-			// validateTraversalContract until their owners adjudicate the shape.
 			if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
 				if !allowEndpointStrategy {
 					return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: endpoint-lookup strategy has no proven PostgreSQL contract for this consumer; the registered child-set surface accepts it only for sets reduced by a registered SUM/COUNT/MIN/MAX aggregate expression",
@@ -79,11 +66,6 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 					return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: endpoint-lookup traversal payload is incomplete (the planner always names EndpointField and EndpointJoinField, lower/traversal.go:143-147)",
 						ErrUnsupportedPostgresPlan, index)
 				}
-				// The rendered join is direction-derived, so the rewrite is result-equivalent
-				// to the AQL arm's field-driven join (render/aql/navigation_render.go:44-51)
-				// only when the planner-named fields agree with the direction. lower/storage_route.go:30-39
-				// always pairs them; a divergence must fail closed, the way graph.go:355-357
-				// refuses a planner-metadata mismatch.
 				expectedField, expectedJoinField := "_from", "_to"
 				switch traversal.Direction {
 				case ir.PhysicalInbound:
