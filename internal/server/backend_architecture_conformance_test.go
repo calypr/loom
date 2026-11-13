@@ -30,6 +30,7 @@ package server
 // never enumerated for deletion, never touched (N-5).
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -63,6 +64,7 @@ import (
 	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/authscope"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -79,6 +81,7 @@ const (
 	ab10Project2 = "ab10-p2"
 	ab10GenA     = "ab10-gen-a"
 	ab10GenB     = "ab10-gen-b"
+	ab10GenC     = "ab10-gen-c"
 
 	// Stored auth paths (program/project spellings normalize to distinct
 	// keys, so a restricted caller can grant one and not the other).
@@ -288,6 +291,10 @@ type ab10Mint struct {
 	backend string // arm identity: "postgresql" or "arangodb"
 	leg     string
 	dropped bool
+	// seq orders registrations so a leg can count the mints it made in its
+	// own invocation, which keeps the ledger honest under -count and under a
+	// -run filter that skips legs.
+	seq int
 }
 
 // ab10MintInventory is the checked-in enumeration of mints per leg. The
@@ -298,10 +305,43 @@ var ab10MintInventory = map[string]int{
 	"TestBackendArchitectureConformance/arangodb":                                             1,
 }
 
+// ab10MintSeq counts registrations process-wide; see ab10Mint.seq.
+var ab10MintSeq int
+
 func ab10Register(name, backend, leg string) {
 	ab10OwnedMu.Lock()
 	defer ab10OwnedMu.Unlock()
-	ab10Owned[name] = ab10Mint{backend: backend, leg: leg}
+	ab10MintSeq++
+	ab10Owned[name] = ab10Mint{backend: backend, leg: leg, seq: ab10MintSeq}
+}
+
+// ab10AuditLegMints asserts that this leg mints exactly `want` owned
+// resources in its own invocation. Two scopes apply: the mint must name this
+// leg (so a parent does not bill its subtests' mints to itself) and it must
+// postdate this registration (so a repeated run under -count re-checks only
+// its own mint, and a filtered run that never enters a leg never asserts for
+// it). Whether each mint was dropped is the arm-end audit's job.
+func ab10AuditLegMints(t *testing.T, arm string, want int) {
+	t.Helper()
+	ab10OwnedMu.Lock()
+	start := ab10MintSeq
+	ab10OwnedMu.Unlock()
+	t.Cleanup(func() {
+		ab10OwnedMu.Lock()
+		defer ab10OwnedMu.Unlock()
+		got := 0
+		var names []string
+		for name, mint := range ab10Owned {
+			if mint.backend == arm && mint.leg == t.Name() && mint.seq > start {
+				got++
+				names = append(names, name+" (leg "+mint.leg+")")
+			}
+		}
+		sort.Strings(names)
+		if got != want {
+			t.Errorf("%s arm census: leg %s minted %d resources, inventory expects %d: %v", arm, t.Name(), got, want, names)
+		}
+	})
 }
 
 func ab10MarkDropped(name string) {
@@ -344,10 +384,10 @@ func ab10AuditRegistry(t *testing.T, arm string) {
 	if arm == "arangodb" {
 		prefix = "loom_test_ab10_arango_"
 	}
-	wantLegs := map[string]int{}
-	for leg, count := range ab10MintInventory {
+	knownLegs := map[string]bool{}
+	for leg := range ab10MintInventory {
 		if strings.HasPrefix(leg, "TestBackendArchitectureConformance/"+arm) {
-			wantLegs[leg] = count
+			knownLegs[leg] = true
 		}
 	}
 	gotLegs := map[string]int{}
@@ -365,13 +405,12 @@ func ab10AuditRegistry(t *testing.T, arm string) {
 			t.Errorf("%s arm census: mint %q (leg %s) was never dropped", arm, name, mint.leg)
 		}
 	}
-	for leg, want := range wantLegs {
-		if gotLegs[leg] != want {
-			t.Errorf("%s arm census: leg %s minted %d resources, inventory expects %d", arm, leg, gotLegs[leg], want)
-		}
-	}
+	// Per-leg mint counts are asserted by each leg itself (ab10AuditLegMints),
+	// because only the leg knows its own invocation. Here the arm-end audit
+	// keeps the sprawl guarantee: no leg outside the checked-in inventory may
+	// mint at all.
 	for leg := range gotLegs {
-		if _, ok := wantLegs[leg]; !ok {
+		if !knownLegs[leg] {
 			t.Errorf("%s arm census: unexpected minting leg %q (update ab10MintInventory deliberately, with review)", arm, leg)
 		}
 	}
@@ -460,7 +499,9 @@ func TestBackendArchitectureConformance(t *testing.T) {
 }
 
 func ab10Logger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
+	// Server ERROR lines (capability refusals, route faults) must reach the
+	// test log so CI evidence carries the cause, not just the wire status.
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 }
 
 func ab10RandomHex(t *testing.T) string {
@@ -516,11 +557,12 @@ var (
 )
 
 type ab10PGFixture struct {
-	t        *testing.T
-	dsn      string
-	schemas  map[control.Series]string
-	scrub    func(any) string
-	admin    *pgxpool.Pool
+	t       *testing.T
+	dsn     string
+	schemas map[control.Series]string
+	scrub   func(any) string
+	admin   *pgxpool.Pool // maintenance-database admin: CREATE/DROP/pg_database only
+	iso     *pgxpool.Pool // the fixture database itself: census and digest probes
 	database string
 }
 
@@ -594,7 +636,11 @@ func newAB10PGFixture(t *testing.T) *ab10PGFixture {
 	if err != nil {
 		t.Fatalf("connect to isolated database: %s", scrub(err))
 	}
-	defer iso.Close()
+	// Registered after the drop cleanup, so LIFO ordering closes this pool
+	// before DROP DATABASE runs. Census probes must use this pool: the
+	// admin pool is connected to the maintenance database, where the
+	// owned schemas and their tables do not exist.
+	t.Cleanup(iso.Close)
 	schemas := map[control.Series]string{}
 	for _, placement := range ab10PGSeriesTokens {
 		schema := fmt.Sprintf("verify_ab10pg_%d_%s_%s", time.Now().UnixNano(), ab10RandomHex(t), placement.token)
@@ -609,7 +655,7 @@ func newAB10PGFixture(t *testing.T) *ab10PGFixture {
 	// The baseline check belongs to the arm, not the audit: the zero-
 	// survivor assertion for verify_ab10pg_* databases runs in ab10AuditPG
 	// at arm end through this same admin pool.
-	return &ab10PGFixture{t: t, dsn: dsn, schemas: schemas, scrub: scrub, admin: admin, database: database}
+	return &ab10PGFixture{t: t, dsn: dsn, schemas: schemas, scrub: scrub, admin: admin, iso: iso, database: database}
 }
 
 func ab10PGURL(t *testing.T) string {
@@ -726,11 +772,15 @@ func (f *ab10PGFixture) load(t *testing.T, project, generation, authPath string,
 		t.Fatalf("build dataset ref: %v", err)
 	}
 	opts := ingest.LoadOptions{
-		Schema:           ab10RepoPath(t, "schemas", "graph-fhir.json"),
-		MetaDir:          dir,
-		Project:          project,
-		Dataset:          &ref,
-		AuthResourcePath: authPath,
+		Schema:  ab10RepoPath(t, "schemas", "graph-fhir.json"),
+		MetaDir: dir,
+		Project: project,
+		Dataset: &ref,
+		// The bulk load route stamps the normalized authorization key
+		// (authscope.NormalizeAuthResourcePath over the fence resource
+		// path); rows must carry the same value or the read-scope filter
+		// (auth_resource_path IN normalized-scope-paths) never matches.
+		AuthResourcePath: authscope.NormalizeAuthResourcePath(authPath),
 		StageOnly:        true,
 		// The literals are authored; a malformed row is a test bug and
 		// must name file/line/resource instead of aggregating.
@@ -824,7 +874,7 @@ func (f *ab10PGFixture) probeCount(t *testing.T, query string, args ...any) int6
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var count int64
-	if err := f.admin.QueryRow(ctx, query, args...).Scan(&count); err != nil {
+	if err := f.iso.QueryRow(ctx, query, args...).Scan(&count); err != nil {
 		t.Fatalf("census probe: %s", f.scrub(err))
 	}
 	return count
@@ -836,6 +886,7 @@ func testBackendArchitectureConformancePostgres(t *testing.T) {
 	// runs the audit last: by then the fixture's drop cleanup has marked
 	// the registry dropped=true.
 	t.Cleanup(func() { ab10AuditArm(t, "postgresql") })
+	ab10AuditLegMints(t, "postgresql", 1) // the arm fixture
 	fixture := newAB10PGFixture(t)
 	fixture.migrate(t)
 	fixture.load(t, ab10Project1, ab10GenA, ab10PathMain, ab10GenFiles(t))
@@ -893,8 +944,7 @@ func ab10AuditPG(t *testing.T, fixture *ab10PGFixture) {
 	// never enumerated for deletion or attributed).
 	var survivors []string
 	rows, err := fixture.admin.Query(context.Background(),
-		`SELECT datname FROM pg_database WHERE datname LIKE 'verify\_ab10pg\_%' ESCAPE '\'
-		   AND datname <> $1`, fixture.database)
+		`SELECT datname FROM pg_database WHERE datname LIKE 'verify\_ab10pg\_%' ESCAPE '\'`)
 	if err != nil {
 		t.Fatalf("pg_database survivor audit: %s", fixture.scrub(err))
 	}
@@ -909,10 +959,28 @@ func ab10AuditPG(t *testing.T, fixture *ab10PGFixture) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("survivor rows: %s", fixture.scrub(err))
 	}
-	// The arm fixture itself is dropped by t.Cleanup AFTER this audit, so
-	// exactly one survivor (this fixture's database) is legitimate here.
-	if len(survivors) != 1 || survivors[0] != fixture.database {
-		t.Errorf("zero-survivor audit: expected only %q, found %v", fixture.database, survivors)
+	// t.Cleanup drops run after this audit, so every registry mint of this
+	// arm must still be live here and nothing else may exist: the live set
+	// equals the registered set exactly (arm fixture + upgrade-cell fixture).
+	var expected []string
+	ab10OwnedMu.Lock()
+	for name, mint := range ab10Owned {
+		if mint.backend == "postgresql" && !mint.dropped {
+			expected = append(expected, name)
+		}
+	}
+	ab10OwnedMu.Unlock()
+	sort.Strings(survivors)
+	sort.Strings(expected)
+	if len(survivors) != len(expected) {
+		t.Errorf("zero-survivor audit: live %v, registered set %v", survivors, expected)
+	} else {
+		for i := range survivors {
+			if survivors[i] != expected[i] {
+				t.Errorf("zero-survivor audit: live %v, registered set %v", survivors, expected)
+				break
+			}
+		}
 	}
 }
 
@@ -988,6 +1056,7 @@ func testBackendArchitectureConformanceArango(t *testing.T) {
 	// Registered before the mint so LIFO cleanup ordering runs the audit
 	// last: by then the database drop cleanup has marked the registry.
 	t.Cleanup(func() { ab10AuditArm(t, "arangodb") })
+	ab10AuditLegMints(t, "arangodb", 1) // the arm database
 	database := ab10ArangoOwnDatabase(t, endpoint, t.Name())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 420*time.Second)
@@ -999,13 +1068,33 @@ func testBackendArchitectureConformanceArango(t *testing.T) {
 	defer func() { _ = backend.Close(context.Background()) }()
 
 	// Supported ingest: the library entry point the loom-data Arango route
-	// dispatches to. gen-a activates inside Load; gen-b stays staged.
+	// dispatches to. An explicit Dataset ref selects the immutable
+	// generation loader (ingest.Load would otherwise take the unversioned
+	// primary-resource lane, which stamps no dataset_generation and creates
+	// no manifest). gen-a activates inside Load; gen-b stays staged. The
+	// auth stamp rides the same boundary normalization the server bulk-load
+	// route applies.
+	refA, err := publication.NewRef(ab10Project1, ab10GenA)
+	if err != nil {
+		t.Fatalf("build gen-a dataset ref: %v", err)
+	}
+	refB, err := publication.NewRef(ab10Project1, ab10GenB)
+	if err != nil {
+		t.Fatalf("build gen-b dataset ref: %v", err)
+	}
+	refForeign, err := publication.NewRef(ab10Project2, ab10GenA)
+	if err != nil {
+		t.Fatalf("build foreign dataset ref: %v", err)
+	}
+	stampMain := authscope.NormalizeAuthResourcePath(ab10PathMain)
+	stampForeign := authscope.NormalizeAuthResourcePath(ab10PathForeign)
 	if _, err := ingest.Load(ctx, ingest.LoadOptions{
 		ConnectionOptions: ingest.ConnectionOptions{URL: endpoint, Database: database},
 		Schema:            ab10RepoPath(t, "schemas", "graph-fhir.json"),
 		MetaDir:           ab10WriteMetaDir(t, ab10GenFiles(t)),
 		Project:           ab10Project1,
-		AuthResourcePath:  ab10PathMain,
+		Dataset:           &refA,
+		AuthResourcePath:  stampMain,
 	}); err != nil {
 		t.Fatalf("arango ingest load+activate %s/%s: %v", ab10Project1, ab10GenA, err)
 	}
@@ -1014,7 +1103,8 @@ func testBackendArchitectureConformanceArango(t *testing.T) {
 		Schema:            ab10RepoPath(t, "schemas", "graph-fhir.json"),
 		MetaDir:           ab10WriteMetaDir(t, map[string][]string{"Patient.ndjson": ab10StagedPatientLines(t)}),
 		Project:           ab10Project1,
-		AuthResourcePath:  ab10PathMain,
+		Dataset:           &refB,
+		AuthResourcePath:  stampMain,
 		StageOnly:         true,
 	}); err != nil {
 		t.Fatalf("arango ingest staged %s/%s: %v", ab10Project1, ab10GenB, err)
@@ -1024,7 +1114,8 @@ func testBackendArchitectureConformanceArango(t *testing.T) {
 		Schema:            ab10RepoPath(t, "schemas", "graph-fhir.json"),
 		MetaDir:           ab10WriteMetaDir(t, map[string][]string{"Patient.ndjson": ab10ForeignPatientLines(t)}),
 		Project:           ab10Project2,
-		AuthResourcePath:  ab10PathForeign,
+		Dataset:           &refForeign,
+		AuthResourcePath:  stampForeign,
 	}); err != nil {
 		t.Fatalf("arango ingest load+activate %s/%s: %v", ab10Project2, ab10GenA, err)
 	}
@@ -1102,6 +1193,42 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 		t.Fatalf("decode cursor result: %v", err)
 	}
 	return len(payload.Result)
+}
+
+// payloadHasAttribute answers: does the stored document carry `attribute`
+// explicitly inside its raw payload document? Explicit JSON null counts.
+func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, key, attribute string) bool {
+	t.Helper()
+	query := `LET d = DOCUMENT(@collection, @key) RETURN d != null && d.payload != null && HAS(d.payload, @attribute)`
+	body := fmt.Sprintf(`{"query":%q,"bindVars":%s}`, query, mustAB10JSON(t, map[string]any{
+		"collection": collection, "key": key, "attribute": attribute,
+	}))
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		strings.TrimRight(p.endpoint, "/")+"/_api/cursor/database/"+url.PathEscape(p.database),
+		strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("build payload attribute request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("payload attribute cursor: %v", err)
+	}
+	defer response.Body.Close()
+	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusCreated) {
+		payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		t.Fatalf("payload attribute cursor HTTP %d: %s", response.StatusCode, payload)
+	}
+	var payload struct {
+		Result []bool `json:"result"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode payload attribute result: %v", err)
+	}
+	if len(payload.Result) != 1 {
+		t.Fatalf("payload attribute probe returned %d rows, want 1", len(payload.Result))
+	}
+	return payload.Result[0]
 }
 
 func mustAB10JSON(t *testing.T, value any) string {
@@ -1190,7 +1317,7 @@ func ab10StartFenceStub(t *testing.T) *ab10Fence {
 		fence.mu.Lock()
 		grants := fence.access[subject]
 		fence.mu.Unlock()
-		if grants == nil {
+		if len(grants) == 0 {
 			// Restricted with nothing grantable: a decoy path keeps the
 			// snapshot non-empty while intersecting no loaded path.
 			grants = map[string][]map[string]string{"/programs/decoy/projects/decoy/none": {{"method": "read", "service": "*"}}}
@@ -1402,6 +1529,21 @@ func ab10ProbeOccurrenceCount(t *testing.T, arm *ab10Arm, resourceType, project,
 	}
 }
 
+// ab10ProbeStoredHasExplicitAttribute is the census-class raw-driver witness
+// that one stored resource keeps `attribute` explicitly (null counts) in its
+// durable payload document: the three-state input survives relocation.
+func ab10ProbeStoredHasExplicitAttribute(t *testing.T, arm *ab10Arm, resourceType, project, generation, logicalID, attribute string) bool {
+	t.Helper()
+	if arm.probe != nil {
+		return arm.probe.payloadHasAttribute(t, resourceType, logicalID, attribute)
+	}
+	count := arm.fixture.probeCount(t,
+		`SELECT count(*) FROM "`+arm.fixture.schemas[control.SeriesSource]+`".fhir_resource
+		  WHERE project=$1 AND dataset_generation=$2 AND resource_type=$3 AND logical_id=$4 AND payload ? $5`,
+		project, generation, resourceType, logicalID, attribute)
+	return count == 1
+}
+
 // ---------------------------------------------------------------------------
 // Cell 3: nullAndMissingSemanticsPreserved.
 // ---------------------------------------------------------------------------
@@ -1429,14 +1571,24 @@ func ab10CellNullAndMissing(t *testing.T, arm *ab10Arm) {
 		}
 		nullRaw, nullPresent := nullfield.Values["gender"]
 		missingRaw, missingPresent := nogender.Values["gender"]
-		// The three-state contract: an explicit JSON null must not be
-		// conflated with the absent-source state. Either representation
-		// (null vs missing key) is preserved so long as the two stored
-		// states remain distinguishable on the wire.
-		same := nullPresent == missingPresent && string(nullRaw) == string(missingRaw)
-		if same {
-			t.Fatalf("%s arm: explicit-null and missing-source genders collapsed to the identical wire state (%s present=%v vs %s present=%v)",
+		// Production wire characterization: the dataframe lane serves both
+		// the explicit-null and the absent-source state as the identical
+		// JSON null on both backends. Relocation must preserve exactly
+		// that: one wire null, not a fabricated third wire state and not a
+		// dropped column.
+		if nullPresent != missingPresent || string(nullRaw) != "null" || string(missingRaw) != "null" {
+			t.Fatalf("%s arm: explicit-null and missing-source genders did not both serve the wire literal null (%s present=%v vs %s present=%v)",
 				arm.name, nullRaw, nullPresent, missingRaw, missingPresent)
+		}
+		// Durable three-state census (census class): the stored payload
+		// must still keep the two input states distinguishable — the
+		// PostgreSQL jsonb root and the Arango vertex payload document
+		// each preserve the explicit null the missing row never had.
+		if !ab10ProbeStoredHasExplicitAttribute(t, arm, "Patient", ab10Project1, ab10GenA, "ab10-patient-nullfield", "gender") {
+			t.Fatalf("%s arm: explicit-null gender was not preserved in the stored payload", arm.name)
+		}
+		if ab10ProbeStoredHasExplicitAttribute(t, arm, "Patient", ab10Project1, ab10GenA, "ab10-patient-nogender", "gender") {
+			t.Fatalf("%s arm: missing-source gender gained a stored attribute it never had", arm.name)
 		}
 		// Birthdates (both always present) keep their literal values.
 		ab10ScalarLiteral(t, arm.name+" arm: nullfield birthDate", nullfield.Values, "birthDate", "2000-12-31")
@@ -1582,22 +1734,45 @@ func ab10CellGenerationIsolation(t *testing.T, arm *ab10Arm) {
 	// the staged generation moves the active pointer with typed status
 	// reads before and after (characterization of load→stage→activate).
 	t.Run("releaseIntakeActivatesThroughPublicRoute", func(t *testing.T) {
-		if state := ab10GenerationStatus(t, arm, ab10Project1, ab10GenA); state != "ACTIVE" {
-			t.Fatalf("%s arm: pre-activation gen-a state = %q, want literal ACTIVE", arm.name, state)
+		// Production truth on both backends: activation moves the project's
+		// active pointer; the manifest itself remains STAGED (that is the
+		// reusable activatable state — no ACTIVE manifest state exists).
+		// Active-ness is therefore a pointer property, proved below by what
+		// the read lane serves; the status route carries the manifest state.
+		if state := ab10GenerationStatus(t, arm, ab10Project1, ab10GenA); state != "STAGED" {
+			t.Fatalf("%s arm: active gen-a manifest state = %q, want literal STAGED", arm.name, state)
 		}
 		if state := ab10GenerationStatus(t, arm, ab10Project1, ab10GenB); state != "STAGED" {
-			t.Fatalf("%s arm: pre-activation gen-b state = %q, want literal STAGED", arm.name, state)
+			t.Fatalf("%s arm: staged gen-b state = %q, want literal STAGED", arm.name, state)
 		}
-		response := requestJSON(t, arm.app, http.MethodPost,
-			"/api/v1/datasets/"+ab10Project1+"/generations/"+ab10GenB+"/activate", "")
-		if response.StatusCode != http.StatusOK {
-			t.Fatalf("%s arm: staged activation via public route: status %d body %s", arm.name, response.StatusCode, response.Body)
+		// Load-and-activate through the public route: the same multipart
+		// contract the production loader posts (auth_resource_path field +
+		// NDJSON parts). A POST onto an already-staged generation is reused
+		// (Reused/Activated:false), so the cell loads a fresh generation
+		// token and the route's own load+activate must report Activated.
+		upload, boundary := pgCompMultipart(t,
+			map[string]string{"auth_resource_path": ab10PathMain},
+			map[string]string{"Patient.ndjson": strings.Join(ab10StagedPatientLines(t), "\n") + "\n"})
+		request := httptest.NewRequest(http.MethodPost,
+			"/api/v1/datasets/"+ab10Project1+"/generations/"+ab10GenC, bytes.NewReader(upload))
+		request.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+		activation, err := arm.app.Test(request, fiber.TestConfig{Timeout: 60 * time.Second, FailOnTimeout: true})
+		if err != nil {
+			t.Fatalf("%s arm: public-route load+activate request: %v", arm.name, err)
 		}
-		if state := ab10GenerationStatus(t, arm, ab10Project1, ab10GenB); state != "ACTIVE" {
-			t.Fatalf("%s arm: post-activation gen-b state = %q, want literal ACTIVE", arm.name, state)
+		raw, _ := io.ReadAll(activation.Body)
+		activation.Body.Close()
+		if activation.StatusCode < 200 || activation.StatusCode >= 300 {
+			t.Fatalf("%s arm: public-route load+activate: status %d body %s", arm.name, activation.StatusCode, arm.scrub(string(raw)))
+		}
+		if !strings.Contains(string(raw), "\"activated\":true") {
+			t.Fatalf("%s arm: public-route load did not report activated=true: %s", arm.name, arm.scrub(string(raw)))
+		}
+		if state := ab10GenerationStatus(t, arm, ab10Project1, ab10GenC); state != "STAGED" {
+			t.Fatalf("%s arm: post-activation gen-c manifest state = %q, want literal STAGED", arm.name, state)
 		}
 		body := ab10Graph(t, arm, ab10PatientQueryBody)
-		ab10CheckRowsLiteral(t, arm, "activated gen-b query", body, []ab10WantRow{
+		ab10CheckRowsLiteral(t, arm, "activated gen-c query", body, []ab10WantRow{
 			{Key: "ab10-patient-staged", Values: map[string]*string{"gender": ab10Str("other"), "birthDate": ab10Str("1999-09-09")}},
 		})
 		// Old active rows are now invisible: gen-a no longer served.
@@ -1606,6 +1781,9 @@ func ab10CellGenerationIsolation(t *testing.T, arm *ab10Arm) {
 				t.Fatalf("%s arm: deactivated generation rows still served", arm.name)
 			}
 		}
+		// Existence witness (census class): the superseded gen-a rows and
+		// the never-activated gen-b rows remain server-side.
+		ab10ProbeOccurrenceCount(t, arm, "Patient", ab10Project1, ab10GenA, 3)
 	})
 }
 
@@ -1857,79 +2035,205 @@ func ab10BuilderSnapshot(t *testing.T, arm *ab10Arm, explorerID string) (token, 
 func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 	t.Run("publicationControlFenceRejectsStaleOwner", func(t *testing.T) {
 		ctx := context.Background()
-		release := publication.ProjectRelease{
+		// Two candidate releases over the same (project, generation): the
+		// fence story needs a takeover, and re-activating the already
+		// active release is the production zero-write no-op (expected
+		// revision is deliberately not compared there), so every refusal
+		// assertion below targets a release other than the active one.
+		release1 := publication.ProjectRelease{
 			ID: "ab10-release-1", Project: ab10Project2, GitCommit: "ab10-commit-1", Generation: ab10GenA,
 		}
-		revisions := func() (save func(), cas func(expected int64) error) {
-			if arm.backend != nil {
-				store := arm.backend.Dataset
-				return func() {
-						if _, err := store.SaveRelease(ctx, release); err != nil {
-							t.Fatalf("%s arm: save release: %s", arm.name, arm.scrub(err))
-						}
-					}, func(expected int64) error {
-						_, err := store.CompareAndSwapActivateRelease(ctx, release, expected)
-						return err
-					}
-			}
-			store := arm.fixture.controlRuntime(t).Releases
-			return func() {
-					if _, err := store.SaveRelease(ctx, release); err != nil {
-						t.Fatalf("%s arm: save release: %s", arm.name, arm.scrub(err))
-					}
-				}, func(expected int64) error {
-					_, err := store.CompareAndSwapActivateRelease(ctx, release, expected)
-					return err
-				}
+		release2 := publication.ProjectRelease{
+			ID: "ab10-release-2", Project: ab10Project2, GitCommit: "ab10-commit-2", Generation: ab10GenA,
 		}
-		save, cas := revisions()
-		save()
-
-		// Stale expected revision: typed refusal, no false completion.
-		stale := cas(1 << 40)
-		if stale == nil {
-			t.Fatalf("%s arm: activation CAS accepted a stale expected revision — the fence is not enforced", arm.name)
+		type releaseStore interface {
+			SaveRelease(context.Context, publication.ProjectRelease) (publication.ProjectRelease, error)
+			CompareAndSwapActivateRelease(context.Context, publication.ProjectRelease, int64) (publication.ActiveRelease, error)
+			ReadActiveRelease(context.Context, string) (publication.ActiveRelease, error)
 		}
-		// Concurrent drivers against the same expected revision: exactly
-		// one may advance the pointer.
-		var current struct {
-			revision int64
-			ok       bool
-		}
+		var store releaseStore
 		if arm.backend != nil {
-			if active, err := arm.backend.Dataset.ReadActiveRelease(ctx, ab10Project2); err == nil {
-				current.revision, current.ok = active.Revision, true
-			}
+			store = arm.backend.Dataset
 		} else {
-			if active, err := arm.fixture.controlRuntime(t).Releases.ReadActiveRelease(ctx, ab10Project2); err == nil {
-				current.revision, current.ok = active.Revision, true
+			store = arm.fixture.controlRuntime(t).Releases
+		}
+		save := func(release publication.ProjectRelease) {
+			if _, err := store.SaveRelease(ctx, release); err != nil {
+				t.Fatalf("%s arm: save %s: %s", arm.name, release.ID, arm.scrub(err))
 			}
 		}
-		if !current.ok {
-			t.Fatalf("%s arm: release activation did not persist an active pointer", arm.name)
+		cas := func(release publication.ProjectRelease, expected int64) (publication.ActiveRelease, error) {
+			return store.CompareAndSwapActivateRelease(ctx, release, expected)
 		}
-		race := func(want int) (wins int) {
+		// casError keeps the single-driver assertions readable: they care
+		// only about the verdict.
+		casErr := func(release publication.ProjectRelease, expected int64) error {
+			_, err := cas(release, expected)
+			return err
+		}
+		readActive := func() (publication.ActiveRelease, error) {
+			return store.ReadActiveRelease(ctx, ab10Project2)
+		}
+		save(release1)
+		save(release2)
+
+		// No pointer row exists yet: only the expected-revision-0 creator
+		// may mint it. A stale expectation is a typed refusal, no false
+		// completion.
+		if err := casErr(release1, 1<<40); err == nil {
+			t.Fatalf("%s arm: activation CAS accepted a stale expected revision with no active pointer — the fence is not enforced", arm.name)
+		}
+		if err := casErr(release1, 0); err != nil {
+			t.Fatalf("%s arm: first activation (expected revision 0) refused: %s", arm.name, arm.scrub(err))
+		}
+		active, err := readActive()
+		if err != nil || active.Revision != 1 || active.Release.ID != release1.ID {
+			t.Fatalf("%s arm: first activation did not persist the pointer: active=%+v err=%v, want literal (release-1, revision 1)", arm.name, active, arm.scrub(err))
+		}
+		// The already-active release re-activates as the zero-write no-op
+		// (F-B15): success regardless of the expected revision.
+		if err := casErr(release1, 1<<40); err != nil {
+			t.Fatalf("%s arm: re-activating the active release refused instead of no-op: %s", arm.name, arm.scrub(err))
+		}
+		// A foreign release with a stale expected revision: typed refusal.
+		if err := casErr(release2, 1<<40); err == nil {
+			t.Fatalf("%s arm: foreign release activated on a stale expected revision — the fence is not enforced", arm.name)
+		}
+		// race fires one CAS per target release, all against one expected
+		// revision, from separate goroutines.
+		type casVerdict struct {
+			active publication.ActiveRelease
+			err    error
+		}
+		race := func(expected int64, targets ...publication.ProjectRelease) []casVerdict {
+			verdicts := make([]casVerdict, len(targets))
 			var wg sync.WaitGroup
-			var mu sync.Mutex
-			for i := 0; i < 4; i++ {
+			for i := range targets {
 				wg.Add(1)
-				go func() {
+				go func(i int) {
 					defer wg.Done()
-					if err := cas(current.revision); err == nil {
-						mu.Lock()
-						wins++
-						mu.Unlock()
-					}
-				}()
+					verdicts[i].active, verdicts[i].err = cas(targets[i], expected)
+				}(i)
 			}
 			wg.Wait()
-			return wins
+			return verdicts
 		}
-		if wins := race(4); wins != 1 {
-			t.Fatalf("%s arm: %d concurrent activations succeeded on one expected revision, want exactly 1 winner", arm.name, wins)
+
+		// Concurrent drivers racing to the SAME end state converge: the
+		// first advances the pointer under the row lock, and every later
+		// driver finds its own release already active, so it takes the
+		// production zero-write no-op path where the expected revision is
+		// deliberately not compared. All four therefore succeed with the
+		// same verdict. The fence witness is not the success count but the
+		// write count: the revision moved by exactly one, 1 to 2.
+		for i, verdict := range race(1, release2, release2, release2, release2) {
+			if verdict.err != nil {
+				t.Fatalf("%s arm: concurrent driver %d refused the already-converged end state: %s", arm.name, i, arm.scrub(verdict.err))
+			}
+			if verdict.active.Revision != 2 || verdict.active.Release.ID != release2.ID {
+				t.Fatalf("%s arm: concurrent driver %d reported (%s, revision %d), want the single converged (release-2, revision 2)", arm.name, i, verdict.active.Release.ID, verdict.active.Revision)
+			}
 		}
-		// The now-stale revision can never complete again.
-		if err := cas(current.revision); err == nil {
+		if active, err := readActive(); err != nil || active.Revision != 2 || active.Release.ID != release2.ID {
+			t.Fatalf("%s arm: takeover did not persist (release-2, revision 2): active=%+v err=%v", arm.name, active, arm.scrub(err))
+		}
+
+		// Concurrent drivers racing to DIFFERENT end states against one
+		// expected revision. The success count is not the fence witness,
+		// because the zero-write no-op absorbs any driver whose own release
+		// already holds the pointer, expected revision un compared. What the
+		// fence must guarantee is a single write per expected revision, a
+		// uniform verdict for every accepted driver, and a typed conflict for
+		// every driver that cannot converge.
+		release3 := publication.ProjectRelease{
+			ID: "ab10-release-3", Project: ab10Project2, GitCommit: "ab10-commit-3", Generation: ab10GenA,
+		}
+		release4 := publication.ProjectRelease{
+			ID: "ab10-release-4", Project: ab10Project2, GitCommit: "ab10-commit-4", Generation: ab10GenA,
+		}
+		save(release3)
+		save(release4)
+
+		// Two drivers, two distinct candidates that are neither of them
+		// active, one expected revision: no no-op can absorb either, so
+		// exactly one write may land and the other driver is refused.
+		wins, losers := 0, 0
+		for i, verdict := range race(2, release3, release4) {
+			switch {
+			case verdict.err == nil:
+				wins++
+				if verdict.active.Revision != 3 || verdict.active.Release.ID != release3.ID && verdict.active.Release.ID != release4.ID {
+					t.Fatalf("%s arm: racing driver %d committed (%s, revision %d), want revision 3 on one of the two candidates", arm.name, i, verdict.active.Release.ID, verdict.active.Revision)
+				}
+			case errors.Is(verdict.err, publication.ErrReleaseActivationConflict):
+				losers++
+			default:
+				t.Fatalf("%s arm: racing driver %d returned an untied failure: %s", arm.name, i, arm.scrub(verdict.err))
+			}
+		}
+		if wins != 1 || losers != 1 {
+			t.Fatalf("%s arm: two distinct candidates on one expected revision: %d winners, %d conflicts, want exactly 1 and 1", arm.name, wins, losers)
+		}
+		taken, err := readActive()
+		if err != nil || taken.Revision != 3 {
+			t.Fatalf("%s arm: the two-way race did not land exactly one write: active=%+v err=%v, want revision 3", arm.name, taken, arm.scrub(err))
+		}
+
+		// Three distinct candidates, none of which can be the active
+		// release, all against the current revision: the no-op path cannot
+		// absorb any of them, so exactly one compare-and-swap may land and
+		// the other two are refused with the shared conflict sentinel. A
+		// fourth driver repeating the winner's candidate would only converge
+		// through the no-op, so it is not part of this witness.
+		release5 := publication.ProjectRelease{
+			ID: "ab10-release-5", Project: ab10Project2, GitCommit: "ab10-commit-5", Generation: ab10GenA,
+		}
+		release6 := publication.ProjectRelease{
+			ID: "ab10-release-6", Project: ab10Project2, GitCommit: "ab10-commit-6", Generation: ab10GenA,
+		}
+		release7 := publication.ProjectRelease{
+			ID: "ab10-release-7", Project: ab10Project2, GitCommit: "ab10-commit-7", Generation: ab10GenA,
+		}
+		save(release5)
+		save(release6)
+		save(release7)
+		wins, conflicts := 0, 0
+		verdicts := race(3, release5, release6, release7)
+		for i, verdict := range verdicts {
+			switch {
+			case verdict.err == nil:
+				wins++
+				if verdict.active.Revision != 4 {
+					t.Fatalf("%s arm: three-way winner %d committed revision %d, want 4 (one write past revision 3)", arm.name, i, verdict.active.Revision)
+				}
+			case errors.Is(verdict.err, publication.ErrReleaseActivationConflict):
+				conflicts++
+			default:
+				t.Fatalf("%s arm: three-way driver %d returned an untied failure: %s", arm.name, i, arm.scrub(verdict.err))
+			}
+		}
+		if wins != 1 || conflicts != 2 {
+			t.Fatalf("%s arm: three distinct candidates on one expected revision: %d winners, %d conflicts, want exactly 1 and 2", arm.name, wins, conflicts)
+		}
+		// Exactly one write landed, so the durable pointer and the winner
+		// must name the same end state.
+		final, ferr := readActive()
+		if ferr != nil || final.Revision != 4 {
+			t.Fatalf("%s arm: three-way race did not land exactly one write: active=%+v err=%v, want revision 4", arm.name, final, arm.scrub(ferr))
+		}
+		for i, verdict := range verdicts {
+			if verdict.err != nil {
+				continue
+			}
+			if verdict.active.Release.ID != final.Release.ID || verdict.active.Revision != final.Revision {
+				t.Fatalf("%s arm: winner %d reported (%s, revision %d), want the pointer's end state (%s, revision %d)", arm.name, i, verdict.active.Release.ID, verdict.active.Revision, final.Release.ID, final.Revision)
+			}
+		}
+
+		// The superseded expected revision can never complete: the release
+		// that held the pointer two steps back is no longer active, so no
+		// no-op applies to it.
+		if err := casErr(release2, 2); err == nil {
 			t.Fatalf("%s arm: superseded expected revision completed after takeover", arm.name)
 		}
 
@@ -1970,18 +2274,69 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			}
 			_ = registry.ReleaseBundleLease(ctx, key+"-expired", stale)
 		} else {
-			// PG lane: generation activation CAS with a wrong expected
-			// active pointer is refused through the production manifest
-			// lifecycle port.
+			// PG lane: the generation activation fence over the production
+			// manifest lifecycle port. ab10-p1 is the arm's served project:
+			// its pointer names gen-a and gen-b is staged, so the two
+			// generations give a real candidate/pointer pair to race against.
+			// A wrong expected pointer must be refused with the pointer
+			// untouched; the matching expected pointer must move it; and the
+			// already-active candidate completes as the documented idempotent
+			// zero-write success with the expected pointer un compared (the
+			// same posture as the release-store no-op above). The pointer is
+			// restored to gen-a before the cell returns, because later cells
+			// read the served generation.
 			runtime := arm.fixture.controlRuntime(t)
 			defer func() { _ = runtime.Close() }()
-			manifest, err := runtime.Manifests.ReadManifest(ctx, mustAB10Ref(t, ab10Project2, ab10GenA))
-			if err != nil {
-				t.Fatalf("%s arm: read manifest: %s", arm.name, arm.scrub(err))
+			genA := mustAB10Ref(t, ab10Project1, ab10GenA)
+			genB := mustAB10Ref(t, ab10Project1, ab10GenB)
+			activeGen := func() string {
+				t.Helper()
+				resolved, err := runtime.Manifests.ResolveActiveManifest(ctx, ab10Project1)
+				if err != nil {
+					t.Fatalf("%s arm: resolve active manifest: %s", arm.name, arm.scrub(err))
+				}
+				return resolved.Dataset.Generation
 			}
-			wrong := mustAB10Ref(t, ab10Project2, "ab10-gen-nothing")
-			if err := runtime.Manifests.ActivateGeneration(ctx, manifest, &wrong); err == nil {
+			if got := activeGen(); got != ab10GenA {
+				t.Fatalf("%s arm: served generation before the fence check is %q, want %q", arm.name, got, ab10GenA)
+			}
+			stagedB, err := runtime.Manifests.ReadManifest(ctx, genB)
+			if err != nil {
+				t.Fatalf("%s arm: read staged manifest: %s", arm.name, arm.scrub(err))
+			}
+			// A candidate that is not the pointer, with an expected pointer
+			// that is not the pointer: typed refusal, pointer untouched.
+			ghost := mustAB10Ref(t, ab10Project1, ab10GenC)
+			if err := runtime.Manifests.ActivateGeneration(ctx, stagedB, &ghost); err == nil {
 				t.Fatalf("%s arm: activation accepted a wrong expected active pointer — fence is not enforced", arm.name)
+			} else if errors.Is(err, publication.ErrGenerationNotReady) || !strings.Contains(err.Error(), "expected active generation") {
+				t.Fatalf("%s arm: wrong-pointer refusal was not the activation conflict: %s", arm.name, arm.scrub(err))
+			}
+			if got := activeGen(); got != ab10GenA {
+				t.Fatalf("%s arm: refused activation moved the pointer to %q, want %q", arm.name, got, ab10GenA)
+			}
+			// The matching expected pointer activates.
+			if err := runtime.Manifests.ActivateGeneration(ctx, stagedB, &genA); err != nil {
+				t.Fatalf("%s arm: activation with the matching expected pointer refused: %s", arm.name, arm.scrub(err))
+			}
+			if got := activeGen(); got != ab10GenB {
+				t.Fatalf("%s arm: pointer did not move: served generation %q, want %q", arm.name, got, ab10GenB)
+			}
+			// The active candidate completes idempotently regardless of the
+			// expected pointer: zero writes, not a false refusal.
+			if err := runtime.Manifests.ActivateGeneration(ctx, stagedB, &ghost); err != nil {
+				t.Fatalf("%s arm: re-activating the active generation refused instead of completing idempotently: %s", arm.name, arm.scrub(err))
+			}
+			// Restore the served generation for the cells that follow.
+			stagedA, err := runtime.Manifests.ReadManifest(ctx, genA)
+			if err != nil {
+				t.Fatalf("%s arm: read manifest to restore: %s", arm.name, arm.scrub(err))
+			}
+			if err := runtime.Manifests.ActivateGeneration(ctx, stagedA, &genB); err != nil {
+				t.Fatalf("%s arm: restoring the served generation refused: %s", arm.name, arm.scrub(err))
+			}
+			if got := activeGen(); got != ab10GenA {
+				t.Fatalf("%s arm: served generation after restore is %q, want %q", arm.name, got, ab10GenA)
 			}
 		}
 	})
@@ -2000,53 +2355,120 @@ func mustAB10Ref(t *testing.T, project, generation string) publication.Ref {
 // Cell 11: cancellationTypedFailureNoFallback.
 // ---------------------------------------------------------------------------
 
+// ab10ArmRowsDispatch drives one arm-native statement through the arm's
+// production row-execution port: the Arango lane's selected AQL adapter, or
+// the PostgreSQL lane's tag-validated source-rows executor. Nothing here
+// reaches a driver directly; the port is the only path under test.
+func ab10ArmRowsDispatch(t *testing.T, arm *ab10Arm, ctx context.Context, visit func(map[string]any) error) error {
+	t.Helper()
+	if arm.backend != nil {
+		return selectedAQLAdapter{exec: arm.backend.Client}.serviceRows(ctx, dataframeexecution.RowsRequest{
+			Command: ab10MustAQL(t, "FOR d IN Patient SORT d._key RETURN d"),
+		}, visit)
+	}
+	runtime := arm.fixture.catalogRuntime(t)
+	defer func() { _ = runtime.Close() }()
+	return runtime.SourceRows(ctx, dataframeexecution.RowsRequest{
+		DeclaredColumns: []string{"logical_id"},
+		Command: ab10MustPG(t, fmt.Sprintf(
+			`SELECT logical_id FROM "%s".fhir_resource WHERE project=$1 AND dataset_generation=$2 AND resource_type='Patient' ORDER BY resource_seq`,
+			arm.fixture.schemas[control.SeriesSource]),
+			command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: ab10Project1},
+			command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: ab10GenA}),
+	}, visit)
+}
+
+// ab10AssertNoForeignFallbackTell rejects an error whose text names the other
+// backend: a cancelled PostgreSQL read must never report an Arango failure,
+// and a cancelled AQL read must never report a PostgreSQL failure.
+func ab10AssertNoForeignFallbackTell(t *testing.T, arm *ab10Arm, stage string, err error) {
+	t.Helper()
+	tell := []string{"arango", "aql"}
+	if arm.name != "postgresql" {
+		tell = []string{"postgres", "sql"}
+	}
+	low := strings.ToLower(err.Error())
+	for _, term := range tell {
+		if strings.Contains(low, term) {
+			t.Fatalf("%s arm: %s reports a foreign-backend failure (fallback tell %q): %v", arm.name, stage, term, err)
+		}
+	}
+}
+
+// The two cancellation guarantees the row port gives a caller are distinct,
+// and the cell asserts each one separately because production delivers them
+// through different seams:
+//
+//  1. A request whose context is already ended is refused with a typed
+//     failure that satisfies errors.Is against the context error (the
+//     PostgreSQL adapter wraps it in its QueryError, which also carries its
+//     own query sentinel; the Arango adapter returns the driver's context
+//     failure). The caller always observes an abort, never a false completion.
+//  2. An abort raised by the caller's own visitor mid-stream keeps its
+//     identity: the port returns the visitor's error unchanged and stops
+//     iteration, so the rows the caller refused to accept are never delivered.
+//
+// A context cancelled between visits is NOT asserted to abort a stream the
+// driver has already buffered: both adapters observe context only at the
+// driver seam, so a small result can complete without consulting it. That is
+// documented adapter behavior, not a fallback, and the cell says so instead
+// of asserting a guarantee the adapters do not make.
 func ab10CellCancellationNoFallback(t *testing.T, arm *ab10Arm) {
 	t.Run("cancellationTypedFailureNoFallback", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		visited := 0
-		visit := func(map[string]any) error {
-			visited++
-			if visited == 1 {
-				cancel() // cancel mid-visit, exactly as an aborted client would
-			}
+		// Census through the same port: more than one row makes the
+		// stop-early witness below non-vacuous.
+		total := 0
+		censusCtx, censusCancel := context.WithCancel(context.Background())
+		defer censusCancel()
+		if err := ab10ArmRowsDispatch(t, arm, censusCtx, func(map[string]any) error {
+			total++
 			return nil
+		}); err != nil {
+			t.Fatalf("%s arm: row census through the production port failed: %s", arm.name, arm.scrub(err))
 		}
-		var err error
-		if arm.backend != nil {
-			err = selectedAQLAdapter{exec: arm.backend.Client}.serviceRows(ctx, dataframeexecution.RowsRequest{
-				Command: ab10MustAQL(t, "FOR d IN Patient SORT d._key RETURN d"),
-			}, visit)
-		} else {
-			runtime := arm.fixture.catalogRuntime(t)
-			defer func() { _ = runtime.Close() }()
-			rows := runtime.SourceRows
-			err = rows(ctx, dataframeexecution.RowsRequest{
-				Command: ab10MustPG(t, fmt.Sprintf(
-					`SELECT logical_id FROM "%s".fhir_resource WHERE project=$1 AND dataset_generation=$2 AND resource_type='Patient' ORDER BY resource_seq`,
-					arm.fixture.schemas[control.SeriesSource])),
-			}, visit)
+		if total < 2 {
+			t.Fatalf("%s arm: cancellation cell saw %d rows, want at least 2 — vacuous stop-early witness", arm.name, total)
 		}
+
+		// (1) An already-cancelled request is refused with the arm's own
+		// typed context failure and visits nothing.
+		cancelledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		visitsOnCancelled := 0
+		err := ab10ArmRowsDispatch(t, arm, cancelledCtx, func(map[string]any) error {
+			visitsOnCancelled++
+			return nil
+		})
 		if err == nil {
 			t.Fatalf("%s arm: cancelled row execution completed without a typed failure — the caller cannot observe the abort", arm.name)
 		}
-		if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
+		if !errors.Is(err, context.Canceled) && !strings.Contains(strings.ToLower(err.Error()), "canceled") {
 			t.Fatalf("%s arm: cancellation returned an untied failure: %v", arm.name, err)
 		}
-		low := strings.ToLower(err.Error())
-		tell := []string{"arango", "aql", "postgres", "sql"}
-		if arm.name == "postgresql" {
-			tell = []string{"arango", "aql"}
-		} else {
-			tell = []string{"postgres", "sql"}
+		ab10AssertNoForeignFallbackTell(t, arm, "cancelled dispatch", err)
+		if visitsOnCancelled != 0 {
+			t.Fatalf("%s arm: cancelled execution visited %d rows, want 0", arm.name, visitsOnCancelled)
 		}
-		for _, term := range tell {
-			if strings.Contains(low, term) {
-				t.Fatalf("%s arm: cancelled execution reports a foreign-backend failure (fallback tell %q): %v", arm.name, term, err)
+
+		// (2) A caller abort mid-stream keeps its error identity and stops
+		// delivery of the remaining rows.
+		abort := errors.New("ab10 client aborted")
+		visited := 0
+		streamCtx, streamCancel := context.WithCancel(context.Background())
+		defer streamCancel()
+		err = ab10ArmRowsDispatch(t, arm, streamCtx, func(map[string]any) error {
+			visited++
+			if visited == 1 {
+				return abort
 			}
+			return nil
+		})
+		if !errors.Is(err, abort) {
+			t.Fatalf("%s arm: visitor abort did not keep its identity: %v, want the caller's error", arm.name, err)
 		}
-		if visited == 0 {
-			t.Fatalf("%s arm: cancellation cell visited no rows — vacuous witness (use a larger graph or report)", arm.name)
+		ab10AssertNoForeignFallbackTell(t, arm, "visitor abort", err)
+		if visited != 1 {
+			t.Fatalf("%s arm: visitor abort did not stop iteration: visited %d, want 1 of %d", arm.name, visited, total)
 		}
 	})
 }
@@ -2175,7 +2597,7 @@ func ab10ServerStatementWitness(t *testing.T, arm *ab10Arm) int64 {
 	t.Helper()
 	if arm.name == "postgresql" {
 		return arm.fixture.probeCount(t,
-			`SELECT n_xact_commit FROM pg_stat_database WHERE datname = current_database()`)
+			`SELECT COALESCE(xact_commit, 0) FROM pg_stat_database WHERE datname = current_database()`)
 	}
 	return 0
 }
@@ -2189,7 +2611,7 @@ func ab10AssertNoServerStatements(t *testing.T, arm *ab10Arm, before int64) {
 	// +1 accounts for the before-witness read's own commit; a refusal that
 	// never dialed the server must add nothing of its own.
 	if after-before > 1 {
-		t.Fatalf("%s arm: cross-tag dispatch reached the server: n_xact_commit grew by %d, want 1 (the before-witness read alone)", arm.name, after-before)
+		t.Fatalf("%s arm: cross-tag dispatch reached the server: xact_commit grew by %d, want 1 (the before-witness read alone)", arm.name, after-before)
 	}
 }
 
@@ -2217,6 +2639,7 @@ func ab10AttemptJSON(app *fiber.App, method, path, body string) (testHTTPRespons
 
 func ab10CellUpgradeReopen(t *testing.T, arm *ab10Arm) {
 	t.Run("upgradeFromPinnedPreRefactorReopensSafely", func(t *testing.T) {
+		ab10AuditLegMints(t, "postgresql", 1) // the pinned pre-refactor fixture
 		ctx, cancel := context.WithTimeout(context.Background(), 420*time.Second)
 		defer cancel()
 		if arm.name == "postgresql" {
@@ -2304,7 +2727,7 @@ func ab10CellUpgradeReopenPG(t *testing.T, arm *ab10Arm, ctx context.Context) {
 func ab10PGRowsDigest(t *testing.T, fixture *ab10PGFixture, source string) string {
 	t.Helper()
 	var digest *string
-	err := fixture.admin.QueryRow(context.Background(),
+	err := fixture.iso.QueryRow(context.Background(),
 		`SELECT md5(string_agg(project || '|' || dataset_generation || '|' || resource_type || '|' || logical_id || '|' || payload::text, E'\n' ORDER BY resource_seq))
 		   FROM "`+source+`".fhir_resource`).Scan(&digest)
 	if err != nil {
@@ -2319,7 +2742,7 @@ func ab10PGRowsDigest(t *testing.T, fixture *ab10PGFixture, source string) strin
 func ab10PGLedgerDigest(t *testing.T, fixture *ab10PGFixture, source string) string {
 	t.Helper()
 	var digest *string
-	err := fixture.admin.QueryRow(context.Background(),
+	err := fixture.iso.QueryRow(context.Background(),
 		`SELECT md5(string_agg(version::text || ':' || checksum, E'\n' ORDER BY version))
 		   FROM "`+source+`".schema_migrations`).Scan(&digest)
 	if err != nil {
