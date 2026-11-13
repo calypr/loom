@@ -131,8 +131,9 @@ export function pairedServices(env) {
 export function pairedDatabaseFromDsn(dsn) {
   const match = /^[a-z]+:\/\/[^/]*\/([^?#]+)/.exec(dsn ?? '');
   const database = match ? match[1] : '';
-  if (!database.startsWith('loom_bench_')) {
-    return { database, problem: `paired postgres database ${JSON.stringify(database)} is outside the loom_bench_* namespace` };
+  // Same shape benchcli enforces: loom_bench_ plus a 4-48 char suffix.
+  if (!/^loom_bench_[a-z0-9_]{4,48}$/.test(database)) {
+    return { database, problem: `paired postgres database ${JSON.stringify(database)} must match loom_bench_[a-z0-9_]{4,48} (benchcli enforces the same rule)` };
   }
   return { database, problem: null };
 }

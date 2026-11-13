@@ -105,7 +105,8 @@ runs the same matched battery against BOTH real drivers discovered from
 `factory/paired-driver-benchmark` in `.github/workflows/tests.yaml` runs
 this exact command with services `arangodb:3.12` + `postgres:18`). With
 `LOOM_BENCH_ADMIN_DSN` set it first provisions its own fresh
-`loom_bench_*` database via `benchcli drop-pg`/`setup-pg` (database,
+`loom_bench_*` database (name must match `loom_bench_[a-z0-9_]{4,48}`,
+the rule benchcli enforces) via `benchcli drop-pg`/`setup-pg` (database,
 six-series schema ladder, migrated tables) — the PostgreSQL backend
 readiness answers `schema_missing ... the caller owns schema lifecycle`,
 so the lane, not the server, bootstraps. A failed `setup-pg` fails the

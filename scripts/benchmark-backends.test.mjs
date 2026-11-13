@@ -248,14 +248,14 @@ test('paired: missing services fail the check, never skip it', () => {
 });
 
 test('paired: arango dsn gets a benchmark-namespaced database', () => {
-  const seen = pairedServices({ LOOM_TEST_ARANGO_URL: 'http://127.0.0.1:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@127.0.0.1:5432/loom_bench_ci?sslmode=disable' });
+  const seen = pairedServices({ LOOM_TEST_ARANGO_URL: 'http://127.0.0.1:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@127.0.0.1:5432/loom_bench_paired?sslmode=disable' });
   assert.deepEqual(seen.problems, []);
   assert.match(seen.arangoUrl, /\/loom_bench_ci$/);
 });
 
 test('paired invocation: both arms, timed lane, real iterations', () => {
   const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--profile', 'tiny', '--iterations', '5', '--warmup', '1', '--rounds', '5', '--source-commit', SHA40]);
-  const inv = buildPairedInvocation(flags, { arangoUrl: 'http://127.0.0.1:8529/loom_bench_ci', postgresDsn: 'postgresql://u:p@h:5432/loom_bench_ci' });
+  const inv = buildPairedInvocation(flags, { arangoUrl: 'http://127.0.0.1:8529/loom_bench_ci', postgresDsn: 'postgresql://u:p@h:5432/loom_bench_paired' });
   const joined = inv.args.join(' ');
   assert.match(joined, /--scope=both-arms/);
   assert.match(joined, /--publication=timed/);
@@ -335,7 +335,7 @@ test('paired run end-to-end: clean both-arm report passes and writes the table',
   };
   const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', dir, '--source-commit', SHA40]);
   await writeFile(join(dir, 'report.json'), JSON.stringify(report));
-  const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci' } });
+  const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_paired' } });
   assert.equal(failures, 0, logs.join('\n'));
   const { readFile } = await import('node:fs/promises');
   const table = await readFile(join(dir, 'comparison.md'), 'utf8');
@@ -353,15 +353,16 @@ test('paired run end-to-end: zero-timing report fails the check even with exit 0
   const logs = [];
   const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', dir, '--source-commit', SHA40]);
   await writeFile(join(dir, 'report.json'), JSON.stringify(report));
-  const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci' } });
+  const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_paired' } });
   assert.equal(failures, 1);
   assert.match(logs.join('\n'), /check paired-driver-benchmark: fail/);
 });
 
 test('paired: postgres dsn must name a loom_bench_ database', () => {
-  assert.equal(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable').problem, null);
-  assert.equal(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable').database, 'loom_bench_ci');
-  assert.match(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_test?sslmode=disable').problem, /loom_bench_\*/);
+  assert.equal(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_bench_paired?sslmode=disable').problem, null);
+  assert.equal(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_bench_paired?sslmode=disable').database, 'loom_bench_paired');
+  assert.match(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_test?sslmode=disable').problem, /loom_bench_/);
+  assert.match(pairedDatabaseFromDsn('postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable').problem, /4,48/, 'two-char suffix must fail like benchcli does');
 });
 
 test('paired: admin DSN drives drop-pg then setup-pg before the benchmark', () => {
@@ -375,12 +376,12 @@ test('paired: admin DSN drives drop-pg then setup-pg before the benchmark', () =
     log: (l) => logs.push(l),
     env: {
       LOOM_TEST_ARANGO_URL: 'http://h:8529',
-      LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable',
+      LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_paired?sslmode=disable',
       LOOM_BENCH_ADMIN_DSN: 'postgresql://u:p@h:5432/postgres?sslmode=disable',
     },
   });
-  assert.match(calls[0][1], /^drop-pg --database loom_bench_ci$/, `first call was: ${calls[0]?.[1]}`);
-  assert.match(calls[1][1], /^setup-pg --database loom_bench_ci$/);
+  assert.match(calls[0][1], /^drop-pg --database loom_bench_paired$/, `first call was: ${calls[0]?.[1]}`);
+  assert.match(calls[1][1], /^setup-pg --database loom_bench_paired$/);
   assert.match(calls[2][1], /run --scope=both-arms/);
 });
 
@@ -397,7 +398,7 @@ test('paired: failed setup-pg fails the check before any timing attempt', () => 
     log: (l) => logs.push(l),
     env: {
       LOOM_TEST_ARANGO_URL: 'http://h:8529',
-      LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci?sslmode=disable',
+      LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_paired?sslmode=disable',
       LOOM_BENCH_ADMIN_DSN: 'postgresql://u:p@h:5432/postgres',
     },
   });
