@@ -265,9 +265,34 @@ test('paired invocation: both arms, full chain, real iterations', () => {
   assert.match(joined, /--clickhouse-enabled/);
   assert.match(joined, /--clickhouse-url=clickhouse:\/\/127\.0\.0\.1:9000/);
   assert.match(joined, /--clickhouse-recipe=\S+recipe\.json/);
+  assert.match(joined, /--clickhouse-user=default/);
+  assert.doesNotMatch(joined, /--clickhouse-password/);
   assert.match(joined, /--iterations=5/);
   assert.match(joined, /--warmup=1/);
   assert.match(joined, /--arango-dsn=http:\/\/127\.0\.0\.1:8529\/loom_bench_ci/);
+});
+
+test('paired credentials: env fills ClickHouse auth, flags win', () => {
+  const base = ['--paired', '--binary', '/bin/loom', '--out', 'out', '--source-commit', SHA40, ...CH_ARGS];
+  const seen = [];
+  run(parseArgs(base), {
+    exec: (cmd, args) => { seen.push(args.join(' ')); return { status: 2 }; },
+    log: () => {},
+    env: {
+      LOOM_TEST_ARANGO_URL: 'http://127.0.0.1:8529',
+      LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@127.0.0.1:5432/loom_bench_paired?sslmode=disable',
+      LOOM_BENCH_CH_USER: 'loom_ci', LOOM_BENCH_CH_PASSWORD: 'loom_ci_password',
+    },
+  });
+  const benchcliRun = seen.find((a) => a.includes('--publication=run'));
+  assert.match(benchcliRun, /--clickhouse-user=loom_ci/);
+  assert.match(benchcliRun, /--clickhouse-password=loom_ci_password/);
+  const explicit = buildPairedInvocation(
+    parseArgs([...base, '--clickhouse-user', 'override', '--clickhouse-password', 'op']),
+    { arangoUrl: 'http://h/loom_bench_ci', postgresDsn: 'postgresql://u:p@h:5432/loom_bench_paired' },
+  ).args.join(' ');
+  assert.match(explicit, /--clickhouse-user=override/);
+  assert.match(explicit, /--clickhouse-password=op/);
 });
 
 test('paired flags refuse a non-comparison', () => {

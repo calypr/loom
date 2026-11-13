@@ -467,6 +467,10 @@ jobs:
           --health-retries 40
       clickhouse:
         image: clickhouse/clickhouse-server:25.3
+        env:
+          CLICKHOUSE_USER: loom_ci
+          CLICKHOUSE_PASSWORD: loom_ci_password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
         ports:
           - 9000:9000
           - 8123:8123
@@ -479,6 +483,8 @@ jobs:
       LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
       LOOM_TEST_POSTGRES_URL: postgresql://loom_bench:loom_ci_test_only@127.0.0.1:5432/loom_bench_paired?sslmode=disable
       LOOM_BENCH_ADMIN_DSN: postgresql://loom_bench:loom_ci_test_only@127.0.0.1:5432/postgres?sslmode=disable
+      LOOM_BENCH_CH_USER: loom_ci
+      LOOM_BENCH_CH_PASSWORD: loom_ci_password
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

@@ -51,7 +51,7 @@ export function parseArgs(argv) {
     mode: null, report: null, benchcli: null, out: null, runArgs: [], selftest: false,
     paired: false, binary: null, profile: 'tiny', iterations: 5, warmup: 1, rounds: null,
     concurrency: 1, previewLimit: 1000, sourceCommit: null, seed: 7, windowNote: null,
-    clickHouseUrl: null, clickHouseUser: 'default', clickHousePassword: null,
+    clickHouseUrl: null, clickHouseUser: null, clickHousePassword: null,
     clickHouseRecipe: fileURLToPath(new URL('../testdata/devloop-fixture/recipe.json', import.meta.url)),
   };
   let i = 0;
@@ -169,7 +169,7 @@ export function buildPairedInvocation(flags, services) {
     '--publication=run',
     '--clickhouse-enabled',
     `--clickhouse-url=${flags.clickHouseUrl}`,
-    `--clickhouse-user=${flags.clickHouseUser}`,
+    `--clickhouse-user=${flags.clickHouseUser || 'default'}`,
     ...(flags.clickHousePassword ? [`--clickhouse-password=${flags.clickHousePassword}`] : []),
     `--clickhouse-recipe=${flags.clickHouseRecipe}`,
     `--preset=${flags.profile}`,
@@ -448,6 +448,14 @@ function runPaired(flags, { exec, log, env }) {
       return 1;
     }
   }
+  // ClickHouse credentials arrive like the other services': explicit
+  // flags win, LOOM_BENCH_CH_USER / LOOM_BENCH_CH_PASSWORD fill what the
+  // lane provides, and the bare server default remains the fallback.
+  // (The CI service authenticates a created loom_ci user; an anonymous
+  // default login is refused there with code 516, which degrades the
+  // publication plane and keeps /readyz at 503.)
+  if (!flags.clickHouseUser) flags.clickHouseUser = (env.LOOM_BENCH_CH_USER ?? '').trim() || 'default';
+  if (!flags.clickHousePassword) flags.clickHousePassword = (env.LOOM_BENCH_CH_PASSWORD ?? '').trim() || null;
   const invocation = buildPairedInvocation(flags, { arangoUrl, postgresDsn });
   // The paired lane is its own granted window: it runs in a CI job with
   // isolated services, so it sets the live gate the CLI demands.
