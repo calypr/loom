@@ -55,6 +55,22 @@ PATHY = re.compile(r"^[\w./\[\] -]+$")
 
 CLAIM_ALGO = {"md5": "md5", "sha256": "sha256", "contentMD5": "md5",
               "expectedMD5": "md5", "canonicalTlaMd5": "md5", "digest": "auto"}
+NAMED_MODEL_CLAIMS = ("md5", "sha256", "contentMD5", "expectedMD5", "digest")
+
+
+def model_section_claims(section):
+    claims = [(f, CLAIM_ALGO[f]) for f in NAMED_MODEL_CLAIMS if f in section]
+    for field in ("tla",):
+        v = section.get(field)
+        if isinstance(v, str) and (HEX32.match(v) or HEX64.match(v)):
+            claims.append((field, "md5" if HEX32.match(v) else "sha256"))
+    return claims
+
+
+def resolve_algo(algo, value):
+    if algo != "auto":
+        return algo
+    return "md5" if isinstance(value, str) and HEX32.match(value) else "sha256"
 SKIP_SUBTREE = ("repin",)
 
 RELOCATIONS = {
@@ -386,10 +402,8 @@ class Checker:
             if not isinstance(section, dict):
                 continue
             spath = self._section_path(name, section)
-            for field in ("md5", "sha256", "contentMD5", "expectedMD5"):
-                if field in section:
-                    self.check_claim("model", name, field, CLAIM_ALGO[field],
-                                     section[field], spath)
+            for field, algo in model_section_claims(section):
+                self.check_claim("model", name, field, algo, section[field], spath)
             cfgs = section.get("cfgs")
             if isinstance(cfgs, dict):
                 for cfgname, v in cfgs.items():
@@ -713,10 +727,8 @@ def apply_fixes(doc, ledger_rel, ref, ticket):
             if spath is None:
                 continue
             touched = {}
-            for field in ("md5", "sha256", "contentMD5", "expectedMD5"):
-                if field not in section:
-                    continue
-                algo = "md5" if "md5" in field.lower() else "sha256"
+            for field, algo in model_section_claims(section):
+                algo = resolve_algo(algo, section[field])
                 t = true_value(spath, algo)
                 if t and section[field] != t:
                     touched[field] = {"pre": section[field], "post": t}
