@@ -82,6 +82,9 @@ const (
 const (
 	ConditionStatusConfirmed   = "confirmed"
 	ConditionStatusProvisional = "provisional"
+	// ConditionClinicalActive is the FHIR R4 required clinicalStatus. No
+	// workload predicates on it, so it is constant and never an oracle input.
+	ConditionClinicalActive = "active"
 )
 
 // PatientNamePool sizes control duplicate contributors and repeated-owner
@@ -415,15 +418,24 @@ func (d DatasetParams) buildPatientDocument(f PatientFacts) map[string]any {
 	if f.Deceased != nil {
 		doc["deceasedBoolean"] = *f.Deceased
 	}
-	fam := make([]any, 0, len(f.FamilyNames))
-	for _, name := range f.FamilyNames {
-		fam = append(fam, name)
+	// FHIR R4 HumanName.family is a single string, so each family name gets
+	// its own name entry; name[].family still yields every family the patient
+	// carries, which keeps DISTINCT-vs-ALL selective. The given list rides on
+	// the first entry only so name[].given[] never duplicates a given value
+	// across entries: the sort-limit oracle emits exactly one row per patient.
+	names := make([]any, 0, len(f.FamilyNames))
+	for i, family := range f.FamilyNames {
+		entry := map[string]any{"family": family}
+		if i == 0 {
+			giv := make([]any, 0, len(f.GivenNames))
+			for _, name := range f.GivenNames {
+				giv = append(giv, name)
+			}
+			entry["given"] = giv
+		}
+		names = append(names, entry)
 	}
-	giv := make([]any, 0, len(f.GivenNames))
-	for _, name := range f.GivenNames {
-		giv = append(giv, name)
-	}
-	doc["name"] = []any{map[string]any{"family": fam, "given": giv}}
+	doc["name"] = names
 	ident := make([]any, 0, len(f.IdentifierValues))
 	for _, v := range f.IdentifierValues {
 		ident = append(ident, map[string]any{"use": "official", "system": "https://bench.example/mrn", "value": v})
@@ -515,6 +527,9 @@ func (d DatasetParams) buildConditionDocument(f ConditionFacts) map[string]any {
 			"system": "http://terminology.hl7.org/CodeSystem/condition-ver-status", "code": f.VerificationStatus,
 		}}}
 	}
+	doc["clinicalStatus"] = map[string]any{"coding": []any{map[string]any{
+		"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": ConditionClinicalActive,
+	}}}
 	if ref := d.studyRefFor(patientIndexFromID(f.PatientID)); ref != "" {
 		doc["extension"] = []any{partOfStudyExtension(ref)}
 	}
