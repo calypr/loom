@@ -1,32 +1,3 @@
-// Package packagepolicy is the single authoritative parsed-import
-// implementation of Loom's package-boundary ownership policy (arch-backend-09).
-//
-// Every boundary entrypoint runs this one implementation:
-//
-//   - scripts/check-boundaries (CLI, invoked by
-//     scripts/check_dataframe_package_boundaries.sh, which Make and CI use)
-//     scans the repository and runs the negative fixture controls;
-//   - internal/dataframe/compiler/backend_leaf_guard_test.go
-//     (TestCompilerProductionFilesNeverImportBackendsOrDrivers) delegates
-//     its scan here;
-//   - internal/dataframe/compiler/backend_ownership_guard_contract_test.go
-//     (TestBackendOwnershipGuardContract) drives the same rules and scanner.
-//
-// Design invariants (the defect class this package exists to kill):
-//
-//   - Findings and errors live in separate channels. A missing directory,
-//     a walk failure, or a parse failure is a VERIFICATION failure, never
-//     an import finding. A control may only be satisfied by ImportFindings;
-//     the retired scanner folded fs.WalkDir errors into its offender list,
-//     so a control aimed at a deleted directory "passed" on FS errors
-//     (arch-backend-09 fix: backend_leaf_guard_test.go scanning the dead
-//     internal/dataframe/postgres path).
-//   - Vacuity is refused: a nonexistent target root and a target that
-//     yields zero in-scope Go files are both errors, never a silent pass.
-//   - Production and test imports are checked separately (Scope), so
-//     external test packages may use the public backend factory while
-//     production renderer/domain code stays driver-, store-, and
-//     runtime-free.
 package packagepolicy
 
 import (
@@ -42,20 +13,14 @@ import (
 	"go/token"
 )
 
-// Scope selects which files a rule inspects.
 type Scope int
 
 const (
-	// Production skips *_test.go files.
 	Production Scope = iota
-	// TestsOnly inspects only *_test.go files.
 	TestsOnly
-	// AllScopes inspects every Go file.
 	AllScopes
 )
 
-// Forbidden names imports a rule rejects. Prefix entries match the exact
-// path or any path below it; Exact entries match only the identical path.
 type Forbidden struct {
 	Prefix []string
 	Exact  []string
@@ -63,8 +28,6 @@ type Forbidden struct {
 
 func (f Forbidden) matches(importPath string) bool {
 	for _, prefix := range f.Prefix {
-		// Table prefixes may or may not carry a trailing slash; both
-		// must match the package itself and everything below it.
 		p := strings.TrimSuffix(prefix, "/")
 		if importPath == p || strings.HasPrefix(importPath, p+"/") {
 			return true
@@ -78,24 +41,17 @@ func (f Forbidden) matches(importPath string) bool {
 	return false
 }
 
-// Rule is one parsed-import boundary rule from the authoritative table.
 type Rule struct {
-	Label     string
-	Owner     string // allowed-owner guidance emitted with every finding
-	Targets   []string
-	Recursive bool
-	Scope     Scope
-	Forbidden Forbidden
-	// RejectNonStdlib reports every import whose first path segment
-	// contains a dot (the stdlib has none): the command-leaf law.
+	Label           string
+	Owner           string
+	Targets         []string
+	Recursive       bool
+	Scope           Scope
+	Forbidden       Forbidden
 	RejectNonStdlib bool
-	// AllowFiles lists repo-root-relative files whose findings are
-	// tolerated (registered interim allowlist entries only).
-	AllowFiles []string
+	AllowFiles      []string
 }
 
-// ErrorKind classifies verification failures. They are structurally
-// distinct from import findings.
 type ErrorKind string
 
 const (
@@ -106,8 +62,6 @@ const (
 	ErrVacuous ErrorKind = "vacuous-scan"
 )
 
-// ScanError is a verification failure: the scan could not establish
-// anything about the target, so no control may be satisfied by it.
 type ScanError struct {
 	Kind   ErrorKind
 	Path   string
@@ -118,7 +72,6 @@ func (e ScanError) String() string {
 	return fmt.Sprintf("boundary verification failure [%s] %s: %s", e.Kind, e.Path, e.Reason)
 }
 
-// Finding is one confirmed forbidden import in a parsed file.
 type Finding struct {
 	Rule   string
 	File   string
@@ -132,16 +85,12 @@ func (f Finding) String() string {
 		f.File, f.Line, f.Rule, f.Import, f.Owner)
 }
 
-// Result separates confirmed findings from verification failures.
 type Result struct {
 	Findings []Finding
 	Errors   []ScanError
 	Scanned  int
 }
 
-// ImportFindings returns only confirmed import findings; verification
-// errors are excluded by construction, so a missing directory can never
-// count as import detection.
 func (r Result) ImportFindings() []Finding {
 	out := make([]Finding, 0, len(r.Findings))
 	out = append(out, r.Findings...)
@@ -150,15 +99,11 @@ func (r Result) ImportFindings() []Finding {
 
 func (r Result) HasImportFindings() bool { return len(r.Findings) > 0 }
 
-// Clean reports a scan that fully established its negative: no forbidden
-// imports and no verification failures.
 func (r Result) Clean() bool { return len(r.Findings) == 0 && len(r.Errors) == 0 }
 
 func (r *Result) addFinding(f Finding) { r.Findings = append(r.Findings, f) }
 func (r *Result) addError(e ScanError) { r.Errors = append(r.Errors, e) }
 
-// ScanTarget walks one directory (recursively when recursive) or one Go
-// file and reports forbidden imports and verification failures.
 func ScanTarget(target, label, owner string, forbidden Forbidden, rejectNonStdlib bool, scope Scope, recursive bool) Result {
 	var res Result
 	info, err := os.Stat(target)
@@ -273,7 +218,6 @@ func finalize(res *Result) {
 	})
 }
 
-// ScanRule runs one table rule against repoRoot by joining each target.
 func ScanRule(repoRoot string, rule Rule) Result {
 	var res Result
 	for _, target := range rule.Targets {
@@ -305,7 +249,6 @@ func allowedFile(allow []string, repoRoot, file string) bool {
 	return false
 }
 
-// ScanAll runs the authoritative table against repoRoot.
 func ScanAll(repoRoot string) Result {
 	var res Result
 	for _, rule := range RepoRules() {
@@ -318,13 +261,6 @@ func ScanAll(repoRoot string) Result {
 	return res
 }
 
-// AbsenceRule asserts that obsolete paths stay absent (removed by the
-// factory tickets; their return is a remnant regression). Identifiers
-// asserts that removed API names stay absent from the parsed AST of every
-// Go file under ScanRoots: a deleted bridge or forwarding symbol that
-// reappears anywhere — including in tests — fails the table. Parsed AST
-// matching means comments and string literals can never trip the check,
-// and a parse failure is a verification error, never a detection.
 type AbsenceRule struct {
 	Label       string
 	Owner       string
@@ -333,34 +269,15 @@ type AbsenceRule struct {
 	ScanRoots   []string
 }
 
-// NoReExportRule asserts that a facade package (Target) does not
-// re-export the public surface of an owning package (Owner): no top-level
-// `Name = owner.Name` alias and no `func Name(...) owner.T` forwarding
-// declaration for any symbol the owning package exports. This is the
-// machine check behind "compat forwarding APIs absent" — the aliases.go
-// defect class: a compatibility shim re-publishing another package's
-// vocabulary from the old package path.
 type NoReExportRule struct {
-	Label    string
-	Owner    string // allowed-owner guidance emitted with every failure
-	Target   string // repo-root-relative facade directory (its own package)
-	OwnerPkg string // repo-root-relative owning package directory
-	// OwnerImport is the import path Target uses for OwnerPkg when
-	// matching qualified forwarding declarations.
-	OwnerImport string
-	// AllowedEmbeds names types where a same-named struct in Target may
-	// embed the owner's same-named type: the sanctioned composition
-	// shape (root Runtime embeds the control plane and adds the data
-	// ports). Every entry is an explicit, auditable ownership decision,
-	// not a blanket exemption; any OTHER same-named embedding still
-	// fails as method-set re-publication.
+	Label         string
+	Owner         string
+	Target        string
+	OwnerPkg      string
+	OwnerImport   string
 	AllowedEmbeds []string
 }
 
-// CheckNoReExport parses both packages and reports facade declarations
-// that re-publish owning-package exports. A facade importing the owner is
-// legal (composition); only re-export declarations fail. Zero parsed
-// files in either package is a vacuity failure.
 func CheckNoReExport(repoRoot string, rule NoReExportRule) []ScanError {
 	ownerNames, errs := exportedNames(filepath.Join(repoRoot, rule.OwnerPkg), rule.OwnerPkg)
 	if len(errs) > 0 {
@@ -410,7 +327,6 @@ func CheckNoReExport(repoRoot string, rule NoReExportRule) []ScanError {
 						if !s.Name.IsExported() {
 							continue
 						}
-						// type Name = owner.Name (alias form of the shim).
 						if s.Assign == token.NoPos {
 							if _, ok := s.Type.(*ast.StructType); !ok {
 								continue
@@ -425,12 +341,6 @@ func CheckNoReExport(repoRoot string, rule NoReExportRule) []ScanError {
 							}
 							continue
 						}
-						// type Name struct { *owner.T } — embedding
-						// promotes the owner's whole method set onto the
-						// facade: the same re-publish, spelled as
-						// composition. Only same-named embeddings fail,
-						// and only unless the name is an explicit
-						// AllowedEmbeds ownership decision.
 						if st, ok := s.Type.(*ast.StructType); ok {
 							allowed := false
 							for _, a := range rule.AllowedEmbeds {
@@ -460,8 +370,6 @@ func CheckNoReExport(repoRoot string, rule NoReExportRule) []ScanError {
 				if d.Recv != nil || !d.Name.IsExported() || d.Body == nil {
 					continue
 				}
-				// Forwarding wrapper: exported func whose body only
-				// returns a single owner symbol call (or forwards args).
 				if len(d.Body.List) == 1 {
 					ret, ok := d.Body.List[0].(*ast.ReturnStmt)
 					if !ok || len(ret.Results) != 1 {
@@ -489,8 +397,6 @@ func qualifiedOwner(sel *ast.SelectorExpr, ownerImport string) bool {
 	return ok && id.Name == importLeafName(ownerImport)
 }
 
-// embeddedSelector unwraps an embedded field type (*owner.T or owner.T)
-// to its qualified selector.
 func embeddedSelector(expr ast.Expr) (*ast.SelectorExpr, bool) {
 	if star, ok := expr.(*ast.StarExpr); ok {
 		expr = star.X
@@ -499,8 +405,6 @@ func embeddedSelector(expr ast.Expr) (*ast.SelectorExpr, bool) {
 	return sel, ok
 }
 
-// importLeafName derives the default identifier for an import path
-// (last segment; hyphens to underscores is out of scope — none used).
 func importLeafName(importPath string) string {
 	if i := strings.LastIndexByte(importPath, '/'); i >= 0 {
 		return importPath[i+1:]
@@ -508,8 +412,6 @@ func importLeafName(importPath string) string {
 	return importPath
 }
 
-// exportedNames parses every Go file in dir and returns its exported
-// top-level declaration names (types, vars, consts, funcs, methods).
 func exportedNames(dir, label string) (map[string]bool, []ScanError) {
 	files, errs := goFiles(dir, label)
 	if len(errs) > 0 {
@@ -553,8 +455,6 @@ func exportedNames(dir, label string) (map[string]bool, []ScanError) {
 	return names, nil
 }
 
-// goFiles returns the non-test .go files directly under dir (one
-// package). Missing/empty trees are verification failures.
 func goFiles(dir, label string) ([]string, []ScanError) {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -580,31 +480,19 @@ func goFiles(dir, label string) ([]string, []ScanError) {
 	return files, nil
 }
 
-// RepoNoReExport is the machine-enforced facade law from the
-// arch-backend-09 ruling (2026-11-12, Option A): the postgres factory
-// root composes control and the private rows bridge but must never
-// re-publish control's vocabulary. internal/backends/postgres/aliases.go
-// was exactly this shim.
 func RepoNoReExport() []NoReExportRule {
 	return []NoReExportRule{
 		{
-			Label:       labelRootNoReExport,
-			Owner:       "import internal/backends/postgres/control directly for control-plane symbols; the root package keeps only the factory (Open/Runtime) and the typed data-plane bridges",
-			Target:      "internal/backends/postgres",
-			OwnerPkg:    "internal/backends/postgres/control",
-			OwnerImport: module + "internal/backends/postgres/control",
-			// The one sanctioned composition: the factory Runtime embeds
-			// the control runtime and adds SourceRows/PlanJSON (ruling
-			// 2026-11-12, Option A: "root for Open/Runtime (embedding
-			// promotes methods)"). Any other same-named embedding is a
-			// re-publication.
+			Label:         labelRootNoReExport,
+			Owner:         "import internal/backends/postgres/control directly for control-plane symbols; the root package keeps only the factory (Open/Runtime) and the typed data-plane bridges",
+			Target:        "internal/backends/postgres",
+			OwnerPkg:      "internal/backends/postgres/control",
+			OwnerImport:   module + "internal/backends/postgres/control",
 			AllowedEmbeds: []string{"Runtime"},
 		},
 	}
 }
 
-// CheckAbsences fails when an obsolete path has been recreated or a
-// removed identifier has reappeared.
 func CheckAbsences(repoRoot string, rules []AbsenceRule) []ScanError {
 	var errs []ScanError
 	for _, rule := range rules {
@@ -624,9 +512,6 @@ func CheckAbsences(repoRoot string, rules []AbsenceRule) []ScanError {
 	return errs
 }
 
-// checkIdentifierAbsences parses every Go file under the rule's scan roots
-// and reports removed identifiers found in the AST. Zero scanned files is
-// a vacuity failure, never a silent pass.
 func checkIdentifierAbsences(repoRoot string, rule AbsenceRule) []ScanError {
 	var errs []ScanError
 	wanted := make(map[string]bool, len(rule.Identifiers))
@@ -685,8 +570,6 @@ func checkIdentifierAbsences(repoRoot string, rule AbsenceRule) []ScanError {
 	return errs
 }
 
-// ByLabel looks up an authoritative rule so every entrypoint runs the same
-// table row instead of restating its rule table.
 func ByLabel(label string) (Rule, bool) {
 	for _, rule := range RepoRules() {
 		if rule.Label == label {
@@ -696,7 +579,6 @@ func ByLabel(label string) (Rule, bool) {
 	return Rule{}, false
 }
 
-// FindRepoRoot walks up from start until it finds go.mod.
 func FindRepoRoot(start string) (string, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {

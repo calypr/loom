@@ -74,7 +74,6 @@ test('CLI fails on a missing test-owned URL fixture with its filesystem code', (
 });
 
 test('an unreadable test-owned URL fixture fails the inventory with its filesystem code', async () => {
-  // A symlink loop is unopenable for every user, unlike a mode only root can read.
   const root = project({ 'scripts/root.test.mjs': "readFile(new URL('./blocked.json', import.meta.url));", ...HEALTHY });
   try {
     symlinkSync(path.join(root, 'scripts/blocked.json'), path.join(root, 'scripts/blocked.json'));
@@ -93,8 +92,6 @@ test('an unreadable test-owned URL fixture fails the inventory with its filesyst
 });
 
 test('an unreadable retained dependency fails the inventory with its filesystem code', async () => {
-  // A directory where a module is expected yields EISDIR for any user, unlike
-  // a mode that only the current user cannot read.
   const root = project({ 'scripts/root.test.mjs': "import './blocked.mjs';", ...HEALTHY });
   try {
     mkdirSync(path.join(root, 'scripts/blocked.mjs'), { recursive: true });

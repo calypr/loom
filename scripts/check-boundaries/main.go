@@ -1,13 +1,3 @@
-// Command check-boundaries runs the authoritative parsed-import boundary
-// policy (scripts/packagepolicy) over the repository and, with
-// --self-test, over negative fixtures that prove the guards can actually
-// go RED (arch-backend-09 acceptance: "negative fixture checks fail for a
-// real forbidden import and pass after its removal; a vacuous nonexistent
-// path/empty scan fails").
-//
-// Invoked by scripts/check_dataframe_package_boundaries.sh (Make target
-// dataframe-boundaries and the CI go-unit job). Do not add a second rule
-// table anywhere else; add rows to scripts/packagepolicy/rules.go.
 package main
 
 import (
@@ -144,9 +134,6 @@ func oldPathsRule() packagepolicy.Rule {
 	return rule
 }
 
-// querierBridgeAbsenceRule pulls the live table row for the removed
-// untyped row-querier bridge so the self-test proves the same entry the
-// repository scan runs, not a restated fixture copy.
 func querierBridgeAbsenceRule() packagepolicy.AbsenceRule {
 	for _, r := range packagepolicy.RepoAbsences() {
 		if r.Label == "removed untyped row-querier bridge (arch-backend-09)" {
@@ -242,9 +229,6 @@ func controls() []control {
 				forbiddenImportRule().Label, "victim_backends.go", "internal/backends/postgres")
 		}},
 		{"driver-leak-hidden-in-postgres-renderer", func(f *fixture) {
-			// The AQL twin stays clean: a scan of only render/aql
-			// would pass while the driver leak sits in
-			// render/postgres. Both dialect rules must run.
 			f.write("render/aql/clean.go", goFile("aql", ""))
 			f.write("render/postgres/victim_pgx.go", goFile("postgres", pgxImport))
 		}, func(f *fixture) error {
@@ -374,22 +358,16 @@ func controls() []control {
 			if err := expectAbsenceError(packagepolicy.CheckNoReExport(f.dir, rule), packagepolicy.ErrVacuous, "Config"); err != nil {
 				return err
 			}
-			// Removal converges: composition (no re-export decls) passes.
 			f.write("postgres/aliases.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\n"+
 				"func Open(c control.Config) error { return nil }\n")
 			if errs := packagepolicy.CheckNoReExport(f.dir, rule); len(errs) != 0 {
 				return fmt.Errorf("composition must stay legal: %v", errs)
 			}
-			// Forwarding-wrapper form is also caught.
 			f.write("postgres/aliases.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\n"+
 				"func NewStore() *control.Store { return control.NewStore() }\n")
 			if err := expectAbsenceError(packagepolicy.CheckNoReExport(f.dir, rule), packagepolicy.ErrVacuous, "NewStore"); err != nil {
 				return err
 			}
-			// Same-name embedding (the old Runtime facade shape:
-			// type X struct{ *control.X }) re-publishes the method set
-			// and must be caught; differently named composition stays
-			// legal (covered above by Open's control.Runtime embed).
 			f.write("postgres/aliases.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\n"+
 				"type Store struct{ *control.Store }\n")
 			return expectAbsenceError(packagepolicy.CheckNoReExport(f.dir, rule), packagepolicy.ErrVacuous, "Store")
@@ -405,8 +383,6 @@ func controls() []control {
 				rule.Label, "leak.go", "internal/backends/postgres"); err != nil {
 				return err
 			}
-			// The exact-match semantics: importing a SIBLING of the root
-			// (control itself, or control's subpackages) is legal.
 			f.write("internal/backends/postgres/control/leak.go", goFile("control", "github.com/calypr/loom/internal/backends/postgres/control"))
 			return expectClean(scanPath(rule, filepath.Join(f.dir, "internal/backends/postgres/control")))
 		}},
@@ -429,7 +405,5 @@ func controls() []control {
 }
 
 func expectOnlyCleanOrSkip(res packagepolicy.Result) error {
-	// The clean AQL twin in the hidden-leak control proves the
-	// single-directory AQL scan is blind; it must itself converge.
 	return expectClean(res)
 }

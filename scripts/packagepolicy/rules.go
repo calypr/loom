@@ -5,13 +5,6 @@ import (
 	"strings"
 )
 
-// The authoritative boundary rule table (arch-backend-09). This is the ONE
-// place these rules are stated; the CLI, the shell entrypoint, and both
-// named Go guard tests all consume this table. Per-rule Owner text is the
-// "allowed owner" guidance CI must print next to each offending import
-// (acceptance: "CI rejects the demonstrated historical ownership leaks with
-// a clear offending import and allowed owner").
-
 const module = "github.com/calypr/loom/"
 
 const (
@@ -33,8 +26,6 @@ const (
 	labelRootNoReExport     = "postgres-root: no control symbol re-exports"
 )
 
-// backendImports is the shared forbidden set for every tree that must stay
-// vendor-free: the two backend ownership trees and both database drivers.
 var backendImports = Forbidden{
 	Prefix: []string{
 		module + "internal/backends/",
@@ -43,22 +34,11 @@ var backendImports = Forbidden{
 	},
 }
 
-// oldConcreteImportPaths are the pre-refactor concrete package import paths
-// (the "bolt-on" layout), kept as guard data in old_concrete_paths.txt:
-// the retired-adapter text guard forbids citing these paths even in Go
-// comments, so the table lives outside .go text and is embedded. The
-// guard still matches every path; only its storage moved. The
-// old_concrete_paths_are_the_table control pins the data file against
-// accidental drift.
-//
 //go:embed old_concrete_paths.txt
 var oldConcretePathsData string
 
 var oldConcreteImportPaths = parsePathTable(oldConcretePathsData)
 
-// parsePathTable reads one path per line, ignoring blank lines and
-// #-comments. An empty table is a build-time panic, never a silent
-// zero-path rule.
 func parsePathTable(data string) []string {
 	var out []string
 	for _, line := range strings.Split(data, "\n") {
@@ -74,14 +54,10 @@ func parsePathTable(data string) []string {
 	return out
 }
 
-// OldConcreteImportPaths exposes the retired-path table so witness
-// fixtures derive their planted imports from the authoritative data
-// instead of restating (and thereby citing) retired paths in Go source.
 func OldConcreteImportPaths() []string {
 	return append([]string{}, oldConcreteImportPaths...)
 }
 
-// RepoRules is the authoritative parsed-import rule table.
 func RepoRules() []Rule {
 	return []Rule{
 		{
@@ -121,12 +97,9 @@ func RepoRules() []Rule {
 			}, backendImports.Prefix...)},
 		},
 		{
-			Label:   labelPublicationPlane,
-			Owner:   "ClickHouse publication is the independent publication plane; dataframe execution orchestration, published snapshots, and materialization must not be imported here.",
-			Targets: []string{"internal/dataframe/publication"},
-			// internal/dataframe/publication holds both the neutral
-			// contracts and the clickhouse publication adapter; the
-			// ban applies to every file in it.
+			Label:     labelPublicationPlane,
+			Owner:     "ClickHouse publication is the independent publication plane; dataframe execution orchestration, published snapshots, and materialization must not be imported here.",
+			Targets:   []string{"internal/dataframe/publication"},
 			Recursive: true,
 			Scope:     Production,
 			Forbidden: Forbidden{Prefix: []string{
@@ -136,12 +109,9 @@ func RepoRules() []Rule {
 			}},
 		},
 		{
-			Label:   labelAuthoringIntent,
-			Owner:   "authoring intent is a pure contract tree; server, store, backend, lifecycle/compilation orchestration, and dataframe runtime layers are wired at composition.",
-			Targets: []string{"internal/explorer/authoringv2"},
-			// The authoringv2 import-ban rule was previously a shell
-			// rule; it is preserved here (the tree is a domain
-			// contract tree, so backendImports applies to it too).
+			Label:     labelAuthoringIntent,
+			Owner:     "authoring intent is a pure contract tree; server, store, backend, lifecycle/compilation orchestration, and dataframe runtime layers are wired at composition.",
+			Targets:   []string{"internal/explorer/authoringv2"},
 			Recursive: true,
 			Scope:     Production,
 			Forbidden: Forbidden{Prefix: []string{
@@ -157,12 +127,9 @@ func RepoRules() []Rule {
 			}},
 		},
 		{
-			Label:   labelIRLeaf,
-			Owner:   "IR is the compiler substrate: lowering, optimization, rendering, and runtime layer above it.",
-			Targets: []string{"internal/dataframe/compiler/ir"},
-			// The ir rule's backends entry widened from
-			// internal/backends/arango to both backends: the AQL
-			// shape it was written for holds equally for SQL.
+			Label:     labelIRLeaf,
+			Owner:     "IR is the compiler substrate: lowering, optimization, rendering, and runtime layer above it.",
+			Targets:   []string{"internal/dataframe/compiler/ir"},
 			Recursive: true,
 			Scope:     Production,
 			Forbidden: Forbidden{Prefix: []string{
@@ -212,21 +179,12 @@ func RepoRules() []Rule {
 				module + "internal/dataframe/template",
 				module + "internal/dataframe/errors",
 			}},
-			// Interim allowlist preserved per the scripts-lane
-			// ruling (arch-backend-07 Wave B; coordinator ruling
-			// arch-backend-09 Q4: stays, not retired here).
 			AllowFiles: []string{"internal/dataframe/spec/grain.go"},
 		},
 		{
-			Label:   labelRenderAQL,
-			Owner:   "renderers are dialect leaf components: no lowerer, optimizer, runtime, backend, or driver imports; AQL rendering stays compiler-owned.",
-			Targets: []string{"internal/dataframe/compiler/render/aql"},
-			// The lower/optimize bans preserve the shell rule's
-			// intent for the AQL dialect; the runtime/backends/driver
-			// bans are the shared renderer law (previously the shell
-			// scanned only this directory, which is exactly the
-			// AQL-only blindness arch-backend-09 closes by pairing
-			// this rule with labelRenderPostgres).
+			Label:     labelRenderAQL,
+			Owner:     "renderers are dialect leaf components: no lowerer, optimizer, runtime, backend, or driver imports; AQL rendering stays compiler-owned.",
+			Targets:   []string{"internal/dataframe/compiler/render/aql"},
 			Recursive: true,
 			Scope:     Production,
 			Forbidden: Forbidden{Prefix: []string{
@@ -240,12 +198,9 @@ func RepoRules() []Rule {
 			}, Exact: []string{module + "internal/dataframe/compiler"}},
 		},
 		{
-			Label:   labelRenderPostgres,
-			Owner:   "renderers are dialect leaf components: no runtime, backend, store, or driver imports; SQL rendering stays compiler-owned. (Production renderer -> compiler/lower helper imports predate arch-backend-09 and remain with the compiler owner; compiler-root-exact, execution, backends, stores, and drivers are the banned leak shapes.)",
-			Targets: []string{"internal/dataframe/compiler/render/postgres"},
-			// The dialect-pairing rule: every leak shape the AQL
-			// rule refuses must be refused here too, so a driver
-			// leak cannot hide by landing only in render/postgres.
+			Label:     labelRenderPostgres,
+			Owner:     "renderers are dialect leaf components: no runtime, backend, store, or driver imports; SQL rendering stays compiler-owned. (Production renderer -> compiler/lower helper imports predate arch-backend-09 and remain with the compiler owner; compiler-root-exact, execution, backends, stores, and drivers are the banned leak shapes.)",
+			Targets:   []string{"internal/dataframe/compiler/render/postgres"},
 			Recursive: true,
 			Scope:     Production,
 			Forbidden: Forbidden{Prefix: []string{
@@ -257,44 +212,32 @@ func RepoRules() []Rule {
 			}, Exact: []string{module + "internal/dataframe/compiler"}},
 		},
 		{
-			Label:     labelCommandLeaf,
-			Owner:     "the compiled command is the compiler's standard-library-only leaf output; placeholder/type/null/copy checks run at construction, and dialect parameter encoding stays with each renderer.",
-			Targets:   []string{"internal/dataframe/compiler/command"},
-			Recursive: true,
-			Scope:     Production,
-			// command_test.go imports the compiler package: that is
-			// a test-scope import, checked separately from the
-			// production leaf law (Scope: Production above).
+			Label:           labelCommandLeaf,
+			Owner:           "the compiled command is the compiler's standard-library-only leaf output; placeholder/type/null/copy checks run at construction, and dialect parameter encoding stays with each renderer.",
+			Targets:         []string{"internal/dataframe/compiler/command"},
+			Recursive:       true,
+			Scope:           Production,
 			RejectNonStdlib: true,
 		},
 		{
-			Label:   labelLifecycle,
-			Owner:   "Explorer lifecycle policy stays adapter-neutral; vendor plan/index/adapter policy types are translated inside the owning adapter under internal/backends/*/internal.",
-			Targets: []string{"internal/explorer/lifecycle"},
-			// backend-simplification-20261110 coverage amendment:
-			// lifecycle-to-adapter policy types are a banned shape.
+			Label:     labelLifecycle,
+			Owner:     "Explorer lifecycle policy stays adapter-neutral; vendor plan/index/adapter policy types are translated inside the owning adapter under internal/backends/*/internal.",
+			Targets:   []string{"internal/explorer/lifecycle"},
 			Recursive: true,
 			Scope:     Production,
 			Forbidden: backendImports,
 		},
 		{
-			Label: labelOldConcretePaths,
-			Owner: "these concrete package paths were relocated under internal/backends/{arango,postgres}/internal by arch-backend-06/07; import only the factory package github.com/calypr/loom/internal/backends/{arango,postgres} and consume the returned domain ports.",
-			// AllScopes: even a test importing a dead path is a
-			// remnant regression (the runner-coverage "no old
-			// package retained" law).
+			Label:     labelOldConcretePaths,
+			Owner:     "these concrete package paths were relocated under internal/backends/{arango,postgres}/internal by arch-backend-06/07; import only the factory package github.com/calypr/loom/internal/backends/{arango,postgres} and consume the returned domain ports.",
 			Targets:   []string{"internal", "cmd"},
 			Recursive: true,
 			Scope:     AllScopes,
 			Forbidden: Forbidden{Prefix: importPaths(oldConcreteImportPaths)},
 		},
 		{
-			Label: labelControlCycleFree,
-			Owner: "internal/backends/postgres/control is the cycle-free public control plane (arch-backend-09 ruling 2026-11-12): it must never import the postgres factory root (cycle), the private rows adapter (root-owned bridge), or dataframe/execution (the bridge reaches the renderer through execution). Consumers import control directly for control-plane symbols; only the factory root may import rows.",
-			// AllScopes: a test-side cycle is still a cycle at
-			// build time, and a test reaching execution from
-			// control is the exact whitebox shortcut the ruling
-			// refuses to bless.
+			Label:     labelControlCycleFree,
+			Owner:     "internal/backends/postgres/control is the cycle-free public control plane (arch-backend-09 ruling 2026-11-12): it must never import the postgres factory root (cycle), the private rows adapter (root-owned bridge), or dataframe/execution (the bridge reaches the renderer through execution). Consumers import control directly for control-plane symbols; only the factory root may import rows.",
 			Targets:   []string{"internal/backends/postgres/control"},
 			Recursive: true,
 			Scope:     AllScopes,
@@ -314,10 +257,6 @@ func importPaths(relatives []string) []string {
 	return out
 }
 
-// RepoAbsences asserts the old concrete package directories and the
-// removed compatibility surfaces stay absent. The remaining
-// control-facade entries (internal/backends/postgres/control, aliases.go)
-// are added by the facade-collapse wave once it lands.
 func RepoAbsences() []AbsenceRule {
 	return []AbsenceRule{
 		{

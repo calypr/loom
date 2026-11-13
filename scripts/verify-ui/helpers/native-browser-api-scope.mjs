@@ -2,7 +2,6 @@ import { fixtureProjectExplorerCollectionPath } from './fixture-context.mjs';
 
 const belongsToPath = (pathname, prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`);
 
-/** Classify browser API traffic against the local UI proxy and one owned Explorer. */
 export const classifyNativeBrowserApiRequest = (requestUrl, {
   uiOrigin,
   apiOrigin,
@@ -32,7 +31,6 @@ export const classifyNativeBrowserApiRequest = (requestUrl, {
   return { kind: 'reject', reason: 'outside-project-explorer-scope', url };
 };
 
-/** Require the proxied response to remain bound to the captured UI request URL. */
 export const isSameUiProxyResponse = (requestUrl, responseUrl, options) => {
   let request;
   let response;
@@ -49,7 +47,6 @@ export const isSameUiProxyResponse = (requestUrl, responseUrl, options) => {
     request.url.search === response.url.search;
 };
 
-/** Accept a bound response or a fully classified owner cancellation before response headers. */
 export const nativeRequestsHaveOwnedTransportOutcomes = (entries, uiOrigin) => {
   if (!Array.isArray(entries) || entries.length === 0 || typeof uiOrigin !== 'string') return false;
   return entries.every((entry) => {

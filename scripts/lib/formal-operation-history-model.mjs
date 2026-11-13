@@ -1,4 +1,3 @@
-// Fixed witnesses adapted from 5646633e:verification/builder-interactions/operationHistoryModel.mjs.
 import { createHash } from 'node:crypto';
 
 const MAX_DOWNSTREAM_STEPS = 2;
@@ -129,7 +128,6 @@ function modelView(workspace) {
     .filter((step) => step.kind === 'CALCULATE')
     .map((step) => [step.id, {
       columnId: step.outputColumnId,
-      // The bounded expression is aggregate + integer literal 1; it has no user cast.
       type: workspace.aggregate === 'COUNT_ROWS' ? 'integer' : 'decimal',
     }]));
   return {
@@ -266,7 +264,6 @@ function assertState(node) {
   const rawCandidatePreservedByProposal = node.action?.kind !== 'propose' || JSON.stringify(state.candidate) === JSON.stringify(node.parent.state.candidate);
   const proposalSnapshotMatches = !state.proposalSnapshot || state.proposalSnapshot === reviewedSnapshot(state.candidate, state.resolvedCandidate, state.removedStepIds);
 
-  // This oracle is independent from resolveCandidate: only the Group's current key and aggregate IDs are available inputs.
   const groupColumns = new Set([state.candidate.aggregateOutputId]);
   if (state.candidate.keyOutputId) groupColumns.add(state.candidate.keyOutputId);
   const expectedSurvivors = state.candidate.downstream.filter(({ columnId }) => groupColumns.has(columnId));

@@ -6,8 +6,6 @@ import test from 'node:test';
 import { validateModelVerdict, configuredModelRules } from '../../../lib/formal-verdict.mjs';
 import { tools } from '../../../lib/formal-tools.mjs';
 
-// The retired source-sliced receipt builder and TraceProgress model are not
-// current guarantees. Exercise the active statechart verdict boundary instead.
 const positive = () => ({
     exit: 0,
     counterexamples: [],

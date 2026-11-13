@@ -80,7 +80,6 @@ export function apiDoctor() {
     }
     throw new Error(`Install Go ${declared.slice(1).join('.')} or set GO to its executable; no compatible Go found (${attempts.join(', ')})`);
 }
-/** A successful package with no matching tests is not a successful API check. */
 export function checkApiEvents(stdout, check) {
     assert.ok(Array.isArray(check.tests) && check.tests.length > 0, 'API check selects no named tests');
     assert.ok(check.tests.every(name => /^Test\w+$/.test(name)), 'Invalid API test name');

@@ -263,8 +263,6 @@ func TestOldConcretePathsTableIsPinned(t *testing.T) {
 		}
 		seen[p] = true
 	}
-	// Pin a sample of the historical shapes by construction so an empty
-	// or truncated data file can never pass.
 	for _, want := range [][]string{{"internal", "store", "postgres"}, {"internal", "store", "arango"}, {"internal", "dataframe", "execution", "chartifact", "arango"}} {
 		path := strings.Join(want, "/")
 		if !seen[path] {
@@ -303,7 +301,6 @@ func TestNoReExportCatchesShimShapes(t *testing.T) {
 			t.Fatalf("shim shape %s not caught; errors: %v", name, errs)
 		}
 	}
-	// AllowedEmbeds sanctions exactly the named same-named embedding.
 	rule.AllowedEmbeds = []string{"Store"}
 	errs = CheckNoReExport(root, rule)
 	for _, e := range errs {
@@ -311,7 +308,6 @@ func TestNoReExportCatchesShimShapes(t *testing.T) {
 			t.Fatalf("AllowedEmbeds must sanction Store embedding: %v", errs)
 		}
 	}
-	// Missing owner package is a verification failure, never silence.
 	if errs := CheckNoReExport(t.TempDir(), rule); len(errs) == 0 || errs[0].Kind != ErrMissing {
 		t.Fatalf("missing owner package must fail as missing-target, got %v", errs)
 	}

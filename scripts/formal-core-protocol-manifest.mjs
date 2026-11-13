@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// M6 final frozen combined audit manifest (plan F: core-protocol/conformance.json).
-// Single result source of truth; every field derived from on-disk evidence. Missing
-// selected artifacts are recorded as failed/not-run statuses, never silently passed.
-// Usage: node scripts/formal-core-protocol-manifest.mjs [--evidence DIR]
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -130,7 +126,7 @@ sel('full-self-test-final-snapshot', 'node scripts/verify-builder-formal-core.mj
   if (v.execution?.subprocessTimeoutMs !== 600_000) return `BLOCKED: CI mirrors run with 600000ms child timeouts, record shows ${v.execution?.subprocessTimeoutMs}`;
   const log = exists(join(selftestDir, 'selftest.log')) ? readFileSync(join(selftestDir, 'selftest.log'), 'utf8') : '';
   if (!/EXIT=0/.test(log)) return 'NOT-RUN: verification.json present but no recorded EXIT=0 in selftest.log';
-  return true; // v.baselineCommit is the harness review-ledger anchor (per-file digests enforced at run start), recorded alongside source.baselineCommit below
+  return true;
 });
 for (const f of faults) {
   if (f.preimage.files.length === 1 && !f.preimage.markerUniqueNow) throw new Error(`manifest integrity: ${f.fault} CAS preimage marker not unique in current source`);

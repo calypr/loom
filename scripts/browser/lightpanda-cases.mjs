@@ -10,8 +10,6 @@ const rows = page => page.locator('[data-testid="route-preview"] [role="row"]').
     .filter(Boolean)).filter(row => row.length));
 
 async function semanticSnapshot(page, selector) {
-  // One browser-side observation avoids injected locator/actionability machinery
-  // for DOM-only contracts. Native visibility/input checks stay in `cases` below.
   return page.evaluate(async selector => {
     if (!document.querySelector(selector)) {
       await new Promise((resolve, reject) => {

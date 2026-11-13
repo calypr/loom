@@ -1,7 +1,3 @@
-%% Integrated server runtime (arch-backend-08).
-%% Drawn from delivered source: internal/server/server.go, compose.go,
-%% runtime.go, row_sources.go, routes.go at the arch-backend-08 branch.
-%% One backend-selection seam; shared builders; one serve loop; one closer.
 flowchart TD
     subgraph Dispatch["run() -- backend selection only (server.go)"]
         CFG[Config validated + normalized] --> SEL{server.backend}

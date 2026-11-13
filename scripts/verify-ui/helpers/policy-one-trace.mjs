@@ -1313,7 +1313,6 @@ function traceActionRecords(context) {
   return actions;
 }
 
-/** Validate captured choice evidence and insert its model observations into the canonical journey trace. */
 export function buildPolicyOneTrace({ expected, requests, responses, saved, dom, fixtureIDs, context }) {
   validateExpected(expected, fixtureIDs);
   record(requests, 'request captures');

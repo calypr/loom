@@ -17,7 +17,7 @@ options.runs = Number(options.runs);
 assert.ok(Number.isInteger(options.runs) && options.runs >= 1 && options.runs <= 30, '--runs must be 1..30');
 assert.ok(['cold', 'warm'].includes(options.cache), '--cache must be cold or warm');
 for (const key of ['baseline', 'candidate', 'chrome', 'out']) options[key] = resolve(options[key]);
-await mkdir(options.out); // Every invocation owns a new evidence directory.
+await mkdir(options.out);
 const receipt = { status: 'running', options, host: { cores: availableParallelism(), loadStart: loadavg() }, samples: [] };
 const fingerprints = new Map();
 let expected;
@@ -36,7 +36,6 @@ async function run(side, index) {
   const out = join(options.out, `${index}-${side}`);
   const log = await open(`${out}.log`, 'wx');
   const started = performance.now();
-  // The separate process group belongs exclusively to this trial, including Chrome.
   const child = spawn(process.execPath, ['scripts/browser/run.mjs', '--feature', 'all', '--chrome', options.chrome, '--out', out,
     ...(side === 'candidate' && options.cache === 'cold' ? ['--no-cache'] : [])],
     { cwd: options[side], detached: true, stdio: ['ignore', log.fd, log.fd] });

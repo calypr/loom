@@ -1,18 +1,3 @@
-// pg-exec-03 §7 byte-exactness checker for the Arango-lane skip allowlist.
-//
-// The Arango integration lane runs ./internal/dataframe/execution without
-// LOOM_TEST_POSTGRES_URL, so the pg-exec-03 PostgreSQL post-query live
-// battery must skip with exactly the identities registered in
-// pgExec03PostQuery (run-arango-integration.mjs) — no more, no less. This
-// checker pins that membership three ways:
-//
-//  1. the committed capture scripts/pg-exec-03-skipset-capture.json must
-//     match its embedded sha256 (taken offline with `go version` go1.26.5
-//     and LOOM_TEST_POSTGRES_URL unset);
-//  2. the capture must equal the allowlist set in both directions;
-//  3. a fresh offline `go test -json` skip capture must equal both.
-//
-// Usage: node scripts/pg-exec-03-skipset-verify.mjs
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -34,12 +19,9 @@ assert.match(capture.goVersion, /^go version go1\.26\.5\b/, `capture pinned an u
 const captureSet = new Set(capture.skips);
 assert.ok(capture.skips.length > 0, 'capture holds no skip identities');
 
-// Direction 1: every captured skip is allowed.
 for (const name of captureSet) assert.ok(pgExec03PostQuery.has(name), `captured skip not in allowlist: ${name}`);
-// Direction 2: nothing is allowlisted without a capture behind it.
 for (const name of pgExec03PostQuery) assert.ok(captureSet.has(name), `allowlist entry with no captured skip: ${name}`);
 
-// Direction 3: a fresh offline run reproduces the capture exactly.
 const stdout = execFileSync('go', ['test', capture.package, '-count=1', '-json', '-timeout', '300s'], {
     cwd: join(here, '..'),
     encoding: 'utf8',
