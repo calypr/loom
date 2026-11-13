@@ -1,5 +1,7 @@
 package postgres
 
+// D-16a attribution (mandatory, coordinator ruling 2026-11-11): CTE terminal re-sort over GROUP-last per coordinator ruling 2026-11-11; SQL CTE order unspecified; refines registered group total order.
+
 import (
 	"os"
 	"regexp"
@@ -677,8 +679,8 @@ func TestSQL16LawCells(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read stage_sequence_test.go: %v", err)
 	}
-	if !strings.Contains(string(ownSource), attribution) {
-		t.Fatal("the terminal-order test register lost the verbatim D-16a attribution")
+	if !strings.Contains(string(ownSource), "// D-16a attribution (mandatory, coordinator ruling 2026-11-11): "+attribution) {
+		t.Fatal("the terminal-order test register lost the verbatim D-16a attribution comment line")
 	}
 	rendered := sql16Render(t, sql16ExpandGroupPlan(t))
 	for _, forbidden := range []string{"; ", "DROP ", "DELETE ", "INSERT ", "UPDATE ", "SET search_path"} {

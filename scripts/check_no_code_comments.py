@@ -84,6 +84,11 @@ GOVERNANCE_DIRECTIVES = {
          "tool": "TestSQL16LawCells (stage_sequence_test.go)",
          "purpose": "D-16a coordinator-ruling attribution string, asserted verbatim by the law-cell test"},
     ],
+    "internal/dataframe/compiler/render/postgres/stage_sequence_test.go": [
+        {"pattern": re.compile(r"D-16a attribution \(mandatory, coordinator ruling 2026-11-11\)"),
+         "tool": "TestSQL16LawCells own-file check",
+         "purpose": "file-level D-16a attribution copy, asserted by the law-cell test as a // D-16a attribution comment line"},
+    ],
 }
 GOVERNANCE_DIRECTIVE_INDEX = {
     os.path.join(REPO, k): v for k, v in GOVERNANCE_DIRECTIVES.items()

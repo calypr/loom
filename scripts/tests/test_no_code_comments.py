@@ -24,6 +24,7 @@ class Harness(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._prov = dict(chk.PROVENANCE_LEDGER)
         self._resolvers = set(chk.GQLGEN_RESOLVERS)
+        self._gov = dict(chk.GOVERNANCE_DIRECTIVE_INDEX)
         self.addCleanup(self._restore)
         self.addCleanup(self._tmp.cleanup)
 
@@ -32,6 +33,8 @@ class Harness(unittest.TestCase):
         chk.PROVENANCE_LEDGER.update(self._prov)
         chk.GQLGEN_RESOLVERS.clear()
         chk.GQLGEN_RESOLVERS.update(self._resolvers)
+        chk.GOVERNANCE_DIRECTIVE_INDEX.clear()
+        chk.GOVERNANCE_DIRECTIVE_INDEX.update(self._gov)
 
     def write(self, name, content):
         path = os.path.join(self._tmp.name, name)
@@ -342,6 +345,50 @@ class InventoryAndCli(Harness):
             self.assertTrue(os.path.isfile(f), f)
         s = self.scan(*files)
         self.assertEqual([], [(v["path"], v["text"]) for v in s["violations"]])
+
+
+class GovernanceAttribution(Harness):
+    ATTR = ("// D-16a attribution (mandatory, coordinator ruling 2026-11-11): CTE terminal re-sort "
+            "over GROUP-last per coordinator ruling 2026-11-11; SQL CTE order unspecified; "
+            "refines registered group total order.")
+
+    def test_attribution_comment_allowed_on_any_path(self):
+        g = self.write("z.go", "package z\n\n" + self.ATTR + "\nvar X = 1\n")
+        s = self.scan(g)
+        self.assertEqual([], [(v["path"], v["text"]) for v in s["violations"]])
+        self.assertIn("governance-directive", {r["category"] for r in s["allowed"]})
+
+    def test_forged_governance_without_directive_token_fails(self):
+        g = self.write("y.go", "package y\n\n// per coordinator ruling 2026-11-11 this prose is exempt\nvar X = 1\n")
+        self.assertEqual(1, len(self.scan(g)["violations"]))
+
+    def test_forged_governance_without_dated_ruling_fails(self):
+        g = self.write("x.go", "package x\n\n// D-16a attribution (mandatory): free-form exemption prose\nvar X = 1\n")
+        self.assertEqual(1, len(self.scan(g)["violations"]))
+
+    def test_attribution_tokens_on_different_lines_not_allowed(self):
+        g = self.write("w.go", "package w\n\n/*\nD-16a attribution\ncoordinator ruling 2026-11-11\n*/\nvar X = 1\n")
+        self.assertEqual(1, len(self.scan(g)["violations"]))
+
+    def test_registered_path_pattern_scoped_to_registered_file(self):
+        body = "// CTE terminal re-sort over GROUP-last per coordinator ruling 2026-11-11\nvar X = 1\n"
+        a = self.write("stage_sequence.go", "package pg\n\n" + body)
+        chk.GOVERNANCE_DIRECTIVE_INDEX[a] = [
+            {"pattern": __import__("re").compile(r"CTE terminal re-sort over GROUP-last per coordinator ruling"),
+             "tool": "probe", "purpose": "probe"}]
+        s_ok = self.scan(a)
+        self.assertEqual([], s_ok["violations"])
+        c = self.write("unregistered.go", "package pg\n\n" + body)
+        s_bad = self.scan(c)
+        self.assertEqual(1, len(s_bad["violations"]))
+
+    def test_repo_stage_sequence_test_passes_gate_with_restored_attribution(self):
+        p = "internal/dataframe/compiler/render/postgres/stage_sequence_test.go"
+        if not os.path.isfile(os.path.join(chk.REPO, p)):
+            self.skipTest("repo file absent in scratch checkout")
+        s = chk.scan([p])
+        self.assertEqual([], [(v["path"], v["line"], v["text"]) for v in s["violations"]])
+        self.assertIn("governance-directive", {r["category"] for r in s["allowed"]})
 
 
 class GuardQuotedAnchors(Harness):

@@ -537,8 +537,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run retained Python tests
         run: |
+          export LOOM_TYPESCRIPT_DIR="$GITHUB_WORKSPACE/ui/node_modules/typescript"
           python3 -m unittest discover -s scripts/tests
           python3 -m unittest scripts.test_validate_architecture_plan
 

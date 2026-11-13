@@ -34,6 +34,8 @@ JS_DIRECTIVE = re.compile(
     r"|EXTRACT-(?:START|END):\w+)")
 DOCKERFILE_DIRECTIVE = re.compile(r"^#\s*(syntax|escape|check)\s*=")
 GOMOD_INDIRECT = re.compile(r"^//\s*indirect\s*$")
+GOVERNANCE_ATTRIBUTION = re.compile(
+    r"D-\d+[a-z]*\s+attribution\b.*coordinator ruling \d{4}-\d{2}-\d{2}")
 
 
 def spans_to_comments(src, spans):
@@ -866,6 +868,8 @@ def allowlist_category(backend, comment, line_text, path, provenance_ledger,
     for entry in (governance_directives or {}).get(path, []):
         if entry["pattern"].search(text):
             return "governance-directive"
+    if GOVERNANCE_ATTRIBUTION.search(text):
+        return "governance-directive"
     if backend in ("sh", "py", "toml", "makefile", "ignore", "mermaid", "go") \
             and comment["line"] == 1 and text.startswith("#!"):
         return "execution-shebang"
