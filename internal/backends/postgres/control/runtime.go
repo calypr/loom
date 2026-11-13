@@ -65,11 +65,12 @@ type Runtime struct {
 	// Catalog is the full catalog store over the source series: one
 	// NewFullStore value over the inventory, field-profile, and
 	// relationship-evidence repositories, serving as the value behind the
-	// four narrow evidence ports above and carrying the capability-evidence
-	// reads (DiscoverResourceInventory, DiscoverRelationshipObservations,
-	// DiscoverFieldEnrichment) that catalog.ReadCapabilityEvidence consumes
-	// from a single reader. The semantic-inventory read lane is the separate
-	// SemanticReads port.
+	// FieldProfiles, Inventory, and Relationships ports above and carrying
+	// the capability-evidence reads (DiscoverResourceInventory,
+	// DiscoverRelationshipObservations, DiscoverFieldEnrichment) that
+	// catalog.ReadCapabilityEvidence consumes from a single reader.
+	// Contributions is a separate repository, as is the semantic-inventory
+	// read lane (the SemanticReads port).
 	Catalog *catalogstore.Store
 	// Releases is the dataset release repository (save, read-active,
 	// compare-and-swap activate) over the dataset_release series.
