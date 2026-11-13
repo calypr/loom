@@ -749,7 +749,7 @@ func TestSQL16KeySelectorSidecar(t *testing.T) {
 	if !strings.Contains(sql, `to_jsonb(s."c1")`) {
 		t.Fatalf("scalar key fact was re-read as a jsonb path:\n%s", sql)
 	}
-	door, err := renderStageSequencePhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t)) //nolint:govet // fresh shadow of the entry-render error is intentional
+	door, err := renderStageSequencePhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
 	if err != nil {
 		t.Fatalf("direct door: %v", err)
 	}
