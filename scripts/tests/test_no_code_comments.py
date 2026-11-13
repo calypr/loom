@@ -161,11 +161,23 @@ class LedgerBound(Harness):
             self.skipTest("typescript module not resolvable (vet.mjs is scanner-backed)")
         s = self.scan(os.path.join(chk.REPO, "scripts/ci/vet.mjs"))
         bad = {e["path"] for e in s["inventory"]["unresolvable-ledger-key"]}
-        self.assertIn("release_dangle_reconcile_e2e_test.go [arango pkg]", bad)
-        self.assertIn("cross_generation_publish_e2e_test.go.explorer", bad)
+        self.assertEqual(set(), bad)
         self.assertTrue(all("ledger" in e for e in s["inventory"]["unresolvable-ledger-key"]))
         self.assertEqual([], [v for v in s["violations"]
                               if v["path"] in bad])
+
+    def test_ledger_files_keys_all_resolve_to_tracked_paths(self):
+        for rel in chk.REVIEWED_SOURCE_LEDGERS:
+            full = os.path.join(chk.REPO, rel)
+            if not os.path.isfile(full):
+                continue
+            with open(full) as f:
+                files = json.load(f).get("files", {})
+            tracked = set(chk.tracked_paths())
+            for key in files:
+                cand = os.path.normpath(key)
+                self.assertIn(cand, tracked,
+                              f"ledger key {key!r} in {rel} is not tracked at HEAD")
 
 
 @unittest.skipUnless(ts_available(), "typescript module not resolvable")

@@ -48,11 +48,47 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go",
-          "sha256": "aaa139ca86d16ee3184735b108af4fa4bdb5111dbd5c9bd0cd92177ee5b2d8e5"
+          "sha256": "38f8004da1db3a450577b5e0fdea6c69f8e112b05021d398f9e28d8a7345c4e8",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "aaa139ca86d16ee3184735b108af4fa4bdb5111dbd5c9bd0cd92177ee5b2d8e5",
+                "post": "38f8004da1db3a450577b5e0fdea6c69f8e112b05021d398f9e28d8a7345c4e8",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go"
+          }
         },
         {
           "path": "internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go",
-          "sha256": "b13b9f1ce8dfa656d5c0262e2a9bc02761b6f0250188e1e2237461f64e91c43e"
+          "sha256": "0f9cbc65164ebb194b2a370cfa18f4937a603a7aeee05870b353933c62792f8c",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "b13b9f1ce8dfa656d5c0262e2a9bc02761b6f0250188e1e2237461f64e91c43e",
+                "post": "0f9cbc65164ebb194b2a370cfa18f4937a603a7aeee05870b353933c62792f8c",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go"
+          }
         }
       ],
       "id": "F-B1",
@@ -76,7 +112,12 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/clickhouse/pinblock_reconcile_e2e_test.go",
-          "sha256": "9a74598f94e9af81aa652da17bfc826c47eedaf0acce4239a4f3883ae32faf92"
+          "sha256": "9a74598f94e9af81aa652da17bfc826c47eedaf0acce4239a4f3883ae32faf92",
+          "sha256Verification": {
+            "method": "object-db-scan",
+            "blob": "313033284667",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/clickhouse/pinblock_reconcile_e2e_test.go differs"
+          }
         }
       ],
       "id": "F-B3",
@@ -101,7 +142,17 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/arango/name_latest_binding_e2e_test.go",
-          "sha256": "a3ca98434fb2c1aff33e67b64f57c375484983cca2285c4382e9296cb055417a"
+          "sha256": "a3ca98434fb2c1aff33e67b64f57c375484983cca2285c4382e9296cb055417a",
+          "sha256Verification": {
+            "method": "file-history-blob",
+            "commit": "e5b5c27e",
+            "matchingCommits": [
+              "e5b5c27e"
+            ],
+            "queriedPath": "internal/dataframe/publication/arango/name_latest_binding_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/arango/name_latest_binding_e2e_test.go differs"
+          },
+          "currentPath": "internal/backends/arango/internal/publication/name_latest_binding_e2e_test.go"
         }
       ],
       "id": "F-B6",
@@ -126,7 +177,30 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/arango/dangling_binding_e2e_test.go",
-          "sha256": "3dfeedf8e1e538b03421e95ad5207218bb4be4cc8bcc02d3c1200cc4b3a1a207"
+          "sha256": "0c20e8e78ec66dc1082695a70a033450614394e8dd0671103c4595ea061bb07c",
+          "currentPath": "internal/backends/arango/internal/publication/dangling_binding_e2e_test.go",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "3dfeedf8e1e538b03421e95ad5207218bb4be4cc8bcc02d3c1200cc4b3a1a207",
+                "post": "0c20e8e78ec66dc1082695a70a033450614394e8dd0671103c4595ea061bb07c",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              },
+              "currentPath": {
+                "pre": null,
+                "post": "internal/backends/arango/internal/publication/dangling_binding_e2e_test.go"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/backends/arango/internal/publication/dangling_binding_e2e_test.go"
+          }
         }
       ],
       "id": "F-B7",
@@ -152,7 +226,30 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go",
-          "sha256": "cce2c29d5bf66180d29eddaca64f1d746a430850b6a15398a6b1d30098a87b7a"
+          "sha256": "b9286f56595ceb9d5d455ccf83749de837c48d09a5fadaf6b9e887ee7dd3006e",
+          "currentPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "cce2c29d5bf66180d29eddaca64f1d746a430850b6a15398a6b1d30098a87b7a",
+                "post": "b9286f56595ceb9d5d455ccf83749de837c48d09a5fadaf6b9e887ee7dd3006e",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              },
+              "currentPath": {
+                "pre": null,
+                "post": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go"
+          }
         }
       ],
       "id": "F-B11",
@@ -178,7 +275,30 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go",
-          "sha256": "cce2c29d5bf66180d29eddaca64f1d746a430850b6a15398a6b1d30098a87b7a"
+          "sha256": "b9286f56595ceb9d5d455ccf83749de837c48d09a5fadaf6b9e887ee7dd3006e",
+          "currentPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "cce2c29d5bf66180d29eddaca64f1d746a430850b6a15398a6b1d30098a87b7a",
+                "post": "b9286f56595ceb9d5d455ccf83749de837c48d09a5fadaf6b9e887ee7dd3006e",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              },
+              "currentPath": {
+                "pre": null,
+                "post": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go"
+          }
         }
       ],
       "id": "F-B12",
@@ -204,7 +324,13 @@
       "artifacts": [
         {
           "path": "internal/explorer/arango/cross_generation_publish_e2e_test.go",
-          "sha256": "c5846991e91762ef3cf496d54f32c0addb8fa3bb68c226d7538067683f957baf"
+          "sha256": "c5846991e91762ef3cf496d54f32c0addb8fa3bb68c226d7538067683f957baf",
+          "sha256Verification": {
+            "method": "object-db-scan",
+            "blob": "ded623b2e8a5",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/explorer/arango/cross_generation_publish_e2e_test.go differs"
+          },
+          "currentPath": "internal/backends/arango/internal/explorer/cross_generation_publish_e2e_test.go"
         }
       ],
       "id": "F-B13",
@@ -231,7 +357,25 @@
       "artifacts": [
         {
           "path": "internal/dataset/release_requirements_e2e_test.go",
-          "sha256": "645592cd4370170d4f8f34283993062624bab33410e2870bfc4cb78e4ab6a5da"
+          "sha256": "da4f7ae6ba9a44afb70c9ed493cd90d91680a83efc76d28638cec422ba43bd89",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "645592cd4370170d4f8f34283993062624bab33410e2870bfc4cb78e4ab6a5da",
+                "post": "da4f7ae6ba9a44afb70c9ed493cd90d91680a83efc76d28638cec422ba43bd89",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/dataset/release_requirements_e2e_test.go"
+          }
         }
       ],
       "id": "F-B14",
@@ -257,7 +401,13 @@
       "artifacts": [
         {
           "path": "internal/dataset/arango/revision_inflation_e2e_test.go",
-          "sha256": "b01ab91e9146145d979b0909d433dda3c0e10b6a6af6b15cd237c51a95743038"
+          "sha256": "b01ab91e9146145d979b0909d433dda3c0e10b6a6af6b15cd237c51a95743038",
+          "sha256Verification": {
+            "method": "object-db-scan",
+            "blob": "052625a6e895",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataset/arango/revision_inflation_e2e_test.go differs"
+          },
+          "currentPath": "internal/backends/arango/internal/dataset/revision_inflation_e2e_test.go"
         }
       ],
       "id": "F-B15",
@@ -283,7 +433,25 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/clickhouse/publish_partial_pointer_e2e_test.go",
-          "sha256": "cf13d635dcd984ba6e9d3ee202fe21db879dbade9011728f96e08c0b618ce4ed"
+          "sha256": "a4e3dd51f3603e43cce058bb0dc71cb850d46257e47f9e0091d1fe19e80f4ca4",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "cf13d635dcd984ba6e9d3ee202fe21db879dbade9011728f96e08c0b618ce4ed",
+                "post": "a4e3dd51f3603e43cce058bb0dc71cb850d46257e47f9e0091d1fe19e80f4ca4",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/dataframe/publication/clickhouse/publish_partial_pointer_e2e_test.go"
+          }
         }
       ],
       "id": "F-B16",
@@ -310,7 +478,30 @@
       "artifacts": [
         {
           "path": "internal/dataset/arango/generation_activation_cas_e2e_test.go",
-          "sha256": "70e9f8885b3ac8068683e91743a27f4e43f1325c694071ce81f061bb5fa41c2c"
+          "sha256": "613046287ad267f00c1e47599f2cafcb73058c3e5275ad4ebf2920dc0ad79a7b",
+          "currentPath": "internal/backends/arango/internal/dataset/generation_activation_cas_e2e_test.go",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "70e9f8885b3ac8068683e91743a27f4e43f1325c694071ce81f061bb5fa41c2c",
+                "post": "613046287ad267f00c1e47599f2cafcb73058c3e5275ad4ebf2920dc0ad79a7b",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              },
+              "currentPath": {
+                "pre": null,
+                "post": "internal/backends/arango/internal/dataset/generation_activation_cas_e2e_test.go"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/backends/arango/internal/dataset/generation_activation_cas_e2e_test.go"
+          }
         }
       ],
       "id": "F-B17",
@@ -338,7 +529,25 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/clickhouse/orphaned_published_growth_e2e_test.go",
-          "sha256": "da5d26c54d3ef5109c0923dee37ccb8bda4295baebd830af3d87b2b72d81fd55"
+          "sha256": "3fa599c69158bf6fa6ae709ac0a0b64ffa35bf6926b482e5f99d35d73010d040",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "da5d26c54d3ef5109c0923dee37ccb8bda4295baebd830af3d87b2b72d81fd55",
+                "post": "3fa599c69158bf6fa6ae709ac0a0b64ffa35bf6926b482e5f99d35d73010d040",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/dataframe/publication/clickhouse/orphaned_published_growth_e2e_test.go"
+          }
         }
       ],
       "id": "F-B19",
@@ -368,11 +577,21 @@
       "artifacts": [
         {
           "path": "internal/dataframe/publication/clickhouse/pointer_name_nul_ambiguity_e2e_test.go",
-          "sha256": "499574cb828c3342e9a0b7453df0a024398a7b8f7e8472ea5702d9e24d49eea7"
+          "sha256": "499574cb828c3342e9a0b7453df0a024398a7b8f7e8472ea5702d9e24d49eea7",
+          "sha256Verification": {
+            "method": "object-db-scan",
+            "blob": "38a573ed46c0",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/clickhouse/pointer_name_nul_ambiguity_e2e_test.go differs"
+          }
         },
         {
           "path": "internal/dataframe/recipe/publication_identity_nul_http_test.go",
-          "sha256": "19d396a2ddebad08aa66cfc7176d5ccf4c467740a3609a6f3ecd7cc98ebe5545"
+          "sha256": "19d396a2ddebad08aa66cfc7176d5ccf4c467740a3609a6f3ecd7cc98ebe5545",
+          "sha256Verification": {
+            "method": "object-db-scan",
+            "blob": "228a6785bfc7",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/recipe/publication_identity_nul_http_test.go differs"
+          }
         }
       ],
       "id": "F-B21",
@@ -399,11 +618,21 @@
       "artifacts": [
         {
           "path": "internal/api/graphql/graph/resolver/recipe_execution_reader_authz_e2e_test.go",
-          "sha256": "1ecc2bd3cbcd5b055bcdad57991d432b66ff86875e3e0d88689dfd5059ecace6"
+          "sha256": "1ecc2bd3cbcd5b055bcdad57991d432b66ff86875e3e0d88689dfd5059ecace6",
+          "sha256Verification": {
+            "method": "object-db-scan",
+            "blob": "c93d24539fba",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/api/graphql/graph/resolver/recipe_execution_reader_authz_e2e_test.go differs"
+          }
         },
         {
           "path": "internal/server/recipe_execution_status_twin_e2e_test.go",
-          "sha256": "e88e8c9ce01c00662472bf16157c851d97613112ce0ae6cd735d5abdff3276c8"
+          "sha256": "e88e8c9ce01c00662472bf16157c851d97613112ce0ae6cd735d5abdff3276c8",
+          "sha256Verification": {
+            "method": "object-db-scan",
+            "blob": "8576b6d65581",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/server/recipe_execution_status_twin_e2e_test.go differs"
+          }
         }
       ],
       "id": "F-B20",
@@ -432,7 +661,25 @@
       "artifacts": [
         {
           "path": "internal/dataframe/published/nullsort_page_cursor_e2e_test.go",
-          "sha256": "a57fd172b8b6c5ea7d156585accad5b297c901538516d8671f28c597b9bd7d89"
+          "sha256": "18a7e4772af1eedb7f2bcb82282db660f0f192e0845b62d3f9f47b888174234d",
+          "pubbundleRepin": {
+            "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+            "date": "2026-11-13",
+            "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+            "fields": {
+              "sha256": {
+                "pre": "a57fd172b8b6c5ea7d156585accad5b297c901538516d8671f28c597b9bd7d89",
+                "post": "18a7e4772af1eedb7f2bcb82282db660f0f192e0845b62d3f9f47b888174234d",
+                "preVerification": "no match for any blob in git rev-list --objects --all, the sourceSnapshot blob, or the file history: untraceable credential"
+              }
+            },
+            "class": "artifact-untraceable-repinned-to-head-blob"
+          },
+          "sha256Verification": {
+            "method": "head-blob",
+            "commit": "8f65f3c5",
+            "queriedPath": "internal/dataframe/published/nullsort_page_cursor_e2e_test.go"
+          }
         }
       ],
       "id": "F-B24",
@@ -494,19 +741,42 @@
     "round": 36
   },
   "files": {
-    "cross_generation_publish_e2e_test.go.explorer": "F-B13 e2E CONFIRMED artifact (worker 39dfd91a + parent 3dc90697, /tmp/opencode/fb13-parent.log); authenticated residue 0",
     "internal/api/graphql/graph/query/input_resolution.go": {
-      "md5": "df658e046d1bbf56cd4928f890cc27d1",
-      "role": "REPAIR-7: resolver-less read-scope fallback routes client-requested and IdP principal paths through authscope.NormalizeAuthResourcePaths; all-garbage non-empty request -> CodeInvalidRequest; garbage-only principal -> CodeForbidden (never widened); membership compared in normalized space"
+      "md5": "5343dad874aeb8acc0c37fff91c816d2",
+      "role": "REPAIR-7: resolver-less read-scope fallback routes client-requested and IdP principal paths through authscope.NormalizeAuthResourcePaths; all-garbage non-empty request -> CodeInvalidRequest; garbage-only principal -> CodeForbidden (never widened); membership compared in normalized space",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "df658e046d1bbf56cd4928f890cc27d1",
+            "post": "5343dad874aeb8acc0c37fff91c816d2"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/api/graphql/graph/query/read_scope_ingress_control_chars_e2e_test.go": {
-      "md5": "a4d48d8e743cc6db093fb8fe92f4e255",
-      "role": "F-B22 query-side durable controls: client NUL path refused CodeInvalidRequest; mixed request normalized (control entry dropped, dedupe+sort); garbage-only principal CodeForbidden never Unrestricted; slash-variant membership authorized (raw-equality side finding closed)"
+      "md5": "62d7e7ca59a1e6d968e9b106e2cad67c",
+      "role": "F-B22 query-side durable controls: client NUL path refused CodeInvalidRequest; mixed request normalized (control entry dropped, dedupe+sort); garbage-only principal CodeForbidden never Unrestricted; slash-variant membership authorized (raw-equality side finding closed)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "a4d48d8e743cc6db093fb8fe92f4e255",
+            "post": "62d7e7ca59a1e6d968e9b106e2cad67c"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/api/graphql/graph/resolver/recipe_execution_reader.go": {
-      "sha256": "c9cfd2c27c0325cab317501f670eec033ca37040e7abc953a561e2a2adaf8576",
+      "sha256": "b00d64740dce31e5806e159891b79338f67e9879d48797f09e87e48f30f34238",
       "role": "GraphQL execution reader (Repair-6 F-B20 auth base preserved): C2 @87ee09c7 lease-lost demotion is now health-gated -- raw {READY,PUBLISHED} outputs never carry the failure trio; leaseLostDemotionApplied gates the demotion to lease.ErrLeaseLost + FAILED/MISSING_REVISION shape-6 only (reader.go:501-513). RECORD UPGRADE: replaces the md5-era entry (74d8385ac2133c5407cc926ab0175c6c, Repair-6 F-B20 era, no pin field).",
-      "pin": "87ee09c7",
+      "pin": "48783199",
       "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/api/graphql/graph/resolver/recipe_execution_reader.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes md5-era entry 74d8385ac2133c5407cc926ab0175c6c (Repair-6 F-B20, pre-sha256 convention, no pin); NOT a duplicate (bytes moved at 87ee09c7; live-byte re-derivation, zero hand-typed digests)",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -531,34 +801,90 @@
           "gateDisposition": "retained under the guard-quoted allowlist class: allowed iff a tracked test file quotes a >=25-char comment line verbatim; fail-closed (corpus failure allows nothing); fixtures GuardQuotedAnchors in scripts/tests/test_no_code_comments.py",
           "recheck": "go test ./internal/api/graphql/graph/resolver/ -> ok (6 FB20 tests green)"
         }
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "c9cfd2c27c0325cab317501f670eec033ca37040e7abc953a561e2a2adaf8576",
+            "post": "b00d64740dce31e5806e159891b79338f67e9879d48797f09e87e48f30f34238"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "87ee09c7",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
       }
     },
     "internal/api/graphql/graph/resolver/recipe_execution_reader_authz_e2e_test.go": {
-      "md5": "2ca07086a0af9abbd45697bb8bc04edb",
-      "role": "F-B20 durable control (converted characterization): STEP 0 pins repaired shapes and forbids archived shapes; cases A/A2/B1/B2/C1/C2 REPAIRED; archived CONFIRMED sentences retained verbatim as REGRESSION branches; ordering proven by catalog-probe call counts"
+      "md5": "65d52b1fac00ef14599df5c98db5d502",
+      "role": "F-B20 durable control (converted characterization): STEP 0 pins repaired shapes and forbids archived shapes; cases A/A2/B1/B2/C1/C2 REPAIRED; archived CONFIRMED sentences retained verbatim as REGRESSION branches; ordering proven by catalog-probe call counts",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "2ca07086a0af9abbd45697bb8bc04edb",
+            "post": "65d52b1fac00ef14599df5c98db5d502"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/authscope/auth_path_control_ingress_test.go": {
-      "md5": "e65c7bc98c3306b2ca44b9d665a69216",
-      "role": "F-B22 durable control: control-byte rejection table (NUL/tab/newline/DEL), legitimate-path non-regression, calypr-key rejection, \u0000-join fold pair (a\u0000b|c vs a|b\u0000c) destroyed at ingest; archived CONFIRMED wording retained as REGRESSION/UNEXPECTED branches"
+      "md5": "6efb01fbd8b0fbf1b97124b9a322a5a8",
+      "role": "F-B22 durable control: control-byte rejection table (NUL/tab/newline/DEL), legitimate-path non-regression, calypr-key rejection, \u0000-join fold pair (a\u0000b|c vs a|b\u0000c) destroyed at ingest; archived CONFIRMED wording retained as REGRESSION/UNEXPECTED branches",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "e65c7bc98c3306b2ca44b9d665a69216",
+            "post": "6efb01fbd8b0fbf1b97124b9a322a5a8"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/authscope/fence_resource_access.go": {
-      "md5": "2da4e1e7b00860b1c4864053cec44c6c",
-      "role": "REPAIR-7 F-B22 Tier-1: NormalizeAuthResourcePath/authResourcePathsFromResources/calyprProjectKeyFromResourcePath reject ASCII control bytes (C0+DEL): control-char paths returning empty drop out of scope lists and calypr extraction; exported NormalizeAuthResourcePaths + containsAuthPathControlChar at EOF"
+      "md5": "4191b0a3bf8909759f3313478ebe593d",
+      "role": "REPAIR-7 F-B22 Tier-1: NormalizeAuthResourcePath/authResourcePathsFromResources/calyprProjectKeyFromResourcePath reject ASCII control bytes (C0+DEL): control-char paths returning empty drop out of scope lists and calypr extraction; exported NormalizeAuthResourcePaths + containsAuthPathControlChar at EOF",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "2da4e1e7b00860b1c4864053cec44c6c",
+            "post": "4191b0a3bf8909759f3313478ebe593d"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
-    "internal/authscope/scope_resolver.go": "a3a029a0fed67e0df13de778e56374b1 -> working tree md5 bd0ddc06b7b090f1ba335e95b4354388 (REPAIR-15: scopeCacheKey allGenerations bool :123, sole true-writer :410, InvalidateGeneration false-only :462)",
-    "internal/dataframe/execution/chartifact/arango/catalog.go": "F-B8 anchor: sole chartifact REMOVE :262 gated to PrivateArtifactsCollection + leaseOwner + cleanupPending (parent-verified)",
-    "internal/dataframe/publication/arango/bundle_registry.go": {
-      "md5": "c0da93a2af299eba02e77955977f61b4 (md5-of-sha-label placeholder superseded; authoritative live hash is SHA-256 c0da93a2af299eba02e77955977f61b41cf96f74ec1f644e08c73fd20bfffd7b == r58 anchor)",
-      "role": "r59 re-pin: prior entry text held stale pre-publication-refactor SHA-256 1f0a6cde…; live byte-identical to r58 publication anchor (zero publication commits since 218edabb reconfirmed)"
-    },
-    "internal/dataframe/publication/arango/dangling_binding_e2e_test.go": {
-      "md5": "eed457a2ee4d0499fa30464174cb8ed8",
-      "role": "F-B7 sanctioned red (unchanged verdict); citations r31 containment"
-    },
-    "internal/dataframe/publication/arango/name_latest_binding_e2e_test.go": "F-B6 sanctioned artifact (531 lines, bug-documenting PASS-with-CONFIRMED pattern): registry CONFIRMED (identity ignored), Bug-3 case asymmetry CONFIRMED, verifier->ReleaseService.Create chain CONFIRMED via production code; four product-reachability preconditions listed; env-gated; vet clean; DBs removed",
-    "internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go": {
-      "md5": "9fba95547280ef7e9a42ab28b80461d4",
-      "role": "rrd r29: harness reader wiring; citation guard drift-proofed (containment); env PASS-O-DISP (candidate PUBLISHED+table intact+bound, list len=2) replacing archived FAILED-ON-PURPOSE"
+    "internal/authscope/scope_resolver.go": {
+      "md5": "4c53b059e98efb403689206189d315a0",
+      "note": "a3a029a0fed67e0df13de778e56374b1 -> working tree md5 bd0ddc06b7b090f1ba335e95b4354388 (REPAIR-15: scopeCacheKey allGenerations bool :123, sole true-writer :410, InvalidateGeneration false-only :462)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": [
+              "a3a029a0fed67e0df13de778e56374b1",
+              "bd0ddc06b7b090f1ba335e95b4354388"
+            ],
+            "post": "4c53b059e98efb403689206189d315a0"
+          }
+        }
+      }
     },
     "internal/dataframe/publication/bundle.go": {
       "md5": "4780816a3fdf290b1a208a856bb95c09",
@@ -566,7 +892,7 @@
     },
     "internal/dataframe/publication/clickhouse/abort_ackloss_e2e_test.go": "Worker A sanctioned F-B2 harness (prevented-by-code assertion + control; both PASS); residue empty",
     "internal/dataframe/publication/clickhouse/bundle_store.go": {
-      "sha256": "b034db9a50f1ac221e04dbc5eb29632ac3af4301d0c884459b4435d2ec6bda5c",
+      "sha256": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42",
       "role": "R85 DDL admission boundary (reviewed, unchanged): CreateOutput gates name via bundleOutputRE and every column via validateBundleColumn (schemaIdentifierRE + anchored closed-set scalar regex; Nullable/Array literal-prefix peel only). In-package probe: all clause-suffix and unbalanced payloads rejected.",
       "pin": "e68c7d6b",
       "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/dataframe/publication/clickhouse/bundle_store.go == blob at feature/postgres-backend tip 48783199; supersedes d5b5491b attestation (pin a5db5f5588420722f72d4bf889d4c63e1be4d560f6854c4da5c33a727ad69254 -> 1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42): comment sweep 80bca9a5 (#161, out-of-lane) stripped comments from this pinned file without re-anchor; re-pinned by PR #183 per coordinator directive, precedent a4d29f01",
@@ -591,7 +917,19 @@
           "recheck": "go test ./internal/dataframe/publication/clickhouse/ -> ok"
         }
       },
-      "rederivedAmendment": "lane05 2026-11-13: the sha256 quoted in 'rederived' is the pre-strip value; file was comment-stripped token-identically in the lane05 wave, then restored byte-identical to base after the CI guard-quote drift failure (see lane05Repin.guardQuoteRestore); final sha256 equals the pre-strip value, net wave effect nil"
+      "rederivedAmendment": "lane05 2026-11-13: the sha256 quoted in 'rederived' is the pre-strip value; file was comment-stripped token-identically in the lane05 wave, then restored byte-identical to base after the CI guard-quote drift failure (see lane05Repin.guardQuoteRestore); final sha256 equals the pre-strip value, net wave effect nil",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "b034db9a50f1ac221e04dbc5eb29632ac3af4301d0c884459b4435d2ec6bda5c",
+            "post": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42"
+          }
+        },
+        "movedAt": "80bca9a5"
+      }
     },
     "internal/dataframe/publication/clickhouse/bundle_store_test.go": {
       "md5": "22fd74544b8198d890f42bf5370ccb33",
@@ -599,25 +937,73 @@
     },
     "internal/dataframe/publication/clickhouse/export_pin_crash_window_e2e_test.go": "F-B3 realism upgrade: live StreamExactExport pre-first-tick crash end-state, direct-AQL pin proof + renewal control; PASS-gated controls green, finding test sanctioned-red; DBs loom_verify_ecw_* clean",
     "internal/dataframe/publication/clickhouse/orphaned_published_growth_e2e_test.go": {
-      "md5": "48796dc93018e8f7d0ebcfa7cbee52e2",
-      "role": "F-B19 CONVERTED r32 to natural PASS (retired orphan FAILED+marker+table-gone; live untouched; name-latest shrink); REGRESSION keeps archived CONFIRMED; + safety sibling bound-veto/convergence; before-fault via orphprobe guardless copy (po... fb19-prefixprobe.log) + archived e00a7032/e3712285"
+      "md5": "28be13895ce9b1312d3824a9fc9f4753",
+      "role": "F-B19 CONVERTED r32 to natural PASS (retired orphan FAILED+marker+table-gone; live untouched; name-latest shrink); REGRESSION keeps archived CONFIRMED; + safety sibling bound-veto/convergence; before-fault via orphprobe guardless copy (po... fb19-prefixprobe.log) + archived e00a7032/e3712285",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "48796dc93018e8f7d0ebcfa7cbee52e2",
+            "post": "28be13895ce9b1312d3824a9fc9f4753"
+          }
+        },
+        "movedAt": "80bca9a5"
+      }
     },
     "internal/dataframe/publication/clickhouse/pinblock_reconcile_e2e_test.go": "Worker B sanctioned F-B3 red artifact + identical-seeding control + probe; DBs loom_verify_pbx_* dropped; vet clean",
     "internal/dataframe/publication/clickhouse/pointer_name_nul_ambiguity_e2e_test.go": {
-      "md5": "8f3d1c9ae8e9db72ab9d59d13ae9480b",
-      "role": "F-B21 sanctioned-red artifact CONVERTED (citations re-pinned to length-prefix production shape; STEP3-5 + archived FAILED-ON-PURPOSE CONFIRMED text kept as REGRESSION direction). ENV RE-VERIFY PENDING: docker access revoked mid-Round-33"
+      "md5": "fd40143f06075b8a9dbcc16093070347",
+      "role": "F-B21 sanctioned-red artifact CONVERTED (citations re-pinned to length-prefix production shape; STEP3-5 + archived FAILED-ON-PURPOSE CONFIRMED text kept as REGRESSION direction). ENV RE-VERIFY PENDING: docker access revoked mid-Round-33",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "8f3d1c9ae8e9db72ab9d59d13ae9480b",
+            "post": "fd40143f06075b8a9dbcc16093070347"
+          }
+        },
+        "movedAt": "80bca9a5"
+      }
     },
     "internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go": {
-      "md5": "30e97601ec8f3cd280f56edb95b51c89",
-      "role": "F-B1e2 CONVERTED to natural PASS; REGRESSION direction keeps archived CONFIRMED message; conversion inversion caught by fb1probe instrumented copy (deleted)"
+      "md5": "efae8c7847c66398b9b7ffb6b8bfb068",
+      "role": "F-B1e2 CONVERTED to natural PASS; REGRESSION direction keeps archived CONFIRMED message; conversion inversion caught by fb1probe instrumented copy (deleted)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "30e97601ec8f3cd280f56edb95b51c89",
+            "post": "efae8c7847c66398b9b7ffb6b8bfb068"
+          }
+        },
+        "movedAt": "80bca9a5"
+      }
     },
     "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go": {
       "md5": "e02e868415c4df72e6dfc9c61bb2f14c",
       "role": "F-B1 probe CONVERTED r29 to natural PASS; CONFIRMED branch kept as REGRESSION direction; package fully green without env"
     },
     "internal/dataframe/publication/clickhouse/release_dangle_reconcile_e2e_test.go": {
-      "md5": "770ada2b907b4dd6f1d928462e535b0f",
-      "role": "rdl r29: production-mirror reader wiring; E4 absent-guard control converted to binding-veto arm (regression direction = F-B12 red); env PASS VERDICT PREVENTED"
+      "md5": "4c539989e61413a38f61201b60cf900c",
+      "role": "rdl r29: production-mirror reader wiring; E4 absent-guard control converted to binding-veto arm (regression direction = F-B12 red); env PASS VERDICT PREVENTED",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "770ada2b907b4dd6f1d928462e535b0f",
+            "post": "4c539989e61413a38f61201b60cf900c"
+          }
+        },
+        "movedAt": "80bca9a5"
+      }
     },
     "internal/dataframe/publication/pointer_name_encoding_test.go": {
       "md5": "49187785c747aaad937bd0f3083fd08a",
@@ -652,76 +1038,176 @@
       "md5": "891716f8827ae5bb7be47c53332413be",
       "role": "F-B21-http artifact CONVERTED per its own re-point doctrine (distinct pointers -> PASS); validator NUL-acceptance demoted to disclosed NOTE (injective encoding is the closed harm)"
     },
-    "internal/dataset/arango/generation_activation_cas_e2e_test.go": {
-      "md5": "bae0431fa3224f49fbabffc9f12a6098",
-      "role": "F-B17 sanctioned red; citations r31 containment; red message byte-comparable"
-    },
-    "internal/dataset/arango/manifest_lifecycle.go": "brief audited; see FINDINGS verification/release section (F-B6 candidate + ruled-sound list)",
-    "internal/dataset/arango/release_store.go": {
-      "md5": "1f42e36776387af8db1bb52c07b6db49",
-      "role": "F-B15 REPAIRED: alreadyActive revision-clause-free true zero-write no-op (LENGTH(patched)==LENGTH(updates)); saveReleaseAQL compat excludes only createdAt"
-    },
-    "internal/dataset/arango/revision_inflation_e2e_test.go": {
-      "md5": "ab4cf9341193f900fbae267520ac7ac5",
-      "role": "F-B15 durable control: verdict switch tightened (!inflated requires contentIdentical; anomalous content-drift-without-bookkeeping lands INCONCLUSIVE); header records REPAIR-5 repaired status with PREVENTED witness; FAILED-ON-PURPOSE regression arm preserved verbatim"
-    },
     "internal/dataset/manifest.go": "states LOADING/STAGED/READY/FAILED; prior STAGED never demoted",
     "internal/dataset/release.go": {
-      "md5": "1118624d9f2da439e5ae06ba479ad5ee",
-      "role": "F-B15 REPAIRED (Repair-3): content-addressed releaseID (revision excluded); fail-fast active read kept. HARDENED (defense-in-depth, NOT a defect repair): releaseID moved to length-prefixed framing (release.go:345 releaseID -> releaseIDFraming :356-365 / writeLengthPrefixed :367-371, len:content like Selector.Key and PointerName) replacing the bare-NUL join, injective by construction; witness internal/dataset/release_id_framing_test.go (multibyte CJK/emoji/accented + digit-colon corpus kills the rune-count encoder mutant)"
+      "md5": "03ee181e34cf4e1dc77660652f730d01",
+      "role": "F-B15 REPAIRED (Repair-3): content-addressed releaseID (revision excluded); fail-fast active read kept. HARDENED (defense-in-depth, NOT a defect repair): releaseID moved to length-prefixed framing (release.go:345 releaseID -> releaseIDFraming :356-365 / writeLengthPrefixed :367-371, len:content like Selector.Key and PointerName) replacing the bare-NUL join, injective by construction; witness internal/dataset/release_id_framing_test.go (multibyte CJK/emoji/accented + digit-colon corpus kills the rune-count encoder mutant)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "1118624d9f2da439e5ae06ba479ad5ee",
+            "post": "03ee181e34cf4e1dc77660652f730d01"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/dataset/release_requirements_e2e_test.go": {
-      "md5": "1ef6caca9673043984419f68049497b3",
-      "role": "F-B14 sanctioned red; citations r31 converted to containment guards; red message byte-comparable to archived"
+      "md5": "5d96cd4c619f198bc8e1b93c999d824f",
+      "role": "F-B14 sanctioned red; citations r31 converted to containment guards; red message byte-comparable to archived",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "1ef6caca9673043984419f68049497b3",
+            "post": "5d96cd4c619f198bc8e1b93c999d824f"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
-    "internal/explorer/arango/cross_generation_publish_e2e_test.go": {
-      "md5": "97300b4102151c5b19964c05cea4cc2e (r63 re-pin: Explorer-arango citation pins shifted at dc52ed0a (:154->:158, :170->:177 drift since 8160bb97); FAILED-ON-PURPOSE F-B13 behavior unchanged. Drifted from prior 79b5834c.; live == HEAD-blob-at-dc52ed0a == on-disk SELF-RUN)",
-      "role": "F-B13 sanctioned-red artifact (FAILED-ON-PURPOSE silent cross-generation downgrade; worker 39dfd91a + parent 3dc90697)",
-      "status": "verified-this-round"
-    },
-    "internal/explorer/arango/selections.go": "H3 targets: BeginSelection auto-cleanup :41; Append tx renews writerExpiresAt :168; CleanupSelectionStaging :388-402 missing complete!=true guard (5 siblings carry it); CompleteSelection atomic complete+terminal :231-233,244-247; paging :197-225 measured 10ms/50 pages, no idle>10min phase found",
-    "internal/explorer/arango/selections_cleanup_e2e_test.go": "Worker C sanctioned H3 artifact (3 tests; PASS/SKIP correctly gated; DBs loom_exv_* dropped, residue empty); H3-a disproven / H3-b verification finding",
     "internal/explorer/lifecycle/artifact.go": "F-B3 premise: defaultArtifactTTL 24h (:21), identity ExpiresAt (:104) as initial stream pin (:152)",
     "internal/explorer/lifecycle/publish.go": "bf672efb85130540e0110addd169571a",
     "internal/server/explorer_capability.go": "F-B13 asymmetry: ResolveForCompilation enforces active generation (~:214-218 via dataset.ResolveActive); ResolveForExecution does not (project+scope+self-consistency only)",
     "internal/server/openapi_recipe_execution.go": {
-      "sha256": "2fb6066b04417483cdf0d90a8c7d6cd8cf4a9adcc215875942b060574f118874",
+      "sha256": "05d8c4686c9b5c4b65c752a166fb116b33a2d4fb4073a4d4dfe69a85a2d4da74",
       "role": "REST execution twin (Repair-6 F-B20 base preserved): C2 @87ee09c7 -- item.State==\"READY\" iff durable READY or PUBLISHED (openapi_recipe_execution.go:105-114), set exactly once at :70 via recipeExecutionHTTPState(output.State) (:233-238, BundlePublished->READY producer proof); same leaseLostDemotionApplied + errors.Is(lease.ErrLeaseLost) gate; ledger-comment rewrite in the second hunk. RECORD UPGRADE: replaces the md5-era entry (c84a2733eaf7b0daf6b2a38f051573a5; its r58 rerun note superseded).",
-      "pin": "87ee09c7",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/server/openapi_recipe_execution.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes md5-era entry c84a2733eaf7b0daf6b2a38f051573a5 (Repair-6 F-B20 + r58 rerun note, no pin); NOT a duplicate (bytes moved at 87ee09c7; live-byte re-derivation, zero hand-typed digests)"
+      "pin": "48783199",
+      "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/server/openapi_recipe_execution.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes md5-era entry c84a2733eaf7b0daf6b2a38f051573a5 (Repair-6 F-B20 + r58 rerun note, no pin); NOT a duplicate (bytes moved at 87ee09c7; live-byte re-derivation, zero hand-typed digests)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "2fb6066b04417483cdf0d90a8c7d6cd8cf4a9adcc215875942b060574f118874",
+            "post": "05d8c4686c9b5c4b65c752a166fb116b33a2d4fb4073a4d4dfe69a85a2d4da74"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "87ee09c7",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/server/options.go": {
       "note": "brief audited; see FINDINGS verification/release section (F-B6 candidate + ruled-sound list)",
-      "sha256": "7754040c10911d4d3437d094d59455704b910e96b19998847fe0e10e2460ae6d",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() at the rebased tip; hop onto feature/postgres-backend @ 15923e99 (post #135 arango-factory move, #137); file content after three-way run() dispatch merge; prior pin was stale base drift"
+      "sha256": "4366f81c2270bfe6a6210c1cea037b9b7f62d1cefbdc669a50eef689d64a09e9",
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() at the rebased tip; hop onto feature/postgres-backend @ 15923e99 (post #135 arango-factory move, #137); file content after three-way run() dispatch merge; prior pin was stale base drift",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "7754040c10911d4d3437d094d59455704b910e96b19998847fe0e10e2460ae6d",
+            "post": "4366f81c2270bfe6a6210c1cea037b9b7f62d1cefbdc669a50eef689d64a09e9"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/server/recipe_execution_status_twin_e2e_test.go": {
-      "md5": "67bfaf5428239079451ccd37df659cbe",
+      "md5": "8dc0c769b8dfbc4f35bd98d14ba5c60f",
       "role": "F-B20 REST-twin durable control (converted characterization): T-A nil-scopes concealed 404 vs member 200 vs principal-less 200 (documented posture); T-B held-path-alone non-member concealed, member authorized; T-B2 uniform concealed bodies (resolver 403 / membership 404)",
-      "rerun20261102_r58": "re-pinned round 58 (stale since wave-B eb9c9df0); prior pin 64abd66a8e03"
+      "rerun20261102_r58": "re-pinned round 58 (stale since wave-B eb9c9df0); prior pin 64abd66a8e03",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "67bfaf5428239079451ccd37df659cbe",
+            "post": "8dc0c769b8dfbc4f35bd98d14ba5c60f"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/server/recipe_execution_twin_authz_repair_test.go": {
-      "md5": "f629ff8e79b1c55001c3b165eda2c121",
-      "role": "F-B20 REST-twin regression: foreign principal concealed 404 (pre-fix RED 200 + full metadata in /tmp/opencode/fb20-twin-before-red.log; green in fb20-twin-after-green.log and fb20-server-full-r34.log)"
+      "md5": "f2efbe453a88481b8c17f00a146506c5",
+      "role": "F-B20 REST-twin regression: foreign principal concealed 404 (pre-fix RED 200 + full metadata in /tmp/opencode/fb20-twin-before-red.log; green in fb20-twin-after-green.log and fb20-server-full-r34.log)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "f629ff8e79b1c55001c3b165eda2c121",
+            "post": "f2efbe453a88481b8c17f00a146506c5"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/server/release_verifier.go": "F-B6 chain: :18-35 echoes Selector (:31) -> vacuous release.go:185 guards",
     "internal/server/server.go": {
-      "md5": "d99dcc0db26d81064a40011c515d96b0",
+      "md5": "d95a4e109e2ec22f3db6f6d903bd33ce",
       "role": "r29: bundleStore.SetActiveReleaseReader(lifecycleStore) at production construction site",
-      "sha256": "d158ce26c9e1ddcdd3ef22181029ba718fdf588a790c165c34a0b9d277be926b",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "sha256": "22e979cc91982604ef6fdc83462c54389e540cbb76bf50cb8a30f410e21311da",
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "d99dcc0db26d81064a40011c515d96b0",
+            "post": "d95a4e109e2ec22f3db6f6d903bd33ce"
+          },
+          "sha256": {
+            "pre": "d158ce26c9e1ddcdd3ef22181029ba718fdf588a790c165c34a0b9d277be926b",
+            "post": "22e979cc91982604ef6fdc83462c54389e540cbb76bf50cb8a30f410e21311da"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
-    "release_dangle_reconcile_e2e_test.go [arango pkg]": "F-B12 sanctioned-red artifact intact; 3rd reproduction f1ea7ac5 (/tmp/opencode/fb12-reconfirm.log), FAILED-ON-PURPOSE, authenticated residue 0",
-    "release_dangle_reconcile_e2e_test.go [clickhouse pkg]": "F-B11 PREVENTED control artifact (parent PASS 278d34ac); ABSENT-GUARD fault control",
     "verification/publication-bundle/FINDINGS.md": {
-      "sha256": "e10ca876747f8167b9c3f34a9a7a130580d3409108bc0a2af0eb3b06643bf0bd",
+      "sha256": "d22a4774e180207edc5cc5a952c3d588780b9c475668b69fe6d25073b37d59d1",
       "role": "Ledger through Round 79: R78 fail-posture repair, R78b gofmt CI boundary + class completion, R79 F-B40 registration.",
-      "pin": "4e15704f",
-      "rederived": "SELF-RUN live sha256 == git show 4e15704f:verification/publication-bundle/FINDINGS.md == on-disk"
+      "pin": "8f65f3c5",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:verification/publication-bundle/FINDINGS.md == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "e10ca876747f8167b9c3f34a9a7a130580d3409108bc0a2af0eb3b06643bf0bd",
+            "post": "d22a4774e180207edc5cc5a952c3d588780b9c475668b69fe6d25073b37d59d1"
+          }
+        },
+        "movedAt": "8f65f3c5",
+        "pinCorrection": {
+          "pre": "4e15704f",
+          "post": "8f65f3c5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "verification/publication-bundle/OPERATOR_REVIEW_DIGEST.md": {
-      "md5": "0b0bf2613fcda2476f8f21f7d28e8e62",
-      "role": "operator digest incl Round 65 record (self-record pin = md5 BEFORE the Round-65 tail); supersedes round-64 part-2 pre-tail fa0ca45f31d1c1501ec567b237bc151c"
+      "md5": "b11e28904f3fae42b73606e3f0594566",
+      "role": "operator digest incl Round 65 record (self-record pin = md5 BEFORE the Round-65 tail); supersedes round-64 part-2 pre-tail fa0ca45f31d1c1501ec567b237bc151c",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "0b0bf2613fcda2476f8f21f7d28e8e62",
+            "post": "b11e28904f3fae42b73606e3f0594566"
+          }
+        },
+        "movedAt": "8f65f3c5"
+      }
     },
     "verification/publication-bundle/PUBLISHED_IMMORTALITY_PROPOSAL.md": "F-B8 proposal: invariant statement, 9-site removal enumeration (parent-verified anchors incl. lease-only :338-340 and PrivateArtifacts-only chartifact removal), three-tier enforcement proposal; docs-only, no product change",
     "verification/publication-bundle/ReconcileDangleTrust.tla": {
@@ -742,59 +1228,221 @@
       }
     },
     "internal/explorer/lifecycle/publish_release_requirements_classification_test.go": {
-      "md5": "1a7ea43cdeb6376b8b8d49406e985485 (r59 re-pin: evolved at 0e3b4c5b authz wave; git-clean == HEAD blob 2ed0775ef5607c93fe08283fe81138dbf5949b76)",
-      "role": "publish-requirements classification table (F-B15 era anchor; not touched by row-source wave)"
+      "md5": "be762a74427e3c86bd2df45664495289",
+      "role": "publish-requirements classification table (F-B15 era anchor; not touched by row-source wave)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "1a7ea43cdeb6376b8b8d49406e985485 (r59 re-pin: evolved at 0e3b4c5b authz wave; git-clean == HEAD blob 2ed0775ef5607c93fe08283fe81138dbf5949b76)",
+            "post": "be762a74427e3c86bd2df45664495289"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
-    "internal/catalog/types.go": "6b84be9759db9180fd29e6a9df876ae4",
-    "internal/catalog/arango/resources.go": {
-      "md5": "ab52c1725bf7ad863523635ce47a2954 (r63 re-pin: genbind AllGenerations bind dropped at source (dc52ed0a); drifted from the r59 pin 51efbe04 (0e3b4c5b authz wave).; live == HEAD-blob-at-dc52ed0a == on-disk SELF-RUN)",
-      "role": "catalog arango resources (F-B6 era anchor; not touched by row-source wave)"
+    "internal/catalog/types.go": {
+      "md5": "418edc97119269a474c87425f875dd99",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "6b84be9759db9180fd29e6a9df876ae4",
+            "post": "418edc97119269a474c87425f875dd99"
+          }
+        }
+      }
     },
-    "internal/api/bulk/load/cross_project_dataset_authorization_e2e_test.go": "84b3aa88351246c0b8b4325f5056b370",
+    "internal/api/bulk/load/cross_project_dataset_authorization_e2e_test.go": {
+      "md5": "4244ae518928547f5671bb3d020dfdfe",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "84b3aa88351246c0b8b4325f5056b370",
+            "post": "4244ae518928547f5671bb3d020dfdfe"
+          }
+        }
+      }
+    },
     "internal/authscope/covers_execution_paths_control_test.go": {
-      "sha256": "9bf8b1662ec590e1c19e692959d3774b5a0128f74b19b9d318849370c91769a1",
+      "sha256": "31ddf950cdb1067b02b7f2470d3f1db057296dd6bd98b048445e1c977afd3117",
       "role": "Companion pin TestUnrestrictedRequiresExplicitUnrestrictedMode: bypass posture only for the explicit unrestricted enum (empty/garbage/wrong-case/trailing-space all false).",
-      "pin": "4e15704f",
-      "rederived": "SELF-RUN live sha256 == git show 4e15704f:internal/authscope/covers_execution_paths_control_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:internal/authscope/covers_execution_paths_control_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "9bf8b1662ec590e1c19e692959d3774b5a0128f74b19b9d318849370c91769a1",
+            "post": "31ddf950cdb1067b02b7f2470d3f1db057296dd6bd98b048445e1c977afd3117"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "4e15704f",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/authscope/all_generations_cache_key_test.go": {
-      "md5": "c70b83bb1c61caf7335f85e6cb5595f6",
+      "md5": "4e25d1598c49e70bdc4e34ed6e76ba61",
       "role": "REPAIR-15 durable F-B27 controls: promoted poison probe TestFB27SentinelGenerationPoisonCannotReachAuthorizeWrite + all-generations cache-key matrix. TEST-HYGIENE NOTE: shared-mutable fb27ctlLister :26 (calls/opts) — transient -race helper not product; polish to per-subtest state next idle wave.",
-      "rerun20261102_r58": "re-pinned round 58 (hardening 989f7e5a concurrent-recorder polish +135 (receipt bundle hash agrees)); prior pin e57dfdd042bf"
+      "rerun20261102_r58": "re-pinned round 58 (hardening 989f7e5a concurrent-recorder polish +135 (receipt bundle hash agrees)); prior pin e57dfdd042bf",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "c70b83bb1c61caf7335f85e6cb5595f6",
+            "post": "4e25d1598c49e70bdc4e34ed6e76ba61"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/authscope/auth_resource_path_options_conflict_test.go": {
-      "md5": "69bbbe193a470d1edd091a090e089c49",
-      "role": "REPAIR-15 F-2 durable boundary: AllGenerations+selected-generation conflict rejected before Arango (hermetic fake client; fb27ctlDiscover single-query/refused-reaches-noroute discipline). VALIDATOR RATIONALE CORRECTED (operator note): DiscoverExistingAuthResourcePaths IS production-wired (server.go:439 -> auth_wiring.go:40 calypr mode), NOT zero-callers; guard still correct (only two authscope producers, scope_resolver.go:378/:421, none emits the conflict shape)."
+      "md5": "2f8c235c065a6f3e5f8bf8564a75e699",
+      "role": "REPAIR-15 F-2 durable boundary: AllGenerations+selected-generation conflict rejected before Arango (hermetic fake client; fb27ctlDiscover single-query/refused-reaches-noroute discipline). VALIDATOR RATIONALE CORRECTED (operator note): DiscoverExistingAuthResourcePaths IS production-wired (server.go:439 -> auth_wiring.go:40 calypr mode), NOT zero-callers; guard still correct (only two authscope producers, scope_resolver.go:378/:421, none emits the conflict shape).",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "69bbbe193a470d1edd091a090e089c49",
+            "post": "2f8c235c065a6f3e5f8bf8564a75e699"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/authscope/scope_cache_key_namespace_test.go": {
-      "md5": "dc7accfb0722ba99c628ba22976d8017",
-      "role": "REPAIR-15 structural namespace control: generation-scoped keys cannot address the allGenerations=true project-binding entry (bool discriminator, not string filter)."
+      "md5": "106713913d3440bbe94e5a5fe5780105",
+      "role": "REPAIR-15 structural namespace control: generation-scoped keys cannot address the allGenerations=true project-binding entry (bool discriminator, not string filter).",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "dc7accfb0722ba99c628ba22976d8017",
+            "post": "106713913d3440bbe94e5a5fe5780105"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/explorer/lifecycle/unpivot_source.go": {
-      "sha256": "08f5792747655bedca3a7ac3ea2264589a767a0db299b25633378ba8cac53b63",
+      "sha256": "74b0ac608d5a4edcb5e76596ac8d79c98d97b16640139ad35fae07d1dfe002b2",
       "role": "Unpivot signed lane; pre-C1 role text carried -- C1 @8459f080: UNPIVOT SET preparation no longer re-imports cleared foreign-owner durable inputs (unpivot_source.go:392-395, same mirrored cleared-owner clause; RED-first durables in filter_source_pivot_clear_test.go reproduced the pre-fix shape; exactly-2-kills on the pair's durable set; M-both mutant = clause removed from BOTH lanes plus pivot :591-592 + filter :266 flips).",
-      "pin": "8459f080",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 8459f080:internal/explorer/lifecycle/unpivot_source.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 pin @d3a1d12a (pre-C1 bytes); NOT a duplicate (bytes moved at 8459f080; live-byte re-derivation, zero hand-typed digests)"
+      "pin": "48783199",
+      "rederived": "r65 SELF-RUN: live sha256 == git show 8459f080:internal/explorer/lifecycle/unpivot_source.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 pin @d3a1d12a (pre-C1 bytes); NOT a duplicate (bytes moved at 8459f080; live-byte re-derivation, zero hand-typed digests)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "08f5792747655bedca3a7ac3ea2264589a767a0db299b25633378ba8cac53b63",
+            "post": "74b0ac608d5a4edcb5e76596ac8d79c98d97b16640139ad35fae07d1dfe002b2"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "8459f080",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/explorer/lifecycle/unpivot_source_test.go": {
-      "sha256": "faa60db2113652116fe2a9606c6a88abd2e0b17be89bd06b4f1736e6954b1175",
+      "sha256": "147de264f89ab43b755b4fc68a4c13d1c4d94ceae7dcb9d9108feffd345748ef",
       "role": "Unpivot-lane durables (S-A skip-class reason table; S-C Title fixtures + honest-projection armed facts; S-B 3-row distinctness table; date-family refusal suite from cd39eeaf preserved).",
-      "pin": "d3a1d12a",
-      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/unpivot_source_test.go == on-disk -- supersedes the r63 md5 pin 10bb209af4c364bb809f3f2e0cc149b8 @cd39eeaf; bytes moved since, NOT a duplicate (live-byte re-derivation, zero hand-typed digests)"
+      "pin": "48783199",
+      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/unpivot_source_test.go == on-disk -- supersedes the r63 md5 pin 10bb209af4c364bb809f3f2e0cc149b8 @cd39eeaf; bytes moved since, NOT a duplicate (live-byte re-derivation, zero hand-typed digests)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "faa60db2113652116fe2a9606c6a88abd2e0b17be89bd06b4f1736e6954b1175",
+            "post": "147de264f89ab43b755b4fc68a4c13d1c4d94ceae7dcb9d9108feffd345748ef"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d3a1d12a",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/server/explorer_output_reconcile_unpivot_source_test.go": {
-      "md5": "e43cfee809dfdc53cccb2994eeef92de (r62 re-pin: drifted at 0dd7be44 F-A melt-first accept AFTER the r61 sweep ran at 1d3d917b; prior pin bd651263; live == HEAD blob SELF-RUN)",
-      "role": "UNPIVOT ledger claim/drift refusals incl compiled-slot + facts (9c79307b) (r60 pin, slice-1 convention; live==HEAD blob SELF-RUN 2026-11-02)"
+      "md5": "67f4bae9504863e32300c785806aa3af",
+      "role": "UNPIVOT ledger claim/drift refusals incl compiled-slot + facts (9c79307b) (r60 pin, slice-1 convention; live==HEAD blob SELF-RUN 2026-11-02)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "e43cfee809dfdc53cccb2994eeef92de (r62 re-pin: drifted at 0dd7be44 F-A melt-first accept AFTER the r61 sweep ran at 1d3d917b; prior pin bd651263; live == HEAD blob SELF-RUN)",
+            "post": "67f4bae9504863e32300c785806aa3af"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/server/openapi_explorer_construction_unpivot_source_test.go": {
-      "md5": "42e4b2b945f690f41ea875d02e0e5cd8 (r63 re-pin: same cd39eeaf date-family refusal (HTTP twin); drifted from the r62 re-pin (which itself tracked 0dd7be44).; live == HEAD-blob-at-cd39eeaf == on-disk SELF-RUN)",
-      "role": "HTTP contract twin: caps leak, PREVIEW wire evidence, forgeries, NEEDS_REPAIR honesty (9c79307b) (r60 pin, slice-1 convention; live==HEAD blob SELF-RUN 2026-11-02)"
+      "md5": "5d6adc272b563b434909c19d08dc2a5e",
+      "role": "HTTP contract twin: caps leak, PREVIEW wire evidence, forgeries, NEEDS_REPAIR honesty (9c79307b) (r60 pin, slice-1 convention; live==HEAD blob SELF-RUN 2026-11-02)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "42e4b2b945f690f41ea875d02e0e5cd8 (r63 re-pin: same cd39eeaf date-family refusal (HTTP twin); drifted from the r62 re-pin (which itself tracked 0dd7be44).; live == HEAD-blob-at-cd39eeaf == on-disk SELF-RUN)",
+            "post": "5d6adc272b563b434909c19d08dc2a5e"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/acceptance/runner.go": {
-      "sha256": "b0c7aa89a3f030a877c704f957def0ae22426005f68488387af7825e23ac8666",
+      "sha256": "9a8ce5413cfab035c5a0c2e253b749b8dd53d4a74ddaea65c15d900fd303e517",
       "role": "@f177a9ed zero-value Runner{} bypassing New panicked at :175 (nil Target dispatch); validateRequired() hoisted re-check at Run entry (first statement, reviewer bypass-hunt clean; Runner has exactly two methods), wrapped errRunnerUninitialized%w + field%w -- errors.Is joins both (reviewer-proven); Report{} stays zero on guard return; New() guard conditions byte-verbatim identical (copylocks 26bb172c + status-preserve 7e9d1449 semantics intact per reviewer diff).",
-      "pin": "f177a9ed",
-      "rederived": "r64 SELF-RUN: live sha256 == git show f177a9ed:internal/acceptance/runner.go == on-disk -- supersedes the r63 sha 475fd088917beb79ef0ea2024098a3c42cc361d5025594fc8dbc38a74131a47b @7e9d1449; bytes moved since, NOT a duplicate (live-byte re-derivation, zero hand-typed digests)"
+      "pin": "48783199",
+      "rederived": "r64 SELF-RUN: live sha256 == git show f177a9ed:internal/acceptance/runner.go == on-disk -- supersedes the r63 sha 475fd088917beb79ef0ea2024098a3c42cc361d5025594fc8dbc38a74131a47b @7e9d1449; bytes moved since, NOT a duplicate (live-byte re-derivation, zero hand-typed digests)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "b0c7aa89a3f030a877c704f957def0ae22426005f68488387af7825e23ac8666",
+            "post": "9a8ce5413cfab035c5a0c2e253b749b8dd53d4a74ddaea65c15d900fd303e517"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "f177a9ed",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/acceptance/runner_locking_test.go": {
       "sha256": "d720f2c37f72e7b140c3a2ccec21a680743ae1c92db22818d676d599efe0c216",
@@ -809,15 +1457,32 @@
       "rederived": "r62 SELF-RUN live-sha256 == blob @26bb172c == on-disk"
     },
     "internal/server/core_authoring_protocol_formal_replay_test.go": {
-      "sha256": "17799abb830e9f65c5159f665b64d0828031bfd977242e3108eb0db5122371d0",
+      "sha256": "f487d96be3fde353cfb15625224450415b14fb3ff1e410998a1eed4f93a76ed0",
       "role": "skip+guard @fdf2969e: TestCoreAuthoringProtocolModelReplay skips cleanly outside its harness env (LOOM_FORMAL_CORE_PROTOCOL_INPUT/OUTPUT) instead of failing the ordinary go-test job; dedicated enforced CI step now holds the mandate (research truth: replay previously ran transitively only via builder-formal --self-test). Receipt /tmp/opencode/ci-replay-separation.md.",
-      "pin": "fdf2969e",
-      "rederived": "r62 SELF-RUN live-sha256 == blob @fdf2969e == on-disk"
+      "pin": "48783199",
+      "rederived": "r62 SELF-RUN live-sha256 == blob @fdf2969e == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "17799abb830e9f65c5159f665b64d0828031bfd977242e3108eb0db5122371d0",
+            "post": "f487d96be3fde353cfb15625224450415b14fb3ff1e410998a1eed4f93a76ed0"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "fdf2969e",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "verification/publication-bundle/ConstructionPrepareLanes.tla": {
       "sha256": "cd16422a9a07aeafa5cef9f939d9f3c16f2894a66e33147c66d4c5147dc1aefe",
       "role": "@49d6999e post-C1 model re-pin: PrepareLanes mapping shifted to the GUARDED SET loops (post-8459f080 :606/:618/:625/:781 cites; shared helpers re-verified :701-710/:772-801); clean arm re-derived verbatim 61,456 distinct states (parent arm tlc-parent-gated.log, exit 0, 22:37:48); persist falsifier arm violates ClearedStaysCleared @9,236 (tlc-parent-persist.log, exit 12) -- the C1-revert falsifier. Violated arms still violate; bounds unchanged. 11/12 models IN SYNC this pass (formal-resync65.md).",
-      "pin": "49d6999e",
+      "pin": "8f65f3c5",
       "rederived": "r65 SELF-RUN: live sha256 == git show 49d6999e:verification/publication-bundle/ConstructionPrepareLanes.tla == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 pin f1e3595a80295f92ceb2229a47e293a31beca368f7ecd8bd97a60672dd3b5e0b @ea6df079 (description predated C1); NOT a duplicate (bytes moved at 49d6999e; live-byte re-derivation, zero hand-typed digests)",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -831,36 +1496,93 @@
             "post": "cd16422a9a07aeafa5cef9f939d9f3c16f2894a66e33147c66d4c5147dc1aefe"
           }
         }
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "movedAt": "8f65f3c5",
+        "pinCorrection": {
+          "pre": "49d6999e",
+          "post": "8f65f3c5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
       }
     },
-    "internal/catalog/arango/all_generations_project_binding_integration_test.go": {
-      "sha256": "17f2414092154737db70f2b366e5dcc6e7f672a8e512bc431ae8a30d6dc5e97f",
-      "role": "NEW durable genbind integration test (dc52ed0a): restricted per-gen write into catalog-recorded project succeeds; cross-project => real ErrForbidden; empty-project bootstrap; overlay-revert RED quotes the undeclared dataset_generation bind error verbatim; F-B27 sentinel PASS.",
-      "pin": "dc52ed0a",
-      "rederived": "r63 SELF-RUN: live sha256 == git show dc52ed0a:internal/catalog/arango/all_generations_project_binding_integration_test.go == on-disk"
-    },
     "internal/explorer/lifecycle/fs1_reverse_order_collision_test.go": {
-      "sha256": "f901042baf0903365e13831c7cfaa875ccf72f6f1f29bc7e56c1f9bac16074d7",
+      "sha256": "e867768b5c3a397dd61349d1741c37d9c0ee1d2c280f7ef1a02a7bfd138f28a3",
       "role": "NEW durable (BS-62-6 not-a-defect closure): order-invariant F-DS1 signed-slot collision refusal; forward/reverse named refusal + legit acceptance + order-invariance table + 2 full-path locks; M1/M2 delete-your-guard mutants RED then restored byte-identical; no product bytes touched.",
-      "pin": "34e4741d",
-      "rederived": "r63 SELF-RUN: live sha256 == git show 34e4741d:internal/explorer/lifecycle/fs1_reverse_order_collision_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "r63 SELF-RUN: live sha256 == git show 34e4741d:internal/explorer/lifecycle/fs1_reverse_order_collision_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "f901042baf0903365e13831c7cfaa875ccf72f6f1f29bc7e56c1f9bac16074d7",
+            "post": "e867768b5c3a397dd61349d1741c37d9c0ee1d2c280f7ef1a02a7bfd138f28a3"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "34e4741d",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "scripts/verify-ui/workflows/verify-explorer-unpivot-row-source.mjs": {
-      "sha256": "0110894b5ffe291295b01ae7cc5eb03425aff44eb2370cbfd3c1e50c9f62c371",
+      "sha256": "71e2422e444c328d4c31302096e47d6bc40f4dbd910c3dd6629617b3b46b4c86",
       "role": "Journey-family record (ONE entry, dc52 -> 29d2c5b0): NEW 30-check unpivot row-source journey (signed FILTER ledger + signed string melt + C15 awaited-negative date-family refusal 422 UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD byte-pinned + discovery-hides across 3 surfaces + surviving public Date oracle + exact 30-check set), two green runs (upr17/upr18) + 18/18-mutant battery ALL RED. Siblings hardened this commit (listed here, not separate records): scripts/verify-ui/registry.mjs (machine-exact filter 17/17, derive 24/24, unpivot 30/30 identical:true), scripts/verify-ui/workflows/verify-explorer-filter-row-source.mjs (+80/-5 silent-vacuous eliminated; live picker re-key find -> pending-verification), scripts/verify-ui/workflows/verify-explorer-derive-row-source.mjs (94->105 asserts).",
-      "pin": "29d2c5b0",
-      "rederived": "r63 SELF-RUN: live sha256 == git show 29d2c5b0:scripts/verify-ui/workflows/verify-explorer-unpivot-row-source.mjs == on-disk"
+      "pin": "2fbb0992",
+      "rederived": "r63 SELF-RUN: live sha256 == git show 29d2c5b0:scripts/verify-ui/workflows/verify-explorer-unpivot-row-source.mjs == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "0110894b5ffe291295b01ae7cc5eb03425aff44eb2370cbfd3c1e50c9f62c371",
+            "post": "71e2422e444c328d4c31302096e47d6bc40f4dbd910c3dd6629617b3b46b4c86"
+          }
+        },
+        "movedAt": "2fbb0992",
+        "pinCorrection": {
+          "pre": "29d2c5b0",
+          "post": "2fbb0992",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/api/graphql/graph/dataframe/aggregates_test.go": {
-      "sha256": "a923f2afdf216535a38bf65b33c175c562b7ef56a928fd38a5211698e9c5e9cc",
+      "sha256": "919ebfe6cae8f14d099bfba32e65cd17ef44eb94b30c72223824362da9f0865f",
       "role": "flaky #1 de-flake (BS-62-3, 9d092c5b): 158-goroutine burst test asserts the observable contract (non-empty batches summing to exactly 158, every call dispatched exactly once) + NEW event-synchronized zero-sleep regression; product bytes IDENTICAL; double-dispatch negative control fails 6/6.",
-      "pin": "9d092c5b",
-      "rederived": "r63 SELF-RUN: live sha256 == git show 9d092c5b:internal/api/graphql/graph/dataframe/aggregates_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "r63 SELF-RUN: live sha256 == git show 9d092c5b:internal/api/graphql/graph/dataframe/aggregates_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "a923f2afdf216535a38bf65b33c175c562b7ef56a928fd38a5211698e9c5e9cc",
+            "post": "919ebfe6cae8f14d099bfba32e65cd17ef44eb94b30c72223824362da9f0865f"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "9d092c5b",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "verification/publication-bundle/ConstructionProjectionOwnership.tla": {
       "sha256": "8116350dc9e7a64cc6d18a2da491ac108457921675f6bff33a0d4bbf5fbc0239",
       "role": "NEW formal model in this writer's directory (U1 CLOSED, cf0ca558): exhaustive 5-owners x 4-bits prune x validate (2^20 input product); clean arm CLEAN at 3,517,009 distinct states against the shipped kept-rule; all 8 violated-by-design arms exit 12 on their named invariants; 3 named prune Go tests green, branch-reject strings model-side only; companion 9 cfgs (m-prj-*).",
-      "pin": "cf0ca558",
+      "pin": "8f65f3c5",
       "rederived": "r63 SELF-RUN: live sha256 == git show cf0ca558:verification/publication-bundle/ConstructionProjectionOwnership.tla == on-disk",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -873,6 +1595,18 @@
             "pre": "1dbd72f6e8f3b549068095f9301ab656cc795f818019fc64d7b3e989101176b6",
             "post": "8116350dc9e7a64cc6d18a2da491ac108457921675f6bff33a0d4bbf5fbc0239"
           }
+        }
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "movedAt": "8f65f3c5",
+        "pinCorrection": {
+          "pre": "cf0ca558",
+          "post": "8f65f3c5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
         }
       }
     },
@@ -895,40 +1629,142 @@
       "rederived": "r63 SELF-RUN: live sha256 == git show c63b622e:ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.unit.test.tsx == on-disk"
     },
     "internal/explorer/lifecycle/construction_pivot_source.go": {
-      "sha256": "e3539cf3947733176665833b8dc5b8513305e919d98fbdb2fb9715590b3e78fa",
+      "sha256": "e131b755c1638fafc75d75780d8a1c2ad22c64aa40ac97add1c692d7be5e27b9",
       "role": "Shared classifier + label builder for the four signed lanes. S-A ebf97a40 precise per-field refusal reason classes: rowSourceSkipClass/onlySkipClass decision() emits per-class reasonCodes (STAGE/reach split from empty-data NO_OBSERVED_VALUES_*; priority reach->planner->class->generic; only one shared class yields a precise code). S-C 29d63f6f single constructionFieldDisplayLabel (schema Title -> row-choice display -> legacy ResourceType.path, unicode.IsControl candidates refused): sole constructionFieldDisplayLabel + control-byte refusal; reviewer C6 witness Active\\x00flag\\x1b[31mred -> SafeDisplay post-fix. S-B d3a1d12a fail-closed {LANE}_SOURCE_INVENTORY_UNAVAILABLE + rowSourceInventoryFailure classifier + typed unavailable() %w wrap (planner cause reachable via errors.Is/As, never swallowed) at :66 site; pivot inventoryReason static literal; PIVOT abort-before-loop fail-closed.",
-      "pin": "d3a1d12a",
-      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/construction_pivot_source.go == on-disk"
+      "pin": "48783199",
+      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/construction_pivot_source.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "e3539cf3947733176665833b8dc5b8513305e919d98fbdb2fb9715590b3e78fa",
+            "post": "e131b755c1638fafc75d75780d8a1c2ad22c64aa40ac97add1c692d7be5e27b9"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d3a1d12a",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/explorer/lifecycle/construction_pivot_source_test.go": {
-      "sha256": "3565e4a4a5ec11062625f077143d8be844720799df84ed907d1bdd516cd6eeab",
+      "sha256": "94d3c015caaa6aa3aed48d0b9f4010dfa7092e3cc1b4f70c245a1f0499dddecc",
       "role": "Pivot-lane durables across the three slices: S-A precise skip-class reason-code table + per-class exact-code locks (7 distinct codes, reviewer battery 6 dispatch branches x 4 tables = 24 kills); S-C builder fallback/fallthrough table incl. reviewer-witness control rows (guard-neutralizing mutant REDs exactly the control rows, clean row stays PASS); S-B 3-row inventory-vs-generic-empty-vs-unpopulated-observed table with cross-row all-three-distinct gate.",
-      "pin": "d3a1d12a",
-      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/construction_pivot_source_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/construction_pivot_source_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "3565e4a4a5ec11062625f077143d8be844720799df84ed907d1bdd516cd6eeab",
+            "post": "94d3c015caaa6aa3aed48d0b9f4010dfa7092e3cc1b4f70c245a1f0499dddecc"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d3a1d12a",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/explorer/lifecycle/derive_source.go": {
-      "sha256": "32da4974802e30a97984b24c63bfef2bd7ec7260b7c441c5e23be9df98fc0fc1",
+      "sha256": "ba8bca5ef2527e109bf7228500efc23de06c8ac8a17df6850345b23bcd02fcce",
       "role": "Derive signed lane Derive signed lane: S-A ebf97a40 precise per-field refusal reason classes silent per-field continue sites :126-132 now emit per-class reasonCodes via the shared classifier; S-C 29d63f6f single constructionFieldDisplayLabel (schema Title -> row-choice display -> legacy ResourceType.path, unicode.IsControl candidates refused) advertise :161 / resolve :232 label sites; S-B d3a1d12a fail-closed {LANE}_SOURCE_INVENTORY_UNAVAILABLE + rowSourceInventoryFailure classifier + typed unavailable() %w wrap (planner cause reachable via errors.Is/As, never swallowed) abort site :136 (reviewer-placed), Supported=false + zero choices + StageID preserved on planner failure. || C1 @8459f080: DERIVE SET preparation no longer re-imports cleared foreign-owner durable inputs -- the frozen-copy branch mirrors the pivot/filter precedent via the missing !constructionOwnerInputsClearedFromCandidate clause (derive_source.go:322-325, helper construction_pivot_source.go:701-710/:772-801 same predicate as pivot :591-592 / filter :265-268 promise construction_pivot_source.go:795-803). Reviewer replayed worker mutation claims exactly (incl. partial-chain pre/post disclosure); clause load-bearing.",
-      "pin": "8459f080",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 8459f080:internal/explorer/lifecycle/derive_source.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 pin 25f90fa5abab391b5e280fb6bc693058ba9b8468f8a16e3ee00054db8eca @d3a1d12a (pre-C1 bytes); NOT a duplicate (bytes moved at 8459f080; live-byte re-derivation, zero hand-typed digests)"
+      "pin": "48783199",
+      "rederived": "r65 SELF-RUN: live sha256 == git show 8459f080:internal/explorer/lifecycle/derive_source.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 pin 25f90fa5abab391b5e280fb6bc693058ba9b8468f8a16e3ee00054db8eca @d3a1d12a (pre-C1 bytes); NOT a duplicate (bytes moved at 8459f080; live-byte re-derivation, zero hand-typed digests)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "32da4974802e30a97984b24c63bfef2bd7ec7260b7c441c5e23be9df98fc0fc1",
+            "post": "ba8bca5ef2527e109bf7228500efc23de06c8ac8a17df6850345b23bcd02fcce"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "8459f080",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/explorer/lifecycle/derive_source_test.go": {
-      "sha256": "9bd5cff74ce8cbc9db9c25fdfedbe4325a87606f400e3ce2d6438c0531c3b86b",
+      "sha256": "61caceb1bf0bd5572a16c993b9dd355214ec4439670df479b522737e06d220dd",
       "role": "Derive-lane durables (S-A skip-class reason table incl. derive stale-skip wiring kill; S-C Title fixtures; S-B 3-row distinctness table with all-three-distinct gate).",
-      "pin": "d3a1d12a",
-      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/derive_source_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/derive_source_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "9bd5cff74ce8cbc9db9c25fdfedbe4325a87606f400e3ce2d6438c0531c3b86b",
+            "post": "61caceb1bf0bd5572a16c993b9dd355214ec4439670df479b522737e06d220dd"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d3a1d12a",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/explorer/lifecycle/filter_source.go": {
-      "sha256": "6e82dbdf593316753687e88266787bab88217f6ea9e88211fdf93b1f64c21051",
+      "sha256": "90e916b590486cb75a12895c042b0c17fbe1c1bcb18d3854079f377f4208b839",
       "role": "Filter signed lane: S-A ebf97a40 precise per-field refusal reason classes silent continue sites :83-90 now emit per-class reasonCodes; S-C 29d63f6f single constructionFieldDisplayLabel (schema Title -> row-choice display -> legacy ResourceType.path, unicode.IsControl candidates refused) advertise :114 / resolve :182 label sites; S-B d3a1d12a fail-closed {LANE}_SOURCE_INVENTORY_UNAVAILABLE + rowSourceInventoryFailure classifier + typed unavailable() %w wrap (planner cause reachable via errors.Is/As, never swallowed) abort-before-loop site :93, fail-closed re-proven with reviewer-injected failing planner.",
-      "pin": "d3a1d12a",
-      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/filter_source.go == on-disk"
+      "pin": "48783199",
+      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/filter_source.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "6e82dbdf593316753687e88266787bab88217f6ea9e88211fdf93b1f64c21051",
+            "post": "90e916b590486cb75a12895c042b0c17fbe1c1bcb18d3854079f377f4208b839"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d3a1d12a",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/explorer/lifecycle/filter_source_test.go": {
-      "sha256": "b5dd9ad1ccae857f47f6cca7d5a17ec266acc9950479de1609890258845bf9ad",
+      "sha256": "fba9bc4953fd31c94f78d924cfd12b1239c140b2cf70c27014e42d07ddd6147a",
       "role": "Filter-lane durables (S-A reason table; S-C Title fixture + shared builder with claim side; S-B 3-row distinctness table). Sibling booked here, not a separate record: internal/explorer/lifecycle/filter_source_pivot_clear_test.go (created b72a1322, edited by ebf97a40, never independently pinned; live sha256 29508ad4efadd9b817462281d48531faa74fa6edc4634350fe4fc7c78f510b4d == blob@d3a1d12a == blob@ebf97a40, SELF-RUN).",
-      "pin": "d3a1d12a",
-      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/filter_source_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "r64 SELF-RUN: live sha256 == git show d3a1d12a:internal/explorer/lifecycle/filter_source_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "b5dd9ad1ccae857f47f6cca7d5a17ec266acc9950479de1609890258845bf9ad",
+            "post": "fba9bc4953fd31c94f78d924cfd12b1239c140b2cf70c27014e42d07ddd6147a"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d3a1d12a",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/acceptance/runner_zero_value_test.go": {
       "sha256": "7f5cfef5aeeb4bcd432fdf2c7987aaf10dbfc595458c7e1efae9bc6a2def8788",
@@ -937,21 +1773,55 @@
       "rederived": "r64 SELF-RUN: live sha256 == git show f177a9ed:internal/acceptance/runner_zero_value_test.go == on-disk"
     },
     "internal/server/openapi_explorer_construction_filter_source_test.go": {
-      "sha256": "511f411c7ebec9873b3ee680be740d9a9eec116a54b7e0a84032c96649c94219",
+      "sha256": "4b9a1228360f45bde6eeaa06c5334baa99df0c57e1ddeb4a77a9de3476b0852c",
       "role": "Filter-source openapi HTTP twin @29d63f6f (S-C): honest-projection armed-facts server pin updated (openapi :216) -- advertised label is the single builder output byte-mirrored into durable claim + compiled artifact (semantic_compile.go:528 / lower/recipe_compile.go:484 untouched); TAMPERED-LABEL / DRIFTED-COMPILED-LABEL tamper pairs green vs HEAD (reconcile.go:509 equality intact).",
-      "pin": "29d63f6f",
-      "rederived": "r64 SELF-RUN: live sha256 == git show 29d63f6f:internal/server/openapi_explorer_construction_filter_source_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "r64 SELF-RUN: live sha256 == git show 29d63f6f:internal/server/openapi_explorer_construction_filter_source_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "511f411c7ebec9873b3ee680be740d9a9eec116a54b7e0a84032c96649c94219",
+            "post": "4b9a1228360f45bde6eeaa06c5334baa99df0c57e1ddeb4a77a9de3476b0852c"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "29d63f6f",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "verification/publication-bundle/SKILL.md": {
-      "sha256": "2ee4c56c2b7701acf1431f855fc943620bd88f8916c0360d417a5a56ee134264",
+      "sha256": "19f87af41e93217628c0ced2608ac1623bce19a8b044878681c78067720d4710",
       "role": "Formal-portfolio SKILL @49d6999e: date-family admission block re-quoted @49d6999e alongside the post-C1 PrepareLanes mapping update; portfolio IN SYNC (11/12) with C2 lease-lost promise UNMODELLED -- flagged, carried by the @87ee09c7 e2e/twin-golden durables (formal-resync65.md honesty notes).",
-      "pin": "49d6999e",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 49d6999e:verification/publication-bundle/SKILL.md == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 first pin 8ac0c3c5f79526a0a7a0804baac5293bf893325bc2e49804fb2477b64cf018c8 @ea6df079; NOT a duplicate (bytes moved at 49d6999e; live-byte re-derivation, zero hand-typed digests)"
+      "pin": "8f65f3c5",
+      "rederived": "r65 SELF-RUN: live sha256 == git show 49d6999e:verification/publication-bundle/SKILL.md == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65) -- supersedes the r64 first pin 8ac0c3c5f79526a0a7a0804baac5293bf893325bc2e49804fb2477b64cf018c8 @ea6df079; NOT a duplicate (bytes moved at 49d6999e; live-byte re-derivation, zero hand-typed digests)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "2ee4c56c2b7701acf1431f855fc943620bd88f8916c0360d417a5a56ee134264",
+            "post": "19f87af41e93217628c0ced2608ac1623bce19a8b044878681c78067720d4710"
+          }
+        },
+        "movedAt": "8f65f3c5",
+        "pinCorrection": {
+          "pre": "49d6999e",
+          "post": "8f65f3c5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs": {
       "sha256": "7bbcddd13458dd66e522088de47d8e8f2f7beafb714a4c84767d1f8383ba038b",
       "role": "Row-96 four-state focused-native journey (RS03-03), authored offline @7fcb640f during operator port-forward block -- NO browser execution claimed: 6-check closed set (healthy lane; catalog-path labels per /tmp/opencode/label-journey-coupling.md; precise refusal reasonClasses consumed visibly; *_SOURCE_INVENTORY_UNAVAILABLE naming; empty-data disjointness per S-B; UI reason-consumption channel incl. honest UI-gap sideFinding), stamp pre/post fail-closed identity wiring, refuse-overwrite --out. Registry sha-gated artifact unchanged by the coordinator fix. Live window still owes JOURNEY_OK checks=6.",
-      "pin": "7fcb640f",
+      "pin": "2fbb0992",
       "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -965,12 +1835,24 @@
           }
         },
         "command": "sha256sum scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs"
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "movedAt": "2fbb0992",
+        "pinCorrection": {
+          "pre": "7fcb640f",
+          "post": "2fbb0992",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
       }
     },
     "scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs": {
       "sha256": "2cdc879c1ef6a3f2911fdf3a49848f7d2567e6d2c0ba816f7188fec58d7f4e58",
       "role": "Offline durables x4 for the four-state journey (--dry-run, registry<->script machine identity, structural guards, no-vacuity + UI-gap channel); 4/4 green at 7fcb640f; live browser execution NOT claimed.",
-      "pin": "7fcb640f",
+      "pin": "2fbb0992",
       "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -984,49 +1866,180 @@
           }
         },
         "command": "sha256sum scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs"
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "movedAt": "2fbb0992",
+        "pinCorrection": {
+          "pre": "7fcb640f",
+          "post": "2fbb0992",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
       }
     },
     "scripts/verify-ui/registry.mjs": {
-      "sha256": "bd8053144d127fd4b125a0993e50bc93c82862e861c94ffa17f96922505b4fe4",
+      "sha256": "4808335e52065baa64cd548f5bb295f19daa63027721852b6b3652c6cc06d0ad",
       "role": "Registry @7fcb640f: scenario row96-row-source-four-state (cases.fourState x6 requiredChecks + node-test focusedCheck) + static-contract entry; coordinator integration-boundary fix added the drift-legal PROBE-KIND coverage block (intent row-lifecycle, kind probe, case fourState) after the worker entry omitted the mandatory coverage array and crashed lifecycleAcceptanceDrift in the full 99-file offline suite (append-reload-timing 6/7 TypeError); status honestly untested -- no live run yet.",
-      "pin": "7fcb640f",
-      "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:scripts/verify-ui/registry.mjs == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b) -- supersedes the r63 inline booking of registry.mjs inside the r63 unpivot-journey record role (@29d2c5b0) -- registry was NEVER independently pinned, incl. not by part-1 of this round; NOT a duplicate (bytes moved at 7fcb640f; live-byte re-derivation, zero hand-typed digests)"
+      "pin": "e5b5c27e",
+      "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:scripts/verify-ui/registry.mjs == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b) -- supersedes the r63 inline booking of registry.mjs inside the r63 unpivot-journey record role (@29d2c5b0) -- registry was NEVER independently pinned, incl. not by part-1 of this round; NOT a duplicate (bytes moved at 7fcb640f; live-byte re-derivation, zero hand-typed digests)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "bd8053144d127fd4b125a0993e50bc93c82862e861c94ffa17f96922505b4fe4",
+            "post": "4808335e52065baa64cd548f5bb295f19daa63027721852b6b3652c6cc06d0ad"
+          }
+        },
+        "movedAt": "e5b5c27e",
+        "pinCorrection": {
+          "pre": "7fcb640f",
+          "post": "e5b5c27e",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "docs/BUILDER_VERIFICATION.tsv": {
-      "sha256": "761d3d6e95afe14bf919ad8c1dea678ae60c46f5f01697eed1b8dcd3a943d8f7",
+      "sha256": "7b99c073e805a9b25a9416359928ce75492b91854ebc90ef2120ed47ae085557",
       "role": "TSV 1-line @7fcb640f: row-96 Source-records journey line -> journey-authored pending live window with artifact sha 04219d511d4b (full 04219d511d4b44d7644560c0ff8ff8d871364d67af98543953c1fe07809a1573); pinned READ-ONLY per operator assignment -- journey lane retains write ownership; row-279 picker re-key flip still theirs, untouched.",
-      "pin": "7fcb640f",
-      "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:docs/BUILDER_VERIFICATION.tsv == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)"
+      "pin": "e5b5c27e",
+      "rederived": "r64b SELF-RUN: live sha256 == git show 7fcb640f:docs/BUILDER_VERIFICATION.tsv == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "761d3d6e95afe14bf919ad8c1dea678ae60c46f5f01697eed1b8dcd3a943d8f7",
+            "post": "7b99c073e805a9b25a9416359928ce75492b91854ebc90ef2120ed47ae085557"
+          }
+        },
+        "movedAt": "e5b5c27e",
+        "pinCorrection": {
+          "pre": "7fcb640f",
+          "post": "e5b5c27e",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/server/openapi_explorer_authoring_write_fault_test.go": {
-      "sha256": "e14f4f5db04f61665c7921af09641a2b858aff260ee0d20763b60fb881c6bf79",
+      "sha256": "1719fb158062ab2ce6ebb508ed1d706dc29968b36c83c3d3bad62a8f863c0492",
       "role": "NEW durable @3cfec1b7 (f403-masking closeout): classification matrix {401,403+ErrorNum11,ErrorNum-11} U {query-400,bind-1552,1561} at handler lane + generated publish route (status + byte-identical body code) + both legacy AuthorizeWrite sites; deny-direction + bypass rows ({0,11}/{403,0}/Join composites ->403; {400,1561}->5xx named BACKEND_UNAVAILABLE); anti-mask mutation load-bearing (f403-c2-red/green 12/12->26/26).",
-      "pin": "3cfec1b7",
-      "rederived": "r64b SELF-RUN: live sha256 == git show 3cfec1b7:internal/server/openapi_explorer_authoring_write_fault_test.go == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)"
+      "pin": "48783199",
+      "rederived": "r64b SELF-RUN: live sha256 == git show 3cfec1b7:internal/server/openapi_explorer_authoring_write_fault_test.go == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "e14f4f5db04f61665c7921af09641a2b858aff260ee0d20763b60fb881c6bf79",
+            "post": "1719fb158062ab2ce6ebb508ed1d706dc29968b36c83c3d3bad62a8f863c0492"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "3cfec1b7",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/server/openapi_explorer_authoring_direct.go": {
-      "sha256": "9aaecd4e8835c04f16f542abc57e4d429946b6217622277a44368ddeaa433f85",
+      "sha256": "478fc4434d8974aa0102f295d9b44ede66d9d24cb70c69bfd9ee44e5f8d9f677",
       "role": "Root-cause classification @3cfec1b7: authoringWriteDirect + legacy sites previously collapsed ALL write-path errors into the F-B27 403 arm (masked Arango faults incl. undeclared-bind text, deadline, backend-unavailable); now TYPE-only errors.Is/As (policy.go:36 deadline set, dataframeerrors.ErrBackendUnavailable, authscope.ErrAuthorizationBackendUnavailable, ArangoError query-fault class) -> named 503 BACKEND_UNAVAILABLE + %w Cause (errors.Is reaches injected sentinel through typed wrapper); isArangoPermissionResponse deny guard (driver numeric Code 401/403 || ErrorNum 11 => stays 403) added post reviewer C2 REQUEST-CHANGES with deny-first ordering; unclassified errors keep the byte-identical 403 arm -- NO 5xx default; zero message-substring matching.",
-      "pin": "3cfec1b7",
-      "rederived": "r64b SELF-RUN: live sha256 == git show 3cfec1b7:internal/server/openapi_explorer_authoring_direct.go == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)"
+      "pin": "48783199",
+      "rederived": "r64b SELF-RUN: live sha256 == git show 3cfec1b7:internal/server/openapi_explorer_authoring_direct.go == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "9aaecd4e8835c04f16f542abc57e4d429946b6217622277a44368ddeaa433f85",
+            "post": "478fc4434d8974aa0102f295d9b44ede66d9d24cb70c69bfd9ee44e5f8d9f677"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "3cfec1b7",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/server/openapi_explorer_direct.go": {
-      "sha256": "b57e753f8205cd0f394ecdea562f128b2a92a4c98bb429129f9b93e47e8b22d9",
+      "sha256": "8076b17b8f7a513840b214d99d3315c63bb70245296623bdfe006a4bfc0b4942",
       "role": "Legacy AuthorizeWrite sites (+6 lines @3cfec1b7) route through the identical shared predicate inside existing arms (reviewer grep-verified); cause preserved into legacyOperationFailure/legacyStringFailure.",
-      "pin": "3cfec1b7",
-      "rederived": "r64b SELF-RUN: live sha256 == git show 3cfec1b7:internal/server/openapi_explorer_direct.go == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)"
+      "pin": "48783199",
+      "rederived": "r64b SELF-RUN: live sha256 == git show 3cfec1b7:internal/server/openapi_explorer_direct.go == on-disk at parent HEAD 3cfec1b7 (verified in detached worktree /tmp/opencode/wt-r64b)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "b57e753f8205cd0f394ecdea562f128b2a92a4c98bb429129f9b93e47e8b22d9",
+            "post": "8076b17b8f7a513840b214d99d3315c63bb70245296623bdfe006a4bfc0b4942"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "3cfec1b7",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/explorer/lifecycle/filter_source_pivot_clear_test.go": {
-      "sha256": "9b0c5ff56a881c5dd06a39971f4c1d1907bd6b2276525f2ea6ff2e8e0cd4e20a",
+      "sha256": "ad1d5d58eadc641f4c486de64dee966f6a79fb7d5cbe5326637bd794ad740048",
       "role": "C1 durables @8459f080 (+231 lines): cleared-owner SET cases for the DERIVE (case :1294) and UNPIVOT (:1345) lanes -- base-foreign-owner durable inputs cleared by the candidate must NOT re-appear post-preparation (ClearedStaysCleared behavioural twin of the TLA invariant). RED-first x2 (fail pre-fix, PASS post); load-bearing under the reviewer-replayed pair-mutation. STANDALONE promotion: part-1 booked this file ONLY inside the filter_source_test.go record role (live 29508ad4 at @d3a1d12a); filter_source_test.go itself is byte-unchanged @8459f080 and keeps its own record.",
-      "pin": "8459f080",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 8459f080:internal/explorer/lifecycle/filter_source_pivot_clear_test.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65)"
+      "pin": "48783199",
+      "rederived": "r65 SELF-RUN: live sha256 == git show 8459f080:internal/explorer/lifecycle/filter_source_pivot_clear_test.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "9b0c5ff56a881c5dd06a39971f4c1d1907bd6b2276525f2ea6ff2e8e0cd4e20a",
+            "post": "ad1d5d58eadc641f4c486de64dee966f6a79fb7d5cbe5326637bd794ad740048"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "8459f080",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/api/graphql/graph/resolver/recipe_execution_twin_wire_parity_test.go": {
-      "sha256": "3505112d27b1a2be9c6571a088a48f10d5716b5d5d64fa03ad00f34c89b34cfb",
+      "sha256": "3e2d9bc6f29eb1d80c7556b21b7bdf3182b6ec1c470fbd0fc904c4f10cf955ec",
       "role": "R20 twin-wire oracle @87ee09c7 (TestR20TwinWireMatchesReviewedGolden): regenerated golden comparison, 4/4 green; reviewer re-ran the oracle suite directly (c2-review.md).",
-      "pin": "87ee09c7",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/api/graphql/graph/resolver/recipe_execution_twin_wire_parity_test.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65)"
+      "pin": "48783199",
+      "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/api/graphql/graph/resolver/recipe_execution_twin_wire_parity_test.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "3505112d27b1a2be9c6571a088a48f10d5716b5d5d64fa03ad00f34c89b34cfb",
+            "post": "3e2d9bc6f29eb1d80c7556b21b7bdf3182b6ec1c470fbd0fc904c4f10cf955ec"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "87ee09c7",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/api/graphql/graph/resolver/testdata/r20_failure_parity/twin_golden.json": {
       "sha256": "3df70c6edecbdc56c6a43a8b64a05317f9396a9e863dea7eae73b2d4a972693b",
@@ -1041,21 +2054,55 @@
       "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/server/testdata/r20_failure_parity/twin_golden.json == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65)"
     },
     "internal/server/recipe_execution_etl_failure_fields_e2e_test.go": {
-      "sha256": "244fdce8b045ca9ec929fa150099c33408c234f977ada6430a4bcc993808eca2",
+      "sha256": "4e667613bb7b4763c9f23979a7aedfca28dc8e753055338bbd15468b3fe37488",
       "role": "R20B parity matrix @87ee09c7 (TestFR20bEtlFailureFieldsTwinParityMatrix -- inline matrix only, no golden): reviewer run \"R20B VERDICT | PASS | 64/64 comparisons MATCH the twin oracle\"; genuine-direction tests load-bearing (each killed by each suppress-all mutant M1/M2, reproduced independently, c2-review.md).",
-      "pin": "87ee09c7",
-      "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/server/recipe_execution_etl_failure_fields_e2e_test.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65)"
+      "pin": "48783199",
+      "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/server/recipe_execution_etl_failure_fields_e2e_test.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "244fdce8b045ca9ec929fa150099c33408c234f977ada6430a4bcc993808eca2",
+            "post": "4e667613bb7b4763c9f23979a7aedfca28dc8e753055338bbd15468b3fe37488"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "87ee09c7",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/explorer/authoringv2/construction_projection_replay_test.go": {
-      "sha256": "c09486b4442c6479be8e092b0402f92d23e38a0f1b80149ae6fab68632f13fc9",
+      "sha256": "ba945182535fb7af254857c4f0241d952194873850455976bb5f060c3ebe6c15",
       "role": "NEW replay adapter (FORMAL-62-U1 replay closure, Round 66): 16 projection-owner-branch cases; smoke self-asserts, batch emits observations; accept side through public Construction.Validate, nil-payload/non-owner arms pin exact reject strings via direct validator entry (header-disclosed).",
-      "pin": "2f6e64ea",
-      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:internal/explorer/authoringv2/construction_projection_replay_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:internal/explorer/authoringv2/construction_projection_replay_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "c09486b4442c6479be8e092b0402f92d23e38a0f1b80149ae6fab68632f13fc9",
+            "post": "ba945182535fb7af254857c4f0241d952194873850455976bb5f060c3ebe6c15"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "2f6e64ea",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "scripts/lib/formal-projection-replay.mjs": {
       "sha256": "80ac3e9f4c6583450807eaa0b304d779f5b91caf78ecbabf85860b20a87a67da",
       "role": "NEW lane: batch channel driver mirroring the expectation table; nine source-fault falsification pairs (pivot/filter/derive/unpivot arms, owner dispatch x2, carry modes x2), each fires its named branch with positive+negative+restored; chain-lane hash-set unaffected.",
-      "pin": "2f6e64ea",
+      "pin": "8f65f3c5",
       "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/lib/formal-projection-replay.mjs == on-disk",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -1069,12 +2116,24 @@
             "post": "80ac3e9f4c6583450807eaa0b304d779f5b91caf78ecbabf85860b20a87a67da"
           }
         }
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "movedAt": "8f65f3c5",
+        "pinCorrection": {
+          "pre": "2f6e64ea",
+          "post": "8f65f3c5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
       }
     },
     "scripts/verify-ui/contracts/source-projection-contracts.mjs": {
       "sha256": "97aa78503f6726d5476eccba5d7ca2d4ed3c3c91953a1f48d1486996df2c7082",
       "role": "NEW Node contract: reject-direction durable assertions for the U1 arms; fails naming the branch on renamed/removed/swapped reject strings; single expectation-table import.",
-      "pin": "2f6e64ea",
+      "pin": "8f65f3c5",
       "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/verify-ui/contracts/source-projection-contracts.mjs == on-disk",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -1088,6 +2147,18 @@
             "post": "97aa78503f6726d5476eccba5d7ca2d4ed3c3c91953a1f48d1486996df2c7082"
           }
         }
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "movedAt": "8f65f3c5",
+        "pinCorrection": {
+          "pre": "2f6e64ea",
+          "post": "8f65f3c5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
       }
     },
     "scripts/verify-ui/contracts/source-projection-contracts.test.mjs": {
@@ -1099,7 +2170,7 @@
     "scripts/ci/vet.mjs": {
       "sha256": "07ab138831ef403d100b78a1d8a0cc636b457ed4c5a9a9d2096b9f1e2faab80e",
       "role": "CI-62-01 boundary gate CLI (Round 67): full go vet + explicit copylocks passes over configurable package patterns; overlay-supported; analyzerArgs guard blocks -overlay injection through the analyzer channel. Executed durably by internal/ci TestNodeVetCliSmoke.",
-      "pin": "661de7b3",
+      "pin": "8f65f3c5",
       "rederived": "SELF-RUN live sha256 == git show 661de7b3:scripts/ci/vet.mjs == on-disk",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -1113,48 +2184,162 @@
             "post": "07ab138831ef403d100b78a1d8a0cc636b457ed4c5a9a9d2096b9f1e2faab80e"
           }
         }
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "movedAt": "8f65f3c5",
+        "pinCorrection": {
+          "pre": "661de7b3",
+          "post": "8f65f3c5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
       }
     },
     "internal/ci/vet_gate_test.go": {
-      "sha256": "44b47d61f217ad2d82fe24a828e10becdb871da08a2ee0804527ca30afa33c08",
+      "sha256": "67ae106037360c268d323aa376d79f12aca34f931b08a69c40550bfc7610c956",
       "role": "CI-62-01 durable falsification, Go-side (Round 67; lives in internal/ci because the CI node-unit job has no Go toolchain): repo-wide go vet exit-0 gate auto-enrolled in go-unit ./internal/... sweep; overlay-injected copylocks fault reddens vet naming copies lock + probe file; -copylocks=false class-identification control; disk purity; node CLI smoke.",
-      "pin": "661de7b3",
-      "rederived": "SELF-RUN live sha256 == git show 661de7b3:internal/ci/vet_gate_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show 661de7b3:internal/ci/vet_gate_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "44b47d61f217ad2d82fe24a828e10becdb871da08a2ee0804527ca30afa33c08",
+            "post": "67ae106037360c268d323aa376d79f12aca34f931b08a69c40550bfc7610c956"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "661de7b3",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/api/bulk/load/operations.go": {
-      "sha256": "50a0768a55938e823bbdf23f408554c1401854aa54c71845b89efa3869d68607",
+      "sha256": "dbf0581d9cfb2ae13eebca403ef488dda4d740b9ce8d361bf8b88b45ccc2ac33",
       "role": "Round 73 repair: CreateDatasetGeneration disposes multipart ReadForm spillover via defer form.RemoveAll() registered below the ReadForm error return (nil-Form RemoveAll panics; placement mandatory and commented). Server's only multipart form-parse site.",
-      "pin": "d2ff3d03",
-      "rederived": "SELF-RUN live sha256 == git show d2ff3d03:internal/api/bulk/load/operations.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show d2ff3d03:internal/api/bulk/load/operations.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "50a0768a55938e823bbdf23f408554c1401854aa54c71845b89efa3869d68607",
+            "post": "dbf0581d9cfb2ae13eebca403ef488dda4d740b9ce8d361bf8b88b45ccc2ac33"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d2ff3d03",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/api/bulk/load/form_spillover_test.go": {
-      "sha256": "b66be235d05bdb31a430fad2a36ff4829c0e71901668023049ebc8a352f10ddf",
+      "sha256": "12e0c661f6fdda91c8b2a363053f20703ba6b350ad55d918fd5f47c089472ae2",
       "role": "Round 73 durable regression: TMPDIR-redirected orphan scan + loader-time staged integrity for the multipart spillover leak; FAILS pre-fix (orphaned multipart-* listings), PASSES post-fix; falsifiability re-derived by parent and reviewer ses_e606fc.",
-      "pin": "d2ff3d03",
-      "rederived": "SELF-RUN live sha256 == git show d2ff3d03:internal/api/bulk/load/form_spillover_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show d2ff3d03:internal/api/bulk/load/form_spillover_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "b66be235d05bdb31a430fad2a36ff4829c0e71901668023049ebc8a352f10ddf",
+            "post": "12e0c661f6fdda91c8b2a363053f20703ba6b350ad55d918fd5f47c089472ae2"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d2ff3d03",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/api/recipe/discovery.go": {
-      "sha256": "03e1528ed6aa2d42b6e88eb11e6a9bfc17a3c4cff9ba4cb7efb32625dac52fc1",
+      "sha256": "3f4ee1dac6ae3fc63e962ca7ca3f4b2e439b39727a42e6aeb2028863f09190b7",
       "role": "R78 hardening: unknown/empty AuthScopeMode fails CLOSED at the catalog discovery bridge (explicit restricted), matching the pinned Covers posture; catalog legacy rule untouched.",
-      "pin": "adfff030",
-      "rederived": "SELF-RUN live sha256 == git show adfff030:internal/api/recipe/discovery.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show adfff030:internal/api/recipe/discovery.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "03e1528ed6aa2d42b6e88eb11e6a9bfc17a3c4cff9ba4cb7efb32625dac52fc1",
+            "post": "3f4ee1dac6ae3fc63e962ca7ca3f4b2e439b39727a42e6aeb2028863f09190b7"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "adfff030",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/api/recipe/discovery_auth_mode_test.go": {
-      "sha256": "966446cd7ec55de1c8c6005cda498b9561cf3d0c434a1e4165380131a6b05e9d",
+      "sha256": "c66d29762272dbdd912e427d8c0ec213f7706297c345d67f50f1837f0e344e1f",
       "role": "R78 durable regression: five-mode posture matrix + Effective() companions + Covers-agreement arm; pre-fix RED re-derived by parent and reviewer ses_e605e21f7ffe.",
-      "pin": "adfff030",
-      "rederived": "SELF-RUN live sha256 == git show adfff030:internal/api/recipe/discovery_auth_mode_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show adfff030:internal/api/recipe/discovery_auth_mode_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "966446cd7ec55de1c8c6005cda498b9561cf3d0c434a1e4165380131a6b05e9d",
+            "post": "c66d29762272dbdd912e427d8c0ec213f7706297c345d67f50f1837f0e344e1f"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "adfff030",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/ci/gofmt_gate_test.go": {
-      "sha256": "cf758c1f75568939e315c6f88af41f62dc5462299d6c49d628e599d449ac9733",
+      "sha256": "bf14ea793ed1270b9cc2711bc2a1b7ab4e0f6aa5725a19e11031ecf922f35095",
       "role": "Durable gofmt canonical boundary: 4 arms (sensitivity, repo-zero over git-tracked, anti-vacuity, fatal-on-any-nonzero-exit covering the reviewer-found silent exit-2 shape); go-unit t.Fatal posture.",
-      "pin": "4e15704f",
-      "rederived": "SELF-RUN live sha256 == git show 4e15704f:internal/ci/gofmt_gate_test.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:internal/ci/gofmt_gate_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "cf758c1f75568939e315c6f88af41f62dc5462299d6c49d628e599d449ac9733",
+            "post": "bf14ea793ed1270b9cc2711bc2a1b7ab4e0f6aa5725a19e11031ecf922f35095"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "4e15704f",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "conformance/compiler/benchmark_test.go": {
       "sha256": "c792757bb99c7fbfad03910693c8bce35a90f04733c92efaa4a1358f190fd512",
       "role": "BS-67-1 class completion: gofmt-canonical repair (import sort/whitespace only), AST-identical with comments removed + imports normalized.",
-      "pin": "4e15704f",
+      "pin": "8f65f3c5",
       "rederived": "SELF-RUN live sha256 == git show 4e15704f:conformance/compiler/benchmark_test.go == on-disk",
       "lane05Repin": {
         "ticket": "lane05-final-audit (AO session loom-experiment-213, branch ao/strip-comments-3/lane05-final-audit)",
@@ -1168,77 +2353,428 @@
             "post": "c792757bb99c7fbfad03910693c8bce35a90f04733c92efaa4a1358f190fd512"
           }
         }
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "movedAt": "8f65f3c5",
+        "pinCorrection": {
+          "pre": "4e15704f",
+          "post": "8f65f3c5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
       }
     },
     "conformance/compiler/generated_semantics_coverage_test.go": {
-      "sha256": "6d37b4dfe7d255a8c3b6c10aa08d22a01301fde9b9555615b6ec790ad737a94d",
+      "sha256": "e98efa2c1cc8d46c17e83383d39206fc1d4c1195edf0c9fdf8671d60d7118ef0",
       "role": "BS-67-1 class completion: gofmt-canonical repair (whitespace/alignment only), AST-identical proof as sibling.",
-      "pin": "4e15704f",
-      "rederived": "SELF-RUN live sha256 == git show 4e15704f:conformance/compiler/generated_semantics_coverage_test.go == on-disk"
+      "pin": "2fbb0992",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:conformance/compiler/generated_semantics_coverage_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "6d37b4dfe7d255a8c3b6c10aa08d22a01301fde9b9555615b6ec790ad737a94d",
+            "post": "e98efa2c1cc8d46c17e83383d39206fc1d4c1195edf0c9fdf8671d60d7118ef0"
+          }
+        },
+        "movedAt": "2fbb0992",
+        "pinCorrection": {
+          "pre": "4e15704f",
+          "post": "2fbb0992",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "generated/graphql/graph/executor/schema.generated.go": {
-      "sha256": "7bb95f32c94f384c18027ad2f35c9c4b19a2fed2813cc181dacb3a7d34b3149c",
+      "sha256": "d266e30ed509231ec33188eb7c00d1e286c6063c1bbe38274030df1feeb9cd53",
       "role": "BS-67-1 class completion: gofmt-canonical repair; reviewer ground truth: 1807 string literals byte-identical, only import-path literals permuted.",
-      "pin": "4e15704f",
-      "rederived": "SELF-RUN live sha256 == git show 4e15704f:generated/graphql/graph/executor/schema.generated.go == on-disk"
+      "pin": "faffab39",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:generated/graphql/graph/executor/schema.generated.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "7bb95f32c94f384c18027ad2f35c9c4b19a2fed2813cc181dacb3a7d34b3149c",
+            "post": "d266e30ed509231ec33188eb7c00d1e286c6063c1bbe38274030df1feeb9cd53"
+          }
+        },
+        "movedAt": "faffab39",
+        "pinCorrection": {
+          "pre": "4e15704f",
+          "post": "faffab39",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/projectid/projectid.go": {
-      "sha256": "107ca45ca51ee50b6c04ae3cc2602eb213ecebb4338230de5a69c79323059b33",
+      "sha256": "ade73438be11cf3e31fc4baca5d35b2b41a946c91f8f045c24c6c362a27aa9f6",
       "role": "R84 identity boundary (reviewed, unchanged): Canonical/Legacy first-hyphen aliasing feeds authz principal matching and grant key Legacy(Canonical(p)); row stores key raw URL param, so a shared legacy key is one logical bucket — auth gate and query bind derive the same key (no exploitable read-disjointness).",
-      "pin": "d5b5491b",
-      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/projectid/projectid.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/projectid/projectid.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "107ca45ca51ee50b6c04ae3cc2602eb213ecebb4338230de5a69c79323059b33",
+            "post": "ade73438be11cf3e31fc4baca5d35b2b41a946c91f8f045c24c6c362a27aa9f6"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d5b5491b",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/catalog/semantic_inventory.go": {
-      "sha256": "3cd3f6a3e00141c2768427d6379cf91ceece32d40783765888f736a1ed1762d9",
+      "sha256": "e40ea07e8757c682223b195d81e960afeb94898aa01d2fb07348880d7a154cc6",
       "role": "R82 cursor integrity boundary (reviewed, unchanged): DecodeSemanticInventoryCursor re-verifies version, non-empty seek keys, and a CURRENT-request recomputed page digest (project/generation/buildID/unrestricted/resourceType/binding/query/clamped limit/sorted-compacted paths); seek-position-only cursor ⇒ keyless digest sufficient.",
-      "pin": "d5b5491b",
-      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/catalog/semantic_inventory.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/catalog/semantic_inventory.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "3cd3f6a3e00141c2768427d6379cf91ceece32d40783765888f736a1ed1762d9",
+            "post": "e40ea07e8757c682223b195d81e960afeb94898aa01d2fb07348880d7a154cc6"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d5b5491b",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/store/clickhouse/client.go": {
-      "sha256": "327b4d9f154e320108a9ed14517cb3cdce95119ca369fe037cbb41f525bc39cc",
+      "sha256": "aa6e13e1e4f07a4d9fe02ce83a526dce3c13917fd37b95ecfe0eac9e46f0b370",
       "role": "R85 DDL emission surface (reviewed, unchanged): CREATE/ALTER/DROP composed by Sprintf over backticked dataset-derived identifiers and validator-passed type strings; official clickhouse-go/v2 driver.",
-      "pin": "d5b5491b",
-      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/store/clickhouse/client.go == on-disk"
+      "pin": "48783199",
+      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/store/clickhouse/client.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "327b4d9f154e320108a9ed14517cb3cdce95119ca369fe037cbb41f525bc39cc",
+            "post": "aa6e13e1e4f07a4d9fe02ce83a526dce3c13917fd37b95ecfe0eac9e46f0b370"
+          }
+        },
+        "movedAt": "48783199",
+        "pinCorrection": {
+          "pre": "d5b5491b",
+          "post": "48783199",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     },
     "internal/server/explorer_publication.go": {
       "role": "pg-runtime-server-composition: receiptExecutionFinder one-method seam replaces concrete *materializationarango.Registry (both registries satisfy structurally)",
-      "sha256": "8aae339388a2e024612b41c401bacd92f7e7c6d53eece8b3151cade0783cd344",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "sha256": "8232bed47679433f3e0f78512fe175ccadac451d8175bd07a63a5f8972ed9c41",
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "8aae339388a2e024612b41c401bacd92f7e7c6d53eece8b3151cade0783cd344",
+            "post": "8232bed47679433f3e0f78512fe175ccadac451d8175bd07a63a5f8972ed9c41"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/server/options_schemas_test.go": {
       "role": "pg-runtime-server-composition: schema-validation matrix retargeted to the two consumable shapes + fail-closed ladder shapes",
-      "sha256": "9182bbefcccc9970d5cb290a4940b5ae6c588c7ad2eb27ddd2680d5e0e3c592e",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "sha256": "abadedff88e4f132ed382ec45f72ebffe9ec91edf13b59574edcf8a3f5d01a04",
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "9182bbefcccc9970d5cb290a4940b5ae6c588c7ad2eb27ddd2680d5e0e3c592e",
+            "post": "abadedff88e4f132ed382ec45f72ebffe9ec91edf13b59574edcf8a3f5d01a04"
+          }
+        },
+        "movedAt": "48783199"
+      }
     },
     "internal/server/runtime.go": {
       "role": "pg-runtime-server-composition: full PG composition (composePostgreSQLFullRuntime, pgExplorerStore/pgExplorerReads/pgRecipeAuthorization/pgIngestRunner CLI-parity load->activate + catalog writers/pgGenerationActivator CAS, typed postgreSQLRuntimeUnavailable refusals, no Arango surface)",
-      "sha256": "8b191a06092406a61d3a8566ed63ee3c286c8d8cfaee6f10650d396dc90efb66",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() at the rebased tip; hop onto feature/postgres-backend @ 15923e99; seam assertion retargeted to internal/backends/arango PublishedRegistry after arch-backend-07 adapter move; forbidden-import list now names the owned factory"
+      "sha256": "41a3d046d9865bf0c5d5642e007c181628d95e56ebebe48036f10ef3186e51bd",
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() at the rebased tip; hop onto feature/postgres-backend @ 15923e99; seam assertion retargeted to internal/backends/arango PublishedRegistry after arch-backend-07 adapter move; forbidden-import list now names the owned factory",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "8b191a06092406a61d3a8566ed63ee3c286c8d8cfaee6f10650d396dc90efb66",
+            "post": "41a3d046d9865bf0c5d5642e007c181628d95e56ebebe48036f10ef3186e51bd"
+          }
+        },
+        "movedAt": "7e081f49"
+      }
     },
     "internal/server/runtime_test.go": {
       "role": "pg-runtime-server-composition offline battery (ladder/sentinel cells, pre-dial dispatch, typed refusal posture, authorizer Arango-collection contrast, no-Arango-import source proof, dual-registry finder assertion, compose-no-deferred-cleanup AST witness, runRuntimeCloseSteps teardown semantics, activation outcome classification matrix)",
-      "sha256": "d72f4a626a122180ae179463a97373a91e78e74c990477cef964bed491186814",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (post-gofmt) (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "sha256": "29ea8dd872c11daa5c9821392e6be00f797ffb9bdbcec591f3d82acbb1d82072",
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (post-gofmt) (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "d72f4a626a122180ae179463a97373a91e78e74c990477cef964bed491186814",
+            "post": "29ea8dd872c11daa5c9821392e6be00f797ffb9bdbcec591f3d82acbb1d82072"
+          }
+        },
+        "movedAt": "7e081f49"
+      }
     },
     "internal/server/runtime_postgres_live_test.go": {
       "role": "pg-runtime-server-composition live battery (verify_pgcomp_ census, enumerated mint inventory, TestZZ zero-leftover, full-ladder serve + server-side load/activate end-to-end, LOOM_CLICKHOUSE_URL-gated readiness leg proving the ClickHouse client survives compose return)",
-      "sha256": "36552734abd211e40031c9fa610f50c5eb1c910f31ce628d0cbf7e6110848e52",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (post-gofmt) (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "sha256": "9346f2a0b3e953764ae090dc4c66f65e25f17479fa04d739e55b887e6b558d4b",
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (post-gofmt) (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "36552734abd211e40031c9fa610f50c5eb1c910f31ce628d0cbf7e6110848e52",
+            "post": "9346f2a0b3e953764ae090dc4c66f65e25f17479fa04d739e55b887e6b558d4b"
+          }
+        },
+        "movedAt": "7e081f49"
+      }
     },
     "internal/backends/postgres/control/runtime.go": {
       "role": "D6 factory extension: 13 data-plane ports assembled by assembleDataPlanePorts, leasedDB/leasedTx commit-lease adapter, NewPublicationReconciler",
-      "sha256": "c60c9ad2de1d14d0c809201e5dfdd882c5ca59ac8d038a3f5988ea2ea87b3f58",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "sha256": "d58b7bb400b4d06dab5d8fb197eff542517860e9e5a1f49d9f589ac2fe6014f8",
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "c60c9ad2de1d14d0c809201e5dfdd882c5ca59ac8d038a3f5988ea2ea87b3f58",
+            "post": "d58b7bb400b4d06dab5d8fb197eff542517860e9e5a1f49d9f589ac2fe6014f8"
+          }
+        },
+        "movedAt": "7e081f49"
+      }
     },
     "internal/backends/postgres/control/vocabulary_control.go": {
       "role": "D6 re-exports for the data-plane stores",
-      "sha256": "5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1",
-      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/backends/postgres/control/vocabulary_control.go == blob at feature/postgres-backend tip 48783199; supersedes runtime-composition working-tree attestation (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41, per amendment 2): pin 7f883cdb6feae1fc207193d6433818ecd19246cf90d901474fb87c633860a3ff TRUE at 9534829d, first moved by comment sweep 80bca9a5 (#161) to 98a804ccdf87fb27e2e888d4553f599be4064819ef77fb47b6286b32304f2bf7, then by cleanup #181 e68c7d6b (legit ticket-167 refactor) to 5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1; re-pinned by PR #183 per coordinator directive, precedent a4d29f01"
+      "sha256": "06d0597caee86541aea636d78d73d0c9357ffd7608a0ae0d290fdd30895e520d",
+      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/backends/postgres/control/vocabulary_control.go == blob at feature/postgres-backend tip 48783199; supersedes runtime-composition working-tree attestation (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41, per amendment 2): pin 7f883cdb6feae1fc207193d6433818ecd19246cf90d901474fb87c633860a3ff TRUE at 9534829d, first moved by comment sweep 80bca9a5 (#161) to 98a804ccdf87fb27e2e888d4553f599be4064819ef77fb47b6286b32304f2bf7, then by cleanup #181 e68c7d6b (legit ticket-167 refactor) to 5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1; re-pinned by PR #183 per coordinator directive, precedent a4d29f01",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1",
+            "post": "06d0597caee86541aea636d78d73d0c9357ffd7608a0ae0d290fdd30895e520d"
+          }
+        },
+        "movedAt": "7e081f49"
+      }
     },
-    "internal/backends/postgres/aliases.go": {
-      "role": "D6 alias surface mirroring vocabulary_control additions",
-      "sha256": "7deeefa0cf8a68ad3a336649b367f058f4386e09283623f91d9b726abecdf8ce",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+    "internal/backends/arango/internal/chartifact/catalog.go": "F-B8 anchor: sole chartifact REMOVE :262 gated to PrivateArtifactsCollection + leaseOwner + cleanupPending (parent-verified)",
+    "internal/backends/arango/internal/publication/bundle_registry.go": {
+      "md5": "3e0a489e532a3c765759661c3df7c623",
+      "role": "r59 re-pin: prior entry text held stale pre-publication-refactor SHA-256 1f0a6cde…; live byte-identical to r58 publication anchor (zero publication commits since 218edabb reconfirmed)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "c0da93a2af299eba02e77955977f61b4 (md5-of-sha-label placeholder superseded; authoritative live hash is SHA-256 c0da93a2af299eba02e77955977f61b41cf96f74ec1f644e08c73fd20bfffd7b == r58 anchor)",
+            "post": "3e0a489e532a3c765759661c3df7c623"
+          }
+        },
+        "repointFrom": "internal/dataframe/publication/arango/bundle_registry.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "80bca9a5"
+      }
+    },
+    "internal/backends/arango/internal/publication/dangling_binding_e2e_test.go": {
+      "md5": "3771c84d06529fb02c7b4df7dc1ee9ba",
+      "role": "F-B7 sanctioned red (unchanged verdict); citations r31 containment",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "eed457a2ee4d0499fa30464174cb8ed8",
+            "post": "3771c84d06529fb02c7b4df7dc1ee9ba"
+          }
+        },
+        "repointFrom": "internal/dataframe/publication/arango/dangling_binding_e2e_test.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "8f65f3c5"
+      }
+    },
+    "internal/backends/arango/internal/publication/name_latest_binding_e2e_test.go": "F-B6 sanctioned artifact (531 lines, bug-documenting PASS-with-CONFIRMED pattern): registry CONFIRMED (identity ignored), Bug-3 case asymmetry CONFIRMED, verifier->ReleaseService.Create chain CONFIRMED via production code; four product-reachability preconditions listed; env-gated; vet clean; DBs removed",
+    "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go": {
+      "md5": "c3f039e5227a781be2364c295884f1e8",
+      "role": "rrd r29: harness reader wiring; citation guard drift-proofed (containment); env PASS-O-DISP (candidate PUBLISHED+table intact+bound, list len=2) replacing archived FAILED-ON-PURPOSE",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "9fba95547280ef7e9a42ab28b80461d4",
+            "post": "c3f039e5227a781be2364c295884f1e8"
+          }
+        },
+        "repointFrom": "internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "8f65f3c5"
+      }
+    },
+    "internal/backends/arango/internal/dataset/generation_activation_cas_e2e_test.go": {
+      "md5": "27bc14488b39f68c77e71e69a431c7e8",
+      "role": "F-B17 sanctioned red; citations r31 containment; red message byte-comparable",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "bae0431fa3224f49fbabffc9f12a6098",
+            "post": "27bc14488b39f68c77e71e69a431c7e8"
+          }
+        },
+        "repointFrom": "internal/dataset/arango/generation_activation_cas_e2e_test.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "48783199"
+      }
+    },
+    "internal/backends/arango/internal/dataset/manifest_lifecycle.go": "brief audited; see FINDINGS verification/release section (F-B6 candidate + ruled-sound list)",
+    "internal/backends/arango/internal/dataset/release_store.go": {
+      "md5": "a242453ba947fbe1584ff77552c1d3b1",
+      "role": "F-B15 REPAIRED: alreadyActive revision-clause-free true zero-write no-op (LENGTH(patched)==LENGTH(updates)); saveReleaseAQL compat excludes only createdAt",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "1f42e36776387af8db1bb52c07b6db49",
+            "post": "a242453ba947fbe1584ff77552c1d3b1"
+          }
+        },
+        "repointFrom": "internal/dataset/arango/release_store.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "80bca9a5"
+      }
+    },
+    "internal/backends/arango/internal/dataset/revision_inflation_e2e_test.go": {
+      "md5": "aaaa60f999a51da91fcb19a11e6a6777",
+      "role": "F-B15 durable control: verdict switch tightened (!inflated requires contentIdentical; anomalous content-drift-without-bookkeeping lands INCONCLUSIVE); header records REPAIR-5 repaired status with PREVENTED witness; FAILED-ON-PURPOSE regression arm preserved verbatim",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "ab4cf9341193f900fbae267520ac7ac5",
+            "post": "aaaa60f999a51da91fcb19a11e6a6777"
+          }
+        },
+        "repointFrom": "internal/dataset/arango/revision_inflation_e2e_test.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "80bca9a5"
+      }
+    },
+    "internal/backends/arango/internal/explorer/cross_generation_publish_e2e_test.go": {
+      "md5": "ca810a6da6283b82b74a1343cf3907ab",
+      "role": "F-B13 sanctioned-red artifact (FAILED-ON-PURPOSE silent cross-generation downgrade; worker 39dfd91a + parent 3dc90697)",
+      "status": "verified-this-round",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "97300b4102151c5b19964c05cea4cc2e (r63 re-pin: Explorer-arango citation pins shifted at dc52ed0a (:154->:158, :170->:177 drift since 8160bb97); FAILED-ON-PURPOSE F-B13 behavior unchanged. Drifted from prior 79b5834c.; live == HEAD-blob-at-dc52ed0a == on-disk SELF-RUN)",
+            "post": "ca810a6da6283b82b74a1343cf3907ab"
+          }
+        },
+        "repointFrom": "internal/explorer/arango/cross_generation_publish_e2e_test.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "48783199"
+      }
+    },
+    "internal/backends/arango/internal/explorer/selections.go": "H3 targets: BeginSelection auto-cleanup :41; Append tx renews writerExpiresAt :168; CleanupSelectionStaging :388-402 missing complete!=true guard (5 siblings carry it); CompleteSelection atomic complete+terminal :231-233,244-247; paging :197-225 measured 10ms/50 pages, no idle>10min phase found",
+    "internal/backends/arango/internal/explorer/selections_cleanup_e2e_test.go": "Worker C sanctioned H3 artifact (3 tests; PASS/SKIP correctly gated; DBs loom_exv_* dropped, residue empty); H3-a disproven / H3-b verification finding",
+    "internal/backends/arango/internal/catalog/resources.go": {
+      "md5": "aee76f9698211e14dff6056d3775e478",
+      "role": "catalog arango resources (F-B6 era anchor; not touched by row-source wave)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "ab52c1725bf7ad863523635ce47a2954 (r63 re-pin: genbind AllGenerations bind dropped at source (dc52ed0a); drifted from the r59 pin 51efbe04 (0e3b4c5b authz wave).; live == HEAD-blob-at-dc52ed0a == on-disk SELF-RUN)",
+            "post": "aee76f9698211e14dff6056d3775e478"
+          }
+        },
+        "repointFrom": "internal/catalog/arango/resources.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "80bca9a5"
+      }
+    },
+    "internal/backends/arango/internal/catalog/all_generations_project_binding_integration_test.go": {
+      "sha256": "9f14c21b34eec6435586b217c094518dddc8e6d7b7b475a1c386b05115263fd1",
+      "role": "NEW durable genbind integration test (dc52ed0a): restricted per-gen write into catalog-recorded project succeeds; cross-project => real ErrForbidden; empty-project bootstrap; overlay-revert RED quotes the undeclared dataset_generation bind error verbatim; F-B27 sentinel PASS.",
+      "pin": "80bca9a5",
+      "rederived": "r63 SELF-RUN: live sha256 == git show dc52ed0a:internal/catalog/arango/all_generations_project_binding_integration_test.go == on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "sha256": {
+            "pre": "17f2414092154737db70f2b366e5dcc6e7f672a8e512bc431ae8a30d6dc5e97f",
+            "post": "9f14c21b34eec6435586b217c094518dddc8e6d7b7b475a1c386b05115263fd1"
+          }
+        },
+        "repointFrom": "internal/catalog/arango/all_generations_project_binding_integration_test.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)",
+        "movedAt": "80bca9a5",
+        "pinCorrection": {
+          "pre": "dc52ed0a",
+          "post": "80bca9a5",
+          "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        }
+      }
     }
   },
   "lastUpdated": "2026-11-02T22:45:18.002896+00:00",
@@ -1276,7 +2812,7 @@
     "canonicalTlaMd5Algorithm": "md5 (convention); sha256=76a073e7ae4ea3bd9a69d62c06866135fd4cfccbc812f739da70237e836b043a",
     "cfg": "verification/publication-bundle/BundleCommitLifecycle.cfg",
     "fB22DigestAudit": "see status_updates F-B22; reviewer context is same-model background agent, not cross-model assurance",
-    "fB22Tier1Md5s": "{\"internal/api/graphql/graph/query/input_resolution.go\": \"df658e046d1bbf56cd4928f890cc27d1\", \"internal/api/graphql/graph/query/read_scope_ingress_control_chars_e2e_test.go\": \"a4d48d8e743cc6db093fb8fe92f4e255\", \"internal/authscope/auth_path_control_ingress_test.go\": \"e65c7bc98c3306b2ca44b9d665a69216\", \"internal/authscope/fence_resource_access.go\": \"2da4e1e7b00860b1c4864053cec44c6c\"}",
+    "fB22Tier1Md5s": "{\"internal/api/graphql/graph/query/input_resolution.go\": \"5343dad874aeb8acc0c37fff91c816d2\", \"internal/api/graphql/graph/query/read_scope_ingress_control_chars_e2e_test.go\": \"62d7e7ca59a1e6d968e9b106e2cad67c\", \"internal/authscope/auth_path_control_ingress_test.go\": \"6efb01fbd8b0fbf1b97124b9a322a5a8\", \"internal/authscope/fence_resource_access.go\": \"4191b0a3bf8909759f3313478ebe593d\"}",
     "generationActivationCas": {
       "arms": {
         "bug": "NoBlindCommit violated (stale-gate commit over moved pointer)",
@@ -1402,7 +2938,7 @@
       }
     },
     "reconcileDangleTrust": {
-      "contentMD5": "13b8bf3a27411016d1d8561c0d9cf67f",
+      "contentMD5": "4c196436bd1d37a57534b55cfd19e8f3",
       "file": "ReconcileDangleTrust.tla",
       "md5": "4c196436bd1d37a57534b55cfd19e8f3",
       "models": "F-B12 interleaving + three fix tiers + AtomicPublish boundary (r26 repaired publish)",
@@ -1426,6 +2962,17 @@
         "fields": {
           "md5": {
             "pre": "29d78f41fac2e454971f26ff911a1176",
+            "post": "4c196436bd1d37a57534b55cfd19e8f3"
+          }
+        }
+      },
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "contentMD5": {
+            "pre": "13b8bf3a27411016d1d8561c0d9cf67f",
             "post": "4c196436bd1d37a57534b55cfd19e8f3"
           }
         }
@@ -1550,6 +3097,29 @@
           "post": "md5 (convention); sha256=76a073e7ae4ea3bd9a69d62c06866135fd4cfccbc812f739da70237e836b043a"
         }
       }
+    },
+    "pubbundleRepin": {
+      "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+      "date": "2026-11-13",
+      "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+      "fields": {
+        "fB22Tier1Md5s[internal/api/graphql/graph/query/input_resolution.go]": {
+          "pre": "df658e046d1bbf56cd4928f890cc27d1",
+          "post": "5343dad874aeb8acc0c37fff91c816d2"
+        },
+        "fB22Tier1Md5s[internal/api/graphql/graph/query/read_scope_ingress_control_chars_e2e_test.go]": {
+          "pre": "a4d48d8e743cc6db093fb8fe92f4e255",
+          "post": "62d7e7ca59a1e6d968e9b106e2cad67c"
+        },
+        "fB22Tier1Md5s[internal/authscope/auth_path_control_ingress_test.go]": {
+          "pre": "e65c7bc98c3306b2ca44b9d665a69216",
+          "post": "6efb01fbd8b0fbf1b97124b9a322a5a8"
+        },
+        "fB22Tier1Md5s[internal/authscope/fence_resource_access.go]": {
+          "pre": "2da4e1e7b00860b1c4864053cec44c6c",
+          "post": "4191b0a3bf8909759f3313478ebe593d"
+        }
+      }
     }
   },
   "operator": {
@@ -1591,7 +3161,16 @@
         "published/current.go:117/121"
       ],
       "sha256": "c64b56677eedbe078a7cb805455933bc06c7a57a37f30ae425eeb2bf9d8ee82d",
-      "verdictRun": "parent fb18-parent-run1 exit0"
+      "verdictRun": "parent fb18-parent-run1 exit0",
+      "sha256Verification": {
+        "method": "file-history-blob",
+        "commit": "e5b5c27e",
+        "matchingCommits": [
+          "e5b5c27e"
+        ],
+        "queriedPath": "internal/dataframe/publication/clickhouse/unpinned_page_read_e2e_test.go",
+        "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc9080596099c1ad0253ea3ee229544c58:internal/dataframe/publication/clickhouse/unpinned_page_read_e2e_test.go differs"
+      }
     }
   ],
   "preventedBySurvey": [
@@ -1965,7 +3544,26 @@
     "F-B12-artifact": "Round 36: REAL-SERVICES VERIFIED — TestReconcileDanglesActiveReleaseAgainstArangoClickHouse PASS (DISPROVEN) with both URLs (JAR2b); Repair-1b post-claim veto live on real stores.",
     "F-B13": "CONFIRMED e2e (release-CAS/publish-binding layer); silent cross-generation downgrade",
     "F-B15": "REPAIRED Round 31 (content-addressed releaseID + revision-free alreadyActive zero-write CAS + createdAt-excluded save compat; e2e converted PASS env, pre-fix churn reproduced verbatim via ridataset/riprobe copies; formal pair shipped-VIOLATES/fixed-CLEAN; m-rri model in sync) REAL-SERVICES VERIFIED (round 36): TestRevisionInflationAgainstArango PASS vs Arango 3.12.13 (JAR1/JAR1v, owned DB created+dropped). Artifact hardened (round 37): no-op verdict now pins revision, release ID, doc count AND both pointer _revs with byte-identical content; real-store PASS re-confirmed post-tightening (RI_DATABASE_REMOVED).",
-    "F-B15-ledger-pin": "ab4cf9341193f900fbae267520ac7ac5",
+    "F-B15-ledger-pin": {
+      "md5Pin": "aaaa60f999a51da91fcb19a11e6a6777",
+      "pinTarget": "internal/backends/arango/internal/dataset/revision_inflation_e2e_test.go",
+      "priorPinWas": "ab4cf9341193f900fbae267520ac7ac5",
+      "priorPinVerifiedAtCommits": [
+        "e5b5c27e"
+      ],
+      "priorPinNote": "prior value matched real blobs only at the listed commits; file changed after (relocation + comment strip), value was stale against head; re-pinned to head blob digest per pin convention live==cited-blob==on-disk",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {
+          "md5": {
+            "pre": "ab4cf9341193f900fbae267520ac7ac5",
+            "post": "aaaa60f999a51da91fcb19a11e6a6777"
+          }
+        }
+      }
+    },
     "F-B16": "REPAIRED round 26: PublishExecution inside one WithTransaction (executions+pointers+leases Write); before-fail vs HEAD dc9016bc via arangoprefix copy (patom-prefix-run.keep.log arm B), after-pass 3/3 (patom-run2.log); durable artifact publish_atomicity_e2e_test.go (loom_verify_patom_) with A sensitivity control",
     "F-B16-artifact": "ppp converted r28 to labeled fault-control, naturally PASS (env x2 fb16-convert-run1.log; SKIP clean; residue 0); guards fail-loud on replay-heal shipping or Delegated-split regression; historical red md5 4ef560d6@dc9016bc preserved in FINDINGS r11",
     "F-B17": "Sanctioned-red STATE CONFIRMED under real services (round 36 JAR1/JAR1v): TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango FAILED-ON-PURPOSE verbatim; mechanism live at manifest_lifecycle.go blind UPDATE-without-CAS (cited line numbers within artifact text drifted, mechanism observed live by the harness). Operator decision still queued.",
@@ -2043,5 +3641,35 @@
       }
     },
     "porcelainReconciliation": "git status --porcelain remainder beyond the commit waves = exactly: AGENTS.md M, docs/verification/CONTINUOUS_FIND_FIX_VERIFY_GOAL.md M, bundle.go M, bundle_test.go M, clickhouse/orphaned_published_growth_e2e_test.go M, clickhouse/pointer_name_nul_ambiguity_e2e_test.go M, recipe/publication_identity_nul_http_test.go M, internal/dataset/arango/revision_inflation_e2e_test.go M, pointer_name_encoding_test.go ??, cmd/arango-fhir-proto/{main.go,main_test.go} M (wave D, gated) + the record-writer's own 3 verification/publication-bundle files + PointerOrphanLifecycle.tla/ReleaseBindingTrust.tla/ReleaseRevisionIdempotence.tla M (operator-owned models artifact per commit-body disclosure) + untracked tooling dirs (.opencode/, .openshell*/, .tmp*/, GDC-FHIR/, error.log, go, gofmt, node_modules/). NO unexplained remainder."
+  },
+  "retiredFilesKeys": {
+    "cross_generation_publish_e2e_test.go.explorer": {
+      "reason": "B-class malformed non-path key (authoring-time label, never a repo-relative path); retired from files map, prose preserved verbatim under retiredFilesKeys; the tracked counterpart row is internal/explorer/arango/cross_generation_publish_e2e_test.go (repointed)",
+      "retainedRow": "F-B13 e2E CONFIRMED artifact (worker 39dfd91a + parent 3dc90697, /tmp/opencode/fb13-parent.log); authenticated residue 0",
+      "retiredBy": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+      "date": "2026-11-13"
+    },
+    "release_dangle_reconcile_e2e_test.go [arango pkg]": {
+      "reason": "B-class malformed non-path key; retired from files map, prose preserved verbatim under retiredFilesKeys; tracked counterpart rows: the repointed arango-pkg row and internal/dataframe/publication/clickhouse/release_dangle_reconcile_e2e_test.go",
+      "retainedRow": "F-B12 sanctioned-red artifact intact; 3rd reproduction f1ea7ac5 (/tmp/opencode/fb12-reconfirm.log), FAILED-ON-PURPOSE, authenticated residue 0",
+      "retiredBy": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+      "date": "2026-11-13"
+    },
+    "release_dangle_reconcile_e2e_test.go [clickhouse pkg]": {
+      "reason": "B-class malformed non-path key; retired from files map, prose preserved verbatim under retiredFilesKeys; tracked counterpart row: internal/dataframe/publication/clickhouse/release_dangle_reconcile_e2e_test.go",
+      "retainedRow": "F-B11 PREVENTED control artifact (parent PASS 278d34ac); ABSENT-GUARD fault control",
+      "retiredBy": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+      "date": "2026-11-13"
+    },
+    "internal/backends/postgres/aliases.go": {
+      "reason": "deleted at HEAD: removed by b2da41e2 (arch-09 root control facade deletion, #155); row is a commit-time D6 receipt, not a head-blob attestation; retained verbatim under retiredFilesKeys",
+      "retainedRow": {
+        "role": "D6 alias surface mirroring vocabulary_control additions",
+        "sha256": "7deeefa0cf8a68ad3a336649b367f058f4386e09283623f91d9b726abecdf8ce",
+        "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      },
+      "retiredBy": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+      "date": "2026-11-13"
+    }
   }
 }
