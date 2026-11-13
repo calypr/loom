@@ -124,10 +124,6 @@ func sanitizeTableRef(schema, table string) string {
 	return pgx.Identifier{schema, table}.Sanitize()
 }
 
-func sanitizeSchema(schema string) string {
-	return pgx.Identifier{schema}.Sanitize()
-}
-
 func orderedPlaceholders(n int) string {
 	parts := make([]string, n)
 	for i := range parts {

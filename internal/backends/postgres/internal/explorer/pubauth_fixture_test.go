@@ -330,7 +330,7 @@ func (f *pubAuthFixture) rerunMigration(t *testing.T, version int64) {
 				f.fail("begin migration rerun transaction", err)
 			}
 			if _, err := tx.Exec(f.ctx,
-				"SET LOCAL search_path TO "+sanitizeSchema(f.ctlSchema)); err != nil {
+				"SET LOCAL search_path TO "+pgx.Identifier{f.ctlSchema}.Sanitize()); err != nil {
 				tx.Rollback(f.ctx)
 				f.fail("set search_path for migration rerun", err)
 			}
