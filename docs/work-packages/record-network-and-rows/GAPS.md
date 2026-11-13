@@ -1,81 +1,51 @@
 # Finish the two recipe editors
 
-This follow-up starts from `58544dcbb` and the operator's Calypr screenshots on
-2026-11-12. It records product gaps, not new evidence that the existing backend
-is broken. [VERIFICATION.md](VERIFICATION.md) retains the earlier scoped results.
+The follow-up implementation starts from planning commit
+`9613310fefacc987933275b9a9f92f3e456e886a`, preserving the original `58544dcbb`
+work. Implementation is integrated; verification remains in progress. The earlier
+Calypr screenshots explain the product requirement, not current acceptance.
+[VERIFICATION.md](VERIFICATION.md) separates historical and current evidence.
 
-## Intended experience
+Both **Record network** and **Define a row** now edit the same authoritative recipe.
+The ephemeral owner coordinates one candidate, Apply, Cancel, errors and stale
+responses across both interfaces. [EDITING-CONTRACT.md](EDITING-CONTRACT.md)
+records exact fact identities, typed APIs, supported edits and boundaries.
 
-Offer **Record network** and **Define a row** as complementary ways to edit one
-dataframe recipe. Users can work mainly in either interface or alternate between
-them. Both remain easy to reach, and both share the result preview.
+## Intended experience and supported workflow
 
-The graph explains how records connect. The row definition explains how those
-records become rows and column values. Some edits overlap. Other edits belong
-naturally in one interface and appear as meaningful annotations in the other.
+Users can work mainly in either editor or alternate between them. Both remain easy
+to reach and share the same result preview. The graph explains how records connect;
+the row expression explains how those records become rows and column values.
 Neither interface owns a separate saved recipe.
 
-For example, connect ResearchSubject to Patient and Observation in the graph.
-Then define one row per subject with observation values collected into a list.
-Change the row definition to one row per subject–observation pair and retain the
-same relationship path. Group by chosen fields as another explicit operation.
-The graph must distinguish the source relationships from these output-row stages.
+For example, connect ResearchSubject to Patient and Observation in the graph,
+then define one row per subject with observation values retained as a list. An
+explicit related-record expansion changes this to one row per subject–observation
+pair while preserving that list; a per-match scalar is a separate choice. Group by
+chosen fields as another explicit operation. The graph distinguishes the source
+relationships from these output-row stages, including the complete Group key tuple.
+Required matches can filter rows without expanding them. Existing other operations
+remain ordered, inspectable and intact when users switch interfaces.
 
-## Current implementation and remaining gaps
+## Integrated behavior and remaining acceptance
 
-| Area | What exists | Remaining work | Owner |
+| Area | Integrated behavior | Remaining proof | Ticket |
 | --- | --- | --- | --- |
-| Authoritative plan | Ordinary Route/Rows; imported pin plus source overlay; network and stage-identity API | Define edit coverage and correspondence between both interfaces. Reuse existing contracts before adding fields. | [08](tickets/GRAPH-ROWS-08-shared-editing-contract.md) |
-| Traversal editor | Catalog nodes aggregate repeated resource occurrences; an adjacent traversal strip identifies exact occurrences; imported proposals support add, match-policy change, and remove | Make the authored path and repeated occurrences clear; connect graph actions and row-stage annotations to the shared editing contract. | [10](tickets/GRAPH-ROWS-10-graph-recipe-editor.md) |
-| Row editor | Row-meaning sentence and a panel for records, Group, reshape, and related rows | Add a legible, editable row expression that includes relevant connections, value policies, and stage context. The current action panel is not that representation. | [09](tickets/GRAPH-ROWS-09-row-recipe-editor.md) |
-| Shared editing | Existing proposal receipts, draft ownership, Cancel, and conflict handling | Define what happens to pending edits when users switch or combine interfaces. Prove both directions against the same recipe. | 08, [06](tickets/GRAPH-ROWS-06-save-and-reload.md), [07](tickets/GRAPH-ROWS-07-acceptance.md) |
-| Workspace | Network and preview beside each other; compact step groups | Refactor the composition so history and whitespace do not displace the actual editors. Test the Calypr frame and open editing states. | [11](tickets/GRAPH-ROWS-11-composed-workspace.md) |
-| Product acceptance | Scoped imported/ordinary native passes and independent exact-result fixtures | Prove graph-first, row-first, and mixed editing in the finished UI. Complete retained lifecycle gaps and authenticated Calypr acceptance. | 06, 07 |
+| Shared editing | One proposal owner; receipt-bound source, row, column and root candidates; presentation switching does not mutate the plan | Native ownership, real stale recovery, graph-first/row-first canonical equivalence | 08, 06, 07 |
+| Row expression | Editable connections, source rows, Include policies and exact existing operations; complete Group tuple; explicit expansion | Native exact values, retained lists and separately selected scalars; earlier-term edit with downstream work retained | 09, 07 |
+| Traversal | Authored occurrence paths distinct from catalog possibilities; row-stage, pair and Group annotations | Native bidirectional correspondence, exact occurrence/stage identity | 10, 07 |
+| Workspace | Both/focused editors, one inspector, shared saved/proposed preview, bounded history/catalogs | Current 1536×900 and 1536×1100/back, open proposal, keyboard/focus and 100-operation history; inspector geometry now passes scoped checks; complete native cases remain pending after reviewed exact-order repair; imported now passes and graph/row retain earlier scoped passes | 11, 07 |
+| Persistence | Existing complete-plan receipt/CAS paths reused; pins and unrelated operations preserved | Current-source Preview/Cancel/Apply/edit/removal/reload/table switching, source-step restore and Group lifecycle | 06, 07 |
+| Product acceptance | Independent fixtures, production checks, reviewed 12-case native registration | Complete owned native matrix, then authenticated Calypr checks with configured credentials | 07 |
 
-Source anchors are [BuilderWorkspace](../../../ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx),
-[GuidedGraphWorkspace](../../../ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx),
-[RowDefinitionSettingsPanel](../../../ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx),
-[AuthoringNetworkInspector](../../../ui/packages/loom-ui/src/features/ExplorerBuilder/components/AuthoringNetworkInspector.tsx),
-and [ConstructionWorkspace](../../../ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx).
-The saved-network inspector currently loads a read-only description inside a
-disclosure. It does not provide an abstract recipe editor.
+Imported preserve-root changes remain blocked; explicit replacement discloses pin
+detachment and reset. Imported in-place edge replacement is unavailable: removal
+with dependency review and separate addition remain explicit. Independent related
+products and source `GROUPS/FIELD` remain unsupported. Legacy columns without stable
+IDs remain intact/readable; the new stable-ID policy proposal is unavailable for
+those columns and existing source settings remain accessible. No second persisted
+canvas, new compiler, or LLM integration was introduced.
 
-Relationship, source-row, and construction proposals already write to the same
-saved draft through separate typed APIs. The UI owns their pending state in
-separate components. Coordinating those interactions does not require a new saved
-recipe model. Imported relationships currently have no in-place edge-replacement
-operation. Ticket 08 must identify that limitation rather than calling match-policy
-editing a complete edge editor. Add edge replacement only with explicit dependency
-and atomicity semantics if the first-release workflow requires it.
-
-The screenshots show a row-definition link and current row sentence. They also
-show a large history area above a partially visible graph. They establish a
-composition and discoverability concern, not a failed row command. The visible
-dashes do not establish a data defect. Use known fixture expectations to distinguish
-missing values, loading, unsupported projections, and actual failures.
-
-## Bound the next implementation
-
-Start with a structured row expression whose editable terms select server-supported
-records, occurrences, keys, and policies. Prototype its notation before fixing the
-interaction design. A free-text language is a separate design decision.
-
-The first complete workflow supports record rows, related values with explicit
-policies, required matches, related-record rows with an empty-match policy, and
-Group keys with summaries or retained values. Existing other operations must remain
-visible and editable through their existing inspectors. They must survive switching
-interfaces without being erased or misrepresented.
-
-Keep imported root replacement, unsupported independent expansions, and ambiguous
-source provenance explicit. The new interfaces cannot advertise an operation that
-the authoritative plan cannot represent. Preserve the pin and existing compiler.
-
-Implement 08 first. Then 09 and 10 can proceed independently with separate files
-and worktrees. Prototype 11 against the agreed contract while those editors develop;
-its owner integrates the shared workspace. Finish 06 and 07 on the integrated
-snapshot. Runtime verification remains serialized where it shares mutable state.
-
-Completion means a user can start in either editor, combine supported changes from
-both, inspect the same proposed result, and reopen the saved recipe with both
-representations still agreeing. A visible button, a page load, or two independent
-edit panels does not close this work.
+Completion requires independently expected exact rows and values, equivalent
+canonical semantics, native persistence/ownership, and legible editing in the
+actual Calypr frame. Automated passes and case registration do not close that scope.

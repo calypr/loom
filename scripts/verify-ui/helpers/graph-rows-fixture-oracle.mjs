@@ -25,6 +25,7 @@ export function validateGraphRowsFixture({ resources, oracle } = loadGraphRowsFi
     assert.equal(new Set(resources[type].map(record => record.id)).size, resources[type].length, `${type} duplicate identity`);
     assert(resources[type].every(record => record.resourceType === type), `${type} resource type changed`);
   }
+  assert.deepEqual(resources.Patient.map(patient => patient.id), oracle.replacementPatientIDs, 'Root replacement must include every Patient, including the performer-only record');
   const patients = new Map(resources.Patient.map(patient => [`Patient/${patient.id}`, patient]));
   const related = (type, reference) => resources[type].filter(record => record.subject?.reference === reference);
   const preserving = resources.ResearchSubject.map(subject => {
@@ -47,9 +48,23 @@ export function validateGraphRowsFixture({ resources, oracle } = loadGraphRowsFi
       observationValue: observation.valueInteger, subjectStatus: subject.status,
     })));
   assert.deepEqual(expanded, oracle.expandedDropMissing, 'Related expansion must retain input/related identity pairs');
+  // A list authored before expansion is copied in full to each pair. The
+  // explicitly selected scalar belongs to that pair's related record only.
+  assert.deepEqual(resources.ResearchSubject.flatMap(subject => {
+    const observations = related('Observation', subject.subject.reference);
+    return observations.map(observation => ({
+      identity: [subject.id, observation.id], patientId: patients.get(subject.subject.reference).id,
+      subjectStatus: subject.status, observationValues: observations.map(record => record.valueInteger),
+      perMatchObservationValue: observation.valueInteger,
+    }));
+  }), oracle.expandedListsAndExplicitScalars, 'Expansion must preserve the existing list and distinguish an explicit per-match scalar');
   const unmatched = resources.ResearchSubject.filter(subject => related('Observation', subject.subject.reference).length === 0);
   assert.deepEqual(unmatched.map(subject => ({ identity: [subject.id, null], patientId: patients.get(subject.subject.reference).id,
     observationValue: null, subjectStatus: subject.status })), [oracle.expandedKeepMissingExtra]);
+  assert.deepEqual(unmatched.map(subject => ({
+    identity: [subject.id, null], patientId: patients.get(subject.subject.reference).id,
+    subjectStatus: subject.status, observationValues: [], perMatchObservationValue: null,
+  })), [oracle.expandedListsKeepMissingExtra]);
   const groups = new Map();
   for (const subject of resources.ResearchSubject) {
     const identity = [patients.get(subject.subject.reference).gender ?? null, subject.status];
@@ -61,6 +76,8 @@ export function validateGraphRowsFixture({ resources, oracle } = loadGraphRowsFi
     groups.set(key, group);
   }
   assert.deepEqual([...groups.values()], oracle.groupKeepMissing, 'Group oracle must retain the complete key tuple and contributors');
+  assert.deepEqual([...groups.values()].filter(group => group.identity.every(value => value !== null && value !== undefined)),
+    oracle.groupExcludeMissing, 'Group EXCLUDE oracle must drop only missing-key inputs and retain exact tuples/contributors');
   assert.deepEqual(resources.ResearchSubject.flatMap(subject => subject.identifier.map((item, index) => ({
     identity: [subject.id, index], value: item.value,
   }))), oracle.sourceExpandedDropEmpty);

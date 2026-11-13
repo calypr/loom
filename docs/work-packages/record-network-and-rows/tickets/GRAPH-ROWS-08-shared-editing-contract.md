@@ -1,6 +1,6 @@
 # GRAPH-ROWS-08: Define how both interfaces edit one recipe
 
-Status: ready-implementation. Dependencies: the existing 01–03 implementation.
+Status: verification-in-progress (implementation integrated; current-source native and authenticated acceptance incomplete). Dependencies: the existing 01–03 implementation.
 Reuse the existing persistence API from 06; its follow-up closure does not block 08.
 
 ## Gap
@@ -72,3 +72,12 @@ Use the existing network/identity and proposal tests. Add focused checks only fo
 new correspondence or ownership behavior. Return the coverage table, exact shared
 types, example projections, and unsupported reasons before 09 and 10 integrate.
 Follow repository isolation and review rules. This ticket authorizes no deployment.
+
+## Integrated follow-up checkpoint
+
+The shared owner, editable row expression, authored traversal and composed workspace
+are integrated. Current automated checks and scoped same-model reviews are recorded
+in [VERIFICATION.md](../VERIFICATION.md). The 12-case native matrix remains pending
+after layout and saved-preview repairs, with ordering repaired and remaining current native cases pending; authenticated Calypr acceptance is blocked by a
+missing short-lived token. Historical 01–07 evidence does not close these follow-up
+criteria. This ticket remains verification-in-progress.

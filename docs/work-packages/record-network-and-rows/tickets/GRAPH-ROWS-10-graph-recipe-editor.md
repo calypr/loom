@@ -1,6 +1,6 @@
 # GRAPH-ROWS-10: Make the traversal viewer a complementary recipe editor
 
-Status: ready-implementation after 08. Dependencies: GRAPH-ROWS-08; reuse 02–05.
+Status: verification-in-progress (implementation integrated; current-source native and authenticated acceptance incomplete). Dependencies: GRAPH-ROWS-08; reuse 02–05.
 
 ## Gap
 
@@ -46,3 +46,12 @@ Reuse imported/ordinary native cases and exact fixtures. Add focused projection
 and selection checks for the shared contract. Ticket 07 owns graph-first and mixed
 native closure. Follow repository isolation and review rules. This ticket authorizes
 no deployment.
+
+## Integrated follow-up checkpoint
+
+The shared owner, editable row expression, authored traversal and composed workspace
+are integrated. Current automated checks and scoped same-model reviews are recorded
+in [VERIFICATION.md](../VERIFICATION.md). The 12-case native matrix remains pending
+after layout and saved-preview repairs, with ordering repaired and remaining current native cases pending; authenticated Calypr acceptance is blocked by a
+missing short-lived token. Historical 01–07 evidence does not close these follow-up
+criteria. This ticket remains verification-in-progress.

@@ -133,8 +133,23 @@ export async function seedThroughProductionProposals(run, request, state, output
   return owner;
 }
 
-async function assertDesktopLayout(page, run, label) {
-  const visible = await page.evaluate(() => {
+export function assertHistoryStressDesktopLayout(visible) {
+  assert(visible.expression?.width > 150 && visible.expression?.height > 80, 'The editable row expression must remain visible');
+  assert(visible.network?.width > 150 && visible.network?.height > 80, 'A useful authored network must remain visible');
+  assert(visible.preview?.width > 300 && visible.preview?.height >= 150, 'A useful actual result preview must remain visible');
+  assert(visible.table?.height > 80, 'At least a usable result-table viewport must remain');
+  assert(visible.preview.y >= 0 && visible.preview.bottom <= visible.viewport.height + 1, 'The result must remain inside the desktop viewport');
+  assert(visible.network.y >= 0 && visible.network.bottom <= visible.viewport.height + 1, 'The network must remain inside the desktop viewport');
+  assert(visible.scroll.width <= visible.viewport.width + 1, 'No page-level horizontal overflow');
+  assert(visible.scroll.height <= visible.viewport.height + 1, 'Routine history inspection must not require page-level scrolling');
+  for (const [name, bounds] of [['Row expression', visible.expression], ['Record network', visible.network], ['Result preview', visible.preview]]) {
+    assert(bounds.x >= 0 && bounds.right <= visible.viewport.width + 1, `${name} must remain horizontally inside the desktop viewport`);
+    assert(bounds.y >= 0 && bounds.bottom <= visible.viewport.height + 1, `${name} must remain vertically inside the desktop viewport`);
+  }
+}
+
+async function assertDesktopLayout(page, run, label, { candidate = false } = {}) {
+  const visible = await page.evaluate(({ candidate }) => {
     const rect = selector => {
       const element = document.querySelector(selector);
       if (!element) return null;
@@ -143,15 +158,10 @@ async function assertDesktopLayout(page, run, label) {
     };
     return { viewport: { width: innerWidth, height: innerHeight }, scroll: { width: document.documentElement.scrollWidth,
       height: document.documentElement.scrollHeight }, network: rect('[aria-label="Record network"]'),
-    preview: rect('[data-testid="construction-preview"]'), table: rect('[data-testid="preview-table-scroll"]') };
-  });
-  assert(visible.network?.width > 150 && visible.network?.height > 80, 'A useful authored network must remain visible');
-  assert(visible.preview?.width > 300 && visible.preview?.height > 120, 'A useful actual result preview must remain visible');
-  assert(visible.table?.height > 80, 'At least a usable result-table viewport must remain');
-  assert(visible.preview.y >= 0 && visible.preview.bottom <= visible.viewport.height + 1, 'The result must remain inside the desktop viewport');
-  assert(visible.network.y >= 0 && visible.network.bottom <= visible.viewport.height + 1, 'The network must remain inside the desktop viewport');
-  assert(visible.scroll.width <= visible.viewport.width + 1, 'No page-level horizontal overflow');
-  assert(visible.scroll.height <= visible.viewport.height + 1, 'Routine history inspection must not require page-level scrolling');
+    expression: rect('[data-testid="row-recipe-expression"]'),
+    preview: rect('[data-testid="construction-preview"]'), table: rect('[data-testid="construction-preview"] [data-testid="preview-table-scroll"]') };
+  }, { candidate });
+  assertHistoryStressDesktopLayout(visible);
   run.report.historyStressLayout ??= [];
   run.report.historyStressLayout.push({ label, ...visible });
 }
@@ -175,6 +185,7 @@ export async function runGraphRowsHistoryStress({ run, page, request }) {
   await run.action('Reload actual 100-operation plan', async () => {
     await page.goto(url.href, { waitUntil: 'domcontentloaded' });
     await page.getByTestId(`construction-table-${outputId}`).click();
+    await page.getByRole('navigation', { name: 'Recipe presentation', exact: true }).getByRole('button', { name: 'Both editors', exact: true }).click();
     await expect(page.getByTestId('construction-preview')).toHaveAttribute('data-preview-status', 'ready');
     assertHistoryStressRows(await run.preview(), idColumn);
   });
@@ -202,6 +213,30 @@ export async function runGraphRowsHistoryStress({ run, page, request }) {
       await expect(page.getByRole('textbox', { name: 'Output column name', exact: true })).toHaveValue(historyStressColumnNames[index]);
       await expect(page.getByTestId('construction-operation-editor')).toHaveCount(1);
     });
+    if (index === 99) {
+      await run.action('Preview an existing term with 100 operations without appending work', async () => {
+        await page.getByRole('textbox', { name: 'Output column label', exact: true }).fill('Reviewed stress value');
+        await expect(page.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-status', 'ready');
+        assertHistoryStressRows(await run.preview({ candidate: true }), idColumn);
+        const expression = page.getByTestId('row-recipe-expression');
+        await expect(expression).toHaveAttribute('data-recipe-state', 'proposed');
+        await expect(expression.locator('[data-term-kind="operation"]')).toHaveCount(100);
+        await assertDesktopLayout(page, run, 'open-proposal-100-at-900', { candidate: true });
+        const apply = page.getByTestId('construction-apply-proposal');
+        const cancel = page.getByTestId('construction-cancel-proposal');
+        for (const control of [apply, cancel]) {
+          const bounds = await control.boundingBox();
+          assert(bounds && bounds.y >= 0 && bounds.y + bounds.height <= 900, 'Apply and Cancel must remain reachable in the desktop viewport');
+        }
+        await cancel.click();
+        await expect(page.getByTestId('construction-proposal-panel')).toHaveCount(0);
+        assert.deepEqual(await run.state().then(state => ({ version: state.draftVersion, digest: state.draftDigest })), identity);
+        assertHistoryStressRows(await run.preview(), idColumn);
+      });
+      // Cancel may close the inspector; reopen it only when needed for the
+      // existing close-without-save keyboard lifecycle below.
+      if (await page.getByTestId('construction-operation-editor').count() === 0) await step.click();
+    }
     await run.action(`Close operation ${index + 1} without a save`, async () => {
       await page.getByTestId('construction-close-operation-editor').click();
       await expect(page.getByTestId('construction-operation-editor')).toHaveCount(0);

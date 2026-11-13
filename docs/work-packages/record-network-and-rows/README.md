@@ -1,6 +1,6 @@
 # Work package: edit the record network and row definition together
 
-Status: 01–07 core implementation and same-model reviews complete; required native acceptance incomplete (imported and ordinary pass; carry-in, related rows, upstream dependency and history remain open). Follow-up 08–11 specifies remaining product work for complementary recipe editors and the composed UI. See [GAPS.md](GAPS.md) for the current-source gap analysis and [VERIFICATION.md](VERIFICATION.md) for historical scoped evidence and the authenticated-environment blocker. Authorized by the operator on 2026-11-12. Baseline: `1685bc4c2` on `feature/default-recipe-authoring`, containing `4b64797e3`.
+Status: 08–11 implementation integrated; verification in progress. The shared owner, editable row expression, authored traversal, and composed workspace are implemented. Current automated and scoped same-model reviews pass; the 12-case current-source native matrix and authenticated Calypr acceptance remain incomplete. Original 01–07 evidence at `58544dcbb` is historical and retains only its recorded scope. See [GAPS.md](GAPS.md), [EDITING-CONTRACT.md](EDITING-CONTRACT.md), and [VERIFICATION.md](VERIFICATION.md). Follow-up baseline: `9613310fefacc987933275b9a9f92f3e456e886a` on `feature/default-recipe-authoring`; earlier baseline `1685bc4c2` contains `4b64797e3`.
 
 ## Product goal
 
@@ -20,8 +20,8 @@ rows and values. Both project the same authoritative recipe and share its previe
 
 ## Follow-up implementation tickets
 
-The [gap analysis](GAPS.md) distinguishes existing APIs and controls from missing
-editing behavior. Preserve the scoped 01–07 evidence. These follow-ups do not
+The [gap analysis](GAPS.md) records integrated editing behavior and remaining
+acceptance obligations. Preserve the scoped 01–07 evidence. These follow-ups do not
 retroactively claim that evidence proved the clarified two-interface workflow.
 
 | Ticket | Concrete result | Prerequisite |
@@ -40,7 +40,7 @@ compiler, recipe pin, proposal validation, and unsupported-composition boundarie
 ## Current code and the main gap
 
 This section describes the pre-01 baseline. Use [GAPS.md](GAPS.md) for the current
-implementation and remaining work at `58544dcbb`.
+follow-up implementation and remaining acceptance work.
 
 The existing graph in `GuidedGraphWorkspace.tsx` edits `Document.route`. It appears under **Advanced source setup**, then **Advanced graph**. Its route extension panel already uses **Add traversal** and **Add branch**. Imported recipes disable those mutation controls.
 

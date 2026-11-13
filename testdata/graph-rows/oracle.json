@@ -203,6 +203,49 @@
       ]
     }
   ],
+  "groupExcludeMissing": [
+    {
+      "identity": [
+        "female",
+        "active"
+      ],
+      "contributorSubjectIds": [
+        "rs-one"
+      ],
+      "count": 1,
+      "observationValues": [
+        7
+      ]
+    },
+    {
+      "identity": [
+        "male",
+        "active"
+      ],
+      "contributorSubjectIds": [
+        "rs-many"
+      ],
+      "count": 1,
+      "observationValues": [
+        11,
+        13
+      ]
+    },
+    {
+      "identity": [
+        "male",
+        "completed"
+      ],
+      "contributorSubjectIds": [
+        "rs-shared"
+      ],
+      "count": 1,
+      "observationValues": [
+        11,
+        13
+      ]
+    }
+  ],
   "sourceExpandedDropEmpty": [
     {
       "identity": [
@@ -385,5 +428,87 @@
     "reference": "ResearchStudy/study-unmatched",
     "targetPresent": false,
     "meaning": "A required FHIR study Reference is present, but its referenced target is absent; the related source therefore has zero matches."
-  }
+  },
+  "expandedListsAndExplicitScalars": [
+    {
+      "identity": [
+        "rs-one",
+        "obs-one"
+      ],
+      "patientId": "p-one",
+      "subjectStatus": "active",
+      "observationValues": [
+        7
+      ],
+      "perMatchObservationValue": 7
+    },
+    {
+      "identity": [
+        "rs-many",
+        "obs-many-A"
+      ],
+      "patientId": "p-many",
+      "subjectStatus": "active",
+      "observationValues": [
+        11,
+        13
+      ],
+      "perMatchObservationValue": 11
+    },
+    {
+      "identity": [
+        "rs-many",
+        "obs-many-B"
+      ],
+      "patientId": "p-many",
+      "subjectStatus": "active",
+      "observationValues": [
+        11,
+        13
+      ],
+      "perMatchObservationValue": 13
+    },
+    {
+      "identity": [
+        "rs-shared",
+        "obs-many-A"
+      ],
+      "patientId": "p-many",
+      "subjectStatus": "completed",
+      "observationValues": [
+        11,
+        13
+      ],
+      "perMatchObservationValue": 11
+    },
+    {
+      "identity": [
+        "rs-shared",
+        "obs-many-B"
+      ],
+      "patientId": "p-many",
+      "subjectStatus": "completed",
+      "observationValues": [
+        11,
+        13
+      ],
+      "perMatchObservationValue": 13
+    }
+  ],
+  "expandedListsKeepMissingExtra": {
+    "identity": [
+      "rs-zero",
+      null
+    ],
+    "patientId": "p-zero",
+    "subjectStatus": "active",
+    "observationValues": [],
+    "perMatchObservationValue": null
+  },
+  "replacementPatientIDs": [
+    "p-zero",
+    "p-one",
+    "p-many",
+    "p-performer"
+  ]
 }

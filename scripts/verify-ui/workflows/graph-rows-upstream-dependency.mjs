@@ -19,7 +19,7 @@ export async function runGraphRowsUpstreamDependency({ run, page }) {
     // source must be rejected before Apply, preserving every workspace output.
     const patientID = originalDocument.columns.filter(column => column.source?.imported?.outputColumn === 'patient__patient_id');
     assert.equal(patientID.length, 1, 'Bind the exact pinned Patient ID, not a same-type catalog path');
-    await page.getByRole('button', { name: 'One row per', exact: true }).click();
+    await page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit source rows: One row per ResearchSubject record', exact: true }).click();
     await page.getByTestId('construction-action-group-rows').click();
     await editor.getByText('Add grouping field', { exact: true }).click();
     await editor.getByTestId('construction-group-by-field-list').locator(`input[type="checkbox"][value="${patientID[0].columnId}"]`).click();
@@ -40,7 +40,6 @@ export async function runGraphRowsUpstreamDependency({ run, page }) {
     const dependentSaved = await run.state();
     await run.action('Return to table after dependent Group', async () => {
       const rowDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
-      await rowDialog.getByRole('button', { name: 'Back to table', exact: true }).click();
       await expect(rowDialog).toHaveCount(0);
       assert.deepEqual(draftIdentity(await run.state()), draftIdentity(dependentSaved));
     });

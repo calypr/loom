@@ -1,6 +1,6 @@
 # GRAPH-ROWS-11: Compose both editors into a legible workspace
 
-Status: ready-implementation for prototype after 08; integration follows 09 and 10. Dependencies: GRAPH-ROWS-08
+Status: verification-in-progress; implementation integrated, current-source native and authenticated acceptance incomplete. Dependencies: GRAPH-ROWS-08
 for shared editing state; GRAPH-ROWS-09 and GRAPH-ROWS-10 for final integration.
 
 ## Gap
@@ -48,3 +48,12 @@ Run focused composition checks, then ticket 07's native paths against the integr
 source. Retain final Calypr screenshots for idle and proposed states and the exact
 source identity. Static mockups and a successful page load do not establish closure.
 Follow repository isolation and review rules. This ticket authorizes no deployment.
+
+## Integrated follow-up checkpoint
+
+The shared owner, editable row expression, authored traversal and composed workspace
+are integrated. Current automated checks and scoped same-model reviews are recorded
+in [VERIFICATION.md](../VERIFICATION.md). The 12-case native matrix remains pending
+after layout and saved-preview repairs, with ordering repaired and remaining current native cases pending; authenticated Calypr acceptance is blocked by a
+missing short-lived token. Historical 01–07 evidence does not close these follow-up
+criteria. This ticket remains verification-in-progress.

@@ -19,9 +19,9 @@ for (let i = 2; i < process.argv.length; i++) {
     historyFixtureSHA256 = process.argv[++i];
   }
   else if (option === '--checks-only') checksOnly = true;
-  else throw new Error(`Unknown option ${option}; use --case imported|ordinary|carry-in|related-rows|history-stress|upstream-dependency [--checks-only] [--reuse-history-fixture PATH --history-fixture-sha256 SHA256]`);
+  else throw new Error(`Unknown option ${option}; use --case imported|ordinary|carry-in|related-rows|history-stress|upstream-dependency|graph-first|row-first|mixed|earlier-term|ordinary-policy|root-proposal [--checks-only] [--reuse-history-fixture PATH --history-fixture-sha256 SHA256]`);
 }
-assert(['imported', 'ordinary', 'carry-in', 'related-rows', 'history-stress', 'upstream-dependency'].includes(selected), 'Select exactly one --case imported|ordinary|carry-in|related-rows|history-stress|upstream-dependency');
+assert(['imported', 'ordinary', 'carry-in', 'related-rows', 'history-stress', 'upstream-dependency', 'graph-first', 'row-first', 'mixed', 'earlier-term', 'ordinary-policy', 'root-proposal'].includes(selected), 'Select exactly one --case imported|ordinary|carry-in|related-rows|history-stress|upstream-dependency|graph-first|row-first|mixed|earlier-term|ordinary-policy|root-proposal');
 assert(!reuseHistoryFixture || selected === 'history-stress', 'Fixture reuse is available only for history-stress');
 assert(Boolean(reuseHistoryFixture) === Boolean(historyFixtureSHA256), 'History fixture reuse requires both --reuse-history-fixture PATH and --history-fixture-sha256 SHA256');
 if (historyFixtureSHA256) assert.match(historyFixtureSHA256, /^[a-f0-9]{64}$/);

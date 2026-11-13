@@ -42,3 +42,12 @@ repair only when these checks demonstrate a defect.
 ## Execution contract
 
 Read [the work package](../README.md) and repository `AGENTS.md` before implementation. Use the agreed baseline and an isolated worktree. Preserve unrelated work. Run the smallest relevant checks, then the required final acceptance against a frozen source snapshot. Record source identity, review, commands, outcomes, and remaining gaps. Do not deploy or publish. The operator separately authorized the parent to push the completed code after functional checks pass.
+
+## Integrated follow-up checkpoint
+
+The shared owner, editable row expression, authored traversal and composed workspace
+are integrated. Current automated checks and scoped same-model reviews are recorded
+in [VERIFICATION.md](../VERIFICATION.md). The 12-case native matrix remains pending
+after layout and saved-preview repairs, with ordering repaired and remaining current native cases pending; authenticated Calypr acceptance is blocked by a
+missing short-lived token. Historical 01–07 evidence does not close these follow-up
+criteria. This ticket remains verification-in-progress.

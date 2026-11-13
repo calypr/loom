@@ -1,6 +1,6 @@
 # GRAPH-ROWS-09: Edit the recipe as an explicit row definition
 
-Status: ready-implementation after 08. Dependencies: GRAPH-ROWS-08; reuse 03 and 05.
+Status: verification-in-progress (implementation integrated; current-source native and authenticated acceptance incomplete). Dependencies: GRAPH-ROWS-08; reuse 03 and 05.
 
 ## Gap
 
@@ -51,3 +51,12 @@ Use the existing independent row fixtures and row/Group tests, plus focused chec
 for expression projection and edits. Ticket 07 owns the full row-first and mixed
 native paths. Deliver the real editor, not a static paraphrase or raw recipe JSON.
 Follow repository isolation and review rules. This ticket authorizes no deployment.
+
+## Integrated follow-up checkpoint
+
+The shared owner, editable row expression, authored traversal and composed workspace
+are integrated. Current automated checks and scoped same-model reviews are recorded
+in [VERIFICATION.md](../VERIFICATION.md). The 12-case native matrix remains pending
+after layout and saved-preview repairs, with ordering repaired and remaining current native cases pending; authenticated Calypr acceptance is blocked by a
+missing short-lived token. Historical 01–07 evidence does not close these follow-up
+criteria. This ticket remains verification-in-progress.

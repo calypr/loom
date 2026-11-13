@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { assertHistoryStressRows, assertHistoryStressPlan, historyStressStepIDs, nextStressStep, seedThroughProductionProposals } from '../../workflows/graph-rows-history-stress.mjs';
+import { assertHistoryStressDesktopLayout, assertHistoryStressRows, assertHistoryStressPlan, historyStressStepIDs, nextStressStep, seedThroughProductionProposals } from '../../workflows/graph-rows-history-stress.mjs';
 
 const ids = ['obs-one', 'obs-many-A', 'obs-many-B'];
 const preview = () => ({ sampled: false, rows: ids.map(id => Object.fromEntries([
@@ -71,4 +71,21 @@ test('the30s fixture bootstrap allowance cannot enter a native lifecycle context
   assert.equal(observedTimeout, 5000, 'The default helper preserves its native request budget');
   await assert.rejects(seedThroughProductionProposals({ report: { phase: 'production-fixture-preparation', requestBudgetMs: 30000 } }, request, state, 'output', { fixtureRequestTimeoutMs: 30000 }), error => error === marker);
   assert.equal(observedTimeout, 30000, 'Only the declared separate fixture context receives its recorded setup budget');
+});
+
+
+test('desktop acceptance rejects row expressions outside the viewport and undersized result previews', () => {
+  const layout = () => ({ viewport: { width: 1536, height: 900 }, scroll: { width: 1536, height: 900 },
+    expression: { x: 10, y: 90, width: 300, height: 100, right: 310, bottom: 190 },
+    network: { x: 10, y: 200, width: 300, height: 200, right: 310, bottom: 400 },
+    preview: { x: 400, y: 90, width: 500, height: 300, right: 900, bottom: 390 }, table: { height: 200 } });
+  assertHistoryStressDesktopLayout(layout());
+  const below = layout(); below.expression.y = 1000; below.expression.bottom = 1200;
+  assert.throws(() => assertHistoryStressDesktopLayout(below), /Row expression.*vertically/);
+  const right = layout(); right.expression.x = 1400; right.expression.right = 1700;
+  assert.throws(() => assertHistoryStressDesktopLayout(right), /Row expression.*horizontally/);
+  const left = layout(); left.expression.x = -10;
+  assert.throws(() => assertHistoryStressDesktopLayout(left), /Row expression.*horizontally/);
+  const short = layout(); short.preview.height = 149;
+  assert.throws(() => assertHistoryStressDesktopLayout(short), /useful actual result preview/);
 });

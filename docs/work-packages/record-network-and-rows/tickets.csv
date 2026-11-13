@@ -6,3 +6,7 @@ GRAPH-ROWS-04,Edit the record network and row definition in the main workspace,G
 GRAPH-ROWS-05,Connect column policies and ordered operations to the row definition,GRAPH-ROWS-02; GRAPH-ROWS-03; GRAPH-ROWS-04,tickets/GRAPH-ROWS-05-values-and-operations.md,verification-in-progress
 GRAPH-ROWS-06,"Preserve the complete plan through save, reload, and concurrent edits",GRAPH-ROWS-02; GRAPH-ROWS-03; integrate GRAPH-ROWS-04 and GRAPH-ROWS-05,tickets/GRAPH-ROWS-06-save-and-reload.md,verification-in-progress
 GRAPH-ROWS-07,Prove the connected editor with independent records and native lifecycles,Fixture specification can start now; final acceptance follows GRAPH-ROWS-02 through GRAPH-ROWS-06,tickets/GRAPH-ROWS-07-acceptance.md,verification-in-progress
+GRAPH-ROWS-08,Define how both interfaces edit one recipe,Existing 01–03,tickets/GRAPH-ROWS-08-shared-editing-contract.md,verification-in-progress
+GRAPH-ROWS-09,Edit the recipe as an explicit row definition,GRAPH-ROWS-08,tickets/GRAPH-ROWS-09-row-recipe-editor.md,verification-in-progress
+GRAPH-ROWS-10,Make the traversal viewer a complementary recipe editor,GRAPH-ROWS-08,tickets/GRAPH-ROWS-10-graph-recipe-editor.md,verification-in-progress
+GRAPH-ROWS-11,Compose both editors into a legible workspace,GRAPH-ROWS-08; GRAPH-ROWS-09; GRAPH-ROWS-10,tickets/GRAPH-ROWS-11-composed-workspace.md,verification-in-progress
