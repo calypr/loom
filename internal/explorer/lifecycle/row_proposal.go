@@ -314,6 +314,9 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if baseDocument == nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
+	if baseDocument.ImportedRecipe != nil {
+		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "IMPORTED_SOURCE_ROW_OVERLAY_REQUIRED", "imported source rows are defined by the immutable recipe pin and source overlay; use a construction Group or related-record expansion, or explicitly replace the source to detach the pin", nil)
+	}
 	baseDocumentDigest, err := documentDigest(*baseDocument)
 	if err != nil {
 		return RowDefinitionProposal{}, err

@@ -63,10 +63,23 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 			}
 		}
 	}
-	observed, ok := row["__loom_dynamic_runtime_keys"].(map[string]any)
+	return validateDynamicRuntimeInventories(row["__loom_dynamic_runtime_keys"], checks)
+}
+
+// A Group carries one inventory per actual contributing input row. Repeated
+// Groups nest these arrays; validate every leaf without overwriting earlier
+// inventories or exposing them as public columns.
+func validateDynamicRuntimeInventories(value any, checks map[string]map[string]DynamicColumnCheck) error {
+	if inventories, ok := value.([]any); ok {
+		for _, inventory := range inventories {
+			if err := validateDynamicRuntimeInventories(inventory, checks); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	observed, ok := value.(map[string]any)
 	if !ok {
-		// Construction stages may drop the metadata only for families that
-		// explicitly allow unknown keys.
 		for dynamicName, columns := range checks {
 			for _, column := range columns {
 				if !column.AllowUnknownKeys {

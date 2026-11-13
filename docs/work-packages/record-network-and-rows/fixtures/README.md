@@ -8,3 +8,7 @@
 - Outputs: DocumentReference, ResearchSubject, MedicationAdministration, Specimen, and GroupMember.
 
 This file contains the recipe, not patient records, credentials, or an ingest fixture. It is not the deployment configuration. Do not deploy edits to this reference. Tests still need independent data with known expected rows. Update this copy and its provenance together when changing the reference version.
+
+The independently authored row/value fixture is in `testdata/graph-rows/`.
+[ACCEPTANCE.md](ACCEPTANCE.md) records the native lifecycle requirements and
+pending coverage; fixture consistency checks do not close those requirements.

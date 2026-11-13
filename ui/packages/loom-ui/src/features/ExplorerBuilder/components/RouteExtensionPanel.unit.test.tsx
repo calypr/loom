@@ -81,6 +81,18 @@ const table: DraftTable = {
 };
 
 describe('RouteExtensionPanel', () => {
+  it('requires an explicit action for a native source relationship even with one eligible edge', () => {
+    const onAddEdge = vi.fn();
+    render(<RouteExtensionPanel catalog={catalog} table={table}
+      selectedOccurrenceId="base" inspectedNodeId="patient" requireConfirmation
+      disabled={false} onSelectEdge={vi.fn()} onUseAsRowStart={vi.fn()}
+      onChangeRowStart={vi.fn()} onAddEdge={onAddEdge} />);
+    expect(onAddEdge).not.toHaveBeenCalled();
+    expect(screen.getByText(/expanding rows is a separate choice/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add traversal' }));
+    expect(onAddEdge).toHaveBeenCalledWith('specimen-patient', 'patient');
+  });
+
   it('does not render relationship controls for one unambiguous edge', () => {
     const { container } = render(
       <RouteExtensionPanel

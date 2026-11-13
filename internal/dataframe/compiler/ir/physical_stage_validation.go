@@ -1543,6 +1543,25 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	); err != nil {
 		return err
 	}
+	if group.DynamicRuntimeKeysVariable != "" {
+		input, inOK := inputByName["__loom_dynamic_runtime_keys"]
+		output, outOK := outputByName["__loom_dynamic_runtime_keys"]
+		if !inOK || !outOK || !input.Internal || !output.Internal || input.Kind != "object" || output.Kind != "object" || output.Identity || output.Cardinality != "many" {
+			return fmt.Errorf("dynamic runtime inventories require hidden input and repeated hidden output")
+		}
+		found := false
+		for _, projection := range stage.OutputProjections {
+			if projection.Name == "__loom_dynamic_runtime_keys" {
+				found = projection.Hidden && projection.Expression == nil && projection.Value.Variable == group.DynamicRuntimeKeysVariable && projection.Value.BindKey == "" && len(projection.Value.Path) == 0
+			}
+		}
+		if !found {
+			return fmt.Errorf("dynamic runtime inventories require the exact hidden Group projection")
+		}
+		if err := definePhysicalVariable(defined, group.DynamicRuntimeKeysVariable); err != nil {
+			return fmt.Errorf("dynamic runtime inventories: %w", err)
+		}
+	}
 	for index, key := range group.Keys {
 		input, ok := inputByName[key.InputColumn]
 		if !ok || input.Cardinality == "many" {

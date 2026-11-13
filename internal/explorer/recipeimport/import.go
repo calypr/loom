@@ -102,6 +102,14 @@ func ImportWorkspace(bundle recipe.Bundle, catalog authoringv2.CatalogSnapshot, 
 }
 
 func importedRows(output recipe.Output) authoringv2.RowDefinition {
+	if output.GroupRows != nil {
+		source := output.GroupRows
+		rows := &authoringv2.GroupedRows{Source: authoringv2.GroupSource{Kind: authoringv2.GroupSourceExplicit, Explicit: &authoringv2.ExplicitGroupSource{RevisionID: source.RevisionID, UnassignedMemberPolicy: authoringv2.UnassignedMemberPolicy(source.UnassignedMemberPolicy)}}, AfterStepID: source.AfterStepID}
+		for _, value := range source.RowValues {
+			rows.RowValues = append(rows.RowValues, authoringv2.ExplicitGroupRowValue{ColumnID: value.ColumnID, Policy: authoringv2.ConstructionRowValuePolicy(value.Policy)})
+		}
+		return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: rows}
+	}
 	if output.Expand == nil {
 		return authoringv2.RecordsRowDefinition()
 	}

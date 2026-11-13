@@ -182,6 +182,7 @@ func (u SemanticRowExpansion) Validate() error {
 }
 
 type SemanticDynamicMap struct {
+	SourceFamilyKey  string
 	ValueMode        recipe.ValueMode
 	Name             string
 	ColumnPrefix     *string

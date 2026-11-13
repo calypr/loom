@@ -18,7 +18,7 @@ const (
 	StateKind               = "ExplorerBuilderState"
 	CatalogKind             = "ExplorerBuilderCatalog"
 	RootOccurrenceID        = "base"
-	CurrentSemanticsVersion = 11
+	CurrentSemanticsVersion = 12
 
 	contributorSemanticsVersion             = 4
 	aggregateTemporalPolicySemanticsVersion = 9

@@ -54,7 +54,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	populationMemberProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyPopulationMemberProposal
 	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
 	rowValuePolicyCommand := request.Commands[0].Type == authoringv2.CommandUpdateColumnRowValuePolicy
-	importedSourceCommand := request.Commands[0].Type == authoringv2.CommandUpdateImportedSourceStep || request.Commands[0].Type == authoringv2.CommandRefreshImportedSource
+	importedSourceCommand := authoringv2.IsImportedSourceCommand(request.Commands[0].Type)
 	for _, command := range request.Commands {
 		if command.Type == authoringv2.CommandUpdateColumnRowValuePolicy && len(request.Commands) != 1 {
 			return nil, malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY must be the only command in its atomic request", nil)
@@ -163,6 +163,9 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	var prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error)
 	if importedSourceCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			if commands[0].Type == authoringv2.CommandApplyImportedRelationshipProposal {
+				return s.prepareImportedRelationshipProposal(ctx, project, explorerID, request, authorized, workspace, commands)
+			}
 			return s.prepareImportedSource(ctx, project, explorerID, authorized, workspace, catalog, commands)
 		}
 	} else if semanticCommand {
@@ -461,7 +464,7 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
+	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, SourceRelationshipProposal: cloneSourceRelationshipProposalBinding(request.SourceRelationshipProposal), RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {
@@ -500,6 +503,9 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 		if check.got != check.want {
 			return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
 		}
+	}
+	if !reflect.DeepEqual(request.SourceRelationshipProposal, receipt.SourceRelationshipProposal) {
+		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled source relationship proposal binding does not match the request", nil, nil)
 	}
 	if !sameRowDefinitionProposalBinding(request.RowDefinitionProposal, receipt.RowDefinitionProposal) {
 		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
@@ -732,4 +738,12 @@ func (s *Service) resolveCompilationCapability(ctx context.Context, project, tok
 	}
 	snapshot, err := s.config.Capability.Token(ctx, project, token)
 	return AuthorizedCapability{Snapshot: snapshot}, snapshot, err
+}
+
+func cloneSourceRelationshipProposalBinding(binding *explorer.SourceRelationshipProposalBinding) *explorer.SourceRelationshipProposalBinding {
+	if binding == nil {
+		return nil
+	}
+	cloned := *binding
+	return &cloned
 }

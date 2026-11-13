@@ -22,6 +22,14 @@ import {
   constructionCapabilitiesResponseSchema,
   constructionCategoryDiscoveryRequestSchema,
   constructionCategoryDiscoveryResponseSchema,
+  authoringNetworkRequestSchema,
+  authoringNetworkResponseSchema,
+  type AuthoringNetworkRequest,
+  type AuthoringNetworkResponse,
+  sourceRelationshipProposalRequestSchema,
+  sourceRelationshipProposalSchema,
+  type SourceRelationshipProposalRequest,
+  type SourceRelationshipProposal,
   constructionProposalRequestSchema,
   constructionProposalResponseSchema,
   constructionChoiceProposalRequestSchema,
@@ -479,6 +487,10 @@ export interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
+export type DescribeAuthoringNetworkArgs = ExplorerAuthoringStateArgs & AuthoringNetworkRequest;
+
+export type ProposeSourceRelationshipArgs = ExplorerAuthoringStateArgs & SourceRelationshipProposalRequest & { readonly requestId?: string };
+
 export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
   ConstructionProposalRequest & { readonly requestId?: string };
 
@@ -762,6 +774,8 @@ export interface LoomClient {
     args: GetConstructionInputsArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionInputsResponse>;
+  readonly describeAuthoringNetwork: (args: DescribeAuthoringNetworkArgs, signal?: AbortSignal) => Promise<AuthoringNetworkResponse>;
+  readonly proposeSourceRelationship: (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => Promise<SourceRelationshipProposal>;
   readonly proposeConstruction: (
     args: ProposeConstructionArgs,
     signal?: AbortSignal,
@@ -1691,6 +1705,18 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       constructionInputsRequestSchema.parse(body), signal, args.requestId,
     )).then((value) => constructionInputsResponseSchema.parse(value));
   };
+  const describeAuthoringNetwork = (args: DescribeAuthoringNetworkArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, ...body } = args;
+    return request(durableAuthoringPath(args, '/authoring-network'), withJson(
+      authoringNetworkRequestSchema.parse(body), signal,
+    )).then((value) => authoringNetworkResponseSchema.parse(value));
+  };
+  const proposeSourceRelationship = (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/source-relationship-proposals'), withJson(
+      sourceRelationshipProposalRequestSchema.parse(body), signal, requestId,
+    )).then((value) => sourceRelationshipProposalSchema.parse(value));
+  };
   const proposeConstruction = (args: ProposeConstructionArgs, signal?: AbortSignal) => {
     const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
     return request(durableAuthoringPath(args, '/construction-proposals'), withJson(
@@ -1978,6 +2004,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     getConstructionCapabilities,
     discoverConstructionCategories,
     getConstructionInputs,
+    describeAuthoringNetwork,
+    proposeSourceRelationship,
     proposeConstruction,
     proposeConstructionChoices,
     preview,

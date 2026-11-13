@@ -19,6 +19,7 @@ export const RouteExtensionPanel = ({
   selectedEdgeId,
   allowExistingExtension = false,
   disabled,
+  requireConfirmation = false,
   onSelectEdge,
   onUseAsRowStart,
   onChangeRowStart,
@@ -31,6 +32,7 @@ export const RouteExtensionPanel = ({
   readonly selectedEdgeId?: string;
   readonly allowExistingExtension?: boolean;
   readonly disabled: boolean;
+  readonly requireConfirmation?: boolean;
   readonly onSelectEdge: (edgeId: string | undefined) => void;
   readonly onUseAsRowStart: (nodeId: string) => void;
   readonly onChangeRowStart: (nodeId: string) => void;
@@ -88,17 +90,17 @@ export const RouteExtensionPanel = ({
   // relationship directly. Adding another occurrence is explicit so clicking
   // a resource already in the route never changes the query by surprise.
   if (inspectedEdges.length === 1) {
-    if (!alreadyInQuery) return null;
+    if (!alreadyInQuery && !requireConfirmation) return null;
     const edge = inspectedEdges[0];
     return (
       <div className="absolute left-3 top-3 z-20 flex max-w-lg items-center gap-3 rounded-xl border border-blue-300 bg-white/95 p-3 text-xs shadow-xl backdrop-blur">
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-slate-900">
-            Add another {inspectedResource} under {parentResource}
+            Add {alreadyInQuery ? 'another ' : ''}{inspectedResource} under {parentResource}
           </p>
           <p className="mt-0.5 text-slate-600">
             Follow <span className="font-mono">{edge.label}</span> to create a
-            separate query occurrence.
+            separate occurrence. This adds values to existing rows; expanding rows is a separate choice.
           </p>
         </div>
         <button

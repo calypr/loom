@@ -2099,6 +2099,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     (capabilities.stageId === savedGroupInputStageId && savedGroupInputStage !== undefined);
   const savedOwnedCodedInput = editingStep?.operation.kind === 'GROUP'
     ? construction.steps.find((candidate) => candidate.ownerStepId === editingStep.id
+      && candidate.id === savedGroupInputStageId
       && candidate.operation.kind === 'CODED_PIVOT'
       && candidate.inputs[0]?.kind === 'SOURCE_PROJECTION')
     : undefined;
@@ -2126,7 +2127,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       ? sourceGroupHasPopulatedChoice ? '' : 'No source field with recorded values is available for grouping.'
       : sourceInput?.reason ?? 'No source field is available for grouping.';
   const groupCodedPivotCapability = capabilityFor(groupStage, 'CODED_PIVOT');
-  const groupCodedValuesSupported = Boolean(savedOwnedCodedInput || groupCodedPivotCapability.supported) &&
+  const groupCodedValuesSupported = savedGroupInputStageAvailable && Boolean(savedOwnedCodedInput || groupCodedPivotCapability.supported) &&
     isSourceProjectionStage(groupStage);
   const contextKey = editorContextKey(capabilities, editingStep);
   const [form, setForm] = useState<ReshapeForm>(() => props.initialEntry?.form
@@ -2979,6 +2980,8 @@ const CodedGroupEditor = (props: {
 
 const GroupRowValuesEditor = (props: {
   readonly form: GroupForm;
+  readonly inputColumns: ReadonlyArray<ReshapeColumn>;
+  readonly groupKeyInputColumnIds: ReadonlySet<string>;
   readonly groupRowValueChoices: ReadonlyArray<GroupRowValueChoice>;
   readonly disabled: boolean;
   readonly supported: boolean;
@@ -2999,9 +3002,26 @@ const GroupRowValuesEditor = (props: {
   ));
   const visibleRowValueChoices = props.groupRowValueChoices.filter((choice) =>
     choice.fieldSource.kind === 'CHOICE' && !selectedRowValueChoiceIds.has(choice.fieldSource.choiceId) &&
+    !(choice.inputColumnId && props.groupKeyInputColumnIds.has(choice.inputColumnId)) &&
     !(choice.inputColumnId && selectedRowValueInputIDs.has(choice.inputColumnId)) &&
     !(fieldChoiceIdentity(choice) && selectedRowValueBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
     (!normalizedRowValueSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath} ${choice.sourceRole}`.toLocaleLowerCase().includes(normalizedRowValueSearch)));
+  // Resolved input columns already have exact stage authority, even when a
+  // pinned source cannot expose live FHIR field choices. Keep these separate
+  // from signed choices rather than inventing a raw-field binding.
+  const signedInputColumnIds = new Set(props.groupRowValueChoices.flatMap((choice) => choice.inputColumnId ? [choice.inputColumnId] : []));
+  const visibleInputColumns = props.inputColumns.filter((column) =>
+    !props.groupKeyInputColumnIds.has(column.id) && !selectedRowValueInputIDs.has(column.id) && !signedInputColumnIds.has(column.id) &&
+    (!normalizedRowValueSearch || `${column.label} ${column.name}`.toLocaleLowerCase().includes(normalizedRowValueSearch)));
+  const addInputColumn = (column: ReshapeColumn) => {
+    if (props.form.codedCategories.length > 0) return;
+    const name = uniqueName(normalizedName(column.label), getUsedGroupNames(props.form));
+    const rowValue: GroupRowValue = {
+      inputColumnId: column.id, outputColumnId: createOpaqueId('group-row-value'), policy: 'ALL',
+      name, label: column.label, displayLabel: column.label, scopeLabel: 'Current Group input column', valueType: column.type ?? 'string',
+    };
+    props.onChange({ ...props.form, rowValues: [...props.form.rowValues, rowValue] });
+  };
   const changeRowValue = (outputColumnId: string, update: Partial<Pick<GroupRowValue, 'name' | 'label' | 'policy'>>) => {
     props.onChange({
       ...props.form,
@@ -3110,10 +3130,24 @@ const GroupRowValuesEditor = (props: {
                 </label>
               );
             })}
-            {normalizedRowValueSearch && visibleRowValueChoices.length === 0 ? (
+            {visibleInputColumns.map((column) => (
+              <label key={`row-input:${column.id}`} className="flex min-w-0 items-start gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                <input type="checkbox" value={column.id}
+                  data-testid={`construction-group-add-column-input-${column.id}`}
+                  aria-label={`Add column ${column.label}`} checked={false}
+                  disabled={props.disabled || !props.supported || props.form.codedCategories.length > 0}
+                  onChange={(event) => { if (event.currentTarget.checked) addInputColumn(column); }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{column.label}</span>
+                  <span className="block truncate text-xs text-slate-500" title={column.name}>Current Group input column · {column.name}</span>
+                </span>
+              </label>
+            ))}
+            {normalizedRowValueSearch && visibleRowValueChoices.length === 0 && visibleInputColumns.length === 0 ? (
               <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No other fields match this search.</p>
             ) : null}
-            {!normalizedRowValueSearch && visibleRowValueChoices.length === 0 ? (
+            {!normalizedRowValueSearch && visibleRowValueChoices.length === 0 && visibleInputColumns.length === 0 ? (
               <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No additional scalar fields are available for this Group input.</p>
             ) : null}
           </div>
@@ -3145,9 +3179,21 @@ const GroupEditor = (props: {
   const usedNames = getUsedGroupNames(props.form);
   const [groupSearch, setGroupSearch] = useState('');
   const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase();
+  const groupKeyInputColumnIds = new Set([
+    ...props.form.keys.map((key) => key.inputColumnId),
+    ...props.form.fieldKeys.flatMap((key) => {
+      const choice = groupFieldChoiceForKey(props.groupFieldChoices, key);
+      return choice && 'inputColumnId' in choice && choice.inputColumnId ? [choice.inputColumnId] : [];
+    }),
+  ]);
+  const contributorInputColumns = props.supported
+    ? scalarColumns.filter((column) => column.id !== props.stage.rowIdentityColumn && column.name !== props.stage.rowIdentityColumn)
+    : [];
   if (props.rowValuesOnly) {
     return <GroupRowValuesEditor
       form={props.form}
+      inputColumns={contributorInputColumns}
+      groupKeyInputColumnIds={groupKeyInputColumnIds}
       groupRowValueChoices={props.groupRowValueChoices}
       disabled={props.disabled}
       supported={props.supported}
@@ -3652,6 +3698,8 @@ const GroupEditor = (props: {
 
       <GroupRowValuesEditor
         form={props.form}
+        inputColumns={contributorInputColumns}
+        groupKeyInputColumnIds={groupKeyInputColumnIds}
         groupRowValueChoices={props.groupRowValueChoices}
         disabled={props.disabled}
         supported={props.supported}

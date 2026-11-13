@@ -1,0 +1,80 @@
+// @vitest-environment jsdom
+import React from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { LoomClient } from '../../../api';
+import { SourceRelationshipReview } from './SourceRelationshipReview';
+vi.mock('../constructionWorkspace/ConstructionProposalPreview', () => ({ ConstructionProposalPreview: () => <p>Candidate values</p> }));
+afterEach(cleanup);
+const proposal = {
+  proposalId: 'p1', candidateReceiptId: 'r1', outputId: 'subjects', snapshotToken: 's1', draftVersion: 2,
+  draftDigest: 'd2', baseDocumentDigest: 'doc2', candidateWorkspaceDigest: 'candidate', previewStatus: 'READY' as const,
+  sampledRows: 1, sampled: true, affectedColumns: [], notices: [],
+};
+const rows = { receiptId: 'r1', outputId: 'subjects' };
+function setup(overrides: Partial<LoomClient> = {}) {
+  const proposeSourceRelationship = vi.fn().mockResolvedValue(proposal);
+  const preview = vi.fn().mockResolvedValue(rows);
+  const onApply = vi.fn().mockResolvedValue(true);
+  const onCancel = vi.fn();
+  const client = { proposeSourceRelationship, preview, ...overrides } as unknown as LoomClient;
+  render(<SourceRelationshipReview client={client} project="qa" explorerId="editor" snapshotToken="s1"
+    draftVersion={2} draftDigest="d2" outputId="subjects" disabled={false}
+    change={{ action: 'ADD', parentOccurrenceId: 'base', edgeId: 'edge', matchMode: 'OPTIONAL' }}
+    onApply={onApply} onCancel={onCancel} />);
+  return { proposeSourceRelationship, preview, onApply, onCancel };
+}
+describe('native source proposal ownership', () => {
+  it('requires successful exact-receipt Preview before Apply and applies only the proposal', async () => {
+    const calls = setup();
+    const apply = screen.getByRole('button', { name: 'Apply relationship' }) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
+    await screen.findByText('Candidate values');
+    expect(calls.onApply).not.toHaveBeenCalled();
+    fireEvent.click(apply);
+    await waitFor(() => expect(calls.onApply).toHaveBeenCalledWith([{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: 'subjects', proposalId: 'p1' }]));
+    expect(calls.onCancel).toHaveBeenCalledOnce();
+  });
+  it('rejects a proposal owned by another saved draft before reading preview', async () => {
+    const bad = vi.fn().mockResolvedValue({ ...proposal, draftDigest: 'old' });
+    const calls = setup({ proposeSourceRelationship: bad });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
+    await screen.findByRole('alert');
+    expect(calls.preview).not.toHaveBeenCalled();
+    expect(calls.onApply).not.toHaveBeenCalled();
+  });
+  it('rejects mismatched preview receipt and never enables Apply', async () => {
+    setup({ preview: vi.fn().mockResolvedValue({ ...rows, receiptId: 'other' }) });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
+    await screen.findByRole('alert');
+    expect((screen.getByRole('button', { name: 'Apply relationship' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('Cancel revokes a late successful Preview without applying', async () => {
+    let resolve!: (value: typeof proposal) => void;
+    const pending = new Promise<typeof proposal>((done) => { resolve = done; });
+    const calls = setup({ proposeSourceRelationship: vi.fn().mockReturnValue(pending) });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    resolve(proposal);
+    await waitFor(() => expect(calls.onCancel).toHaveBeenCalledOnce());
+    expect(calls.preview).not.toHaveBeenCalled();
+    expect(calls.onApply).not.toHaveBeenCalled();
+  });
+  it('previews bounded source-step settings through the same receipt without a direct source write', async () => {
+    const proposeSourceRelationship = vi.fn().mockResolvedValue(proposal);
+    const onApply = vi.fn().mockResolvedValue(true);
+    const sourceStep = { stepId: 'catalogProjections[0]', enabled: true, maxColumns: 2 };
+    render(<SourceRelationshipReview client={{ proposeSourceRelationship, preview: vi.fn().mockResolvedValue(rows) } as unknown as LoomClient}
+      project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects"
+      disabled={false} sourceStep={sourceStep} onApply={onApply} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview source step' }));
+    await screen.findByText('Candidate values');
+    expect(proposeSourceRelationship).toHaveBeenCalledWith(expect.objectContaining({ sourceStep }), expect.any(AbortSignal));
+    expect(proposeSourceRelationship.mock.calls[0][0]).not.toHaveProperty('change');
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply source step' }));
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith([{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: 'subjects', proposalId: 'p1' }]));
+  });
+
+});

@@ -1,6 +1,6 @@
 # Work package: edit the record network and row definition together
 
-Status: ticketed, implementation not started. Authorized by the operator on 2026-11-12. Loom baseline: `4b64797e3` on `feature/default-recipe-authoring`.
+Status: implementation and same-model reviews complete; required native acceptance incomplete (imported and ordinary pass; carry-in, related rows, upstream dependency and history remain open). See [VERIFICATION.md](VERIFICATION.md) for current evidence and the authenticated-environment blocker. Authorized by the operator on 2026-11-12. Baseline: `1685bc4c2` on `feature/default-recipe-authoring`, containing `4b64797e3`.
 
 ## Product goal
 
@@ -81,3 +81,9 @@ The presentation snapshot `4b64797e3` has focused tests, a UI build, and scoped 
 For visible changes, use `.codex/skills/verify/SKILL.md`. For the authenticated Calypr target, also use `.codex/skills/verify-loom-ui/SKILL.md`. Its current driver proves Builder load, not the complete authoring lifecycle. Follow `AGENTS.md` for exact-snapshot review, runtime ownership, and local commits. Use the FHIR modeling skill if a ticket begins interpreting FHIR values rather than copying an already selected scalar.
 
 The release requires the final integrated source and API identity, reviewed contracts, exact expected results, and complete native lifecycle evidence. Record missing coverage as pending. Existing scoped evidence remains reusable when its relevant source and assumptions are unchanged.
+
+The operator explicitly removed the five-second timing gate on 2026-11-13 and
+authorized pushing the code once functional checks pass. Functional acceptance
+uses bounded 30s actions/requests with exact result, pin, persistence and conflict
+checks intact; report latency separately. Deployment and publication remain out
+of scope.

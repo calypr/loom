@@ -37,7 +37,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			break
 		}
 	}
-	if group.RootContributorInputColumn != "" {
+	if group.RootContributorInputColumn != "" || group.DynamicRuntimeKeysVariable != "" {
 		// Root contributor collection needs the exact grouped rows. Keep the
 		// streaming COUNT_ROWS shortcut for ordinary Groups, but materialize
 		// this demanded-only lineage alongside the existing group collection.
@@ -334,6 +334,13 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 				return nil, contributorErr
 			}
 			lines = append(lines, contributorLines...)
+		}
+		if group.DynamicRuntimeKeysVariable != "" {
+			member := r.newInternalVariable("construction_group_dynamic_member")
+			// Keep every inventory separately: merging objects can hide an
+			// unexpected key from an earlier contributing row. Empty keyless
+			// groups have one synthetic null member, which has no inventory.
+			lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s.present RETURN %s.row[\"__loom_dynamic_runtime_keys\"])", group.DynamicRuntimeKeysVariable, member, group.GroupRowsVariable, member, member))
 		}
 	}
 	identity := "TO_STRING([" + strings.Join(identityParts, ", ") + "])"
@@ -855,7 +862,7 @@ func semanticGroupProjectionPreviewShape(
 		group.SemanticKey == nil || group.CodingKey != nil || group.RelatedOccurrence != nil ||
 		len(group.Aggregates) != 1 || group.Aggregates[0].Operation != "COUNT_ROWS" ||
 		group.Aggregates[0].InputColumn != "" || group.Aggregates[0].InputKind != "" ||
-		len(group.RowValues) != 0 || group.RootContributorInputColumn != "" || group.RootContributorInputMany ||
+		len(group.RowValues) != 0 || group.DynamicRuntimeKeysVariable != "" || group.RootContributorInputColumn != "" || group.RootContributorInputMany ||
 		group.RootContributorOutputColumn != "" || group.RootContributorVariable != "" ||
 		group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyGroup &&
 			group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyExclude &&

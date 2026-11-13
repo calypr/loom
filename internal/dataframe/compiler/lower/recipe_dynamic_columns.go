@@ -131,7 +131,24 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 			if column.Column.SourceKey != "" {
 				semanticPath += "[" + column.Column.SourceKey + "]"
 			}
-			entry := DynamicColumnMetadata{Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, Many: many, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered}
+			kind := "DYNAMIC_COLUMN"
+			if strings.Contains(dynamic.Source.SourcePath, "extensionColumns[") {
+				kind = "EXTENSION_COLUMN"
+			}
+			origin := &CompiledSourceOrigin{SourceKey: dynamic.SourceFamilyKey, SourceKind: kind, SourcePath: strings.TrimSuffix(dynamic.Source.SourcePath, ".source"), ValueMode: string(dynamic.ValueMode.Normalized())}
+			var findOrigin func(semantic.SemanticNode)
+			findOrigin = func(node semantic.SemanticNode) {
+				for _, owned := range node.DynamicMaps {
+					if owned.Name == dynamic.Name && owned.Source.SourcePath == dynamic.Source.SourcePath && owned.ScopeAlias == dynamic.ScopeAlias {
+						origin.OccurrenceID = node.OccurrenceID
+					}
+				}
+				for _, child := range node.Children {
+					findOrigin(child)
+				}
+			}
+			findOrigin(output.Root)
+			entry := DynamicColumnMetadata{SourceOrigin: origin, Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, Many: many, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered}
 			if projectionIndex, exists := projectionIndexes[outputName]; exists {
 				if output.Collision != "overwrite" {
 					return nil, fmt.Errorf("dynamic column %q collides with another output column", outputName)

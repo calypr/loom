@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../types';
 
 type ImportedSourceStep = NonNullable<ExplorerBuilderDocument['importedSource']>['steps'][number];
@@ -69,6 +69,7 @@ interface ImportedSourceStepsProps {
   readonly outputId: string;
   readonly importedSource: ExplorerBuilderDocument['importedSource'];
   readonly disabled?: boolean;
+  readonly renderReview?: (sourceStep: NonNullable<ExplorerBuilderCommand['sourceStep']>, onCancel: () => void) => ReactNode;
   readonly onRefresh: () => Promise<boolean>;
   readonly onApply: (command: ExplorerBuilderCommand) => Promise<boolean>;
 }
@@ -86,12 +87,28 @@ export const ImportedSourceSteps = ({
   disabled = false,
   onRefresh,
   onApply,
+  renderReview,
 }: ImportedSourceStepsProps) => {
   const [editor, setEditor] = useState<ImportedSourceStepEditorState>();
   const [refreshing, setRefreshing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const steps = importedSource?.steps;
+  const relationships = importedSource?.relationships;
+  const removedOccurrences = new Set(relationships?.removals ?? []);
+  const effectiveEnabled = (step: ImportedSourceStep) => step.enabled && !(step.occurrenceId && removedOccurrences.has(step.occurrenceId));
+  const effectiveMatch = (step: ImportedSourceStep) => step.occurrenceId
+    ? relationships?.matchOverrides?.find((override) => override.occurrenceId === step.occurrenceId)?.matchMode ?? step.matchMode
+    : step.matchMode;
+  const matchSummary = (step: ImportedSourceStep) => {
+    const mode = effectiveMatch(step);
+    if (mode === 'REQUIRED') return 'A match is required. This requirement applies within the selected source path; inspect row effects for source-row exclusions.';
+    if (mode === 'OPTIONAL') return 'A match is optional. Keep unmatched source rows and retain matching records as values.';
+    if (relationships?.matchOverrides?.length) return 'Refresh source steps to inspect this relationship’s current match policy. Its occurrence metadata is unavailable.';
+    return step.summary === 'Optional relationship with nested source steps.'
+      ? 'Use fields from these related records. A match is optional.'
+      : step.summary === 'Required relationship with nested source steps.' ? 'A match is required within this source path.' : step.summary;
+  };
   const stepsById = new Map<string, ImportedSourceStep>();
   for (const step of steps ?? []) stepsById.set(step.id, step);
   const selectedStep = steps?.find((step) => step.id === editor?.stepId);
@@ -102,7 +119,7 @@ export const ImportedSourceSteps = ({
     let parent = step.parentId ? stepsById.get(step.parentId) : undefined;
     while (parent) {
       if (visited.has(parent.id)) return parent;
-      if (!parent.enabled) return parent;
+      if (!effectiveEnabled(parent)) return parent;
       visited.add(parent.id);
       parent = parent.parentId ? stepsById.get(parent.parentId) : undefined;
     }
@@ -121,6 +138,17 @@ export const ImportedSourceSteps = ({
     parsedMaxColumns > 0
   );
 
+  const currentSourceStepChange: NonNullable<ExplorerBuilderCommand['sourceStep']> | undefined = editor && selectedStep ? {
+      stepId: selectedStep.id,
+      enabled: editor.enabled,
+      ...(changedMaxColumns && parsedMaxColumns !== undefined
+        ? { maxColumns: parsedMaxColumns }
+        : {}),
+      ...(isSupportedValueMode(selectedStep.valueMode, valueModes) && editor.valueMode !== selectedStep.valueMode
+        ? { valueMode: editor.valueMode }
+        : {}),
+  } : undefined;
+
   const refresh = async () => {
     setRefreshing(true);
     setActionError(undefined);
@@ -136,19 +164,10 @@ export const ImportedSourceSteps = ({
   };
 
   const apply = async () => {
-    if (!editor || !selectedStep || !selectedStep.editable || !validMaxColumns) return;
+    if (!editor || !selectedStep || !selectedStep.editable || !validMaxColumns || !currentSourceStepChange) return;
     setApplying(true);
     setActionError(undefined);
-    const sourceStep: NonNullable<ExplorerBuilderCommand['sourceStep']> = {
-      stepId: selectedStep.id,
-      enabled: editor.enabled,
-      ...(changedMaxColumns && parsedMaxColumns !== undefined
-        ? { maxColumns: parsedMaxColumns }
-        : {}),
-      ...(isSupportedValueMode(selectedStep.valueMode, valueModes) && editor.valueMode !== selectedStep.valueMode
-        ? { valueMode: editor.valueMode }
-        : {}),
-    };
+    const sourceStep = currentSourceStepChange;
     try {
       const applied = await onApply({ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId, sourceStep });
       if (applied) {
@@ -176,6 +195,14 @@ export const ImportedSourceSteps = ({
         <h3 className="m-0 text-xs font-medium text-slate-500">Recipe steps</h3>
         <span className="text-xs text-slate-500">{steps ? `${steps.length} steps · select to edit` : 'Imported source'}</span>
       </header>
+      {relationships ? <section aria-label="Project source relationships" className="mb-2 rounded border border-blue-200 bg-blue-50 p-2 text-xs">
+        <p className="font-semibold">Project source changes · original recipe pin preserved</p>
+        <ul>{relationships.additions?.map((addition) => <li key={addition.occurrenceId}>
+          {removedOccurrences.has(addition.occurrenceId) ? 'Removed' : 'Added'} {addition.resourceType} via {addition.relationship} · {relationships.matchOverrides?.find((override) => override.occurrenceId === addition.occurrenceId)?.matchMode ?? addition.matchMode}
+          {addition.fields?.map((field) => <span key={field.columnId}> · {field.label}: {field.valueMode === 'ALL' ? 'all matching values as a list' : field.valueMode === 'FIRST' ? 'first matching value' : 'distinct matching values as a list'}</span>)}
+        </li>)}</ul>
+        {relationships.removals?.length ? <p>{relationships.removals.length} source relationship(s) removed. Their pinned settings are retained for inspection.</p> : null}
+      </section> : null}
       {actionError ? <p className="mb-2 text-sm text-red-700" role="alert">{actionError}</p> : null}
       {steps === undefined ? (
         <div>
@@ -197,7 +224,7 @@ export const ImportedSourceSteps = ({
             const renderStep = ({ step, number }: SourceStepEntry) => {
             const disabledAncestor = disabledAncestorFor(step);
             const parent = step.parentId ? stepsById.get(step.parentId) : undefined;
-            const statusLabel = !step.enabled
+            const statusLabel = step.occurrenceId && removedOccurrences.has(step.occurrenceId) ? 'Removed by project source change' : !step.enabled
               ? 'Disabled'
               : disabledAncestor
                 ? 'Inactive · parent off'
@@ -229,7 +256,7 @@ export const ImportedSourceSteps = ({
                   <span className="min-w-0 break-words text-sm">{sourceStepLabel(step)}</span>
                   <span
                     title={disabledAncestor ? `Inactive because ${sourceStepLabel(disabledAncestor)} is disabled` : undefined}
-                    className={step.enabled && !disabledAncestor ? 'sr-only' : 'shrink-0 text-xs text-slate-500'}
+                    className={effectiveEnabled(step) && !disabledAncestor ? 'sr-only' : 'shrink-0 text-xs text-slate-500'}
                   >
                     {statusLabel}
                   </span>
@@ -243,7 +270,7 @@ export const ImportedSourceSteps = ({
             if (!first || !last) return null;
             const parent = first.step.parentId ? stepsById.get(first.step.parentId) : undefined;
             const containsSelection = group.entries.some(({ step }) => step.id === selectedStep?.id);
-            const inactiveCount = group.entries.filter(({ step }) => !step.enabled || disabledAncestorFor(step)).length;
+            const inactiveCount = group.entries.filter(({ step }) => !effectiveEnabled(step) || disabledAncestorFor(step)).length;
             return (
               <li key={group.id} className="min-w-0 max-w-full">
                 <details data-testid={`source-step-group-${group.id}`} className="min-w-0">
@@ -269,22 +296,16 @@ export const ImportedSourceSteps = ({
           className="mt-2 border-t border-slate-200 pt-2"
           onSubmit={(event) => {
             event.preventDefault();
-            void apply();
+            if (!renderReview) void apply();
           }}
         >
           <h3 className="m-0 text-sm font-semibold text-slate-900">{sourceStepLabel(selectedStep)}</h3>
           {selectedParent ? <p className="m-0 text-xs text-indigo-800">Under {sourceStepLabel(selectedParent)}</p> : null}
-          <p className="m-0 mt-1 text-xs text-slate-600">{selectedStep.kind === 'TRAVERSAL'
-            ? selectedStep.summary === 'Optional relationship with nested source steps.'
-              ? 'Use fields from these related records. A match is optional.'
-              : selectedStep.summary === 'Required relationship with nested source steps.'
-                ? 'Use fields from these related records. A match is required.'
-                : selectedStep.summary
-            : selectedStep.summary}</p>
+          <p className="m-0 mt-1 text-xs text-slate-600">{selectedStep.kind === 'TRAVERSAL' ? matchSummary(selectedStep) : selectedStep.summary}</p>
           {selectedStep.kind === 'TRAVERSAL' ? <details className="mt-1 text-xs text-slate-500">
             <summary className="cursor-pointer">Relationship details</summary>
             <p className="m-0 break-words">{selectedStep.title}</p>
-            <p className="m-0">{selectedStep.summary}</p>
+            <p className="m-0">Pinned recipe setting: {selectedStep.summary}</p>
           </details> : null}
           {selectedDisabledAncestor ? (
             <p role="status" className="mt-1 text-xs text-slate-600">
@@ -336,6 +357,8 @@ export const ImportedSourceSteps = ({
           ) : (
             <p className="mt-2 text-sm text-slate-600">This source step is read-only.</p>
           )}
+          {selectedStep.editable && renderReview && currentSourceStepChange && validMaxColumns && !(selectedStep.occurrenceId && removedOccurrences.has(selectedStep.occurrenceId))
+            ? renderReview(currentSourceStepChange, () => setEditor(undefined)) : null}
           <div className="mt-2 flex justify-end gap-2">
             <button
               type="button"
@@ -345,11 +368,11 @@ export const ImportedSourceSteps = ({
             >
               Close
             </button>
-            {selectedStep.editable ? (
+            {selectedStep.editable && !renderReview ? (
               <button
                 type="submit"
                 data-testid="imported-source-step-apply"
-                disabled={isDisabled || !validMaxColumns}
+                disabled={isDisabled || !validMaxColumns || !!(selectedStep.occurrenceId && removedOccurrences.has(selectedStep.occurrenceId))}
                 className="rounded-md bg-indigo-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {applying ? 'Applying…' : 'Apply source step'}

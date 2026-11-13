@@ -55,6 +55,61 @@ const temporalFilterJourneyTraceBinding = (caseName, { valueKind, resourceType, 
 
 const registryRows = [
   Object.freeze({
+    id: 'graph-rows',
+    workflow: 'native-imported-record-network-and-row-definition',
+    hooks: ['useApplyExplorerBuilderCommandsV2Mutation', 'useConstructionLifecycle'],
+    endpoints: ['GET /authoring/v2/builder', 'POST /authoring/v2/source-relationship-proposals', 'POST /authoring/v2/commands', 'POST /authoring/v2/preview'],
+    requiredTransitions: ['Preview, Cancel, Apply imported source relationship', 'edit OPTIONAL/REQUIRED policy, reload and remove', 'reject a real competing editor stale Apply', 'bounded source-step Preview/Cancel, Apply/edit/reload/restore', 'native Group exact preview/Cancel then Apply, retained contributors, edit, removal, reload and restoration'],
+    gateReasons: ['Requires an explicitly owned local target configured with the unchanged default Helm recipe and a fresh independent fixture', 'Required lifecycle actions use native controls; the 100-operation fixture is prepared through production proposals and CAS commands; fixture setup and receipt-bound preview assertions use the API', 'Current entrypoint is scripts/run-graph-rows-native.mjs, not retired native runners'],
+    script: 'run-graph-rows-native.mjs',
+    cases: {
+      'upstream-dependency': {
+        playwrightTest: 'graph-rows.spec.mjs',
+        playwrightGrep: 'GRAPH-ROWS upstream source dependency rejects without altering Group and workspace$',
+        focusedChecks: [{ id: 'graph-rows-independent-oracle', cwd: '.', command: ['node-test', 'scripts/verify-ui/helpers/tests/graph-rows-fixture-oracle.test.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-native-identity.test.mjs'], sourceFiles: ['scripts/verify-ui/helpers/graph-rows-fixture-oracle.mjs', 'scripts/verify-ui/workflows/graph-rows-upstream-dependency.mjs', 'testdata/graph-rows/oracle.json'] }],
+        requiredChecks: ['Native Group uses the exact pinned Patient ID input and an explicitly authored output alias', 'Preview proves all three Patient key/count pairs before Apply', 'Disabling its upstream source previews a precise 422 rejection and never enables Apply', 'The complete workspace, saved draft and exact Group values remain unchanged', 'Cancel then native Group removal and reload restore original source values, columns and immutable pin'],
+      },
+      'related-rows': {
+        playwrightTest: 'graph-rows.spec.mjs',
+        playwrightGrep: 'GRAPH-ROWS related row pairs preview cancel apply edit removal reload and anchor$',
+        focusedChecks: [{ id: 'graph-rows-independent-oracle', cwd: '.', command: ['node-test', 'scripts/verify-ui/helpers/tests/graph-rows-fixture-oracle.test.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-native-identity.test.mjs'], sourceFiles: ['scripts/verify-ui/helpers/graph-rows-fixture-oracle.mjs', 'testdata/graph-rows/oracle.json'] }],
+        requiredChecks: ['Current stage explicitly advertises the root anchor and known two-hop Observation route', 'Preview proves six exact input/related pairs with preserve-parent policy and repeated upstream status values', 'Cancel preserves saved draft and exact four source rows', 'Apply and reload preserve shared related record pairs', 'Graph selection never saves or retargets the explicit stage anchor', 'Native edit to EXCLUDE previews and saves exactly five pairs', 'Removal and reload restore exact source values, columns and immutable pin'],
+      },
+      'history-stress': {
+        playwrightTest: 'graph-rows.spec.mjs',
+        playwrightGrep: 'GRAPH-ROWS 100 ordered operations remain usable with native keyboard and preview$',
+        focusedChecks: [{ id: 'graph-rows-history-oracle', cwd: '.', command: ['node-test', 'scripts/verify-ui/helpers/tests/graph-rows-history-stress.test.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-history-fixture.test.mjs'], sourceFiles: ['scripts/verify-ui/workflows/graph-rows-history-stress.mjs'] }],
+        requiredChecks: ['An ordinary source is populated with 100 real sequential receipt/CAS-bound calculated fixture steps; reuse requires explicit original SHA256 and current read-only validation', 'Every calculation independently returns three Observation source IDs and literal value 3', 'Collapsed history retains every original operation ID and execution order', 'Native keyboard opens and selects first/last steps with exactly one inspector', 'Network and useful preview fit 1536x900, resize1100 and back without page-level overflow', 'History inspection, collapse and resize preserve exact saved draft and values'],
+      },
+      ordinary: {
+        playwrightTest: 'graph-rows.spec.mjs',
+        playwrightGrep: 'GRAPH-ROWS ordinary document route survives add required removal and reload$',
+        focusedChecks: [{ id: 'graph-rows-independent-oracle', cwd: '.', command: ['node-test', 'scripts/verify-ui/helpers/tests/graph-rows-fixture-oracle.test.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-native-identity.test.mjs'], sourceFiles: ['scripts/verify-ui/helpers/graph-rows-fixture-oracle.mjs', 'testdata/graph-rows/oracle.json'] }],
+        requiredChecks: ['Native creation selects verified ResearchSubject ID field', 'Ordinary graph uses ADD_ROUTE and preserves four exact source rows', 'Saved Document.route and occurrence reload unchanged', 'Required Study match removes only rs-zero', 'Native removal and reload restore original columns and four exact identities'],
+      },
+      imported: {
+        playwrightTest: 'graph-rows.spec.mjs',
+        playwrightGrep: 'GRAPH-ROWS imported source add cancel apply edit remove reload and real stale draft$',
+        focusedChecks: [{ id: 'graph-rows-independent-oracle', cwd: '.', command: ['node-test', 'scripts/verify-ui/helpers/tests/graph-rows-fixture-oracle.test.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-native-identity.test.mjs'], sourceFiles: ['scripts/verify-ui/helpers/graph-rows-fixture-oracle.mjs', 'testdata/graph-rows/oracle.json'] }],
+        requiredChecks: ['Unchanged default recipe imports five pinned outputs', 'Optional related IDs preserve four exact ResearchSubject rows', 'Cancel preserves saved draft identity', 'Apply persists typed overlay and immutable recipe pin', 'Reload preserves occurrence ID and exact values', 'Required match loses only rs-zero', 'Real competing native Apply conflicts without a lost update', 'Removal and reload restore exact source values', 'Native keyboard graph path and useful preview fit at 1536x900 and after resize'],
+      },
+      'carry-in': {
+        playwrightTest: 'graph-rows.spec.mjs',
+        playwrightGrep: 'GRAPH-ROWS carry-in source step edit reload restore and native Group contributor lifecycle$',
+        focusedChecks: [{ id: 'graph-rows-independent-oracle', cwd: '.', command: ['node-test', 'scripts/verify-ui/helpers/tests/graph-rows-fixture-oracle.test.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-native-identity.test.mjs'], sourceFiles: ['scripts/verify-ui/helpers/graph-rows-fixture-oracle.mjs', 'testdata/graph-rows/oracle.json'] }],
+        requiredChecks: ['Bounded source-step Preview/Cancel preserves saved draft; Apply uses its reviewed native receipt', 'Reload retains changed cap, advanced revision and immutable pin', 'Restore and reload return exact original values', 'Group keys stay visible after the catalog closes', 'Group preview proves active=3 and completed=1', 'Cancel preserves exact saved draft and rows', 'Apply Group then add stage-bound ALL contributor Subject IDs through native saved-Group editor', 'Group and retained policy/bindings reload with exact active/completed counts and Subject ID multisets', 'Saved Group label edit preserves operation IDs and contributor bindings', 'Native Group removal and reload restore exact source values'],
+      },
+    },
+    coverage: [
+      { feature: 'Explicit RELATED_EXPAND shared row pairs and stable anchor lifecycle', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'related-rows', checks: { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 3, reload: 3, edit: 5, restoration: 6 } }, status: 'untested', reason: 'Registered native lifecycle awaits final frozen-source execution.' },
+      { feature: 'Upstream source dependency rejects atomically across the saved workspace', acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'upstream-dependency' }, status: 'untested', reason: 'Independent native rejection/removal/restoration probe; complete Group contributor lifecycle is covered by carry-in.' },
+      { feature: '100-operation native ordered-history stress', acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'history-stress' }, status: 'untested', reason: 'Real API fixture setup plus native history/keyboard/layout checks; this is not 100 native authoring lifecycles.' },
+      { feature: 'Ordinary graph Route ownership and persistence', acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'ordinary' }, status: 'untested', reason: 'Existing ordinary Route commands intentionally retain their direct-save workflow; this native probe does not claim imported proposal or ordinary Cancel behavior.' },
+      { feature: 'Imported native relationships, exact fixture rows and stale draft', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'imported', checks: { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 1, reload: 4, edit: 5, restoration: 7 } }, status: 'untested', reason: 'Runnable native lifecycle is registered; final frozen-source execution remains pending.' },
+      { feature: 'Carry-in source-step preview/restoration and complete Group contributor lifecycle', acceptance: { intent: 'row-lifecycle', kind: 'lifecycle', case: 'carry-in', checks: { choice: 3, proposal: 4, cancel: 5, apply: 6, savedRows: 7, reload: 7, edit: 8, restoration: 9 } }, status: 'untested', reason: 'Registered native lifecycle requires final frozen-source execution; no current pass is claimed.' },
+    ],
+  }),
+  Object.freeze({
     id: 'builder-controls',
     workflow: 'supported-builder-controls',
     hooks: ['useCreateExplorerAuthoringMutation', 'useApplyExplorerBuilderCommandsV2Mutation', 'useReconcileExplorerBuilderV2Mutation', 'usePreviewExplorerAuthoringV2Mutation', 'useGetExplorerAuthoringCapabilityV2Query', 'useDeleteExplorerAuthoringMutation', 'useKeyedQuery'],

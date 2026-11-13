@@ -551,7 +551,7 @@ func groupSourceRowVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalSta
 	hasGroupKey := group != nil && (len(group.Keys) != 0 || group.SemanticKey != nil || group.CodingKey != nil)
 	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
 		stage.Kind != ir.PhysicalStageGroupOp || group == nil || (!hasGroupKey && !keylessRowValueGroup) ||
-		group.RootContributorInputColumn != "" ||
+		group.RootContributorInputColumn != "" || group.DynamicRuntimeKeysVariable != "" ||
 		!constructionGroupCountsOnlyRows(group) ||
 		(len(group.RowValues) > 0 && !constructionGroupRowValuesCanAggregate(group.RowValues)) {
 		return ""
@@ -1246,7 +1246,7 @@ func terminalKeylessCountRowsOnly(sequence *ir.PhysicalStageSequence) bool {
 		stage.Kind == ir.PhysicalStageGroupOp &&
 		stage.Group != nil &&
 		len(stage.Group.Keys) == 0 && stage.Group.CodingKey == nil &&
-		stage.Group.RootContributorInputColumn == "" &&
+		stage.Group.RootContributorInputColumn == "" && stage.Group.DynamicRuntimeKeysVariable == "" &&
 		constructionGroupCountsOnlyRows(stage.Group)
 }
 
@@ -1344,7 +1344,7 @@ func stageInputColumnID(stage ir.PhysicalConstructionStage, name string) string 
 }
 
 func constructionGroupCountsOnlyRows(group *ir.PhysicalStageGroup) bool {
-	if len(group.Aggregates) == 0 {
+	if group.DynamicRuntimeKeysVariable != "" || len(group.Aggregates) == 0 {
 		return false
 	}
 	for _, aggregate := range group.Aggregates {

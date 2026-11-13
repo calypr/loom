@@ -40,12 +40,15 @@ import type {
   ConstructionStep,
   ConstructionChoiceSelection,
   RowChangeAssessment,
+  SourceRelationshipChange,
 } from '../../types';
 import { BuilderToolbar, NewExplorerControl } from './components/BuilderToolbar';
 import {
   DatasetReviewPanel,
   type DatasetReviewTarget,
 } from './components/DatasetReviewPanel';
+import { AuthoringNetworkInspector } from './components/AuthoringNetworkInspector';
+import { SourceRelationshipReview } from './components/SourceRelationshipReview';
 import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
 import { ColumnSelector } from './components/ColumnSelector';
 import { ConceptCatalog, type ConceptCatalogView } from './components/ConceptCatalog';
@@ -606,6 +609,7 @@ const BuilderWorkspaceContent = ({
   const appliedChoicePreview = useRef<AppliedPreviewHandoff | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [sourceSetupOpen, setSourceSetupOpen] = useState(false);
+  const [relationshipEdit, setRelationshipEdit] = useState<{ owner: string; change: SourceRelationshipChange }>();
   const [activeConstructionSelection, setActiveConstructionSelection] = useState<{
     readonly ownerKey: string;
     readonly explorerId: string;
@@ -3750,6 +3754,71 @@ const BuilderWorkspaceContent = ({
     type: column.logicalType,
   }));
   const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
+  const relationshipOwner = JSON.stringify([builderDataKey, state.explorerId, table?.outputId,
+    state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
+  const pendingRelationship = relationshipEdit?.owner === relationshipOwner ? relationshipEdit.change : undefined;
+  const proposeRelationship = (change: SourceRelationshipChange) => setRelationshipEdit({ owner: relationshipOwner, change });
+  const recordNetwork = table ? (
+    <div className="min-w-0 space-y-2">
+      <GuidedGraphWorkspace
+        presentation="compact"
+        onTableToolbarHostChange={setTableToolbarHost}
+        catalog={state.catalog} table={table} selectedOccurrenceId={state.selectedOccurrenceId}
+        rowMeaning={rowMeaning}
+        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing || !!pendingRelationship}
+        importedRelationshipActions={table.document.importedRecipe ? {
+          onAdd: (parentOccurrenceId, edgeId) => proposeRelationship({ action: 'ADD', parentOccurrenceId, edgeId, matchMode: 'OPTIONAL' }),
+          onChangeMatchMode: (occurrenceId, matchMode) => proposeRelationship({ action: 'MATCH', occurrenceId, matchMode }),
+          onRemove: (occurrenceId) => proposeRelationship({ action: 'REMOVE', occurrenceId }),
+        } : undefined}
+        rowControl={<button type="button" className="text-sm font-semibold text-blue-800 underline" aria-label="One row per" onClick={() => {
+          document.querySelector<HTMLButtonElement>('[data-construction-source-selection-trigger]')?.click();
+        }}>Change row definition</button>}
+        onSelectOccurrence={(occurrenceId) => dispatch({ type: 'selectOccurrence', occurrenceId })}
+        onSetBase={(nodeId) => void applyCommands([{ type: 'CREATE_TABLE', title: table.title, rootNodeId: nodeId }])}
+        onChangeBase={(nodeId) => selectRootChoice({ kind: 'catalog-node', nodeId })}
+        onAppendEdge={(parentOccurrenceId, edgeId) => {
+          if (!table.document.importedRecipe) void applyCommands([{ type: 'ADD_ROUTE', outputId: table.outputId, parentOccurrenceId, edgeId }]);
+        }}
+        onChangeEdge={(occurrenceId, edgeId) => {
+          if (!table.document.importedRecipe) void applyCommands([{ type: 'UPDATE_ROUTE_EDGE', outputId: table.outputId, occurrenceId, edgeId }]);
+        }}
+        onChangeMatchMode={(occurrenceId, matchMode) => {
+          if (!table.document.importedRecipe) void applyCommands([{ type: 'SET_ROUTE_MATCH_MODE', outputId: table.outputId, occurrenceId, matchMode }]);
+        }}
+        onTruncate={(occurrenceId) => {
+          if (table.document.importedRecipe) return;
+          const subtree = routeNode(table.document.route, occurrenceId);
+          if (!subtree) return;
+          const ids = routeSubtreeOccurrenceIds(subtree);
+          const columnCount = table.document.columns.filter((column) => ids.has(column.occurrenceId)).length;
+          if (!window.confirm(`Remove this local branch (${ids.size} occurrence${ids.size === 1 ? '' : 's'}, ${columnCount} column${columnCount === 1 ? '' : 's'})?`)) return;
+          void applyCommands([{ type: 'REMOVE_ROUTE', outputId: table.outputId, occurrenceId }]);
+        }}
+      />
+      <div className="flex flex-wrap gap-2 text-xs">
+        <button type="button" className="rounded border px-2 py-1" disabled={pendingCommands > 0 || constructionProposalBusy}
+          onClick={() => { selectConstructionFamily('ADD_COLUMNS'); selectAddColumnsView('fields'); }}>
+          Add related values
+        </button>
+        <button type="button" className="rounded border px-2 py-1" disabled={pendingCommands > 0 || !relatedRowsAvailability.supported}
+          title={relatedRowsAvailability.supported ? undefined : relatedRowsAvailability.reason}
+          onClick={() => { chooseRelatedRows(); document.querySelector<HTMLButtonElement>('[data-construction-source-selection-trigger]')?.click(); }}>
+          Choose related-record rows
+        </button>
+      </div>
+      <p className="text-xs text-slate-600">Value and row operations use an explicit construction-stage anchor. Selecting a graph record does not change that anchor.</p>
+      <AuthoringNetworkInspector key={relationshipOwner} client={loomClient} identity={{ project: projectId, explorerId: state.explorerId,
+        authResourcePath, snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
+        expectedDraftDigest: state.draftDigest, outputId: table.outputId }} />
+      {pendingRelationship ? <SourceRelationshipReview key={`${relationshipOwner}:${JSON.stringify(pendingRelationship)}`}
+        client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+        snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
+        outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+        change={pendingRelationship} onApply={applyCommands} onCancel={() => setRelationshipEdit((current) => current?.owner === relationshipOwner && current.change === pendingRelationship ? undefined : current)} /> : null}
+    </div>
+  ) : undefined;
+
   const attachedPopulationSelection = table?.document.population?.selectionRevisionId === activePopulationSelection?.id
     ? activePopulationSelection
     : undefined;
@@ -4461,6 +4530,7 @@ const BuilderWorkspaceContent = ({
             {tableCreatorOpen ? tableCreatorPanel : null}
             {table ? (
               <ConstructionWorkspace
+                network={recordNetwork}
                 tables={state.tables.map((candidate) => ({
                   outputId: candidate.outputId,
                   title: candidate.title,
@@ -4483,6 +4553,7 @@ const BuilderWorkspaceContent = ({
                 onRenameTable={renameTableById}
                 rowSetup={(
                   <RowDefinitionSettingsPanel
+                    presentation="compact"
                     triggerPresentation="source-chip"
                     triggerLabel={table.document.rootResourceType || 'Choose records'}
                     client={loomClient}
@@ -4632,6 +4703,12 @@ const BuilderWorkspaceContent = ({
                         outputId={table.outputId}
                         importedSource={table.document.importedSource}
                         disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                        renderReview={(sourceStep, onCancel) => <SourceRelationshipReview
+                          key={`${relationshipOwner}:source:${JSON.stringify(sourceStep)}`}
+                          client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+                          snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
+                          outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                          sourceStep={sourceStep} onApply={applyCommands} onCancel={onCancel} />}
                         onRefresh={() => applyCommands([{
                           type: 'REFRESH_IMPORTED_SOURCE',
                           outputId: table.outputId,
@@ -4810,91 +4887,13 @@ const BuilderWorkspaceContent = ({
                   />
                 )
               ) : (
-              <GuidedGraphWorkspace
-                catalog={state.catalog}
-                table={table}
-                selectedOccurrenceId={state.selectedOccurrenceId}
-                disabled={
-                  rowChangeStatus.isLoading ||
-                  addColumnsPreviewPending ||
-                  (state.reconciliation === 'pending' &&
-                    Boolean(table?.document.rootResourceType))
-                }
-                onSelectOccurrence={(occurrenceId) =>
-                  dispatch({ type: 'selectOccurrence', occurrenceId })
-                }
-                onSetBase={(nodeId) =>
-                  table &&
-                  void applyCommands([
-                    {
-                      type: 'CREATE_TABLE',
-                      title: table.title,
-                      rootNodeId: nodeId,
-                    },
-                  ])
-                }
-                onChangeBase={(nodeId) => selectRootChoice({ kind: 'catalog-node', nodeId })}
-                onAppendEdge={(parentOccurrenceId, edgeId) => {
-                  if (!table) return;
-                  const edge = state.catalog.edges.find(
-                    (candidate) => candidate.edgeId === edgeId,
-                  );
-                  if (!edge) return;
-                  void applyCommands([
-                    {
-                      type: 'ADD_ROUTE',
-                      outputId: table.outputId,
-                      parentOccurrenceId,
-                      edgeId,
-                    },
-                  ]);
-                }}
-                onChangeEdge={(occurrenceId, edgeId) => {
-                  if (!table) return;
-                  void applyCommands([
-                    {
-                      type: 'UPDATE_ROUTE_EDGE',
-                      outputId: table.outputId,
-                      occurrenceId,
-                      edgeId,
-                    },
-                  ]);
-                }}
-                onChangeMatchMode={(occurrenceId, matchMode) => {
-                  if (!table) return;
-                  void applyCommands([
-                    {
-                      type: 'SET_ROUTE_MATCH_MODE',
-                      outputId: table.outputId,
-                      occurrenceId,
-                      matchMode,
-                    },
-                  ]);
-                }}
-                onTruncate={(occurrenceId) => {
-                  if (!table) return;
-                  const subtree = routeNode(table.document.route, occurrenceId);
-                  if (!subtree) return;
-                  const ids = routeSubtreeOccurrenceIds(subtree);
-                  const columnCount = table.document.columns.filter((column) =>
-                    ids.has(column.occurrenceId),
-                  ).length;
-                  if (
-                    !window.confirm(
-                      `Remove this local branch (${ids.size} occurrence${ids.size === 1 ? '' : 's'}, ${columnCount} column${columnCount === 1 ? '' : 's'})?`,
-                    )
-                  )
-                    return;
-                  void applyCommands([
-                    {
-                      type: 'REMOVE_ROUTE',
-                      outputId: table.outputId,
-                      occurrenceId,
-                    },
-                  ]);
-                }}
-                onTableToolbarHostChange={setTableToolbarHost}
-              />
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
+                <p>Related records are available beside the result preview in the main editor.</p>
+                <button type="button" className="mt-2 font-semibold underline" onClick={() => {
+                  document.querySelector<HTMLElement>('[aria-label="Record network"]')?.scrollIntoView({ block: 'nearest' });
+                  document.querySelector<HTMLButtonElement>('[aria-label="One row per"]')?.focus();
+                }}>Return to related records</button>
+              </div>
               )}
               <div className="min-w-0 space-y-3">
               <ColumnSelector

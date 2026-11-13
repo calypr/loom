@@ -59,7 +59,21 @@ export const GuidedGraphWorkspace = ({
   onChangeMatchMode,
   onTruncate,
   onTableToolbarHostChange,
+  presentation = 'catalog',
+  rowControl,
+  rowMeaning,
+  importedRelationshipActions,
 }: {
+  readonly presentation?: 'catalog' | 'compact';
+  readonly rowControl?: React.ReactNode;
+  readonly rowMeaning?: string;
+  // Imported changes have a separate native proposal owner. Never reuse the
+  // ordinary Route callbacks when that owner has not been supplied.
+  readonly importedRelationshipActions?: {
+    readonly onAdd: (parentOccurrenceId: string, edgeId: string, nodeId: string) => void;
+    readonly onChangeMatchMode: (occurrenceId: string, matchMode: 'OPTIONAL' | 'REQUIRED') => void;
+    readonly onRemove: (occurrenceId: string) => void;
+  };
   readonly catalog: ExplorerBuilderCatalog;
   readonly table?: DraftTable;
   readonly selectedOccurrenceId: string;
@@ -80,10 +94,14 @@ export const GuidedGraphWorkspace = ({
   readonly onTruncate: (occurrenceId: string) => void;
   readonly onTableToolbarHostChange?: (host: HTMLDivElement | null) => void;
 }) => {
+  const imported = Boolean(table?.document.importedRecipe);
+  const canEditRelationships = !imported || Boolean(importedRelationshipActions);
+  const compact = presentation === 'compact';
   const graphHostRef = React.useRef<HTMLDivElement>(null);
   const traversalRef = React.useRef<HTMLElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showOrphans, setShowOrphans] = useState(false);
+  const [showFullNetwork, setShowFullNetwork] = useState(false);
   const catalogIdentity = useMemo(
     () =>
       JSON.stringify({
@@ -392,9 +410,19 @@ export const GuidedGraphWorkspace = ({
         : [],
     ),
   );
-  const catalogNodes = showOrphans
-    ? nodes
-    : nodes.filter((node) => connectedNodeIds.has(node.id));
+  const focusedNodeIds = new Set(legalNextNodeIds);
+  let focusedOccurrence = occurrences.find((item) => item.occurrenceId === selectedOccurrenceId);
+  while (focusedOccurrence) {
+    focusedNodeIds.add(focusedOccurrence.nodeId);
+    focusedOccurrence = occurrences.find((item) => item.occurrenceId === focusedOccurrence?.parentId);
+  }
+  for (const occurrence of occurrences) {
+    if (occurrence.parentId === selectedOccurrenceId || occurrence.occurrenceId === 'base') focusedNodeIds.add(occurrence.nodeId);
+  }
+  const catalogNodes = nodes.filter((node) =>
+    (showOrphans || connectedNodeIds.has(node.id)) &&
+    (!compact || showFullNetwork || occurrences.length === 0 || focusedNodeIds.has(node.id)),
+  );
   const catalogNodeIds = new Set(catalogNodes.map((node) => node.id));
   const catalogEdges = edges.filter(
     (edge) =>
@@ -402,11 +430,19 @@ export const GuidedGraphWorkspace = ({
   );
   const nodesForViewport = catalogNodes;
   const graphIdentity = `${layout.identity ?? 'layout-pending'}:${nodesForViewport.map((node) => node.id).join(',')}`;
+  const selectedPathRequiresMatches = (() => {
+    let occurrence = occurrences.find((candidate) => candidate.occurrenceId === selectedOccurrenceId);
+    while (occurrence?.parentId) {
+      if (occurrence.matchMode !== 'REQUIRED') return false;
+      occurrence = occurrences.find((candidate) => candidate.occurrenceId === occurrence?.parentId);
+    }
+    return true;
+  })();
   const inspectNode = (nodeId: string) => {
     if (disabled) return;
-    if (table?.document.importedRecipe) {
+    if (imported && !importedRelationshipActions) {
       const occurrence = occurrencesByNode.get(nodeId)?.at(-1);
-      updateInspection(nodeId);
+      updateInspection(nodeId, undefined, Boolean(occurrence && importedRelationshipActions));
       if (occurrence) onSelectOccurrence(occurrence.occurrenceId);
       return;
     }
@@ -438,7 +474,7 @@ export const GuidedGraphWorkspace = ({
     }
     if (matchingEdges.length === 1) {
       updateInspection(nodeId);
-      onAppendEdge(selectedOccurrenceId, matchingEdges[0].edgeId, nodeId);
+      if (!imported) onAppendEdge(selectedOccurrenceId, matchingEdges[0].edgeId, nodeId);
       return;
     }
     updateInspection(nodeId);
@@ -457,10 +493,12 @@ export const GuidedGraphWorkspace = ({
     selectEdge(undefined);
   };
   const addRelationship = (edgeId: string, nodeId: string) => {
-    if (disabled || table?.document.importedRecipe || !legalNextEdgeIds.has(edgeId)) return;
-    onAppendEdge(selectedOccurrenceId, edgeId, nodeId);
+    if (disabled || !canEditRelationships || !legalNextEdgeIds.has(edgeId)) return;
+    if (imported) importedRelationshipActions?.onAdd(selectedOccurrenceId, edgeId, nodeId);
+    else onAppendEdge(selectedOccurrenceId, edgeId, nodeId);
     updateInspection();
   };
+  const selectedOccurrence = occurrences.find((item) => item.occurrenceId === selectedOccurrenceId);
   const content = (
     <>
       {isExpanded && <div className="fixed inset-0 z-40 bg-slate-950/30" />}
@@ -468,12 +506,12 @@ export const GuidedGraphWorkspace = ({
         role={isExpanded ? 'dialog' : undefined}
         aria-modal={isExpanded ? true : undefined}
         aria-label={isExpanded ? 'Expanded dataset graph' : undefined}
-        className={`flex min-w-0 flex-col p-3 ${isExpanded ? 'fixed inset-3 z-50 h-[calc(100dvh-1.5rem)] min-h-0 rounded-xl border border-slate-200 bg-white shadow-xl' : 'relative h-[min(70dvh,52rem)] min-h-[43rem] bg-white/60'}`}
+        className={`flex min-w-0 flex-col p-3 ${isExpanded ? 'fixed inset-3 z-50 h-[calc(100dvh-1.5rem)] min-h-0 rounded-xl border border-slate-200 bg-white shadow-xl' : compact ? 'relative h-[26rem] min-h-0 rounded-lg border border-slate-200 bg-white' : 'relative h-[min(70dvh,52rem)] min-h-[43rem] bg-white/60'}`}
       >
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-900">
-              Dataset graph{' '}
+              {compact ? 'Related records' : 'Dataset graph'}{' '}
               <span className="ml-1 text-xs font-normal text-slate-400">
                 {catalog.nodes.length} resources · {catalog.edges.length}{' '}
                 relationships
@@ -484,6 +522,7 @@ export const GuidedGraphWorkspace = ({
             data-testid="graph-header-controls"
             className="flex flex-wrap items-center gap-1.5"
           >
+            {compact ? <label className="flex items-center gap-1.5 text-xs text-slate-700"><input type="checkbox" checked={showFullNetwork} onChange={(event) => setShowFullNetwork(event.currentTarget.checked)} />Show full network</label> : null}
             <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-slate-300 bg-white/95 px-2 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
               <input
                 type="checkbox"
@@ -510,17 +549,30 @@ export const GuidedGraphWorkspace = ({
             )}
           </div>
         </div>
+        {rowControl || rowMeaning ? (
+          <div className="mt-2 flex shrink-0 flex-wrap items-center gap-2 rounded border border-violet-200 bg-violet-50 px-2 py-1.5" aria-label="Row definition">
+            {rowControl}
+            {rowMeaning ? <p className="min-w-0 text-xs text-violet-950">{rowMeaning}</p> : null}
+          </div>
+        ) : null}
         <div
           ref={graphHostRef}
           data-testid="graph-viewport"
-          className={`relative mt-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-slate-100/70 ${isExpanded ? '' : 'min-h-[32rem]'}`}
+          className={`relative mt-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-slate-100/70 ${isExpanded || compact ? '' : 'min-h-[32rem]'}`}
         >
           <ReactFlow
             nodes={nodesForViewport}
             edges={catalogEdges}
             nodesDraggable={false}
             nodesConnectable={false}
-            nodesFocusable={false}
+            nodesFocusable
+            onKeyDown={(event) => {
+              const nodeId = event.target instanceof Element ? event.target.closest('.react-flow__node')?.getAttribute('data-id') : undefined;
+              if (nodeId && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                inspectNode(nodeId);
+              }
+            }}
             minZoom={0.05}
             maxZoom={2}
             proOptions={{ hideAttribution: true }}
@@ -566,15 +618,16 @@ export const GuidedGraphWorkspace = ({
             inspectedNodeId={activeInspectedNodeId}
             selectedEdgeId={activeSelectedEdgeId}
             allowExistingExtension={activeAllowExistingExtension}
-            disabled={disabled || Boolean(table?.document.importedRecipe)}
+            disabled={disabled || !canEditRelationships}
+            requireConfirmation={imported}
             onSelectEdge={selectEdge}
             onUseAsRowStart={useAsRowStart}
             onChangeRowStart={table?.document.importedRecipe ? () => undefined : onChangeBase}
-            onAddEdge={table?.document.importedRecipe ? () => undefined : addRelationship}
+            onAddEdge={addRelationship}
           />
           {table?.document.importedRecipe ? (
             <p role="note" className="absolute bottom-3 left-3 z-10 max-w-sm rounded-md border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs text-amber-900">
-              Based on shared default recipe; edits are saved for this project. Use dataframe operations to transform this imported source.
+              {importedRelationshipActions ? 'Relationship changes are proposed for this project; the shared recipe stays pinned. Adding values keeps the row identity. Required matches can exclude rows.' : 'Based on a shared default recipe. Relationship editing is unavailable until native source proposals are ready.'}
             </p>
           ) : null}
           <nav
@@ -663,9 +716,9 @@ export const GuidedGraphWorkspace = ({
                             aria-label={`${occurrence.matchMode === 'REQUIRED' ? 'Keep' : 'Require'} ${occurrence.resourceType} match`}
                             title={occurrence.matchMode === 'REQUIRED' ? 'Keep rows even when this relationship has no match' : 'Keep only rows with a match for this relationship'}
                             className="block w-full border-t border-current/20 px-2 py-1 text-left text-[9px] font-semibold"
-                            disabled={disabled || Boolean(table?.document.importedRecipe)}
+                            disabled={disabled || !canEditRelationships}
                             onClick={() =>
-                              onChangeMatchMode(
+                              (imported ? importedRelationshipActions?.onChangeMatchMode : onChangeMatchMode)?.(
                                 occurrence.occurrenceId,
                                 occurrence.matchMode === 'REQUIRED'
                                   ? 'OPTIONAL'
@@ -700,8 +753,8 @@ export const GuidedGraphWorkspace = ({
                         aria-label={`Remove ${occurrence.resourceType} branch`}
                         title={`Remove ${occurrence.resourceType} branch`}
                         className="rounded-full px-1.5 py-0.5 text-base leading-none text-blue-500 hover:bg-blue-100 hover:text-red-600"
-                        disabled={disabled || Boolean(table?.document.importedRecipe)}
-                        onClick={() => onTruncate(occurrence.occurrenceId)}
+                        disabled={disabled || !canEditRelationships}
+                        onClick={() => imported ? importedRelationshipActions?.onRemove(occurrence.occurrenceId) : onTruncate(occurrence.occurrenceId)}
                       >
                         ×
                       </button>
@@ -712,6 +765,13 @@ export const GuidedGraphWorkspace = ({
             )}
           </nav>
         </div>
+        {compact && selectedOccurrence ? (
+          <div className="mt-2 shrink-0 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs" aria-label="Selected relationship inspector">
+            <p className="font-semibold text-slate-900">{selectedOccurrence.resourceType} · {selectedOccurrence.occurrenceId === 'base' ? 'Starting records' : selectedOccurrence.relationship || 'Relationship label unavailable'}</p>
+            <p className="mt-0.5 text-slate-600">{selectedOccurrence.occurrenceId === 'base' ? 'Source row identity is shown above; later row operations can change the current grain.' : selectedOccurrence.matchMode === 'REQUIRED' ? selectedPathRequiresMatches ? 'Require a match: unmatched source rows are excluded. Matching records supply values without expanding rows.' : 'Require a match within this optional parent path. Related values can be excluded while source rows stay. This does not expand rows.' : 'Optional values: keep source rows without a match. Multiple matches do not request row expansion.'}</p>
+            <details className="mt-1"><summary className="cursor-pointer text-slate-700">Relationship details</summary><p className="break-all font-mono">Occurrence: {selectedOccurrence.occurrenceId}{selectedOccurrence.incomingEdgeId ? ` · Catalog edge: ${selectedOccurrence.incomingEdgeId}` : ''}</p><p>Multiplicity: unknown. Preview observations do not prove one-to-one cardinality.</p></details>
+          </div>
+        ) : null}
       </section>
     </>
   );

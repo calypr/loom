@@ -596,6 +596,58 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/authoring-network:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: describeExplorerAuthoringNetwork
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AuthoringNetworkRequest'}
+      responses:
+        '200':
+          description: The effective record network and source and construction row identities for one exact saved draft.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthoringNetworkResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/source-relationship-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerSourceRelationship
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SourceRelationshipProposalRequest'}
+      responses:
+        '200':
+          description: A project-local native relationship candidate bound to the saved draft and successful receipt preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceRelationshipProposal'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2778,9 +2830,176 @@ components:
       additionalProperties: false
       required: [steps]
       properties:
+        relationships: {$ref: '#/components/schemas/ImportedRelationshipOverlay'}
         steps:
           type: array
           items: {$ref: '#/components/schemas/ImportedSourceStep'}
+    NetworkOccurrence:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, resourceType, labelMissing, enabled, preservesRowIdentity, canExcludeRows]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        parentOccurrenceId: {type: string, minLength: 1}
+        sourceStepId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        storageDirection: {type: string, minLength: 1}
+        matchMode: {type: string, minLength: 1}
+        labelMissing: {type: boolean}
+        enabled: {type: boolean}
+        preservesRowIdentity: {type: boolean}
+        canExcludeRows: {type: boolean}
+    NetworkColumnBinding:
+      type: object
+      additionalProperties: false
+      required: [columnId, status]
+      properties:
+        columnId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        sourceStepId: {type: string, minLength: 1}
+        valueMode: {type: string, minLength: 1}
+        status: {type: string, minLength: 1}
+    NetworkOperation:
+      type: object
+      additionalProperties: false
+      required: [operationId, kind, inputStepIds]
+      properties:
+        operationId: {type: string, minLength: 1}
+        kind: {type: string, minLength: 1}
+        inputStepIds: {type: array, items: {type: string, minLength: 1}}
+        anchorColumnId: {type: string, minLength: 1}
+    AuthoringNetwork:
+      type: object
+      additionalProperties: false
+      required: [owner, outputId, sourceRows, occurrences, bindings, operations]
+      properties:
+        owner: {type: string, enum: [DOCUMENT, IMPORTED_SOURCE]}
+        outputId: {type: string, minLength: 1}
+        sourceRows: {$ref: '#/components/schemas/RowDefinition'}
+        occurrences: {type: array, items: {$ref: '#/components/schemas/NetworkOccurrence'}}
+        bindings: {type: array, items: {$ref: '#/components/schemas/NetworkColumnBinding'}}
+        operations: {type: array, items: {$ref: '#/components/schemas/NetworkOperation'}}
+    RowIdentity:
+      type: object
+      additionalProperties: false
+      required: [kind, scope]
+      properties:
+        kind: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        inputStageId: {type: string, minLength: 1}
+        anchorColumnId: {type: string, minLength: 1}
+        relatedRecordColumnId: {type: string, minLength: 1}
+        scopePath: {type: string, minLength: 1}
+        groupRevisionId: {type: string, minLength: 1}
+        missingPolicy: {type: string, minLength: 1}
+        scope: {type: string, minLength: 1}
+        keyColumnIds: {type: array, items: {type: string, minLength: 1}}
+    RowCountEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [UNKNOWN]}
+        value: {type: integer, format: int64, minimum: 0}
+    RowIdentityStage:
+      type: object
+      additionalProperties: false
+      required: [stageId, identity, meaning, effect, mayExcludeRows, multiplicity, count]
+      properties:
+        stageId: {type: string, minLength: 1}
+        operationId: {type: string, minLength: 1}
+        identity: {$ref: '#/components/schemas/RowIdentity'}
+        meaning: {type: string}
+        effect: {type: string, minLength: 1}
+        mayExcludeRows: {type: boolean}
+        multiplicity: {type: string, enum: [UNKNOWN]}
+        count: {$ref: '#/components/schemas/RowCountEvidence'}
+        unsupportedReason: {type: string, minLength: 1}
+    RelationshipRowEffect:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, matchMode, preservesIdentity, mayExcludeRows, multiplicity]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        preservesIdentity: {type: boolean}
+        mayExcludeRows: {type: boolean}
+        multiplicity: {type: string, enum: [UNKNOWN]}
+    RowIdentityPlan:
+      type: object
+      additionalProperties: false
+      required: [outputId, sourceDefinition, stages, relationships]
+      properties:
+        outputId: {type: string, minLength: 1}
+        sourceDefinition: {$ref: '#/components/schemas/RowDefinition'}
+        stages: {type: array, items: {$ref: '#/components/schemas/RowIdentityStage'}}
+        relationships: {type: array, items: {$ref: '#/components/schemas/RelationshipRowEffect'}}
+    AuthoringNetworkRequest:
+      type: object
+      x-go-type: lifecycle.AuthoringNetworkRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+    AuthoringNetworkResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, network, rowIdentity]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        network: {$ref: '#/components/schemas/AuthoringNetwork'}
+        rowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
+    ImportedRelationshipField:
+      type: object
+      additionalProperties: false
+      required: [candidateId, columnId, column, fieldPath, label, valueMode]
+      properties:
+        candidateId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        valueMode: {type: string, enum: [ALL, FIRST, DISTINCT]}
+    ImportedRelationship:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, parentOccurrenceId, catalogEdgeId, relationship, resourceType, matchMode]
+      properties:
+        occurrenceId: {type: string, pattern: '^project_[A-Za-z0-9_]+$'}
+        parentOccurrenceId: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        fields: {type: array, items: {$ref: '#/components/schemas/ImportedRelationshipField'}}
+    ImportedRelationshipMatch:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, matchMode]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    ImportedRelationshipOverlay:
+      type: object
+      additionalProperties: false
+      properties:
+        additions: {type: array, items: {$ref: '#/components/schemas/ImportedRelationship'}}
+        removals: {type: array, items: {type: string, minLength: 1}}
+        matchOverrides: {type: array, items: {$ref: '#/components/schemas/ImportedRelationshipMatch'}}
     ImportedSourceStep:
       type: object
       additionalProperties: false
@@ -2788,6 +3007,9 @@ components:
       properties:
         id: {type: string, minLength: 1}
         parentId: {type: string, minLength: 1}
+        sourceKey: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
         kind: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
         summary: {type: string, minLength: 1}
@@ -3190,7 +3412,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, RESTORE_DRAFT_REVISION]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, APPLY_IMPORTED_RELATIONSHIP_PROPOSAL, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         draftRevisionId: {type: string, minLength: 1}
@@ -3229,6 +3451,57 @@ components:
         outputIds:
           type: array
           items: {type: string, minLength: 1}
+    SourceRelationshipChange:
+      type: object
+      x-go-type: authoringv2.ImportedRelationshipChange
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: {type: string, enum: [ADD, MATCH, REMOVE]}
+        parentOccurrenceId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        edgeId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    SourceRelationshipProposalRequest:
+      type: object
+      x-go-type: lifecycle.SourceRelationshipProposalRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
+      oneOf:
+        - required: [change]
+        - required: [sourceStep]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        change: {$ref: '#/components/schemas/SourceRelationshipChange'}
+        sourceStep: {$ref: '#/components/schemas/ImportedSourceStepChange'}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+    SourceRelationshipProposal:
+      type: object
+      additionalProperties: false
+      required: [proposalId, candidateReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, previewStatus, sampledRows, sampled, affectedColumns, notices]
+      properties:
+        proposalId: {type: string, minLength: 1}
+        candidateReceiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        baseDocumentDigest: {type: string, minLength: 1}
+        candidateWorkspaceDigest: {type: string, minLength: 1}
+        previewStatus: {type: string, enum: [READY]}
+        sampledRows: {type: integer, minimum: 0}
+        sampled: {type: boolean}
+        affectedColumns: {type: array, items: {type: string}}
+        notices: {type: array, items: {type: string}}
     ImportedSourceStepChange:
       type: object
       x-go-type: authoringv2.ImportedSourceStepChange

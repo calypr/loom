@@ -80,6 +80,9 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 				if effective.Outputs[i].Name != document.ImportedRecipe.Output {
 					continue
 				}
+				if err := recipeimport.ValidateRelationshipOverlay(effective.Outputs[i], document.ImportedSource, authoringV2Catalog(authorized.Snapshot, "")); err != nil {
+					return importedRecipeResolution{}, err
+				}
 				output, applyErr := recipeimport.ApplySourcePlan(effective.Outputs[i], document.ImportedSource)
 				if applyErr != nil {
 					return importedRecipeResolution{}, applyErr

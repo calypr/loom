@@ -329,6 +329,7 @@ const selectionPage = {
 };
 
 const renderSettings = (overrides: {
+  presentation?: 'fullscreen' | 'compact';
   triggerPresentation?: 'source-chip';
   triggerLabel?: string;
   draftVersion?: number;
@@ -383,6 +384,7 @@ const renderSettings = (overrides: {
   const onRemoveConstructionStep = overrides.onRemoveConstructionStep ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
+      presentation={overrides.presentation}
       triggerPresentation={overrides.triggerPresentation}
       triggerLabel={overrides.triggerLabel}
       {...idleRootChangeProps()}
@@ -432,6 +434,18 @@ const renderSettings = (overrides: {
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
+  it('keeps compact row settings nonmodal and returns keyboard focus on Cancel', async () => {
+    const { container } = renderSettings({ presentation: 'compact' });
+    const trigger = screen.getByTestId('construction-rows-settings-trigger');
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    expect(dialog).not.toHaveAttribute('aria-modal', 'true');
+    expect(container.contains(dialog)).toBe(false); // Escape the scrolling toolbar's clipping context.
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('previews exact replacement consequences for the same table and cancels without applying', async () => {
     const { assessRowChange, preview, onApplyRootReplacement } = renderSettings({
       tableValue: patientWorkspaceTable,

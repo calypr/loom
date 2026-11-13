@@ -24,6 +24,7 @@ export interface ConstructionHistoryStep {
   readonly removeActionLabel?: string;
   readonly editable?: boolean;
   readonly hierarchy?: 'COLUMN_ADJUSTMENT';
+  readonly scopeKey?: string;
 }
 
 export interface ConstructionHistoryProps {
@@ -396,7 +397,7 @@ export const ConstructionHistory = ({
 
     const groupSteps: ConstructionHistoryStep[] = [step];
     index += 1;
-    while (steps[index]?.hierarchy === 'COLUMN_ADJUSTMENT') {
+    while (steps[index]?.hierarchy === 'COLUMN_ADJUSTMENT' && steps[index]?.scopeKey === step.scopeKey) {
       const adjustment = steps[index];
       if (!adjustment) break;
       groupSteps.push(adjustment);
@@ -543,6 +544,7 @@ export const ConstructionWorkspace = ({
   onSelectFamily,
   history,
   rowSetup,
+  network,
   preview,
   editor,
   previewStatus,
@@ -569,6 +571,7 @@ export const ConstructionWorkspace = ({
   readonly onSelectFamily: (family: ConstructionOperationFamily) => void;
   readonly history?: ConstructionHistoryProps;
   readonly rowSetup?: React.ReactNode;
+  readonly network?: React.ReactNode;
   readonly preview: React.ReactNode;
   readonly editor?: React.ReactNode;
   readonly previewStatus: 'empty' | 'stale' | 'previewing' | 'needs-repair' | 'error' | 'ready';
@@ -628,7 +631,8 @@ export const ConstructionWorkspace = ({
         </div> : null}
         {history ? <div className="min-w-0"><ConstructionHistory {...history} sourceControl={rowSetup} /></div> : null}
       </div> : null}
-      <div className="construction-result-region min-w-0">
+      <div data-has-network={network ? 'true' : undefined} className={`construction-result-region min-w-0 ${network ? 'grid gap-2 xl:grid-cols-[minmax(21rem,0.8fr)_minmax(0,1.5fr)]' : ''}`}>
+        {network ? <section aria-label="Record network" className="min-w-0">{network}</section> : null}
         {editor ? <section aria-label="Change editor" className="construction-active-editor min-w-0">{editor}</section> : null}
         <section
           aria-label="Table result"

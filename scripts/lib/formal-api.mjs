@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const boundary = 'production HTTP routes, services and compiler; test-owned in-memory repository and external execution fixtures; not browser or durable database proof';
 export const apiChecks = [
+    { id: 'graph-rows', title: 'Independent record-network values, required matches, related row pairs and Group tuples', package: './internal/server', tests: ['TestGraphRowsIndependentFixtureAgainstArango'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL'], boundary: 'literal hand-authored NDJSON/oracle through production recipe compiler and real Arango AQL execution in an owned disposable database; exact preserving branch values, required-match loss, shared-record expansion pairs, Group keys and retained contributor IDs; no native browser, API proposal, persistence or authentication claim' },
     { id: 'derived-policy', title: 'Bounded actual AQL derived arithmetic, missing input and division policies', package: './internal/server', tests: ['TestDerivedArithmeticPoliciesAgainstArango'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL'], boundary: '400 authored source/literal inputs through production recipe compiler and Engine with actual Arango; eight guard-order conformance cases; no arbitrary numerics, both-input-missing, FHIR profile, HTTP or browser claim' },
     { id: 'append-rows', title: 'Actual current-workspace Group, Calculate and APPEND rows after edit and restoration', package: './internal/server', tests: ['TestCurrentDraftAppendRowsAgainstArangoClickHouse'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL', 'LOOM_CLICKHOUSE_URL'], boundary: 'production recipe compiler, current-workspace capture and Engine execution against actual Arango and ClickHouse; fixed authored recipes, exact row multisets, nullable padding and cleanup; no public save, HTTP, browser or exhaustive-input claim' },
     { id: 'release-dangle-reconcile', title: 'Active-release bindings fence startup ClickHouse reconciliation', package: './internal/dataframe/publication/arango', tests: ['TestReconcileDanglesActiveReleaseAgainstArangoClickHouse'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL', 'LOOM_CLICKHOUSE_URL'], boundary: 'real Arango registry/release state and ClickHouse tables under a controlled publish/reconcile interleaving; proves active-release-bound executions are not physically dropped or demoted; test-owned database/tables with cleanup; no database process restart or browser claim' },
@@ -57,7 +58,7 @@ export function apiSourceFingerprint() {
             else if (entry.isFile()) hash.update(path).update('\0').update(readFileSync(join(root, path))).update('\0');
         }
     };
-    for (const directory of ['internal', 'generated', 'schemas']) visit(directory);
+    for (const directory of ['internal', 'generated', 'schemas', 'testdata/graph-rows']) visit(directory);
     for (const file of ['go.mod', 'go.sum', 'scripts/lib/formal-api.mjs', 'scripts/lib/verification-budget.mjs']) hash.update(file).update('\0').update(readFileSync(join(root, file))).update('\0');
     return hash.digest('hex');
 }

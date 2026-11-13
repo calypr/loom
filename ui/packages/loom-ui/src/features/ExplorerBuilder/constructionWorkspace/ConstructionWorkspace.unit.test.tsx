@@ -15,6 +15,23 @@ import { sourceProjectionAvailability } from './sourceProjectionAvailability';
 import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../types';
 
 describe('ConstructionWorkspace', () => {
+  it('collapses a 100-operation run without crossing source scopes or semantic boundaries', () => {
+    const columns = Array.from({ length: 100 }, (_, index) => ({
+      id: `column-${index}`, title: `Column ${index}`, summary: `Value ${index}`,
+      hierarchy: 'COLUMN_ADJUSTMENT' as const, scopeKey: index < 50 ? 'source:subject' : 'source:patient',
+    }));
+    const steps = [...columns.slice(0, 75), { id: 'filter', title: 'Filter rows', summary: 'Required output filter' }, ...columns.slice(75)];
+    render(<ConstructionHistory resourceType="ResearchSubject" steps={steps} selected={{ kind: 'source' }} onSelect={vi.fn()} />);
+    const groups = screen.getAllByTestId(/construction-history-adjustment-group-/);
+    expect(groups).toHaveLength(3);
+    expect(groups[0]).toHaveTextContent('(50)');
+    expect(groups[1]).toHaveTextContent('(25)');
+    expect(groups[2]).toHaveTextContent('(25)');
+    const orderedIds = [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map((node) => node.getAttribute('data-testid'));
+    expect(orderedIds).toEqual(steps.map((step) => `construction-history-step-${step.id}`));
+    expect(screen.getByText('Required output filter')).toBeInTheDocument();
+  });
+
   it('keeps the visible row meaning aligned with the last row-changing step', () => {
     const sourceColumns = [
       { id: 'status', name: 'status', label: 'Status' },
@@ -620,7 +637,7 @@ describe('ConstructionWorkspace', () => {
       { id: 'weight', name: 'weight', label: 'Weight', type: 'decimal' },
       { id: 'height', name: 'height', label: 'Height', type: 'decimal' },
     ])).toEqual([
-      { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' },
+      { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true, hierarchy: 'COLUMN_ADJUSTMENT', scopeKey: 'source' },
       { id: 'filter_bmi', title: 'Filter BMI', summary: 'Filter output rows where BMI is at least 25.', editable: true },
     ]);
   });
@@ -656,7 +673,7 @@ describe('ConstructionWorkspace', () => {
         }],
       };
       expect(constructionHistorySteps(construction, [])).toEqual([
-        { id: 'related-observation', title: 'Related Observation', summary, removeActionLabel: 'Remove connection to Observation', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' },
+        { id: 'related-observation', title: 'Related Observation', summary, removeActionLabel: 'Remove connection to Observation', editable: true, hierarchy: 'COLUMN_ADJUSTMENT', scopeKey: 'source:related:observation-node:patient-id:' },
       ]);
     }
   });
@@ -693,6 +710,7 @@ describe('ConstructionWorkspace', () => {
       summary: 'Add Observation.status as Observation status.',
       editable: true,
       hierarchy: 'COLUMN_ADJUSTMENT',
+      scopeKey: 'source:related-field:observation-node',
     }]);
   });
 

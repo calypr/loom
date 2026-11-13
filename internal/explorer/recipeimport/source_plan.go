@@ -70,7 +70,7 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 		maxColumns := projection.MaxColumns
 		*steps = append(*steps, authoringv2.ImportedSourceStep{
 			ID: sourceIndexPath(parentID, "catalogProjections", index), ParentID: parentID,
-			Kind: SourcePlanCatalogProjection, Title: "Catalog fields: " + projection.Name,
+			Kind: SourcePlanCatalogProjection, SourceKey: projection.Name, Title: "Catalog fields: " + projection.Name,
 			Summary: "Discover populated source fields.",
 			Enabled: true, Editable: true, MaxColumns: &maxColumns,
 			ValueMode: string(projection.ValueMode.Normalized()),
@@ -79,7 +79,7 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 	for index, dynamic := range dynamicColumns {
 		step := authoringv2.ImportedSourceStep{
 			ID: sourceIndexPath(parentID, "dynamicColumns", index), ParentID: parentID,
-			Kind: SourcePlanDynamicColumn, Title: "Dynamic columns: " + dynamic.Name,
+			Kind: SourcePlanDynamicColumn, SourceKey: dynamic.Name, Title: "Dynamic columns: " + dynamic.Name,
 			Summary: "Discover columns from this keyed source.",
 			Enabled: true, Editable: true,
 			ValueMode: string(dynamic.ValueMode.Normalized()),
@@ -94,7 +94,7 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 		maxColumns := extension.MaxColumns
 		*steps = append(*steps, authoringv2.ImportedSourceStep{
 			ID: sourceIndexPath(parentID, "extensionColumns", index), ParentID: parentID,
-			Kind: SourcePlanExtensionColumn, Title: "Extension columns: " + extension.Name,
+			Kind: SourcePlanExtensionColumn, SourceKey: extension.Name, Title: "Extension columns: " + extension.Name,
 			Summary: "Discover typed columns from this extension source.",
 			Enabled: true, Editable: true, MaxColumns: &maxColumns,
 		})
@@ -102,7 +102,7 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 	for index, pivot := range pivots {
 		step := authoringv2.ImportedSourceStep{
 			ID: sourceIndexPath(parentID, "pivots", index), ParentID: parentID,
-			Kind: SourcePlanPivot, Title: "Pivot: " + pivot.Name,
+			Kind: SourcePlanPivot, SourceKey: pivot.Name, Title: "Pivot: " + pivot.Name,
 			Summary: pivotSummary(pivot), Enabled: true, Editable: true,
 			ValueMode: recipe.NormalizedPivotProjectionMode(pivot.ProjectionMode),
 		}
@@ -114,6 +114,10 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 	}
 	for index, traversal := range traversals {
 		traversalID := sourceIndexPath(parentID, "traversals", index)
+		occurrenceID := traversal.OccurrenceID
+		if occurrenceID == "" {
+			occurrenceID = stableOccurrence(sourcePath(parentID, "traversals"), index, traversal.Name)
+		}
 		name := strings.TrimSpace(traversal.ToResourceType)
 		if name == "" {
 			name = strings.TrimSpace(traversal.Name)
@@ -131,7 +135,7 @@ func appendSourceScope(steps *[]authoringv2.ImportedSourceStep, parentID, resour
 			summary = "Required relationship with nested source steps."
 		}
 		*steps = append(*steps, authoringv2.ImportedSourceStep{
-			ID: traversalID, ParentID: parentID, Kind: SourcePlanTraversal,
+			ID: traversalID, ParentID: parentID, Kind: SourcePlanTraversal, OccurrenceID: occurrenceID, MatchMode: authoringv2.RouteMatchMode(traversal.MatchMode.Normalized()),
 			Title: title, Summary: summary,
 			Enabled: true, Editable: true,
 		})
@@ -212,7 +216,8 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 	for index, step := range plan.Steps {
 		base := expected.Steps[index]
 		if step.ID != base.ID || step.ParentID != base.ParentID || step.Kind != base.Kind ||
-			step.Title != base.Title || step.Summary != base.Summary || step.Editable != base.Editable {
+			step.Title != base.Title || step.Summary != base.Summary || step.Editable != base.Editable ||
+			(step.SourceKey != "" && step.SourceKey != base.SourceKey) || (step.OccurrenceID != "" && step.OccurrenceID != base.OccurrenceID) || (step.MatchMode != "" && step.MatchMode != base.MatchMode) {
 			return recipe.Output{}, fmt.Errorf("imported source plan step %d does not match the pinned source", index)
 		}
 		if !step.Editable && !step.Enabled {
@@ -231,6 +236,7 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 	if err != nil {
 		return recipe.Output{}, err
 	}
+	cloned = freezeOccurrences(cloned)
 	if len(output.Fields) > 0 && !steps["fields"].Enabled {
 		cloned.Fields = nil
 	}
@@ -239,7 +245,7 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 	cloned.ExtensionColumns = applyExtensionColumns(cloned.ExtensionColumns, steps, "")
 	cloned.Pivots = applyPivots(cloned.Pivots, steps, "")
 	cloned.Traversals = applyTraversals(cloned.Traversals, steps, "")
-	return cloned, nil
+	return applyRelationshipOverlay(cloned, plan.Relationships)
 }
 
 func validateMaxColumnsOverride(step, base authoringv2.ImportedSourceStep) error {
@@ -382,4 +388,32 @@ func cloneOutput(output recipe.Output) (recipe.Output, error) {
 		return recipe.Output{}, fmt.Errorf("copy pinned source output for editing: %w", err)
 	}
 	return clone, nil
+}
+
+// HydrateSourcePlan migrates accepted legacy descriptors by adding only
+// pristine server-owned metadata. Bounded settings and project overlays retain
+// their authored meaning; supplied metadata must already match the exact pin.
+func HydrateSourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan) (authoringv2.ImportedSourcePlan, error) {
+	pristine := SourcePlan(output)
+	if plan == nil {
+		return pristine, nil
+	}
+	if _, err := ApplySourcePlan(output, plan); err != nil {
+		return authoringv2.ImportedSourcePlan{}, err
+	}
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		return authoringv2.ImportedSourcePlan{}, err
+	}
+	var cloned authoringv2.ImportedSourcePlan
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return authoringv2.ImportedSourcePlan{}, err
+	}
+	for i, step := range cloned.Steps {
+		pristine.Steps[i].Enabled = step.Enabled
+		pristine.Steps[i].MaxColumns = step.MaxColumns
+		pristine.Steps[i].ValueMode = step.ValueMode
+	}
+	pristine.Relationships = cloned.Relationships
+	return pristine, nil
 }

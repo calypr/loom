@@ -1,6 +1,6 @@
 # GRAPH-ROWS-02: Edit native source relationships through validated proposals
 
-Status: missing-contract. Dependencies: GRAPH-ROWS-01.
+Status: verification-in-progress (implementation and same-model review complete; required current-source native acceptance incomplete). Dependencies: GRAPH-ROWS-01.
 
 ## Problem
 
@@ -28,4 +28,4 @@ Own native source command and lifecycle implementation, `internal/server/explore
 
 ## Execution contract
 
-Read [the work package](../README.md) and repository `AGENTS.md` before implementation. Use the agreed baseline and an isolated worktree. Preserve unrelated work. Run the smallest relevant checks, then the required final acceptance against a frozen source snapshot. Record source identity, review, commands, outcomes, and remaining gaps. Do not deploy, publish, or push as part of this ticket.
+Read [the work package](../README.md) and repository `AGENTS.md` before implementation. Use the agreed baseline and an isolated worktree. Preserve unrelated work. Run the smallest relevant checks, then the required final acceptance against a frozen source snapshot. Record source identity, review, commands, outcomes, and remaining gaps. Do not deploy or publish. The operator separately authorized the parent to push the completed code after functional checks pass.

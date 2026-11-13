@@ -1444,6 +1444,16 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 			projections[len(projections)-1] = ir.PhysicalProjection{Name: rootContributorSetColumn, Hidden: true, Value: ir.PhysicalValue{Variable: physicalGroup.RootContributorVariable}}
 			projections = append(projections, identityProjection)
 		}
+		if inventory, ok := schemaColumn(inputSchema, "__loom_dynamic_runtime_keys"); ok && inventory.Internal {
+			physicalGroup.DynamicRuntimeKeysVariable = allocateConstructionVariable(usedVariables, "group_dynamic_keys", index)
+			inventory.Cardinality = string(expression.Many)
+			compiled = append(compiled, inventory)
+			identityProjection := projections[len(projections)-1]
+			projections[len(projections)-1] = ir.PhysicalProjection{
+				Name: inventory.Name, Hidden: true, Value: ir.PhysicalValue{Variable: physicalGroup.DynamicRuntimeKeysVariable},
+			}
+			projections = append(projections, identityProjection)
+		}
 		base.Kind, base.Group = ir.PhysicalStageGroupOp, &physicalGroup
 		base.OutputProjections = projections
 		outputSchema, outputIdentity = compiled, constructionRowID

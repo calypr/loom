@@ -548,10 +548,26 @@ func TestCompilationReceiptPreservesHistoricalContractReaders(t *testing.T) {
 	}
 }
 
-func TestReceiptContractSupportedForExecutionOnlyCurrentAndPrevious(t *testing.T) {
+func TestReceiptContractSupportedForExecutionOnlyCurrent(t *testing.T) {
 	r := testReceipt()
 	if !ReceiptContractSupportedForExecution(r) {
 		t.Fatal("current receipt was not executable")
+	}
+	currentKey, err := CompilationKey(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.CompilerContractVersion = legacyCompilationReceiptV18CompilerContractVersion
+	r.CompilationKey, _ = CompilationKey(r)
+	r.ID, _ = ReceiptID(r)
+	if err := r.Validate(); err != nil {
+		t.Fatalf("v18 receipt must remain readable for recompile: %v", err)
+	}
+	if ReceiptContractSupportedForExecution(r) {
+		t.Fatal("v18 receipt without source cardinality authentication was executable")
+	}
+	if r.CompilationKey == currentKey {
+		t.Fatal("recompile reused the old fingerprint contract cache key")
 	}
 	r.CompilerContractVersion = legacyCompilationReceiptV17CompilerContractVersion
 	r.CompilationKey, _ = CompilationKey(r)
@@ -573,8 +589,8 @@ func TestReceiptContractSupportedForExecutionOnlyCurrentAndPrevious(t *testing.T
 	}
 	r.ReceiptFormatVersion = previousCompilationReceiptFormatVersion
 	r.CompilerContractVersion = previousCompilationReceiptCompilerContractVersion
-	if !ReceiptContractSupportedForExecution(r) {
-		t.Fatal("immediately previous receipt was not executable")
+	if ReceiptContractSupportedForExecution(r) {
+		t.Fatal("previous receipt without current fingerprints was executable")
 	}
 	r.ReceiptFormatVersion = legacyCompilationReceiptFormatVersion
 	r.CompilerContractVersion = "loom.explorer.compiler/v12"

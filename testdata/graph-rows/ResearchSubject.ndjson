@@ -1,0 +1,4 @@
+{"resourceType":"ResearchSubject","id":"rs-zero","status":"active","subject":{"reference":"Patient/p-zero"},"identifier":[],"study":{"reference":"ResearchStudy/study-unmatched"}}
+{"resourceType":"ResearchSubject","id":"rs-one","status":"active","subject":{"reference":"Patient/p-one"},"identifier":[{"system":"urn:graph-rows","value":"one-A"}],"study":{"reference":"ResearchStudy/study-one"}}
+{"resourceType":"ResearchSubject","id":"rs-many","status":"active","subject":{"reference":"Patient/p-many"},"identifier":[{"system":"urn:graph-rows","value":"many-A"},{"system":"urn:graph-rows","value":"many-B"}],"study":{"reference":"ResearchStudy/study-many"}}
+{"resourceType":"ResearchSubject","id":"rs-shared","status":"completed","subject":{"reference":"Patient/p-many"},"identifier":[{"system":"urn:graph-rows","value":"shared-A"}],"study":{"reference":"ResearchStudy/study-many"}}

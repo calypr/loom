@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -15,53 +16,54 @@ import (
 )
 
 const (
-	CommandCreateTable                   = "CREATE_TABLE"
-	CommandDuplicateTable                = "DUPLICATE_TABLE"
-	CommandDeleteTable                   = "DELETE_TABLE"
-	CommandRenameTable                   = "RENAME_TABLE"
-	CommandReorderTables                 = "REORDER_TABLES"
-	CommandSetTableRoot                  = "SET_TABLE_ROOT"
-	CommandApplyTableRootRebase          = "APPLY_TABLE_ROOT_REBASE"
-	CommandSetTablePopulation            = "SET_TABLE_POPULATION"
-	CommandClearTablePopulation          = "CLEAR_TABLE_POPULATION"
-	CommandAddRoute                      = "ADD_ROUTE"
-	CommandUpdateRouteEdge               = "UPDATE_ROUTE_EDGE"
-	CommandSetRouteMatchMode             = "SET_ROUTE_MATCH_MODE"
-	CommandRemoveRoute                   = "REMOVE_ROUTE"
-	CommandAddColumn                     = "ADD_COLUMN"
-	CommandAddColumnSource               = "ADD_COLUMN_SOURCE"
-	CommandUpdateColumn                  = "UPDATE_COLUMN"
-	CommandUpdateColumnRowValuePolicy    = "UPDATE_COLUMN_ROW_VALUE_POLICY"
-	CommandUpdateConstructionOutput      = "UPDATE_CONSTRUCTION_OUTPUT"
-	CommandUpdateColumnTransformation    = "UPDATE_COLUMN_TRANSFORMATION"
-	CommandSetColumnContributor          = "SET_COLUMN_CONTRIBUTOR"
-	CommandClearColumnContributor        = "CLEAR_COLUMN_CONTRIBUTOR"
-	CommandApplyInterpretationCandidate  = "APPLY_INTERPRETATION_CANDIDATE"
-	CommandApplyRowDefinitionProposal    = "APPLY_ROW_DEFINITION_PROPOSAL"
-	CommandApplyTableShapeProposal       = "APPLY_TABLE_SHAPE_PROPOSAL"
-	CommandApplyConstructionProposal     = "APPLY_CONSTRUCTION_PROPOSAL"
-	CommandApplyPopulationMemberProposal = "APPLY_POPULATION_MEMBER_PROPOSAL"
-	CommandRestoreDraftRevision          = "RESTORE_DRAFT_REVISION"
-	CommandUpdateImportedSourceStep      = "UPDATE_IMPORTED_SOURCE_STEP"
-	CommandRefreshImportedSource         = "REFRESH_IMPORTED_SOURCE"
-	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
-	CommandRemoveColumn                  = "REMOVE_COLUMN"
-	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
-	CommandApplyConstructionChoice       = "APPLY_CONSTRUCTION_CHOICE"
-	CommandSetFrameSource                = "SET_FRAME_SOURCE"
-	CommandReplaceFrameSource            = "REPLACE_FRAME_SOURCE"
-	CommandRemoveFrameSource             = "REMOVE_FRAME_SOURCE"
-	CommandResultTableCreated            = "TABLE_CREATED"
-	CommandResultTableChanged            = "TABLE_CHANGED"
-	CommandResultRouteAdded              = "ROUTE_ADDED"
-	CommandResultColumnAdded             = "COLUMN_ADDED"
-	CommandResultSemanticSelectionsAdded = "SEMANTIC_SELECTIONS_ADDED"
-	CommandResultDraftRestored           = "DRAFT_RESTORED"
-	SemanticSelectionAdded               = "ADDED"
-	SemanticSelectionAlreadyPresent      = "ALREADY_PRESENT"
-	InitialPresentationTable             = "TABLE"
-	InitialPresentationFilter            = "FILTER"
-	InitialPresentationChart             = "CHART"
+	CommandCreateTable                       = "CREATE_TABLE"
+	CommandDuplicateTable                    = "DUPLICATE_TABLE"
+	CommandDeleteTable                       = "DELETE_TABLE"
+	CommandRenameTable                       = "RENAME_TABLE"
+	CommandReorderTables                     = "REORDER_TABLES"
+	CommandSetTableRoot                      = "SET_TABLE_ROOT"
+	CommandApplyTableRootRebase              = "APPLY_TABLE_ROOT_REBASE"
+	CommandSetTablePopulation                = "SET_TABLE_POPULATION"
+	CommandClearTablePopulation              = "CLEAR_TABLE_POPULATION"
+	CommandAddRoute                          = "ADD_ROUTE"
+	CommandUpdateRouteEdge                   = "UPDATE_ROUTE_EDGE"
+	CommandSetRouteMatchMode                 = "SET_ROUTE_MATCH_MODE"
+	CommandRemoveRoute                       = "REMOVE_ROUTE"
+	CommandAddColumn                         = "ADD_COLUMN"
+	CommandAddColumnSource                   = "ADD_COLUMN_SOURCE"
+	CommandUpdateColumn                      = "UPDATE_COLUMN"
+	CommandUpdateColumnRowValuePolicy        = "UPDATE_COLUMN_ROW_VALUE_POLICY"
+	CommandUpdateConstructionOutput          = "UPDATE_CONSTRUCTION_OUTPUT"
+	CommandUpdateColumnTransformation        = "UPDATE_COLUMN_TRANSFORMATION"
+	CommandSetColumnContributor              = "SET_COLUMN_CONTRIBUTOR"
+	CommandClearColumnContributor            = "CLEAR_COLUMN_CONTRIBUTOR"
+	CommandApplyInterpretationCandidate      = "APPLY_INTERPRETATION_CANDIDATE"
+	CommandApplyRowDefinitionProposal        = "APPLY_ROW_DEFINITION_PROPOSAL"
+	CommandApplyTableShapeProposal           = "APPLY_TABLE_SHAPE_PROPOSAL"
+	CommandApplyConstructionProposal         = "APPLY_CONSTRUCTION_PROPOSAL"
+	CommandApplyPopulationMemberProposal     = "APPLY_POPULATION_MEMBER_PROPOSAL"
+	CommandRestoreDraftRevision              = "RESTORE_DRAFT_REVISION"
+	CommandUpdateImportedSourceStep          = "UPDATE_IMPORTED_SOURCE_STEP"
+	CommandRefreshImportedSource             = "REFRESH_IMPORTED_SOURCE"
+	CommandApplyImportedRelationshipProposal = "APPLY_IMPORTED_RELATIONSHIP_PROPOSAL"
+	CommandUpdateColumnSource                = "UPDATE_COLUMN_SOURCE"
+	CommandRemoveColumn                      = "REMOVE_COLUMN"
+	CommandAddSemanticSelections             = "ADD_SEMANTIC_SELECTIONS"
+	CommandApplyConstructionChoice           = "APPLY_CONSTRUCTION_CHOICE"
+	CommandSetFrameSource                    = "SET_FRAME_SOURCE"
+	CommandReplaceFrameSource                = "REPLACE_FRAME_SOURCE"
+	CommandRemoveFrameSource                 = "REMOVE_FRAME_SOURCE"
+	CommandResultTableCreated                = "TABLE_CREATED"
+	CommandResultTableChanged                = "TABLE_CHANGED"
+	CommandResultRouteAdded                  = "ROUTE_ADDED"
+	CommandResultColumnAdded                 = "COLUMN_ADDED"
+	CommandResultSemanticSelectionsAdded     = "SEMANTIC_SELECTIONS_ADDED"
+	CommandResultDraftRestored               = "DRAFT_RESTORED"
+	SemanticSelectionAdded                   = "ADDED"
+	SemanticSelectionAlreadyPresent          = "ALREADY_PRESENT"
+	InitialPresentationTable                 = "TABLE"
+	InitialPresentationFilter                = "FILTER"
+	InitialPresentationChart                 = "CHART"
 )
 
 // ApplyCommandsRequest is the browser's mutation envelope. CommandID is an
@@ -321,13 +323,13 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 	if err := strictDecode(raw, &decoded); err != nil {
 		return err
 	}
-	if decoded.Type == CommandUpdateImportedSourceStep || decoded.Type == CommandRefreshImportedSource {
+	if IsImportedSourceCommand(decoded.Type) {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil {
 			return err
 		}
 		for name := range fields {
-			if name != "type" && name != "outputId" && !(decoded.Type == CommandUpdateImportedSourceStep && name == "sourceStep") {
+			if name != "type" && name != "outputId" && !(decoded.Type == CommandUpdateImportedSourceStep && name == "sourceStep") && !(decoded.Type == CommandApplyImportedRelationshipProposal && name == "proposalId") {
 				return fmt.Errorf("%s does not accept field %q", decoded.Type, name)
 			}
 		}
@@ -556,7 +558,7 @@ func (r ApplyCommandsRequest) Validate() error {
 	proposalCommandCount := 0
 	restoreCommandCount := 0
 	for i, command := range r.Commands {
-		if command.Type == CommandUpdateImportedSourceStep || command.Type == CommandRefreshImportedSource {
+		if IsImportedSourceCommand(command.Type) {
 			if len(r.Commands) != 1 || r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" {
 				return fmt.Errorf("source changes require one command and an exact expected draft version and digest")
 			}
@@ -637,9 +639,15 @@ func (c Command) validate() error {
 		return fmt.Errorf("sourceStep is only accepted by UPDATE_IMPORTED_SOURCE_STEP")
 	}
 	switch c.Type {
-	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource:
+	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
 		if !required(c.OutputID) || c.OutputID != strings.TrimSpace(c.OutputID) {
 			return fmt.Errorf("%s requires an exact outputId", c.Type)
+		}
+		if c.Type == CommandApplyImportedRelationshipProposal {
+			if !required(c.ProposalID) {
+				return fmt.Errorf("proposalId is required")
+			}
+			return nil
 		}
 		if c.Type == CommandUpdateImportedSourceStep {
 			if c.SourceStep == nil {
@@ -907,7 +915,14 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		return result, fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
 	}
 	switch command.Type {
-	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource:
+	case CommandAddRoute, CommandUpdateRouteEdge, CommandSetRouteMatchMode, CommandRemoveRoute:
+		position := documentIndex(workspace, command.OutputID)
+		if position >= 0 && workspace.Documents[position].ImportedRecipe != nil {
+			return result, fmt.Errorf("IMPORTED_SOURCE_REQUIRED: edit imported relationships through a native source proposal")
+		}
+	}
+	switch command.Type {
+	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
 		position := documentIndex(workspace, command.OutputID)
 		if position < 0 || command.resolvedImportedDocument == nil {
 			return result, fmt.Errorf("source change requires a lifecycle-resolved imported document")
@@ -916,6 +931,9 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		resolved := *command.resolvedImportedDocument
 		if current.ImportedRecipe == nil || resolved.ImportedRecipe == nil || *current.ImportedRecipe != *resolved.ImportedRecipe || resolved.Output.ID != current.Output.ID {
 			return result, fmt.Errorf("source change does not match its pinned output")
+		}
+		if current.RootResourceType != resolved.RootResourceType || !reflect.DeepEqual(current.Output, resolved.Output) || !reflect.DeepEqual(current.Population, resolved.Population) || !reflect.DeepEqual(current.Frames, resolved.Frames) || !reflect.DeepEqual(current.Construction, resolved.Construction) || !reflect.DeepEqual(current.TableShape, resolved.TableShape) || !reflect.DeepEqual(current.FixedFilters, resolved.FixedFilters) || !reflect.DeepEqual(current.Actions, resolved.Actions) {
+			return result, fmt.Errorf("source edits must preserve the row root, presentation, population, and all downstream authored work")
 		}
 		workspace.Documents[position] = resolved
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
@@ -1444,6 +1462,9 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {
 			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		if workspace.Documents[document].ImportedRecipe != nil {
+			return result, fmt.Errorf("IMPORTED_SOURCE_ROWS_REQUIRED: imported source rows are derived from the immutable pin and source overlay; choose a construction row operation")
 		}
 		workspace.Documents[document].Rows = rows
 		return result, nil

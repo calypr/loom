@@ -177,6 +177,30 @@ const renderGraph = (currentTable: DraftTable) =>
   );
 
 describe('GuidedGraphWorkspace', () => {
+  it('keeps imported mutation callbacks isolated from ordinary Route commands', async () => {
+    const importedTable = table('node-document');
+    importedTable.document.importedRecipe = { name: 'default', translationVersion: '1', digest: 'pin', output: 'documents' };
+    importedTable.document.route.children = [{ occurrenceId: 'file', resourceType: 'File', catalogEdgeId: 'document-file', relationship: 'references file', matchMode: 'OPTIONAL' }];
+    const ordinary = { onAppendEdge: vi.fn(), onChangeMatchMode: vi.fn(), onTruncate: vi.fn() };
+    const native = { onAdd: vi.fn(), onChangeMatchMode: vi.fn(), onRemove: vi.fn() };
+    const props = { catalog, table: importedTable, selectedOccurrenceId: 'file', disabled: false,
+      onSelectOccurrence: vi.fn(), onSetBase: vi.fn(), onChangeBase: vi.fn(), onChangeEdge: vi.fn(), ...ordinary };
+    const view = render(<GuidedGraphWorkspace {...props} presentation="compact" rowMeaning="One row per document." />);
+    const requireMatch = screen.getByRole('button', { name: 'Require File match' });
+    expect(requireMatch).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove File branch' })).toBeDisabled();
+    view.rerender(<GuidedGraphWorkspace {...props} presentation="compact" rowMeaning="One row per document." importedRelationshipActions={native} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Require File match' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove File branch' }));
+    expect(native.onChangeMatchMode).toHaveBeenCalledWith('file', 'REQUIRED');
+    expect(native.onRemove).toHaveBeenCalledWith('file');
+    expect(ordinary.onChangeMatchMode).not.toHaveBeenCalled();
+    expect(ordinary.onTruncate).not.toHaveBeenCalled();
+    expect(ordinary.onAppendEdge).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Selected relationship inspector')).toHaveTextContent('Multiplicity: unknown');
+    expect(screen.getByText('One row per document.')).toBeInTheDocument();
+  });
+
   it('summarizes multiple relationships between the same resource pair', () => {
     const labels = graphEdgeOverviewLabels([
       { edgeId: 'patient-specimen', fromNodeId: 'patient', toNodeId: 'specimen', label: 'subject_Patient' },

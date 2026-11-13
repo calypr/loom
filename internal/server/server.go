@@ -867,6 +867,8 @@ func run(ctx context.Context, serverConfig Config) error {
 	lifecycleConfig := lifecycle.Config{
 		DefaultDataframeWorkspace:          importedSources.DefaultWorkspace,
 		EditImportedSource:                 importedSources.Edit,
+		EditImportedRelationship:           importedSources.EditRelationship,
+		AuthoringNetwork:                   importedSources.Network,
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
 		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,

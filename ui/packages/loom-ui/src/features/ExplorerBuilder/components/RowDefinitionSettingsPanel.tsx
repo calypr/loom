@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
@@ -371,6 +372,7 @@ const requestFailureMessage = (error: unknown, fallback: string): string => {
 };
 
 export const RowDefinitionSettingsPanel = ({
+  presentation = 'fullscreen',
   triggerPresentation,
   triggerLabel,
   client,
@@ -407,6 +409,7 @@ export const RowDefinitionSettingsPanel = ({
   onEditConstructionStep,
   onRemoveConstructionStep,
 }: {
+  readonly presentation?: 'fullscreen' | 'compact';
   readonly triggerPresentation?: 'source-chip';
   readonly triggerLabel?: string;
   readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'> &
@@ -458,6 +461,10 @@ export const RowDefinitionSettingsPanel = ({
   readonly onEditConstructionStep?: (stepId: string) => void;
   readonly onRemoveConstructionStep?: (stepId: string) => void;
 }) => {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const compact = presentation === 'compact';
+  const [panelPosition, setPanelPosition] = useState({ top: 80, left: 16 });
+  const presentPanel = (panel: ReactNode) => compact && typeof document !== 'undefined' ? createPortal(panel, document.body) : panel;
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
   const [rowChangeIntent, setRowChangeIntent] = useState<RowChangeIntent>('records');
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
@@ -519,6 +526,11 @@ export const RowDefinitionSettingsPanel = ({
   }, [table, snapshotToken, draftVersion, draftDigest]);
 
   const openSettings = async () => {
+    if (compact && triggerRef.current) {
+      const bounds = triggerRef.current.getBoundingClientRect();
+      setPanelPosition({ top: Math.max(8, Math.min(bounds.bottom + 8, window.innerHeight - 320)),
+        left: Math.max(8, Math.min(bounds.left, window.innerWidth - 496)) });
+    }
     cancelPendingPreview();
     const requestEpoch = ++settingsRequestEpoch.current;
     setRowChangeIntent('records');
@@ -745,6 +757,7 @@ export const RowDefinitionSettingsPanel = ({
     setProposalState({ kind: 'none' });
     setGroupAuthoringOpen(false);
     onCloseRowIntentSession?.();
+    triggerRef.current?.focus();
   };
 
   const cancelLocalRowProposals = () => {
@@ -834,8 +847,14 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   return (
-    <>
+    <div className={compact ? 'relative inline-block min-w-0' : undefined} onKeyDown={(event) => {
+      if (compact && event.key === 'Escape' && settingsOpen && replacementState.kind === 'idle') {
+        event.stopPropagation();
+        cancel();
+      }
+    }}>
       <button
+        ref={triggerRef}
         type="button"
         data-testid="construction-rows-settings-trigger"
         data-construction-source-selection-trigger
@@ -853,9 +872,9 @@ export const RowDefinitionSettingsPanel = ({
         <span className="shrink-0">{triggerLabel ?? 'Change rows'}</span>
         {triggerPresentation === 'source-chip' ? null : <span className="shrink-0 font-medium text-blue-800" aria-hidden="true">→</span>}
       </button>
-      {settings.kind !== 'closed' ? (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-white">
-          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="mx-auto min-h-dvh w-full max-w-[1600px] px-4 py-3 sm:px-6">
+      {settings.kind !== 'closed' ? presentPanel(
+        <div style={compact ? { top: panelPosition.top, left: panelPosition.left, maxHeight: `calc(100dvh - ${panelPosition.top + 12}px)` } : undefined} className={compact ? 'fixed z-50 w-[min(30rem,90vw)] overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-xl' : 'fixed inset-0 z-50 overflow-y-auto bg-white'}>
+          <div role="dialog" aria-modal={compact ? undefined : true} aria-label="Row definition settings" className={compact ? 'w-full p-3' : 'mx-auto min-h-dvh w-full max-w-[1600px] px-4 py-3 sm:px-6'}>
             <header className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <h3 className="m-0 text-base font-semibold text-slate-900">Change current rows</h3>
@@ -1153,6 +1172,9 @@ export const RowDefinitionSettingsPanel = ({
           <section role="dialog" aria-modal="true" aria-labelledby="root-replacement-title" className="mx-auto max-w-3xl rounded-xl bg-white p-5 shadow-xl sm:p-7">
             <h2 id="root-replacement-title" className="text-xl font-semibold text-slate-900">Replace this table’s current setup?</h2>
             <p className="mt-2 text-sm text-slate-700">This replaces the current setup for {table.title}. The table, output, and tab keep their identity. Review the candidate and its effects before applying.</p>
+            {table.document.importedRecipe ? <p role="note" className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm">
+              This replacement detaches this table from its pinned recipe ({table.document.importedRecipe.name}, {table.document.importedRecipe.translationVersion}) and resets its source changes and table setup. The shared recipe stays unchanged.
+            </p> : null}
             {replacementState.kind === 'assessing' ? <p role="status" className="mt-4 text-sm text-slate-700">Checking the replacement and preparing its preview…</p> : null}
             {replacementState.kind === 'loading-preview' ? <p role="status" className="mt-4 text-sm text-slate-700">Loading the receipt-bound replacement preview…</p> : null}
             {replacementState.kind === 'blocked' ? (
@@ -1249,6 +1271,6 @@ export const RowDefinitionSettingsPanel = ({
           </section>
         </div>
       ) : null}
-    </>
+    </div>
   );
 };

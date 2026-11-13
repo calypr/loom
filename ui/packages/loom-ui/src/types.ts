@@ -2227,6 +2227,46 @@ export const constructionProposalResponseSchema = z.object({
 }).strict();
 export type ConstructionProposalResponse = z.infer<typeof constructionProposalResponseSchema>;
 
+const importedRelationshipFieldSchema = z.object({
+  candidateId: opaqueIdSchema, columnId: opaqueIdSchema, column: opaqueIdSchema,
+  fieldPath: z.string().min(1), label: z.string().min(1), valueMode: z.enum(['ALL', 'FIRST', 'DISTINCT']),
+}).strict();
+const importedRelationshipOverlaySchema = z.object({
+  additions: z.array(z.object({
+    occurrenceId: opaqueIdSchema.regex(/^project_[A-Za-z0-9_]+$/), parentOccurrenceId: opaqueIdSchema,
+    catalogEdgeId: opaqueIdSchema, relationship: z.string().min(1), resourceType: opaqueIdSchema,
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(), matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+    fields: z.array(importedRelationshipFieldSchema).optional(),
+  }).strict()).optional(),
+  removals: z.array(opaqueIdSchema).optional(),
+  matchOverrides: z.array(z.object({ occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict()).optional(),
+}).strict();
+export const authoringNetworkSchema = z.object({
+  owner: z.enum(['DOCUMENT', 'IMPORTED_SOURCE']), outputId: opaqueIdSchema, sourceRows: explorerRowDefinitionSchema,
+  occurrences: z.array(z.object({
+    occurrenceId: opaqueIdSchema, parentOccurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(),
+    resourceType: opaqueIdSchema, label: z.string().optional(), labelMissing: z.boolean(), catalogEdgeId: opaqueIdSchema.optional(),
+    relationship: z.string().optional(), storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+    matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(), enabled: z.boolean(), preservesRowIdentity: z.boolean(), canExcludeRows: z.boolean(),
+  }).strict()),
+  bindings: z.array(z.object({ columnId: opaqueIdSchema, occurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(), valueMode: z.string().optional(), status: z.enum(['EXACT', 'UNKNOWN']) }).strict()),
+  operations: z.array(z.object({ operationId: opaqueIdSchema, kind: z.string().min(1), inputStepIds: z.array(opaqueIdSchema), anchorColumnId: opaqueIdSchema.optional() }).strict()),
+}).strict();
+export const rowIdentityPlanSchema = z.object({
+  outputId: opaqueIdSchema, sourceDefinition: explorerRowDefinitionSchema,
+  stages: z.array(z.object({
+    stageId: opaqueIdSchema, operationId: opaqueIdSchema.optional(),
+    identity: z.object({ kind: z.string().min(1), occurrenceId: opaqueIdSchema.optional(), resourceType: opaqueIdSchema.optional(), inputStageId: opaqueIdSchema.optional(), anchorColumnId: opaqueIdSchema.optional(), relatedRecordColumnId: opaqueIdSchema.optional(), scopePath: z.string().optional(), keyColumnIds: z.array(opaqueIdSchema).optional(), groupRevisionId: opaqueIdSchema.optional(), missingPolicy: z.string().optional(), scope: z.string().min(1) }).strict(),
+    meaning: z.string(), effect: z.string(), mayExcludeRows: z.boolean(), multiplicity: z.literal('UNKNOWN'),
+    count: z.object({ kind: z.literal('UNKNOWN'), value: z.number().int().nonnegative().optional() }).strict(), unsupportedReason: z.string().optional(),
+  }).strict()),
+  relationships: z.array(z.object({ occurrenceId: opaqueIdSchema, catalogEdgeId: opaqueIdSchema.optional(), matchMode: z.enum(['OPTIONAL', 'REQUIRED']), preservesIdentity: z.boolean(), mayExcludeRows: z.boolean(), multiplicity: z.literal('UNKNOWN') }).strict()),
+}).strict();
+export const authoringNetworkRequestSchema = z.object({ snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1), outputId: opaqueIdSchema }).strict();
+export type AuthoringNetworkRequest = z.infer<typeof authoringNetworkRequestSchema>;
+export const authoringNetworkResponseSchema = z.object({ snapshotToken: opaqueIdSchema, draftVersion: z.number().int().positive(), draftDigest: z.string().min(1), network: authoringNetworkSchema, rowIdentity: rowIdentityPlanSchema }).strict();
+export type AuthoringNetworkResponse = z.infer<typeof authoringNetworkResponseSchema>;
+
 export const explorerBuilderDocumentSchema = z
   .object({
     kind: z.literal('ExplorerBuilderDocument'),
@@ -2245,9 +2285,13 @@ export const explorerBuilderDocumentSchema = z
       output: z.string().min(1),
     }).strict().optional(),
     importedSource: z.object({
+      relationships: importedRelationshipOverlaySchema.optional(),
       steps: z.array(z.object({
         id: opaqueIdSchema,
         parentId: opaqueIdSchema.optional(),
+        sourceKey: z.string().min(1).optional(),
+        occurrenceId: opaqueIdSchema.optional(),
+        matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
         kind: z.string().min(1),
         title: z.string().min(1),
         summary: z.string().min(1),
@@ -3160,6 +3204,34 @@ const importedSourceStepChangeSchema = z.object({
   valueMode: z.string().min(1).optional(),
 }).strict();
 
+export const sourceRelationshipChangeSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('ADD'), parentOccurrenceId: opaqueIdSchema, edgeId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
+  z.object({ action: z.literal('MATCH'), occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
+  z.object({ action: z.literal('REMOVE'), occurrenceId: opaqueIdSchema }).strict(),
+]);
+export type SourceRelationshipChange = z.infer<typeof sourceRelationshipChangeSchema>;
+export const sourceRelationshipProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  change: sourceRelationshipChangeSchema.optional(),
+  sourceStep: importedSourceStepChangeSchema.optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict().superRefine((request, context) => {
+  if (Number(request.change !== undefined) + Number(request.sourceStep !== undefined) !== 1) context.addIssue({ code: 'custom', message: 'Choose exactly one relationship change or bounded source-step change.' });
+});
+export type SourceRelationshipProposalRequest = z.infer<typeof sourceRelationshipProposalRequestSchema>;
+export const sourceRelationshipProposalSchema = z.object({
+  proposalId: opaqueIdSchema, candidateReceiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema, snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(), draftDigest: z.string().min(1),
+  baseDocumentDigest: z.string().min(1), candidateWorkspaceDigest: z.string().min(1),
+  previewStatus: z.literal('READY'), sampledRows: z.number().int().nonnegative(), sampled: z.boolean(),
+  affectedColumns: z.array(z.string()), notices: z.array(z.string()),
+}).strict();
+export type SourceRelationshipProposal = z.infer<typeof sourceRelationshipProposalSchema>;
+
 export const explorerBuilderCommandSchema = z
   .object({
     type: z.enum([
@@ -3198,6 +3270,7 @@ export const explorerBuilderCommandSchema = z
       'APPLY_TABLE_SHAPE_PROPOSAL',
       'UPDATE_IMPORTED_SOURCE_STEP',
       'REFRESH_IMPORTED_SOURCE',
+      'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',
       'RESTORE_DRAFT_REVISION',
     ]),
     outputId: opaqueIdSchema.optional(),
@@ -3247,6 +3320,13 @@ export const explorerBuilderCommandSchema = z
   })
   .strict()
   .superRefine((command, context) => {
+    if (command.type === 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL') {
+      if (!command.outputId || !command.proposalId) context.addIssue({ code: 'custom', message: 'Relationship Apply requires outputId and proposalId.' });
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'proposalId'].includes(key) && value !== undefined) context.addIssue({ code: 'custom', path: [key], message: 'Relationship Apply accepts only outputId and proposalId.' });
+      }
+      return;
+    }
     if (command.type === 'UPDATE_IMPORTED_SOURCE_STEP') {
       if (!command.outputId) {
         context.addIssue({ code: 'custom', path: ['outputId'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires an output ID.' });

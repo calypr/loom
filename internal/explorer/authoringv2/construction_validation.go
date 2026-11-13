@@ -14,6 +14,9 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 	if c == nil {
 		return nil
 	}
+	if err := validateIndependentRelatedExpansions(c.Steps); err != nil {
+		return err
+	}
 	if c.Version != ConstructionVersion {
 		return fmt.Errorf("unsupported construction version %d", c.Version)
 	}
@@ -76,6 +79,9 @@ func (c *Construction) ValidateWithExplicitGroups(sourceColumns []Column, groups
 			return fmt.Errorf("group rows afterStepId %q does not name a construction step", groups.AfterStepID)
 		}
 		return nil
+	}
+	if err := validateIndependentRelatedExpansions(c.Steps); err != nil {
+		return err
 	}
 	if c.Version != ConstructionVersion {
 		return fmt.Errorf("unsupported construction version %d", c.Version)

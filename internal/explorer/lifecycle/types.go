@@ -55,6 +55,7 @@ type CompileReceiptRequest struct {
 	Authorized                      AuthorizedCapability
 	ResolvedInputs                  explorercompilation.ResolvedInputs
 	SelectionMembersCollection      string
+	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
 	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
 	TableShapeProposal              *explorer.TableShapeProposalBinding
 	ConstructionProposal            *explorer.ConstructionProposalBinding
@@ -147,6 +148,8 @@ type Config struct {
 	// DefaultDataframeWorkspace returns the lossless imported workspace that
 	// backs the native graphical builder's reserved default dataframe owner.
 	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error)
+	AuthoringNetwork          func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
+	EditImportedRelationship  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
 	EditImportedSource        func(context.Context, string, AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
 	// SelectionMembersCollection is a deployment-owned runtime binding. It is
 	// never copied into authoring intent, recipes, or receipt identity.
@@ -234,6 +237,7 @@ type compileRequest struct {
 	Workspace                       authoringv2.Workspace
 	SnapshotToken                   string
 	RequestID                       string
+	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
 	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
 	TableShapeProposal              *explorer.TableShapeProposalBinding
 	ConstructionProposal            *explorer.ConstructionProposalBinding

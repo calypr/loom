@@ -43,7 +43,7 @@ func (c ImportedSourceStepChange) Validate() error {
 }
 
 func (c *Command) ResolveImportedDocument(document Document) error {
-	if c == nil || (c.Type != CommandUpdateImportedSourceStep && c.Type != CommandRefreshImportedSource) || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
+	if c == nil || !IsImportedSourceCommand(c.Type) || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
 		return fmt.Errorf("source change requires a matching imported document")
 	}
 	if err := document.Validate(); err != nil {
@@ -59,4 +59,63 @@ func (c *Command) ResolveImportedDocument(document Document) error {
 	}
 	c.resolvedImportedDocument = &cloned
 	return nil
+}
+
+// IsImportedSourceCommand identifies commands whose source must be resolved
+// from the immutable recipe and its project-local overlays by lifecycle.
+func IsImportedSourceCommand(kind string) bool {
+	return kind == CommandUpdateImportedSourceStep || kind == CommandRefreshImportedSource || kind == CommandApplyImportedRelationshipProposal
+}
+
+// ImportedRelationshipChange is browser intent only. Catalog metadata and
+// executable expressions are resolved on the server, never accepted here.
+type ImportedRelationshipChange struct {
+	Action             string         `json:"action"`
+	OccurrenceID       string         `json:"occurrenceId,omitempty"`
+	ParentOccurrenceID string         `json:"parentOccurrenceId,omitempty"`
+	EdgeID             string         `json:"edgeId,omitempty"`
+	MatchMode          RouteMatchMode `json:"matchMode,omitempty"`
+}
+
+func (c ImportedRelationshipChange) Validate() error {
+	for _, value := range []string{c.OccurrenceID, c.ParentOccurrenceID, c.EdgeID} {
+		if value != strings.TrimSpace(value) {
+			return fmt.Errorf("relationship identities must be trimmed")
+		}
+	}
+	switch c.Action {
+	case "ADD":
+		if c.OccurrenceID != "" || c.ParentOccurrenceID == "" || c.EdgeID == "" {
+			return fmt.Errorf("ADD requires parentOccurrenceId and edgeId, without occurrenceId")
+		}
+	case "MATCH":
+		if c.OccurrenceID == "" || c.ParentOccurrenceID != "" || c.EdgeID != "" {
+			return fmt.Errorf("MATCH requires only occurrenceId and matchMode")
+		}
+	case "REMOVE":
+		if c.OccurrenceID == "" || c.ParentOccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" {
+			return fmt.Errorf("REMOVE requires only occurrenceId")
+		}
+		return nil
+	default:
+		return fmt.Errorf("relationship action must be ADD, MATCH, or REMOVE")
+	}
+	if c.MatchMode != RouteMatchOptional && c.MatchMode != RouteMatchRequired {
+		return fmt.Errorf("matchMode must be OPTIONAL or REQUIRED")
+	}
+	for _, value := range []string{c.OccurrenceID, c.ParentOccurrenceID, c.EdgeID} {
+		if value != strings.TrimSpace(value) {
+			return fmt.Errorf("relationship identities must be trimmed")
+		}
+	}
+	return nil
+}
+func (c *ImportedRelationshipChange) UnmarshalJSON(raw []byte) error {
+	type wire ImportedRelationshipChange
+	var decoded wire
+	if err := strictDecode(raw, &decoded); err != nil {
+		return err
+	}
+	*c = ImportedRelationshipChange(decoded)
+	return c.Validate()
 }

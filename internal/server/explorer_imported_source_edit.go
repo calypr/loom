@@ -2,8 +2,9 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
+	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -14,6 +15,17 @@ import (
 )
 
 func (r importedRecipeSources) Edit(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+	return r.editSource(ctx, project, authorized, document, change, nil)
+}
+
+func (r importedRecipeSources) EditRelationship(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
+	if err := change.Validate(); err != nil {
+		return authoringv2.Document{}, err
+	}
+	return r.editSource(ctx, project, authorized, document, nil, &change)
+}
+
+func (r importedRecipeSources) editSource(ctx context.Context, project string, authorized lifecycle.AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange, relationship *authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 	if document.ImportedRecipe == nil || r.registry == nil {
 		return authoringv2.Document{}, fmt.Errorf("an imported source is required")
 	}
@@ -55,18 +67,9 @@ func (r importedRecipeSources) Edit(ctx context.Context, project string, authori
 	if original == nil {
 		return authoringv2.Document{}, fmt.Errorf("pinned source output was not found")
 	}
-	plan := recipeimport.SourcePlan(*original)
-	if document.ImportedSource != nil {
-		if _, err := recipeimport.ApplySourcePlan(*original, document.ImportedSource); err != nil {
-			return authoringv2.Document{}, err
-		}
-		raw, err := json.Marshal(document.ImportedSource)
-		if err != nil {
-			return authoringv2.Document{}, err
-		}
-		if err := json.Unmarshal(raw, &plan); err != nil {
-			return authoringv2.Document{}, err
-		}
+	plan, err := recipeimport.HydrateSourcePlan(*original, document.ImportedSource)
+	if err != nil {
+		return authoringv2.Document{}, err
 	}
 	if change != nil {
 		found := false
@@ -96,6 +99,117 @@ func (r importedRecipeSources) Edit(ctx context.Context, project string, authori
 		}
 		if !found {
 			return authoringv2.Document{}, fmt.Errorf("source step was not found")
+		}
+	}
+
+	if relationship != nil {
+		catalog := authoringV2Catalog(authorized.Snapshot, "")
+		network, err := recipeimport.HydrateNetwork(document, *original, catalog)
+		if err != nil {
+			return authoringv2.Document{}, err
+		}
+		if plan.Relationships == nil {
+			plan.Relationships = &authoringv2.ImportedRelationshipOverlay{}
+		}
+		overlay := plan.Relationships
+		occurrences := map[string]authoringv2.NetworkOccurrence{}
+		for _, o := range network.Occurrences {
+			if o.Enabled {
+				occurrences[o.OccurrenceID] = o
+			}
+		}
+		switch relationship.Action {
+		case "ADD":
+			parent, ok := occurrences[relationship.ParentOccurrenceID]
+			if !ok {
+				return authoringv2.Document{}, fmt.Errorf("selected parent occurrence is unavailable")
+			}
+			var edge *authoringv2.CatalogEdge
+			for i := range catalog.Edges {
+				if catalog.Edges[i].ID == relationship.EdgeID {
+					edge = &catalog.Edges[i]
+					break
+				}
+			}
+			if edge == nil {
+				return authoringv2.Document{}, fmt.Errorf("selected catalog edge is unavailable")
+			}
+			var from, to *authoringv2.CatalogNode
+			for i := range catalog.Nodes {
+				node := &catalog.Nodes[i]
+				if node.ID == edge.FromNodeID {
+					from = node
+				}
+				if node.ID == edge.ToNodeID {
+					to = node
+				}
+			}
+			if from == nil || to == nil || from.ResourceType != parent.ResourceType {
+				return authoringv2.Document{}, fmt.Errorf("selected catalog edge does not extend this occurrence")
+			}
+			// Reject a resource repeated along this ancestor path. Independent paths
+			// to the same resource type retain separate occurrence identities.
+			for ancestor := parent; ; {
+				if ancestor.ResourceType == to.ResourceType {
+					return authoringv2.Document{}, fmt.Errorf("cyclic source relationship is unsupported")
+				}
+				if ancestor.ParentOccurrenceID == "" {
+					break
+				}
+				next, ok := occurrences[ancestor.ParentOccurrenceID]
+				if !ok {
+					return authoringv2.Document{}, fmt.Errorf("source ancestor is unavailable")
+				}
+				ancestor = next
+			}
+			id := "project_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+			addition := authoringv2.ImportedRelationship{OccurrenceID: id, ParentOccurrenceID: parent.OccurrenceID, CatalogEdgeID: edge.ID, Relationship: edge.Label, ResourceType: to.ResourceType, StorageDirection: edge.StorageDirection, MatchMode: relationship.MatchMode}
+			// Related identifiers remain lists even when the preview happens to have
+			// one match. Catalog authority is required for the copied scalar field.
+			for _, field := range catalog.Candidates {
+				if field.NodeID == to.ID && (field.FieldPath == "id" || field.FieldPath == to.ResourceType+".id") && !field.Repeated {
+					addition.Fields = []authoringv2.ImportedRelationshipField{{CandidateID: field.ID, ColumnID: id + "_id", Column: id + "_id", FieldPath: field.FieldPath, Label: field.Label, ValueMode: "ALL"}}
+					break
+				}
+			}
+			if len(addition.Fields) == 0 {
+				return authoringv2.Document{}, fmt.Errorf("related source requires an authorized scalar identifier field")
+			}
+			overlay.Additions = append(overlay.Additions, addition)
+		case "MATCH", "REMOVE":
+			occurrence, ok := occurrences[relationship.OccurrenceID]
+			if !ok || occurrence.OccurrenceID == authoringv2.RootOccurrenceID {
+				return authoringv2.Document{}, fmt.Errorf("selected relationship occurrence is unavailable")
+			}
+			if relationship.Action == "REMOVE" {
+				for _, o := range network.Occurrences {
+					if o.Enabled && o.ParentOccurrenceID == occurrence.OccurrenceID {
+						return authoringv2.Document{}, fmt.Errorf("remove dependent source relationships explicitly before their parent")
+					}
+				}
+				overlay.Removals = append(overlay.Removals, occurrence.OccurrenceID)
+				matches := overlay.MatchOverrides[:0]
+				for _, m := range overlay.MatchOverrides {
+					if m.OccurrenceID != occurrence.OccurrenceID {
+						matches = append(matches, m)
+					}
+				}
+				overlay.MatchOverrides = matches
+			} else {
+				found := false
+				for i := range overlay.MatchOverrides {
+					if overlay.MatchOverrides[i].OccurrenceID == occurrence.OccurrenceID {
+						overlay.MatchOverrides[i].MatchMode = relationship.MatchMode
+						found = true
+					}
+				}
+				if !found {
+					overlay.MatchOverrides = append(overlay.MatchOverrides, authoringv2.ImportedRelationshipMatch{OccurrenceID: occurrence.OccurrenceID, MatchMode: relationship.MatchMode})
+				}
+			}
+		}
+		if err := recipeimport.ValidateRelationshipOverlay(*original, &plan, catalog); err != nil {
+			return authoringv2.Document{}, err
 		}
 	}
 	updated := document

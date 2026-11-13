@@ -1,0 +1,1 @@
+{"resourceType":"MedicationAdministration","id":"medication-one","status":"completed","subject":{"reference":"Patient/p-one"},"dosage":{"dose":{"value":5}},"medication":{"concept":{"text":"Synthetic fixture medication"}}}

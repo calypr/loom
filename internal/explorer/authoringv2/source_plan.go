@@ -15,26 +15,35 @@ const maxImportedSourcePlanIDBytes = maxImportedSourcePlanSteps * 32
 // native recipe output. Recipe expressions stay on the server; clients persist
 // only stable stage identities and bounded overrides.
 type ImportedSourcePlan struct {
-	Steps []ImportedSourceStep `json:"steps"`
+	Steps         []ImportedSourceStep         `json:"steps"`
+	Relationships *ImportedRelationshipOverlay `json:"relationships,omitempty"`
 }
 
 // ImportedSourceStep identifies one source-plan stage. ParentID preserves the
 // owning traversal without flattening its fields into unrelated operations.
 type ImportedSourceStep struct {
-	ID         string `json:"id"`
-	ParentID   string `json:"parentId,omitempty"`
-	Kind       string `json:"kind"`
-	Title      string `json:"title"`
-	Summary    string `json:"summary"`
-	Enabled    bool   `json:"enabled"`
-	Editable   bool   `json:"editable"`
-	MaxColumns *int   `json:"maxColumns,omitempty"`
-	ValueMode  string `json:"valueMode,omitempty"`
+	ID           string         `json:"id"`
+	SourceKey    string         `json:"sourceKey,omitempty"`
+	OccurrenceID string         `json:"occurrenceId,omitempty"`
+	MatchMode    RouteMatchMode `json:"matchMode,omitempty"`
+	ParentID     string         `json:"parentId,omitempty"`
+	Kind         string         `json:"kind"`
+	Title        string         `json:"title"`
+	Summary      string         `json:"summary"`
+	Enabled      bool           `json:"enabled"`
+	Editable     bool           `json:"editable"`
+	MaxColumns   *int           `json:"maxColumns,omitempty"`
+	ValueMode    string         `json:"valueMode,omitempty"`
 }
 
 // Validate checks the durable shape of the source plan. ApplySourcePlan also
 // checks every descriptor and override against the exact pinned recipe output.
 func (p ImportedSourcePlan) Validate() error {
+	if p.Relationships != nil {
+		if err := p.Relationships.Validate(); err != nil {
+			return err
+		}
+	}
 	if len(p.Steps) > maxImportedSourcePlanSteps {
 		return fmt.Errorf("imported source plan has more than %d steps", maxImportedSourcePlanSteps)
 	}
@@ -64,6 +73,22 @@ func (p ImportedSourcePlan) Validate() error {
 		}
 		if err := validateImportedSourcePlanText(path+".summary", step.Summary, 2048); err != nil {
 			return err
+		}
+		if step.SourceKey != "" {
+			if err := validateImportedSourcePlanText(path+".sourceKey", step.SourceKey, 256); err != nil {
+				return err
+			}
+		}
+		if step.OccurrenceID != "" {
+			if err := validateImportedSourcePlanText(path+".occurrenceId", step.OccurrenceID, 256); err != nil {
+				return err
+			}
+			if step.Kind != "TRAVERSAL" {
+				return fmt.Errorf("%s.occurrenceId requires a traversal descriptor", path)
+			}
+		}
+		if step.MatchMode != "" && (step.Kind != "TRAVERSAL" || step.MatchMode != RouteMatchOptional && step.MatchMode != RouteMatchRequired) {
+			return fmt.Errorf("%s.matchMode requires a traversal OPTIONAL or REQUIRED descriptor", path)
 		}
 		if !step.Editable && !step.Enabled {
 			return fmt.Errorf("%s.enabled must remain true for a read-only step", path)
