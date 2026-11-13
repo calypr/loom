@@ -4157,7 +4157,7 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 	for _, rec := range result.Applied {
 		versions = append(versions, rec.Version)
 	}
-	wantVersions := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+	wantVersions := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("ledger versions = %v, want %v", versions, wantVersions)
 	}

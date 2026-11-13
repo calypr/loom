@@ -160,7 +160,7 @@ func pgPubWitness(t *testing.T, fixture *pgCompFixture, revisionID string) (stri
 	return status, activatedAt, pointer
 }
 
-func TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned(t *testing.T) {
+func TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
 		t.Skip("set LOOM_TEST_POSTGRES_URL to run the PostgreSQL repository-publish route integration tests")
@@ -255,20 +255,45 @@ func TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned(
 			pointer, bootResult.RevisionID)
 	}
 
+	var revivedAt time.Time
 	for attempt := 2; attempt <= 3; attempt++ {
 		retry := requestJSONWithHeaders(t, app, http.MethodPost, pathB, workspace, headers)
 		pgCompAssertNoLaneLeak(t, fixture, fmt.Sprintf("retry %d after activation failure", attempt), retry.Body)
-		if retry.StatusCode != http.StatusConflict || !strings.Contains(retry.Body, "GENERATION_ACTIVATION_FAILED") {
-			t.Fatalf("retry %d after an activation failure returned %d, want 409 GENERATION_ACTIVATION_FAILED: %s",
+		if retry.StatusCode != http.StatusOK {
+			t.Fatalf("retry %d after an activation failure returned %d, want 200 revival: %s",
 				attempt, retry.StatusCode, fixture.scrub(retry.Body))
+		}
+		var revived struct {
+			RevisionID string `json:"revisionId"`
+			Activated  *bool  `json:"activated"`
+		}
+		if err := json.Unmarshal([]byte(retry.Body), &revived); err != nil {
+			t.Fatalf("decode retry %d body: %v\n%s", attempt, err, fixture.scrub(retry.Body))
+		}
+		if revived.RevisionID != revisionID || revived.Activated == nil || !*revived.Activated {
+			t.Fatalf("retry %d must activate the pinned revision: got %+v, want revisionId %q activated=true",
+				attempt, revived, revisionID)
 		}
 		if got := pgPubPinnedRevision(t, fixture, pgCompProject, conflictGeneration); got != revisionID {
 			t.Fatalf("retry %d minted a different revision %q, want the pinned identity %q", attempt, got, revisionID)
 		}
-		retryStatus, retryFailedAt, retryDiagnostics, retryPointer := pgPubPinnedWitness(t, fixture, pgCompProject, revisionID)
-		if retryStatus != "FAILED" || !retryFailedAt.Equal(failedAt) || retryDiagnostics != diagnostics || retryPointer != pointer {
-			t.Fatalf("retry %d churned the pinned revision: %s/failed_at %v, want FAILED/failed_at %v unchanged",
-				attempt, retryStatus, retryFailedAt, failedAt)
+		retryStatus, retryAt, retryDiagnostics, retryPointer := pgPubPinnedWitness(t, fixture, pgCompProject, revisionID)
+		if retryStatus != "ACTIVE" || retryAt.IsZero() {
+			t.Fatalf("retry %d left the pinned revision %s/at %v, want ACTIVE with a non-zero activated_at",
+				attempt, retryStatus, retryAt)
+		}
+		if retryDiagnostics != "[]" {
+			t.Fatalf("retry %d left revival diagnostics %s, want []", attempt, fixture.scrub(retryDiagnostics))
+		}
+		if retryPointer != revisionID {
+			t.Fatalf("retry %d left the owner pointer at %q, want the revived revision %q", attempt, retryPointer, revisionID)
+		}
+		if attempt == 2 {
+			revivedAt = retryAt
+			continue
+		}
+		if !retryAt.Equal(revivedAt) {
+			t.Fatalf("retry %d restamped activated_at: %v -> %v (the no-op replay law forbids it)", attempt, revivedAt, retryAt)
 		}
 	}
 

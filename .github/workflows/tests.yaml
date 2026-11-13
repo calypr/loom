@@ -364,9 +364,9 @@ jobs:
             echo '::error/repository-publish spine leg skipped despite both live services being configured'
             exit 1
           fi
-          grep -q -- '--- PASS: TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned' "$log"
-          if grep -q -- '--- SKIP: TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned' "$log"; then
-            echo '::error/repository-publish retry-pinning leg skipped despite both live services being configured'
+          grep -q -- '--- PASS: TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives' "$log"
+          if grep -q -- '--- SKIP: TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives' "$log"; then
+            echo '::error/repository-publish retry-revival leg skipped despite both live services being configured'
             exit 1
           fi
       - name: Preserve spine evidence

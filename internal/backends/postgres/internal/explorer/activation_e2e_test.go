@@ -46,6 +46,7 @@ type pgactMigrationPin struct {
 var (
 	pgactControlPins = []pgactMigrationPin{
 		{6, "explorer_revision", "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09"},
+		{12, "explorer_revision_activation_revival", "08a61bf6ca66a400112f51463f2c5e1c0a7f4cfbb2d707c0063f87829b1acfe9"},
 	}
 	pgactLanePins = []pgactMigrationPin{
 		{3, "dataset_generation_manifest", "06c614680a9c1cd4ba2ef0ac0471053bcb3d8e471c36d3852e70682887a72f5d"},
@@ -239,7 +240,7 @@ func (f *pgactFixture) migrate(t *testing.T) {
 	f.verifyPins(t, "publication lane", execsHistory, pgactExecPins)
 
 	client := f.newPool(t)
-	f.migrateHistory(t, client, f.ctlSchema, ctlHistory, 11, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
+	f.migrateHistory(t, client, f.ctlSchema, ctlHistory, 12, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
 	f.migrateHistory(t, client, f.lanesSchema, lanesHistory, 8, []int64{1, 3, 8})
 	f.migrateHistory(t, client, f.execsSchema, execsHistory, 9, []int64{1, 4, 6, 7, 9})
 }
@@ -689,12 +690,6 @@ func TestActivateRepositoryGenerationUsesCompositeGuardsAgainstPostgreSQL(t *tes
 		{"candidate-wrong-generation", func(revision *explorer.Revision) {
 			revision.SourceGeneration = "pgact_other_gen"
 		}, nil},
-		{"candidate-failed", nil, func(f *pgactFixture, w *pgactWorld) {
-			if _, err := w.store.FailRevisionFrom(f.ctx, w.candidateID, explorer.RevisionReady,
-				[]explorer.Diagnostic{{Severity: "ERROR", Code: "MATERIALIZATION_FAILED", Message: "injected", Retryable: false}}); err != nil {
-				f.fail("fail candidate before activation", err)
-			}
-		}},
 	}
 	for _, tc := range guardCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -809,6 +804,146 @@ func TestActivateRepositoryGenerationUsesCompositeGuardsAgainstPostgreSQL(t *tes
 			t.Fatalf("prior status = %s, want ACTIVE: supersede follows the pointer, and the pointer named the candidate", prior.Status)
 		}
 	})
+
+	t.Run("failed-candidate-revival-matches-fresh-activation-witnesses", func(t *testing.T) {
+		const project = "pgact_revival_01"
+		world := f.seedWorld(t, client, project, "revival1", nil, nil)
+		if _, err := world.store.FailRevisionFrom(f.ctx, world.candidateID, explorer.RevisionReady,
+			[]explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED",
+				Message: "injected pre-activation failure", Retryable: false}}); err != nil {
+			f.fail("fail candidate before revival", err)
+		}
+		failed := f.revisionState(t, world.candidateID)
+		if failed.Status != "FAILED" || failed.FailedAt == nil || failed.Diagnostics == "[]" || failed.Diagnostics == "<null>" {
+			t.Fatalf("pre-revival candidate state = %+v, want FAILED with failed_at set and diagnostics recorded", failed)
+		}
+		if err := world.activation.ActivateRepositoryGeneration(f.ctx, project, world.generation, world.candidateID); err != nil {
+			f.fail("revival activation of FAILED candidate", err)
+		}
+		revived := f.revisionState(t, world.candidateID)
+		if revived.Status != "ACTIVE" {
+			t.Fatalf("revived candidate status = %s, want ACTIVE", revived.Status)
+		}
+		if revived.ActivatedAt == nil || revived.ActivatedAt.IsZero() {
+			t.Fatalf("revived candidate activated_at = %v, want set", revived.ActivatedAt)
+		}
+		if revived.FailedAt != nil {
+			t.Fatalf("revived candidate failed_at = %v, want cleared", revived.FailedAt)
+		}
+		if revived.Diagnostics != "[]" {
+			t.Fatalf("revived candidate diagnostics = %s, want []", revived.Diagnostics)
+		}
+		var publication struct {
+			State      string    `json:"state"`
+			RevisionID string    `json:"revisionId"`
+			Generation string    `json:"generation"`
+			UpdatedAt  time.Time `json:"updatedAt"`
+		}
+		if err := json.Unmarshal([]byte(revived.Publication), &publication); err != nil {
+			f.fail("decode revived publication", err)
+		}
+		if publication.State != "ACTIVE" || publication.RevisionID != world.candidateID ||
+			publication.Generation != world.generation || publication.UpdatedAt.IsZero() {
+			t.Fatalf("revived publication = %+v, want ACTIVE/%s/%s/non-zero updatedAt",
+				publication, world.candidateID, world.generation)
+		}
+		if prior := f.revisionState(t, world.priorID); prior.Status != "SUPERSEDED" {
+			t.Fatalf("prior status after revival = %s, want SUPERSEDED", prior.Status)
+		}
+		if active, _ := f.ownerActivationState(t, project); active != world.candidateID {
+			t.Fatalf("owner active_revision_id after revival = %q, want %q", active, world.candidateID)
+		}
+
+		const freshProject = "pgact_revival_fresh"
+		fresh := f.seedWorld(t, client, freshProject, "revfrsh1", nil, nil)
+		if err := fresh.activation.ActivateRepositoryGeneration(f.ctx, freshProject, fresh.generation, fresh.candidateID); err != nil {
+			f.fail("fresh activation witness world", err)
+		}
+		freshState := f.revisionState(t, fresh.candidateID)
+		if freshState.Status != revived.Status || freshState.Diagnostics != revived.Diagnostics ||
+			freshState.FailedAt != nil || freshState.ActivatedAt == nil {
+			t.Fatalf("revival witnesses diverge from fresh activation: revived=%+v fresh=%+v", revived, freshState)
+		}
+		var freshPublication struct {
+			State      string `json:"state"`
+			Generation string `json:"generation"`
+		}
+		if err := json.Unmarshal([]byte(freshState.Publication), &freshPublication); err != nil {
+			f.fail("decode fresh publication witness", err)
+		}
+		if freshPublication.State != publication.State || freshPublication.Generation != publication.Generation {
+			t.Fatalf("revival publication diverges from fresh activation: revived=%+v fresh=%+v", publication, freshPublication)
+		}
+
+		before := f.revisionState(t, world.candidateID)
+		beforeOwner, beforeOwnerUpdated := f.ownerActivationState(t, project)
+		if err := world.activation.ActivateRepositoryGeneration(f.ctx, project, world.generation, world.candidateID); err != nil {
+			f.fail("replay after revival", err)
+		}
+		after := f.revisionState(t, world.candidateID)
+		afterOwner, afterOwnerUpdated := f.ownerActivationState(t, project)
+		if before.ActivatedAt == nil || after.ActivatedAt == nil || !before.ActivatedAt.Equal(*after.ActivatedAt) {
+			t.Fatalf("replay after revival restated activated_at: %v -> %v", before.ActivatedAt, after.ActivatedAt)
+		}
+		if beforeOwner != afterOwner || !beforeOwnerUpdated.Equal(afterOwnerUpdated) {
+			t.Fatalf("replay after revival churned the owner pointer: %q/%v -> %q/%v", beforeOwner, beforeOwnerUpdated, afterOwner, afterOwnerUpdated)
+		}
+	})
+
+	t.Run("ready-only-first-cas-never-touches-failed-candidate", func(t *testing.T) {
+		const project = "pgact_firstcas_readyonly"
+		world := f.seedWorld(t, client, project, "fstcas01", nil, nil)
+		if _, err := world.store.FailRevisionFrom(f.ctx, world.candidateID, explorer.RevisionReady,
+			[]explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED",
+				Message: "injected failure for first-CAS pin", Retryable: false}}); err != nil {
+			f.fail("fail candidate for first-CAS pin", err)
+		}
+		tag, err := f.iso.Exec(f.ctx, "UPDATE "+f.ctlTable(RevisionsTable)+
+			" SET status = 'ACTIVE', activated_at = $2, failed_at = NULL, diagnostics = '[]'::jsonb"+
+			" WHERE id = $1 AND status = 'READY'", world.candidateID, time.Now().UTC())
+		if err != nil {
+			f.fail("ready-only first CAS against FAILED candidate", err)
+		}
+		if tag.RowsAffected() != 0 {
+			t.Fatalf("ready-only first CAS affected %d rows, want 0: revival must ride its own statement", tag.RowsAffected())
+		}
+		if candidate := f.revisionState(t, world.candidateID); candidate.Status != "FAILED" {
+			t.Fatalf("candidate status after ready-only first CAS = %s, want FAILED", candidate.Status)
+		}
+	})
+
+	t.Run("failed-candidate-guard-refusal-leaves-failed-state-byte-stable", func(t *testing.T) {
+		const project = "pgact_revival_guard"
+		world := f.seedWorld(t, client, project, "revguard", nil, nil)
+		if _, err := world.store.FailRevisionFrom(f.ctx, world.candidateID, explorer.RevisionReady,
+			[]explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED",
+				Message: "injected failure before guard refusal", Retryable: false}}); err != nil {
+			f.fail("fail candidate before guard refusal", err)
+		}
+		f.execRaw(t, "UPDATE "+f.lanesTable("dataset_generation_manifest")+" SET state = 'FAILED' WHERE project = $1", project)
+		beforeRevisions := f.snapshotRevisions(t, project)
+		beforeOwners := f.snapshotOwners(t, project)
+		beforeCandidate := f.revisionState(t, world.candidateID)
+
+		err := world.activation.ActivateRepositoryGeneration(f.ctx, project, world.generation, world.candidateID)
+		requireActivationConflict(t, f, err, "guard-refused revival")
+
+		if after := f.snapshotRevisions(t, project); after != beforeRevisions {
+			t.Fatalf("guard-refused revival mutated revisions:\nbefore=%s\nafter=%s", f.scrub(beforeRevisions), f.scrub(after))
+		}
+		if after := f.snapshotOwners(t, project); after != beforeOwners {
+			t.Fatalf("guard-refused revival churned owners:\nbefore=%s\nafter=%s", f.scrub(beforeOwners), f.scrub(after))
+		}
+		afterCandidate := f.revisionState(t, world.candidateID)
+		if afterCandidate.Status != "FAILED" || afterCandidate.FailedAt == nil ||
+			!afterCandidate.FailedAt.Equal(*beforeCandidate.FailedAt) ||
+			afterCandidate.Diagnostics != beforeCandidate.Diagnostics {
+			t.Fatalf("guard-refused revival disturbed the FAILED candidate: before=%+v after=%+v", beforeCandidate, afterCandidate)
+		}
+		if active, _ := f.ownerActivationState(t, project); active != world.priorID {
+			t.Fatalf("owner pointer after guard-refused revival = %q, want %q", active, world.priorID)
+		}
+	})
 }
 
 func installActivationCrashSeam(as *ActivationStore, gate func(step string, tx pgx.Tx) error) *[]string {
@@ -882,7 +1017,7 @@ func TestActivationUsesTransactionsAndSingleModificationQueriesAgainstPostgreSQL
 		})
 	}
 
-	t.Run("activation-races-failure-single-winner", func(t *testing.T) {
+	t.Run("activation-races-failure-never-strands", func(t *testing.T) {
 		const project = "pgact_cas_race_01"
 		world := f.seedWorld(t, client, project, "race011", nil, nil)
 
@@ -904,34 +1039,24 @@ func TestActivationUsesTransactionsAndSingleModificationQueriesAgainstPostgreSQL
 		close(start)
 		wg.Wait()
 
-		if (activationErr == nil) == (failureErr == nil) {
-			t.Fatalf("activation and failure must produce exactly one winner: activation=%s failure=%s",
-				f.scrub(activationErr), f.scrub(failureErr))
-		}
 		candidate := f.revisionState(t, world.candidateID)
 		active, _ := f.ownerActivationState(t, project)
 		prior := f.revisionState(t, world.priorID)
-		switch {
-		case activationErr == nil:
-			if candidate.Status != "ACTIVE" || active != world.candidateID {
-				t.Fatalf("activation won but state disagrees: status=%s pointer=%q", candidate.Status, active)
-			}
-			if prior.Status != "SUPERSEDED" {
-				t.Fatalf("activation won but prior status = %s, want SUPERSEDED", prior.Status)
-			}
-			if !errors.Is(failureErr, ErrStaleRevisionTransition) {
-				t.Fatalf("losing failure error = %s, want ErrStaleRevisionTransition", f.scrub(failureErr))
-			}
-		default:
-			if candidate.Status != "FAILED" || active != world.priorID {
-				t.Fatalf("failure won but state disagrees: status=%s pointer=%q", candidate.Status, active)
-			}
-			if prior.Status != "ACTIVE" {
-				t.Fatalf("failure won but prior status = %s, want ACTIVE", prior.Status)
-			}
-			if !errors.Is(activationErr, explorer.ErrDraftConflict) {
-				t.Fatalf("losing activation error = %s, want explorer.ErrDraftConflict", f.scrub(activationErr))
-			}
+		if activationErr != nil {
+			t.Fatalf("activation stranded by a racing failure: %s (failure=%s)",
+				f.scrub(activationErr), f.scrub(failureErr))
+		}
+		if candidate.Status != "ACTIVE" || candidate.ActivatedAt == nil || candidate.FailedAt != nil {
+			t.Fatalf("race left the candidate stranded: %+v", candidate)
+		}
+		if active != world.candidateID {
+			t.Fatalf("race left the owner pointer at %q, want %q", active, world.candidateID)
+		}
+		if prior.Status != "SUPERSEDED" {
+			t.Fatalf("race left prior status = %s, want SUPERSEDED", prior.Status)
+		}
+		if failureErr != nil && !errors.Is(failureErr, ErrStaleRevisionTransition) {
+			t.Fatalf("racing failure error = %s, want success-revived or ErrStaleRevisionTransition", f.scrub(failureErr))
 		}
 	})
 }

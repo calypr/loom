@@ -155,7 +155,7 @@ func (a *ActivationStore) runActivateRepositoryGeneration(ctx context.Context, p
 		committed = true
 		return nil
 	}
-	if candidate.Status != string(explorer.RevisionReady) {
+	if candidate.Status != string(explorer.RevisionReady) && candidate.Status != string(explorer.RevisionFailed) {
 		return fmt.Errorf("%w: candidate revision %q is %s, not activatable", explorer.ErrDraftConflict, candidate.ID, candidate.Status)
 	}
 
@@ -173,8 +173,12 @@ func (a *ActivationStore) runActivateRepositoryGeneration(ctx context.Context, p
 		return err
 	}
 	activatedAt := time.Now().UTC()
+	activationStatement := a.stmts.publish.candidateActive
+	if candidate.Status == string(explorer.RevisionFailed) {
+		activationStatement = a.stmts.publish.candidateRevive
+	}
 	var activated storedRevisionRow
-	if err := scanRevisionRow(tx.QueryRow(ctx, a.stmts.publish.candidateActive,
+	if err := scanRevisionRow(tx.QueryRow(ctx, activationStatement,
 		candidate.ID, activatedAt, []byte(publishDiagnosticsSet), []byte(activatedPublication)), &activated); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: candidate revision %q moved before it could be activated", explorer.ErrDraftConflict, candidate.ID)

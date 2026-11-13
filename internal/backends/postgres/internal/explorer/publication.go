@@ -69,6 +69,7 @@ type publishStatements struct {
 	priorLock            string
 	priorSupersede       string
 	candidateActive      string
+	candidateRevive      string
 	ownerActivate        string
 }
 
@@ -100,6 +101,9 @@ func newPublishStatements(explorerSchema, datasetSchema string) publishStatement
 		candidateActive: "UPDATE " + sanitizeTableRef(explorerSchema, RevisionsTable) +
 			" SET status = 'ACTIVE', activated_at = $2, failed_at = NULL, diagnostics = $3, publication = $4" +
 			" WHERE id = $1 AND status = 'READY' RETURNING " + strings.Join(revisionColumns, ", "),
+		candidateRevive: "UPDATE " + sanitizeTableRef(explorerSchema, RevisionsTable) +
+			" SET status = 'ACTIVE', activated_at = $2, failed_at = NULL, diagnostics = $3, publication = $4" +
+			" WHERE id = $1 AND status = 'FAILED' RETURNING " + strings.Join(revisionColumns, ", "),
 		ownerActivate: "UPDATE " + ownerTable + " SET active_revision_id = $3, updated_at = $4" +
 			" WHERE project = $1 AND explorer_id = $2 RETURNING " + ownerCols,
 	}

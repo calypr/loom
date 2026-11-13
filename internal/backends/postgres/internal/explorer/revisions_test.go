@@ -756,7 +756,7 @@ func TestPostgresRevisionConcurrentFailWritersTwoConnections(t *testing.T) {
 	}
 }
 
-func TestPostgresRevisionTransitionMonotonicityProbe(t *testing.T) {
+func TestPostgresRevisionTransitionGuardProbe(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
 
@@ -773,6 +773,13 @@ func TestPostgresRevisionTransitionMonotonicityProbe(t *testing.T) {
 			stamp := time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC)
 			r.ActivatedAt = &stamp
 		}
+		return r
+	}
+	failedRow := func(id string) explorer.Revision {
+		r := at(pgstate02Revision(id, "a"), explorer.RevisionFailed, false)
+		failedAt := time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
+		r.FailedAt = &failedAt
+		r.Diagnostics = pgstate02Diagnostic("GENERATION_ACTIVATION_FAILED")
 		return r
 	}
 
@@ -792,6 +799,20 @@ func TestPostgresRevisionTransitionMonotonicityProbe(t *testing.T) {
 			false, "status transition"},
 		{"failed->active resurrection", at(pgstate02Revision("tr_failed_active", "a"), explorer.RevisionFailed, false),
 			`status = 'ACTIVE'`, false, "status transition"},
+		{"failed->active activation-shape revival", failedRow("tr_failed_revive"),
+			`status = 'ACTIVE', activated_at = '2026-05-05T00:00:00Z', failed_at = NULL, diagnostics = '[]'::jsonb`, true, ""},
+		{"failed->active sloppy keeps failed_at", failedRow("tr_failed_sloppy_failedat"),
+			`status = 'ACTIVE', activated_at = '2026-05-05T00:00:00Z', diagnostics = '[]'::jsonb`,
+			false, "activation-shaped write"},
+		{"failed->active missing activated_at", failedRow("tr_failed_no_activated_at"),
+			`status = 'ACTIVE', failed_at = NULL, diagnostics = '[]'::jsonb`,
+			false, "activation-shaped write"},
+		{"failed->active nulling diagnostics", failedRow("tr_failed_null_diagnostics"),
+			`status = 'ACTIVE', activated_at = '2026-05-05T00:00:00Z', failed_at = NULL, diagnostics = NULL`,
+			false, "activation-shaped write"},
+		{"failed->active frozen dataset smuggling", failedRow("tr_failed_frozen_smuggle"),
+			`status = 'ACTIVE', activated_at = '2026-05-05T00:00:00Z', failed_at = NULL, diagnostics = '[]'::jsonb, dataset = '{"generation":"gen_intruder","outputs":[]}'::jsonb`,
+			false, "frozen content changed"},
 		{"superseded->active resurrection", at(pgstate02Revision("tr_super_active", "a"), explorer.RevisionSuperseded, true),
 			`status = 'ACTIVE'`, false, "status transition"},
 		{"superseded->ready resurrection", at(pgstate02Revision("tr_super_ready", "a"), explorer.RevisionSuperseded, true),
@@ -948,6 +969,7 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 	}
 
 	f.rerunMigration(t, 6)
+	f.rerunMigration(t, 12)
 	if _, err := f.iso.Exec(f.ctx,
 		"UPDATE "+f.revisionTable()+" SET recipe_digest = 'sha256:refrozen' WHERE id = $1", revision.ID); err == nil {
 		t.Fatal("frozen mutation accepted after the guard was restored from the migration text")
@@ -977,6 +999,32 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 		if !strings.Contains(pgErr.Message, "insert-once") {
 			t.Fatalf("restored DELETE refusal did not come from the insert-once branch: %s", pgErr.Message)
 		}
+	}
+
+	revivalProbe := pgstate02Revision("rev_frozen_revival", "frozen")
+	revivalProbe.Status = explorer.RevisionFailed
+	revivalFailedAt := time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC)
+	revivalProbe.FailedAt = &revivalFailedAt
+	revivalProbe.Diagnostics = pgstate02Diagnostic("GENERATION_ACTIVATION_FAILED")
+	f.rawInsertRevision(t, revivalProbe)
+	if _, err := f.iso.Exec(f.ctx,
+		"UPDATE "+f.revisionTable()+" SET status = 'ACTIVE' WHERE id = $1", revivalProbe.ID); err == nil {
+		t.Fatal("bare FAILED->ACTIVE resurrection accepted after the guard was restored")
+	} else {
+		pgErr := requirePgErrPGState02(t, err, "23514", "restored activation-shape refusal")
+		if !strings.Contains(pgErr.Message, "activation-shaped write") {
+			t.Fatalf("restored revival refusal came from something other than the 000012 arm: %s", pgErr.Message)
+		}
+	}
+	if _, err := f.iso.Exec(f.ctx,
+		"UPDATE "+f.revisionTable()+
+			" SET status = 'ACTIVE', activated_at = '2026-05-07T00:00:00Z', failed_at = NULL, diagnostics = '[]'::jsonb WHERE id = $1",
+		revivalProbe.ID); err != nil {
+		f.fail("activation-shape revival after the guard was restored", err)
+	}
+	if row := f.revisionLiteralRow(t, revivalProbe.ID); row.Status != "ACTIVE" ||
+		row.FailedAtText != "" || row.ActivatedAtText != "2026-05-07 00:00:00.000000" {
+		t.Fatalf("restored-law revival witness = %+v, want ACTIVE with failed_at cleared and activated_at set", row)
 	}
 }
 
@@ -1124,6 +1172,7 @@ var pgstate02EmbeddedMigrationPins = map[string]string{
 	"000009_explorer_explicit_groups.sql":                           "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f",
 	"000010_explorer_explicit_group_memberships.sql":                "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd",
 	"000011_explorer_explicit_group_definition_guard_hardening.sql": "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec",
+	"000012_explorer_revision_activation_revival.sql":               "08a61bf6ca66a400112f51463f2c5e1c0a7f4cfbb2d707c0063f87829b1acfe9",
 }
 
 func pgstate02MigrationFileVersion(fileName string) (int64, error) {

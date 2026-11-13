@@ -75,6 +75,7 @@ var manifest = []HistoryManifest{
 			{9, "explorer_explicit_groups", "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f"},
 			{10, "explorer_explicit_group_memberships", "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"},
 			{11, "explorer_explicit_group_definition_guard_hardening", "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec"},
+			{12, "explorer_revision_activation_revival", "08a61bf6ca66a400112f51463f2c5e1c0a7f4cfbb2d707c0063f87829b1acfe9"},
 		},
 	},
 	{

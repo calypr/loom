@@ -1015,8 +1015,14 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 			t.Fatalf("retroactive gap-fill was not refused with ErrMigrationOutOfOrder: %v", err)
 		}
 		var outOfOrder *pgstore.OutOfOrderMigrationError
-		if !errors.As(err, &outOfOrder) || outOfOrder.Version != 4 || outOfOrder.LatestRecord != 11 {
-			t.Fatalf("refusal = %+v, want pending version 4 against recorded max 11", outOfOrder)
+		var wantRecord int64
+		for _, m := range owner {
+			if !moved[m.Version] && m.Version > wantRecord {
+				wantRecord = m.Version
+			}
+		}
+		if !errors.As(err, &outOfOrder) || outOfOrder.Version != 4 || outOfOrder.LatestRecord != wantRecord {
+			t.Fatalf("refusal = %+v, want pending version 4 against recorded max %d", outOfOrder, wantRecord)
 		}
 		if after := ab05ReadLedger(t, ctx, admin, schema); !reflect.DeepEqual(after, seeded) {
 			t.Fatalf("the refused retroactive migration mutated the deployed ledger: seeded %v, after %v", seeded, after)
