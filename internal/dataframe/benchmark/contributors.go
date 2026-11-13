@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -72,6 +73,12 @@ func (a *Arm) FetchContributorCatalog(ctx context.Context, token, project, explo
 	raw, err := json.Marshal(catalogValue)
 	if err != nil {
 		return authoringv2.CatalogSnapshot{}, fmt.Errorf("benchmark: builder catalog on %s: %w", a.Backend, err)
+	}
+	// diag-159: env-gated raw catalog capture for cross-arm diagnosis.
+	if dir := strings.TrimSpace(os.Getenv("LOOM_BENCH_DIAG_DIR")); dir != "" {
+		if mkErr := os.MkdirAll(dir, 0o755); mkErr == nil {
+			_ = os.WriteFile(dir+"/catalog-"+a.Backend+".json", raw, 0o644)
+		}
 	}
 	var wire contributorCatalogWire
 	if err := json.Unmarshal(raw, &wire); err != nil {

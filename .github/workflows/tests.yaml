@@ -575,6 +575,8 @@ jobs:
         # both timed), and writes comparison.md; it exits nonzero on any
         # shortfall, so the job goes red rather than reporting
         # scaffolding as a comparison.
+        env:
+          LOOM_BENCH_DIAG_DIR: ${{ runner.temp }}/diag-catalogs
         run: >-
           node scripts/benchmark-backends.mjs --paired
           --binary "$RUNNER_TEMP/paired-bin/loom-server"
@@ -602,6 +604,13 @@ jobs:
           name: paired-driver-benchmark
           path: ${{ runner.temp }}/paired-benchmark
           if-no-files-found: error
+      - name: Upload paired catalog diagnostics (diag-159)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-159-catalogs
+          path: ${{ runner.temp }}/diag-catalogs
+          if-no-files-found: warn
 
   node-unit:
     name: Node unit tests
