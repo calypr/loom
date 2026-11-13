@@ -81,7 +81,8 @@ var pgCompMintInventory = map[string]int{
 }
 
 var pgCompClickHouseGatedMintInventory = map[string]int{
-	"TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip": 1,
+	"TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip":         1,
+	"TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned": 1,
 }
 
 func pgCompClickHouseConfigured() bool {
