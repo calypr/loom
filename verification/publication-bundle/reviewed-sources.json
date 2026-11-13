@@ -530,8 +530,8 @@
     "internal/dataframe/publication/clickhouse/bundle_store.go": {
       "sha256": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42",
       "role": "R85 DDL admission boundary (reviewed, unchanged): CreateOutput gates name via bundleOutputRE and every column via validateBundleColumn (schemaIdentifierRE + anchored closed-set scalar regex; Nullable/Array literal-prefix peel only). In-package probe: all clause-suffix and unbalanced payloads rejected.",
-      "pin": "d5b5491b",
-      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/dataframe/publication/clickhouse/bundle_store.go == on-disk"
+      "pin": "e68c7d6b",
+      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/dataframe/publication/clickhouse/bundle_store.go == blob at feature/postgres-backend tip 48783199; supersedes d5b5491b attestation (pin a5db5f5588420722f72d4bf889d4c63e1be4d560f6854c4da5c33a727ad69254 -> 1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42): comment sweep 80bca9a5 (#161, out-of-lane) stripped comments from this pinned file without re-anchor; re-pinned by PR #183 per coordinator directive, precedent a4d29f01"
     },
     "internal/dataframe/publication/clickhouse/bundle_store_test.go": {
       "md5": "22fd74544b8198d890f42bf5370ccb33",
@@ -581,8 +581,8 @@
     "internal/dataframe/published/read.go": {
       "sha256": "040f064534394c7d67f144040090f736ef19361d30e0b4566ec8880c154e3161",
       "role": "R83 filter construction boundary (reviewed, unchanged): buildWhere — allowed-set column check before backtick interpolation, fixed operator switch with default INVALID_FILTER, all values bind-parameterized, empty IN/NOT_IN collapse to constants.",
-      "pin": "d5b5491b",
-      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/dataframe/published/read.go == on-disk"
+      "pin": "e68c7d6b",
+      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/dataframe/published/read.go == blob at feature/postgres-backend tip 48783199; supersedes d5b5491b attestation (pin 03ac0cd4fc73375a3397c4dd963b3021a428da7111579cff71257e8478e401d0 -> 040f064534394c7d67f144040090f736ef19361d30e0b4566ec8880c154e3161): comment sweep 80bca9a5 (#161, out-of-lane) stripped comments from this pinned file without re-anchor; re-pinned by PR #183 per coordinator directive, precedent a4d29f01"
     },
     "internal/dataframe/published/read_test.go": {
       "md5": "6234ee06e190519bca6cb2c0ce8fee2b",
@@ -1056,7 +1056,7 @@
     "internal/backends/postgres/control/vocabulary_control.go": {
       "role": "D6 re-exports for the data-plane stores",
       "sha256": "5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/backends/postgres/control/vocabulary_control.go == blob at feature/postgres-backend tip 48783199; supersedes runtime-composition working-tree attestation (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41, per amendment 2): pin 7f883cdb6feae1fc207193d6433818ecd19246cf90d901474fb87c633860a3ff TRUE at 9534829d, first moved by comment sweep 80bca9a5 (#161) to 98a804ccdf87fb27e2e888d4553f599be4064819ef77fb47b6286b32304f2bf7, then by cleanup #181 e68c7d6b (legit ticket-167 refactor) to 5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1; re-pinned by PR #183 per coordinator directive, precedent a4d29f01"
     },
     "internal/backends/postgres/aliases.go": {
       "role": "D6 alias surface mirroring vocabulary_control additions",
