@@ -78,8 +78,11 @@ func runDropPG() {
 }
 
 func setupPG(ctx context.Context, adminDSN, database, schemaPrefix string) error {
-	if !strings.HasPrefix(schemaPrefix, benchmarkNamespacePrefix) {
-		return fmt.Errorf("schema prefix %q is outside the benchmark namespace", schemaPrefix)
+	// Schema names are <prefix>_<series>; every full name must carry the
+	// benchmark namespace prefix.
+	if schemaPrefix != strings.TrimSuffix(benchmarkNamespacePrefix, "_") &&
+		!strings.HasPrefix(schemaPrefix, benchmarkNamespacePrefix) {
+		return fmt.Errorf("schema prefix %q produces schemas outside the benchmark namespace", schemaPrefix)
 	}
 	admin, err := pgx.Connect(ctx, adminDSN)
 	if err != nil {
