@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -18,8 +17,6 @@ const (
 	edgeOccurrenceTableName         = "fhir_edge_occurrence"
 	relationshipEvidenceCountColumn = "occurrence_count"
 )
-
-var relationshipEvidenceSchemaPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 var ErrInvalidRelationshipScope = errors.New("postgres catalog: invalid relationship scope")
 
@@ -53,7 +50,7 @@ func NewRelationshipEvidenceRepository(src storepostgres.ConnSource, schema stri
 	if src == nil {
 		return nil, errors.New("postgres: nil relationship evidence connection source")
 	}
-	if !relationshipEvidenceSchemaPattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", storepostgres.ErrInvalidSchemaName, schema)
 	}
 	return &RelationshipEvidenceRepository{

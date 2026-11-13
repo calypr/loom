@@ -184,7 +184,7 @@ func ValidateAssignment(assignment Assignment) error {
 		if _, ok := LookupManifest(series); !ok {
 			return fmt.Errorf("%w: unknown series %q", ErrInvalidAssignment, series)
 		}
-		if !schemaNamePattern.MatchString(schema) {
+		if !ValidSchemaName(schema) {
 			return fmt.Errorf("%w: series %q schema %q must match [a-z_][a-z0-9_]{0,62}",
 				ErrInvalidAssignment, series, schema)
 		}

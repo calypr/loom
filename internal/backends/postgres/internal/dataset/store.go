@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 
 	storepostgres "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	publication "github.com/calypr/loom/internal/dataset"
@@ -22,8 +21,6 @@ var (
 	ErrActivationConflict         = errors.New("generation activation conflict")
 	ErrUnexpectedStoreResult      = errors.New("unexpected generation store result")
 )
-
-var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 type ConnSource interface {
 	Acquire(ctx context.Context) (*pgxpool.Conn, error)
@@ -45,7 +42,7 @@ func New(src ConnSource, schema string) (*Store, error) {
 	if src == nil {
 		return nil, ErrNilConnSource
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, schema)
 	}
 	return &Store{

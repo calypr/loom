@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,8 +21,6 @@ const (
 	BundlePointersTable   = "publication_bundle_pointers"
 	BundleLeasesTable     = "publication_bundle_leases"
 )
-
-var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 var ErrInvalidSchema = errors.New("publication postgres: invalid schema name")
 
@@ -54,7 +52,7 @@ func New(pool DB, schema string) (*Registry, error) {
 	if pool == nil {
 		return nil, errors.New("publication postgres: nil pool")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !pgstore.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchema, schema)
 	}
 	return &Registry{

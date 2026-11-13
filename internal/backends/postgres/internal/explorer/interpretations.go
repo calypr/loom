@@ -113,7 +113,7 @@ func NewInterpretationStore(client *pgstore.Client, schema string) (*Interpretat
 	if client == nil {
 		return nil, errors.New("postgres explorer store: interpretation client is required")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !pgstore.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("postgres explorer store: invalid interpretation schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 	}
 	return &InterpretationStore{client: client, sql: newInterpretationSQL(schema)}, nil

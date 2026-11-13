@@ -54,7 +54,7 @@ func NewCapabilitySnapshotStore(client *pgstore.Client, schema string) (*Capabil
 	if client == nil {
 		return nil, errors.New("postgres explorer store: capability snapshot client is required")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !pgstore.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("postgres explorer store: invalid schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 	}
 	table := pgx.Identifier{schema, CapabilitySnapshotsTable}.Sanitize()
@@ -245,7 +245,7 @@ func NewTableShapeCapabilityStore(client *pgstore.Client, schema string) (*Table
 	if client == nil {
 		return nil, errors.New("postgres explorer store: table-shape capability client is required")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !pgstore.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("postgres explorer store: invalid schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 	}
 	table := pgx.Identifier{schema, TableShapeCapabilitiesTable}.Sanitize()

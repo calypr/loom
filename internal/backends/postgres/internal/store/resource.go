@@ -71,7 +71,7 @@ func NewResourceRepository(src ConnSource, schema string) (*ResourceRepository, 
 	if src == nil {
 		return nil, errors.New("postgres: nil resource connection source")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, schema)
 	}
 	return &ResourceRepository{
