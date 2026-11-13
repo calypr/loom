@@ -309,6 +309,27 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 			receiptIDs[p.backend][spec.ID] = rid
 			outputIDs[p.backend][spec.ID] = outputID
 		}
+		// Pre-timing setup proof (ruling conditions i+ii, wired per review
+		// r4561644037): every arm publishes its reconciled receipt through
+		// the authoring route with the materialization identity verified
+		// (untimed setup; activation-style refusals abort fail-closed), and
+		// no timing may start until the arms prove matched state: equal
+		// content-derived draft digest, equal output set with a
+		// materialization identity each, and equal setup-preview rows.
+		proofs := map[string]SetupProof{}
+		for _, p := range participants {
+			proof, err := arms[p.backend].arm.SetupProofEvidence(ctx, opts.UnrestrictedToken, opts.Params.Project,
+				explorerID, receiptIDs[p.backend][spec.ID], outputID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("benchmark: %s setup proof on %s: %w", spec.ID, p.backend, err)
+			}
+			proofs[p.backend] = proof
+		}
+		if len(participants) == 2 {
+			if err := MatchedSetupProof(spec.ID, proofs[BackendArango], proofs[BackendPostgres]); err != nil {
+				return nil, nil, err
+			}
+		}
 	}
 	// One explorer identity serves both arms (asserted equal above).
 	explorerIDByWorkload := perBackend[participants[0].backend]

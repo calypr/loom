@@ -12,12 +12,16 @@ import (
 	"strings"
 )
 
-// Authoring-plane publication primitives shared by every setup route (the
-// ruling-B conditions). They speak only public routes: the authoring
-// publish, the active-state readback, and the pre-timing matched-state
-// proof. No arm may reach the repository activation posture through them,
-// and activation-style refusals are fatal wherever they appear (condition
-// iii): the benchmark never tolerates, retries, or special-cases one.
+// Authoring-plane publication primitives for the ruling setup conditions,
+// wired into the live setup path by RunBenchmark (review r4561644037): per
+// workload and per arm it calls SetupProofEvidence after authoring and
+// gates all timing behind MatchedSetupProof, so the authoring publish, the
+// materialization-identity verification, the active-state readback, and the
+// pre-timing matched-state proof execute on every timed lane, not only in
+// unit tests. They speak only public routes. No arm may reach the
+// repository activation posture through them, and activation-style refusals
+// are fatal wherever they appear: the benchmark never tolerates, retries,
+// or special-cases one.
 
 // ErrActivationRefusal marks an activation-style refusal answered by the
 // server (typed 409/503 stances whose message is that a revision was

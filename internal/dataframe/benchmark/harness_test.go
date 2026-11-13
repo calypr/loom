@@ -62,6 +62,14 @@ func (f *fakeArm) authoringCalls() []string {
 	return append([]string(nil), f.authoring...)
 }
 
+// routeCalls exposes the ordered "backend:route:key" call log, so driver
+// tests can assert which routes a lane actually exercised.
+func (f *fakeArm) routeCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
+}
+
 func newFakeArm(backend string) *fakeArm {
 	f := &fakeArm{rows: map[string][]map[string]any{}, columns: []string{"patient_id", "gender"}, failWith: map[string]int{}}
 	mux := http.NewServeMux()

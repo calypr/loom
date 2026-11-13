@@ -302,3 +302,86 @@ func TestDriverSpawnedArmsProduceClaims(t *testing.T) {
 		}
 	}
 }
+
+// TestDriverRunsSetupProofOnBothArms pins the wiring (review r4561644037):
+// the live setup path must publish every reconciled receipt through the
+// authoring route on both arms and prove matched state before timing.
+func TestDriverRunsSetupProofOnBothArms(t *testing.T) {
+	fa, fp := newFakeArm(BackendArango), newFakeArm(BackendPostgres)
+	defer fa.close()
+	defer fp.close()
+	report, _, err := RunBenchmark(context.Background(), driverOptions(fa, fp, RunScopeBothArms))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != "passed" {
+		t.Fatalf("matched lane must pass: %s %v", report.Status, report.StatusReasons)
+	}
+	live := 0
+	for _, spec := range Battery {
+		if _, excluded := LiveBatteryExclusions()[spec.ID]; !excluded {
+			live++
+		}
+	}
+	for name, f := range map[string]*fakeArm{"arango": fa, "postgres": fp} {
+		publishes := 0
+		for _, c := range f.routeCalls() {
+			if strings.Contains(c, ":publish:") {
+				publishes++
+			}
+		}
+		if publishes != live {
+			t.Fatalf("%s: authoring publishes=%d want one per live workload (%d)", name, publishes, live)
+		}
+	}
+}
+
+func firstLiveWorkload(t *testing.T) string {
+	t.Helper()
+	ex := LiveBatteryExclusions()
+	for _, spec := range Battery {
+		if _, bad := ex[spec.ID]; !bad {
+			return spec.ID
+		}
+	}
+	t.Fatal("no live workload")
+	return ""
+}
+
+// TestDriverAbortsBeforeTimingOnDivergentSetupProof: a cross-arm draft
+// digest divergence must abort the run with no report and no samples;
+// timing may never start on a divergent setup.
+func TestDriverAbortsBeforeTimingOnDivergentSetupProof(t *testing.T) {
+	fa, fp := newFakeArm(BackendArango), newFakeArm(BackendPostgres)
+	defer fa.close()
+	defer fp.close()
+	fa.mu.Lock()
+	fa.activeDigest = "sha256:arango-only"
+	fa.mu.Unlock()
+	report, _, err := RunBenchmark(context.Background(), driverOptions(fa, fp, RunScopeBothArms))
+	if err == nil || !strings.Contains(err.Error(), "matched-state proof diverged") {
+		t.Fatalf("digest divergence must abort before timing: %v", err)
+	}
+	if report != nil {
+		t.Fatal("no report may exist when the matched-state proof fails")
+	}
+	// the only preview calls allowed are the two proof previews themselves
+	// (one per arm, first live workload); any measured-phase, gate, or
+	// later-workload preview would mean timing started on a divergent setup
+	previews := 0
+	want := ":preview:" + OutputIDFor(firstLiveWorkload(t))
+	for _, f := range []*fakeArm{fa, fp} {
+		for _, c := range f.routeCalls() {
+			if !strings.Contains(c, ":preview:") {
+				continue
+			}
+			previews++
+			if !strings.HasSuffix(c, want) {
+				t.Fatalf("preview route ran beyond the first workload's setup proof: %s", c)
+			}
+		}
+	}
+	if previews != 2 {
+		t.Fatalf("proof previews=%d want 2 (one per arm, first workload), got no proof or timing ran", previews)
+	}
+}

@@ -115,7 +115,15 @@ the rule benchcli enforces) via `benchcli drop-pg`/`setup-pg` (database,
 six-series schema ladder, migrated tables) — the PostgreSQL backend
 readiness answers `schema_missing ... the caller owns schema lifecycle`,
 so the lane, not the server, bootstraps. A failed `setup-pg` fails the
-check before any timing attempt.
+check before any timing attempt. Before any timing starts, each arm
+publishes its reconciled receipt through the authoring route (untimed
+setup; every output must answer READY with a materialization identity) and
+the arms must prove matched state — equal content-derived draft digest,
+equal output set, equal setup-preview rows — or the run aborts with no
+report. Activation-style refusals (`GENERATION_ACTIVATION_FAILED`, the
+typed `BACKEND_UNAVAILABLE` + `stage=adapter` posture, and siblings) are
+fatal centrally in `doArmRequest` and are never tolerated, retried, or
+special-cased on any route.
 Correctness gates decide first; then >= 5 interleaved measured rounds per
 driver are required, each round contributing the post-restart
 process-cold sample plus at least one warm sample (`--iterations >=
