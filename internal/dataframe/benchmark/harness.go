@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/calypr/loom/generated/loomapi"
 )
 
 // The harness drives BOTH arms exclusively through public HTTP routes:
@@ -170,13 +172,26 @@ func (a *Arm) ExecuteOutput(ctx context.Context, token, project, explorer, recei
 }
 
 func decodePreview(value map[string]any) (PreviewResult, error) {
-	var result PreviewResult
 	raw, _ := json.Marshal(value)
-	if err := json.Unmarshal(raw, &result); err != nil {
+	// The authoring-v2 preview route answers ExplorerBuilderPreview with
+	// columns as ContractColumn objects (internal/server
+	// v2EmissionColumns); the public column name is at .column.
+	var wire struct {
+		Columns  []loomapi.ContractColumn `json:"columns"`
+		RowCount int                      `json:"rowCount"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
 		return PreviewResult{}, err
 	}
-	if result.Columns == nil {
+	if wire.Columns == nil {
 		return PreviewResult{}, fmt.Errorf("preview response omitted columns")
+	}
+	result := PreviewResult{RowCount: wire.RowCount}
+	for _, column := range wire.Columns {
+		if strings.TrimSpace(column.Column) == "" {
+			return PreviewResult{}, fmt.Errorf("preview column omitted its public name")
+		}
+		result.Columns = append(result.Columns, column.Column)
 	}
 	rows, ok := value["rows"].([]any)
 	if !ok {

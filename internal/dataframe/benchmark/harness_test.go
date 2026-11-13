@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/generated/loomapi"
 	loomexplorer "github.com/calypr/loom/internal/explorer"
 )
 
@@ -26,7 +27,6 @@ type fakeArm struct {
 	calls       []string // ordered "backend:route:output"
 	rows        map[string][]map[string]any
 	columns     []string
-	sampled     bool
 	leakScoped  bool
 	failWith    map[string]int // output -> status
 	uploads     int
@@ -194,14 +194,31 @@ func newFakeArm(backend string) *fakeArm {
 			f.mu.Lock()
 			f.calls = append(f.calls, fmt.Sprintf("%s:preview:%s", backend, output))
 			status := f.failWith[output]
-			columns := f.columns
-			sampled := f.sampled
+			names := f.columns
+			receipt, _ := body["receiptId"].(string)
 			f.mu.Unlock()
 			if status != 0 {
 				http.Error(w, `{"error":"scripted failure"}`, status)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"columns": columns, "rows": rows, "rowCount": len(rows), "sampled": sampled})
+			// The mock follows the server: the preview route answers
+			// ContractColumn objects whose name is at .column
+			// (internal/server v2EmissionColumns); there is no
+			// sampled field on the wire.
+			cols := make([]loomapi.ContractColumn, 0, len(names))
+			for _, name := range names {
+				cols = append(cols, loomapi.ContractColumn{Column: name, Label: name, LogicalType: "string"})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"apiVersion":  "loom.calypr.org/explorer-authoring/v2",
+				"kind":        "ExplorerBuilderPreview",
+				"receiptId":   receipt,
+				"outputId":    output,
+				"columns":     cols,
+				"rows":        rows,
+				"rowCount":    len(rows),
+				"diagnostics": []any{},
+			})
 			return
 		case strings.Contains(path, "/authoring/v2/reconcile"):
 			var body map[string]any
