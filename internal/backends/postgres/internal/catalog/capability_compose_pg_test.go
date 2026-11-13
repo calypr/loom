@@ -398,8 +398,8 @@ func TestNarrowAdaptersAnswerTheirLegAndNeverTouchForeignLegs(t *testing.T) {
 		t.Fatalf("profile reads must not upsert or fall back to coverage: upsert=%d coverage=%d",
 			profiles.upsertCalls, profiles.readCoverageCalls)
 	}
-	if profiles.readFilteredCalls != 3 || profiles.readRowsCalls != 1 || profiles.listDistinctCalls != 1 {
-		t.Fatalf("profile adapter boundary calls: filtered=%d rows=%d distinct=%d, want 3/1/1",
+	if profiles.readFilteredCalls != 2 || profiles.readRowsCalls != 1 || profiles.listDistinctCalls != 1 {
+		t.Fatalf("profile adapter boundary calls: filtered=%d rows=%d distinct=%d, want 2/1/1",
 			profiles.readFilteredCalls, profiles.readRowsCalls, profiles.listDistinctCalls)
 	}
 	if relationships.scanCalls != 2 {
