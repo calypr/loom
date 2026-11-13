@@ -126,6 +126,7 @@ func NewExplicitGroupStore(client *Client, schema string) (*ExplicitGroupStore, 
 
 type (
 	PublishStore              = explorerstore.PublishStore
+	ActivationStore           = explorerstore.ActivationStore
 	InterpretationStore       = explorerstore.InterpretationStore
 	CapabilitySnapshotStore   = explorerstore.CapabilitySnapshotStore
 	TableShapeCapabilityStore = explorerstore.TableShapeCapabilityStore
@@ -142,6 +143,10 @@ type (
 
 func NewPublishStore(client *Client, explorerSchema, datasetSchema string) (*PublishStore, error) {
 	return explorerstore.NewPublishStore(client, explorerSchema, datasetSchema)
+}
+
+func NewActivationStore(client *Client, explorerSchema, datasetSchema, publicationSchema string) (*ActivationStore, error) {
+	return explorerstore.NewActivationStore(client, explorerSchema, datasetSchema, publicationSchema)
 }
 
 func NewInterpretationStore(client *Client, schema string) (*InterpretationStore, error) {

@@ -150,12 +150,37 @@ func TestPostgresRuntimeDispatchReachesThePostgreSQLPathPreDial(t *testing.T) {
 	}
 }
 
+type fakeRepositoryGenerationActivator struct {
+	err        error
+	project    string
+	generation string
+	revisionID string
+}
+
+func (f *fakeRepositoryGenerationActivator) ActivateRepositoryGeneration(_ context.Context, project, generation, revisionID string) error {
+	f.project, f.generation, f.revisionID = project, generation, revisionID
+	return f.err
+}
+
 func TestPostgresRuntimeExplorerStoreTypedRefusals(t *testing.T) {
 	store := pgExplorerStore{ExplorerStore: &control.ExplorerStore{}}
 	if err := store.ActivateRepositoryGeneration(context.Background(), "p", "g", "r"); err == nil {
-		t.Fatal("repository-generation activation must refuse without an Arango fall-through")
+		t.Fatal("activation without the dataset_release/publication_control assignment must refuse")
 	} else if !isTypedExplicitUnavailable(err, "Repository-generation activation") {
 		t.Fatalf("refusal %v must be the typed explicit-unavailable posture", err)
+	}
+	fake := &fakeRepositoryGenerationActivator{}
+	store.activate = fake
+	if err := store.ActivateRepositoryGeneration(context.Background(), "p", "g", "r"); err != nil {
+		t.Fatalf("wired activation must ride the adapter without refusal: %v", err)
+	}
+	if fake.project != "p" || fake.generation != "g" || fake.revisionID != "r" {
+		t.Fatalf("activation arguments not delegated verbatim: %q/%q/%q", fake.project, fake.generation, fake.revisionID)
+	}
+	activationFault := errors.New("activation lost the race")
+	fake.err = activationFault
+	if err := store.ActivateRepositoryGeneration(context.Background(), "p", "g", "r"); !errors.Is(err, activationFault) {
+		t.Fatalf("adapter errors must pass through unwrapped and unrefused: %v", err)
 	}
 	if err := store.ValidateSelectionReferences(context.Background(), "p", "g", authscope.ReadScope{}, nil); err == nil {
 		t.Fatal("selection-reference validation must refuse without an Arango fall-through")

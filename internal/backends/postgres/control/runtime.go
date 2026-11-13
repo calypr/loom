@@ -51,6 +51,7 @@ type Runtime struct {
 
 	Explorer            *explorerstore.Store
 	Publish             *explorerstore.PublishStore
+	Activate            *explorerstore.ActivationStore
 	Interpretations     *explorerstore.InterpretationStore
 	ExplicitGroups      *explorerstore.ExplicitGroupStore
 	CapabilitySnapshots *explorerstore.CapabilitySnapshotStore
@@ -302,6 +303,13 @@ func (r *Runtime) assembleDataPlanePorts(cfg Config) error {
 				return redactWrap(ErrBootstrap, fmt.Sprintf("assemble Explorer publish store across %q and %q", schema, datasetSchema), err, password)
 			}
 			r.Publish = publish
+			if publicationSchema, publicationAssigned := cfg.Schemas[SeriesPublicationControl]; publicationAssigned {
+				activate, err := explorerstore.NewActivationStore(r.client, schema, datasetSchema, publicationSchema)
+				if err != nil {
+					return redactWrap(ErrBootstrap, fmt.Sprintf("assemble Explorer activation store across %q, %q, and %q", schema, datasetSchema, publicationSchema), err, password)
+				}
+				r.Activate = activate
+			}
 		}
 	}
 	if schema, assigned := cfg.Schemas[SeriesPublicationControl]; assigned {

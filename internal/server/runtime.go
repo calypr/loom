@@ -50,10 +50,10 @@ const postgreSQLRuntimeAcquireTimeout = 30 * time.Second
 
 // postgreSQLRuntimeUnavailable is the typed explicit-unavailable posture for
 // capabilities the full PostgreSQL runtime does not yet have an adapter for
-// (the ValidateSelectionReferences reference check and repository-generation
-// activation on the Explorer store). It is the sibling of
-// postgreSQLFirstQueryRouteWiringError with the full-runtime attribution:
-// named, retryable-false, backend-tagged, never Arango-backed.
+// (the ValidateSelectionReferences reference check on the Explorer store).
+// It is the sibling of postgreSQLFirstQueryRouteWiringError with the
+// full-runtime attribution: named, retryable-false, backend-tagged, never
+// Arango-backed.
 func postgreSQLRuntimeUnavailable(operation string) error {
 	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable,
 		operation+" has no PostgreSQL adapter yet; the PostgreSQL runtime refuses it instead of serving ArangoDB data",
@@ -97,17 +97,30 @@ func postgresRuntimeAssignment(pg PostgreSQLConfig) (control.SeriesSchemas, map[
 	return assignment, names, nil
 }
 
+// repositoryGenerationActivator is the activation leg of the repository
+// publish: the second compare-and-swap that flips the default Explorer's
+// active revision after the release CAS won. The concrete implementation is
+// the backend ActivationStore (internal/backends/postgres/internal/explorer);
+// the narrow shape exists so the composition contract is testable without a
+// live PostgreSQL service.
+type repositoryGenerationActivator interface {
+	ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error
+}
+
 // pgExplorerStore adapts the PostgreSQL Explorer family to the neutral
 // explorer.Store contract. The persistent 17 methods ride the backend store
 // directly; publication rides the sibling PublishStore (it crosses into the
-// dataset_release ledger); the two capabilities with no PostgreSQL adapter --
-// repository-generation activation and the Arango-only selection-reference
-// reference check -- are named typed refusals. The compile-time assertion
-// below is the no-omission proof: the composition cannot compile if the
-// neutral contract grows a method this adapter does not decide.
+// dataset_release ledger); repository-generation activation rides the
+// sibling ActivationStore (it crosses into the dataset_release ledger and
+// the publication-control execution registry); the one capability with no
+// PostgreSQL adapter -- the Arango-only selection-reference reference
+// check -- is a named typed refusal. The compile-time assertion below is the
+// no-omission proof: the composition cannot compile if the neutral contract
+// grows a method this adapter does not decide.
 type pgExplorerStore struct {
 	*control.ExplorerStore
-	publish *control.PublishStore
+	publish  *control.PublishStore
+	activate repositoryGenerationActivator
 }
 
 var _ explorer.Store = pgExplorerStore{}
@@ -119,8 +132,11 @@ func (s pgExplorerStore) PublishAuthoring(ctx context.Context, receipt explorer.
 	return s.publish.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
 }
 
-func (s pgExplorerStore) ActivateRepositoryGeneration(context.Context, string, string, string) error {
-	return postgreSQLRuntimeUnavailable("Repository-generation activation")
+func (s pgExplorerStore) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
+	if s.activate == nil {
+		return postgreSQLRuntimeUnavailable("Repository-generation activation (the dataset_release or publication_control assignment is missing)")
+	}
+	return s.activate.ActivateRepositoryGeneration(ctx, project, generation, revisionID)
 }
 
 // ValidateSelectionReferences is the Arango-side reference-integrity check on
@@ -333,7 +349,7 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	// their series is assigned; the gate above assigns all six, so a nil here
 	// means the factory regressed its own assembly contract. Fail closed with
 	// a named refusal instead of composing a half-wired runtime.
-	if runtime.Explorer == nil || runtime.Publish == nil || runtime.Interpretations == nil ||
+	if runtime.Explorer == nil || runtime.Publish == nil || runtime.Activate == nil || runtime.Interpretations == nil ||
 		runtime.ExplicitGroups == nil || runtime.CapabilitySnapshots == nil || runtime.TableShapes == nil ||
 		runtime.Bundles == nil || runtime.RecipeRevisions == nil || runtime.RecipeExecutions == nil ||
 		runtime.Catalog == nil || runtime.SemanticReads == nil || runtime.Releases == nil || runtime.Manifests == nil {
@@ -479,7 +495,7 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	// byte-identical to the Arango lane, over this lane's ports.
 	hooks := newReleaseHooks(serverConfig, runtime.Manifests, runtime.Releases, runtime.Bundles)
 
-	explorerStore := pgExplorerStore{ExplorerStore: runtime.Explorer, publish: runtime.Publish}
+	explorerStore := pgExplorerStore{ExplorerStore: runtime.Explorer, publish: runtime.Publish, activate: runtime.Activate}
 	explorerReads := pgExplorerReads{ExplorerStore: runtime.Explorer, ExplicitGroupStore: runtime.ExplicitGroups}
 	capabilityResolver, err := newExplorerCapabilityResolver(runtime.Catalog, scopeResolver, runtime.Manifests, runtime.CapabilitySnapshots)
 	if err != nil {
