@@ -534,7 +534,7 @@ def finalize_request_record(request: dict, affordance_id: str) -> dict:
     return request
 
 
-def seed_for(affordance_id: str, row: dict, lifecycle: bool) -> dict:
+def seed_for(affordance_id: str, row: dict) -> dict:
     raw = row.get("seed")
     operation_family = FAMILY_BY_ID.get(affordance_id, "LIFECYCLE")
     refs = source_refs(row)
@@ -667,10 +667,9 @@ def status_for(row: dict) -> str:
     return str(status)
 
 
-def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]:
+def _fold_fragment_rows(root: Path) -> tuple[dict[str, dict], list[dict]]:
     raw_entries = load_fragments(root)
     rows: dict[str, dict] = {}
-    aliases = list(ALIASES)
     extra_paths: dict[str, list[dict]] = {}
     mapping_rows = []
     for source in raw_entries:
@@ -707,444 +706,483 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                 rows[canonical_id] = {"fragment": "merged", "row": row, "sources": [row]}
             else:
                 rows[canonical_id]["sources"].append(row)
-
     supplemental = root / "docs/ui-contract-inventory/additional-mounted.fragment.json"
     if supplemental.exists():
         doc = json.loads(supplemental.read_text())
         mapping_rows.extend(doc.get("surfaceMappings", []))
+    return rows, mapping_rows
 
-    out = []
-    for fid, bundle in rows.items():
-        fragment = bundle["fragment"]
-        primary = bundle["row"]
-        sources = bundle["sources"]
-        refs = list(dict.fromkeys(ref for src in sources for ref in source_refs(src)))
-        is_lifecycle = fragment == "lifecycle.fragment.json"
-        operation = primary.get("operation", {})
-        family = FAMILY_BY_ID.get(fid)
-        family = family or (operation.get("family") if isinstance(operation, dict) else None) or primary.get("family") or ("LIFECYCLE" if is_lifecycle else "UI_STATE")
-        variants = operation.get("variants", []) if isinstance(operation, dict) else []
-        variant = operation.get("variant") if isinstance(operation, dict) else None
-        if not variants and variant:
-            variants = [variant]
-        backend_kinds = OPERATION_KINDS_BY_ID.get(fid, [])
-        if fid.startswith("legacy.table_shape."):
-            backend_kinds = ["TABLE_SHAPE:" + ("GROUPED_PIVOT" if fid.endswith("grouped_pivot") else "UNPIVOT")]
-        path = primary.get("path", primary.get("ui_path", primary.get("entryPath", primary.get("surface"))))
-        if isinstance(path, list):
-            entry_paths = [{"label": "primary", "path": path}]
-        elif path:
-            entry_paths = [{"label": "primary", "path": path}]
-        else:
-            entry_paths = []
-        for src in sources[1:]:
-            src_path = src.get("path", src.get("ui_path", src.get("entryPath", src.get("surface"))))
-            if src_path and src_path != path:
-                entry_paths.append({"label": "additional", "path": src_path})
-        requests = []
-        for src in sources:
-            flow = "primary" if src is primary else f"source-{sources.index(src)+1}"
-            if fid == "builder.add_columns.source_selection" and src.get("id") == "builder.add_columns_source_selection":
-                requests.extend(req for req in normalize_request(src, flow) if req["kind"] == "read" and "frame-source-options" in req["endpoint"])
-                continue
-            if fid == "builder.add_columns.related_field" and src.get("id") == "builder.related_field_column":
-                continue
-            if fid == "builder.related_source_column" and src.get("id") == "builder.related_source_column" and not src.get("request"):
-                continue
-            requests.extend(normalize_request(src, flow))
-        if fid == "builder.population.exclude_unmapped_member":
-            sequence = {
-                "selectionVariantEndpoint": {
-                    "order": 1,
-                    "stepId": "selectionVariantEndpoint",
-                    "actionId": "create-excluded-selection-variant",
-                    "kind": "command",
-                    "payloadShape": "{snapshotToken:string,idempotencyKey:string,source:{kind:selectionRevision,selectionRevisionId:string},exclusions:[ResourceRef],requestId:string}",
-                    "constructor": "BuilderWorkspace.excludePopulationMember -> LoomClient.createSelection",
-                    "condition": "Coverage report identifies this unmapped ResourceRef; create a new immutable selection revision from the currently attached selection.",
-                    "evidence": [
-                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1947-1954",
-                        "ui/packages/loom-ui/src/api.ts:1795-1802",
-                    ],
-                },
-                "routeLookupEndpoint": {
-                    "order": 2,
-                    "stepId": "routeLookupEndpoint",
-                    "actionId": "search-population-routes-for-variant",
-                    "kind": "read",
-                    "payloadShape": "{snapshotToken:string,outputId:string,selectionRevisionId:string,limit:50,cursor?:string,requestId:string}",
-                    "constructor": "BuilderWorkspace.excludePopulationMember -> LoomClient.searchPopulationRoutes, retaining the exact previously attached route",
-                    "condition": "Repeat pages until the returned route equals the previously attached route or nextCursor is absent; if no exact route is found, show an error and do not attach.",
-                    "repeat": {
-                        "cardinality": {"min": 1, "max": None},
-                        "requestCursorField": "cursor",
-                        "responseCursorField": "nextCursor",
-                        "stopWhenAny": ["exact prior attached route found", "nextCursor absent"],
-                        "applyAllowedWhen": "exact prior attached route found",
-                    },
-                    "evidence": [
-                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1960-1977",
-                        "ui/packages/loom-ui/src/api.ts:1588-1597",
-                    ],
-                },
-                "applyEndpoint": {
-                    "order": 3,
-                    "stepId": "applyEndpoint",
-                    "actionId": "attach-excluded-selection-variant",
-                    "kind": "command",
-                    "payloadShape": "{type:SET_TABLE_POPULATION,outputId:string,selectionRevisionId:string,routeChoiceId:string}",
-                    "constructor": "BuilderWorkspace.excludePopulationMember -> applyCommands([SET_TABLE_POPULATION])",
-                    "condition": "Only after routeLookupEndpoint returns the exact previously attached route for the new selection revision.",
-                    "evidence": [
-                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1979-1982",
-                        "ui/packages/loom-ui/src/api.ts:1446-1454",
-                    ],
-                },
-            }
-            actual = {request.get("stepId") for request in requests}
-            if actual != set(sequence):
-                raise SystemExit(
-                    "builder.population.exclude_unmapped_member request source shape drifted: expected %s, found %s"
-                    % (sorted(sequence), sorted(actual))
-                )
-            for request in requests:
-                request.update(sequence[request["stepId"]])
-                request["flowId"] = "primary"
-        if fid.startswith("builder.combine."):
-            requests.append({
+
+def _entry_paths(primary: dict, sources: list[dict]) -> list[dict]:
+    path = primary.get("path", primary.get("ui_path", primary.get("entryPath", primary.get("surface"))))
+    if isinstance(path, list):
+        entry_paths = [{"label": "primary", "path": path}]
+    elif path:
+        entry_paths = [{"label": "primary", "path": path}]
+    else:
+        entry_paths = []
+    for src in sources[1:]:
+        src_path = src.get("path", src.get("ui_path", src.get("entryPath", src.get("surface"))))
+        if src_path and src_path != path:
+            entry_paths.append({"label": "additional", "path": src_path})
+    return entry_paths
+
+
+def _request_path(item: dict) -> str:
+    value = str(item.get("endpoint", ""))
+    value = value.split("[?", 1)[0].split("?", 1)[0].rstrip(",.;")
+    return value
+
+
+def _build_requests(fid: str, primary: dict, sources: list[dict], refs: list[str], backend_kinds: list[str]) -> tuple[list[dict], list[str]]:
+    requests = []
+    for src in sources:
+        flow = "primary" if src is primary else f"source-{sources.index(src)+1}"
+        if fid == "builder.add_columns.source_selection" and src.get("id") == "builder.add_columns_source_selection":
+            requests.extend(req for req in normalize_request(src, flow) if req["kind"] == "read" and "frame-source-options" in req["endpoint"])
+            continue
+        if fid == "builder.add_columns.related_field" and src.get("id") == "builder.related_field_column":
+            continue
+        if fid == "builder.related_source_column" and src.get("id") == "builder.related_source_column" and not src.get("request"):
+            continue
+        requests.extend(normalize_request(src, flow))
+    if fid == "builder.population.exclude_unmapped_member":
+        sequence = {
+            "selectionVariantEndpoint": {
                 "order": 1,
-                "flowId": "combine-input-catalog",
-                "stepId": "load-construction-inputs",
-                "kind": "read",
-                "method": "POST",
-                "endpoint": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs",
-                "actionId": "load-combine-input-catalog",
-                "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,cursor?:string,limit:100}",
-                "constructor": "BuilderWorkspace.loadCombineCatalogPage -> LoomClient.getConstructionInputs",
-                "condition": "Combine editor is open; source catalog identity matches selected draft",
-                "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1040-1048", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1059-1098", "ui/packages/loom-ui/src/api.ts:1668-1673"],
-            })
-        flow_specs = []
-        base = "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/"
-        if any(kind.startswith("ROW_DEFINITION:") for kind in backend_kinds):
-            flow_specs.append(("row-definition", [
-                ("read", "load-row-definition-choices", "row-definition-choices?outputId={outputId}&snapshotToken={snapshotToken}", "GET"),
-                ("proposal", "propose-row-definition", "row-definition-proposals", "POST"),
-                ("command", "apply-row-definition-proposal", "commands", "POST"),
-            ]))
-        if any(kind.startswith("TABLE_SHAPE:") for kind in backend_kinds):
-            flow_specs.append(("table-shape", [
-                ("capability", "load-table-shape-capabilities", "table-shape-capabilities", "POST"),
-                ("read", "resolve-table-shape", "table-shape-resolutions", "POST"),
-                ("proposal", "propose-table-shape", "table-shape-proposals", "POST"),
-                ("command", "apply-table-shape-proposal", "commands", "POST"),
-            ]))
-        construction_kinds = [kind for kind in backend_kinds if not kind.startswith(("ROW_DEFINITION:", "TABLE_SHAPE:"))]
-        if construction_kinds:
-            flow_specs.append(("construction-proposal", [
-                ("proposal", "propose-construction-change", "construction-proposals", "POST"),
-                ("preview", "load-construction-proposal-preview", "preview", "POST"),
-                ("command", "apply-construction-proposal", "commands", "POST"),
-            ]))
-        if backend_kinds:
-            candidate_constructor = None
-            for src in sources:
-                candidate = src.get("payload_constructor")
-                if isinstance(candidate, dict):
-                    candidate_constructor = candidate.get("candidate") or candidate.get("candidateConstructor") or candidate.get("candidate_constructor")
-                elif isinstance(candidate, str):
-                    candidate_constructor = candidate
-                if candidate_constructor:
-                    break
-            constructor_ref = CONSTRUCTOR_BY_ID.get(fid)
-            if not candidate_constructor and constructor_ref:
-                candidate_constructor = constructor_ref[0]
-                refs.extend(ref for ref in constructor_ref[1] if ref not in refs)
-            if not candidate_constructor:
-                candidate_constructor = f"typed {','.join(backend_kinds)} UI candidate builder; see source record and source evidence"
-            for item in requests:
-                endpoint = str(item.get("endpoint", ""))
-                if "table-shape-" in endpoint:
-                    item["flowId"] = "table-shape"
-                elif "/explicit-groups" in endpoint:
-                    item["flowId"] = "explicit-group-revision"
-                elif "row-definition-" in endpoint:
-                    item["flowId"] = "row-definition"
-                elif "/construction-inputs" in endpoint:
-                    item["flowId"] = "combine-input-catalog"
-                else:
-                    item["flowId"] = "construction-proposal"
-            for flow, steps in flow_specs:
-                for order, (kind, step, endpoint_suffix, method) in enumerate(steps, 1):
-                    normalized_suffix = endpoint_suffix.split("?", 1)[0]
-                    def request_path(item: dict) -> str:
-                        value = str(item.get("endpoint", ""))
-                        value = value.split("[?", 1)[0].split("?", 1)[0].rstrip(",.;")
-                        return value
-                    found = any(item.get("flowId") == flow and request_path(item).endswith(normalized_suffix.rstrip("/[]")) for item in requests)
-                    if found:
-                        continue
-                    if flow == "construction-proposal":
-                        payload_shapes = {
-                            "proposal": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,candidateConstruction:Construction,changedStepId:string,limit:PreviewLimit}",
-                            "preview": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,proposalId:string,limit:PreviewLimit}",
-                            "command": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_PROPOSAL,outputId,proposalId}]}",
-                        }
-                        constructor = f"{candidate_constructor}; constructionLifecycle.proposeCandidateAndWait / APPLY_CONSTRUCTION_PROPOSAL"
-                        payload_shape = payload_shapes.get(kind)
-                    elif flow == "row-definition":
-                        payload_shapes = {
-                            "read": "{outputId:string,snapshotToken:string} (query)",
-                            "proposal": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,selection:RowDefinitionSelection}",
-                            "command": "{commandId,semanticsVersion,snapshotToken,expectedDraftVersion,expectedDraftDigest?,commands:[{type:APPLY_ROW_DEFINITION_PROPOSAL,...}]}",
-                        }
-                        constructor = f"{candidate_constructor}; row-definition choices/proposal and APPLY_ROW_DEFINITION_PROPOSAL lifecycle"
-                        payload_shape = payload_shapes.get(kind)
-                    else:
-                        payload_shapes = {
-                            "capability": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string}",
-                            "read": "TableShapeResolutionRequest; selected supported choices + catalog identity",
-                            "proposal": "TableShapeProposalRequest; reshape and derived resolution IDs",
-                            "command": "{commandId,semanticsVersion,snapshotToken,expectedDraftVersion,expectedDraftDigest?,commands:[{type:APPLY_TABLE_SHAPE_PROPOSAL,...}]}",
-                        }
-                        constructor = f"{candidate_constructor}; TableShapeController.resolveTableShape/proposeTableShape/APPLY_TABLE_SHAPE_PROPOSAL"
-                        payload_shape = payload_shapes.get(kind)
-                    requests.append({
-                        "order": order,
-                        "flowId": flow,
-                        "stepId": step,
-                        "kind": kind,
-                        "method": method,
-                        "endpoint": base + endpoint_suffix,
-                        "actionId": step,
-                        "payloadShape": payload_shape,
-                        "constructor": constructor,
-                        "condition": None,
-                        "evidence": refs,
-                    })
-        by_flow: dict[str, list[dict]] = {}
-        for item in requests:
-            by_flow.setdefault(str(item.get("flowId")), []).append(item)
-        for flow, flow_requests in by_flow.items():
-            if fid == "builder.population.exclude_unmapped_member" and flow == "primary":
-                continue
-            generic_flows = {"primary", "construction-proposal", "row-definition", "table-shape", "explicit-group-revision", "combine-input-catalog"}
-            if flow not in generic_flows or any(x.get("kind") == "assessment" for x in flow_requests):
-                continue
-            kind_priority = {"capability": 0, "read": 1, "inspect": 1, "assessment": 1, "proposal": 2, "preview": 3, "command": 4, "reconcile": 5, "refresh": 6}
-            flow_requests.sort(key=lambda item: (kind_priority.get(item.get("kind"), 2), item.get("stepId", "")))
-            for index, item in enumerate(flow_requests, 1):
-                item["order"] = index
-        requests.sort(key=lambda item: (str(item.get("flowId")), item["order"], item["stepId"]))
-        requests = [finalize_request_record(item, fid) for item in requests]
-        request_flows = []
-        flow_map: dict[str, list[dict]] = {}
-        for item in requests:
-            flow_map.setdefault(str(item.get("flowId", "primary")), []).append(item)
-        flow_order: dict[str, int] = {flow: index for index, flow in enumerate(sorted(flow_map), 1)}
-        dependencies: dict[str, list[str]] = {}
-        dependencies_any: dict[str, list[list[str]]] = {}
-        alternative_groups: dict[str, str] = {}
-        if fid == "builder.first_table_from_root":
-            flow_order.update({"first-table": 1, "automatic-preview": 2})
-            dependencies["automatic-preview"] = ["first-table"]
-        elif fid == "builder.explorer_create_delete":
-            alternative_groups.update({"create": "explorer-lifecycle-choice", "delete": "explorer-lifecycle-choice"})
-        elif fid == "builder.root.change_or_replace":
-            alternative_groups.update({"connected-rebase": "root-change-strategy", "replace": "root-change-strategy"})
-        elif fid.startswith("builder.combine."):
-            flow_order.update({"combine-input-catalog": 1, "construction-proposal": 2})
-            dependencies["construction-proposal"] = ["combine-input-catalog"]
-        elif fid == "builder.row_definition.explicit_groups":
-            flow_order.update({"explicit-group-revision": 1, "row-definition": 2})
-            dependencies["row-definition"] = ["explicit-group-revision"]
-        elif fid == "builder.construction_proposal_apply_cancel_retry":
-            alternative_groups.update({"initial-or-retry": "proposal-attempt", "retry": "proposal-attempt"})
-            flow_order.update({"initial-or-retry": 1, "retry": 1, "apply": 2})
-            dependencies_any["apply"] = [["initial-or-retry", "retry"]]
-        elif fid == "builder.automatic_preview_refresh_and_recovery":
-            alternative_groups.update({"normal-or-recompile": "preview-recovery-path", "normal": "preview-recovery-path", "retryable-error": "preview-recovery-path", "stale-receipt": "preview-recovery-path", "stale-catalog": "preview-recovery-path"})
-        elif fid == "builder.server_saved_draft_and_reconcile":
-            alternative_groups.update({"save": "draft-lifecycle-choice", "reconcile": "draft-lifecycle-choice"})
-            flow_order.update({"save": 1, "reconcile": 1, "refresh": 2})
-            dependencies["refresh"] = ["reconcile"]
-        elif fid == "builder.row_definition_proposal_apply_cancel":
-            flow_order.update({"primary": 1, "row-shape-change": 2, "apply": 3})
-            dependencies["row-shape-change"] = ["primary"]
-            dependencies["apply"] = ["row-shape-change"]
-        elif fid == "builder.table_route_and_occurrence_selection":
-            for item in flow_map.get("primary", []):
-                item["order"] = 1 if item["kind"] == "read" else 2
-        for flow_id, items in flow_map.items():
-            request_flows.append({
-                "id": flow_id,
-                "sequenceOrder": flow_order.get(flow_id, len(request_flows) + 1),
-                "mode": "alternative" if flow_id in alternative_groups else "ordered",
-                "alternativeGroup": alternative_groups.get(flow_id),
-                "dependsOn": dependencies.get(flow_id, []),
-                "dependsOnAnyOf": dependencies_any.get(flow_id, []),
-                "steps": [{"checkpointId": item["checkpointId"], "flowId": item["flowId"], "order": item["order"], "stepId": item["stepId"], "kind": item["kind"], "method": item["method"], "endpoint": item["endpoint"], "actionId": item["actionId"], "payloadShape": item["payloadShape"], "sourcePayloadShape": item.get("sourcePayloadShape"), "requestContract": item["requestContract"], "constructor": item.get("constructor"), "sourceConstructors": item.get("sourceConstructors", []), "condition": item.get("condition"), "repeat": item.get("repeat"), "evidence": item.get("evidence", [])} for item in sorted(items, key=lambda x: (x["order"], x["stepId"]))],
-            })
-        request_flows.sort(key=lambda item: item["sequenceOrder"])
-        dimensions = []
-        for src in sources:
-            raw_dims = src.get("dimensions", src.get("semantic_domains", []))
-            for d in raw_dims if isinstance(raw_dims, list) else []:
-                nd = normalize_dimension(d, fid)
-                if not any(existing["id"] == nd["id"] and existing == nd for existing in dimensions):
-                    dimensions.append(nd)
-            domain = src.get("domain")
-            if isinstance(domain, dict):
-                if domain.get("finite_enum_values"):
-                    for name, values in domain["finite_enum_values"].items():
-                        dimensions.append({"id": name, "kind": "enum", "type": "string", "finiteValues": values, "dependsOn": domain.get("dependencies", []), "cardinality": cardinality(domain), "evidence": domain.get("source", [])})
-                for dynamic in domain.get("dynamic_providers", []):
-                    dimensions.append({"id": dynamic.get("name", "dynamic"), "kind": "dynamic-provider", "type": dynamic.get("type", "unknown"), "dynamicProvider": dynamic.get("provider"), "dependsOn": domain.get("dependencies", []), "cardinality": cardinality(domain), "evidence": domain.get("source", [])})
-        dimensions_by_id = {}
-        for d in dimensions:
-            dimensions_by_id.setdefault(d["id"], d)
-        dimensions = list(dimensions_by_id.values())
-        if fid == "builder.reshape.group_field":
-            for dimension in dimensions:
-                if dimension["id"] == "summary_kind":
-                    dimension["cardinality"] = {"min": 1, "max": 1}
-            dimensions.extend([
-                {
-                    "id": "summary_count",
-                    "kind": "repeated-array",
-                    "type": "GroupAggregate",
-                    "dependsOn": ["GROUP capability supported", "selected construction stage"],
-                    "cardinality": {"min": 1, "max": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:985", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3327", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3381"],
-                },
-                {
-                    "id": "summary_input_column_id",
-                    "kind": "dynamic-reference",
-                    "type": "stage-column-id",
-                    "dynamicProvider": {"provider": "aggregateInputColumnsFor(stage, operation)", "rules": {"COUNT_ROWS": [], "COUNT_NON_NULL": "scalarColumnsFor(stage)", "COUNT_DISTINCT": "scalarColumnsFor(stage)", "SUM": "numericColumnsFor(stage)", "MEAN": "numericColumnsFor(stage)"}},
-                    "dependsOn": ["summary_kind", "selected construction stage"],
-                    "cardinality": {"min": 0, "max": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:920-930", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3343-3368"],
-                },
-                {
-                    "id": "summary_output_column_id",
-                    "kind": "generated-opaque-id",
-                    "type": "OpaqueId",
-                    "dynamicProvider": {"provider": "createOpaqueId('group-column')", "freshPerAggregate": True},
-                    "dependsOn": ["Add summary"],
-                    "cardinality": {"min": 1, "max": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-945"],
-                },
-                {
-                    "id": "summary_output_name",
-                    "kind": "string",
-                    "type": "physical-column-name",
-                    "dependsOn": ["summary operation", "selected input column", "existing output names"],
-                    "cardinality": {"min": 1, "max": None},
-                    "constraints": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "uniqueCaseInsensitiveWithinOutputs": True, "defaultGenerated": True, "maximumLength": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:933-935", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-951", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:913-917", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3371-3379"],
-                },
-                {
-                    "id": "summary_output_label",
-                    "kind": "string",
-                    "type": "display-label",
-                    "dependsOn": ["summary operation", "selected input column"],
-                    "cardinality": {"min": 1, "max": None},
-                    "constraints": {"trimmedNonEmpty": True, "maximumLength": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-951", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:913-917", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3490"],
-                },
-            ])
-        constraints = []
-        for src in sources:
-            for item in src.get("constraints", []) + src.get("invariants", []):
-                classification = item.get("classification", item.get("status", item.get("basis", "source-observation")))
-                claim = item.get("claim", item.get("statement"))
-                if claim:
-                    item_refs = item.get("evidence", [])
-                    if "$domain.source" in item_refs:
-                        item_refs = refs
-                    constraints.append({"classification": classification, "claim": claim, "evidence": item_refs})
-            prose = src.get("prose", {})
-            for gate in prose.get("gates", []):
-                constraints.append({"classification": "observed-ui", "claim": gate, "evidence": refs})
-            for invariant in prose.get("transition_preview_invariants", []):
-                constraints.append({"classification": "observed-ui", "claim": invariant, "evidence": refs})
-            for assumption in prose.get("known_assumptions", []):
-                constraints.append({"classification": "inferred", "claim": assumption, "evidence": refs})
-            for item in src.get("invariants", []) if isinstance(src.get("invariants"), list) else []:
-                pass
-        status = status_for(primary)
-        if fid in STAGE_CAPABILITY_IDS and status == "reachable":
-            status = "capability-conditional"
-        if status in {"capability-conditional", "context-conditional"}:
-            availability = {"status": status, "conditions": primary.get("gates", primary.get("capability_gates", primary.get("reachability_condition", primary.get("availability"))))}
-        elif status in {"visible-but-disabled", "visible-disabled"}:
-            availability = {"status": "visible-disabled", "conditions": primary.get("visibleButDisabledIntentions", primary.get("disabled_reason", primary.get("prose", {}).get("gates", [])))}
-        else:
-            availability = {"status": "reachable", "conditions": []}
-        if family == "lifecycle" or family == "workspace.entry_route":
-            family = "WORKSPACE_LIFECYCLE"
-        seed = seed_for(fid, primary, is_lifecycle)
-        disabled_states = []
-        for src in sources:
-            for state in src.get("visibleButDisabledIntentions", []):
-                disabled_states.append({
-                    "control": state.get("control"),
-                    "when": state.get("when"),
-                    "effect": state.get("effect"),
-                    "evidence": state.get("evidence", []),
-                })
-        for mapping in mapping_rows:
-            if mapping.get("canonicalId") == fid:
-                for state in mapping.get("visibleButDisabledIntentions", []):
-                    disabled_states.append({
-                        "control": state.get("control"),
-                        "when": state.get("when"),
-                        "effect": state.get("effect"),
-                        "evidence": state.get("evidence", []),
-                    })
-        needs_capability = seed["capabilityFixture"]["required"] or fid == "builder.delete_explorer_no_fallback"
-        request_source_facts = []
-        for index, src in enumerate(sources):
-            constructor = src.get("request", src.get("payload_constructor"))
-            if constructor is not None:
-                request_source_facts.append({
-                    "sourceId": src.get("id"),
-                    "candidateOrRequestConstructor": constructor,
-                    "evidence": source_refs(src),
-                })
-        out.append({
-            "id": fid,
-            "domain": family,
-            "surface": primary.get("surface", primary.get("family", family)),
-            "availability": availability,
-            "operation": {"family": family, "variants": variants, "backendKinds": backend_kinds},
-            "entryPaths": entry_paths,
-            "requests": requests,
-            "requestFlows": request_flows,
-            "capabilityProvenance": {
-                "status": "required-not-yet-observed" if needs_capability else "not-required-before-action",
-                "kind": seed["capabilityFixture"]["kind"],
-                "source": seed["capabilityFixture"]["source"],
-                "endpoint": seed["capabilityFixture"]["endpoint"],
-                "binding": "outputId+stageId+snapshotToken+draft identity" if seed["capabilityFixture"]["kind"] == "go-compiled-construction-capabilities" else None,
-                "evidence": refs if needs_capability else [],
+                "stepId": "selectionVariantEndpoint",
+                "actionId": "create-excluded-selection-variant",
+                "kind": "command",
+                "payloadShape": "{snapshotToken:string,idempotencyKey:string,source:{kind:selectionRevision,selectionRevisionId:string},exclusions:[ResourceRef],requestId:string}",
+                "constructor": "BuilderWorkspace.excludePopulationMember -> LoomClient.createSelection",
+                "condition": "Coverage report identifies this unmapped ResourceRef; create a new immutable selection revision from the currently attached selection.",
+                "evidence": [
+                    "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1947-1954",
+                    "ui/packages/loom-ui/src/api.ts:1795-1802",
+                ],
             },
-            "seed": seed,
-            "dimensions": dimensions,
-            "constraints": constraints,
-            "disabledStates": disabled_states,
-            "requestSourceFacts": request_source_facts,
-            "evidence": refs,
-            "sourceRecords": [{"fragment": fragment if index == 0 else "merged-from-fragments", "sourceId": src.get("id")} for index, src in enumerate(sources)],
-            "coverage": {"modelStatus": "pending", "adapterStatus": "pending", "adapterId": None, "runnerActionId": None, "runnerActions": {"status": "pending", "bindings": {}}, "modelStateId": None},
+            "routeLookupEndpoint": {
+                "order": 2,
+                "stepId": "routeLookupEndpoint",
+                "actionId": "search-population-routes-for-variant",
+                "kind": "read",
+                "payloadShape": "{snapshotToken:string,outputId:string,selectionRevisionId:string,limit:50,cursor?:string,requestId:string}",
+                "constructor": "BuilderWorkspace.excludePopulationMember -> LoomClient.searchPopulationRoutes, retaining the exact previously attached route",
+                "condition": "Repeat pages until the returned route equals the previously attached route or nextCursor is absent; if no exact route is found, show an error and do not attach.",
+                "repeat": {
+                    "cardinality": {"min": 1, "max": None},
+                    "requestCursorField": "cursor",
+                    "responseCursorField": "nextCursor",
+                    "stopWhenAny": ["exact prior attached route found", "nextCursor absent"],
+                    "applyAllowedWhen": "exact prior attached route found",
+                },
+                "evidence": [
+                    "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1960-1977",
+                    "ui/packages/loom-ui/src/api.ts:1588-1597",
+                ],
+            },
+            "applyEndpoint": {
+                "order": 3,
+                "stepId": "applyEndpoint",
+                "actionId": "attach-excluded-selection-variant",
+                "kind": "command",
+                "payloadShape": "{type:SET_TABLE_POPULATION,outputId:string,selectionRevisionId:string,routeChoiceId:string}",
+                "constructor": "BuilderWorkspace.excludePopulationMember -> applyCommands([SET_TABLE_POPULATION])",
+                "condition": "Only after routeLookupEndpoint returns the exact previously attached route for the new selection revision.",
+                "evidence": [
+                    "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1979-1982",
+                    "ui/packages/loom-ui/src/api.ts:1446-1454",
+                ],
+            },
+        }
+        actual = {request.get("stepId") for request in requests}
+        if actual != set(sequence):
+            raise SystemExit(
+                "builder.population.exclude_unmapped_member request source shape drifted: expected %s, found %s"
+                % (sorted(sequence), sorted(actual))
+            )
+        for request in requests:
+            request.update(sequence[request["stepId"]])
+            request["flowId"] = "primary"
+    if fid.startswith("builder.combine."):
+        requests.append({
+            "order": 1,
+            "flowId": "combine-input-catalog",
+            "stepId": "load-construction-inputs",
+            "kind": "read",
+            "method": "POST",
+            "endpoint": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs",
+            "actionId": "load-combine-input-catalog",
+            "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,cursor?:string,limit:100}",
+            "constructor": "BuilderWorkspace.loadCombineCatalogPage -> LoomClient.getConstructionInputs",
+            "condition": "Combine editor is open; source catalog identity matches selected draft",
+            "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1040-1048", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1059-1098", "ui/packages/loom-ui/src/api.ts:1668-1673"],
         })
-    out.sort(key=lambda x: x["id"])
+    flow_specs = []
+    base = "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/"
+    if any(kind.startswith("ROW_DEFINITION:") for kind in backend_kinds):
+        flow_specs.append(("row-definition", [
+            ("read", "load-row-definition-choices", "row-definition-choices?outputId={outputId}&snapshotToken={snapshotToken}", "GET"),
+            ("proposal", "propose-row-definition", "row-definition-proposals", "POST"),
+            ("command", "apply-row-definition-proposal", "commands", "POST"),
+        ]))
+    if any(kind.startswith("TABLE_SHAPE:") for kind in backend_kinds):
+        flow_specs.append(("table-shape", [
+            ("capability", "load-table-shape-capabilities", "table-shape-capabilities", "POST"),
+            ("read", "resolve-table-shape", "table-shape-resolutions", "POST"),
+            ("proposal", "propose-table-shape", "table-shape-proposals", "POST"),
+            ("command", "apply-table-shape-proposal", "commands", "POST"),
+        ]))
+    construction_kinds = [kind for kind in backend_kinds if not kind.startswith(("ROW_DEFINITION:", "TABLE_SHAPE:"))]
+    if construction_kinds:
+        flow_specs.append(("construction-proposal", [
+            ("proposal", "propose-construction-change", "construction-proposals", "POST"),
+            ("preview", "load-construction-proposal-preview", "preview", "POST"),
+            ("command", "apply-construction-proposal", "commands", "POST"),
+        ]))
+    if backend_kinds:
+        candidate_constructor = None
+        for src in sources:
+            candidate = src.get("payload_constructor")
+            if isinstance(candidate, dict):
+                candidate_constructor = candidate.get("candidate") or candidate.get("candidateConstructor") or candidate.get("candidate_constructor")
+            elif isinstance(candidate, str):
+                candidate_constructor = candidate
+            if candidate_constructor:
+                break
+        constructor_ref = CONSTRUCTOR_BY_ID.get(fid)
+        if not candidate_constructor and constructor_ref:
+            candidate_constructor = constructor_ref[0]
+            refs.extend(ref for ref in constructor_ref[1] if ref not in refs)
+        if not candidate_constructor:
+            candidate_constructor = f"typed {','.join(backend_kinds)} UI candidate builder; see source record and source evidence"
+        for item in requests:
+            endpoint = str(item.get("endpoint", ""))
+            if "table-shape-" in endpoint:
+                item["flowId"] = "table-shape"
+            elif "/explicit-groups" in endpoint:
+                item["flowId"] = "explicit-group-revision"
+            elif "row-definition-" in endpoint:
+                item["flowId"] = "row-definition"
+            elif "/construction-inputs" in endpoint:
+                item["flowId"] = "combine-input-catalog"
+            else:
+                item["flowId"] = "construction-proposal"
+        for flow, steps in flow_specs:
+            for order, (kind, step, endpoint_suffix, method) in enumerate(steps, 1):
+                normalized_suffix = endpoint_suffix.split("?", 1)[0]
+                found = any(item.get("flowId") == flow and _request_path(item).endswith(normalized_suffix.rstrip("/[]")) for item in requests)
+                if found:
+                    continue
+                if flow == "construction-proposal":
+                    payload_shapes = {
+                        "proposal": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,candidateConstruction:Construction,changedStepId:string,limit:PreviewLimit}",
+                        "preview": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,proposalId:string,limit:PreviewLimit}",
+                        "command": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_PROPOSAL,outputId,proposalId}]}",
+                    }
+                    constructor = f"{candidate_constructor}; constructionLifecycle.proposeCandidateAndWait / APPLY_CONSTRUCTION_PROPOSAL"
+                    payload_shape = payload_shapes.get(kind)
+                elif flow == "row-definition":
+                    payload_shapes = {
+                        "read": "{outputId:string,snapshotToken:string} (query)",
+                        "proposal": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,selection:RowDefinitionSelection}",
+                        "command": "{commandId,semanticsVersion,snapshotToken,expectedDraftVersion,expectedDraftDigest?,commands:[{type:APPLY_ROW_DEFINITION_PROPOSAL,...}]}",
+                    }
+                    constructor = f"{candidate_constructor}; row-definition choices/proposal and APPLY_ROW_DEFINITION_PROPOSAL lifecycle"
+                    payload_shape = payload_shapes.get(kind)
+                else:
+                    payload_shapes = {
+                        "capability": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string}",
+                        "read": "TableShapeResolutionRequest; selected supported choices + catalog identity",
+                        "proposal": "TableShapeProposalRequest; reshape and derived resolution IDs",
+                        "command": "{commandId,semanticsVersion,snapshotToken,expectedDraftVersion,expectedDraftDigest?,commands:[{type:APPLY_TABLE_SHAPE_PROPOSAL,...}]}",
+                    }
+                    constructor = f"{candidate_constructor}; TableShapeController.resolveTableShape/proposeTableShape/APPLY_TABLE_SHAPE_PROPOSAL"
+                    payload_shape = payload_shapes.get(kind)
+                requests.append({
+                    "order": order,
+                    "flowId": flow,
+                    "stepId": step,
+                    "kind": kind,
+                    "method": method,
+                    "endpoint": base + endpoint_suffix,
+                    "actionId": step,
+                    "payloadShape": payload_shape,
+                    "constructor": constructor,
+                    "condition": None,
+                    "evidence": refs,
+                })
+    by_flow: dict[str, list[dict]] = {}
+    for item in requests:
+        by_flow.setdefault(str(item.get("flowId")), []).append(item)
+    for flow, flow_requests in by_flow.items():
+        if fid == "builder.population.exclude_unmapped_member" and flow == "primary":
+            continue
+        generic_flows = {"primary", "construction-proposal", "row-definition", "table-shape", "explicit-group-revision", "combine-input-catalog"}
+        if flow not in generic_flows or any(x.get("kind") == "assessment" for x in flow_requests):
+            continue
+        kind_priority = {"capability": 0, "read": 1, "inspect": 1, "assessment": 1, "proposal": 2, "preview": 3, "command": 4, "reconcile": 5, "refresh": 6}
+        flow_requests.sort(key=lambda item: (kind_priority.get(item.get("kind"), 2), item.get("stepId", "")))
+        for index, item in enumerate(flow_requests, 1):
+            item["order"] = index
+    requests.sort(key=lambda item: (str(item.get("flowId")), item["order"], item["stepId"]))
+    requests = [finalize_request_record(item, fid) for item in requests]
+    return requests, refs
+
+
+def _build_request_flows(fid: str, requests: list[dict]) -> list[dict]:
+    request_flows = []
+    flow_map: dict[str, list[dict]] = {}
+    for item in requests:
+        flow_map.setdefault(str(item.get("flowId", "primary")), []).append(item)
+    flow_order: dict[str, int] = {flow: index for index, flow in enumerate(sorted(flow_map), 1)}
+    dependencies: dict[str, list[str]] = {}
+    dependencies_any: dict[str, list[list[str]]] = {}
+    alternative_groups: dict[str, str] = {}
+    if fid == "builder.first_table_from_root":
+        flow_order.update({"first-table": 1, "automatic-preview": 2})
+        dependencies["automatic-preview"] = ["first-table"]
+    elif fid == "builder.explorer_create_delete":
+        alternative_groups.update({"create": "explorer-lifecycle-choice", "delete": "explorer-lifecycle-choice"})
+    elif fid == "builder.root.change_or_replace":
+        alternative_groups.update({"connected-rebase": "root-change-strategy", "replace": "root-change-strategy"})
+    elif fid.startswith("builder.combine."):
+        flow_order.update({"combine-input-catalog": 1, "construction-proposal": 2})
+        dependencies["construction-proposal"] = ["combine-input-catalog"]
+    elif fid == "builder.row_definition.explicit_groups":
+        flow_order.update({"explicit-group-revision": 1, "row-definition": 2})
+        dependencies["row-definition"] = ["explicit-group-revision"]
+    elif fid == "builder.construction_proposal_apply_cancel_retry":
+        alternative_groups.update({"initial-or-retry": "proposal-attempt", "retry": "proposal-attempt"})
+        flow_order.update({"initial-or-retry": 1, "retry": 1, "apply": 2})
+        dependencies_any["apply"] = [["initial-or-retry", "retry"]]
+    elif fid == "builder.automatic_preview_refresh_and_recovery":
+        alternative_groups.update({"normal-or-recompile": "preview-recovery-path", "normal": "preview-recovery-path", "retryable-error": "preview-recovery-path", "stale-receipt": "preview-recovery-path", "stale-catalog": "preview-recovery-path"})
+    elif fid == "builder.server_saved_draft_and_reconcile":
+        alternative_groups.update({"save": "draft-lifecycle-choice", "reconcile": "draft-lifecycle-choice"})
+        flow_order.update({"save": 1, "reconcile": 1, "refresh": 2})
+        dependencies["refresh"] = ["reconcile"]
+    elif fid == "builder.row_definition_proposal_apply_cancel":
+        flow_order.update({"primary": 1, "row-shape-change": 2, "apply": 3})
+        dependencies["row-shape-change"] = ["primary"]
+        dependencies["apply"] = ["row-shape-change"]
+    elif fid == "builder.table_route_and_occurrence_selection":
+        for item in flow_map.get("primary", []):
+            item["order"] = 1 if item["kind"] == "read" else 2
+    for flow_id, items in flow_map.items():
+        request_flows.append({
+            "id": flow_id,
+            "sequenceOrder": flow_order.get(flow_id, len(request_flows) + 1),
+            "mode": "alternative" if flow_id in alternative_groups else "ordered",
+            "alternativeGroup": alternative_groups.get(flow_id),
+            "dependsOn": dependencies.get(flow_id, []),
+            "dependsOnAnyOf": dependencies_any.get(flow_id, []),
+            "steps": [{"checkpointId": item["checkpointId"], "flowId": item["flowId"], "order": item["order"], "stepId": item["stepId"], "kind": item["kind"], "method": item["method"], "endpoint": item["endpoint"], "actionId": item["actionId"], "payloadShape": item["payloadShape"], "sourcePayloadShape": item.get("sourcePayloadShape"), "requestContract": item["requestContract"], "constructor": item.get("constructor"), "sourceConstructors": item.get("sourceConstructors", []), "condition": item.get("condition"), "repeat": item.get("repeat"), "evidence": item.get("evidence", [])} for item in sorted(items, key=lambda x: (x["order"], x["stepId"]))],
+        })
+    request_flows.sort(key=lambda item: item["sequenceOrder"])
+    return request_flows
+
+
+def _build_dimensions(fid: str, sources: list[dict]) -> list[dict]:
+    dimensions = []
+    for src in sources:
+        raw_dims = src.get("dimensions", src.get("semantic_domains", []))
+        for d in raw_dims if isinstance(raw_dims, list) else []:
+            nd = normalize_dimension(d, fid)
+            if not any(existing["id"] == nd["id"] and existing == nd for existing in dimensions):
+                dimensions.append(nd)
+        domain = src.get("domain")
+        if isinstance(domain, dict):
+            if domain.get("finite_enum_values"):
+                for name, values in domain["finite_enum_values"].items():
+                    dimensions.append({"id": name, "kind": "enum", "type": "string", "finiteValues": values, "dependsOn": domain.get("dependencies", []), "cardinality": cardinality(domain), "evidence": domain.get("source", [])})
+            for dynamic in domain.get("dynamic_providers", []):
+                dimensions.append({"id": dynamic.get("name", "dynamic"), "kind": "dynamic-provider", "type": dynamic.get("type", "unknown"), "dynamicProvider": dynamic.get("provider"), "dependsOn": domain.get("dependencies", []), "cardinality": cardinality(domain), "evidence": domain.get("source", [])})
+    dimensions_by_id = {}
+    for d in dimensions:
+        dimensions_by_id.setdefault(d["id"], d)
+    dimensions = list(dimensions_by_id.values())
+    if fid == "builder.reshape.group_field":
+        for dimension in dimensions:
+            if dimension["id"] == "summary_kind":
+                dimension["cardinality"] = {"min": 1, "max": 1}
+        dimensions.extend([
+            {
+                "id": "summary_count",
+                "kind": "repeated-array",
+                "type": "GroupAggregate",
+                "dependsOn": ["GROUP capability supported", "selected construction stage"],
+                "cardinality": {"min": 1, "max": None},
+                "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:985", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3327", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3381"],
+            },
+            {
+                "id": "summary_input_column_id",
+                "kind": "dynamic-reference",
+                "type": "stage-column-id",
+                "dynamicProvider": {"provider": "aggregateInputColumnsFor(stage, operation)", "rules": {"COUNT_ROWS": [], "COUNT_NON_NULL": "scalarColumnsFor(stage)", "COUNT_DISTINCT": "scalarColumnsFor(stage)", "SUM": "numericColumnsFor(stage)", "MEAN": "numericColumnsFor(stage)"}},
+                "dependsOn": ["summary_kind", "selected construction stage"],
+                "cardinality": {"min": 0, "max": None},
+                "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:920-930", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3343-3368"],
+            },
+            {
+                "id": "summary_output_column_id",
+                "kind": "generated-opaque-id",
+                "type": "OpaqueId",
+                "dynamicProvider": {"provider": "createOpaqueId('group-column')", "freshPerAggregate": True},
+                "dependsOn": ["Add summary"],
+                "cardinality": {"min": 1, "max": None},
+                "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-945"],
+            },
+            {
+                "id": "summary_output_name",
+                "kind": "string",
+                "type": "physical-column-name",
+                "dependsOn": ["summary operation", "selected input column", "existing output names"],
+                "cardinality": {"min": 1, "max": None},
+                "constraints": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "uniqueCaseInsensitiveWithinOutputs": True, "defaultGenerated": True, "maximumLength": None},
+                "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:933-935", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-951", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:913-917", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3371-3379"],
+            },
+            {
+                "id": "summary_output_label",
+                "kind": "string",
+                "type": "display-label",
+                "dependsOn": ["summary operation", "selected input column"],
+                "cardinality": {"min": 1, "max": None},
+                "constraints": {"trimmedNonEmpty": True, "maximumLength": None},
+                "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-951", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:913-917", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3490"],
+            },
+        ])
+    return dimensions
+
+
+def _build_constraints(sources: list[dict], refs: list[str]) -> list[dict]:
+    constraints = []
+    for src in sources:
+        for item in src.get("constraints", []) + src.get("invariants", []):
+            classification = item.get("classification", item.get("status", item.get("basis", "source-observation")))
+            claim = item.get("claim", item.get("statement"))
+            if claim:
+                item_refs = item.get("evidence", [])
+                if "$domain.source" in item_refs:
+                    item_refs = refs
+                constraints.append({"classification": classification, "claim": claim, "evidence": item_refs})
+        prose = src.get("prose", {})
+        for gate in prose.get("gates", []):
+            constraints.append({"classification": "observed-ui", "claim": gate, "evidence": refs})
+        for invariant in prose.get("transition_preview_invariants", []):
+            constraints.append({"classification": "observed-ui", "claim": invariant, "evidence": refs})
+        for assumption in prose.get("known_assumptions", []):
+            constraints.append({"classification": "inferred", "claim": assumption, "evidence": refs})
+    return constraints
+
+
+def _disabled_state_record(state: dict) -> dict:
+    return {
+        "control": state.get("control"),
+        "when": state.get("when"),
+        "effect": state.get("effect"),
+        "evidence": state.get("evidence", []),
+    }
+
+
+def _build_disabled_states(fid: str, sources: list[dict], mapping_rows: list[dict]) -> list[dict]:
+    disabled_states = []
+    for src in sources:
+        for state in src.get("visibleButDisabledIntentions", []):
+            disabled_states.append(_disabled_state_record(state))
+    for mapping in mapping_rows:
+        if mapping.get("canonicalId") == fid:
+            for state in mapping.get("visibleButDisabledIntentions", []):
+                disabled_states.append(_disabled_state_record(state))
+    return disabled_states
+
+
+def _availability_for(primary: dict, status: str) -> dict:
+    if status in {"capability-conditional", "context-conditional"}:
+        availability = {"status": status, "conditions": primary.get("gates", primary.get("capability_gates", primary.get("reachability_condition", primary.get("availability"))))}
+    elif status in {"visible-but-disabled", "visible-disabled"}:
+        availability = {"status": "visible-disabled", "conditions": primary.get("visibleButDisabledIntentions", primary.get("disabled_reason", primary.get("prose", {}).get("gates", [])))}
+    else:
+        availability = {"status": "reachable", "conditions": []}
+    return availability
+
+
+def _build_affordance(fid: str, bundle: dict, mapping_rows: list[dict]) -> dict:
+    fragment = bundle["fragment"]
+    primary = bundle["row"]
+    sources = bundle["sources"]
+    refs = list(dict.fromkeys(ref for src in sources for ref in source_refs(src)))
+    is_lifecycle = fragment == "lifecycle.fragment.json"
+    operation = primary.get("operation", {})
+    family = FAMILY_BY_ID.get(fid)
+    family = family or (operation.get("family") if isinstance(operation, dict) else None) or primary.get("family") or ("LIFECYCLE" if is_lifecycle else "UI_STATE")
+    variants = operation.get("variants", []) if isinstance(operation, dict) else []
+    variant = operation.get("variant") if isinstance(operation, dict) else None
+    if not variants and variant:
+        variants = [variant]
+    backend_kinds = OPERATION_KINDS_BY_ID.get(fid, [])
+    if fid.startswith("legacy.table_shape."):
+        backend_kinds = ["TABLE_SHAPE:" + ("GROUPED_PIVOT" if fid.endswith("grouped_pivot") else "UNPIVOT")]
+    entry_paths = _entry_paths(primary, sources)
+    requests, refs = _build_requests(fid, primary, sources, refs, backend_kinds)
+    request_flows = _build_request_flows(fid, requests)
+    dimensions = _build_dimensions(fid, sources)
+    constraints = _build_constraints(sources, refs)
+    status = status_for(primary)
+    if fid in STAGE_CAPABILITY_IDS and status == "reachable":
+        status = "capability-conditional"
+    availability = _availability_for(primary, status)
+    if family == "lifecycle" or family == "workspace.entry_route":
+        family = "WORKSPACE_LIFECYCLE"
+    seed = seed_for(fid, primary)
+    disabled_states = _build_disabled_states(fid, sources, mapping_rows)
+    needs_capability = seed["capabilityFixture"]["required"] or fid == "builder.delete_explorer_no_fallback"
+    request_source_facts = []
+    for index, src in enumerate(sources):
+        constructor = src.get("request", src.get("payload_constructor"))
+        if constructor is not None:
+            request_source_facts.append({
+                "sourceId": src.get("id"),
+                "candidateOrRequestConstructor": constructor,
+                "evidence": source_refs(src),
+            })
+    return {
+        "id": fid,
+        "domain": family,
+        "surface": primary.get("surface", primary.get("family", family)),
+        "availability": availability,
+        "operation": {"family": family, "variants": variants, "backendKinds": backend_kinds},
+        "entryPaths": entry_paths,
+        "requests": requests,
+        "requestFlows": request_flows,
+        "capabilityProvenance": {
+            "status": "required-not-yet-observed" if needs_capability else "not-required-before-action",
+            "kind": seed["capabilityFixture"]["kind"],
+            "source": seed["capabilityFixture"]["source"],
+            "endpoint": seed["capabilityFixture"]["endpoint"],
+            "binding": "outputId+stageId+snapshotToken+draft identity" if seed["capabilityFixture"]["kind"] == "go-compiled-construction-capabilities" else None,
+            "evidence": refs if needs_capability else [],
+        },
+        "seed": seed,
+        "dimensions": dimensions,
+        "constraints": constraints,
+        "disabledStates": disabled_states,
+        "requestSourceFacts": request_source_facts,
+        "evidence": refs,
+        "sourceRecords": [{"fragment": fragment if index == 0 else "merged-from-fragments", "sourceId": src.get("id")} for index, src in enumerate(sources)],
+        "coverage": {"modelStatus": "pending", "adapterStatus": "pending", "adapterId": None, "runnerActionId": None, "runnerActions": {"status": "pending", "bindings": {}}, "modelStateId": None},
+    }
+
+
+def _attach_aliases(affordances: list[dict]) -> None:
     alias_by_target: dict[str, list[str]] = {}
-    for alias in aliases:
+    for alias in ALIASES:
         alias_by_target.setdefault(alias["canonicalId"], []).append(alias["id"])
-    for item in out:
+    for item in affordances:
         item["aliases"] = alias_by_target.get(item["id"], [])
+
+
+def _build_disabled_affordances(root: Path) -> list[dict]:
     relational = json.loads((root / "docs/ui-contract-inventory/relational.fragment.json").read_text())
     disabled_targets = {
         "group_rows_unavailable": ["builder.row_definition.explicit_groups", "builder.reshape.group_field", "builder.reshape.group_coded"],
@@ -1155,7 +1193,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
         "legacy_table_shape_unsupported_choices": ["legacy.table_shape.grouped_pivot", "legacy.table_shape.unpivot"],
         "combine_action_without_root": ["builder.combine.key_join", "builder.combine.append", "builder.combine.membership"],
     }
-    disabled_affordances = [{
+    return [{
         "id": item["id"],
         "canonicalIds": disabled_targets.get(item["id"], []),
         "control": item.get("ui_path"),
@@ -1163,7 +1201,14 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
         "classification": item.get("basis"),
         "evidence": item.get("evidence", []),
     } for item in relational.get("visible_disabled_affordances", [])]
-    return out, mapping_rows, disabled_affordances
+
+
+def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]:
+    rows, mapping_rows = _fold_fragment_rows(root)
+    affordances = [_build_affordance(fid, bundle, mapping_rows) for fid, bundle in rows.items()]
+    affordances.sort(key=lambda x: x["id"])
+    _attach_aliases(affordances)
+    return affordances, mapping_rows, _build_disabled_affordances(root)
 
 
 def build_inventory(root: Path = ROOT) -> dict:
