@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// Keyword-named Pivot UI journey (docs/EXPLORER_BACKLOG.md disposition 2026-11-03):
-// the AQL-keyword class (category output named exactly 'null') was fixed and
-// dispositioned at the compile/API level (recipe_table_reshape.go keyword gate
-// + lowerRecipeGroupedPivot duplicate-ID repair, /tmp/opencode/rs08/nullpivot*.log).
-// This journey closes the remaining slice: the BROWSER path — typing reserved-keyword
-// names in the reshape pivot editor, applying them, seeing them in the comparison
-// grid, persisting across reload, being gated on duplicates, restored on remove,
-// with byte-identical state when cancelled. Raw-CDP against the owned loom-dev
-// stack, following the raw-CDP convention (verify-explorer-row-source-four-state.mjs).
-// Selector authority (self-derived from the served source, worker report discarded):
-// RowDefinitionSettingsPanel.tsx:983/:995/:1028/:1033/:1062,
-// constructionOperations/ConstructionReshapeEditor.tsx:2440/:2535/:4586/:4620/:4628/:4660/:4668/:4675/:4684/:4699/:4809/:4813;
-// RowDefinitionSettingsPanel.tsx lives under components/; the reshape editor under
-// constructionOperations/ (exact dirs per adversarial review PKW-R6).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -52,8 +38,6 @@ const expectedChecks = [
   'pk-remove-restores',
 ];
 
-// Legitimate rejection families. Anything else on a mutating call is a defect;
-// INTERNAL_ERROR/5xx is NEVER legitimate (the pivot-500 class this journey guards).
 const legit4xx = /^(TABLE_SHAPE_|DUPLICATE_OUTPUT_NAME|INVALID_AUTHORING_COMMAND|DRAFT_CONFLICT|TABLE_PIVOT_|INVALID_|UNRESOLVED_|NAME_)/;
 
 const staticValidate = () => {
@@ -141,8 +125,8 @@ const markPhase = (name) => {
 const moduleSend = (method, params = {}, ms = 25000) => withDeadline(client.send(method, params), ms, method);
 const killTree = async () => {
   clearTrackedTimers();
-  try { client.close(); } catch { /* already closed */ }
-  try { chrome.stderr?.destroy(); } catch { /* stream already released */ }
+  try { client.close(); } catch { }
+  try { chrome.stderr?.destroy(); } catch { }
   const groupMembers = () => {
     if (!Number.isInteger(chrome.pid)) return [];
     try {
@@ -159,8 +143,8 @@ const killTree = async () => {
   const groupSignal = (signal) => {
     let groupOk = false;
     if (Number.isInteger(chrome.pid)) { try { process.kill(-chrome.pid, signal); groupOk = true; } catch { groupOk = false; } }
-    if (!groupOk) { try { chrome.kill(signal); } catch { /* leader gone */ } }
-    for (const pid of groupMembers()) { try { process.kill(pid, signal); } catch { /* racing exit */ } }
+    if (!groupOk) { try { chrome.kill(signal); } catch { } }
+    for (const pid of groupMembers()) { try { process.kill(pid, signal); } catch { } }
     return true;
   };
   if (chrome.exitCode === null && chrome.signalCode === null) {
@@ -211,9 +195,6 @@ const main = async () => {
   const exceptions = [];
   report.exceptions = exceptions;
   client.on('Runtime.exceptionThrown', (event) => exceptions.push(event.exceptionDetails?.exception?.description || event.exceptionDetails?.text || 'exception'));
-  // F-5 (review): UI-originated authoring fetches are observed too. Any browser-side
-  // 5xx on /authoring/v2/ is a hard failure at the tail, even when the journey's own
-  // assertNoInternal legs passed (app-internal fetches belong to no leg's response).
   const browser5xx = [];
   const browser4xx = [];
   const cmdResponses = [];
@@ -248,7 +229,7 @@ const main = async () => {
       const value = await probe();
       if (value) return value;
       if (Date.now() > deadline) {
-        try { writeFileSync(join(out, `FAIL-${String(message).replace(/\W+/g, '_')}.html`), await evaluate('document.documentElement.outerHTML')); } catch { /* best effort */ }
+        try { writeFileSync(join(out, `FAIL-${String(message).replace(/\W+/g, '_')}.html`), await evaluate('document.documentElement.outerHTML')); } catch { }
         assert.fail(`condition failed: ${message}`);
       }
       await wait(80);
@@ -274,7 +255,6 @@ const main = async () => {
   };
   const readGrid = () => evaluate(`(()=>{const sec=document.querySelector('[data-testid="construction-preview"]');const t=sec?.querySelector('[data-testid="preview-table-content"]')||sec;if(!t)return null;const headerRow=t.querySelector('[role="row"]');const headers=headerRow?[...headerRow.querySelectorAll('[role="columnheader"],[role="cell"]')].map(c=>c.textContent.trim()):[];const trs=[...t.querySelectorAll('[role="row"]')].filter(r=>!r.className.includes('construction-preview-header-row'));const rows=trs.map(tr=>[...tr.querySelectorAll('[role="cell"]')].map(td=>td.textContent.trim())).filter(cells=>cells.length>0);return{headers,rowCount:rows.length,cells:rows,previewStatus:sec?.getAttribute('data-preview-status')??null,previewReceipt:sec?.getAttribute('data-preview-receipt-id')??null};})()`);
 
-  // ---- 1. pk-seed-table: API seed identical in shape to the dispositioned keyword probe
   const builder0 = await api('builder');
   assert.equal(builder0.status, 200, `builder fetch failed (${builder0.status})`);
   const nodes = (builder0.value.catalog?.nodes ?? []).filter((n) => n.rowRootEligible);
@@ -305,7 +285,6 @@ const main = async () => {
   record('pk-seed-table', { outputId, rootNode: obsRoot.resourceType, columns: adds.map((a) => a.title) });
   markPhase('seed');
 
-  // ---- open the reshape pivot editor in the browser
   const datasetLoaded = async () => {
     if (await mounted('[data-testid="construction-workspace"]')) return true;
     const alert = await evaluate(`(()=>{const a=document.querySelector('[role="alert"]');return a?a.textContent:null;})()`);
@@ -316,9 +295,6 @@ const main = async () => {
   await until(datasetLoaded, 'dataset loaded (construction-workspace mounted)', 60000);
   await realClick(`[data-testid="construction-table-${outputId}"]`);
   await wait(500);
-  // F-4 (review): positive base shape for the remove leg — snapshot the seeded grid
-  // (before any pivot mutation) so restoration is compared, not inferred from the
-  // absence of the keyword columns.
   const seededGrid = await until(async () => {
     const g = await readGrid();
     return g && g.headers.length >= 4 && g.rowCount > 0 ? g : null;
@@ -337,9 +313,6 @@ const main = async () => {
     await realClick('[data-testid="construction-rows-settings-trigger"]');
     await until(() => mounted('[data-testid="construction-row-intent-reshape"]'), 'reshape intent re-present', 20000);
     await realClick('[data-testid="construction-row-intent-reshape"]');
-    // Once the pivot is applied the variant trigger is gated off (pivotAlternative
-    // requires both coded/table pivot offers on the pending form, BuilderWorkspace.tsx:
-    // 3681); the authoritative reopen path is the applied-changes history Edit control.
     if (!(await mounted('[data-testid="construction-action-table-pivot-rows"]'))) {
       const editButtons = await evaluate(`(()=>{const s=document.querySelector('[data-testid="construction-row-operation-history"]');if(!s)return[];return [...s.querySelectorAll('[data-testid^="construction-row-edit-"]')].map(b=>b.getAttribute('data-testid'));})()`);
       assert.ok(editButtons.length > 0, 'applied pivot offers neither the variant trigger nor a history Edit control; reopen would be vacuous');
@@ -350,12 +323,6 @@ const main = async () => {
     await realClick('[data-testid="construction-action-table-pivot-rows"]');
     await until(() => mounted('[data-testid="construction-reshape-pivot"]'), 'pivot editor remounted', 20000);
   };
-  // Live-probe derived (manual-pivot.mjs 2026-11-03): the pivot form needs a GROUP KEY
-  // checked before discovery auto-fires; the category field must be subject_reference
-  // (the live dataset's single-value status column yields one category); discovery
-  // completes ~500 ms after the second select; <details> children are un-rendered
-  // until the summary is clicked open (programmatic .click() bypasses layout, so
-  // checkboxes are engaged via evaluate, not realClick).
   const configureFieldsAndCategories = async () => {
     await until(async () => (await evaluate(`document.querySelectorAll('input[aria-label^="Pivot group "]').length`)) >= 3, 'pivot group checkboxes rendered', 20000);
     const groupToggled = await evaluate(`(()=>{const els=[...document.querySelectorAll('input[aria-label^="Pivot group "]')];const t=els.find(e=>/status/i.test(e.getAttribute('aria-label'))&&!e.disabled);if(!t)return 'none';if(!t.checked)t.click();return t.getAttribute('aria-label');})()`);
@@ -374,10 +341,6 @@ const main = async () => {
     const checkedCount = await evaluate(`(()=>{const s=document.querySelector('[data-testid="construction-reshape-pivot-categories"]');return [...(s?.querySelectorAll('input[type="checkbox"][aria-label^="Include category"],input[type="checkbox"][aria-label^="Keep saved category"]:checked')??[])].length;})()`);
     assert.ok(selectedCount >= 2, `discovery yielded ${selectedCount} category rows; the duplicate-ID class needs a second category`);
     assert.ok(checkedCount >= 2, `only ${checkedCount} categories checked after select-all`);
-    // The numeric value column repeats per cell; the default ERROR duplicate policy
-    // keeps the proposal in its error state (construction-proposal-needs-repair,
-    // no apply button), so choose SUM — the policy the probe path uses and the
-    // only one that yields non-zero pivoted numbers.
     if (!(await evaluate(`document.querySelector('select[aria-label="Pivot duplicate policy"]')?.value === 'SUM'`))) {
       await realClick('[data-testid="construction-reshape-pivot-advanced"] summary');
       const setPolicy = await evaluate(`(()=>{const s=document.querySelector('select[aria-label="Pivot duplicate policy"]');if(!s)return 'missing';const setter=Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set;setter.call(s,'SUM');s.dispatchEvent(new Event('change',{bubbles:true}));return s.value;})()`);
@@ -387,7 +350,6 @@ const main = async () => {
     return { categoryLabel: String(catLabel), valueLabel: String(valLabel), groupKey: String(groupToggled), discovered: selectedCount, checked: checkedCount };
   };
 
-  // ---- 2/3/4 fields + categories, then keyword names
   const config = await configureFieldsAndCategories();
   record('pk-fields-selected', { category: config.categoryLabel, values: config.valueLabel, groupKey: config.groupKey });
   assert.ok(config.checked <= 6, `more category rows than the owned dataset can supply (${config.checked}); the keyword-name assignment below would be misaligned`);
@@ -403,9 +365,6 @@ const main = async () => {
       assert.ok(Array.isArray(got) && got.length === 2 && got.every((e) => e && e.value === names[i]), `keyword name/label inputs ${i} did not hold the typed value: ${JSON.stringify(got)}`);
       applied.push(got);
     }
-    // F-3 (review): re-read only AFTER React re-renders. A same-tick read cannot
-    // distinguish "the controlled component accepted the value" from "the DOM setter
-    // wrote it and the next render will revert it".
     await wait(250);
     const held = await evaluate(`(()=>{const s=document.querySelector('[data-testid="construction-reshape-pivot"]');const out=[];for(const pre of ['Pivot output name','Pivot output label']){const els=[...s.querySelectorAll('input[aria-label^="'+pre+' "]')].filter(e=>!e.disabled).slice(0,${names.length});out.push(els.map(e=>e.value));}return out;})()`);
     assert.ok(Array.isArray(held) && held.length === 2
@@ -416,7 +375,6 @@ const main = async () => {
     return applied;
   };
 
-  // stable-snapshot BEFORE typing, so the cancel leg can compare bytes
   const beforeTyping = await api('builder');
   const baseline = { draftVersion: beforeTyping.value.draftVersion, draftDigest: beforeTyping.value.draftDigest, tableShape: (beforeTyping.value.workspace.documents ?? [])[0]?.output?.tableShape ?? null };
 
@@ -424,9 +382,6 @@ const main = async () => {
   record('pk-keyword-names-applied', { names: keywordNames, inputs: appliedNames });
   markPhase('names');
 
-  // ---- 5. cancel keeps every byte
-  // row-intent sessions render no close header (BuilderWorkspace.tsx:3771
-  // `{!rowIntentSession ? <header>...`); switching intent is the real close path.
   await realClick('[data-testid="construction-row-intent-records"]');
   await until(async () => !(await mounted('[data-testid="construction-reshape-pivot"]')), 'pivot editor closed', 10000);
   const afterCancel = await api('builder');
@@ -436,7 +391,6 @@ const main = async () => {
   assert.deepEqual((afterCancel.value.workspace.documents ?? [])[0]?.output?.tableShape ?? null, baseline.tableShape, 'Cancel must not persist a tableShape');
   record('pk-cancel-byte-stability', { draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest.slice(0, 24) });
 
-  // ---- 6. server-side equivalence: same named pivot through the comparison API is AVAILABLE and carries the keyword columns
   const state3 = (await api('builder')).value;
   const caps = await api('table-shape-capabilities', {
     snapshotToken: state3.catalog.snapshotToken, expectedDraftVersion: state3.draftVersion, expectedDraftDigest: state3.draftDigest, outputId,
@@ -457,8 +411,6 @@ const main = async () => {
   });
   assertNoInternal(discovery, 'category-discoveries');
   assert.equal(discovery.status, 200, `discovery failed (${discovery.status}): ${JSON.stringify(discovery.value).slice(0, 300)}`);
-  // Every discovered category must be listed (server TABLE_PIVOT_UNLISTED_CATEGORY);
-  // first two names stay the verbatim keywords, later ones keep the keyword stem.
   const discoveredCategories = (discovery.value.categories ?? []).slice(0, 8);
   assert.ok(discoveredCategories.length >= 2, `comparison probe needs >=2 categories, saw ${(discovery.value.categories ?? []).length}`);
   const probeName = (i) => (i < keywordNames.length ? keywordNames[i] : `${keywordNames[i % keywordNames.length]}${i}`);
@@ -493,7 +445,6 @@ const main = async () => {
   record('pk-comparison-proposal-available', { changedColumns: changedColumns.slice(0, 8), categories: discoveredCategories.map((c) => c.key ?? c.choiceId), status: 'AVAILABLE' });
   markPhase('server-probe');
 
-  // ---- 7. UI apply with the keyword names
   await openPivotEditor();
   await configureFieldsAndCategories();
   await setNameInputs(keywordNames);
@@ -511,9 +462,6 @@ const main = async () => {
   report.steps.push({ step: 'apply-click', draftBeforeApply, applyReqs, postClickPanel });
   const afterApply = await api('builder');
   assertNoInternal(afterApply, 'builder-after-apply');
-  // Row-intent pivot persistence (ground truth, pkw7 re-derivation): the pivot step
-  // lands in doc.construction (operation.kind PIVOT, categories by key) and each
-  // typed category name lands in doc.columns[] as {id: 'pivot-column_*', name, label}.
   const doc0 = (afterApply.value.workspace.documents ?? [])[0] ?? {};
   const collectPivotColumnNames = (document) => {
     const found = [];
@@ -539,9 +487,6 @@ const main = async () => {
   assert.ok(constructionHasPivot || appliedPivotNames.length > 0, `apply bumped the draft but persisted no pivot representation: doc=${JSON.stringify(doc0?.construction ?? null).slice(0, 500)}`);
   record('pk-apply-success', { persistedVia: 'construction-step', persistedNames: appliedPivotNames.slice(0, 4), draftVersion: draftAfterApply });
 
-  // ---- 8. the comparison grid renders the keyword columns and real values.
-  // After apply the mounted preview may still hold the pre-apply receipt; force a
-  // fresh fetch by re-selecting the table (and, once, by full reload) before asserting.
   await realClick(`[data-testid="construction-table-${outputId}"]`);
   await wait(700);
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -565,14 +510,10 @@ const main = async () => {
   await screenshot('step3-keyword-grid');
   markPhase('grid');
 
-  // ---- 9. persisted document carries the exact names. The UI row-intent lane persists
-  // the pivot as a construction step (deep search), the API table-shape channel as
-  // output.tableShape.pivot (see the disposition note in docs/EXPLORER_BACKLOG.md).
   const outputs = pivotColumnNames((afterApply.value.workspace.documents ?? [])[0] ?? {});
   assert.deepEqual(outputs.slice(0, 2).sort(), [...keywordNames].sort(), `persisted pivot column names drifted from the typed keywords: ${JSON.stringify(outputs)}`);
   record('pk-document-persistence', { outputs, persistedColumnCount: outputs.length });
 
-  // ---- 10. reload keeps the keyword grid
   await navigateToLane('post-apply reload');
   await until(async () => (await mounted('[data-testid="construction-workspace"]')) && (await readGrid()), 'workspace + grid after reload', 60000);
   await realClick(`[data-testid="construction-table-${outputId}"]`);
@@ -588,7 +529,6 @@ const main = async () => {
   await screenshot('step4-reload');
   markPhase('reload');
 
-  // ---- 11. duplicate keyword name is gated (UI block or typed server 4xx), never 5xx, never silent
   await openPivotEditor();
   await configureFieldsAndCategories();
   await setNameInputs([keywordNames[0], keywordNames[0]]);
@@ -599,12 +539,6 @@ const main = async () => {
   if (!applyStateDup.present || applyStateDup.disabled) {
     dupOutcome = { lane: 'ui-gate', applyState: applyStateDup, statusText };
   } else {
-    // F-2 (review): the server lane must PROVE what it claims. The duplicate names
-    // are confirmed in the form above (setNameInputs re-reads post-render), so the
-    // click is a genuine duplicate attempt. Observe the mutating response: no
-    // commands request ⇒ client itself blocked (UI lane, recorded distinctly);
-    // a response ⇒ 5xx never admissible, 4xx must carry a typed legitimate code read
-    // from the response body. A 2xx that persists duplicates fails below.
     const cmdWindowStart = cmdResponses.length;
     await realClick('[data-testid="construction-apply-proposal"]');
     await wait(700);
@@ -645,9 +579,6 @@ const main = async () => {
   record('pk-duplicate-negative-blocked', dupOutcome);
   await screenshot('step5-duplicate-gate');
 
-  // ---- 12. valid rename re-enables apply (gate is not one-way sticky, and the
-  // duplicate-lane absence above was not a permanently-absent apply control).
-  // The proposal lifecycle is debounced/re-proposed server-side, so settle-wait.
   await setNameInputs([keywordNames[0], keywordNames[1]]);
   const sampleProposal = () => evaluate(`(()=>{const b=document.querySelector('[data-testid="construction-apply-proposal"]');const p=document.querySelector('[data-testid="construction-proposal-panel"]');return {apply:b?{present:true,disabled:b.disabled}:{present:false},panel:p?{status:p.getAttribute('data-proposal-status'),stats:[...p.querySelectorAll('[role="status"],[role="alert"]')].map(e=>e.textContent.trim().slice(0,120))}:null};})()`);
   const recoverState = await until(async () => {
@@ -658,9 +589,6 @@ const main = async () => {
     assert.fail(`valid rename did not re-enable apply (positive control for the duplicate gate): ${JSON.stringify(diag)} vs dup ${JSON.stringify(applyStateDup)} (${String(error?.message).slice(0, 100)})`);
   });
   record('pk-rename-recovers', { from: dupOutcome.lane, to: recoverState });
-  // History-edit mode renders the step editor without the intent tab bar, so the
-  // intent-switch close exists only on the creation flow; step editing closes via
-  // the proposal panel Cancel (discards the pending edit without a server write).
   if (await mounted('[data-testid="construction-row-intent-records"]')) {
     await realClick('[data-testid="construction-row-intent-records"]');
   } else {
@@ -671,10 +599,6 @@ const main = async () => {
   const postCloseNames = pivotColumnNames((afterRecoverClose.value.workspace.documents ?? [])[0] ?? {});
   assert.ok(!(postCloseNames.filter((n) => n === keywordNames[0]).length >= 2), `the discarded duplicate-name edit leaked into the document: ${JSON.stringify(postCloseNames)}`);
 
-  // ---- 13. remove restores the base grid; document loses the pivot.
-  // A full reload first: removes clicked from a panel that just finished step-editing
-  // silently no-op (its busy state swallows the click), so the removal runs from
-  // settled page state, mirroring how a user would return to the changes list.
   await send('Page.reload', {});
   await until(() => mounted('[data-testid="construction-workspace"]'), 'workspace after pre-remove reload', 30000);
   await realClick(`[data-testid="construction-table-${outputId}"]`);
@@ -690,9 +614,6 @@ const main = async () => {
   for (const selector of removeSelectors) {
     await realClick(`[data-testid="${selector}"]`);
     await wait(350);
-    // history Remove stages a removal proposal; the panel's apply control confirms it
-    // ('Apply removal'), mirroring the creation apply path. No click is needed if the
-    // control never appears (direct removal) — draft movement is asserted below.
     const removalApplyAppeared = await until(async () => evaluate(`(()=>{const b=document.querySelector('[data-testid="construction-apply-proposal"]');return b&&!b.disabled?b.textContent.trim():null;})()`), 'removal confirm control appears', 1500).catch(() => null);
     if (removalApplyAppeared) {
       await realClick('[data-testid="construction-apply-proposal"]');
@@ -712,7 +633,6 @@ const main = async () => {
   const stillPivotNames = pivotColumnNames((removedDoc.value.workspace.documents ?? [])[0] ?? {});
   const stillPivotStep = JSON.stringify((removedDoc.value.workspace.documents ?? [])[0]?.construction ?? null).includes('"PIVOT"');
   assert.ok(stillPivotNames.length === 0 && !stillPivotStep, `pivot survived remove: names=${JSON.stringify(stillPivotNames)} stepPresent=${stillPivotStep}`);
-  // F-4 (review): assert the FULL positive base shape, not just keyword absence.
   assert.ok(Array.isArray(baseGrid.headers) && baseGrid.headers.length >= 4, `post-remove grid has no base shape: ${JSON.stringify(baseGrid.headers)}`);
   assert.ok(baseGrid.rowCount > 0, 'post-remove grid lost all rows');
   assert.deepEqual(baseGrid.headers, seededGrid.headers, 'remove did not restore the exact seeded base grid headers');
@@ -720,7 +640,6 @@ const main = async () => {
   await screenshot('step6-remove-restored');
   markPhase('remove');
 
-  // ---- 14. stamp identity
   const identityAfter = collectBuildIdentity();
   report.buildIdentity.after = identityAfter;
   assert.equal(identityAfter.runningBinary, identityBefore.runningBinary, `serving binary moved during run: ${identityAfter.runningBinary} != ${identityBefore.runningBinary}`);
@@ -729,13 +648,9 @@ const main = async () => {
   report.buildIdentity.stampVerified = true;
   markPhase('identity-after');
 
-  // F-1 (review): uncaught browser exceptions must fail the run, per the raw-CDP
-  // convention this journey declares (four-state :792). A client-side error
-  // boundary that swallows a pivot bug must not print JOURNEY_OK.
   if (exceptions.length > 0) {
     throw new Error('uncaught browser exceptions during the journey: ' + exceptions.join(';').slice(0, 300));
   }
-  // F-5 (review): browser-originated 5xx on authoring endpoints fail closed.
   if (browser5xx.length > 0) {
     throw new Error('browser-side 5xx on authoring endpoints: ' + JSON.stringify(browser5xx).slice(0, 400));
   }

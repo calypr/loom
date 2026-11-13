@@ -36,7 +36,7 @@ try {
   const steps = document.construction.steps;
   if (values['expect-cascade-step']) assert(steps.some(step => step.id === values['expect-cascade-step']), 'Expected cascade step is absent from the saved construction');
   for (const [index, step] of steps.entries()) {
-    if (step.ownerStepId) continue; // Owned prerequisites are edited through their visible owner.
+    if (step.ownerStepId) continue;
     for (const mode of ['single', 'suffix']) {
       if (mode === 'suffix' && index === steps.length - 1) continue;
       const removed = mode === 'single' ? [step.id] : steps.slice(index).map(item => item.id);

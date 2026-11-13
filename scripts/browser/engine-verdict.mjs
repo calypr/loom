@@ -12,8 +12,6 @@ export function chooseConcurrency(trials) {
   const valid = trials.filter(trial => trial.status === 'passed' && Number.isFinite(trial.steadyMs) && trial.steadyMs > 0);
   if (!valid.length) throw new Error('No correct tuning configuration');
   const fastest = Math.min(...valid.map(trial => trial.steadyMs));
-  // Prefer fewer processes when exploratory work times are within five percent.
-  // Separate confirmation trials validate the selected setting.
   return valid.filter(trial => trial.steadyMs <= fastest * 1.05).sort((a, b) => a.concurrency - b.concurrency)[0].concurrency;
 }
 

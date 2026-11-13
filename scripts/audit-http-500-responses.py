@@ -40,7 +40,6 @@ def mapper_for(lines: list[str], start: int, end: int) -> str:
 
 
 def case_returns_case_body(lines: list[str], case_index: int) -> str:
-    # Generated adapters keep the return on the case line or the next line.
     window = "\n".join(lines[case_index : case_index + 3])
     match = BODY_RE.search(window)
     return match.group("var") if match else ""

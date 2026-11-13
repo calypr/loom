@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { root } from './formal-tools.mjs';
-// A partition of existing suites, not a claim that every test is a formal proof.
 export const features = [
     { id: 'ownership', model: ['BuilderLifecycle', 'ApplySettlementRace'], pattern: /^src\/features\/ExplorerBuilder\/constructionWorkspace\/useConstructionLifecycle\./ },
     { id: 'core-protocol', model: [], pattern: /^src\/features\/ExplorerBuilder\/BuilderWorkspace\.coreProtocol\./ },
@@ -49,8 +48,6 @@ export function runBehavior({ feature = 'all', shard, pattern, output }) {
     if (pattern)
         args.push('--testNamePattern', pattern);
     const env = { ...process.env, LOOM_MUTATION_TARGET: '', LOOM_MUTATION_SOURCE: '', LOOM_MUTATION_OVERRIDES: '', LOOM_BUILDER_TRACE_OUTPUT: '', LOOM_VITEST_CACHE_DIR: join(output, 'cache') };
-    // These optional capture/replay modes belong to retired external generators.
-    // Ambient settings must not turn a normal behavioral check into a fixture replay.
     for (const key of Object.keys(env))
         if (key.startsWith('BUILDER_'))
             delete env[key];

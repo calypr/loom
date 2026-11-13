@@ -1,12 +1,5 @@
 ------------------------- MODULE CoreAuthoringProtocol -------------------------
 EXTENDS Naturals, TLC
-(*
-Composed save/reconcile/preview interaction: one editor-side reconcile attempt of
-the saved head plus one competing save attempt, asynchronous message arrival,
-persisted immutable receipts and the client admission gate. Abstraction of
-internal/server/core_authoring_protocol_test.go witnesses; content is reduced to
-head version (1 or 2); receipt capN records the head N captured at compile time.
-*)
 Targets == {1, 2}
 InitialHead == 1
 VARIABLES headVersion, rStatus, rTarget, rCaptured, sStatus, sTarget,
@@ -51,14 +44,12 @@ SCommit ==
  /\ sStatus = "pending" /\ sTarget = headVersion /\ headVersion < 2
  /\ headVersion' = headVersion + 1
  /\ sStatus' = "committed"
- (* save dispatch cancels in-flight and admitted previews (:813-820) *)
  /\ admitted' = "none"
  /\ UNCHANGED <<rStatus, rTarget, rCaptured, sTarget, receipts,
                 previewExecuted, previewEcho, clientCurrent>>
 SCommitStale ==
  /\ sStatus = "pending" /\ sTarget # headVersion
  /\ sStatus' = "rejected409"
- (* the click cancels previews even when the server later rejects the save *)
  /\ admitted' = "none"
  /\ UNCHANGED <<headVersion, rStatus, rTarget, rCaptured, sTarget, receipts,
                 previewExecuted, previewEcho, clientCurrent>>
@@ -66,15 +57,10 @@ SAck ==
  /\ sStatus = "committed"
  /\ sStatus' = "acked"
  /\ clientCurrent' = headVersion
- (* the ack reducer rebuilds state without a preview unless the save response
-    carries a compile receipt it owns (authoring/model.ts stateFromCommands:
-    receipt: accepted, reconciliation: idle otherwise), so an older admitted
-    preview loses its receipt backing and cannot be displayed *)
  /\ admitted' = "none"
  /\ UNCHANGED <<headVersion, rStatus, rTarget, rCaptured, sTarget, receipts,
                 previewExecuted, previewEcho>>
 Preview(r) ==
- (* executions may complete out of order; the latest completion defines the echo *)
  /\ r \in receipts
  /\ previewEcho' = r
  /\ previewExecuted' = previewExecuted \cup {r}

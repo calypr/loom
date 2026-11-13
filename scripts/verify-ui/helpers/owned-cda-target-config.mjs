@@ -88,10 +88,6 @@ function validateEnvironmentOverrides(env, expected) {
   }
 }
 
-/**
- * Load one explicitly selected machine-local CDA target config and bind it to
- * the selected case's independent registry identity before Docker/browser work.
- */
 export async function loadOwnedCdaTargetConfig({
   targetPath,
   repositoryRoot,

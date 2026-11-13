@@ -51,7 +51,6 @@ export function validateAcceptanceInput(input) {
 function permutations(values) {
     return values.length < 2 ? [values] : values.flatMap((value, index) => permutations(values.filter((_, i) => i !== index)).map(rest => [value, ...rest]));
 }
-/** This independent reader oracle defines the four observable caller branches. */
 export function expectedAcceptance(input) {
     validateAcceptanceInput(input);
     if (input.currentOwner !== 'A' || input.currentFingerprint !== 'F0' || input.requestGeneration !== input.currentGeneration)
@@ -110,8 +109,6 @@ export async function replayReconcileWitness(witness, sources) {
         return { status: 'reproduced', ...error.witness };
     }
 }
-/** Convert an upstream decoded TLC path to external inputs for production replay.
- * Recompute the reader promise instead of trusting the broken model's outcome. */
 export function acceptanceCounterexampleWitness(counterexample) {
     assert.ok(Array.isArray(counterexample.states) && counterexample.states.length === 3, 'Acceptance counterexample must cross its two synchronous actions');
     const [initial, chosen, checked] = counterexample.states;
@@ -129,7 +126,6 @@ export function acceptanceCounterexampleWitness(counterexample) {
         variant: { swapOwner: false, swapFingerprint: false, outputOrder: [...input.responseOutputs].sort() }, expected,
         actions: ['ChooseInputs', 'ClassifyResponse'] };
 }
-/** The checked two-action frontier is parsed by upstream pstack's DOT->IR frontend. */
 export async function reconcileAcceptanceGraph(output) {
     const { scripts, jar } = tools();
     const directory = mkdtempSync(join(tmpdir(), 'loom-reconcile-graph-'));

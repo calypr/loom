@@ -1,5 +1,3 @@
-// Independent raw-storage oracle for the CDA Specimen -> Patient -> Observation route.
-// Enumerate all category values; keep one source witness per value instead of all route rows.
 export function buildCDAQuantityCategoryOracle(scopeBinds) {
   if(!scopeBinds || typeof scopeBinds!=='object' || Array.isArray(scopeBinds)) throw new Error('Explicit CDA quantity oracle scope binds are required');
   if(scopeBinds.scope_allowed!==true) throw new Error('This oracle requires allow-mode scope');

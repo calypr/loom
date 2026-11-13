@@ -35,8 +35,6 @@ deployment_project=$canonical_project
 acceptance_project=$canonical_project
 teardown_acceptance=false
 if [[ "$isolated" == false ]]; then
-  # Rebuild the user's canonical demo from the current source without changing
-  # its repository data. The locked fixture runs separately below.
   LOOM_DEMO_SEED=false \
     LOOM_DEMO_SOURCE_ROOT="$source_root" \
     "$repo_root/scripts/demo-up.sh"
