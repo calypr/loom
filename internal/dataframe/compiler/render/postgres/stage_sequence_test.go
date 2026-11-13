@@ -679,8 +679,8 @@ func TestSQL16LawCells(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read stage_sequence_test.go: %v", err)
 	}
-	if !strings.Contains(string(ownSource), attribution) {
-		t.Fatal("the terminal-order test register lost the verbatim D-16a attribution")
+	if !strings.Contains(string(ownSource), "// D-16a attribution (mandatory, coordinator ruling 2026-11-11): "+attribution) {
+		t.Fatal("the terminal-order test register lost the verbatim D-16a attribution comment line")
 	}
 	rendered := sql16Render(t, sql16ExpandGroupPlan(t))
 	for _, forbidden := range []string{"; ", "DROP ", "DELETE ", "INSERT ", "UPDATE ", "SET search_path"} {
@@ -749,7 +749,7 @@ func TestSQL16KeySelectorSidecar(t *testing.T) {
 	if !strings.Contains(sql, `to_jsonb(s."c1")`) {
 		t.Fatalf("scalar key fact was re-read as a jsonb path:\n%s", sql)
 	}
-	door, err := renderStageSequencePhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t)) //nolint:govet // fresh shadow of the entry-render error is intentional
+	door, err := renderStageSequencePhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
 	if err != nil {
 		t.Fatalf("direct door: %v", err)
 	}

@@ -12,8 +12,6 @@ export const projectionValidationFile = 'internal/explorer/authoringv2/construct
 export const projectionAdapterFile = 'internal/explorer/authoringv2/construction_projection_replay_test.go';
 export const projectionTestName = 'TestProjectionOwnerBranchReplay';
 
-// Single Node-side mirror of the Go branch table; the lane asserts that every
-// observation matches, so any drift between the two tables is a loud failure.
 export const projectionBranchExpectations = {
     'pivot-accept': { accept: true, contains: null },
     'pivot-not-consumed': { accept: false, contains: 'source projection must be consumed by its owner PIVOT step' },
@@ -33,9 +31,6 @@ export const projectionBranchExpectations = {
     'carry-missing-typed-output': { accept: false, contains: 'does not carry source projection' },
 };
 
-// Falsification pairs per U1 arm. Each fault neutralizes exactly one guard;
-// the named branch must then diverge (flipped acceptance, lost reject string,
-// or a crashing validator) with the restored run green.
 export const projectionSourceProofs = [
     { branch: 'owner-stepid-empty', arm: 'owner-required-id', edits: [['if !requiredID(projection.OwnerStepID) {', 'if false && !requiredID(projection.OwnerStepID) {']] },
     { branch: 'owner-missing', arm: 'owner-exists', edits: [['if ownerIndex < 0 {', 'if false && ownerIndex < 0 {']] },
