@@ -9,7 +9,10 @@
 // the other two methods without a repository, and the resolver dereferences
 // them on the first Builder capability read. These witnesses drive all three
 // methods through the assembled runtime, so an assembly that drops a
-// boundary fails here by name.
+// boundary fails here by name. The pg-fixture runner executes both cases
+// by name under a real PostgreSQL (scripts/run-postgres-integration.mjs,
+// capability-evidence-integration phase), where the zero-skip acceptance
+// gate makes a skipped witness a failed run rather than a green lane.
 package control
 
 import (
