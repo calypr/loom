@@ -233,71 +233,16 @@ func (w *BatchWriter) WriteBatch(ctx context.Context, batch Batch) (BatchResult,
 
 	var committedResources, committedEdges int64
 	if len(batch.Resources) > 0 {
-		if err := w.hookFail(stepStageResources); err != nil {
-			return BatchResult{}, &BatchWriteError{Op: "create-staging", BatchID: batch.ID, Err: err}
-		}
-		if err := w.stageResources(ctx, tx, batch); err != nil {
-			return BatchResult{}, err
-		}
-		w.probe(stepStageResources, batch.ID, tx)
-
-		if err := w.hookFail(stepCheckResources); err != nil {
-			return BatchResult{}, &BatchWriteError{Op: "check", BatchID: batch.ID, Err: err}
-		}
-		expectedResources, err := w.guardResources(ctx, tx, batch)
+		committedResources, err = w.writeResourcePhase(ctx, tx, batch)
 		if err != nil {
 			return BatchResult{}, err
 		}
-		w.probe(stepCheckResources, batch.ID, tx)
-
-		if err := w.hookFail(stepPublishResourc); err != nil {
-			return BatchResult{}, &BatchWriteError{Op: "publish", BatchID: batch.ID, Err: err}
-		}
-		committedResources, err = w.publishResources(ctx, tx, batch.ID)
-		if err != nil {
-			return BatchResult{}, err
-		}
-		if committedResources != expectedResources {
-			return BatchResult{}, &BatchAccountingError{
-				BatchID: batch.ID, Side: "resources",
-				Expected: expectedResources, Committed: committedResources,
-			}
-		}
-		w.probe(stepPublishResourc, batch.ID, tx)
 	}
-
 	if len(batch.Edges) > 0 {
-		if err := w.hookFail(stepStageEdges); err != nil {
-			return BatchResult{}, &BatchWriteError{Op: "create-staging", BatchID: batch.ID, Err: err}
-		}
-		if err := w.stageEdges(ctx, tx, batch); err != nil {
-			return BatchResult{}, err
-		}
-		w.probe(stepStageEdges, batch.ID, tx)
-
-		if err := w.hookFail(stepCheckEdges); err != nil {
-			return BatchResult{}, &BatchWriteError{Op: "check", BatchID: batch.ID, Err: err}
-		}
-		expectedEdges, err := w.guardEdges(ctx, tx, batch)
+		committedEdges, err = w.writeEdgePhase(ctx, tx, batch)
 		if err != nil {
 			return BatchResult{}, err
 		}
-		w.probe(stepCheckEdges, batch.ID, tx)
-
-		if err := w.hookFail(stepPublishEdges); err != nil {
-			return BatchResult{}, &BatchWriteError{Op: "publish", BatchID: batch.ID, Err: err}
-		}
-		committedEdges, err = w.publishEdges(ctx, tx, batch.ID)
-		if err != nil {
-			return BatchResult{}, err
-		}
-		if committedEdges != expectedEdges {
-			return BatchResult{}, &BatchAccountingError{
-				BatchID: batch.ID, Side: "edges",
-				Expected: expectedEdges, Committed: committedEdges,
-			}
-		}
-		w.probe(stepPublishEdges, batch.ID, tx)
 	}
 
 	if err := w.hookFail(stepFinalizeLedger); err != nil {
@@ -420,6 +365,41 @@ func (w *BatchWriter) stagingEdgeFQN() string {
 	return pgx.Identifier{"pg_temp", stagingEdgeTable}.Sanitize()
 }
 
+func (w *BatchWriter) writeResourcePhase(ctx context.Context, tx pgx.Tx, batch Batch) (int64, error) {
+	if err := w.hookFail(stepStageResources); err != nil {
+		return 0, &BatchWriteError{Op: "create-staging", BatchID: batch.ID, Err: err}
+	}
+	if err := w.stageResources(ctx, tx, batch); err != nil {
+		return 0, err
+	}
+	w.probe(stepStageResources, batch.ID, tx)
+
+	if err := w.hookFail(stepCheckResources); err != nil {
+		return 0, &BatchWriteError{Op: "check", BatchID: batch.ID, Err: err}
+	}
+	expectedResources, err := w.guardResources(ctx, tx, batch)
+	if err != nil {
+		return 0, err
+	}
+	w.probe(stepCheckResources, batch.ID, tx)
+
+	if err := w.hookFail(stepPublishResourc); err != nil {
+		return 0, &BatchWriteError{Op: "publish", BatchID: batch.ID, Err: err}
+	}
+	committedResources, err := w.publishResources(ctx, tx, batch.ID)
+	if err != nil {
+		return 0, err
+	}
+	if committedResources != expectedResources {
+		return 0, &BatchAccountingError{
+			BatchID: batch.ID, Side: "resources",
+			Expected: expectedResources, Committed: committedResources,
+		}
+	}
+	w.probe(stepPublishResourc, batch.ID, tx)
+	return committedResources, nil
+}
+
 func (w *BatchWriter) stageResources(ctx context.Context, tx pgx.Tx, batch Batch) error {
 	const createSQL = "CREATE TEMP TABLE " + stagingResourceTable + " (" +
 		"ordinal bigint NOT NULL, " +
@@ -530,6 +510,41 @@ func (w *BatchWriter) publishResources(ctx context.Context, tx pgx.Tx, batchID s
 		return 0, &BatchWriteError{Op: "publish", BatchID: batchID, Err: err}
 	}
 	return n, nil
+}
+
+func (w *BatchWriter) writeEdgePhase(ctx context.Context, tx pgx.Tx, batch Batch) (int64, error) {
+	if err := w.hookFail(stepStageEdges); err != nil {
+		return 0, &BatchWriteError{Op: "create-staging", BatchID: batch.ID, Err: err}
+	}
+	if err := w.stageEdges(ctx, tx, batch); err != nil {
+		return 0, err
+	}
+	w.probe(stepStageEdges, batch.ID, tx)
+
+	if err := w.hookFail(stepCheckEdges); err != nil {
+		return 0, &BatchWriteError{Op: "check", BatchID: batch.ID, Err: err}
+	}
+	expectedEdges, err := w.guardEdges(ctx, tx, batch)
+	if err != nil {
+		return 0, err
+	}
+	w.probe(stepCheckEdges, batch.ID, tx)
+
+	if err := w.hookFail(stepPublishEdges); err != nil {
+		return 0, &BatchWriteError{Op: "publish", BatchID: batch.ID, Err: err}
+	}
+	committedEdges, err := w.publishEdges(ctx, tx, batch.ID)
+	if err != nil {
+		return 0, err
+	}
+	if committedEdges != expectedEdges {
+		return 0, &BatchAccountingError{
+			BatchID: batch.ID, Side: "edges",
+			Expected: expectedEdges, Committed: committedEdges,
+		}
+	}
+	w.probe(stepPublishEdges, batch.ID, tx)
+	return committedEdges, nil
 }
 
 func (w *BatchWriter) stageEdges(ctx context.Context, tx pgx.Tx, batch Batch) error {
