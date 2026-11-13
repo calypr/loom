@@ -280,7 +280,14 @@ func (f *MockFence) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	authz := map[string]any{}
 	for _, path := range paths {
-		authz[path] = []any{map[string]any{"method": "read", "service": "*"}}
+		// A benchmark grant is a real principal grant: reads AND writes on
+		// the path. Dataset ingest and explorer publication run as write;
+		// the negative-auth control's scoped principal holds no grant on
+		// the dataset path at all, in either direction.
+		authz[path] = []any{
+			map[string]any{"method": "read", "service": "*"},
+			map[string]any{"method": "write", "service": "*"},
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"sub": sub, "authz": authz})
