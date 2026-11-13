@@ -4,9 +4,6 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  BACKEND_CONFORMANCE_FILTER,
-  BACKEND_CONFORMANCE_PACKAGE,
-  BACKEND_CONFORMANCE_TESTS,
   DATASET_INTEGRATION_PACKAGE,
   DATASET_INTEGRATION_TESTS,
   EXPLORER_INTEGRATION_PACKAGE,
@@ -46,15 +43,7 @@ const ADMIN_URL = 'postgresql://loom_test:s3cret-test-password@127.0.0.1:55432/l
 const events = list => list.map(event => JSON.stringify(event)).join('\n');
 const passingGo = (args = []) => ({
   status: 0,
-  stdout: events(args.includes(BACKEND_CONFORMANCE_FILTER)
-    ? [
-      ...BACKEND_CONFORMANCE_TESTS.flatMap(name => [
-        { Action: 'run', Package: 'serverpkg', Test: name },
-        { Action: 'pass', Package: 'serverpkg', Test: name },
-      ]),
-      { Action: 'pass', Package: 'serverpkg' },
-    ]
-    : args.includes(GENERATION_LOAD_INTEGRATION_FILTER)
+  stdout: events(args.includes(GENERATION_LOAD_INTEGRATION_FILTER)
     ? [
       ...GENERATION_LOAD_INTEGRATION_TESTS.flatMap(name => [
         { Action: 'run', Package: 'generationloadpkg', Test: name },
@@ -292,14 +281,14 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 9, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, ownership, factory, generation-load, and backend-conformance lanes must all run');
+  assert.equal(goCalls.length, 8, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, ownership, factory, and generation-load lanes must all run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/backends/postgres/internal/store'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
-  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration', 'factory-integration', 'generation-load-integration', 'backend-conformance-integration']);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration', 'factory-integration', 'generation-load-integration']);
   // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
@@ -831,64 +820,4 @@ test('the evidence directory must start empty', async () => {
     }),
     /must be empty/,
   );
-});
-
-// arch-backend-10 negative controls: the conformance lane's frozen CI gate
-// identity, its zero-skip law, and the skip-set capture pinning.
-test('backend-conformance lane carries the frozen thirteen-cell gate identity', () => {
-  assert.equal(BACKEND_CONFORMANCE_PACKAGE, './internal/server');
-  assert.equal(BACKEND_CONFORMANCE_FILTER, '^TestBackendArchitectureConformance$/^postgresql$');
-  assert.deepEqual(BACKEND_CONFORMANCE_TESTS.slice(0, 2), [
-    'TestBackendArchitectureConformance',
-    'TestBackendArchitectureConformance/postgresql',
-  ]);
-  const cells = BACKEND_CONFORMANCE_TESTS.slice(2).map(name => {
-    assert.match(name, /^TestBackendArchitectureConformance\/postgresql\/[a-zA-Z]+$/);
-    return name.split('/').pop();
-  });
-  assert.deepEqual(cells, [
-    'scalarQueryServesLiteralScalars',
-    'repeatedRelatedOccurrenceStaysDistinct',
-    'nullAndMissingSemanticsPreserved',
-    'explicitScopeServesAuthorizedAndExcludesUnauthorized',
-    'restrictedEmptyScopeServesNothing',
-    'unrestrictedSeesEverything',
-    'generationIsolationServesActiveOnly',
-    'stablePagingIsDeterministic',
-    'explorerDraftCASOneWinnerExactPreimage',
-    'publicationControlFenceRejectsStaleOwner',
-    'cancellationTypedFailureNoFallback',
-    'backendUnavailableAndWrongTagNoFallback',
-    'upgradeFromPinnedPreRefactorReopensSafely',
-  ]);
-});
-
-test('backend-conformance lane: every matched case must run and pass, skips fail', () => {
-  const good = [{ Action: 'pass', Package: 'pkg' },
-    ...BACKEND_CONFORMANCE_TESTS.flatMap(Test => [{ Test, Action: 'run' }, { Test, Action: 'pass' }])];
-  assert.equal(checkGoEvents(events(good), BACKEND_CONFORMANCE_TESTS).passes.length, BACKEND_CONFORMANCE_TESTS.length);
-  // A required cell that skips instead of passing fails the lane.
-  assert.throws(() => checkGoEvents(events(good.filter(e => !(e.Test === 'TestBackendArchitectureConformance/postgresql/unrestrictedSeesEverything' && e.Action === 'pass'))
-    .concat([{ Test: 'TestBackendArchitectureConformance/postgresql/unrestrictedSeesEverything', Action: 'skip' }])
-    .filter((e, i, a) => !(e.Action === 'pass' && a.some((o, j) => j !== i && o.Test === e.Test && o.Action === 'skip')))), BACKEND_CONFORMANCE_TESTS), /skipped, a blocker and never acceptance|Unexpected skipped case|did not pass/);
-  // A renamed cell (no run event under the frozen identity) fails.
-  assert.throws(() => checkGoEvents(events(good.map(e => e.Test === 'TestBackendArchitectureConformance/postgresql/stablePagingIsDeterministic'
-    ? { ...e, Test: 'TestBackendArchitectureConformance/postgresql/stablePagingIsDeterministicV2' } : e)), BACKEND_CONFORMANCE_TESTS), /did not run/);
-  // Zero selected tests never passes.
-  assert.throws(() => checkGoEvents(events([{ Action: 'pass', Package: 'pkg' }]), BACKEND_CONFORMANCE_TESTS), /did not run|No test assertions/);
-});
-
-test('backend-conformance skip-set capture is pinned and self-consistent', async () => {
-  const { createHash } = await import('node:crypto');
-  const capturePath = join(import.meta.dirname, 'backend-conformance-skipset-capture.json');
-  const raw = readFileSync(capturePath);
-  const verifier = readFileSync(join(import.meta.dirname, 'backend-conformance-skipset-verify.mjs'), 'utf8');
-  const pinned = verifier.match(/CAPTURE_SHA256 = '([0-9a-f]{64})'/)?.[1];
-  assert.ok(pinned, 'verifier does not pin the capture sha256');
-  assert.equal(createHash('sha256').update(raw).digest('hex'), pinned, 'skip-set capture drifted from its pinned sha256');
-  const capture = JSON.parse(raw);
-  assert.deepEqual([...capture.skips].sort(), [
-    'TestBackendArchitectureConformance/arangodb',
-    'TestBackendArchitectureConformance/postgresql',
-  ]);
 });

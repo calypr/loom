@@ -96,3 +96,19 @@ test('backend-architecture conformance: required legs run, skip and rename fail 
     assert.ok(backendArchitectureConformance.has('TestBackendArchitectureConformance/postgresql'));
     assert.ok(backendArchitectureConformance.has('TestBackendArchitectureConformance/arangodb'));
 });
+test('backend-architecture conformance skip-set capture is pinned and self-consistent', async () => {
+    const { createHash } = await import('node:crypto');
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const capturePath = join(import.meta.dirname, 'backend-conformance-skipset-capture.json');
+    const raw = readFileSync(capturePath);
+    const verifier = readFileSync(join(import.meta.dirname, 'backend-conformance-skipset-verify.mjs'), 'utf8');
+    const pinned = verifier.match(/CAPTURE_SHA256 = '([0-9a-f]{64})'/)?.[1];
+    assert.ok(pinned, 'verifier does not pin the capture sha256');
+    assert.equal(createHash('sha256').update(raw).digest('hex'), pinned, 'skip-set capture drifted from its pinned sha256');
+    const capture = JSON.parse(raw);
+    assert.deepEqual([...capture.skips].sort(), [
+        'TestBackendArchitectureConformance/arangodb',
+        'TestBackendArchitectureConformance/postgresql',
+    ]);
+});
