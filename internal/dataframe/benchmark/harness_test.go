@@ -94,7 +94,7 @@ func newFakeArm(backend string) *fakeArm {
 			f.publish++
 			f.published = append(f.published, body)
 			f.mu.Unlock()
-			_ = json.NewEncoder(w).Encode(map[string]any{"recipe": "bench", "translationVersion": "t1", "output": "out"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"recipe": "bench", "translationVersion": "t1", "receiptId": "revpub-1", "revisionId": "rev-1", "executionId": "exec-1", "activated": true})
 			return
 		case strings.Contains(path, "/authoring/v2/preview"):
 			var body map[string]any
@@ -194,7 +194,7 @@ func TestUploadAndPublishUsePublicRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pub.Output != "out" || pub.TranslationVersion != "t1" {
+	if pub.Recipe != "bench" || pub.TranslationVersion != "t1" || pub.ReceiptID != "revpub-1" || pub.RevisionID != "rev-1" {
 		t.Fatalf("publication decode: %+v", pub)
 	}
 }
@@ -442,13 +442,29 @@ func TestScrubWriterRedactsSecrets(t *testing.T) {
 
 func TestBuildServerConfigYAMLDisablesClickHouseBothArms(t *testing.T) {
 	for _, backend := range []string{BackendArango, BackendPostgres} {
-		yaml := BuildServerConfigYAML(":18080", backend, "  url: http://127.0.0.1:8529\n", "http://127.0.0.1:9999", "bench-cursor-secret-0123456789ab")
+		yaml := BuildServerConfigYAML(":18080", backend, "  url: http://127.0.0.1:8529\n", "http://127.0.0.1:9999", "bench-cursor-secret-0123456789ab", nil)
 		if !strings.Contains(yaml, "clickhouse:") || !strings.Contains(yaml, "enabled: false") {
 			t.Fatalf("%s arm config must disable ClickHouse: %s", backend, yaml)
+		}
+		if strings.Contains(yaml, "dataframer") {
+			t.Fatalf("%s arm config must not name a recipe without ClickHouse: %s", backend, yaml)
 		}
 		if !strings.Contains(yaml, "mode: calypr") || !strings.Contains(yaml, "trusted_issuer") {
 			t.Fatalf("%s arm config must wire scoped auth: %s", backend, yaml)
 		}
+	}
+}
+
+func TestBuildServerConfigYAMLEnablesChainWithOwnDatabase(t *testing.T) {
+	ch := &ClickHouseSpec{URL: "clickhouse://127.0.0.1:9000", Database: "loom_bench_postgres", Username: "loom_bench", Password: "ci-only", Recipe: "/repo/testdata/devloop-fixture/recipe.json"}
+	yaml := BuildServerConfigYAML(":18080", BackendPostgres, "  host: x\n", "http://127.0.0.1:9999", "bench-cursor-secret-0123456789ab", ch)
+	for _, want := range []string{"enabled: true", `url: "clickhouse://127.0.0.1:9000"`, `database: "loom_bench_postgres"`, `username: "loom_bench"`, `password: "ci-only"`, "dataframer", `recipe: "/repo/testdata/devloop-fixture/recipe.json"`} {
+		if !strings.Contains(yaml, want) {
+			t.Fatalf("enabled arm config missing %q: %s", want, yaml)
+		}
+	}
+	if strings.Contains(yaml, "enabled: false") {
+		t.Fatalf("enabled arm config must not also disable ClickHouse: %s", yaml)
 	}
 }
 

@@ -54,59 +54,47 @@ type PlannedNotRun struct {
 // harness, the named capability, and the CI lane describing one substrate.
 const ClickHouseCIVersion = "25.3"
 
-// ClickHouseCIImage is the container image the CI lane runs the
+// ClickHouseCIImage is the container image the CI lanes run the
 // publication-dependent stages against. No container engine exists in the
-// worker container, so these stages are planned/not_run there (coordinator
-// ruling 2026-11-13: no ClickHouse chasing); the CI lane provisions the
-// service and runs them for real.
+// worker container, so publication runs are planned/not_run there
+// (coordinator ruling 2026-11-13: no ClickHouse chasing); the paired CI
+// lane provisions the service and runs the whole chain for real.
 const ClickHouseCIImage = "clickhouse/clickhouse-server:" + ClickHouseCIVersion
 
 // PublicationCapabilityCH names the missing capability when the
 // publication chain cannot execute because ClickHouse is not deployed.
 // Publication is structurally ClickHouse-backed: publication.Target has
-// exactly one production implementation (ClickHouseBundleStore).
-// The dataset→bundle→ClickHouse CHAIN needs the service; the authoring
-// battery (explorer publish, builder, reconcile, preview, timing, gates,
-// controls) does not — the backend-conformance lane runs it on both real
-// drivers with clickhouse.enabled=false, and the PostgreSQL backend
-// forbids clickhouse.enabled in this slice outright.
+// exactly one production implementation (ClickHouseBundleStore), and the
+// repository publish that seeds every Explorer draft materializes through
+// it. The 2026-11-13 local rehearsal disproved the earlier premise that
+// the authoring battery could run with clickhouse.enabled=false: the
+// first explorer-config publish answers 422 MATERIALIZATION_FAILED
+// without a target, so there is no chain-less battery — a run either
+// deploys ClickHouse (mode run) or discloses everything downstream of
+// upload as not_run (mode excluded).
 const PublicationCapabilityCH = "CH-" + ClickHouseCIVersion + "-unavailable-in-container"
-
-// PublicationCapabilityTimed names why the chain stays not_run on the
-// paired timing lane: the dataframe legs run both drivers with
-// clickhouse.enabled=false (the matched reader path ruling; the chain
-// belongs to the ClickHouse CI lane), and the timing battery provably
-// does not consume the chain.
-const PublicationCapabilityTimed = "CH-not-deployed-for-timed-dataframe-legs"
 
 // PublicationPlan declares whether the publication chain ran. It is a
 // plan-level property so VerifyReport, not the driver's self-description,
 // decides whether a report may carry timing evidence.
 type PublicationPlan struct {
-	// Run is true when publication executed (CI lane with ClickHouse).
+	// Run is true when publication executed (CI lane with ClickHouse);
+	// the timing battery only ever runs alongside it, because authoring
+	// publishes through the chain.
 	Run bool `json:"run"`
 	// Capability names why the chain did not run when Run is false;
 	// PublicationCapabilityCH is the canonical value for a ClickHouse-less
-	// deployment.
+	// deployment. A run-mode plan must leave it empty.
 	Capability string `json:"capability,omitempty"`
-	// Battery is the timed mode: the chain stays not_run (Run false) but
-	// the timing battery — authoring, preview, timing, gates, controls —
-	// executes for real. Only the chain itself ships disclosed not_run.
-	// Run and Battery together is contradictory and refused.
-	Battery bool `json:"battery,omitempty"`
 }
 
-// PublicationTimed reports the timed mode: chain excluded, battery run.
-func (p RunPlan) PublicationTimed() bool {
-	return p.Publication != nil && !p.Publication.Run && p.Publication.Battery
-}
-
-// PublicationZeroEvidence reports the pure excluded mode: chain excluded
-// AND the battery excluded, so the run measured nothing and a report
-// carrying samples, summaries, claims, control values, or non-blocked
-// arms would be forged. This is what VerifyReport pins.
+// PublicationZeroEvidence reports the excluded mode: the chain and
+// everything downstream of upload were excluded, so the run measured
+// nothing and a report carrying samples, summaries, claims, control
+// values, or non-blocked arms would be forged. This is what VerifyReport
+// pins.
 func (p RunPlan) PublicationZeroEvidence() bool {
-	return p.PublicationExcluded() && !p.Publication.Battery
+	return p.PublicationExcluded()
 }
 
 // ApplyExcludedWorkloadGateReports replaces any gate report for an
@@ -274,11 +262,12 @@ func PublicationGateReports(legs []LegPlan, capability string) []WorkloadGateRep
 }
 
 // ValidatePublicationPlan checks the publication declaration is honest in
-// shape: an excluded chain must name its missing capability.
+// shape: an excluded chain must name its missing capability, and a
+// run-mode chain must not carry one (a capability names what did not run).
 func ValidatePublicationPlan(plan RunPlan) error {
 	if plan.Publication == nil || plan.Publication.Run {
-		if plan.Publication != nil && plan.Publication.Run && plan.Publication.Battery {
-			return fmt.Errorf("benchmark: publication plan declares run and battery together; battery names the timed mode where the chain did not run")
+		if plan.Publication != nil && plan.Publication.Run && strings.TrimSpace(plan.Publication.Capability) != "" {
+			return fmt.Errorf("benchmark: publication plan claims the chain ran while naming a missing capability %q", plan.Publication.Capability)
 		}
 		return nil
 	}

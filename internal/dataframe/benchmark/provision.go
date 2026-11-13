@@ -344,15 +344,40 @@ func MakeBearerToken(issuer, sub string) string {
 	return "Bearer " + header + "." + payload + "." + base64.RawURLEncoding.EncodeToString([]byte("mock"))
 }
 
-// BuildServerConfigYAML renders the arm config: ClickHouse disabled on both
-// arms (matched reader path ruling), scoped calypr auth against the mock
-// fence, backend wiring passed in verbatim from the caller.
-func BuildServerConfigYAML(listen, backend, backendYAML, fenceURL, cursorSecret string) string {
+// ClickHouseSpec configures the publication chain for a spawned arm.
+// Both arms run the same ClickHouse server but must never share a
+// database: each arm materializes into its own benchmark-owned database
+// so a publish on one driver can never read or displace the other's
+// published rows. Recipe is the dataframer recipe JSON the server needs
+// when ClickHouse is enabled; it is a startup input — publication
+// materialization is receipt-driven.
+type ClickHouseSpec struct {
+	URL      string
+	Database string
+	Username string
+	Password string
+	Recipe   string
+}
+
+// BuildServerConfigYAML renders the arm config: ClickHouse enabled or
+// disabled per spec (matched deployment: one spec drives both arms, only
+// the database differs), scoped calypr auth against the mock fence,
+// backend wiring passed in verbatim from the caller.
+func BuildServerConfigYAML(listen, backend, backendYAML, fenceURL, cursorSecret string, ch *ClickHouseSpec) string {
 	var b bytes.Buffer
 	b.WriteString("server:\n")
 	fmt.Fprintf(&b, "  listen: %q\n", listen)
 	fmt.Fprintf(&b, "  backend: %q\n", backend)
-	b.WriteString("  clickhouse:\n    enabled: false\n")
+	if ch == nil {
+		b.WriteString("  clickhouse:\n    enabled: false\n")
+	} else {
+		b.WriteString("  clickhouse:\n    enabled: true\n")
+		fmt.Fprintf(&b, "    url: %q\n", ch.URL)
+		fmt.Fprintf(&b, "    database: %q\n", ch.Database)
+		fmt.Fprintf(&b, "    username: %q\n", ch.Username)
+		fmt.Fprintf(&b, "    password: %q\n", ch.Password)
+		fmt.Fprintf(&b, "  dataframer:\n    recipe: %q\n", ch.Recipe)
+	}
 	// The server refuses to configure without a >=16-char signing secret;
 	// callers generate one per run and scrub it from arm logs.
 	fmt.Fprintf(&b, "  population_mapping_cursor_secret: %q\n", cursorSecret)

@@ -23,7 +23,7 @@ func TestWriteRoutesCarryAuthResourcePath(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/projects/loom-bench/generations/gen-1/explorer-config", func(w http.ResponseWriter, r *http.Request) {
 		seen["publish"] = r.URL.Query().Get("auth_resource_path")
-		_ = json.NewEncoder(w).Encode(map[string]any{"output": "out", "recipe": "rec", "translationVersion": "tv", "executionId": "ex"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"receiptId": "rcpt-1", "revisionId": "rev-1", "recipe": "rec", "translationVersion": "tv", "executionId": "ex", "activated": true})
 	})
 	mux.HandleFunc("/api/v1/projects/loom-bench/explorers", func(w http.ResponseWriter, r *http.Request) {
 		seen["create"] = r.URL.Query().Get("auth_resource_path")

@@ -94,11 +94,17 @@ func (a *Arm) UploadGeneration(ctx context.Context, token, project, generation s
 	return nil
 }
 
-// Publication identifies the published output for execution.
+// Publication identifies the durable publication the receipt-based
+// execution will bind to. Fields mirror the real explorer-config response
+// exactly (project, generation, explorerId, receiptId, revisionId,
+// executionId, recipe, translationVersion, activated): the server omits any
+// per-output field, so output identity belongs to the caller, which authored
+// the single-output workspace and knows its id.
 type Publication struct {
 	Recipe             string `json:"recipe"`
 	TranslationVersion string `json:"translationVersion"`
-	Output             string `json:"output"`
+	ReceiptID          string `json:"receiptId"`
+	RevisionID         string `json:"revisionId"`
 	ExecutionID        string `json:"executionId"`
 }
 
@@ -123,8 +129,11 @@ func (a *Arm) PublishWorkspace(ctx context.Context, token, project, generation s
 	if err := json.Unmarshal(raw, &pub); err != nil {
 		return Publication{}, fmt.Errorf("benchmark: publication shape on %s: %w", a.Backend, err)
 	}
-	if pub.Output == "" {
-		return Publication{}, fmt.Errorf("benchmark: publication on %s omitted output identity", a.Backend)
+	if pub.Recipe == "" || pub.TranslationVersion == "" {
+		return Publication{}, fmt.Errorf("benchmark: publication on %s omitted recipe/translationVersion identity", a.Backend)
+	}
+	if pub.ReceiptID == "" || pub.RevisionID == "" {
+		return Publication{}, fmt.Errorf("benchmark: publication on %s omitted receipt/revision identity", a.Backend)
 	}
 	return pub, nil
 }

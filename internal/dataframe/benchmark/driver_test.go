@@ -117,16 +117,24 @@ func TestDriverBothArmsProtocol(t *testing.T) {
 		if f.uploads != 1 {
 			t.Fatalf("%s: uploads=%d want 1", name, f.uploads)
 		}
-		if f.publish != live+1 { // + empty floor
-			t.Fatalf("%s: publish=%d want %d", name, f.publish, live+1)
+		if f.publish != live+2 { // + catalog bootstrap + empty floor
+			t.Fatalf("%s: publish=%d want %d", name, f.publish, live+2)
 		}
 		// the writable wire is closed over aggregate predicates: every
 		// published workspace must bind exactly like the server's body bind
 		// does, predicate workspaces must carry contributor intent, and no
 		// body may smuggle the legacy where field
 		bodies := f.publishedBodies()
-		if len(bodies) != live+1 {
-			t.Fatalf("%s: published bodies=%d want %d", name, len(bodies), live+1)
+		if len(bodies) != live+2 {
+			t.Fatalf("%s: published bodies=%d want %d", name, len(bodies), live+2)
+		}
+		// the catalog fetch is bootstrapped by publishing the empty-floor
+		// workspace first: the default explorer exists only after the first
+		// explorer-config publish, so the builder read depends on this order
+		if floor, err := BuildEmptyFloorWorkspace(); err != nil {
+			t.Fatal(err)
+		} else if string(bodies[0]) != string(floor) {
+			t.Fatalf("%s: first publish must be the empty-floor catalog bootstrap", name)
 		}
 		var withContributor, withWhere int
 		for _, body := range bodies {

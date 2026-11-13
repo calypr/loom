@@ -258,12 +258,11 @@ func VerifyReport(report *Report) error {
 	}
 	if runLegs > 0 {
 		if report.Plan.PublicationZeroEvidence() {
-			// Pure excluded mode: the battery itself was excluded, so
-			// nothing measured and any control value or timing evidence
-			// is forged (stolen limits, borrowed floors, ratio cover).
-			// The timed mode (chain excluded, battery run) belongs to the
-			// else branch below: its evidence is real and must satisfy
-			// the control-presence rules.
+		// Excluded mode: the battery itself was excluded, so nothing
+		// measured and any control value or timing evidence is forged
+		// (stolen limits, borrowed floors, ratio cover). A run that
+		// measured anything takes the else branch below, where the
+		// control-presence rules apply.
 			c := report.Controls
 			if c.StabilityCVLimit != 0 || c.EmptyFloorMillis != 0 || c.SelfRatioArango != 0 ||
 				c.SelfRatioPostgres != 0 || c.RatioPolicy != "" || len(c.UnstableCells) != 0 {

@@ -204,6 +204,9 @@ import {
 } from './benchmark-backends.mjs';
 
 const SHA40 = 'a'.repeat(40);
+// The paired lane requires a ClickHouse service: the publication chain is
+// ClickHouse-backed end to end (authoring publishes through it).
+const CH_ARGS = ['--clickhouse-url', 'clickhouse://127.0.0.1:9000'];
 
 function pairedReportFixture(overrides = {}) {
   const samples = [];
@@ -217,10 +220,10 @@ function pairedReportFixture(overrides = {}) {
     status: 'passed',
     identity: {
       runId: 'bench-paired-1', preset: 'tiny', sourceCommit: SHA40, datasetDigest: 'd'.repeat(64),
-      arangoVersion: '3.12.4', postgresVersion: 'PostgreSQL 18.0', clickhouseDisabled: true,
+      arangoVersion: '3.12.4', postgresVersion: 'PostgreSQL 18.0', clickhouseDisabled: false,
       config: { Warmup: 1, Iterations: 5, Concurrency: 1, Rounds: 1 },
     },
-    plan: { scope: 'both-arms', legs: [{ backend: 'arango', mode: 'run' }, { backend: 'postgres', mode: 'run' }] },
+    plan: { scope: 'both-arms', legs: [{ backend: 'arango', mode: 'run' }, { backend: 'postgres', mode: 'run' }], publication: { run: true } },
     gateReports: [{ workloadId: 'select-filter', claimable: true, arango: { outcome: 'passed' }, postgres: { outcome: 'passed' } }],
     samples,
     summaries: [
@@ -237,7 +240,7 @@ test('paired: missing services fail the check, never skip it', () => {
   assert.equal(seen.problems.length, 2);
   const logs = [];
   let spawned = false;
-  const failures = run(parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--source-commit', SHA40]), {
+  const failures = run(parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--source-commit', SHA40, ...CH_ARGS]), {
     exec: () => { spawned = true; return { status: 0 }; },
     log: (line) => logs.push(line),
     env: {},
@@ -253,19 +256,22 @@ test('paired: arango dsn gets a benchmark-namespaced database', () => {
   assert.match(seen.arangoUrl, /\/loom_bench_ci$/);
 });
 
-test('paired invocation: both arms, timed lane, real iterations', () => {
-  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--profile', 'tiny', '--iterations', '5', '--warmup', '1', '--rounds', '5', '--source-commit', SHA40]);
+test('paired invocation: both arms, full chain, real iterations', () => {
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--profile', 'tiny', '--iterations', '5', '--warmup', '1', '--rounds', '5', '--source-commit', SHA40, ...CH_ARGS]);
   const inv = buildPairedInvocation(flags, { arangoUrl: 'http://127.0.0.1:8529/loom_bench_ci', postgresDsn: 'postgresql://u:p@h:5432/loom_bench_paired' });
   const joined = inv.args.join(' ');
   assert.match(joined, /--scope=both-arms/);
-  assert.match(joined, /--publication=timed/);
+  assert.match(joined, /--publication=run/);
+  assert.match(joined, /--clickhouse-enabled/);
+  assert.match(joined, /--clickhouse-url=clickhouse:\/\/127\.0\.0\.1:9000/);
+  assert.match(joined, /--clickhouse-recipe=\S+recipe\.json/);
   assert.match(joined, /--iterations=5/);
   assert.match(joined, /--warmup=1/);
   assert.match(joined, /--arango-dsn=http:\/\/127\.0\.0\.1:8529\/loom_bench_ci/);
 });
 
 test('paired flags refuse a non-comparison', () => {
-  const base = ['--paired', '--binary', '/bin/loom', '--out', 'out', '--source-commit', SHA40];
+  const base = ['--paired', '--binary', '/bin/loom', '--out', 'out', '--source-commit', SHA40, ...CH_ARGS];
   const without = (flag) => {
     const i = base.indexOf(flag);
     return [...base.slice(0, i), ...base.slice(i + 2)];
@@ -276,6 +282,8 @@ test('paired flags refuse a non-comparison', () => {
   assert.throws(() => parseArgs([...base, '--iterations', '3']), /integer >= 5/);
   assert.throws(() => parseArgs([...base, '--warmup', '0']), /warmup/);
   assert.throws(() => parseArgs([...base, '--profile', 'smoke']), /--profile must be one of/);
+  assert.throws(() => parseArgs(without('--clickhouse-url')), /requires --clickhouse-url/);
+  assert.throws(() => parseArgs([...base, '--clickhouse-recipe', '']), /dataframer recipe/);
 });
 
 test('paired classification: only real timing on both drivers passes', () => {
@@ -298,9 +306,13 @@ test('paired classification: only real timing on both drivers passes', () => {
   const failedStatus = pairedReportFixture({ status: 'failed' });
   assert.equal(classifyPairedReport(failedStatus).status, 'fail', 'correctness failure cannot be read as fast');
 
-  const chClaimed = pairedReportFixture();
-  chClaimed.identity.clickhouseDisabled = false;
-  assert.equal(classifyPairedReport(chClaimed).status, 'fail', 'the timed lane must record ClickHouse as disabled');
+  const chDisabled = pairedReportFixture();
+  chDisabled.identity.clickhouseDisabled = true;
+  assert.equal(classifyPairedReport(chDisabled).status, 'fail', 'a lane that records ClickHouse as disabled cannot have run the chain the battery needs');
+
+  const chainNotRun = pairedReportFixture();
+  delete chainNotRun.plan.publication;
+  assert.equal(classifyPairedReport(chainNotRun).status, 'fail', 'a report whose plan does not claim the chain ran is not a comparison');
 
   const blockedArm = pairedReportFixture();
   blockedArm.gateReports = [{ workloadId: 'select-filter', arango: { outcome: 'blocked' }, postgres: { outcome: 'passed' } }];
@@ -333,7 +345,7 @@ test('paired run end-to-end: clean both-arm report passes and writes the table',
     if (args.includes('verify')) return { status: 0 };
     return { status: 0 };
   };
-  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', dir, '--source-commit', SHA40]);
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', dir, '--source-commit', SHA40, ...CH_ARGS]);
   await writeFile(join(dir, 'report.json'), JSON.stringify(report));
   const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_paired' } });
   assert.equal(failures, 0, logs.join('\n'));
@@ -351,7 +363,7 @@ test('paired run end-to-end: zero-timing report fails the check even with exit 0
   report.status = 'failed';
   const exec = () => ({ status: 0 });
   const logs = [];
-  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', dir, '--source-commit', SHA40]);
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', dir, '--source-commit', SHA40, ...CH_ARGS]);
   await writeFile(join(dir, 'report.json'), JSON.stringify(report));
   const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_paired' } });
   assert.equal(failures, 1);
@@ -368,7 +380,7 @@ test('paired: postgres dsn must name a loom_bench_ database', () => {
 test('paired: admin DSN drives drop-pg then setup-pg before the benchmark', () => {
   const dir = '/tmp/paired-prov-test';
   const calls = [];
-  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--benchcli', '/bin/benchcli', '--out', dir, '--source-commit', SHA40]);
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--benchcli', '/bin/benchcli', '--out', dir, '--source-commit', SHA40, ...CH_ARGS]);
   const exec = (cmd, args) => { calls.push([cmd, args.join(' ')]); return { status: 0 }; };
   const logs = [];
   run(flags, {
@@ -387,7 +399,7 @@ test('paired: admin DSN drives drop-pg then setup-pg before the benchmark', () =
 
 test('paired: failed setup-pg fails the check before any timing attempt', () => {
   const calls = [];
-  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--benchcli', '/bin/benchcli', '--out', '/tmp/paired-fail', '--source-commit', SHA40]);
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--benchcli', '/bin/benchcli', '--out', '/tmp/paired-fail', '--source-commit', SHA40, ...CH_ARGS]);
   const logs = [];
   const failures = run(flags, {
     exec: (cmd, args) => {

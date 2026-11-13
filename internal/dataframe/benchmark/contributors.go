@@ -47,10 +47,13 @@ type contributorCatalogWire struct {
 	} `json:"candidates"`
 }
 
-// FetchContributorCatalog reads the live builder catalog of one explorer
-// (the battery uses the seeded "default"). It fails closed on an incomplete,
-// truncated, or scope-less catalog: a partial catalog could silently drop a
-// predicate candidate and mis-author a workload.
+// FetchContributorCatalog reads the live builder catalog of one explorer.
+// The battery targets the repository "default" explorer, which exists only
+// after the first explorer-config publish, so the driver bootstraps it with
+// the empty-floor workspace before fetching (see driver.go). It fails
+// closed on an incomplete, truncated, or scope-less catalog: a partial
+// catalog could silently drop a predicate candidate and mis-author a
+// workload.
 func (a *Arm) FetchContributorCatalog(ctx context.Context, token, project, explorer string) (authoringv2.CatalogSnapshot, error) {
 	endpoint := a.authoringURL(project, explorer) + "/builder"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

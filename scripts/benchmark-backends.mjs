@@ -16,12 +16,15 @@
 //       selftest; it can never satisfy a live check.
 //   --paired --binary <server> --out <dir> [--profile tiny|small|representative]
 //       [--iterations N>=5 --warmup N>=1 --rounds N] [--source-commit SHA]
-//       [--benchcli <path>] [--window-note <text>]
+//       [--benchcli <path>] [--window-note <text>] --clickhouse-url <url>
 //       The operator-mandated comparison: the same matched battery runs
 //       against BOTH real drivers (LOOM_TEST_ARANGO_URL +
-//       LOOM_TEST_POSTGRES_URL), correctness gates first, then >=5
-//       alternating timings per driver. With LOOM_BENCH_ADMIN_DSN set it
-//       first provisions its own fresh loom_bench_* database (drop-pg +
+//       LOOM_TEST_POSTGRES_URL) with the full ClickHouse-backed
+//       publication chain (--publication=run; there is no chain-less
+//       battery: the first explorer-config publish materializes through
+//       ClickHouse), correctness gates first, then >=5 alternating
+//       timings per driver. With LOOM_BENCH_ADMIN_DSN set it first
+//       provisions its own fresh loom_bench_* database (drop-pg +
 //       setup-pg: database, six-series schema ladder, migrated tables),
 //       because the PostgreSQL backend does not own schema lifecycle.
 //       Writes comparison.md next to the verified report. FAILS (never
@@ -30,6 +33,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 export const CHECK_HARNESS = 'benchmark-harness-tests';
 export const CHECK_LIVE = 'live-two-backend-correctness';
@@ -47,6 +51,8 @@ export function parseArgs(argv) {
     mode: null, report: null, benchcli: null, out: null, runArgs: [], selftest: false,
     paired: false, binary: null, profile: 'tiny', iterations: 5, warmup: 1, rounds: null,
     concurrency: 1, previewLimit: 1000, sourceCommit: null, seed: 7, windowNote: null,
+    clickHouseUrl: null, clickHouseUser: 'default', clickHousePassword: null,
+    clickHouseRecipe: fileURLToPath(new URL('../testdata/devloop-fixture/recipe.json', import.meta.url)),
   };
   let i = 0;
   const int = (name, raw, min) => {
@@ -72,6 +78,10 @@ export function parseArgs(argv) {
     else if (arg === '--seed') { i += 1; flags.seed = int('--seed', argv[i], 0); }
     else if (arg === '--source-commit') { i += 1; flags.sourceCommit = argv[i]; }
     else if (arg === '--window-note') { i += 1; flags.windowNote = argv[i]; }
+    else if (arg === '--clickhouse-url') { i += 1; flags.clickHouseUrl = argv[i]; }
+    else if (arg === '--clickhouse-user') { i += 1; flags.clickHouseUser = argv[i]; }
+    else if (arg === '--clickhouse-password') { i += 1; flags.clickHousePassword = argv[i]; }
+    else if (arg === '--clickhouse-recipe') { i += 1; flags.clickHouseRecipe = argv[i]; }
     else if (arg === '--out') { i += 1; flags.out = argv[i]; }
     else if (arg === '--') { flags.runArgs = argv.slice(i + 1); break; }
     else throw new Error(`unknown argument: ${arg}`);
@@ -96,6 +106,8 @@ export function parseArgs(argv) {
     if (flags.rounds < 1) throw new Error('--paired requires --rounds >= 1');
     if (flags.iterations % flags.rounds !== 0) throw new Error(`--iterations ${flags.iterations} must split evenly into --rounds ${flags.rounds}`);
     if (!/^[0-9a-f]{40}$/.test(flags.sourceCommit ?? '')) throw new Error('--paired requires --source-commit as the full 40-hex SHA the arms were built from');
+    if (!(flags.clickHouseUrl ?? '').trim()) throw new Error('--paired requires --clickhouse-url: the publication chain is ClickHouse-backed end to end, and the battery cannot run without it');
+    if (!(flags.clickHouseRecipe ?? '').trim()) throw new Error('--paired requires a dataframer recipe for the ClickHouse-enabled arms');
   }
   return flags;
 }
@@ -149,10 +161,17 @@ export function buildPairedInvocation(flags, services) {
   const bin = flags.benchcli ?? 'go';
   const args = [
     '--scope=both-arms',
-    // The ClickHouse-backed publication chain is disclosed not_run; the
-    // timing battery itself is ClickHouse-free and runs for real on both
-    // drivers (the backend-conformance lane proves that posture).
-    '--publication=timed',
+    // The full publication chain runs for real on both arms: authoring
+    // publishes through ClickHouse materialization (a ClickHouse-disabled
+    // deployment cannot author at all), so the paired lane is run mode,
+    // never a disclosed not_run posture. Each arm materializes into its
+    // own loom_bench_* database.
+    '--publication=run',
+    '--clickhouse-enabled',
+    `--clickhouse-url=${flags.clickHouseUrl}`,
+    `--clickhouse-user=${flags.clickHouseUser}`,
+    ...(flags.clickHousePassword ? [`--clickhouse-password=${flags.clickHousePassword}`] : []),
+    `--clickhouse-recipe=${flags.clickHouseRecipe}`,
     `--preset=${flags.profile}`,
     `--seed=${flags.seed}`,
     `--warmup=${flags.warmup}`,
@@ -206,8 +225,11 @@ export function classifyPairedReport(report, minSamples = PAIRED_MIN_SAMPLES_PER
     }
   }
   if (report.status !== 'passed') problems.push(`report status is ${report.status ?? 'unknown'}, not passed`);
-  if (report.identity?.clickhouseDisabled !== true) {
-    problems.push('report does not record ClickHouse as disabled: the timed lane must state that honestly');
+  if (report.plan?.publication?.run !== true) {
+    problems.push('the publication chain did not run: without it the arms cannot author, so no timings from such a lane are a comparison');
+  }
+  if (report.identity?.clickhouseDisabled !== false) {
+    problems.push('report does not record ClickHouse as deployed: the paired lane runs the full chain on both arms and must state that honestly');
   }
   return problems.length === 0 ? { status: 'pass', disclosure: null, measured } : { status: 'fail', disclosure: problems.join('; '), measured };
 }
@@ -229,7 +251,7 @@ export function renderComparisonTable(report) {
   const lines = [];
   lines.push('# Paired driver benchmark — Arango/AQL vs PostgreSQL/SQL');
   lines.push('');
-  lines.push(`Run \`${identity.runId ?? 'n/a'}\` — matched workload, both arms, ClickHouse disabled: \`${identity.clickHouseDisabled === true ? 'yes (timed lane)' : 'no'}\`.`);
+  lines.push(`Run \`${identity.runId ?? 'n/a'}\` — matched workload, both arms, publication chain: \`${report.plan?.publication?.run === true && identity.clickhouseDisabled === false ? 'ran for real on both arms (ClickHouse deployed)' : 'NOT run (this table cannot be a comparison)'}\`.`);
   lines.push('');
   lines.push('## Conditions');
   lines.push('');

@@ -112,11 +112,38 @@ func (d *deployer) prepare(ctx context.Context) error {
 		}
 		*l.arm = benchmark.ArmConfig{
 			BinaryPath:   f.binary,
-			ConfigYAML:   benchmark.BuildServerConfigYAML(benchmark.ListenPlaceholder, l.backend, backendYAML, fence.URL(), cursorSecret),
-			ScrubSecrets: []string{l.dsn, cursorSecret},
+			ConfigYAML:   benchmark.BuildServerConfigYAML(benchmark.ListenPlaceholder, l.backend, backendYAML, fence.URL(), cursorSecret, clickHouseSpecFor(f, l.backend)),
+			ScrubSecrets: scrubSecretsFor(f, l.dsn, cursorSecret),
 		}
 	}
 	return nil
+}
+
+// clickHouseSpecFor returns the arm's publication-chain config, or nil
+// when the arms run without ClickHouse (excluded mode). The database is
+// benchmark-owned and arm-specific: both arms share the ClickHouse
+// server, so sharing a database would let one driver's published rows
+// answer the other's reads.
+func clickHouseSpecFor(f *runFlags, backend string) *benchmark.ClickHouseSpec {
+	if !f.clickHouseEnabled {
+		return nil
+	}
+	database := "loom_bench_" + backend
+	return &benchmark.ClickHouseSpec{
+		URL:      f.clickHouseURL,
+		Database: database,
+		Username: f.clickHouseUser,
+		Password: f.clickHousePassword,
+		Recipe:   f.clickHouseRecipe,
+	}
+}
+
+func scrubSecretsFor(f *runFlags, dsn, cursorSecret string) []string {
+	secrets := []string{dsn, cursorSecret}
+	if f.clickHousePassword != "" {
+		secrets = append(secrets, f.clickHousePassword)
+	}
+	return secrets
 }
 
 func (d *deployer) close() {

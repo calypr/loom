@@ -287,38 +287,31 @@ func TestBuildReportRefusesInconsistentConfig(t *testing.T) {
 
 // --- timed publication lane (operator amendment 2026-11-13) --------------------
 
-// timedReport builds the paired-timing shape: the ClickHouse-backed
-// publication chain is disclosed not_run, but the battery ran for real,
-// so samples, summaries, controls, and claims are legitimate evidence
-// rather than forgery.
-func timedReport(t *testing.T) *Report {
-	t.Helper()
+// Run mode is the only mode that measures: the ClickHouse-backed chain
+// ran, so samples, summaries, controls, and claims are legitimate
+// evidence rather than forgery. validReport already describes that lane
+// (ClickHouse deployed, Publication.Run true); these cases pin the
+// classification and the disclosure rules around it.
+func TestRunPublicationCarriesTimingEvidence(t *testing.T) {
 	report := validReport(t)
-	report.Identity.ClickHouseDisabled = true
-	plan := report.Plan
-	plan.Publication = &PublicationPlan{Run: false, Battery: true, Capability: PublicationCapabilityTimed}
-	plan.PlannedNotRun = append(plan.PlannedNotRun, PublicationDisclosures(plan.Legs, PublicationCapabilityTimed)...)
-	built, err := BuildReport(report.Identity, plan, report.Controls, report.GateReports, report.Samples)
-	if err != nil {
-		t.Fatalf("timed publication report must verify: %v", err)
-	}
-	return built
-}
-
-func TestTimedPublicationCarriesTimingEvidence(t *testing.T) {
-	report := timedReport(t)
 	if report.Status != "passed" {
-		t.Fatalf("timed lane status: %s (%v)", report.Status, report.StatusReasons)
+		t.Fatalf("run lane status: %s (%v)", report.Status, report.StatusReasons)
 	}
 	if len(report.Samples) == 0 || len(report.Summaries) == 0 {
-		t.Fatal("timed lane must carry real timing evidence")
+		t.Fatal("run lane must carry real timing evidence")
 	}
 	if len(report.Claims) != len(Battery)-len(LiveBatteryExclusions()) {
-		t.Fatalf("timed lane claims: %d want %d", len(report.Claims), len(Battery)-len(LiveBatteryExclusions()))
+		t.Fatalf("run lane claims: %d want %d", len(report.Claims), len(Battery)-len(LiveBatteryExclusions()))
 	}
-	if !report.Plan.PublicationTimed() || report.Plan.PublicationZeroEvidence() {
-		t.Fatalf("timed lane classification wrong: %+v", report.Plan.Publication)
+	if report.Plan.PublicationExcluded() {
+		t.Fatalf("run lane classification wrong: %+v", report.Plan.Publication)
 	}
+	if report.Plan.PublicationZeroEvidence() {
+		t.Fatal("a chain-run report must never classify as zero-evidence")
+	}
+	// The chain ran, so no leg may carry publication-chain disclosure
+	// rows: they name work that did not happen and would launder a
+	// not_run stage into a passing report.
 	for _, leg := range report.Plan.Legs {
 		disclosed := 0
 		for _, row := range report.Plan.PlannedNotRun {
@@ -326,34 +319,24 @@ func TestTimedPublicationCarriesTimingEvidence(t *testing.T) {
 				disclosed++
 			}
 		}
-		if disclosed != len(Battery) {
-			t.Fatalf("%s: %d publication-chain disclosure rows want %d (one per workload)", leg.Backend, disclosed, len(Battery))
+		if disclosed != 0 {
+			t.Fatalf("%s: %d publication-chain disclosure rows want 0 (the chain ran)", leg.Backend, disclosed)
 		}
 	}
 }
 
-func TestPublicationBatteryFlagMustNotBeFalseToPass(t *testing.T) {
-	report := timedReport(t)
-	plan := report.Plan
-	plan.Publication.Battery = false
-	report.Plan = plan
-	if err := VerifyReport(report); err == nil {
-		t.Fatal("battery=false on a report with timing evidence must be refused")
+func TestRunPublicationMustNotNameCapability(t *testing.T) {
+	plan := BothArmsPlan()
+	plan.Publication = &PublicationPlan{Run: true, Capability: PublicationCapabilityCH}
+	if err := ValidatePublicationPlan(plan); err == nil {
+		t.Fatal("run=true naming a missing capability must be refused: the chain either ran or it did not")
 	}
 }
 
-func TestPublicationBatteryRequiresExcludedChain(t *testing.T) {
+func TestExcludedPublicationRequiresNamedCapability(t *testing.T) {
 	plan := BothArmsPlan()
-	plan.Publication = &PublicationPlan{Run: true, Battery: true, Capability: PublicationCapabilityTimed}
+	plan.Publication = &PublicationPlan{Run: false}
 	if err := ValidatePublicationPlan(plan); err == nil {
-		t.Fatal("run=true with battery=true must be refused as contradictory")
-	}
-}
-
-func TestTimedPublicationRequiresNamedCapability(t *testing.T) {
-	plan := BothArmsPlan()
-	plan.Publication = &PublicationPlan{Run: false, Battery: true}
-	if err := ValidatePublicationPlan(plan); err == nil {
-		t.Fatal("timed lane must name the capability it discloses")
+		t.Fatal("an excluded chain must name the capability it discloses")
 	}
 }

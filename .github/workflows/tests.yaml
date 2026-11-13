@@ -429,13 +429,17 @@ jobs:
     # Operator acceptance (2026-11-13): the actual speed comparison between
     # the two real drivers. Both arms run the SAME matched battery against
     # actual ArangoDB and PostgreSQL services -- the same images, ports,
-    # and health options the backend-conformance lane adjudicates -- with
-    # clickhouse.enabled=false, which is honest for the dataframe legs:
-    # the timing battery never consumes the ClickHouse-backed publication
-    # chain (that chain stays disclosed not_run in the timed lane). The
-    # gate fails closed if either arm is planned/not_run/excluded or
-    # produces no real timing samples; a disclosure artifact can never
-    # turn this check green.
+    # and health options the backend-conformance lane adjudicates -- plus
+    # the actual ClickHouse service: authoring publishes through the
+    # ClickHouse-backed materialization chain (a ClickHouse-less
+    # deployment cannot author at all -- the 422 MATERIALIZATION_FAILED
+    # the local rehearsal produced is the proof), so this lane runs the
+    # full chain with --publication=run. Each arm materializes into its
+    # own loom_bench_* database; the timed path itself is the
+    # source-row preview route, identical on both arms.
+    # The gate fails closed if either arm is planned/not_run/excluded, if
+    # the chain did not run, or if either driver produced no real timing
+    # samples; a disclosure artifact can never turn this check green.
     timeout-minutes: 10
     services:
       arangodb:
@@ -461,6 +465,16 @@ jobs:
           --health-interval 3s
           --health-timeout 5s
           --health-retries 40
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.3
+        ports:
+          - 9000:9000
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
       LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
       LOOM_TEST_POSTGRES_URL: postgresql://loom_bench:loom_ci_test_only@127.0.0.1:5432/loom_bench_paired?sslmode=disable
@@ -484,10 +498,13 @@ jobs:
           go build -o "$RUNNER_TEMP/paired-bin/benchcli" ./internal/dataframe/benchmark/cmd/benchcli
       - name: Run the paired benchmark against both services
         # Five alternating measured samples per driver, one warmup, tiny
-        # matched fixture. The script verifies the artifact through the Go
-        # verifier, classifies realness (both arms ran, both timed), and
-        # writes comparison.md; it exits nonzero on any shortfall, so the
-        # job goes red rather than reporting scaffolding as a comparison.
+        # matched fixture, full publication chain through the ClickHouse
+        # service (each arm materializes into its own loom_bench_*
+        # database). The script verifies the artifact through the Go
+        # verifier, classifies realness (both arms ran, the chain ran,
+        # both timed), and writes comparison.md; it exits nonzero on any
+        # shortfall, so the job goes red rather than reporting
+        # scaffolding as a comparison.
         run: >-
           node scripts/benchmark-backends.mjs --paired
           --binary "$RUNNER_TEMP/paired-bin/loom-server"
@@ -497,6 +514,7 @@ jobs:
           --warmup 1
           --rounds 5
           --source-commit "$GITHUB_SHA"
+          --clickhouse-url clickhouse://127.0.0.1:9000
           --window-note "granted by the paired-driver-benchmark CI job (isolated services, $GITHUB_RUN_ID)"
           --out "$RUNNER_TEMP/paired-benchmark"
       - name: Show the comparison table in the job log

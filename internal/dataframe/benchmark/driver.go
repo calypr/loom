@@ -194,15 +194,12 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		}
 	}
 
-	// Excluded publication chain (pure excluded mode): spawn and upload
-	// have run for real and every downstream stage ships as
-	// planned/not_run with the capability named. Nothing below this point
-	// executes, so the report carries zero samples, zero claims, and zero
-	// control values. The timed mode (Battery) skips this return: the
-	// timing battery provably does not consume the chain (the
-	// backend-conformance lane runs authoring+publish on both drivers
-	// with clickhouse.enabled=false), so only the chain itself is
-	// disclosed not_run while timing is collected for real.
+	// Excluded publication chain (excluded mode): spawn and upload have
+	// run for real and every downstream stage ships as planned/not_run
+	// with the capability named. Nothing below this point executes, so the
+	// report carries zero samples, zero claims, and zero control values.
+	// There is no chain-less battery: the first explorer-config publish
+	// materializes through the chain, so authoring cannot run without it.
 	if opts.Plan.PublicationZeroEvidence() {
 		identity := RunIdentity{
 			RunID: opts.RunID, StartedAt: opts.StartedAt.UTC(), Preset: opts.Preset,
@@ -255,9 +252,21 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 	// The writable wire carries catalog-bound contributor intent, not
 	// aggregate.where (the strict body bind refuses the latter). Fetch each
 	// arm's live builder catalog once so predicate workspaces migrate
-	// against the same compiler facts the compiler will later bind.
+	// against the same compiler facts the compiler will later bind. The
+	// default explorer exists only after the first explorer-config
+	// publish, so bootstrap the repository with the empty-floor workspace
+	// (predicate-free, re-published byte-identically by its own authoring
+	// step) before reading the builder.
+	floorWorkspace, err := BuildEmptyFloorWorkspace()
+	if err != nil {
+		return nil, nil, err
+	}
 	catalogs := map[string]authoringv2.CatalogSnapshot{}
 	for _, p := range participants {
+		if _, err := arms[p.backend].arm.PublishWorkspace(ctx, opts.UnrestrictedToken, opts.Params.Project, opts.Params.Generation,
+			floorWorkspace, opts.SourceCommit); err != nil {
+			return nil, nil, fmt.Errorf("benchmark: %s catalog bootstrap: %w", p.backend, err)
+		}
 		catalog, err := arms[p.backend].arm.FetchContributorCatalog(ctx, opts.UnrestrictedToken, opts.Params.Project, "default")
 		if err != nil {
 			return nil, nil, fmt.Errorf("benchmark: %s contributor catalog: %w", p.backend, err)
@@ -304,11 +313,9 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 	// One explorer identity serves both arms (asserted equal above).
 	explorerIDByWorkload := perBackend[participants[0].backend]
 
-	// Empty-floor explorers (zero-row expectation) per arm.
-	floorWorkspace, err := BuildEmptyFloorWorkspace()
-	if err != nil {
-		return nil, nil, err
-	}
+	// Empty-floor explorers (zero-row expectation) per arm. The workspace
+	// was built for the catalog bootstrap; it is re-published here because
+	// the per-workload loop moved the repository default since then.
 	floorExplorers := map[string]string{}
 	floorReceipts := map[string]string{}
 	for _, p := range participants {
