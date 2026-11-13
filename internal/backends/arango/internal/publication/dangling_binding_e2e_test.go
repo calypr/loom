@@ -32,11 +32,11 @@ type danglingCitation struct {
 }
 
 var danglingCitations = []danglingCitation{
-	{"internal/dataframe/published/current.go", 88, "if binding.Selector != selector || binding.Stale || binding.Generation != active.Release.Generation {"},
-	{"internal/dataframe/published/current.go", 97, "execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)"},
-	{"internal/dataframe/published/current.go", 99, "if errors.Is(err, bundlepublication.ErrBundleNotFound) {"},
-	{"internal/dataframe/published/current.go", 102, "return Materialization{}, fmt.Errorf(\"resolve active dataframe execution: %w\", err)"},
-	{"internal/dataframe/published/current.go", 115, "return Materialization{}, fmt.Errorf(\"%w: active dataframe execution %q has no queryable output %q\", errReleaseBindingUnavailable, binding.ExecutionID, binding.Selector.Output)"},
+	{"internal/dataframe/published/current.go", 85, "if binding.Selector != selector || binding.Stale || binding.Generation != active.Release.Generation {"},
+	{"internal/dataframe/published/current.go", 94, "execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)"},
+	{"internal/dataframe/published/current.go", 96, "if errors.Is(err, bundlepublication.ErrBundleNotFound) {"},
+	{"internal/dataframe/published/current.go", 99, "return Materialization{}, fmt.Errorf(\"resolve active dataframe execution: %w\", err)"},
+	{"internal/dataframe/published/current.go", 112, "return Materialization{}, fmt.Errorf(\"%w: active dataframe execution %q has no queryable output %q\", errReleaseBindingUnavailable, binding.ExecutionID, binding.Selector.Output)"},
 	{"internal/dataframe/published/current.go", 208, "if binding.Stale || binding.Generation != active.Release.Generation {"},
 	{"internal/dataframe/published/current.go", 211, "value, err := r.releaseMaterialization(ctx, active.Release, binding)"},
 	{"internal/dataframe/published/current.go", 212, "if err != nil {"},

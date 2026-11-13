@@ -45,13 +45,13 @@ var rrdCitations = []rrdCitation{
 	{"internal/dataframe/publication/clickhouse/bundle_store.go", 1097, "if err := s.catalog.SaveExecution(leaseCtx, execution, reconcilerID); err != nil {"},
 	{"internal/dataframe/published/current.go", 95, "execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)"},
 	{"internal/dataframe/published/current.go", 99, "if execution.ID != binding.ExecutionID || execution.Project != release.Project || execution.DatasetGeneration != binding.Generation || !execution.State.Successful() {"},
-	{"internal/dataframe/published/current.go", 105, "return Materialization{}, fmt.Errorf(\"%w: active dataframe execution %q does not match release %q\", errReleaseBindingUnavailable, binding.ExecutionID, release.ID)"},
+	{"internal/dataframe/published/current.go", 102, "return Materialization{}, fmt.Errorf(\"%w: active dataframe execution %q does not match release %q\", errReleaseBindingUnavailable, binding.ExecutionID, release.ID)"},
 	{"internal/dataframe/published/current.go", 206, "value, err := r.releaseMaterialization(ctx, active.Release, binding)"},
 	{"internal/dataframe/published/current.go", 207, "if err != nil {"},
 	{"internal/dataframe/published/current.go", 208, "return nil, err"},
-	{"internal/backends/arango/internal/publication/bundle_registry.go", 431, "FILTER LENGTH(active) == 0 AND (cleanup == null OR cleanup.expiresAt < @now OR cleanup.ownerId == @owner)"},
-	{"internal/dataframe/published/read_pins.go", 63, "owned, err := pins.AcquireExecutionReadPin(ctx, id, owner, time.Now().UTC().Add(ttl))"},
-	{"internal/dataframe/published/export.go", 135, "acquired, err := pins.AcquireExecutionReadPin(ctx, result.ExecutionID, result.ReaderID, expires)"},
+	{"internal/backends/arango/internal/publication/bundle_registry.go", 421, "FILTER LENGTH(active) == 0 AND (cleanup == null OR cleanup.expiresAt < @now OR cleanup.ownerId == @owner)"},
+	{"internal/dataframe/published/read_pins.go", 59, "owned, err := pins.AcquireExecutionReadPin(ctx, id, owner, time.Now().UTC().Add(ttl))"},
+	{"internal/dataframe/published/export.go", 115, "acquired, err := pins.AcquireExecutionReadPin(ctx, result.ExecutionID, result.ReaderID, expires)"},
 }
 
 type rrdAbsent struct {
