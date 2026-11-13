@@ -87,8 +87,10 @@ per related match is an explicit separate choice. Root replacement keeps its
 existing disclosure and dependency boundary.
 
 Two working internal compositions use identical controls and handlers:
-`inspector-right` and `inspector-below`. The internal build setting
-`VITE_LOOM_WORKSPACE_COMPOSITION=inspector-below` selects the comparison variant;
+`inspector-right` and `inspector-below`. Hosts select placement through the optional
+`LoomExplorerBuilder.workspaceComposition` prop, which defaults to `inspector-right`.
+The Vite demo reads `VITE_LOOM_WORKSPACE_COMPOSITION=inspector-below` and passes
+the comparison variant through that prop. The reusable package does not read Vite globals;
 there is no user-facing mode switch. Final composition selection and native
 geometry evidence are pending. Owned standalone evidence cannot establish fit
 inside authenticated Calypr's navigation frame.

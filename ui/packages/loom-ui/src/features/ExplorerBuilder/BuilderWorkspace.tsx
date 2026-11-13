@@ -436,6 +436,7 @@ const BuilderWorkspaceContent = ({
   populationSelectionError,
   onExplorerChange,
   featureFocus,
+  workspaceComposition,
 }: {
   readonly organization?: string;
   readonly project: string;
@@ -444,6 +445,7 @@ const BuilderWorkspaceContent = ({
   readonly populationSelectionLoading?: boolean;
   readonly populationSelectionError?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
+  readonly workspaceComposition?: React.ComponentProps<typeof ConstructionWorkspace>['composition'];
   readonly featureFocus?: {
     readonly outputId: string;
     readonly column: string;
@@ -4952,7 +4954,7 @@ const BuilderWorkspaceContent = ({
             {tableCreatorOpen ? tableCreatorPanel : null}
             {table ? (
               <ConstructionWorkspace
-                composition={import.meta.env.VITE_LOOM_WORKSPACE_COMPOSITION === 'inspector-below' ? 'inspector-below' : 'inspector-right'}
+                composition={workspaceComposition}
                 network={recordNetwork}
                 navigation={traversalTable ? <div className="space-y-3">
                   <TraversalScopeNavigator table={traversalTable} network={traversalNetwork} rowIdentity={traversalRowIdentity}

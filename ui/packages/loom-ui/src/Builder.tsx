@@ -41,6 +41,8 @@ export interface LoomExplorerBuilderProps {
   readonly organization?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
   readonly className?: string;
+  /** Host-selected inspector placement. Defaults to the right of the traversal. */
+  readonly workspaceComposition?: React.ComponentProps<typeof BuilderWorkspace>['workspaceComposition'];
   /** Feature selected from a Viewer explanation for focused repair. */
   readonly featureFocus?: LoomBuilderFeatureFocus;
 }
@@ -59,6 +61,7 @@ export const LoomExplorerBuilder = ({
   organization,
   onExplorerChange,
   className,
+  workspaceComposition,
   featureFocus,
 }: LoomExplorerBuilderProps) => {
   const ownedClient = useMemo(() => client ?? createLoomClient(), [client]);
@@ -135,6 +138,7 @@ export const LoomExplorerBuilder = ({
           }
           onExplorerChange={onExplorerChange}
           featureFocus={featureFocus}
+          workspaceComposition={workspaceComposition}
         />
       </div>
     </LoomProvider>

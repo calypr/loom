@@ -17,6 +17,7 @@ import {
   LoomProvider,
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
+import { LoomExplorerBuilder } from '../../Builder';
 import { ordinaryNetworkFixture } from '../../../testSupport/ordinaryNetworkFixture';
 import type { SelectionRevision } from '../../selection';
 import type {
@@ -1123,6 +1124,16 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     (useGetExplorerCandidateSuggestionsV2Mutation as Mock).mockReturnValue(
       [vi.fn(), { isLoading: false }],
     );
+  });
+
+  it('renders an imported Builder with default or host-selected inspector placement without changing the draft', async () => {
+    const view = render(<LoomExplorerBuilder organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    const result = await screen.findByTestId('construction-preview');
+    expect(result.closest('[data-composition]')).toHaveAttribute('data-composition', 'inspector-right');
+    view.rerender(<LoomExplorerBuilder organization="HTAN_INT" project="BForePC" explorerId="test" workspaceComposition="inspector-below" />);
+    expect(screen.getByTestId('construction-preview')).toBe(result);
+    expect(result.closest('[data-composition]')).toHaveAttribute('data-composition', 'inspector-below');
+    expect(applyCommands).not.toHaveBeenCalled();
   });
 
   it('enables Calculate on the initial source stage when its receipt supports DERIVE', async () => {

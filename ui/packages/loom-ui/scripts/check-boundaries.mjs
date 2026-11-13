@@ -17,6 +17,9 @@ const violations = [];
 for (const file of files) {
   const source = await readFile(file, 'utf8');
   if (forbidden.test(source)) violations.push(`${file.pathname}: forbidden Calypr dependency`);
+  if (!/\.test\.tsx?$/.test(file.pathname) && /\bimport\s*\.\s*meta\s*\.\s*env\b/.test(source)) {
+    violations.push(`${file.pathname}: Vite environment access belongs in the host app; pass configuration through props`);
+  }
   const isViewerFeature = file.pathname.includes('/features/ExplorerViewer/') || /\/Viewer\.tsx$/.test(file.pathname);
   if (isViewerFeature && effectNames.test(source)) violations.push(`${file.pathname}: Viewer code must not use React effects`);
 }
