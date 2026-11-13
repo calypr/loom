@@ -131,16 +131,63 @@ class GeneratedProvenance(Harness):
 
 
 class LedgerBound(Harness):
-    def test_reviewed_source_ledger_files_pass(self):
-        path = os.path.join(chk.REPO, "verification/publication-bundle/ReconcileDangleTrust.tla")
-        with open(path) as f:
-            body = f.read()
-        self.assertIn("(*", body)
+    def test_ledger_pinning_alone_does_not_exempt(self):
+        path = self.write("pinned.go", "package p\n\n// handwritten note under a pin\nvar X = 1\n")
+        original = chk.ledger_bound_paths
+        chk.ledger_bound_paths = lambda: {path: "fixture-ledger"}
+        self.addCleanup(setattr, chk, "ledger_bound_paths", original)
         s = self.scan(path)
+        self.assertEqual(1, len(s["violations"]))
+        self.assertIn("handwritten note", s["violations"][0]["text"])
+        self.assertEqual([path], s["inventory"]["ledger-bound"])
+
+    def test_pinned_and_unpinned_models_are_comment_free(self):
+        models = ["ActiveGenerationTrust", "BundleCommitLifecycle",
+                  "GenerationActivationCas", "NullPageCoverage", "PointerOrphanLifecycle",
+                  "PublishPartialPointer", "ReleaseBindingTrust",
+                  "ReleaseRevisionIdempotence", "StartupReconcileWedge",
+                  "ReconcileDangleTrust", "ConstructionPrepareLanes",
+                  "ConstructionProjectionOwnership"]
+        paths = [os.path.join(chk.REPO, "verification/publication-bundle", m + ".tla")
+                 for m in models]
+        s = self.scan(*paths)
+        self.assertEqual([], [(v["path"], v["line"]) for v in s["violations"]])
+
+    def test_unresolvable_ledger_keys_are_inventory_not_red(self):
+        s = self.scan(os.path.join(chk.REPO, "scripts/ci/vet.mjs"))
+        bad = {e["path"] for e in s["inventory"]["unresolvable-ledger-key"]}
+        self.assertIn("release_dangle_reconcile_e2e_test.go [arango pkg]", bad)
+        self.assertIn("cross_generation_publish_e2e_test.go.explorer", bad)
+        self.assertTrue(all("ledger" in e for e in s["inventory"]["unresolvable-ledger-key"]))
+        self.assertEqual([], [v for v in s["violations"]
+                              if v["path"] in bad])
+
+
+class ToolSentinels(Harness):
+    def test_extract_sentinels_pass_as_directives(self):
+        p = self.write("s.mjs", "// EXTRACT-START:killTree\nconst killTree = async () => {\n"
+                                "  await x();\n};\n// EXTRACT-END:killTree\n")
+        s = self.scan(p)
         self.assertEqual([], s["violations"])
-        self.assertTrue(s["allowed"])
-        self.assertEqual({"ledger-bound-pinned"},
-                         {a["category"] for a in s["allowed"]})
+        self.assertEqual({"js-tool-directive"}, {a["category"] for a in s["allowed"]})
+
+    def test_extract_sentinel_lookalike_prose_still_fails(self):
+        p = self.write("t.mjs", "// EXTRACT-START killTree no colon\nconst y = 1;\n")
+        self.assertEqual(1, len(self.scan(p)["violations"]))
+
+    def test_repo_extract_sentinel_file_is_clean(self):
+        full = os.path.join(chk.REPO, "scripts/verify-ui/workflows/"
+                                      "verify-explorer-row-source-four-state.mjs")
+        s = self.scan(full)
+        self.assertEqual([], s["violations"])
+        self.assertTrue(any("EXTRACT-START" in a["text"] for a in s["allowed"]))
+
+    def test_repo_vitest_environment_directive_is_clean(self):
+        full = os.path.join(chk.REPO, "ui/packages/loom-ui/src/features/ExplorerBuilder/"
+                                      "components/TableShapeSettingsPanel.unit.test.tsx")
+        s = self.scan(full)
+        self.assertEqual([], s["violations"])
+        self.assertTrue(any("@vitest-environment" in a["text"] for a in s["allowed"]))
 
 
 class DirectivesAndAssets(Harness):

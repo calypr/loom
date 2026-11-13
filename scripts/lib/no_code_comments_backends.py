@@ -30,7 +30,8 @@ GO_DIRECTIVE = re.compile(
     r"^//\s*(go:[a-z][a-z0-9]*|line\s+\d|extern\s|export\s|#cgo\b)")
 JS_DIRECTIVE = re.compile(
     r"^(?://|/\*)\s*(@?eslint\b|eslint-\w[\w-]*|@ts-(ignore|expect-error|nocheck|check|strict)\b"
-    r"|@vitest-environment\s+\S+|@__PURE__|@vite-ignore|istanbul\b)")
+    r"|@vitest-environment\s+\S+|@__PURE__|@vite-ignore|istanbul\b"
+    r"|EXTRACT-(?:START|END):\w+)")
 DOCKERFILE_DIRECTIVE = re.compile(r"^#\s*(syntax|escape|check)\s*=")
 GOMOD_INDIRECT = re.compile(r"^//\s*indirect\s*$")
 
@@ -858,15 +859,13 @@ def detect_file(path, src):
 
 
 def allowlist_category(backend, comment, line_text, path, provenance_ledger,
-                       ledger_bound, governance_directives=None):
+                       governance_directives=None):
     text = comment["text"]
     if path in provenance_ledger:
         return "generator-provenance"
     for entry in (governance_directives or {}).get(path, []):
         if entry["pattern"].search(text):
             return "governance-directive"
-    if path in ledger_bound:
-        return "ledger-bound-pinned"
     if backend in ("sh", "py", "toml", "makefile", "ignore", "mermaid", "go") \
             and comment["line"] == 1 and text.startswith("#!"):
         return "execution-shebang"

@@ -150,8 +150,15 @@ def read(rel):
 def scan(paths, json_out=None):
     inventory = {"asset": [], "unsupported": [], "binary": [],
                  "checksum-payload": [], "fixture-payload": [],
-                 "provenance-generated": [], "ledger-bound": []}
+                 "provenance-generated": [], "ledger-bound": [],
+                 "unresolvable-ledger-key": []}
     ledger_bound = ledger_bound_paths()
+    tracked = set(tracked_paths())
+    for key in sorted(ledger_bound):
+        rel = os.path.relpath(key, REPO)
+        if rel not in tracked:
+            inventory["unresolvable-ledger-key"].append(
+                {"path": rel, "ledger": ledger_bound[key]})
     violations = []
     allowed = []
     ts_paths = [p for p in paths if b.classify(p) == "ts"]
@@ -203,9 +210,7 @@ def scan(paths, json_out=None):
         governance = {}
         if relabs in GOVERNANCE_DIRECTIVE_INDEX:
             governance[relabs] = GOVERNANCE_DIRECTIVE_INDEX[relabs]
-        ledger = {}
         if relabs in ledger_bound:
-            ledger[relabs] = ledger_bound[relabs]
             inventory["ledger-bound"].append(rel)
         if backend == "ts":
             comments = ts_batch[rel]
@@ -219,7 +224,7 @@ def scan(paths, json_out=None):
         for c in comments:
             line_text = lines[c["line"] - 1] if 0 < c["line"] <= len(lines) else ""
             category = b.allowlist_category(backend, c, line_text, relabs,
-                                            provenance, ledger, governance)
+                                            provenance, governance)
             record = {"path": rel, "backend": backend, "line": c["line"],
                       "kind": c["kind"], "text": c["text"][:120]}
             if category:
@@ -254,6 +259,8 @@ def main():
         print(f"VIOLATION {v['path']}:{v['line']} [{v['backend']}/{v['kind']}] {v['text']!r}")
     for rel in summary["inventory"]["unsupported"]:
         print(f"UNSUPPORTED {rel}")
+    for entry in summary["inventory"]["unresolvable-ledger-key"]:
+        print(f"UNRESOLVABLE-LEDGER-KEY {entry['path']} ({entry['ledger']})")
     inv = summary["inventory"]
     print(f"scanned={summary['filesScanned']} violations={len(summary['violations'])} "
           f"allowed={len(summary['allowed'])} assets={len(inv['asset'])} "
@@ -261,6 +268,7 @@ def main():
           f"fixture-payload={len(inv['fixture-payload'])} "
           f"provenance-generated={len(inv['provenance-generated'])} "
           f"ledger-bound={len(inv['ledger-bound'])} "
+          f"unresolvable-ledger-key={len(inv['unresolvable-ledger-key'])} "
           f"unsupported={len(inv['unsupported'])} binary={len(inv['binary'])}")
     return 1 if summary["violations"] or summary["inventory"]["unsupported"] else 0
 
