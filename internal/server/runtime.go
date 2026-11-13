@@ -68,9 +68,14 @@ func postgresRuntimeAssignment(pg PostgreSQLConfig) (control.SeriesSchemas, map[
 	return assignment, names, nil
 }
 
+type repositoryGenerationActivator interface {
+	ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error
+}
+
 type pgExplorerStore struct {
 	*control.ExplorerStore
-	publish *control.PublishStore
+	publish  *control.PublishStore
+	activate repositoryGenerationActivator
 }
 
 var _ explorer.Store = pgExplorerStore{}
@@ -82,8 +87,11 @@ func (s pgExplorerStore) PublishAuthoring(ctx context.Context, receipt explorer.
 	return s.publish.PublishAuthoring(ctx, receipt, revision, release, expectedReleaseRevision)
 }
 
-func (s pgExplorerStore) ActivateRepositoryGeneration(context.Context, string, string, string) error {
-	return postgreSQLRuntimeUnavailable("Repository-generation activation")
+func (s pgExplorerStore) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
+	if s.activate == nil {
+		return postgreSQLRuntimeUnavailable("Repository-generation activation (the dataset_release or publication_control assignment is missing)")
+	}
+	return s.activate.ActivateRepositoryGeneration(ctx, project, generation, revisionID)
 }
 
 func (s pgExplorerStore) ValidateSelectionReferences(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error {
@@ -217,7 +225,7 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	cleanups = append(cleanups, func() error {
 		return postgresFirstQueryRouteError(runtime.Close(), pg, dsn)
 	})
-	if runtime.Explorer == nil || runtime.Publish == nil || runtime.Interpretations == nil ||
+	if runtime.Explorer == nil || runtime.Publish == nil || runtime.Activate == nil || runtime.Interpretations == nil ||
 		runtime.ExplicitGroups == nil || runtime.CapabilitySnapshots == nil || runtime.TableShapes == nil ||
 		runtime.Bundles == nil || runtime.RecipeRevisions == nil || runtime.RecipeExecutions == nil ||
 		runtime.Catalog == nil || runtime.SemanticReads == nil || runtime.Releases == nil || runtime.Manifests == nil {
@@ -339,7 +347,7 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 
 	hooks := newReleaseHooks(serverConfig, runtime.Manifests, runtime.Releases, runtime.Bundles)
 
-	explorerStore := pgExplorerStore{ExplorerStore: runtime.Explorer, publish: runtime.Publish}
+	explorerStore := pgExplorerStore{ExplorerStore: runtime.Explorer, publish: runtime.Publish, activate: runtime.Activate}
 	explorerReads := pgExplorerReads{ExplorerStore: runtime.Explorer, ExplicitGroupStore: runtime.ExplicitGroups}
 	capabilityResolver, err := newExplorerCapabilityResolver(runtime.Catalog, scopeResolver, runtime.Manifests, runtime.CapabilitySnapshots)
 	if err != nil {

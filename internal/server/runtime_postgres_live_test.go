@@ -80,6 +80,15 @@ var pgCompMintInventory = map[string]int{
 	"TestBackendCompositionContract/liveProductionCompose_ledgerHolds": 1,
 }
 
+var pgCompClickHouseGatedMintInventory = map[string]int{
+	"TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip":     1,
+	"TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives": 1,
+}
+
+func pgCompClickHouseConfigured() bool {
+	return strings.TrimSpace(os.Getenv("LOOM_CLICKHOUSE_URL")) != ""
+}
+
 func pgCompTestPostgresURL(t *testing.T) string {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
@@ -952,6 +961,19 @@ func TestZZPgCompZeroLeftoverFixtures(t *testing.T) {
 	for leg, want := range pgCompMintInventory {
 		if got := perLeg[leg]; got != want {
 			t.Errorf("mint inventory: leg %q minted %d databases, inventoried %d", leg, got, want)
+		}
+		delete(perLeg, leg)
+	}
+	for leg, want := range pgCompClickHouseGatedMintInventory {
+		if !pgCompClickHouseConfigured() {
+			if got := perLeg[leg]; got != 0 {
+				t.Errorf("mint inventory: ClickHouse-gated leg %q minted %d databases while LOOM_CLICKHOUSE_URL is unconfigured", leg, got)
+			}
+			delete(perLeg, leg)
+			continue
+		}
+		if got := perLeg[leg]; got != want {
+			t.Errorf("mint inventory: ClickHouse-enabled leg %q minted %d databases, inventoried %d", leg, got, want)
 		}
 		delete(perLeg, leg)
 	}

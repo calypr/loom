@@ -289,6 +289,94 @@ jobs:
           path: ${{ runner.temp }}/pg-fixture
           if-no-files-found: warn
 
+  pg-repository-publish:
+    name: PostgreSQL repository-publish spine across PostgreSQL 18 and ClickHouse
+    runs-on: ubuntu-latest
+    # Acceptance lane for the repository publish spine: the POST
+    # explorer-config route runs real ClickHouse materialization between
+    # compile and the second-CAS activation flip, so this job is the only
+    # environment where the spine leg is honest. Both services are job-local
+    # and ephemeral: the loom_test ClickHouse database is created per job, so
+    # the leg never touches shared state.
+    timeout-minutes: 10
+    services:
+      postgres18:
+        image: postgres:18
+        env:
+          POSTGRES_DB: loom_test
+          POSTGRES_USER: loom_test
+          POSTGRES_PASSWORD: loom_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U loom_test -d loom_test"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.3
+        env:
+          CLICKHOUSE_DB: loom_test
+          CLICKHOUSE_USER: loom_ci
+          CLICKHOUSE_PASSWORD: loom_ci_password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 9000:9000
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      LOOM_TEST_POSTGRES_URL: postgresql://loom_test:loom_ci_test_only@127.0.0.1:5432/loom_test?sslmode=disable
+      LOOM_CLICKHOUSE_URL: clickhouse://127.0.0.1:9000
+      LOOM_CLICKHOUSE_DATABASE: loom_test
+      LOOM_CLICKHOUSE_USERNAME: loom_ci
+      LOOM_CLICKHOUSE_PASSWORD: loom_ci_password
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - name: Run the pgComp battery with the repository-publish spine leg
+        # The spine leg shares the pgComp census, mint inventory, and
+        # TestZZ zero-leftover audit with the rest of the battery, so the
+        # battery contract must be invoked whole. With ClickHouse configured
+        # the gated-mint inventory holds the spine leg to its one database.
+        run: |
+          set -euo pipefail
+          go test -timeout=8m -count=1 -v \
+            -run 'TestPostgresRuntime|TestPostgreSQL|TestHealthWiringPerCompositionArm|TestBackendCompositionContract|TestZZPgCompZeroLeftoverFixtures' \
+            ./internal/server \
+            | tee "$RUNNER_TEMP/pg-repository-publish.log"
+      - name: Assert the spine leg executed and never skipped
+        # Silent-skip is a red gate: the acceptance proof is the PASS line
+        # for the spine leg, and any SKIP of it means an env wiring regress.
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/pg-repository-publish.log"
+          grep -q -- '--- PASS: TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip' "$log"
+          if grep -q -- '--- SKIP: TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip' "$log"; then
+            echo '::error/repository-publish spine leg skipped despite both live services being configured'
+            exit 1
+          fi
+          grep -q -- '--- PASS: TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives' "$log"
+          if grep -q -- '--- SKIP: TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives' "$log"; then
+            echo '::error/repository-publish retry-revival leg skipped despite both live services being configured'
+            exit 1
+          fi
+      - name: Preserve spine evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-repository-publish
+          path: ${{ runner.temp }}/pg-repository-publish.log
+          if-no-files-found: warn
+
   backend-conformance:
     name: Backend architecture conformance across Arango and PostgreSQL
     runs-on: ubuntu-latest

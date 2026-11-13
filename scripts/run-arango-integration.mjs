@@ -279,6 +279,8 @@ const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeReadinessReportsNeverMigratedSchema',
     'TestPostgresRuntimeReadinessReportsMissingSchema',
     'TestPostgresRuntimeVerifySchemaIsReadOnly',
+    'TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip',
+    'TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
 // arch-backend-08: the backend-composition contract matrix's single live leg
