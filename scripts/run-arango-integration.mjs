@@ -279,6 +279,21 @@ const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeReadinessReportsNeverMigratedSchema',
     'TestPostgresRuntimeReadinessReportsMissingSchema',
     'TestPostgresRuntimeVerifySchemaIsReadOnly',
+    // pg-repository-publish: the repository-publish spine leg (POST
+    // explorer-config through the production composition into the
+    // second-CAS activation flip, with direct control-plane witnesses and
+    // a replay no-restamp check) requires the separate PostgreSQL 18
+    // fixture service (LOOM_TEST_POSTGRES_URL), never Arango, and
+    // additionally LOOM_CLICKHOUSE_URL because materialization between
+    // compile and activation is real (repo convention,
+    // internal/backends/arango/internal/published/
+    // release_dangle_reconcile_e2e_test.go). It runs against both real
+    // services in the dedicated go-arango-workflow sibling job
+    // pg-repository-publish, which asserts its PASS line and fails on any
+    // skip; in this Arango-only lane its explicit skip stays visible in
+    // the proof summary, following the pg-runtime-server-composition
+    // registration precedent above.
+    'TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
 // arch-backend-08: the backend-composition contract matrix's single live leg
