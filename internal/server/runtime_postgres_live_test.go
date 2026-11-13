@@ -98,15 +98,7 @@ var pgCompMintInventory = map[string]int{
 	"TestBackendCompositionContract/liveProductionCompose_ledgerHolds": 1,
 }
 
-// pgCompClickHouseGatedMintInventory enumerates minting legs that additionally
-// require LOOM_CLICKHOUSE_URL (their spine performs real ClickHouse
-// materialization). The TestZZ audit exempts them only while ClickHouse is
-// unconfigured; the moment both live services are present they are held to
-// the same one-database law as every other leg, so the full battery can never
-// skip them into silence.
 var pgCompClickHouseGatedMintInventory = map[string]int{
-	// pg-repository-publish spine leg (one database): the POST
-	// explorer-config route driven through the final activation flip.
 	"TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip": 1,
 }
 

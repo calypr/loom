@@ -1,22 +1,5 @@
 package server
 
-// Repository-publish spine acceptance on the PostgreSQL lane. Mirrors the
-// route coverage of TestRepositoryDeploymentPersistsExecutableDataframeSelectors
-// (the in-memory shape) against the PRODUCTION composition: POST
-// /api/v1/projects/{project}/generations/{generation}/explorer-config drives
-// PublishRepository -> lifecycle.PublishRepositoryGeneration through the real
-// capability, compile, materialize, PublishAuthoring, and release-activation
-// legs, and ends in store.ActivateRepositoryGeneration -- the second CAS --
-// against live PostgreSQL. The HTTP 200 alone does not prove the flip, so the
-// leg witnesses the control-plane rows directly. The repeat POST proves the
-// pinned replay law: a battery retry after an ambiguous response succeeds as
-// an owner-already-flipped no-op without restamping activated_at.
-//
-// The leg is gated on BOTH live services: PostgreSQL (LOOM_TEST_POSTGRES_URL)
-// and ClickHouse (LOOM_CLICKHOUSE_URL), because materialization between
-// compile and activation is real. When both are configured the leg never
-// skips; it fails loud.
-
 import (
 	"context"
 	"encoding/json"
@@ -146,9 +129,6 @@ func TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip(t *testi
 	}
 }
 
-// pgPubWitness reads the control-plane activation state directly, bypassing
-// every handler: the HTTP 200 is accepted only when the owner pointer names
-// the deployed revision and the revision row is ACTIVE with a set activated_at.
 func pgPubWitness(t *testing.T, fixture *pgCompFixture, revisionID string) (string, time.Time, string) {
 	t.Helper()
 	pool, err := pgxpool.New(context.Background(), fixture.dsn)
