@@ -185,9 +185,6 @@ func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOpti
 		}
 	}
 
-	// A scalar semantic value on a non-empty route must advertise the same
-	// route-specific reductions as a field choice for the same compiler
-	// candidate. The framed Builder flow reissues this choice during apply.
 	scalarEntry := entry
 	scalarEntry.Observation.Value.FallbackSelectors = nil
 	scalarEntry.Observation.Value.FallbackOnBlankString = false

@@ -13,12 +13,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// F-B14 durable control. A deterministic release-requirements miss (permanent
-// until data/config changes) must be classified separately from a genuine
-// transient preparation failure, with explicit non-retryability, per
-// docs/loom-reliability-contract.md: clients do not infer retryability from
-// an HTTP status.
-
 func publishIntoReleasePreparation(t *testing.T, prepareErr error) (*Error, *fakeStore, error) {
 	t.Helper()
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
@@ -82,11 +76,6 @@ func TestPublishGenuinePreparationFailureRemainsUnavailable(t *testing.T) {
 		t.Fatal("preparation failure published a revision")
 	}
 }
-
-// RepositoryPublish sibling (F-B14b): the same activation error must be split
-// the same way — typed contract miss keeps the 409 with an explicit
-// non-retryable diagnostic, while a store fault stays retryable and becomes
-// unavailable instead of a misleading conflict.
 
 func repositoryPublishIntoActivation(t *testing.T, activateErr error) (*Error, *fakeStore, error) {
 	t.Helper()

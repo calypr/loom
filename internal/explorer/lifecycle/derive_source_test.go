@@ -100,8 +100,6 @@ func deriveSourceBase(snapshot capability.Snapshot, construction authoringv2.Con
 	}
 }
 
-// deriveSourceAddStep adds a literal to one column operand, so the signed
-// projection can only ever occupy the left COLUMN operand slot.
 func deriveSourceAddStep(stepID, leftID string, outputs []authoringv2.StageColumn) authoringv2.ConstructionStep {
 	return authoringv2.ConstructionStep{
 		ID:     stepID,
@@ -178,9 +176,6 @@ func deriveSourceProposalRequest(changedStepID string, sources []ConstructionDer
 	}
 }
 
-// deriveSourcePatientHarness reuses the proven filter harness wiring (real
-// compiler lowering + schema row-choice planner around the patients fixture)
-// and only swaps the consumed operation semantics.
 type deriveSourcePatientHarness struct {
 	*filterSourceHarness
 }
@@ -244,8 +239,6 @@ func deriveSourcePatientDocument(construction authoringv2.Construction) authorin
 	}
 }
 
-// (a) Discovery exposes the populated unselected root INTEGER scalar with a
-// signed choice id and never advertises non-numeric fields.
 func TestConstructionDeriveSourceCapabilityExposesPopulatedUnselectedNumericRootScalar(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	result, err := harness.service.constructionDeriveSourceCapability(context.Background(),
@@ -295,7 +288,6 @@ func TestConstructionDeriveSourceCapabilityExposesPopulatedUnselectedNumericRoot
 	}
 }
 
-// The non-numeric gate is enforced on admission, not only display.
 func TestConstructionDeriveSourceRejectsNonNumericFieldOnDiscoveryAndAdmission(t *testing.T) {
 	snapshot := deriveSourceSnapshot("derive-source-nonnumeric")
 	service := deriveSourceService(t)
@@ -310,8 +302,6 @@ func TestConstructionDeriveSourceRejectsNonNumericFieldOnDiscoveryAndAdmission(t
 	if result.ReasonCode != "NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS" || len(result.Choices) != 0 {
 		t.Fatalf("unsupported capability = %#v, want the derive-source reason without choices", result)
 	}
-	// The planner still issues a signed token for the boolean scalar field, so
-	// the proposal boundary must refuse it rather than trust the picker.
 	nonnumeric := deriveSourceRowChoice(t, snapshot, deriveSourceRootType, deriveSourceField)
 	if _, err := capability.DecodeRowChoiceID(nonnumeric.ChoiceID); err != nil {
 		t.Fatalf("crafted boolean candidate produced no signed token: %v", err)
@@ -328,7 +318,6 @@ func TestConstructionDeriveSourceRejectsNonNumericFieldOnDiscoveryAndAdmission(t
 	}
 }
 
-// The numeric gate is pure logic and must admit exactly integer and decimal.
 func TestDeriveSourceLogicalTypeIsNumericAdmitsOnlyArithmeticKinds(t *testing.T) {
 	for _, want := range []string{"integer", "decimal", " INTEGER", "Decimal "} {
 		if !deriveSourceLogicalTypeIsNumeric(want) {
@@ -342,7 +331,6 @@ func TestDeriveSourceLogicalTypeIsNumericAdmitsOnlyArithmeticKinds(t *testing.T)
 	}
 }
 
-// (c) A token from another snapshot, or a tampered token, is refused.
 func TestConstructionDeriveSourceRefusesForgedAndCrossSnapshotChoices(t *testing.T) {
 	snapshot := deriveSourceSnapshot("derive-source-current")
 	other := deriveSourceSnapshot("derive-source-other")
@@ -376,8 +364,6 @@ func TestConstructionDeriveSourceRefusesForgedAndCrossSnapshotChoices(t *testing
 	}
 }
 
-// (b) A valid selection durably owns exactly one server-derived projection and
-// survives the real authoring validator, row-preserving.
 func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	snapshot := harness.snapshot
@@ -429,8 +415,6 @@ func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *te
 	if len(analyzed.Construction.SourceProjections) != 1 || analyzed.Construction.SourceProjections[0].OwnerStepID != deriveSourceStep {
 		t.Fatalf("analysis dropped or re-owned the derive projection: %#v", analyzed.Construction.SourceProjections)
 	}
-	// DERIVE is row-preserving: the signed slot plus the derived column are the
-	// only additions over the selected identity.
 	wantIDs := []string{"patient-id", deriveSourceBirth, "derived_total"}
 	gotIDs := make([]string, 0, len(analyzed.Construction.Steps[0].Outputs))
 	for _, output := range analyzed.Construction.Steps[0].Outputs {
@@ -441,7 +425,6 @@ func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *te
 	}
 }
 
-// The row-preserving prefix allow-list is enforced, not trust-me coded.
 func TestConstructionDeriveSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	group := filterSourceGroupStep()
@@ -475,7 +458,6 @@ func TestConstructionDeriveSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	}
 }
 
-// A projection the derive step does not consume as an operand is refused.
 func TestConstructionDeriveSourceProjectionMustMatchItsOperand(t *testing.T) {
 	document := deriveSourcePatientDocument(authoringv2.Construction{Version: authoringv2.ConstructionVersion})
 
@@ -509,8 +491,6 @@ func TestConstructionDeriveSourceProjectionMustMatchItsOperand(t *testing.T) {
 	}
 }
 
-// (e) Dropping the selections strips their projections, and a derive left
-// pointing at a removed source operand fails instead of silently keeping it.
 func TestConstructionDeriveSourceRemovalStripsProjectionAndRefusesDanglingDerive(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	snapshot := harness.snapshot
@@ -556,7 +536,6 @@ func TestConstructionDeriveSourceRemovalStripsProjectionAndRefusesDanglingDerive
 	}
 }
 
-// (f) Selected-column derive behavior is unchanged by derive source support.
 func TestConstructionDeriveSourceLeavesSelectedColumnBehaviorUnchanged(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	snapshot := harness.snapshot
@@ -566,7 +545,6 @@ func TestConstructionDeriveSourceLeavesSelectedColumnBehaviorUnchanged(t *testin
 	}}
 	document := deriveSourcePatientDocument(construction)
 	if _, _, err := document.AnalyzeConstructionCandidate(construction, deriveSourceStep, nil); err == nil {
-		// string operand is invalid at compile, so only require proposal neutrality below.
 	}
 	unchanged, err := service.constructionCandidateWithDeriveSources(context.Background(),
 		deriveSourcePatientBase(snapshot, construction), deriveSourcePatientProposalRequest(deriveSourceStep, nil), construction)
@@ -585,8 +563,6 @@ func TestConstructionDeriveSourceLeavesSelectedColumnBehaviorUnchanged(t *testin
 	}
 }
 
-// Duplicate or blank selection facts are refused at the request boundary, and
-// more than two selections exceeds the two operand slots.
 func TestConstructionDeriveSourceSelectionsRequireExactDeduplicatedFacts(t *testing.T) {
 	duplicate := deriveSourceProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
 		{ChoiceID: "rc1.a.b", ColumnID: "c1"}, {ChoiceID: "rc1.a.b", ColumnID: "c2"},
@@ -617,9 +593,6 @@ func TestConstructionDeriveSourceSelectionsRequireExactDeduplicatedFacts(t *test
 	}
 }
 
-// (g) The advertised choice object is EXACTLY the six pinned wire fields. Any
-// pivot-style extra field makes the strict UI schema reject the whole
-// capabilities response, so the shape is pinned structurally and on the wire.
 func TestConstructionDeriveSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
 	structFields := make(map[string]bool, reflect.TypeOf(ConstructionDeriveSourceChoice{}).NumField())
@@ -655,9 +628,6 @@ func TestConstructionDeriveSourceChoiceWireShapeIsExactlySixFields(t *testing.T)
 	}
 }
 
-// The advertised columnId is the signed materialized column the UI uses to
-// restore a saved source-backed derive operand. It must come only from durable
-// server-derived state that is still live for exactly this stage.
 func TestConstructionDeriveSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSigned(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	snapshot := harness.snapshot
@@ -718,8 +688,6 @@ func TestConstructionDeriveSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 	}
 }
 
-// (a, wiring) GetConstructionCapabilities assembles deriveSourceInput beside
-// pivotSourceInput and filterSourceInput on the owned-style fixture.
 func TestGetConstructionCapabilitiesAssemblesDeriveSourceInputBesidePivotSourceInput(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
@@ -770,8 +738,6 @@ func TestGetConstructionCapabilitiesAssemblesDeriveSourceInputBesidePivotSourceI
 	}
 }
 
-// (b) Through ProposeConstruction with the real compiler, the accepted
-// candidate derives from the unselected field's compiled slot.
 func TestProposeConstructionDeriveSourceDerivesFromUnselectedFieldWithRealCompiler(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	harness.saveDraftDerive(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
@@ -845,9 +811,6 @@ func TestProposeConstructionDeriveSourceDerivesFromUnselectedFieldWithRealCompil
 	}
 }
 
-// A derive step may consume two COLUMN operands (left projection + right
-// projection or column); the compiled multiplicity is unchanged because the
-// expression stays row-wise.
 func TestProposeConstructionDeriveSourceCompilesChainedColumnOperands(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	firstDerived := authoringv2.StageColumn{ID: "chained_base", Name: "chained_base", Label: "Chained base", Type: "integer"}
@@ -920,7 +883,6 @@ func TestProposeConstructionDeriveSourceCompilesChainedColumnOperands(t *testing
 	}
 }
 
-// (6) An accepted proposal whose field stops qualifying is refused at Apply.
 func TestApplyConstructionProposalRefusesStaleDeriveSourceBinding(t *testing.T) {
 	for _, stale := range []bool{false, true} {
 		name := "current"
@@ -997,9 +959,6 @@ func TestApplyConstructionProposalRefusesStaleDeriveSourceBinding(t *testing.T) 
 	}
 }
 
-// A restore of a saved source-backed derive whose field stopped presenting
-// data must fail closed at proposal time like a forged token: the durable
-// columnId alone never vouches for the vanished field.
 func TestProposeConstructionDeriveSourceRefusesVanishedFieldRestore(t *testing.T) {
 	harness := newDeriveSourceHarness(t)
 	durable := authoringv2.Construction{
@@ -1074,8 +1033,6 @@ func (h *deriveSourcePatientHarness) candidateDeriveConstruction() authoringv2.C
 	}}
 	return candidate
 }
-
-// --- ROW-SOURCE-03 S-A: precise per-skipped-class lane reason codes -------
 
 func TestConstructionDeriveSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
 	index, err := fhirschema.GeneratedIndex()

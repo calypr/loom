@@ -12,9 +12,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// resolveWorkspaceInterpretations loads each distinct exact revision once and
-// then delegates all matching and rule selection to the pure compiler
-// resolver. No library head is consulted.
 func (s *Service) resolveWorkspaceInterpretations(ctx context.Context, project string, workspace authoringv2.Workspace, snapshot capability.Snapshot) (explorercompilation.ResolvedInputs, error) {
 	ids := make(map[explorer.InterpretationRevisionID]struct{})
 	for _, document := range workspace.Documents {

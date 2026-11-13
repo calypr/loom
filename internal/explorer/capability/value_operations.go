@@ -65,9 +65,6 @@ var aggregateOperations = []AggregateOperation{
 	AggregateFirstOrdered,
 }
 
-// DeriveAggregateOperationCapabilities gives every operation a typed,
-// row-context-specific support decision. Compiler probes are intersected with
-// this domain decision by the server before the choice is advertised.
 func DeriveAggregateOperationCapabilities(input AggregateInput, rows AggregateRowContext) []AggregateOperationCapability {
 	choices := make([]AggregateOperationCapability, 0, len(aggregateOperations))
 	for _, operation := range aggregateOperations {

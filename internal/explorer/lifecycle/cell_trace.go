@@ -12,8 +12,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// CellTrace returns receipt-bound evidence for one published cell. Lifecycle
-// validates every client-supplied coordinate before execution sees it.
 func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (CellTraceResult, error) {
 	if strings.TrimSpace(request.ReceiptID) == "" || strings.TrimSpace(request.OutputID) == "" || strings.TrimSpace(request.RowID) == "" || strings.TrimSpace(request.Column) == "" {
 		return CellTraceResult{}, malformed("cellTrace", "receiptId, outputId, rowId, and column are required", nil)

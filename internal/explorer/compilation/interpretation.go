@@ -19,16 +19,11 @@ const (
 	InterpretationCandidateUnsupported InterpretationCandidateResolutionState = "UNSUPPORTED"
 )
 
-// InterpretationCandidateMatch is the semantic payload available only from
-// a READY resolution. Candidate IDs are copied out of the exact snapshot.
 type InterpretationCandidateMatch struct {
 	CapabilityCandidateIDs []string
 	StructuralCandidate    explorer.InterpretationStructuralCandidate
 }
 
-// InterpretationCandidateResolution is a closed result. Implementations are
-// private so callers can inspect a READY match or an unavailable reason, but
-// cannot construct a state with the wrong payload.
 type InterpretationCandidateResolution interface {
 	State() InterpretationCandidateResolutionState
 	Reason() string
@@ -83,9 +78,6 @@ func (unsupportedInterpretationCandidate) Match() (InterpretationCandidateMatch,
 }
 func (unsupportedInterpretationCandidate) interpretationCandidateResolution() {}
 
-// ResolveWorkspaceInterpretations is the pure B06 resolver. The caller owns
-// loading exact revisions; this function only interprets the retained
-// capability snapshot and revision map, so it has no moving-head lookup.
 func ResolveWorkspaceInterpretations(project string, workspace authoringv2.Workspace, snapshot capability.Snapshot, revisions map[explorer.InterpretationRevisionID]explorer.InterpretationRevision) (ResolvedInputs, error) {
 	project = projectid.Canonical(project)
 	inputs := ResolvedInputs{}
@@ -140,9 +132,6 @@ func ResolveWorkspaceInterpretations(project string, workspace authoringv2.Works
 	return inputs.Canonical(), nil
 }
 
-// ResolveInterpretationCandidate matches one configured source against an
-// exact capability snapshot. Invalid routes are request-level errors; valid
-// routes with unresolved sources return a closed per-column state.
 func ResolveInterpretationCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (InterpretationCandidateResolution, error) {
 	occurrences, _, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
@@ -197,8 +186,6 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 	}}, nil
 }
 
-// structuralCandidate adapts the closed resolution for compiler validation.
-// All source and concept matching remains in ResolveInterpretationCandidate.
 func structuralCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (explorer.InterpretationStructuralCandidate, error) {
 	resolution, err := ResolveInterpretationCandidate(document, column, snapshot)
 	if err != nil {

@@ -10,12 +10,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// The authoring publish path types a lost release compare-and-swap as a
-// PUBLICATION_ACTIVATION_CONFLICT (publish.go, pinned in service_test). The
-// repository publish path used to fall through to retryable 503s whose public
-// message echoed the wrapped transport text. These tests pin the mirrored
-// contract on the repository path.
-
 func TestRepositoryPublishActivationConflictMirrorsAuthoringContract(t *testing.T) {
 	wrapped := fmt.Errorf("activate release: arango preconditions emptied: %w", dataset.ErrReleaseActivationConflict)
 	lifecycleErr, store, err := repositoryPublishIntoActivation(t, wrapped)
@@ -52,9 +46,6 @@ func TestRepositoryPublishActivationConflictUnwrappedSentinelClassifiesTheSame(t
 	}
 }
 
-// Control: an infrastructure activation fault (no conflict sentinel) must
-// stay the retryable unavailable path with the retryable diagnostic, so the
-// new branch does not swallow real faults into a conflict.
 func TestRepositoryPublishActivationInfrastructureFaultStaysRetryableUnavailable(t *testing.T) {
 	lifecycleErr, store, _ := repositoryPublishIntoActivation(t, errors.New("arango: connection reset by peer"))
 	if lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "RELEASE_ACTIVATION_FAILED" {

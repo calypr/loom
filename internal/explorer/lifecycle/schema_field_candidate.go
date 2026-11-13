@@ -9,8 +9,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// Generated identities bind a schema path to the authorized snapshot, rather
-// than claiming that the path was observed in its population.
 func schemaFieldCandidateID(snapshotToken, nodeID, path string) string {
 	identity, _ := json.Marshal([3]string{snapshotToken, nodeID, path})
 	return "schema_field." + base64.RawURLEncoding.EncodeToString(identity)
