@@ -173,12 +173,17 @@ func (a *Arm) ExecuteOutput(ctx context.Context, token, project, explorer, recei
 
 func decodePreview(value map[string]any) (PreviewResult, error) {
 	raw, _ := json.Marshal(value)
-	// The authoring-v2 preview route answers ExplorerBuilderPreview with
-	// columns as ContractColumn objects (internal/server
-	// v2EmissionColumns); the public column name is at .column.
+	// The authoring-v2 preview route answers with loomapi.PreviewResponse:
+	// columns are ContractColumn objects (internal/server
+	// v2EmissionColumns) whose public name is at .column, and Sampled is
+	// set by the route wrapper from !summary.Complete || summary.Truncated
+	// (internal/server/openapi_explorer_authoring_direct.go
+	// previewResponseFromEncoder). The sampled tag has no omitempty, so
+	// the field is always on the wire and never silently defaults.
 	var wire struct {
 		Columns  []loomapi.ContractColumn `json:"columns"`
 		RowCount int                      `json:"rowCount"`
+		Sampled  bool                     `json:"sampled"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return PreviewResult{}, err
@@ -186,7 +191,7 @@ func decodePreview(value map[string]any) (PreviewResult, error) {
 	if wire.Columns == nil {
 		return PreviewResult{}, fmt.Errorf("preview response omitted columns")
 	}
-	result := PreviewResult{RowCount: wire.RowCount}
+	result := PreviewResult{RowCount: wire.RowCount, Sampled: wire.Sampled}
 	for _, column := range wire.Columns {
 		if strings.TrimSpace(column.Column) == "" {
 			return PreviewResult{}, fmt.Errorf("preview column omitted its public name")

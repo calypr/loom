@@ -27,6 +27,7 @@ type fakeArm struct {
 	calls       []string // ordered "backend:route:output"
 	rows        map[string][]map[string]any
 	columns     []string
+	sampled     bool // scripts a truncated/incomplete preview: the route sets sampled = !Complete || Truncated
 	leakScoped  bool
 	failWith    map[string]int // output -> status
 	uploads     int
@@ -195,6 +196,7 @@ func newFakeArm(backend string) *fakeArm {
 			f.calls = append(f.calls, fmt.Sprintf("%s:preview:%s", backend, output))
 			status := f.failWith[output]
 			names := f.columns
+			sampled := f.sampled
 			receipt, _ := body["receiptId"].(string)
 			f.mu.Unlock()
 			if status != 0 {
@@ -202,22 +204,30 @@ func newFakeArm(backend string) *fakeArm {
 				return
 			}
 			// The mock follows the server: the preview route answers
-			// ContractColumn objects whose name is at .column
-			// (internal/server v2EmissionColumns); there is no
-			// sampled field on the wire.
+			// loomapi.PreviewResponse (internal/server
+			// previewResponseFromEncoder) -- ContractColumn objects
+			// whose name is at .column (v2EmissionColumns) and a
+			// sampled flag the route sets from
+			// !summary.Complete || summary.Truncated.
 			cols := make([]loomapi.ContractColumn, 0, len(names))
 			for _, name := range names {
 				cols = append(cols, loomapi.ContractColumn{Column: name, Label: name, LogicalType: "string"})
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"apiVersion":  "loom.calypr.org/explorer-authoring/v2",
-				"kind":        "ExplorerBuilderPreview",
-				"receiptId":   receipt,
-				"outputId":    output,
-				"columns":     cols,
-				"rows":        rows,
-				"rowCount":    len(rows),
-				"diagnostics": []any{},
+			sources := make([]loomapi.PreviewRowSource, 0, len(rows))
+			for range rows {
+				sources = append(sources, loomapi.PreviewRowSource{Kind: loomapi.PreviewRowSourceKindUNAVAILABLE})
+			}
+			_ = json.NewEncoder(w).Encode(loomapi.PreviewResponse{
+				ApiVersion:  loomapi.LoomCalyprOrgexplorerAuthoringv2,
+				Kind:        loomapi.ExplorerBuilderPreview,
+				ReceiptId:   receipt,
+				OutputId:    output,
+				Columns:     cols,
+				Rows:        rows,
+				RowSources:  sources,
+				RowCount:    len(rows),
+				Sampled:     sampled,
+				Diagnostics: []loomapi.Diagnostic{},
 			})
 			return
 		case strings.Contains(path, "/authoring/v2/reconcile"):
