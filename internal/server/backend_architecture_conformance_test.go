@@ -1209,11 +1209,16 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 
 // payloadHasAttribute answers: does the stored document carry `attribute`
 // explicitly inside its raw payload document? Explicit JSON null counts.
-func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, key, attribute string) bool {
+// Ingress namespaces every vertex key to g_<sha256> (generation_identity.go)
+// and keeps the FHIR id in logical_key, so the witness selects by
+// project + dataset_generation + logical_key, exactly the census the
+// PostgreSQL arm runs against its logical_id column.
+func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, project, generation, logicalKey, attribute string) bool {
 	t.Helper()
-	query := `LET d = DOCUMENT(@collection, @key) RETURN d != null && d.payload != null && HAS(d.payload, @attribute)`
+	query := `LET d = FIRST(FOR doc IN @@collection FILTER doc.project == @project AND doc.dataset_generation == @generation AND doc.logical_key == @logicalKey RETURN doc) RETURN d != null && d.payload != null && HAS(d.payload, @attribute)`
 	body := fmt.Sprintf(`{"query":%q,"bindVars":%s}`, query, mustAB10JSON(t, map[string]any{
-		"collection": collection, "key": key, "attribute": attribute,
+		"collection": collection, "project": project, "generation": generation,
+		"logicalKey": logicalKey, "attribute": attribute,
 	}))
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
 		strings.TrimRight(p.endpoint, "/")+"/_db/"+url.PathEscape(p.database)+"/_api/cursor",
@@ -1547,7 +1552,7 @@ func ab10ProbeOccurrenceCount(t *testing.T, arm *ab10Arm, resourceType, project,
 func ab10ProbeStoredHasExplicitAttribute(t *testing.T, arm *ab10Arm, resourceType, project, generation, logicalID, attribute string) bool {
 	t.Helper()
 	if arm.probe != nil {
-		return arm.probe.payloadHasAttribute(t, resourceType, logicalID, attribute)
+		return arm.probe.payloadHasAttribute(t, resourceType, project, generation, logicalID, attribute)
 	}
 	count := arm.fixture.probeCount(t,
 		`SELECT count(*) FROM "`+arm.fixture.schemas[control.SeriesSource]+`".fhir_resource
@@ -2277,15 +2282,25 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			if err != nil || !acquired {
 				t.Fatalf("%s arm: lease acquire for owner A: acquired=%v err=%v", arm.name, acquired, err)
 			}
-			if _, err := registry.AcquireBundleLease(ctx, key, stale, time.Now().Add(time.Minute)); err == nil {
+			// The shared registry contract refuses a held lease through the
+			// claim verdict, not an error: PostgreSQL returns RowsAffected
+			// 0 and Arango's FILTER empties the UPSERT, both as (false,
+			// nil). A driver failure is still a failure.
+			if acquired, err := registry.AcquireBundleLease(ctx, key, stale, time.Now().Add(time.Minute)); err != nil {
+				t.Fatalf("%s arm: foreign lease probe failed at the driver: %v", arm.name, err)
+			} else if acquired {
 				t.Fatalf("%s arm: foreign owner acquired a held lease — fence is not enforced", arm.name)
 			}
-			renewed, err := registry.RenewBundleLease(ctx, key, stale, time.Now().Add(time.Minute))
-			if err == nil && renewed {
-				t.Fatalf("%s arm: stale owner renewed the lease — false completion allowed", arm.name)
+			if renewed, err := registry.RenewBundleLease(ctx, key, stale, time.Now().Add(time.Minute)); err != nil || renewed {
+				t.Fatalf("%s arm: stale owner renewed the lease (renewed=%v err=%v) — false completion allowed", arm.name, renewed, err)
 			}
-			if err := registry.ReleaseBundleLease(ctx, key, stale); err == nil {
-				t.Fatalf("%s arm: stale owner released a foreign lease without a typed refusal", arm.name)
+			// Both registries document a foreign release as a no-op that
+			// leaves the fence intact (registry.go ReleaseBundleLease
+			// comment; the Arango FILTER drops the non-owner REMOVE). The
+			// durable witness is the owner renewal below: had the foreign
+			// release deleted the lease, that renewal would refuse.
+			if err := registry.ReleaseBundleLease(ctx, key, stale); err != nil {
+				t.Fatalf("%s arm: foreign release errored instead of the documented no-op: %v", arm.name, err)
 			}
 			if renewed, err := registry.RenewBundleLease(ctx, key, owner, time.Now().Add(time.Minute)); err != nil || !renewed {
 				t.Fatalf("%s arm: current owner renewal refused: renewed=%v err=%v", arm.name, renewed, err)
