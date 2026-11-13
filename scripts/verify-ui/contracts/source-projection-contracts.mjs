@@ -1,3 +1,9 @@
+// Source-projection owner-branch contract: durable Node-side assertions for
+// the FORMAL-62-U1 replay family (construction_projection_replay_test.go +
+// scripts/lib/formal-projection-replay.mjs). Round 61 §1 recorded that the
+// reject direction carried zero Go/Node assertions before this contract; it
+// now shares one expectation table with the lane, so a reject string renamed,
+// removed, or swapped in production fails here with the branch named.
 import assert from 'node:assert/strict';
 import { projectionBranchExpectations } from '../../lib/formal-projection-replay.mjs';
 

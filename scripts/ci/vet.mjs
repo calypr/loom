@@ -4,6 +4,9 @@ import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(import.meta.dirname, '../..');
 
+/** Run one `go vet` invocation. Passing any analyzer-enable flag substitutes
+ * the default analyzer set (the disable form `-NAME=false` instead runs all
+ * analyzers not disabled; the gate only uses the enable form). */
 export function goVet({ packagePatterns = ['./...'], analyzerArgs = [], overlayFile } = {}) {
   if (!Array.isArray(packagePatterns) || packagePatterns.length === 0) throw new Error('packagePatterns required');
   if (packagePatterns.some(pattern => pattern.startsWith('-'))) throw new Error('packagePatterns must not start with - (vet flag escape)');
@@ -18,6 +21,10 @@ export function goVet({ packagePatterns = ['./...'], analyzerArgs = [], overlayF
   return { ok: result.status === 0, status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 }
 
+/** The CI boundary: `go test` vets only its fixed analyzer subset, so copylocks
+ * (and anything else outside that subset) ships green unless a full `go vet`
+ * gates it. Both passes must stay green; the explicit copylocks pass pins the
+ * analyzer even if the default set drifts. */
 export function vetGate({ packagePatterns = ['./...'], overlayFile } = {}) {
   const passes = [
     { name: 'default', ...goVet({ packagePatterns, overlayFile }) },
