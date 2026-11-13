@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,10 +28,21 @@ type fakeArm struct {
 	failWith    map[string]int // output -> status
 	uploads     int
 	publish     int
+	published   [][]byte // explorer-config bodies in publish order
 	noSnapshot  bool
 	scopedToken string // when the bearer equals this, deny like production: zero rows
 	explorerID  string
 	authoring   []string // ordered create/builder/reconcile calls
+}
+
+func (f *fakeArm) publishedBodies() [][]byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([][]byte, 0, len(f.published))
+	for _, body := range f.published {
+		out = append(out, append([]byte(nil), body...))
+	}
+	return out
 }
 
 func (f *fakeArm) authoringCalls() []string {
@@ -70,15 +82,17 @@ func newFakeArm(backend string) *fakeArm {
 			noSnap := f.noSnapshot
 			f.mu.Unlock()
 			state := map[string]any{"draftVersion": 1, "draftDigest": "dig-1",
-				"catalog": map[string]any{"snapshotToken": "snap-1"}}
+				"catalog": contributorCatalogFixture()}
 			if noSnap {
 				state = map[string]any{"draftVersion": 1}
 			}
 			_ = json.NewEncoder(w).Encode(state)
 			return
 		case strings.Contains(path, "/explorer-config"):
+			body, _ := io.ReadAll(r.Body)
 			f.mu.Lock()
 			f.publish++
+			f.published = append(f.published, body)
 			f.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"recipe": "bench", "translationVersion": "t1", "output": "out"})
 			return
@@ -132,6 +146,31 @@ func newFakeArm(backend string) *fakeArm {
 
 func (f *fakeArm) arm(backend string) *Arm {
 	return &Arm{Backend: backend, BaseURL: f.server.URL, Client: f.server.Client()}
+}
+
+// contributorCatalogFixture is the builder catalog the fake serves: exactly
+// the candidates the battery's aggregate predicates resolve against, plus
+// the occurrence nodes the migration looks up by resource type.
+func contributorCatalogFixture() map[string]any {
+	return map[string]any{
+		"snapshotToken": "snap-1", "generation": "gen1",
+		"authorizationScopeDigest": "scope-digest-1",
+		"complete":                 true, "truncated": false,
+		"nodes": []map[string]any{
+			{"nodeId": "patient", "resourceType": "Patient"},
+			{"nodeId": "observation", "resourceType": "Observation"},
+			{"nodeId": "specimen", "resourceType": "Specimen"},
+			{"nodeId": "condition", "resourceType": "Condition"},
+		},
+		"candidates": []map[string]any{
+			{"candidateId": "cand-obs-age-code", "nodeId": "observation", "fieldPath": "code.coding[].code",
+				"logicalType": "code", "repeated": true,
+				"repeatedBoundaries": []map[string]any{{"path": "code.coding[]", "maxItems": 20}}},
+			{"candidateId": "cand-spec-type-code", "nodeId": "specimen", "fieldPath": "type.coding[].code",
+				"logicalType": "code", "repeated": true,
+				"repeatedBoundaries": []map[string]any{{"path": "type.coding[]", "maxItems": 20}}},
+		},
+	}
 }
 
 func (f *fakeArm) close() { f.server.Close() }

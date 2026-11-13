@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
 // The live driver: spawn/attach arms, load the deterministic dataset, author
@@ -249,6 +252,18 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		receiptIDs[p.backend] = map[string]string{}
 		outputIDs[p.backend] = map[string]string{}
 	}
+	// The writable wire carries catalog-bound contributor intent, not
+	// aggregate.where (the strict body bind refuses the latter). Fetch each
+	// arm's live builder catalog once so predicate workspaces migrate
+	// against the same compiler facts the compiler will later bind.
+	catalogs := map[string]authoringv2.CatalogSnapshot{}
+	for _, p := range participants {
+		catalog, err := arms[p.backend].arm.FetchContributorCatalog(ctx, opts.UnrestrictedToken, opts.Params.Project, "default")
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: %s contributor catalog: %w", p.backend, err)
+		}
+		catalogs[p.backend] = catalog
+	}
 	for _, spec := range Battery {
 		if _, skip := excludedWorkloads[spec.ID]; skip {
 			continue // disclosed absence: never authored, never timed
@@ -260,9 +275,19 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		outputID := OutputIDFor(spec.ID)
 		name := "bench-" + spec.ID
 		var explorerID string
+		var publishedBytes []byte
 		for _, p := range participants {
+			publicationBytes, err := PreparePublicationWorkspace(workspace, opts.Params.Generation, catalogs[p.backend])
+			if err != nil {
+				return nil, nil, fmt.Errorf("benchmark: prepare %s for %s: %w", spec.ID, p.backend, err)
+			}
+			if publishedBytes == nil {
+				publishedBytes = publicationBytes
+			} else if !bytes.Equal(publishedBytes, publicationBytes) {
+				return nil, nil, fmt.Errorf("benchmark: %s publishes divergent workspace bytes on %s; the contributor catalogs are not matched", spec.ID, p.backend)
+			}
 			eid, rid, err := arms[p.backend].arm.AuthorWorkload(ctx, opts.UnrestrictedToken, opts.Params.Project, opts.Params.Generation,
-				workspace, opts.SourceCommit, name, outputID)
+				publicationBytes, opts.SourceCommit, name, outputID)
 			if err != nil {
 				return nil, nil, fmt.Errorf("benchmark: author %s on %s: %w", spec.ID, p.backend, err)
 			}

@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,40 @@ func TestDriverBothArmsProtocol(t *testing.T) {
 		}
 		if f.publish != live+1 { // + empty floor
 			t.Fatalf("%s: publish=%d want %d", name, f.publish, live+1)
+		}
+		// the writable wire is closed over aggregate predicates: every
+		// published workspace must bind exactly like the server's body bind
+		// does, predicate workspaces must carry contributor intent, and no
+		// body may smuggle the legacy where field
+		bodies := f.publishedBodies()
+		if len(bodies) != live+1 {
+			t.Fatalf("%s: published bodies=%d want %d", name, len(bodies), live+1)
+		}
+		var withContributor, withWhere int
+		for _, body := range bodies {
+			var workspace map[string]any
+			if err := json.Unmarshal(body, &workspace); err != nil {
+				t.Fatalf("%s: published workspace does not bind: %v", name, err)
+			}
+			if strings.Contains(string(body), `"contributor"`) {
+				withContributor++
+			}
+			if strings.Contains(string(body), `"where"`) {
+				withWhere++
+			}
+		}
+		if withWhere != 0 {
+			t.Fatalf("%s: a published workspace still carries the legacy where wire", name)
+		}
+		if withContributor == 0 {
+			t.Fatalf("%s: no published workspace carries contributor intent", name)
+		}
+	}
+	// both arms must publish byte-identical workloads (matched arms)
+	ta, tp := fa.publishedBodies(), fp.publishedBodies()
+	for i := range ta {
+		if string(ta[i]) != string(tp[i]) {
+			t.Fatalf("arm %d published different bytes on the two drivers:\n%s\n%s", i, ta[i], tp[i])
 		}
 	}
 	// round-trip the artifact
