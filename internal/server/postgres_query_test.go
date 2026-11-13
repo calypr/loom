@@ -313,14 +313,18 @@ type qRouteMint struct {
 	dropped bool
 }
 
-// qRouteMintInventory is the checked-in enumeration of this file's minting
-// legs: exactly these tests mint, each exactly this many databases. The
-// TestZZ audit asserts the runtime registry matches it leg-for-leg.
+// qRouteMintInventory is the checked-in enumeration of the minting legs
+// that share this harness: exactly these tests mint, each exactly this many
+// databases. The TestZZ audit asserts the runtime registry matches it
+// leg-for-leg.
 var qRouteMintInventory = map[string]int{
 	"TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable":     1,
 	"TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler": 1,
 	// pg-runtime-health-readiness leg (mints one database).
 	"TestPostgreSQLFirstQueryRouteLivenessAndReadiness": 1,
+	// arch-backend-12 backend-neutral diagnostics leg (mints one database;
+	// implementation lives in backend_neutral_diagnostics_live_test.go).
+	"TestBackendNeutralDiagnosticsLivePostgreSQL": 1,
 }
 
 func qRouteTestPostgresURL(t *testing.T) string {

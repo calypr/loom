@@ -14,10 +14,16 @@ type PhysicalExplanation struct {
 
 type PhysicalOutputExplanation struct {
 	Name string
-	// PlanFingerprint identifies the exact compiled command the assessment
-	// describes: the AQL-shape digest for AQL-tagged outputs and the
-	// PostgreSQL command fingerprint for PostgreSQL-tagged ones, matching the
-	// fingerprint the corresponding stream reports for the same output.
+	// PlanFingerprint is the public, value-free diagnostic shape of the
+	// compiled command the assessment describes (SourcePlanFingerprint): the
+	// historical AQL-shape digest for AQL-tagged outputs and the domain-
+	// separated PostgreSQL shape digest for PostgreSQL-tagged ones, matching
+	// the fingerprint the corresponding preview reports for the same plan.
+	// It moves with the statement, parameter types, and output metadata but
+	// never with bound values, and it is not an identity key. The value-bound
+	// command identity that identifies the exact compiled command stays
+	// confined to artifact fencing (OutputStream.planFingerprint /
+	// Identity.PlanDigest over PlanDiagnostics.Fingerprint).
 	PlanFingerprint string
 	Columns         []string
 	Diagnostics     ir.CompilerPlanDiagnostics

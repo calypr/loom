@@ -342,6 +342,20 @@ const pgExec11Capture = new Set([
     'TestExec11lvLiveCombineExecutesAgainstClickHouse',
     'TestZZPostgresCaptureZeroLeftoverFixtures',
 ]);
+// arch-backend-12: the backend-neutral diagnostics PostgreSQL live leg
+// drives runFhirDataframe with a diagnostics selection through the
+// production first-query handler against the real PostgreSQL 18 fixture
+// (LOOM_TEST_POSTGRES_URL), never Arango. It runs against the real
+// PostgreSQL service under the ticket check-2 harness (go test
+// ./internal/server); in this Arango-only lane its explicit skip stays
+// visible in the proof summary, following the pg-query-route registration
+// precedent. Its Arango sibling TestBackendNeutralDiagnosticsAgainstArango
+// never skips in this lane: it is registered as a required server-profile
+// witness instead. The AQL-lane offline witnesses never skip and are not
+// registered here.
+export const archBackend12Diagnostics = new Set([
+    'TestBackendNeutralDiagnosticsLivePostgreSQL',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -365,6 +379,7 @@ const external = new Set([
     ...archBackend08Matrix,
     ...pgExec12Exclusions,
     ...pgExec11Capture,
+    ...archBackend12Diagnostics,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
@@ -381,7 +396,7 @@ export const profiles = [
 // The store package's retained cases require external seeded data. Its ordinary
 // unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
-profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
+profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango', 'TestBackendNeutralDiagnosticsAgainstArango'];
 profiles.find(p => p.id === 'explorer').alsoRequired = ['TestDraftCASConcurrentWritersAgainstArango', 'TestDraftCASAfterWinnerCommitAgainstArango', 'TestDraftCASPublicApplyConflictClassAgainstArango', 'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango'];
 // The assembled dual-store checkpoint has its own API/CI route with both services.
 profiles.find(p => p.id === 'server').skip = '^(TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestCurrentDraftAppendRowsAgainstArangoClickHouse)$';

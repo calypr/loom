@@ -676,13 +676,18 @@ type FhirDataframeResult {
   diagnostics: DataframeQueryDiagnostics!
 }
 
-# Server-side timings for one dataframe request. `arangoQueryMs` excludes
-# Loom's per-row flattening/delivery time; together those two fields identify
-# whether the database plan or result materialization is dominant.
+# Server-side timings for one dataframe request. `sourceQueryMs` is the
+# backend-neutral source cursor interval for whichever backend serves the
+# query, excluding Loom's per-row flattening/delivery time; together with
+# `rowMaterializationMs` those fields identify whether the database plan or
+# result materialization is dominant. `arangoQueryMs` is the legacy transport
+# projection of the same measurement: the actual Arango cursor time for AQL
+# and explicitly zero for PostgreSQL.
 type DataframeQueryDiagnostics {
   inputResolutionMs: Float!
   requestPreparationMs: Float!
   compilationMs: Float!
+  sourceQueryMs: Float!
   arangoQueryMs: Float!
   rowMaterializationMs: Float!
   resultAssemblyMs: Float!
