@@ -25,13 +25,6 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 )
 
-// Backend tags are the only routing keys. The tag is resolved and validated
-// before any backend-specific setting is parsed (the tag-first law of the
-// PostgreSQL command leaf, internal/backends/postgres/internal/rows/rows.go:158-181: a
-// mistagged request is rejected "before the Querier is touched"), and the
-// dispatch switch is exhaustive with a fail-closed default, mirroring
-// internal/dataframe/execution/engine.go:1679-1701. There is no URL-based
-// auto-detection and no fallback (internal/server/options.go:403-417).
 type backendTag string
 
 const (
@@ -39,8 +32,6 @@ const (
 	backendPostgres backendTag = "postgres"
 )
 
-// Defaults copied from cmd/arango-fhir-proto/main.go:30-36 so the Arango
-// route's flag defaults are byte-identical.
 const (
 	defaultURL      = "http://127.0.0.1:8529"
 	defaultDatabase = "fhir_proto"
@@ -49,16 +40,8 @@ const (
 	defaultMetaDir  = "META"
 )
 
-// pgDSNEnv is the environment spelling of the PostgreSQL DSN. Exactly one of
-// --pg-dsn and this variable may supply the DSN (D2): the flag never takes
-// precedence over the environment and vice versa — a both-set invocation is
-// refused, following the "owned by one source" conflict law of
-// internal/server/options.go:437-449.
 const pgDSNEnv = "LOOM_DATA_PG_DSN"
 
-// Typed refusals for misrouting. Every message names the setting only and
-// never echoes a value that could carry a credential
-// (internal/server/options.go:430 law).
 var (
 	ErrBackendRequired          = errors.New("loom-data: backend is required")
 	ErrBackendUnknown           = errors.New("loom-data: backend must be arango or postgres")
@@ -72,15 +55,8 @@ var (
 	ErrPGMaxConnsInvalid        = errors.New("loom-data: --pg-max-conns must be between 0 and 2147483647")
 )
 
-// pgApplicationNameRE bounds --pg-application_name so the value can never
-// smuggle credential-shaped or syntax-bearing content into a DSN through the
-// loader's application_name join (internal/ingest/generation_load.go:1275-1289).
 var pgApplicationNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 
-// inspectLoadGenerationArgs is the stage-1 scan: it locates only --backend
-// and the help switches without interpreting any other setting, so the tag
-// verdict exists before a backend-specific FlagSet is ever built. Scanning
-// stops at "--" like the flag package.
 func inspectLoadGenerationArgs(args []string) (backend string, backendSet bool, help bool) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -104,9 +80,6 @@ func inspectLoadGenerationArgs(args []string) (backend string, backendSet bool, 
 	return
 }
 
-// normalizeBackendTag resolves the strict backend enum. Unlike the server
-// selector (internal/server/options.go:406-410 defaults empty to arango),
-// omission here is a refusal: this entrypoint requires an explicit backend.
 func normalizeBackendTag(raw string, set bool) (backendTag, error) {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if !set || value == "" {
@@ -122,11 +95,6 @@ func normalizeBackendTag(raw string, set bool) (backendTag, error) {
 	}
 }
 
-// loadRunner is the injectable dependency seam around everything that opens
-// a backend or dials a network. Production wiring uses defaultRunner; tests
-// substitute recorders so "the PG invocation uses only the PG loader" is
-// witnessed by zero-call assertions on every Arango-facing seam, and vice
-// versa.
 type loadRunner struct {
 	loadArango         func(context.Context, ingest.LoadOptions) (ingest.LoadSummary, error)
 	loadPostgres       func(context.Context, ingest.LoadOptions, ingest.PGSourceOptions) (ingest.LoadSummary, error)
@@ -149,16 +117,10 @@ func defaultRunner() loadRunner {
 	}
 }
 
-// dispatchLoadGeneration is the exhaustive tagged dispatch. Stage 1 decides
-// the tag before any backend dialect is parsed; stage 2 hands the full
-// argument list to exactly one route.
 func dispatchLoadGeneration(ctx context.Context, args []string, runner loadRunner) error {
 	rawBackend, backendSet, help := inspectLoadGenerationArgs(args)
 	tag, tagErr := normalizeBackendTag(rawBackend, backendSet)
 	if help && tagErr != nil {
-		// -h without a usable tag shows the combined two-route usage. With a
-		// valid tag the route's own flag package prints the full per-route
-		// flag list and exits 0, mirroring the Arango CLI's -h behavior.
 		usage()
 		return nil
 	}
@@ -171,21 +133,10 @@ func dispatchLoadGeneration(ctx context.Context, args []string, runner loadRunne
 	case backendPostgres:
 		return runPostgresLoadGeneration(ctx, args, runner)
 	default:
-		// Unreachable through normalizeBackendTag; kept so a zero or unknown
-		// tag can never reach a loader (engine.go:1698-1700 law).
 		return fmt.Errorf("%w: refusing to dispatch with unregistered backend %q", ErrBackendUnknown, string(tag))
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Arango route: the existing implementation, contract-preserved.
-// ---------------------------------------------------------------------------
-
-// arangoLoadCommandConfig mirrors cmd/arango-fhir-proto's loadCommandConfig
-// (main.go:101-112) field-for-field. These helpers are deliberately
-// duplicated rather than extracted from cmd/arango-fhir-proto because the
-// ticket scope keeps that command unchanged; the parity is enforced by a
-// differential usage-surface test, not by review.
 type arangoLoadCommandConfig struct {
 	Options ingest.LoadOptions
 
@@ -199,13 +150,6 @@ type arangoLoadCommandConfig struct {
 	Generation string
 }
 
-// configureLoadFlagsCore registers the load knobs both routes honor, copied
-// verbatim from cmd/arango-fhir-proto/main.go:187-215 (names, defaults, and
-// usage strings) except --url, --database, --project, and --write-api, which
-// are Arango-only and registered solely by configureLoadFlags so the
-// PostgreSQL route refuses them as unknown flags. One shared registration
-// means the two routes cannot drift on shared flags; the differential usage
-// test in load_test.go compares against the untouched original binary.
 func configureLoadFlagsCore(fs *flag.FlagSet, options *ingest.LoadOptions, memoryLimit, cpuProfile, memProfile, traceProfile, blockProfile *string) {
 	fs.StringVar(cpuProfile, "cpu-profile", "", "Write CPU profile to file")
 	fs.StringVar(memProfile, "mem-profile", "", "Write heap profile to file at end of run")
@@ -232,12 +176,6 @@ func configureLoadFlagsCore(fs *flag.FlagSet, options *ingest.LoadOptions, memor
 	fs.BoolVar(&options.UseGeneric, "use-generic", false, "Use the generic jsonschema + jsonschemagraph validator and extractor")
 }
 
-// configureLoadFlags registers the full arango load-generation surface,
-// identical to cmd/arango-fhir-proto's configureLoadFlags (main.go:179-182):
-// the core plus --url, --database, --project, --write-api, and the required
-// --generation. --backend is the routing tag validated in stage 1; it is
-// registered here only so the route's parse accepts the already-validated
-// value.
 func configureLoadFlags(fs *flag.FlagSet, config *arangoLoadCommandConfig) {
 	configureLoadFlagsCore(fs, &config.Options, &config.MemoryLimit, &config.CPUProfile, &config.MemProfile, &config.TraceProfile, &config.BlockProfile)
 	fs.StringVar(&config.Options.URL, "url", defaultURL, "Backend base URL")
@@ -262,8 +200,6 @@ func parseArangoLoadCommand(args []string, errorHandling flag.ErrorHandling) (ar
 	if err := config.parseMemoryLimit(); err != nil {
 		return arangoLoadCommandConfig{}, err
 	}
-	// Invariants preserved verbatim from
-	// cmd/arango-fhir-proto/main.go:163-173.
 	if config.Generation == "" {
 		return arangoLoadCommandConfig{}, fmt.Errorf("--generation is required for load-generation")
 	}
@@ -307,10 +243,6 @@ func runArangoLoadGeneration(ctx context.Context, args []string, runner loadRunn
 	return runner.printSummary(summary)
 }
 
-// requireDatabaseExists mirrors cmd/arango-fhir-proto/main.go so the Arango
-// route keeps the refuse-missing-database gate: the store's Open keeps
-// auto-creating for server/tests/harness; only the CLI adds this gate. The
-// probe itself is factory-owned (arangofactory.DatabaseExists).
 func requireDatabaseExists(ctx context.Context, url, database string) error {
 	databaseExists, err := arangofactory.DatabaseExists(ctx, url, database)
 	if err != nil {
@@ -321,10 +253,6 @@ func requireDatabaseExists(ctx context.Context, url, database string) error {
 	}
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// PostgreSQL route: the completed pg-ingest-03 lifecycle loader, STAGED-only.
-// ---------------------------------------------------------------------------
 
 type postgresLoadCommandConfig struct {
 	Options ingest.LoadOptions
@@ -345,17 +273,7 @@ type postgresLoadCommandConfig struct {
 	pgMaxConnsInt int
 }
 
-// configurePostgresLoadFlags registers the PostgreSQL generation-load
-// surface. Arango-only settings (--url, --database, --write-api) are
-// deliberately absent so they fail as unknown flags on this route instead of
-// being silently ignored — the same law that keeps the mutable `load`
-// command from advertising --generation (cmd/arango-fhir-proto/main.go:184-186).
-// Honored shared knobs (UseGeneric, FailFast, AuthResourcePath, batching,
-// progress, queues, catalog limits, profiles, memory limit) are verified in
-// internal/ingest/generation_load.go:751-782, 1171-1174.
 func configurePostgresLoadFlags(fs *flag.FlagSet, config *postgresLoadCommandConfig) {
-	// One shared core registration with the Arango route keeps the common
-	// knobs from drifting.
 	configureLoadFlagsCore(fs, &config.Options, &config.MemoryLimit, &config.CPUProfile, &config.MemProfile, &config.TraceProfile, &config.BlockProfile)
 	fs.StringVar(&config.Options.Project, "project", "", "Project label (required)")
 	fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
@@ -364,8 +282,6 @@ func configurePostgresLoadFlags(fs *flag.FlagSet, config *postgresLoadCommandCon
 	fs.StringVar(&config.DSNFromFlag, "pg-dsn", "", "PostgreSQL connection string (mutually exclusive with LOOM_DATA_PG_DSN); never printed")
 	fs.StringVar(&config.PG.Schema, "pg-schema", "", "Required PostgreSQL schema the generation is loaded into (source series)")
 	fs.StringVar(&config.PG.ManifestSchema, "pg-manifest-schema", "", "Required PostgreSQL schema hosting the dataset_release series (generation manifests and the active-generation pointer); must differ from --pg-schema")
-	// PGSourceOptions.MaxConns is int32; flag has no int32 helper, so bind
-	// through an int and normalize in parse.
 	fs.IntVar(&config.pgMaxConnsInt, "pg-max-conns", 0, "PostgreSQL load pool maximum connections; zero selects the loader default (4)")
 	fs.DurationVar(&config.PG.AcquireTimeout, "pg-acquire-timeout", 0, "PostgreSQL pool acquire timeout; zero selects the loader default (30s)")
 	fs.StringVar(&config.PG.ApplicationName, "pg-application-name", "", "Optional application_name tag for load backends; never printed")
@@ -375,8 +291,6 @@ func configurePostgresLoadFlags(fs *flag.FlagSet, config *postgresLoadCommandCon
 func parsePostgresLoadCommand(args []string, errorHandling flag.ErrorHandling) (postgresLoadCommandConfig, error) {
 	fs := flag.NewFlagSet("load-generation", errorHandling)
 	fs.Usage = func() {
-		// The help text must state the STAGED boundary explicitly and must
-		// never imply activation (D3 condition).
 		fmt.Fprintln(os.Stderr, "loom-data load-generation (postgres): one bounded load that leaves the generation STAGED (verified) and NOT activated; activation is a separate explicit operation. The DSN is never printed.")
 		fs.PrintDefaults()
 	}
@@ -413,24 +327,13 @@ func parsePostgresLoadCommand(args []string, errorHandling flag.ErrorHandling) (
 	name := strings.TrimSpace(config.PG.ApplicationName)
 	switch {
 	case name == "":
-		// Unset (or blank-only) selects the loader's generated witness tag.
 		config.PG.ApplicationName = ""
 	case !pgApplicationNameRE.MatchString(name):
-		// The value is never echoed: a rejected application name may itself
-		// carry credential-shaped content, which is exactly why it is bounded.
 		return postgresLoadCommandConfig{}, ErrPGApplicationNameInvalid
 	default:
-		// Use the trimmed value for both consumers so validation and use
-		// stay on one string: the loader trims again at
-		// internal/ingest/generation_load.go:591, and openCatalogWriters
-		// places this exact value into the catalog DSN's application_name
-		// query parameter.
 		config.PG.ApplicationName = name
 	}
 	if config.pgMaxConnsInt < 0 || config.pgMaxConnsInt > math.MaxInt32 {
-		// flag.IntVar range-checks against int (64-bit on shipped platforms),
-		// so an int32 conversion without this bound would silently wrap into
-		// a pool bound nobody asked for. Backend bounds are explicit here.
 		return postgresLoadCommandConfig{}, ErrPGMaxConnsInvalid
 	}
 	config.PG.MaxConns = int32(config.pgMaxConnsInt)
@@ -443,9 +346,6 @@ func parsePostgresLoadCommand(args []string, errorHandling flag.ErrorHandling) (
 	return config, nil
 }
 
-// resolvePostgresDSN enforces D2: exactly one source. An explicitly set
-// --pg-dsn together with a non-empty LOOM_DATA_PG_DSN is a conflict, not a
-// precedence decision. Error text names settings only.
 func resolvePostgresDSN(fs *flag.FlagSet, flagValue string) (string, error) {
 	explicit := false
 	fs.Visit(func(f *flag.Flag) {
@@ -476,9 +376,6 @@ func runPostgresLoadGeneration(ctx context.Context, args []string, runner loadRu
 		return err
 	}
 	dsn := config.ResolvedDSN
-	// The catalog evidence writers are the caller-side production wiring the
-	// loader requires (internal/ingest/generation_load.go:187-204): all four
-	// over the same DSN/schema before the load is invoked.
 	writers, closeWriters, err := runner.openCatalogWriters(ctx, dsn, config.PG.Schema, config.PG.ManifestSchema, config.PG.ApplicationName)
 	if err != nil {
 		return redactPGDiagnostic(err, dsn)
@@ -494,10 +391,6 @@ func runPostgresLoadGeneration(ctx context.Context, args []string, runner loadRu
 			return runner.loadPostgres(loadCtx, config.Options, config.PG)
 		})
 	if err != nil {
-		// The loader deliberately keeps summary.Dataset populated on failure
-		// so operators can identify the inactive manifest needing inspection
-		// (internal/ingest/generation_load.go:283-285); surface it on stderr
-		// while keeping stdout machine-readable.
 		if summary.Dataset != nil {
 			runner.printNote("staged-manifest-inspect " + summaryJSON(summary))
 		}
@@ -506,38 +399,19 @@ func runPostgresLoadGeneration(ctx context.Context, args []string, runner loadRu
 	if summary.Dataset == nil {
 		return errors.New("postgres generation load reported success without a dataset manifest; refusing to report success")
 	}
-	// STAGED-VERIFIED boundary law: a successful load means the manifest read
-	// back STAGED through the store, not merely that rows were copied.
 	if err := runner.verifyStaged(ctx, *summary.Dataset, dsn, config.PG.Schema, config.PG.ManifestSchema); err != nil {
 		return redactPGDiagnostic(fmt.Errorf("verify postgres generation staged state: %w", err), dsn)
 	}
 	if err := runner.printSummary(summary); err != nil {
 		return err
 	}
-	// The user-visible success line must say STAGED and must not imply
-	// activation (D3 condition): activation is the separate explicit
-	// ingest.ActivatePostgresGeneration CAS, never performed here.
 	runner.printNote(fmt.Sprintf("postgres generation %s/%s is STAGED (verified); not activated — activation is a separate explicit operation",
 		summary.Dataset.Project, summary.Dataset.Generation))
 	return nil
 }
 
-// openCatalogWriters performs the production wiring recipe documented at
-// internal/ingest/generation_load.go:187-204 verbatim over one
-// readiness-checked pool. The loader opens its own pool internally; this one
-// serves the four catalog evidence writers and is closed when the command
-// returns. When application is explicitly set (validated by
-// pgApplicationNameRE before reaching here), the pool's backends carry it as
-// application_name so operator witnesses in pg_stat_activity attribute them
-// to this invocation; a keyword/value DSN keeps an untagged connection
-// rather than a guessed syntax, same as the loader.
 func openCatalogWriters(ctx context.Context, dsn, schema, manifestSchema, application string) (ingest.GenerationCatalogWriters, func() error, error) {
 	poolDSN, _ := joinApplicationName(dsn, application)
-	// One authoritative composition with the loader (see
-	// ingest.PGLoadConfig): exactly SeriesSource and SeriesDatasetRelease on
-	// their own caller-owned schemas. SetupNone matches the historical
-	// bare-pool open: this pool serves the four catalog evidence writers,
-	// and schema setup belongs to the loader's own measured bootstrap.
 	pg := ingest.PGSourceOptions{DSN: dsn, Schema: schema, ManifestSchema: manifestSchema}
 	runtime, err := postgres.Open(ctx, ingest.PGLoadConfig(pg, poolDSN, control.SetupNone))
 	if err != nil {
@@ -555,12 +429,7 @@ func openCatalogWriters(ctx context.Context, dsn, schema, manifestSchema, applic
 	}, func() error { return runtime.Close() }, nil
 }
 
-// verifyStagedManifest reads the manifest back through the store so the CLI
-// only exits 0 on a STAGED-verified generation.
 func verifyStagedManifest(ctx context.Context, ref publication.Ref, dsn, schema, manifestSchema string) error {
-	// Same shipped composition as the load and catalog wiring
-	// (ingest.PGLoadConfig, SetupNone); the manifest read resolves through
-	// the dataset_release schema.
 	pg := ingest.PGSourceOptions{DSN: dsn, Schema: schema, ManifestSchema: manifestSchema}
 	runtime, err := postgres.Open(ctx, ingest.PGLoadConfig(pg, dsn, control.SetupNone))
 	if err != nil {
@@ -581,22 +450,12 @@ func verifyStagedManifest(ctx context.Context, ref publication.Ref, dsn, schema,
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Boundary redaction (acceptance: no credential value in diagnostics).
-// ---------------------------------------------------------------------------
-
 var (
-	// Mirrors internal/server/options.go:529-533 (URL userinfo stripping).
-	pgURLCredentialsRE = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@`)
-	// Keyword/value DSN password forms: password=word, 'quoted', or "quoted".
-	pgKeywordPasswordRE = regexp.MustCompile(`(?i)password\s*=\s*(?:'[^']*'|"[^"]*"|\S+)`)
-	// Same shape with capture groups, for extracting the value as a secret.
+	pgURLCredentialsRE       = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@`)
+	pgKeywordPasswordRE      = regexp.MustCompile(`(?i)password\s*=\s*(?:'[^']*'|"[^"]*"|\S+)`)
 	pgKeywordPasswordValueRE = regexp.MustCompile(`(?i)password\s*=\s*(?:'([^']*)'|"([^"]*)"|(\S+))`)
 )
 
-// redactedPGError changes only the rendering of a PostgreSQL-path diagnostic;
-// errors.Is/errors.As still reach every original identity, so classification
-// survives redaction.
 type redactedPGError struct {
 	original error
 	rendered string
@@ -605,11 +464,6 @@ type redactedPGError struct {
 func (e *redactedPGError) Error() string { return e.rendered }
 func (e *redactedPGError) Unwrap() error { return e.original }
 
-// redactPGDiagnostic renders every PostgreSQL-route diagnostic with all
-// credential material removed. The store's Open path formats the pgx pool
-// parse error with %v (internal/backends/postgres/internal/store/client.go:141-143), which can
-// echo the connection string including userinfo, so the redaction belongs at
-// this CLI boundary and nowhere deeper.
 func redactPGDiagnostic(err error, dsn string) error {
 	if err == nil {
 		return nil
@@ -628,10 +482,6 @@ func redactPGDiagnostic(err error, dsn string) error {
 	return &redactedPGError{original: err, rendered: rendered}
 }
 
-// dsnSecrets enumerates every credential view of a DSN (following the
-// scrub-secret enumeration in
-// internal/ingest/generation_load_postgres_test.go:362-378): the full
-// string, the URL userinfo, the URL password, and a keyword/value password.
 func dsnSecrets(dsn string) []string {
 	if strings.TrimSpace(dsn) == "" {
 		return nil
@@ -667,12 +517,6 @@ func summaryJSON(summary ingest.LoadSummary) string {
 	return string(data)
 }
 
-// ---------------------------------------------------------------------------
-// Load profiles and memory limit, copied from cmd/arango-fhir-proto
-// (main.go:217-252, 254-292, 778-846) so both routes keep the identical
-// operator instrumentation contract.
-// ---------------------------------------------------------------------------
-
 type profileSettings struct {
 	CPUProfile   string
 	MemProfile   string
@@ -680,8 +524,6 @@ type profileSettings struct {
 	BlockProfile string
 }
 
-// runLoadWithProfiles preserves cmd/arango-fhir-proto/main.go:234-252 with
-// the ingest.Load call replaced by the runner seam.
 func runLoadWithProfiles(ctx context.Context, profiles profileSettings, memoryBytes int64, load func(context.Context) (ingest.LoadSummary, error)) (summary ingest.LoadSummary, err error) {
 	previousMemoryLimit := int64(-1)
 	if memoryBytes > 0 {
@@ -742,10 +584,6 @@ func parseMemoryBytes(raw string) (int64, error) {
 	return int64(value * factor), nil
 }
 
-// joinApplicationName mirrors internal/ingest/generation_load.go:1275-1289
-// (unexported there) for the CLI-owned catalog pool, so backends this
-// command opens are attributable in pg_stat_activity. A keyword/value DSN is
-// returned untagged rather than guessed into a syntax, same as the loader.
 func joinApplicationName(dsn, application string) (string, bool) {
 	if strings.TrimSpace(application) == "" {
 		return dsn, false
