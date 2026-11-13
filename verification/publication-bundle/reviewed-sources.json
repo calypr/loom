@@ -523,18 +523,18 @@
       "role": "rrd r29: harness reader wiring; citation guard drift-proofed (containment); env PASS-O-DISP (candidate PUBLISHED+table intact+bound, list len=2) replacing archived FAILED-ON-PURPOSE"
     },
     "internal/dataframe/publication/bundle.go": {
-      "md5": "936a9eef0b05dc3a5ddb9cf2163df00e",
+      "md5": "4780816a3fdf290b1a208a856bb95c09",
       "role": "Repair-5 (F-B21): length-prefix PointerName (strconv len:content); Key() untouched; blank TV/Output stay absent"
     },
     "internal/dataframe/publication/clickhouse/abort_ackloss_e2e_test.go": "Worker A sanctioned F-B2 harness (prevented-by-code assertion + control; both PASS); residue empty",
     "internal/dataframe/publication/clickhouse/bundle_store.go": {
-      "sha256": "a5db5f5588420722f72d4bf889d4c63e1be4d560f6854c4da5c33a727ad69254",
+      "sha256": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42",
       "role": "R85 DDL admission boundary (reviewed, unchanged): CreateOutput gates name via bundleOutputRE and every column via validateBundleColumn (schemaIdentifierRE + anchored closed-set scalar regex; Nullable/Array literal-prefix peel only). In-package probe: all clause-suffix and unbalanced payloads rejected.",
-      "pin": "d5b5491b",
-      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/dataframe/publication/clickhouse/bundle_store.go == on-disk"
+      "pin": "e68c7d6b",
+      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/dataframe/publication/clickhouse/bundle_store.go == blob at feature/postgres-backend tip 48783199; supersedes d5b5491b attestation (pin a5db5f5588420722f72d4bf889d4c63e1be4d560f6854c4da5c33a727ad69254 -> 1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42): comment sweep 80bca9a5 (#161, out-of-lane) stripped comments from this pinned file without re-anchor; re-pinned by PR #183 per coordinator directive, precedent a4d29f01"
     },
     "internal/dataframe/publication/clickhouse/bundle_store_test.go": {
-      "md5": "29b08f899d548c74da029eadd1ec0060",
+      "md5": "22fd74544b8198d890f42bf5370ccb33",
       "role": "Repair-4 unit matrix TestReconcileRetiresSupersededPublishedExecutions 5 arms + stale-marker control; 6-arm Repair-1b veto matrix green"
     },
     "internal/dataframe/publication/clickhouse/export_pin_crash_window_e2e_test.go": "F-B3 realism upgrade: live StreamExactExport pre-first-tick crash end-state, direct-AQL pin proof + renewal control; PASS-gated controls green, finding test sanctioned-red; DBs loom_verify_ecw_* clean",
@@ -552,7 +552,7 @@
       "role": "F-B1e2 CONVERTED to natural PASS; REGRESSION direction keeps archived CONFIRMED message; conversion inversion caught by fb1probe instrumented copy (deleted)"
     },
     "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go": {
-      "md5": "14baa87657ca52b067d09bcf5e47a208",
+      "md5": "e02e868415c4df72e6dfc9c61bb2f14c",
       "role": "F-B1 probe CONVERTED r29 to natural PASS; CONFIRMED branch kept as REGRESSION direction; package fully green without env"
     },
     "internal/dataframe/publication/clickhouse/release_dangle_reconcile_e2e_test.go": {
@@ -560,18 +560,18 @@
       "role": "rdl r29: production-mirror reader wiring; E4 absent-guard control converted to binding-veto arm (regression direction = F-B12 red); env PASS VERDICT PREVENTED"
     },
     "internal/dataframe/publication/pointer_name_encoding_test.go": {
-      "md5": "db3807f2b4a9116dd0c70db6f3eb0b9a",
+      "md5": "49187785c747aaad937bd0f3083fd08a",
       "role": "F-B21 durable units: historical-bare-join fault premise pinned; production fold must fail; injectivity matrix; ship-preserved blank-exclusion semantics; documented (TV=x,blank)/(blank,Out=x) boundary equality",
-      "rerun20261102_r58": "re-pinned round 58 (8c21eb64-only-commit content; r53 commit-time re-pin never executed); prior pin 76337dbac045"
+      "rerun20261102_r58": "re-pinned round 58 (8c21eb64-only-commit content; r53 commit-time re-pin never executed); prior pin 76337dbac045 — SUPERSEDED for the current value by PR #183 re-pin (ledger-digest-repair, coordinator directive, precedent a4d29f01): r58 attested md5 db3807f2b4a9116dd0c70db6f3eb0b9a (verified TRUE at 8c21eb64 and at 9534829d) was first moved to 49187785c747aaad937bd0f3083fd08a by comment sweep 80bca9a5 (#161, out-of-lane, no re-anchor); entry now SELF-RUN live md5 == git show e68c7d6b:internal/dataframe/publication/pointer_name_encoding_test.go == blob at feature/postgres-backend tip 48783199"
     },
     "internal/dataframe/published/current.go": "Bug-2 amplifier: :202-211 single bad binding -> whole-project listing error",
     "internal/dataframe/published/export.go": "F-B3 premise: accepts any future PinExpiresAt (:120-126); ticker cadence default 30s vs TTL 120s (:127-129,:156; selection.go:14-15); renewal loss/error aborts stream (:170-173 lost+cancel) -> F-B4 low-likelihood candidate only (stale-clock stamp needs >TTL app stall; untriggered, no positive evidence)",
     "internal/dataframe/published/nullsort_page_cursor_e2e_test.go": {
-      "md5": "1c25bd4d5c1fee3fad6590df8caa2b9e",
+      "md5": "236595f6860cce41d0aad03ec9297e72",
       "role": "F-B24 artifact CONVERTED Round 30 to natural-PASS fault control (renamed TestFB24NullSortPageEnumerationIsComplete): 7/7 both directions, no-dup identity tracking, gate re-pinned to repaired anchors; pre-fix copy re-raises missing vals=[3 5] (fixprobe logs)"
     },
     "internal/dataframe/published/page.go": {
-      "md5": "c5be4f7ad60042be7341508be80b4413",
+      "md5": "9a5db5a3b445361be023c1f054ea7dca",
       "role": "Repair-2 shipped: NULLS-LAST pinned ORDER BY; IS-NULL predicate arm + null-bucket resume; encoder accepts NULL last row (no more invalidCursor on legitimate NULLs)"
     },
     "internal/dataframe/published/page_test.go": {
@@ -579,17 +579,17 @@
       "role": "Repair-2 units: null-bucket predicate 4-arm + NULLS-LAST order pin; legacy v1 null cursor stays invalid"
     },
     "internal/dataframe/published/read.go": {
-      "sha256": "03ac0cd4fc73375a3397c4dd963b3021a428da7111579cff71257e8478e401d0",
+      "sha256": "040f064534394c7d67f144040090f736ef19361d30e0b4566ec8880c154e3161",
       "role": "R83 filter construction boundary (reviewed, unchanged): buildWhere — allowed-set column check before backtick interpolation, fixed operator switch with default INVALID_FILTER, all values bind-parameterized, empty IN/NOT_IN collapse to constants.",
-      "pin": "d5b5491b",
-      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/dataframe/published/read.go == on-disk"
+      "pin": "e68c7d6b",
+      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/dataframe/published/read.go == blob at feature/postgres-backend tip 48783199; supersedes d5b5491b attestation (pin 03ac0cd4fc73375a3397c4dd963b3021a428da7111579cff71257e8478e401d0 -> 040f064534394c7d67f144040090f736ef19361d30e0b4566ec8880c154e3161): comment sweep 80bca9a5 (#161, out-of-lane) stripped comments from this pinned file without re-anchor; re-pinned by PR #183 per coordinator directive, precedent a4d29f01"
     },
     "internal/dataframe/published/read_test.go": {
       "md5": "6234ee06e190519bca6cb2c0ce8fee2b",
       "role": "cursor V2 roundtrip incl null-bucket flag"
     },
     "internal/dataframe/recipe/publication_identity_nul_http_test.go": {
-      "md5": "1746642ed54f7ea7050f16dd78697692",
+      "md5": "891716f8827ae5bb7be47c53332413be",
       "role": "F-B21-http artifact CONVERTED per its own re-point doctrine (distinct pointers -> PASS); validator NUL-acceptance demoted to disclosed NOTE (injective encoding is the closed harm)"
     },
     "internal/dataset/arango/generation_activation_cas_e2e_test.go": {
@@ -1055,8 +1055,8 @@
     },
     "internal/backends/postgres/control/vocabulary_control.go": {
       "role": "D6 re-exports for the data-plane stores",
-      "sha256": "7f883cdb6feae1fc207193d6433818ecd19246cf90d901474fb87c633860a3ff",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "sha256": "5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1",
+      "rederived": "SELF-RUN live sha256 == git show e68c7d6b:internal/backends/postgres/control/vocabulary_control.go == blob at feature/postgres-backend tip 48783199; supersedes runtime-composition working-tree attestation (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41, per amendment 2): pin 7f883cdb6feae1fc207193d6433818ecd19246cf90d901474fb87c633860a3ff TRUE at 9534829d, first moved by comment sweep 80bca9a5 (#161) to 98a804ccdf87fb27e2e888d4553f599be4064819ef77fb47b6286b32304f2bf7, then by cleanup #181 e68c7d6b (legit ticket-167 refactor) to 5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1; re-pinned by PR #183 per coordinator directive, precedent a4d29f01"
     },
     "internal/backends/postgres/aliases.go": {
       "role": "D6 alias surface mirroring vocabulary_control additions",
