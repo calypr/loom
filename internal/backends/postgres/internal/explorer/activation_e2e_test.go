@@ -743,6 +743,50 @@ func TestActivateRepositoryGenerationUsesCompositeGuardsAgainstPostgreSQL(t *tes
 		}
 	})
 
+	t.Run("replay-with-orphaned-active-candidate-conflicts", func(t *testing.T) {
+		const project = "pgact_orphan_active"
+		world := f.seedWorld(t, client, project, "orphana1", nil, nil)
+		if err := world.activation.ActivateRepositoryGeneration(f.ctx, project, world.generation, world.candidateID); err != nil {
+			f.fail("initial activation", err)
+		}
+		f.execRaw(t, "UPDATE "+f.ctlTable(OwnerTable)+" SET active_revision_id = $2 WHERE project = $1 AND explorer_id = 'default'", project, world.priorID)
+		beforeRevisions := f.snapshotRevisions(t, project)
+		beforeOwners := f.snapshotOwners(t, project)
+
+		err := world.activation.ActivateRepositoryGeneration(f.ctx, project, world.generation, world.candidateID)
+		requireActivationConflict(t, f, err, "replay-with-orphaned-active-candidate-conflicts")
+
+		if after := f.snapshotRevisions(t, project); after != beforeRevisions {
+			t.Fatalf("orphaned-ACTIVE replay mutated revisions:\nbefore=%s\nafter=%s", f.scrub(beforeRevisions), f.scrub(after))
+		}
+		if after := f.snapshotOwners(t, project); after != beforeOwners {
+			t.Fatalf("orphaned-ACTIVE replay churned the owner pointer:\nbefore=%s\nafter=%s", f.scrub(beforeOwners), f.scrub(after))
+		}
+	})
+
+	t.Run("superseded-candidate-conflicts", func(t *testing.T) {
+		const project = "pgact_superseded_cand"
+		world := f.seedWorld(t, client, project, "supcan01", nil, nil)
+		if err := world.activation.ActivateRepositoryGeneration(f.ctx, project, world.generation, world.candidateID); err != nil {
+			f.fail("initial activation", err)
+		}
+		beforeRevisions := f.snapshotRevisions(t, project)
+		beforeOwners := f.snapshotOwners(t, project)
+
+		err := world.activation.ActivateRepositoryGeneration(f.ctx, project, world.generation, world.priorID)
+		requireActivationConflict(t, f, err, "superseded-candidate-conflicts")
+
+		if after := f.snapshotRevisions(t, project); after != beforeRevisions {
+			t.Fatalf("superseded-candidate activation mutated revisions:\nbefore=%s\nafter=%s", f.scrub(beforeRevisions), f.scrub(after))
+		}
+		if after := f.snapshotOwners(t, project); after != beforeOwners {
+			t.Fatalf("superseded-candidate activation churned the owner pointer:\nbefore=%s\nafter=%s", f.scrub(beforeOwners), f.scrub(after))
+		}
+		if candidate := f.revisionState(t, world.candidateID); candidate.Status != "ACTIVE" {
+			t.Fatalf("current ACTIVE revision downgraded by superseded-candidate attempt: %s", candidate.Status)
+		}
+	})
+
 	t.Run("pointer-already-names-ready-candidate-activates-without-self-supersede", func(t *testing.T) {
 		const project = "pgact_prior_not_active"
 		world := f.seedWorld(t, client, project, "priornotact", nil, func(w *pgactWorld) {
