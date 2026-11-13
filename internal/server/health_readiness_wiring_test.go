@@ -1,14 +1,5 @@
 package server
 
-// Offline wiring witnesses for pg-runtime-health-readiness (L2):
-//   - each PostgreSQL composition arm must wire the FULL readiness probe
-//     (control Runtime.Readiness) and the safe CoreState classifier;
-//   - the ArangoDB arm must keep its published probe closures and must NOT
-//     gain a CoreState classifier, so its bodies stay byte-verbatim.
-// Plus the classifier's closed-vocabulary mapping cells, offline under any
-// environment (the live legs for the same tokens live in
-// runtime_postgres_live_test.go and postgres_query_test.go).
-
 import (
 	"errors"
 	"fmt"
@@ -21,8 +12,6 @@ import (
 	"github.com/calypr/loom/internal/backends/postgres/control"
 )
 
-// httpConfigLiteral returns the HTTPConfig composite literal passed to the
-// httpapi.NewHTTPServer call inside the named function, or fails.
 func httpConfigLiteral(t *testing.T, file, funcName string) *ast.CompositeLit {
 	t.Helper()
 	set := token.NewFileSet()
@@ -99,10 +88,6 @@ func callsSelector(node ast.Node, recv, name string) bool {
 	return found
 }
 
-// L2a: the full runtime and first-query route arms both select the full
-// probe and the classifier; the Arango arm keeps its published closures and
-// gains no classifier (its body shape is pinned in httpapi's
-// TestReadinessWithoutClassifierKeepsPublishedBodies).
 func TestHealthWiringPerCompositionArm(t *testing.T) {
 	markReadinessLeg(t, "TestHealthWiringPerCompositionArm")
 	for _, arm := range []struct {
@@ -133,11 +118,6 @@ func TestHealthWiringPerCompositionArm(t *testing.T) {
 	}
 
 	t.Run("ArangoArm_unchanged_and_without_classifier", func(t *testing.T) {
-		// arch-backend-08 Unit C moved the Arango compose body out of the
-		// run() dispatcher (old file:func -- server.go::run) into the shared
-		// seam (new file:func -- compose.go::composeArangoRuntime). The
-		// witness follows the literal; the published probe closures must
-		// still move byte-verbatim with it.
 		lit := httpConfigLiteral(t, "compose.go", "composeArangoRuntime")
 		for _, key := range []string{"CoreReadyCheck", "ClickHouseReadyCheck", "ClickHouseEnabled"} {
 			if _, ok := literalField(lit, key); !ok {
@@ -154,9 +134,6 @@ func TestHealthWiringPerCompositionArm(t *testing.T) {
 	})
 }
 
-// L6 offline classification cell: the token vocabulary is closed and
-// complete over the backend's sentinel taxonomy, and a cause whose text
-// carries connection material can only ever reach clients as a token.
 func TestPostgreSQLCoreReadinessStateClassification(t *testing.T) {
 	markReadinessLeg(t, "TestPostgreSQLCoreReadinessStateClassification")
 	for _, tt := range []struct {
@@ -185,13 +162,10 @@ func TestPostgreSQLCoreReadinessStateClassification(t *testing.T) {
 	if got := postgreSQLCoreReadinessState(nil); got != "" {
 		t.Fatalf("a healthy check must classify to the empty token, got %q", got)
 	}
-	// Credential discipline: the classifier reads only sentinel identities.
 	credErr := fmt.Errorf(`acquire: dial tcp postgres://svc:hunter2@db.internal:5432/loom: %w`, control.ErrConnect)
 	if token := postgreSQLCoreReadinessState(credErr); token != pgReadinessStateConnectivityDown || strings.Contains(token, "hunter2") {
 		t.Fatalf("classifier must report the fixed token only, got %q", token)
 	}
-	// The vocabulary is closed: every produced token is one of the pinned
-	// constants, so no raw error text can ever become a body value.
 	published := map[string]bool{
 		pgReadinessStateClosed: true, pgReadinessStateConnectivityDown: true,
 		pgReadinessStateUnsupportedVer: true, pgReadinessStateSchemaMissing: true,

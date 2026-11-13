@@ -1,19 +1,5 @@
 package server
 
-// Live PostgreSQL 18 wiring tests for sanitized recipe Explain
-// (pg-exec-10; check-2: go test ./internal/server -run PostgresExplain with
-// LOOM_TEST_POSTGRES_URL). Offline tests pin the fail-closed wiring
-// contract; live tests drive the real store pool, the shared DataFrame
-// PostgreSQL row executor, and the execution sanitizer against the real
-// PG18 server with hostile sentinels in identifiers, statement literals,
-// and bound values.
-//
-// Fixtures are uniquely owned as verify_exec10w_* and dropped by the test
-// that created them; TestZZ is ownership-scoped (exact registered names and
-// own prefix only, never a global pg_database count). PG-mutating runs hold
-// a session-level advisory lock so concurrent cross-package witnesses
-// serialize.
-
 import (
 	"context"
 	"crypto/rand"
@@ -246,8 +232,6 @@ func newExec10wService(t *testing.T) *exec10wService {
 	dsn := u.String()
 	secrets = append(secrets, dsn, dbName)
 
-	// Production pool path: the readiness-checked store pool refuses any
-	// server that is not PostgreSQL 18.
 	client, err := control.OpenPool(ctx, control.ClientConfig{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 10 * time.Second})
 	if err != nil {
 		fail("open readiness-checked PostgreSQL 18 pool", err)
@@ -308,8 +292,6 @@ func (s *exec10wService) assertSentinelFree(t *testing.T, surface, value string)
 	}
 }
 
-// Offline: the wiring surface fails closed, with types, and never crosses
-// the backend-tag boundary.
 func TestPostgresExplainWiringNilExecutorFailsClosed(t *testing.T) {
 	compiledCommand, err := command.NewPostgreSQLCommand(`SELECT id FROM t WHERE x = $1`,
 		[]command.PostgreSQLParameter{{Type: command.PostgreSQLParameterText, Value: "v"}})
@@ -337,9 +319,6 @@ func TestPostgresExplainWiringNilExecutorFailsClosed(t *testing.T) {
 }
 
 func TestPostgresExplainWiringCrossTagRefusals(t *testing.T) {
-	// The Arango policy surface refuses a PostgreSQL-tagged command through
-	// closed dispatch before touching the client (nil client would panic if
-	// the driver call were reached).
 	pgCommand, err := command.NewPostgreSQLCommand(`SELECT 1`, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -347,13 +326,6 @@ func TestPostgresExplainWiringCrossTagRefusals(t *testing.T) {
 	if _, err := explainCompiledQuery(context.Background(), nil, compiler.CompiledQuery{Command: pgCommand}); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 		t.Fatalf("PG-tagged command into the Arango surface: %v", err)
 	}
-	// The execution boundary refuses an AQL-tagged command before the
-	// runner ever touches the querier. The runner is built through the
-	// public factory seam over a counting querier so the refusal is proven
-	// pre-connection, not by an executor-nil shortcut. The builder's own
-	// fail-closed contract (nil querier, non-querier values) moved with the
-	// constructor to the backend factory:
-	// TestPostgreSQLPlanJSONExecutorConstructionFailsClosed.
 	aqlCommand, err := command.NewAQLCommand("FOR d IN c RETURN d", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -378,7 +350,6 @@ func (q exec10wCountingQuerier) Query(context.Context, string, ...any) (pgx.Rows
 	return nil, errors.New("unexpected querier call")
 }
 
-// live: the server-side wiring over the readiness-checked store pool.
 func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	s := newExec10wService(t)
 	table := s.seedFixture(t)
@@ -414,8 +385,6 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.assertSentinelFree(t, "wired live assessment", string(rendered))
-	// Paired control: the same wiring assesses the indexed fixture query
-	// with index evidence, proving the guards are selective.
 	indexedSQL := fmt.Sprintf(`SELECT resource_seq FROM %s WHERE resource_seq = $1 ORDER BY resource_seq`, table)
 	indexedCommand, err := command.NewPostgreSQLCommand(indexedSQL, []command.PostgreSQLParameter{
 		{Type: command.PostgreSQLParameterBigint, Value: int64(42)},
@@ -433,10 +402,6 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	renderedIndexed, _ := json.Marshal(indexed)
 	s.assertSentinelFree(t, "wired live indexed assessment", string(renderedIndexed))
 
-	// Permission-denied EXPLAIN through the production wiring itself: the
-	// rows adapter classifies the 42501 at the store/postgres boundary and
-	// execution passes the classification through; the typed failure
-	// renders no identifiers.
 	role := fmt.Sprintf(exec10wPrefix+"r_%d_%s", time.Now().UnixNano(), exec10wRandomHex(t))
 	if !regexp.MustCompile(`^verify_exec10w_r_[0-9]+_[0-9a-f]+$`).MatchString(role) {
 		t.Fatalf("role name %q outside the owned pattern", role)
@@ -453,7 +418,6 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 			t.Errorf("drop role %s: %v", role, err)
 		}
 	})
-	// Use a fresh single connection so SET ROLE does not poison the pool.
 	plain, err := pgx.Connect(s.ctx, s.dsn)
 	if err != nil {
 		s.fail("connect dedicated permission connection", err)
@@ -486,8 +450,6 @@ func pgValues(args []command.PostgreSQLParameter) []any {
 	return values
 }
 
-// TestZZZeroLeftoverExec10WiringPostgresFixtures audits this file's own
-// ownership only.
 func TestZZZeroLeftoverExec10WiringPostgresFixtures(t *testing.T) {
 	raw := exec10wURL(t)
 	exec10wCaptureBaseline(raw)

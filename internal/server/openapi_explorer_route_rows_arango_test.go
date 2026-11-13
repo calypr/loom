@@ -15,9 +15,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Uses real HTTP routes/compiler/executor, literal graph data, and the actual
-// Arango Explorer/history repository in a fresh owned database. It proves stored
-// read-back across repository instances, not a database-process restart.
 func TestSavedRelatedRouteRowsAgainstArango(t *testing.T) {
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
 	if endpoint == "" {

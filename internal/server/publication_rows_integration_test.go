@@ -26,10 +26,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// A bounded assembled publication checkpoint: actual AQL/compiler/stream,
-// ClickHouse materialization, registry and atomic Explorer/release activation.
-// Authorization/capability discovery are fixture-owned. Fresh clients prove
-// stored read-back, not database process restart or browser rendering.
 func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	arangoURL, clickhouseURL := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_CLICKHOUSE_URL")
 	if arangoURL == "" || clickhouseURL == "" {
@@ -208,7 +204,6 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if result.ReceiptID != receipt.ID || result.RevisionID == "" {
 		t.Fatalf("publication identity: %#v", result)
 	}
-	// Later draft/source edits must not change the already materialized revision.
 	workspace.Documents[0].Columns[0].Label = "Unpublished label"
 	laterRaw, err := workspace.CanonicalJSON()
 	if err != nil {

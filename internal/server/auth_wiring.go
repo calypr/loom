@@ -14,12 +14,7 @@ type authComponents struct {
 	authenticator authscope.Authenticator
 	authorizer    authscope.Authorizer
 	scopeResolver *authscope.ScopeResolver
-	// scopePolicy is the explicit route-composition policy derived from the
-	// auth mode (arch-backend-08): basic/no-auth lanes are explicitly
-	// unrestricted and the calypr lane carries its required resolver, so an
-	// incomplete scoped composition is caught before routes install instead
-	// of a nil resolver silently meaning "unrestricted".
-	scopePolicy routeScopePolicy
+	scopePolicy   routeScopePolicy
 }
 
 func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, catalog.AuthResourcePathOptions) ([]string, error)) (authComponents, error) {

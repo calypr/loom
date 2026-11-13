@@ -1,11 +1,5 @@
 package server
 
-// Durable control (F-B28, round 43): docs/loom-reliability-contract.md states
-// retryability is explicit and clients must not infer it from an HTTP status or
-// message. The legacy Explorer error encoder must therefore carry
-// lifecycle.Error.Details (e.g. retryable:false for a permanent release
-// activation miss) into the marshalled body instead of dropping it.
-
 import (
 	"encoding/json"
 	"errors"
@@ -19,8 +13,6 @@ import (
 func marshalLegacyBody(t *testing.T, err error) (map[string]any, int) {
 	t.Helper()
 	status, legacy := explorerLegacyResponse(err)
-	// Route wrappers embed this value verbatim into the status-specific JSON
-	// response, so marshalling it reproduces the client-visible envelope.
 	raw, merr := json.Marshal(legacy)
 	if merr != nil {
 		t.Fatalf("marshal legacy envelope: %v", merr)
@@ -37,7 +29,6 @@ func marshalLegacyBody(t *testing.T, err error) (map[string]any, int) {
 }
 
 func TestLegacyFailureCarriesExplicitRetryabilityForActivationMiss(t *testing.T) {
-	// Same value repository_publish.go:84-88 builds for a typed activation miss.
 	miss := &lifecycle.Error{Class: lifecycle.ClassConflict, Stage: "repository_publish", Code: "RELEASE_ACTIVATION_FAILED", Message: "activate published ExplorerConfigV2: requirements unmet", Details: map[string]any{"retryable": false}, Cause: errors.New("release requirements unmet")}
 	body, status := marshalLegacyBody(t, lifecycleLegacyFailure(miss))
 	if status != http.StatusConflict {
@@ -52,8 +43,6 @@ func TestLegacyFailureCarriesExplicitRetryabilityForActivationMiss(t *testing.T)
 }
 
 func TestLegacyFailureKeepsUnrelatedErrorsUnwidened(t *testing.T) {
-	// Plain (non-lifecycle) errors keep the existing structured-INTERNAL_ERROR
-	// envelope shape: no invented retryability keys.
 	body, status := marshalLegacyBody(t, lifecycleLegacyFailure(errors.New("store exploded")))
 	if status != http.StatusInternalServerError {
 		t.Fatalf("plain error status = %d, want 500", status)

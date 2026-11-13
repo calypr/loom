@@ -14,40 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// Durable R4 control for the production REST execution reader.
-//
-// Reproduction. A persisted execution declares auth_resource_paths
-// ["p1","foreign\x00secret"]. A project member granted only p1 was served the
-// execution metadata over GET /api/v1/dataframe/recipe-executions/:id, because
-// normalizeAuthResourcePathList drops the malformed non-blank entry and the
-// surviving path covered the truncated declaration.
-// ReadScope.CoversExecutionPaths now refuses a declaration holding any
-// malformed non-blank entry, so the handler's restricted-mode Covers gate
-// (openapi_recipe_execution.go) conceals it exactly like a missing id.
-//
-// Requests enter through the same generated Fiber stack the FB20 twin uses
-// (twinHTTPStack/twinGetExecution); only the durable catalog behind
-// HTTPRoutes.releases and the catalog lister behind the authentic
-// authscope.ScopeResolver are substituted. The Covers gate is reached through
-// the authentic resolver call (no recipeExecutionReadScope seam override):
-// the resolver returns Restricted for this caller (non-nil principal with a
-// held path) and echoes back the caller's own clean grant, so only the
-// declaration-side refusal can deny the malformed read.
-//
-// Contract pinned here:
-//   - malformed persisted scope -> the same concealed 404 envelope as a
-//     genuinely missing id, byte-identical, with zero metadata disclosure and
-//     zero leak of the malformed bytes;
-//   - permitted normal execution -> still 200 with full metadata (no
-//     over-denial);
-//   - legitimate blank declarations -> unchanged pre-existing policy (blank
-//     padding around real paths stays absent; a blank-only declaration is not
-//     a resolved authorization);
-//   - membership/generation/authorization behavior -> non-member 404 without
-//     catalog consultation, resolver path denial 404, anonymous disclosure of
-//     legitimate executions, Fence-less bearer header 503, unauthenticated
-//     401, store/catalog faults retryable BACKEND_UNAVAILABLE 503.
-
 const (
 	mscHomeProject       = "P"
 	mscGeneration        = "g-msc"
@@ -66,9 +32,6 @@ const (
 	mscSecretFingerprint = "secret"
 )
 
-// mscProbe is a generation-aware catalog lister for the authentic resolver.
-// It keeps the FB20 twin's twinScopeProbe untouched while recording the exact
-// lookups so gate ordering stays observable.
 type mscProbe struct {
 	pathsByProjectGeneration map[string][]string
 	calls                    []catalog.AuthResourcePathOptions
@@ -91,8 +54,6 @@ func (p *mscProbe) listExisting(_ context.Context, opts catalog.AuthResourcePath
 	return append([]string(nil), p.pathsByProjectGeneration[mscKey(opts.Project, opts.DatasetGeneration)]...), nil
 }
 
-// mscDeniedTokenClient is the Fence stand-in that rejects the bearer token,
-// driving the shipped unauthenticated mapping without a live Fence.
 type mscDeniedTokenClient struct{}
 
 func (mscDeniedTokenClient) GetAllowedResources(context.Context, string, string, string) ([]string, error) {
@@ -128,8 +89,6 @@ func mscStore() *twinExecutionStore {
 	}}
 }
 
-// mscFailingStore answers every fetch with a durable fault, the store twin of
-// a transient Arango outage.
 type mscFailingStore struct {
 	publication.BundleCatalog
 	err error
@@ -155,8 +114,6 @@ func mscMemberPrincipal() *authscope.Principal {
 	}
 }
 
-// mscAssertAuthorizedBody pins the full metadata disclosure for a permitted
-// read so the concealment arms cannot pass by over-denial.
 func mscAssertAuthorizedBody(t *testing.T, fields map[string]any, id string) {
 	t.Helper()
 	want := map[string]string{
@@ -193,9 +150,6 @@ func mscAssertAuthorizedBody(t *testing.T, fields map[string]any, id string) {
 	}
 }
 
-// mscAssertConcealment extends twinAssertConcealment's leak checks with this
-// file's own fixture constants, including the malformed declaration's secret
-// substring, its NUL escape, and the row count.
 func mscAssertConcealment(t *testing.T, status int, body string) {
 	t.Helper()
 	if status != http.StatusNotFound || !strings.Contains(body, twinConcealedError) ||
@@ -209,13 +163,7 @@ func mscAssertConcealment(t *testing.T, status int, body string) {
 	}
 }
 
-// TestRESTRecipeExecutionConcealsMalformedPersistedScope is the required
-// regression for acceptance criterion [2].
 func TestRESTRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
-	// Precondition: the shipped authorizer admits this member and the real
-	// resolver resolves this caller to a Restricted scope echoing the clean
-	// grant, so the Covers gate (not membership, not a resolver refusal)
-	// decides the malformed read.
 	principal := mscMemberPrincipal()
 	if err := authscope.AuthorizeProject(principal, mscHomeProject, false); err != nil {
 		t.Fatalf("precondition: shipped authorizer must admit the project member, got %v", err)
@@ -236,30 +184,21 @@ func TestRESTRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
 	routes := mscRoutesWith(probe, nil)
 	app := twinHTTPStack(routes, principal)
 
-	// Arm 1 (the R4 reproduction): mixed valid-plus-malformed declaration.
 	malformedStatus, malformedBody, _ := twinGetExecution(t, app, mscMalformedExecID)
 	mscAssertConcealment(t, malformedStatus, malformedBody)
 
-	// Arm 2: indistinguishable from a genuinely missing id (the same generated
-	// legacy 404 envelope, byte for byte).
 	missingStatus, missingBody, _ := twinGetExecution(t, app, mscMissingID)
 	if malformedStatus != missingStatus || malformedBody != missingBody {
 		t.Fatalf("malformed-scope execution must be indistinguishable from a missing id; got %d %q vs %d %q",
 			malformedStatus, malformedBody, missingStatus, missingBody)
 	}
 
-	// Arm 3: the permitted normal execution remains readable through the same
-	// handler, resolver and scope shape.
 	cleanStatus, cleanBody, cleanFields := twinGetExecution(t, app, mscCleanExecID)
 	if cleanStatus != http.StatusOK {
 		t.Fatalf("R4 OVER-DENIAL: member granted p1 could not read the clean p1 execution: %d %s", cleanStatus, cleanBody)
 	}
 	mscAssertAuthorizedBody(t, cleanFields, mscCleanExecID)
 
-	// Arm 4: legitimate blank policy is the shipped one — blank padding around
-	// real paths stays absent (serves), and a declaration with no non-blank
-	// path is not a resolved authorization (restricted coverage refuses it,
-	// unchanged pre-repair behavior).
 	blankStatus, blankBody, _ := twinGetExecution(t, app, mscBlankExecID)
 	mscAssertConcealment(t, blankStatus, blankBody)
 	paddingStatus, paddingBody, paddingFields := twinGetExecution(t, app, mscPaddingExecID)
@@ -268,9 +207,6 @@ func TestRESTRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
 	}
 	mscAssertAuthorizedBody(t, paddingFields, mscPaddingExecID)
 
-	// Gate ordering: every resolver-path request consulted the catalog for the
-	// execution's exact project+generation, and the store really fetched each
-	// id (no early synthetic not-found keyed on the malformed bytes).
 	if len(probe.calls) == 0 {
 		t.Fatal("the malformed read must travel the resolver path (catalog consulted), got zero calls")
 	}
@@ -283,13 +219,7 @@ func TestRESTRecipeExecutionConcealsMalformedPersistedScope(t *testing.T) {
 		malformedStatus, cleanStatus, blankStatus, paddingStatus, missingStatus, malformedBody)
 }
 
-// TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms pins the
-// second half of acceptance criterion [2]: the pre-existing membership,
-// generation, unauthenticated and backend-fault classification survive the
-// fails-closed rule.
 func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.T) {
-	// Non-member: refused by the membership gate before the resolver, and
-	// byte-identical to the malformed-scope concealment.
 	outsider := &authscope.Principal{
 		Subject:           "operator-foreign",
 		Projects:          []string{"FOREIGN"},
@@ -302,8 +232,6 @@ func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.
 		t.Fatalf("non-member denial must not consult the catalog; got %d calls: %v", len(probeOutsider.calls), probeOutsider.calls)
 	}
 
-	// Restricted member missing the declared path: the authentic resolver
-	// refuses with ErrForbidden, which stays the unified concealed 404.
 	missingPath := &authscope.Principal{
 		Subject:           "operator-other",
 		Projects:          []string{mscHomeProject},
@@ -316,8 +244,6 @@ func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.
 		t.Fatal("resolver-path denial expected a catalog lookup, got zero calls")
 	}
 
-	// Anonymous caller: the shipped unrestricted posture keeps serving
-	// legitimate executions.
 	probeAnon := &mscProbe{pathsByProjectGeneration: mscKnownPaths()}
 	anonStatus, anonBody, anonFields := twinGetExecution(t, twinHTTPStack(mscRoutesWith(probeAnon, nil), nil), mscCleanExecID)
 	if anonStatus != http.StatusOK {
@@ -325,8 +251,6 @@ func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.
 	}
 	mscAssertAuthorizedBody(t, anonFields, mscCleanExecID)
 
-	// Bearer header without a configured Fence client: authorization-backend
-	// failure keeps the retryable 503 envelope, not the concealed 404.
 	bearer := &authscope.Principal{
 		Subject:             "operator-bearer",
 		Projects:            []string{mscHomeProject},
@@ -342,8 +266,6 @@ func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.
 		t.Fatalf("Fence-less bearer read must keep the retryable BACKEND_UNAVAILABLE envelope, got %s", bearerBody)
 	}
 
-	// Rejected token through a wired client: the unauthenticated mapping stays
-	// 401 (with the concealed phrase body), not a coverage-based 404.
 	rejected := &authscope.Principal{
 		Subject:             "operator-rejected",
 		Projects:            []string{mscHomeProject},
@@ -356,8 +278,6 @@ func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.
 		t.Fatalf("rejected token must stay the 401 concealed-phrase envelope, got %d %s", rejectedStatus, rejectedBody)
 	}
 
-	// Catalog lister fault: unclassified authorization-backend failure stays a
-	// retryable 503 even for the malformed-scope execution.
 	probeFaulty := &mscProbe{pathsByProjectGeneration: mscKnownPaths(), fault: errors.New("arangodb connection reset")}
 	faultyStatus, faultyBody, faultyFields := twinGetExecution(t, twinHTTPStack(mscRoutesWith(probeFaulty, nil), mscMemberPrincipal()), mscMalformedExecID)
 	if faultyStatus != http.StatusServiceUnavailable {
@@ -367,8 +287,6 @@ func TestRESTRecipeExecutionMalformedScopePreservesAuthorizationArms(t *testing.
 		t.Fatalf("catalog fault must keep the retryable BACKEND_UNAVAILABLE envelope, got %s", faultyBody)
 	}
 
-	// Durable store fault likewise stays 503 rather than collapsing into the
-	// concealed 404.
 	storeFault := errors.New("arangodb connection reset")
 	probeStore := &mscProbe{pathsByProjectGeneration: mscKnownPaths()}
 	routesStore := mscRoutesWith(probeStore, nil)

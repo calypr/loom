@@ -7,8 +7,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// logReceiptPreviewContractFailure records only receipt-contract failures. The
-// transport continues to expose its existing redacted 409 response.
 func logReceiptPreviewContractFailure(logger *slog.Logger, requestID, receiptID, outputID string, err error) {
 	if logger == nil || err == nil {
 		return
