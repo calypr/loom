@@ -58,6 +58,28 @@ planned capabilities).
   window note, source commit, namespace guard, existing output) or the
   planned disclosure artifact was written.
 
+## Publication chain (ClickHouse-backed)
+
+The publication chain is ClickHouse-backed end to end: `publication.Target`
+has exactly one production implementation (`ClickHouseBundleStore`), and
+`POST /generations/{g}/explorer-config` materializes through it *before*
+the revision that seeds the authoring draft persists. Publish → authoring →
+reconcile → preview receipts → workload gates → timing → controls is one
+chain behind that service. (The preview *execution* path is ClickHouse-free;
+it is the draft-seeding publish that needs it.)
+
+- `--publication=excluded` (default): spawn, upload, and version probes run
+  for real on every ran leg; the whole publication chain ships as
+  planned/not_run under the capability `CH-<pin>-unavailable-in-container`
+  (`PublicationCapabilityCH`, derived from `ClickHouseCIVersion`, which
+  must equal the `clickhouse/clickhouse-server` tag in
+  `.github/workflows/tests.yaml` — currently 25.3). `VerifyReport` then
+  refuses any samples, summaries, claims, or control values, requires every
+  gate arm blocked, and one disclosure row per battery workload per ran leg.
+- `--publication=run`: requires `--clickhouse-enabled`, i.e. the CI lane
+  with the pinned service. A report whose identity says ClickHouse is
+  disabled while claiming the chain ran fails verification.
+
 ## Live-run guards (all fail closed, exit 3)
 
 `LOOM_BENCH_LIVE=1` (coordinator-granted exclusive window), `--window-note`,
@@ -68,11 +90,16 @@ from the MockFence.
 
 ## Current blockers (cited in planned artifacts)
 
-- `PG-PG-AUTH-PATH-DISCOVERY-ALLGENS` — scoped calypr ingest is impossible
-  on the postgres lane: `AuthorizeWrite`'s F-B27 project-binding branch
-  needs the all-generations auth-path listing that the postgres catalog
-  read lane refuses (`ErrAllGenerationsUnsupported`), and the load handler
-  wraps it as 403. Owner: arch-backend-09. Evidence:
+- ClickHouse service: the publication chain (and everything timed behind
+  it) needs `clickhouse/clickhouse-server:25.3` as provisioned by the CI
+  lane; no container engine exists in the worker session, so live worker
+  runs use `--publication=excluded`. Owner: CI lane.
+- `PG-PG-AUTH-PATH-DISCOVERY-ALLGENS` — FIXED in PR #156 (verified live:
+  upload accepted, fence hit once, no 403); the branch base predates the
+  library-side fix, so live legs go green when it merges. Evidence:
   `pg-pg-auth-path-discovery-allgens-evidence.md` (session artifacts).
+- `PG-PG-CAPABILITY-EVIDENCE-INVENTORY-ONLY-STORE` — FIXED in PR #158
+  (`NewFullStore` composition); verified live: no panic, reaches
+  materialization. Evidence: `pg-pg-capability-evidence-inventory-only-store-evidence.md`.
 - Arango leg: no ArangoDB service in the worker container; go-arango CI
   lane targets it.

@@ -87,6 +87,8 @@ type runFlags struct {
 	emptyFloorIters    int
 	arangoCapability   string
 	postgresCapability string
+	publication        string
+	clickHouseEnabled  bool
 }
 
 // Default capabilities cited by planned not_run legs. The postgres one
@@ -126,6 +128,8 @@ func runLive() {
 	fs.IntVar(&f.emptyFloorIters, "empty-floor-iterations", 5, "iterations for the empty-result floor control")
 	fs.StringVar(&f.arangoCapability, "arango-capability", defaultArangoCapability, "capability cited by the arango not_run legs (planned scope)")
 	fs.StringVar(&f.postgresCapability, "postgres-capability", defaultPostgresCapability, "capability cited by the postgres not_run legs (planned scope)")
+	fs.StringVar(&f.publication, "publication", "excluded", "publication chain: excluded | run. The chain is ClickHouse-backed end to end; run requires --clickhouse-enabled and a CI lane with "+benchmark.ClickHouseCIImage)
+	fs.BoolVar(&f.clickHouseEnabled, "clickhouse-enabled", false, "assert the arms were deployed with ClickHouse ("+benchmark.ClickHouseCIImage+"); required for --publication=run")
 	_ = fs.Parse(os.Args[2:])
 
 	// Fail-closed preflight (exit 3: refused to run; exit 1: ran and failed).
@@ -200,6 +204,20 @@ func runLive() {
 	for i := range plan.PlannedNotRun {
 		plan.PlannedNotRun[i].Reason = "leg not run: " + plan.Legs[0].Capability
 	}
+	switch f.publication {
+	case "excluded":
+		// Coordinator ruling 2026-11-13: no ClickHouse in the worker
+		// container; the whole chain ships disclosed planned/not_run.
+		plan.Publication = &benchmark.PublicationPlan{Run: false, Capability: benchmark.PublicationCapabilityCH}
+		plan.PlannedNotRun = append(plan.PlannedNotRun, benchmark.PublicationDisclosures(plan.Legs, benchmark.PublicationCapabilityCH)...)
+	case "run":
+		if !f.clickHouseEnabled {
+			preflight("--publication=run requires --clickhouse-enabled: the chain is ClickHouse-backed end to end (%s)", benchmark.ClickHouseCIImage)
+		}
+		plan.Publication = &benchmark.PublicationPlan{Run: true}
+	default:
+		preflight("unknown --publication %q (want excluded | run)", f.publication)
+	}
 	if !planNotRunMatchesBattery(plan) {
 		fmt.Fprintln(os.Stderr, "benchcli run: internal plan inconsistency")
 		os.Exit(1)
@@ -229,6 +247,7 @@ func runLive() {
 		Arango:            d.arango,
 		Postgres:          d.postgres,
 		StderrDir:         stderrDir,
+		ClickHouseEnabled: f.clickHouseEnabled,
 		Clock:             benchmark.NewMonotonicClock(),
 		VersionProbe:      d.probe,
 		EmptyFloorIters:   f.emptyFloorIters,
@@ -353,13 +372,20 @@ func runPlanned(f runFlags, preflight func(string, ...any)) {
 }
 
 func planNotRunMatchesBattery(plan benchmark.RunPlan) bool {
+	mode := map[string]string{}
+	for _, leg := range plan.Legs {
+		mode[leg.Backend] = leg.Mode
+	}
 	counts := map[string]int{}
 	for _, row := range plan.PlannedNotRun {
+		if mode[row.Backend] == "run" && !strings.HasPrefix(row.Reason, benchmark.PublicationChainReason) {
+			return false // only publication-chain disclosures may sit on a ran leg
+		}
 		counts[row.Backend]++
 	}
 	for _, leg := range plan.Legs {
 		want := 0
-		if leg.Mode == "not_run" {
+		if leg.Mode == "not_run" || plan.PublicationExcluded() {
 			want = len(benchmark.Battery)
 		}
 		if counts[leg.Backend] != want {

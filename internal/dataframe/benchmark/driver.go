@@ -68,6 +68,13 @@ type DriverOptions struct {
 	StderrDir string
 	Clock     Clock
 
+	// ClickHouseEnabled asserts the arms were deployed with ClickHouse
+	// available, which the publication chain structurally requires (its
+	// only publication.Target is ClickHouseBundleStore). Report
+	// verification refuses any publication-run claim without it, so this
+	// is a checked assertion, not a self-description.
+	ClickHouseEnabled bool
+
 	Spawn        SpawnFunc
 	VersionProbe VersionProbeFunc
 
@@ -101,6 +108,13 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		// The live driver spawns, authoring-runs, and times; a planned run
 		// is built through BuildReport+PlannedGateReports, never here.
 		return nil, nil, fmt.Errorf("benchmark: the live driver refuses planned scope; build the planned report directly")
+	}
+	if opts.Plan.PublicationExcluded() {
+		if strings.TrimSpace(opts.Plan.Publication.Capability) == "" {
+			return nil, nil, fmt.Errorf("benchmark: publication chain excluded without a named capability")
+		}
+	} else if opts.Plan.Publication != nil && opts.Plan.Publication.Run && !opts.ClickHouseEnabled {
+		return nil, nil, fmt.Errorf("benchmark: the publication chain is ClickHouse-backed end to end; refusing to claim it ran without ClickHouseEnabled")
 	}
 	if err := opts.Config.Validate(); err != nil {
 		return nil, nil, err
@@ -171,6 +185,45 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		if err := arms[p.backend].arm.UploadGeneration(ctx, opts.UnrestrictedToken, opts.Params.Project, opts.Params.Generation, files.Files, opts.Params.AuthResourcePath); err != nil {
 			return nil, nil, fmt.Errorf("benchmark: %s upload: %w", p.backend, err)
 		}
+	}
+
+	// Excluded publication chain (coordinator ruling 2026-11-13): the
+	// chain is ClickHouse-backed end to end and ClickHouse is not
+	// deployed here, so spawn and upload have run for real and every
+	// publication-dependent stage ships as planned/not_run with the
+	// capability named. Nothing below this point executes, so the report
+	// carries zero samples, zero claims, and zero control values.
+	if opts.Plan.PublicationExcluded() {
+		identity := RunIdentity{
+			RunID: opts.RunID, StartedAt: opts.StartedAt.UTC(), Preset: opts.Preset,
+			SourceCommit: opts.SourceCommit, DatasetDigest: files.Digest,
+			ClickHouseDisabled: !opts.ClickHouseEnabled, Config: opts.Config,
+		}
+		for _, p := range participants {
+			version, err := opts.VersionProbe(ctx, p.cfg, p.backend)
+			if err != nil {
+				return nil, nil, fmt.Errorf("benchmark: %s version probe: %w", p.backend, err)
+			}
+			if strings.TrimSpace(version) == "" {
+				return nil, nil, fmt.Errorf("benchmark: %s version probe returned an empty version", p.backend)
+			}
+			arms[p.backend].evidence.Version = version
+			if p.backend == BackendArango {
+				identity.ArangoVersion = version
+			} else {
+				identity.PostgresVersion = version
+			}
+		}
+		report, err := BuildReport(identity, opts.Plan, ControlRuns{},
+			PublicationGateReports(opts.Plan.Legs, opts.Plan.Publication.Capability), nil)
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: excluded-publication report would not verify (refusing to emit): %w", err)
+		}
+		var evidence []ArmEvidence
+		for _, p := range participants {
+			evidence = append(evidence, arms[p.backend].evidence)
+		}
+		return report, evidence, nil
 	}
 
 	// Author every workload on every participating arm. Explorer ids are
@@ -367,7 +420,7 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 	identity := RunIdentity{
 		RunID: opts.RunID, StartedAt: opts.StartedAt.UTC(), Preset: opts.Preset,
 		SourceCommit: opts.SourceCommit, DatasetDigest: files.Digest,
-		ClickHouseDisabled: true, Config: opts.Config,
+		ClickHouseDisabled: !opts.ClickHouseEnabled, Config: opts.Config,
 	}
 	for _, p := range participants {
 		version, err := opts.VersionProbe(ctx, p.cfg, p.backend)

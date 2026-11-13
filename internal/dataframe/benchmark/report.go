@@ -205,7 +205,12 @@ func VerifyReport(report *Report) error {
 	if err := ValidatePlannedNotRun(report.Plan.PlannedNotRun); err != nil {
 		return fmt.Errorf("benchmark report: %w", err)
 	}
+	if err := ValidatePublicationPlan(report.Plan); err != nil {
+		return fmt.Errorf("benchmark report: %w", err)
+	}
+	publicationExcluded := report.Plan.PublicationExcluded()
 	notRun := map[string]string{}
+	pubDisclosed := map[string]bool{}
 	runLegs := 0
 	for _, leg := range report.Plan.Legs {
 		if leg.Mode == "not_run" {
@@ -214,13 +219,50 @@ func VerifyReport(report *Report) error {
 			runLegs++
 		}
 	}
+	if !publicationExcluded && report.Identity.ClickHouseDisabled && runLegs > 0 {
+		// The publication chain is ClickHouse-backed end to end: its only
+		// publication.Target is ClickHouseBundleStore, and the workspace
+		// that seeds every receipt persists only after materialization.
+		// A report from a ClickHouse-disabled deployment that claims the
+		// chain ran is the 2026-11-13 forgery shape this rule closes.
+		return fmt.Errorf("benchmark report: publication chain claimed to run although ClickHouse is disabled")
+	}
 	if runLegs > 0 {
-		// A run that measured anything must show the controls ran.
-		if report.Controls.StabilityCVLimit <= 0 || report.Controls.RatioPolicy == "" {
-			return fmt.Errorf("benchmark report: measurement controls were not run (missing stability limit or ratio policy)")
-		}
-		if report.Controls.EmptyFloorMillis <= 0 {
-			return fmt.Errorf("benchmark report: empty-result floor control was not run")
+		if publicationExcluded {
+			// The publication chain is ClickHouse-backed end to end: its
+			// only publication.Target is ClickHouseBundleStore, and the
+			// workspace seeding every receipt persists only after
+			// materialization. With the chain excluded nothing downstream
+			// measured, so any control value is forged (stolen limits,
+			// borrowed floors, ratio cover).
+			c := report.Controls
+			if c.StabilityCVLimit != 0 || c.EmptyFloorMillis != 0 || c.SelfRatioArango != 0 ||
+				c.SelfRatioPostgres != 0 || c.RatioPolicy != "" || len(c.UnstableCells) != 0 {
+				return fmt.Errorf("benchmark report: control values claimed although the publication chain was excluded")
+			}
+			// Nothing downstream of publication executed, so no timing
+			// evidence may exist, every gate arm must read blocked, and
+			// each ran leg must carry one disclosure row per battery
+			// workload naming the publication capability.
+			if len(report.Samples) != 0 || len(report.Summaries) != 0 || len(report.Claims) != 0 {
+				return fmt.Errorf("benchmark report: timing evidence claimed although the publication chain was excluded")
+			}
+			for _, gate := range report.GateReports {
+				for _, arm := range []BackendResult{gate.Arango, gate.Postgres} {
+					if arm.Outcome != OutcomeLabelBlocked {
+						return fmt.Errorf("benchmark report: %s/%s arm shows %s although the publication chain was excluded",
+							gate.WorkloadID, arm.Backend, arm.Outcome)
+					}
+				}
+			}
+		} else {
+			// A run that measured anything must show the controls ran.
+			if report.Controls.StabilityCVLimit <= 0 || report.Controls.RatioPolicy == "" {
+				return fmt.Errorf("benchmark report: measurement controls were not run (missing stability limit or ratio policy)")
+			}
+			if report.Controls.EmptyFloorMillis <= 0 {
+				return fmt.Errorf("benchmark report: empty-result floor control was not run")
+			}
 		}
 	} else {
 		// Planned report: nothing ran, so a control that claims to have run
@@ -258,6 +300,12 @@ func VerifyReport(report *Report) error {
 			}
 			continue
 		}
+		if publicationExcluded {
+			// The self-ratio control times published reads; with the
+			// chain excluded its absence is already enforced (zero) by
+			// the control-values rule above.
+			continue
+		}
 		if sr.value <= 0 {
 			return fmt.Errorf("benchmark report: %s self-ratio control was not run", sr.backend)
 		}
@@ -271,9 +319,32 @@ func VerifyReport(report *Report) error {
 	disclosed := map[string]bool{}
 	for _, row := range report.Plan.PlannedNotRun {
 		if _, absent := notRun[row.Backend]; !absent {
+			// A disclosure row on a ran leg is only honest when it
+			// declares the excluded publication chain under an excluding
+			// plan; any other row on a ran leg is a forgery path.
+			if publicationExcluded && strings.HasPrefix(row.Reason, PublicationChainReason) {
+				pubDisclosed[row.WorkloadID+"|"+row.Backend] = true
+				continue
+			}
 			return fmt.Errorf("benchmark report: planned/not_run row for %s/%s but its leg ran", row.WorkloadID, row.Backend)
 		}
 		disclosed[row.WorkloadID+"|"+row.Backend] = true
+	}
+	// Every ran leg of an excluded run must carry one publication-chain
+	// disclosure row per battery workload, exactly as a not-run leg must
+	// carry its leg rows. Checked after the loop above has collected them.
+	if publicationExcluded {
+		for _, leg := range report.Plan.Legs {
+			if leg.Mode != "run" {
+				continue
+			}
+			for _, spec := range Battery {
+				if !pubDisclosed[spec.ID+"|"+leg.Backend] {
+					return fmt.Errorf("benchmark report: %s/%s publication chain excluded without a disclosure row",
+						spec.ID, leg.Backend)
+				}
+			}
+		}
 	}
 	for _, gate := range report.GateReports {
 		for _, arm := range []BackendResult{gate.Arango, gate.Postgres} {

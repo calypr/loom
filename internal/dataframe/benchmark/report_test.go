@@ -18,7 +18,10 @@ func validReport(t *testing.T) *Report {
 		Preset: PresetTiny, SourceCommit: strings.Repeat("a", 40),
 		DatasetDigest: strings.Repeat("b", 64),
 		ArangoVersion: "3.12.x", PostgresVersion: "PostgreSQL 18.x",
-		ClickHouseDisabled: true,
+		// A timing report describes the CI lane with ClickHouse
+		// deployed; the worker container can only build excluded-chain
+		// reports (see the publication-exclusion forgery cases).
+		ClickHouseDisabled: false,
 		Config:             RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2},
 	}
 	controls := ControlRuns{
@@ -43,7 +46,9 @@ func validReport(t *testing.T) *Report {
 			samples = append(samples, sample(backend, WorkloadFilterActiveGender, OutcomePassed, base+float64(i), false))
 		}
 	}
-	report, err := BuildReport(identity, BothArmsPlan(), controls, []WorkloadGateReport{gate}, samples)
+	timingPlan := BothArmsPlan()
+	timingPlan.Publication = &PublicationPlan{Run: true}
+	report, err := BuildReport(identity, timingPlan, controls, []WorkloadGateReport{gate}, samples)
 	if err != nil {
 		t.Fatalf("valid report build failed: %v", err)
 	}

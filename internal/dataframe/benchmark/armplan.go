@@ -45,6 +45,119 @@ type PlannedNotRun struct {
 	Reason     string `json:"reason"`
 }
 
+// ClickHouseCIVersion is the single source of truth for the ClickHouse
+// line the benchmark's publication stages target. It must equal the image
+// tag pinned by the repository CI services (currently
+// clickhouse/clickhouse-server:25.3 in .github/workflows/tests.yaml); when
+// CI bumps the pin, this constant, ClickHouseCIImage, and
+// PublicationCapabilityCH follow automatically. One constant keeps the
+// harness, the named capability, and the CI lane describing one substrate.
+const ClickHouseCIVersion = "25.3"
+
+// ClickHouseCIImage is the container image the CI lane runs the
+// publication-dependent stages against. No container engine exists in the
+// worker container, so these stages are planned/not_run there (coordinator
+// ruling 2026-11-13: no ClickHouse chasing); the CI lane provisions the
+// service and runs them for real.
+const ClickHouseCIImage = "clickhouse/clickhouse-server:" + ClickHouseCIVersion
+
+// PublicationCapabilityCH names the missing capability when the
+// publication chain cannot execute because ClickHouse is not deployed.
+// Publication is structurally ClickHouse-backed: publication.Target has
+// exactly one production implementation (ClickHouseBundleStore) and
+// POST .../explorer-config materializes through it BEFORE persisting the
+// revision that seeds the authoring draft, so publish, reconcile, preview,
+// workload gates, timing, and controls form one chain behind ClickHouse.
+// The preview EXECUTION path itself stays ClickHouse-free (matched reader
+// path ruling); it is the draft-seeding publish that needs the service.
+const PublicationCapabilityCH = "CH-" + ClickHouseCIVersion + "-unavailable-in-container"
+
+// PublicationPlan declares whether the publication chain ran. It is a
+// plan-level property so VerifyReport, not the driver's self-description,
+// decides whether a report may carry timing evidence.
+type PublicationPlan struct {
+	// Run is true when publication executed (CI lane with ClickHouse).
+	Run bool `json:"run"`
+	// Capability names why the chain did not run when Run is false;
+	// PublicationCapabilityCH is the canonical value for a ClickHouse-less
+	// deployment.
+	Capability string `json:"capability,omitempty"`
+}
+
+// PublicationExcluded reports whether the plan declares the publication
+// chain not run. A nil plan means the field predates the exclusion model
+// and is treated as run for leg/scope checks; VerifyReport still rejects a
+// ClickHouse-disabled report claiming it.
+func (p RunPlan) PublicationExcluded() bool {
+	return p.Publication != nil && !p.Publication.Run
+}
+
+// PublicationChainReason prefixes disclosure rows created by excluding
+// the publication chain; VerifyReport recognizes the exclusion by it.
+const PublicationChainReason = "publication chain not run: "
+
+// PublicationDisclosures expands the publication-chain exclusion across
+// every battery workload of every running leg, so "publish excluded"
+// cannot quietly leave workload rows claiming measurement on a chain that
+// never executed. Legs that did not run are covered by their own leg
+// capability rows instead.
+func PublicationDisclosures(legs []LegPlan, capability string) []PlannedNotRun {
+	var rows []PlannedNotRun
+	for _, leg := range legs {
+		if leg.Mode != "run" {
+			continue
+		}
+		for _, spec := range Battery {
+			rows = append(rows, PlannedNotRun{
+				WorkloadID: spec.ID, Backend: leg.Backend,
+				Reason: PublicationChainReason + capability,
+			})
+		}
+	}
+	return rows
+}
+
+// PublicationGateReports builds the honest per-workload gate reports for
+// a run whose publication chain was excluded: every arm of every workload
+// blocked — not-run legs by their leg capability, run legs by the
+// publication capability — nothing claimable.
+func PublicationGateReports(legs []LegPlan, capability string) []WorkloadGateReport {
+	legCapability := map[string]string{}
+	for _, leg := range legs {
+		if leg.Mode != "run" {
+			legCapability[leg.Backend] = leg.Capability
+		}
+	}
+	detail := func(backend string) string {
+		if cap, blocked := legCapability[backend]; blocked {
+			return "leg not run: " + cap
+		}
+		return PublicationChainReason + capability
+	}
+	var reports []WorkloadGateReport
+	for _, spec := range Battery {
+		reports = append(reports, WorkloadGateReport{
+			WorkloadID:      spec.ID,
+			Arango:          BackendResult{Backend: BackendArango, Outcome: OutcomeLabelBlocked, Detail: detail(BackendArango)},
+			Postgres:        BackendResult{Backend: BackendPostgres, Outcome: OutcomeLabelBlocked, Detail: detail(BackendPostgres)},
+			ExclusionReason: "publication chain excluded: " + detail(BackendArango) + " | " + detail(BackendPostgres),
+		})
+	}
+	return reports
+}
+
+// ValidatePublicationPlan checks the publication declaration is honest in
+// shape: an excluded chain must name its missing capability.
+func ValidatePublicationPlan(plan RunPlan) error {
+	if plan.Publication == nil || plan.Publication.Run {
+		return nil
+	}
+	if strings.TrimSpace(plan.Publication.Capability) == "" {
+		return fmt.Errorf("benchmark: publication chain excluded without a named capability")
+	}
+	return nil
+}
+
 // RunPlan is the declared participation of each arm for a run, stored in
 // the report and re-checked by VerifyReport: "we could only run the
 // PostgreSQL arm" must be a verified property, never a silent absence.
@@ -52,6 +165,11 @@ type RunPlan struct {
 	Scope         string          `json:"scope"`
 	Legs          []LegPlan       `json:"legs"`
 	PlannedNotRun []PlannedNotRun `json:"plannedNotRun,omitempty"`
+	// Publication declares whether the ClickHouse-backed publication chain
+	// executed. nil predates the exclusion model: treated as run for
+	// leg/scope checks, but VerifyReport still refuses a publication-run
+	// claim from a ClickHouse-disabled identity.
+	Publication *PublicationPlan `json:"publication,omitempty"`
 }
 
 // BothArmsPlan is the CI-target plan: both services execute every leg.

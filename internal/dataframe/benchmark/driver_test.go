@@ -17,6 +17,9 @@ func driverOptions(fArango, fPostgres *fakeArm, scope string) DriverOptions {
 	if scope == RunScopePostgresOnly {
 		plan = PostgresOnlyPlan("no ArangoDB service in worker container")
 	}
+	// The fake arms serve the whole battery, i.e. a CI-lane deployment
+	// with ClickHouse; the excluded-chain shape is pinned separately.
+	plan.Publication = &PublicationPlan{Run: true}
 	plan.PlannedNotRun = PlannedNotRunForBackends(plan.NotRunBackends())
 	for i := range plan.PlannedNotRun {
 		plan.PlannedNotRun[i].Reason = "leg not run: worker container lacks the service"
@@ -41,7 +44,8 @@ func driverOptions(fArango, fPostgres *fakeArm, scope string) DriverOptions {
 		Config:       RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2},
 		PreviewLimit: 1000, SourceCommit: strings.Repeat("a", 40),
 		UnrestrictedToken: "Bearer unauth", ScopedToken: "Bearer scoped",
-		Clock: &scriptedClock{base: time.Unix(1700000000, 0)},
+		ClickHouseEnabled: true,
+		Clock:             &scriptedClock{base: time.Unix(1700000000, 0)},
 		VersionProbe: func(ctx context.Context, cfg ArmConfig, backend string) (string, error) {
 			if backend == BackendArango {
 				return "3.12.x-fake", nil

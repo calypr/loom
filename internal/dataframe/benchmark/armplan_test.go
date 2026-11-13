@@ -28,9 +28,11 @@ func validPostgresOnlyReport(t *testing.T) *Report {
 	identity := RunIdentity{
 		RunID: "bench-2026-11-13-pg-a", StartedAt: time.Unix(1700000000, 0).UTC(),
 		Preset: PresetTiny, SourceCommit: strings.Repeat("a", 40),
-		DatasetDigest:      strings.Repeat("b", 64),
-		PostgresVersion:    "PostgreSQL 18.x",
-		ClickHouseDisabled: true,
+		DatasetDigest:   strings.Repeat("b", 64),
+		PostgresVersion: "PostgreSQL 18.x",
+		// Timing needs the publication chain, which is ClickHouse-
+		// backed: this fixture describes the CI lane with ClickHouse.
+		ClickHouseDisabled: false,
 		Config:             RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2},
 	}
 	controls := ControlRuns{
@@ -41,6 +43,7 @@ func validPostgresOnlyReport(t *testing.T) *Report {
 		EmptyFloorMillis: 0.4, RatioPolicy: "ratio-only-both-passed",
 	}
 	plan := PostgresOnlyPlan(testArangoCapability)
+	plan.Publication = &PublicationPlan{Run: true}
 	plan.PlannedNotRun = PlannedNotRunForBackends([]string{BackendArango})
 	for i := range plan.PlannedNotRun {
 		plan.PlannedNotRun[i].Reason = "leg not run: " + testArangoCapability
