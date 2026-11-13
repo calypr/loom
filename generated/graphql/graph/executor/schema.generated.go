@@ -2337,6 +2337,29 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_compilationMs
 	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
+func (ec *executionContext) _DataframeQueryDiagnostics_sourceQueryMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_DataframeQueryDiagnostics_sourceQueryMs(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.SourceQueryMs, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v float64) graphql.Marshaler {
+			return ec.marshalNFloat2float64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_sourceQueryMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
+}
+
 func (ec *executionContext) _DataframeQueryDiagnostics_arangoQueryMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -11119,6 +11142,11 @@ func (ec *executionContext) _DataframeQueryDiagnostics(ctx context.Context, sel 
 			}
 		case "compilationMs":
 			out.Values[i] = ec._DataframeQueryDiagnostics_compilationMs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sourceQueryMs":
+			out.Values[i] = ec._DataframeQueryDiagnostics_sourceQueryMs(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

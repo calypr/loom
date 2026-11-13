@@ -104,8 +104,12 @@ func (c Control) ExplainResolved(ctx context.Context, resolved Resolved, live bo
 		if err != nil {
 			return PhysicalExplanation{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
+		fingerprint := SourcePlanFingerprint(compiled)
+		if err := requireProjectedPlanFingerprint(output.Name, fingerprint); err != nil {
+			return PhysicalExplanation{}, err
+		}
 		item := PhysicalOutputExplanation{
-			Name: output.Name, PlanFingerprint: explainPlanFingerprint(compiled),
+			Name: output.Name, PlanFingerprint: fingerprint,
 			Columns: append([]string(nil), compiled.PublicColumns...), Diagnostics: compiled.PlanDiagnostics,
 		}
 		if live {
@@ -137,18 +141,6 @@ func (c Control) ExplainResolved(ctx context.Context, resolved Resolved, live bo
 		result.Outputs = append(result.Outputs, item)
 	}
 	return result, nil
-}
-
-// explainPlanFingerprint reports the fingerprint of the exact compiled
-// command this output was assessed from: the AQL-shape digest for AQL-tagged
-// (and untagged) commands, and the PostgreSQL command fingerprint — the same
-// fingerprint the PostgreSQL stream reports as planFingerprint — for
-// PostgreSQL-tagged commands.
-func explainPlanFingerprint(compiled compiler.CompiledQuery) string {
-	if compiled.Command.Backend() == command.CompiledBackendPostgreSQL {
-		return compiled.PlanDiagnostics.Fingerprint
-	}
-	return CompiledQueryFingerprint(compiled)
 }
 
 func (c Control) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {

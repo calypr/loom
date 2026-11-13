@@ -3,6 +3,7 @@ package execution
 import (
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -18,13 +19,20 @@ type Result struct {
 }
 
 // QueryDiagnostics separates the cost of turning a dataframe request into
-// rows. ArangoQuery is cursor time excluding Loom's per-row processing;
-// RowMaterialization is the time spent flattening and delivering rows.
+// rows. SourceQuery is the source cursor interval for the selected backend,
+// excluding Loom's per-row processing; RowMaterialization is the time spent
+// flattening and delivering rows. The two never overlap: RowMaterialization
+// is subtracted from the cursor interval so materialization is not
+// double-counted, and one timer produces SourceQuery for either the AQL or
+// PostgreSQL source. SourceBackend names which adapter served the cursor so
+// the transport projection can report the legacy arangoQueryMs as actual
+// Arango time on AQL and zero on PostgreSQL.
 type QueryDiagnostics struct {
 	InputResolution    time.Duration
 	RequestPreparation time.Duration
 	Compilation        time.Duration
-	ArangoQuery        time.Duration
+	SourceQuery        time.Duration
+	SourceBackend      command.CompiledBackend
 	RowMaterialization time.Duration
 	ResultAssembly     time.Duration
 	Total              time.Duration

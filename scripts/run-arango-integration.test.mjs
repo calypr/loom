@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkEvents, ownDatabase } from './run-arango-integration.mjs';
+import { checkEvents, ownDatabase, profiles, archBackend12Diagnostics } from './run-arango-integration.mjs';
 const stream = events => events.map(e => JSON.stringify(e)).join('\n');
 test('real case must pass; empty package and skip cannot masquerade as proof', () => {
     const profile = { required: 'TestReal' };
@@ -46,4 +46,27 @@ test('every additional real database witness must execute and pass', () => {
         assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== name)), profile), /did not run/);
         assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== name || e.Action !== 'pass')), profile), /did not pass/);
     }
+});
+
+// arch-backend-12: the AQL witness is a required server-profile case that
+// must execute against the live Arango service, while the PostgreSQL leg
+// may only appear as the registered explicit skip in this Arango-only lane.
+test('arch-backend-12 diagnostics witnesses keep their lane obligations', () => {
+    const server = profiles.find(p => p.id === 'server');
+    assert.ok(server.alsoRequired.includes('TestBackendNeutralDiagnosticsAgainstArango'), 'AQL diagnostics witness must be a required server-profile case');
+    assert.ok(archBackend12Diagnostics.has('TestBackendNeutralDiagnosticsLivePostgreSQL'), 'PostgreSQL diagnostics leg must be registered as an explicit external skip');
+    const name = t2 => ({ Test: t2, Action: 'run' });
+    const pass = t2 => ({ Test: t2, Action: 'pass' });
+    const events = [
+        { Action: 'pass' },
+        ...[server.required, ...server.alsoRequired].flatMap(t2 => [name(t2), pass(t2)]),
+        { Test: 'TestBackendNeutralDiagnosticsLivePostgreSQL', Action: 'skip' },
+    ];
+    const result = checkEvents(stream(events), server);
+    assert.ok(result.unverified.map(e => e.test).includes('TestBackendNeutralDiagnosticsLivePostgreSQL'), 'the PostgreSQL leg must surface as an explicit unverified external case');
+    // Negative control: the AQL witness skipping instead of executing is
+    // not a legal outcome in this lane.
+    assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== 'TestBackendNeutralDiagnosticsAgainstArango' || e.Action !== 'run')), server), /did not run/);
+    // Negative control: an unregistered skip is refused.
+    assert.throws(() => checkEvents(stream([...events, { Test: 'TestBackendNeutralDiagnosticsUnregistered', Action: 'skip' }]), server), /Unexpected skipped case/);
 });
