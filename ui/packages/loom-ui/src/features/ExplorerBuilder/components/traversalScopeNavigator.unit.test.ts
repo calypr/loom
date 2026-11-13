@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AuthoringNetworkResponse, ConstructionStep, ConstructionStageDescriptor, ExplorerBuilderDocument } from '../../../types';
-import { traversalScopeModel, type NavigatorSourceStep } from './traversalScopeNavigator';
+import { traversalScopeModel, type NavigatorSourceStep } from './traversalScopeModel';
 
 const sourceStep = (id: string, kind: string, parentId?: string, occurrenceId?: string): NavigatorSourceStep => ({
   id, kind, parentId, occurrenceId, title: id, summary: `${id} source operation`, enabled: true, editable: true,
