@@ -733,10 +733,14 @@ func TestActivateRepositoryGenerationUsesCompositeGuardsAgainstPostgreSQL(t *tes
 			f.execRaw(t, "UPDATE "+f.ctlTable(OwnerTable)+" SET active_revision_id = 'pgact-revision-that-does-not-exist' WHERE project = $1 AND explorer_id = 'default'", w.project)
 		})
 		beforeRevisions := f.snapshotRevisions(t, project)
+		beforeOwners := f.snapshotOwners(t, project)
 		err := world.activation.ActivateRepositoryGeneration(f.ctx, project, world.generation, world.candidateID)
 		requireActivationConflict(t, f, err, "dangling-prior-pointer")
 		if after := f.snapshotRevisions(t, project); after != beforeRevisions {
 			t.Fatalf("dangling prior mutated revisions:\nbefore=%s\nafter=%s", f.scrub(beforeRevisions), f.scrub(after))
+		}
+		if after := f.snapshotOwners(t, project); after != beforeOwners {
+			t.Fatalf("dangling prior mutated owners:\nbefore=%s\nafter=%s", f.scrub(beforeOwners), f.scrub(after))
 		}
 		if candidate := f.revisionState(t, world.candidateID); candidate.Status != "READY" {
 			t.Fatalf("candidate status after dangling prior = %s, want READY", candidate.Status)
