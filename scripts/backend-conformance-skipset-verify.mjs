@@ -8,7 +8,7 @@ import { backendArchitectureConformance } from './run-arango-integration.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CAPTURE_PATH = join(here, 'backend-conformance-skipset-capture.json');
-const CAPTURE_SHA256 = '04075d92b7f9bd1edad1e200045ea0d79fd8e8cece299ce9f5ae93c3a05c9126';
+const CAPTURE_SHA256 = 'e57f9462aa7014306909a444f9f150d1e77c3e56df19d42d041f14f3dc893554';
 
 const raw = readFileSync(CAPTURE_PATH);
 const observed = createHash('sha256').update(raw).digest('hex');

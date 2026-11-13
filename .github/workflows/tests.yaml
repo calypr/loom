@@ -451,6 +451,7 @@ jobs:
               TestBackendArchitectureConformance/postgresql/cancellationTypedFailureNoFallback \
               TestBackendArchitectureConformance/postgresql/backendUnavailableAndWrongTagNoFallback \
               TestBackendArchitectureConformance/postgresql/upgradeFromPinnedPreRefactorReopensSafely \
+              TestBackendArchitectureConformance/crossBackendCandidateIdentityParity \
               < "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || status=$?
           # The gate fails closed on events alone; surface the failing tests'
           # own output so a red lane is diagnosable from this step's log.
