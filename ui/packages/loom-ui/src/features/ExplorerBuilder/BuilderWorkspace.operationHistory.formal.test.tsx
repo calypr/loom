@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-/// <reference types="node" />
 import React from 'react';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -355,8 +354,6 @@ const operationHistoryCandidateFileSchema = z.object({
   }).passthrough()),
 }).passthrough();
 
-// Finite production-UI schedule. These identities are test-owned inputs, not
-// claims that a compiler/Go replay produced them. External replay stays opt-in.
 const localOperationHistoryCases = [{
   id: 'operation-history-count-to-mean-accepted-history-filter',
   initial: {
@@ -445,8 +442,6 @@ const panelPreviewFromServicePreview = (
     lossless: column.lossless,
     structuralSuitability: column.structuralSuitability,
   })),
-  // This is a panel-only projection, not a serialized wire preview: Go exports
-  // the service summary and emitted columns, while this UI callback has no rows.
   rows: [],
   rowLineageCapability: servicePreview.summary.RowLineageCapability.Available
     ? { status: 'AVAILABLE' }
@@ -457,8 +452,6 @@ const panelPreviewFromServicePreview = (
   rowCount: servicePreview.summary.RowCount,
   sampled: !servicePreview.summary.Complete || servicePreview.summary.Truncated,
   partialValidation: servicePreview.summary.PartialValidation,
-  // Diagnostics and row-lineage presentation fields are required by the UI type
-  // but are not included in the service-preview artifact.
   diagnostics: [],
 });
 
@@ -970,7 +963,6 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
         continue;
       }
       if (action.kind === 'apply' || action.kind === 'applyAck') {
-        // Apply acknowledgement is checked by the shared Go model replay; this suite owns request construction.
         continue;
       }
       if (action.kind !== 'propose') throw new Error(`${contextFor(actionIndex)}: unsupported action ${action.kind}.`);
@@ -1075,7 +1067,6 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
           ...expectation,
           actualCandidateGroupKeyOutputId: candidateKeyOutputId ?? null,
           actualRequestFingerprint: fingerprint,
-          // The raw request keeps accepted downstream steps; the Go model's downstreamInputTypes are resolved values.
           rawDownstreamInputTypes,
           rawDownstreamOutputTypes: Object.fromEntries(candidate.steps.slice(1).map((step) => [step.id, step.outputs.map((output) => ({ id: output.id, type: output.type }))])),
         },
@@ -1113,8 +1104,6 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
       return;
     }
     if (!isPanelCheck) {
-      // The server boundary supplies the resolved cascade. This test checks the
-      // real review UI, not whether the server computes that cascade correctly.
       const preview = previewFor('reviewed-cascade', 'table-1');
       const response: ConstructionProposalResponse = {
         proposalId: preview.receiptId, outputId: 'table-1', snapshotToken: catalog.snapshotToken,
@@ -1255,9 +1244,6 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     expect(panelPreview.rows).toEqual([]);
     expect(panelPreview.rowCount).toBe(preview.summary.RowCount);
     expect(panelPreview.columns.map((column) => column.column)).toEqual(preview.summary.Columns);
-    // Panel-only presentation state: the Go lifecycle.Service DTO stays PREVIEW_PENDING;
-    // its separately exported Service.Preview result supplies the completed preview.
-    // This adapts that internal result to the panel type and is not HTTP wire JSON.
     const response = constructionProposalResponseSchema.parse({
       ...serviceResponse,
       previewStatus: 'READY',

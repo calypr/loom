@@ -55,8 +55,6 @@ type CellExplanationState =
 const tracePagesFor = (state: CellExplanationState): TracePages | undefined =>
   state.kind === 'ready' || state.kind === 'loadingMore' ? state.pages : undefined;
 
-// Trace failures surface the upstream sentence verbatim, so a malformed message such as
-// "The cell trace could not not be loaded." would otherwise reach researchers as written.
 const explanationErrorCopy = (error: unknown, fallback: string): string => {
   const message = error instanceof Error ? error.message.trim() : '';
   return (message || fallback).replace(/\bnot(\s+not)+\b/gi, 'not');
@@ -68,7 +66,6 @@ type DatasetDownloadState =
   | { readonly kind: 'ready'; readonly outputId: string; readonly requestToken: number; readonly artifact: Artifact }
   | { readonly kind: 'error'; readonly outputId: string; readonly requestToken: number; readonly message: string };
 
-// One in-flight count per rendered action button, and one retained failure per button.
 type ActionRunState = {
   readonly running: ReadonlyMap<string, number>;
   readonly errors: ReadonlyMap<string, { readonly outputId: string; readonly message: string }>;
@@ -89,8 +86,6 @@ const decrementRun = (running: ReadonlyMap<string, number>, actionKey: string): 
   return next;
 };
 
-// Every run only ever touches its own button's entry, so a settling action cannot drop another action's loading
-// state or hide its failure, and starting one action cannot clear an error belonging to a different action.
 const actionRunReducer = (state: ActionRunState, event: ActionRunEvent): ActionRunState => {
   switch (event.type) {
     case 'started': {
@@ -116,15 +111,10 @@ const actionRunReducer = (state: ActionRunState, event: ActionRunEvent): ActionR
   }
 };
 
-// Identity comes from the configured action itself, so a reordered action list keeps a running action's loading
-// state on its own button instead of moving it to whichever action happens to share the old position. Exact
-// duplicates are told apart by their occurrence order.
 const actionIdentity = (action: ViewerRuntimeAction): string =>
   JSON.stringify([action.type, action.title, action.fileName ?? null, action.output ?? null,
     action.columns ?? null, action.exportHeaders ?? null]);
 
-// The output id is part of each key so an action still running on a left-behind output can only ever mark that
-// output's own button, never the button of the output shown after a tab switch.
 const actionRunKeys = (outputId: string, actions: ReadonlyArray<ViewerRuntimeAction>): string[] => {
   const occurrences = new Map<string, number>();
   return actions.map((action) => {
@@ -143,10 +133,6 @@ type ResolvedActionTarget =
   | { readonly kind: 'output'; readonly output: ExplorerRuntimeOutputV1 }
   | { readonly kind: 'unresolved'; readonly target: string };
 
-// An action with no target exports the active output; an action that names one must resolve
-// to exactly one published output, never silently to another table. The target is matched
-// verbatim: trimming it would let ' patients ' export the 'patients' table, and a
-// whitespace-only target names no table even when one is published under that name.
 const resolveActionTarget = (runtime: ExplorerRuntimeV1, action: ViewerRuntimeAction): ResolvedActionTarget => {
   if (action.output === undefined) return { kind: 'active' };
   const named = action.output;
@@ -240,8 +226,6 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
   const runAction = async (action: ViewerRuntimeAction, actionKey: string) => {
     dispatchActionRuns({ type: 'started', actionKey });
     try {
-      // Resolve before dispatching to either path, so an embedder handler cannot export a
-      // table the action never named; a missing, blank, or ambiguous target fails visibly.
       const target = resolveActionTarget(runtime, action);
       if (target.kind === 'unresolved') {
         throw new Error(`The action "${action.title}" targets the output "${target.target || '(blank)'}", which is not exactly one published output of this Explorer. No table was exported.`);
@@ -292,7 +276,6 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
     }
   };
   const loadMoreEvidence = async () => {
-    // A later-page failure stays 'ready' with its pages, so retry reuses the retained nextOffset.
     if (cellExplanation.kind !== 'ready') return;
     const coordinate = cellExplanation.coordinate;
     const pages = cellExplanation.pages;
@@ -353,7 +336,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
             })}
           </Group>
         </Group>
-        {/* A failure stays retained while its output is left behind, so returning to that output restores its alert. */}
+        {}
         {[...actionRuns.errors].filter(([, failure]) => failure.outputId === outputId).map(([actionKey, failure]) => (
           <Alert key={actionKey} color="red" title="Action failed" withCloseButton closeButtonLabel="Dismiss action failure" onClose={() => { dispatchActionRuns({ type: 'dismissed', actionKey }); }} mb="md">{failure.message}</Alert>
         ))}

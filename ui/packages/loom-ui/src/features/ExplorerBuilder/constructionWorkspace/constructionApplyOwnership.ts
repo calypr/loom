@@ -1,4 +1,3 @@
-/** Identity read at the synchronous Apply ownership boundary. */
 export type ConstructionApplyIdentity<Owner> = {
   readonly owner: Owner;
   readonly requestKey: string;
@@ -7,7 +6,6 @@ export type ConstructionApplyIdentity<Owner> = {
 export type ConstructionApplyAttempt<Owner> = { readonly identity: ConstructionApplyIdentity<Owner> };
 export type ConstructionApplySlot<Owner> = { current: ConstructionApplyAttempt<Owner> | undefined };
 
-/** Each returned completion can release/settle only the attempt that created it. */
 export const beginConstructionApply = <Owner>(
   slot: ConstructionApplySlot<Owner>,
   identity: ConstructionApplyIdentity<Owner>,

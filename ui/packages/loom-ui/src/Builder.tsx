@@ -34,14 +34,11 @@ const populationSelectionForRequest = (
 export interface LoomExplorerBuilderProps {
   readonly project: string;
   readonly explorerId?: string;
-  /** Completed immutable selection supplied by the enclosing project explorer. */
   readonly selectionRevisionId?: string;
   readonly client?: LoomClient;
-  /** Optional legacy project split used by Calypr route wrappers. */
   readonly organization?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
   readonly className?: string;
-  /** Feature selected from a Viewer explanation for focused repair. */
   readonly featureFocus?: LoomBuilderFeatureFocus;
 }
 

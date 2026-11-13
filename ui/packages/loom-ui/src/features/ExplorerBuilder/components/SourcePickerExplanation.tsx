@@ -1,7 +1,3 @@
-// ROW-SOURCE-06: shared explanation surface for the signed source pickers
-// (Filter, Derive, Unpivot). Distinguishes empty data, all eligible inputs
-// already selected, and nothing listed by the API. Renders server-supplied
-// text only; when the API supplied no reason, none is invented.
 
 import type { SourcePickerEmptiness } from '../constructionOperations/sourcePickerExplanations';
 

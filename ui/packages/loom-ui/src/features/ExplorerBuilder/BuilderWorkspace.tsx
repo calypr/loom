@@ -546,7 +546,6 @@ const BuilderWorkspaceContent = ({
     try {
       window.sessionStorage.setItem(selectedTableStorageKey, outputId);
     } catch {
-      // Browser storage can be unavailable; table editing remains usable.
     }
   }, [selectedTableStorageKey]);
   const [message, setMessage] = useState<string>();
@@ -2879,7 +2878,6 @@ const BuilderWorkspaceContent = ({
           evidence = { kind: 'available', candidates: value.candidates };
         }
       } catch {
-        // A root table is still useful when Loom cannot prove an identity field.
       }
 
       const plan: InitialTablePlan = planInitialTable(
@@ -3425,9 +3423,6 @@ const BuilderWorkspaceContent = ({
         if (!entry) return;
         entryStageId = stage.id;
       } else if (kind === 'expand-signed') {
-        // No column-keyed entry: the signed picker is capability-driven and
-        // opens like the unpivot lane (empty form + capabilities choices),
-        // staying apply-disabled until a field resolves.
         const signedSupported = stage.id === appendStageId
           && (response.expandSourceInput?.supported ?? false)
           && (response.expandSourceInput?.choices ?? []).some((choice) => choice.isPopulated);
@@ -3531,9 +3526,6 @@ const BuilderWorkspaceContent = ({
       removeStepIds: [stepId],
     });
     setConstructionHistorySelection({ kind: 'step', stepId });
-    // Keep the saved-step input stage stable while its removal proposal is
-    // active. Closing the editor here changes the capabilities request key
-    // before the proposal can render; cancel/apply clears this state later.
     if (editingConstructionStepId !== stepId) setEditingConstructionStepId(undefined);
     setActiveConstructionFamily(undefined);
   };
@@ -3564,10 +3556,6 @@ const BuilderWorkspaceContent = ({
   const activeReshapeInitialEntry = reshapeInitialEntry && reshapeInitialEntry.editorKey === activeReshapeEditorKey
     ? reshapeInitialEntry.entry
     : undefined;
-  // The signed EXPAND flow opens the expand editor with no column-keyed entry
-  // (capability-driven, like the unpivot lane), so only a chooser-less
-  // non-signed expand demotes; demoting the signed kind made the signed card
-  // unopenable.
   const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry && reshapeFormKind !== 'expand'
     ? 'choose'
     : reshapeEntryKind;
