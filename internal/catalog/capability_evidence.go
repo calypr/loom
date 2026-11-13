@@ -6,8 +6,34 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 )
+
+// DiagDump writes an env-gated diagnostic snapshot (throwaway diag-159 only).
+func DiagDump(name string, value any, tags ...string) {
+	dir := os.Getenv("LOOM_BENCH_DIAG_DIR")
+	if dir == "" {
+		return
+	}
+	tag := "default"
+	if len(tags) > 0 {
+		tag = regexp.MustCompile(`[^A-Za-z0-9_.-]+`).ReplaceAllString(tags[0], "_")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	raw, err := json.MarshalIndent(struct {
+		Tag   string `json:"tag"`
+		Value any    `json:"value"`
+	}{tag, value}, "", " ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, name+"-"+tag+".json"), raw, 0o644)
+}
 
 func canonicalDigest(value any) (string, error) {
 	encoded, err := json.Marshal(value)
@@ -146,5 +172,10 @@ func ReadCapabilityEvidence(ctx context.Context, reader CapabilityEvidenceReader
 	if err != nil && firstErr == nil {
 		firstErr = err
 	}
+	DiagDump("evidence", struct {
+		Options  CapabilityEvidenceOptions `json:"options"`
+		Error    string                    `json:"error,omitempty"`
+		Evidence CapabilityEvidence        `json:"evidence"`
+	}{opts, fmt.Sprint(firstErr), result}, fmt.Sprintf("%T", reader))
 	return result, firstErr
 }

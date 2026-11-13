@@ -108,6 +108,11 @@ func (r *explorerCapabilityResolver) Resolve(ctx context.Context, project, reque
 	if err != nil {
 		return capability.Snapshot{}, fmt.Errorf("digest semantic field identity: %w", err)
 	}
+	catalog.DiagDump("identity", struct {
+		Identity       capability.SnapshotIdentity `json:"identity"`
+		EntityIdentity capability.SnapshotIdentity `json:"entityIdentity"`
+		SchemaSHA256   string                      `json:"manifestSchemaSHA256"`
+	}{identity, entityIdentity, manifest.SchemaIdentity.SchemaSHA256}, fmt.Sprintf("%T", r.evidence))
 	key, err := capabilityIdentityKey(identity)
 	if err != nil {
 		return capability.Snapshot{}, err
