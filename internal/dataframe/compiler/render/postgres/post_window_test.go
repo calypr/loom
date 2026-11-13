@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -319,5 +320,180 @@ func TestPostWindowAggregateOverNonSetSourceRefused(t *testing.T) {
 	wantUnsupported(t, err, "aggregate over a non-set source")
 	if !strings.Contains(err.Error(), "not a registered child set") {
 		t.Fatalf("the gate must name the unregistered source: %v", err)
+	}
+}
+
+// deadTraversalOps inserts a second child-route traversal (with its canonical scope block)
+// after the execution window: scan, sort, set, dead hop + block, return.
+func deadTraversalOps(plan ir.PhysicalPlan, edgeVariable, targetVariable string) ir.PhysicalPlan {
+	traversal := setsTraversal()
+	traversal.EdgeVariable, traversal.TargetVariable = edgeVariable, targetVariable
+	block := appendScopeBlock([]ir.PhysicalOperation{{Kind: ir.PhysicalTraversalOp, Traversal: &traversal}},
+		[]string{edgeVariable, targetVariable}, "dead_scope_auth")
+	ops := []ir.PhysicalOperation{plan.Operations[0], plan.Operations[1], plan.Operations[2]}
+	ops = append(ops, block...)
+	ops = append(ops, plan.Operations[3])
+	plan.Operations = ops
+	return plan
+}
+
+// TestPostWindowDeadTraversalNearMisses proves the consumer scan is load-bearing: every read
+// of the dead hop's variables, wherever it sits after the scope block, must refuse with the
+// typed "not dead" voice naming the read variable. An acceptor that only checked the RETURN
+// projection would wrongly pass all three.
+func TestPostWindowDeadTraversalNearMisses(t *testing.T) {
+	const deadEdge, deadTarget = "dead_edge", "dead_node"
+
+	t.Run("consumer in a later subplan block", func(t *testing.T) {
+		base := postWindowAggregatePlan(postWindowAggregateSet(false),
+			postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
+		plan := deadTraversalOps(base, deadEdge, deadTarget)
+		// A second set whose subplan captures the dead target reads it from inside a later block.
+		poison := postWindowAggregateSet(false)
+		poison.Subplan.Captures = []string{"root", deadTarget}
+		poison.Variable = "child_set_1"
+		last := len(plan.Operations) - 1
+		plan.Operations = append(plan.Operations[:last],
+			append([]ir.PhysicalOperation{{Kind: ir.PhysicalSetOp, Set: &poison}}, plan.Operations[last:]...)...)
+		_, err := RenderPhysicalPlan(plan, mustBinding(t))
+		wantUnsupported(t, err, "dead hop read from a later subplan")
+		if !strings.Contains(err.Error(), deadTarget) || !strings.Contains(err.Error(), "not dead") {
+			t.Fatalf("refusal must name the read variable and the dead-LET rule: %v", err)
+		}
+	})
+
+	t.Run("reducer references the dead target", func(t *testing.T) {
+		base := postWindowAggregatePlan(postWindowAggregateSet(false),
+			postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
+		plan := deadTraversalOps(base, deadEdge, deadTarget)
+		projections := plan.Operations[len(plan.Operations)-1].Return.Projections
+		projections[1].Expression.Aggregate.Value = postWindowSlotExpression("__loom_projection_1",
+			ir.PhysicalSelectorDirectScalar, postWindowValueSteps())
+		projections[1].Expression.Aggregate.Value.Extract.Source.Variable = deadTarget
+		_, err := RenderPhysicalPlan(plan, mustBinding(t))
+		wantUnsupported(t, err, "reducer reading the dead target")
+		if !strings.Contains(err.Error(), deadTarget) || !strings.Contains(err.Error(), "not dead") {
+			t.Fatalf("refusal must name the read variable and the dead-LET rule: %v", err)
+		}
+	})
+
+	t.Run("subplan sort key references the dead target", func(t *testing.T) {
+		base := postWindowAggregatePlan(postWindowAggregateSet(false),
+			postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
+		plan := deadTraversalOps(base, deadEdge, deadTarget)
+		poison := postWindowAggregateSet(false)
+		poison.Subplan.Captures = []string{"root", deadTarget}
+		poison.Subplan.Sort = &ir.PhysicalValue{Variable: deadTarget, Path: []string{"payload", "status"}}
+		poison.Variable = "child_set_1"
+		last := len(plan.Operations) - 1
+		plan.Operations = append(plan.Operations[:last],
+			append([]ir.PhysicalOperation{{Kind: ir.PhysicalSetOp, Set: &poison}}, plan.Operations[last:]...)...)
+		_, err := RenderPhysicalPlan(plan, mustBinding(t))
+		wantUnsupported(t, err, "subplan sort key reading the dead target")
+		if !strings.Contains(err.Error(), deadTarget) || !strings.Contains(err.Error(), "not dead") {
+			t.Fatalf("refusal must name the read variable and the dead-LET rule: %v", err)
+		}
+	})
+}
+
+// TestPostWindowUnrimmedAggregateOperationsRefuse pins the rim: operations the AQL arm
+// registers (collections.go renderAggregate) but this unit does not stay refused. Each
+// fixture stays validator-legal (value presence, CONTAINS_ALL bind, FIRST_ORDERED window
+// and ordering) so the refusal comes from this unit's gate, not plan validation. A
+// registered COUNT reducer on the same set keeps the SET accepted through the whitelist,
+// isolating the gate as the refusal source.
+func TestPostWindowUnrimmedAggregateOperationsRefuse(t *testing.T) {
+	for _, operation := range []ir.PhysicalAggregateOperation{
+		ir.PhysicalMeanAggregate, ir.PhysicalExistsAggregate, ir.PhysicalCountDistinctAggregate,
+		ir.PhysicalDistinctValuesAggregate, ir.PhysicalFirstAggregate, ir.PhysicalCollectAggregate,
+		ir.PhysicalRequireOneAggregate, ir.PhysicalContainsAllAggregate, ir.PhysicalFirstOrderedAggregate,
+	} {
+		t.Run(string(operation), func(t *testing.T) {
+			plan := postWindowAggregatePlan(postWindowAggregateSet(false),
+				postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false),
+				postWindowAggregateProjection("sum_age", ir.PhysicalSumAggregate, true, false))
+			aggregate := plan.Operations[3].Return.Projections[2].Expression.Aggregate
+			aggregate.Operation = operation
+			switch operation {
+			case ir.PhysicalExistsAggregate:
+				aggregate.Value = nil
+			case ir.PhysicalContainsAllAggregate:
+				plan.BindVars["required_values"] = []string{"asthma"}
+				aggregate.RequiredValuesBindKey = "required_values"
+			case ir.PhysicalFirstOrderedAggregate:
+				stamp := postWindowSlotExpression("__loom_projection_1", ir.PhysicalSelectorDirectScalar, postWindowValueSteps())
+				aggregate.ContributorWindow = &ir.PhysicalContributorWindow{
+					Timestamp: *stamp, Anchor: *stamp, Precision: "INSTANT",
+				}
+				aggregate.Ordering = &ir.PhysicalTemporalOrdering{Timestamp: *stamp, Direction: "ASC", TiePolicy: "RESOURCE_KEY"}
+			}
+			_, err := RenderPhysicalPlan(plan, mustBinding(t))
+			wantUnsupported(t, err, "unrimmed aggregate operation "+string(operation))
+			if !strings.Contains(err.Error(), string(ir.PhysicalAggregateExpression)) ||
+				!strings.Contains(err.Error(), "no registered PostgreSQL rendering") {
+				t.Fatalf("aggregate gate text drifted: %v", err)
+			}
+		})
+	}
+}
+
+// TestPostWindowReducersPreserveRowCounts is the window-final soundness class: an accepted
+// post-window SET and its reducers must not multiply or filter root rows. The scalar sublinks
+// may only extend the SELECT list; the outer FROM/WHERE/ORDER BY tail, and therefore the row
+// set and window position, must be byte-identical to the same plan without them.
+func TestPostWindowReducersPreserveRowCounts(t *testing.T) {
+	const tailMarker = `."fhir_resource" AS r0 WHERE r0."project"`
+
+	baseline := postWindowAggregatePlan(postWindowAggregateSet(false))
+	baseline.Operations = []ir.PhysicalOperation{baseline.Operations[0], baseline.Operations[1], baseline.Operations[3]}
+	baseline.Operations[2].Return.Projections = baseline.Operations[2].Return.Projections[:1]
+	baselineSQL := renderOK(t, baseline).SQL
+
+	full := postWindowAggregatePlan(postWindowAggregateSet(false),
+		postWindowAggregateProjection("sum_age", ir.PhysicalSumAggregate, true, true),
+		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, true),
+		postWindowAggregateProjection("min_age", ir.PhysicalMinAggregate, true, true),
+		postWindowAggregateProjection("max_age", ir.PhysicalMaxAggregate, true, true))
+	fullSQL := renderOK(t, full).SQL
+
+	baselineTail := baselineSQL[strings.Index(baselineSQL, tailMarker):]
+	fullTail := fullSQL[strings.Index(fullSQL, tailMarker):]
+	if baselineTail != fullTail {
+		t.Fatalf("post-window reducers changed the outer row spine:\nbaseline: %s\nfull:     %s", baselineTail, fullTail)
+	}
+	if strings.Count(fullSQL, "AS r0") != 1 || strings.Contains(fullSQL, "LEFT JOIN") {
+		t.Fatalf("reducers must stay scalar sublinks over one root scan:\n%s", fullSQL)
+	}
+}
+
+// TestPostWindowReducersUnderPreviewLimit pins the preview path (limit>0, the form
+// CompileRecipeOutput receives for previews; the #159 benchmark runs limit=0): the bind-backed
+// LIMIT stays on the window, and every reducer sublink renders unchanged besides the tail.
+func TestPostWindowReducersUnderPreviewLimit(t *testing.T) {
+	plan := postWindowAggregatePlan(postWindowAggregateSet(false),
+		postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
+	plan.BindVars["preview_limit"] = 25
+	limitOp := ir.PhysicalOperation{Kind: ir.PhysicalLimitOp, Limit: &ir.PhysicalLimit{BindKey: "preview_limit"}}
+	ops := append([]ir.PhysicalOperation{}, plan.Operations[:2]...)
+	ops = append(ops, limitOp, plan.Operations[2], plan.Operations[3])
+	plan.Operations = ops
+
+	rendered := renderOK(t, plan)
+	if !strings.Contains(rendered.SQL, "LIMIT $") {
+		t.Fatalf("preview LIMIT must stay on the execution window:\n%s", rendered.SQL)
+	}
+	for _, want := range []string{"to_jsonb(COUNT(*))", `AS "c1"`} {
+		if !strings.Contains(rendered.SQL, want) {
+			t.Fatalf("preview-path statement is missing %q:\n%s", want, rendered.SQL)
+		}
+	}
+	sawLimitParameter := false
+	for _, parameter := range rendered.Args {
+		if parameter.Type == command.PostgreSQLParameterBigint && parameter.Value == int64(25) {
+			sawLimitParameter = true
+		}
+	}
+	if !sawLimitParameter {
+		t.Fatalf("preview LIMIT parameter bigint 25 missing: %#v", rendered.Args)
 	}
 }
