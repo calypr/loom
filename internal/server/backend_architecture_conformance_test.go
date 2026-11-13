@@ -59,12 +59,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
+	"github.com/calypr/loom/internal/authscope"
 	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
 	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/authscope"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -568,12 +568,12 @@ var (
 )
 
 type ab10PGFixture struct {
-	t       *testing.T
-	dsn     string
-	schemas map[control.Series]string
-	scrub   func(any) string
-	admin   *pgxpool.Pool // maintenance-database admin: CREATE/DROP/pg_database only
-	iso     *pgxpool.Pool // the fixture database itself: census and digest probes
+	t        *testing.T
+	dsn      string
+	schemas  map[control.Series]string
+	scrub    func(any) string
+	admin    *pgxpool.Pool // maintenance-database admin: CREATE/DROP/pg_database only
+	iso      *pgxpool.Pool // the fixture database itself: census and digest probes
 	database string
 }
 
