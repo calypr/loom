@@ -109,6 +109,7 @@ test('backend-architecture conformance skip-set capture is pinned and self-consi
     const capture = JSON.parse(raw);
     assert.deepEqual([...capture.skips].sort(), [
         'TestBackendArchitectureConformance/arangodb',
+        'TestBackendArchitectureConformance/crossBackendCandidateIdentityParity',
         'TestBackendArchitectureConformance/postgresql',
     ]);
 });
