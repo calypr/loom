@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 
+	storepostgres "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/jackc/pgx/v5"
 )
@@ -58,7 +59,7 @@ RETURNING project, generation, state, schema_identity::text`,
 	)
 	err = queryRowConn(ctx, conn, command).Scan(&project, &generation, &state, &identityDB)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if storepostgres.IsUniqueViolation(err) {
 			return publication.Manifest{}, fmt.Errorf("%w: %s/%s", ErrManifestAlreadyExists, manifest.Dataset.Project, manifest.Dataset.Generation)
 		}
 		return publication.Manifest{}, fmt.Errorf("create generation manifest: %w", err)

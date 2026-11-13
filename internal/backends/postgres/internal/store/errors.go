@@ -16,6 +16,8 @@ const (
 	sqlStateSerializationFailure = "40001"
 	sqlStateDeadlockDetected     = "40P01"
 	sqlStateUniqueViolation      = "23505"
+	sqlStateForeignKeyViolation  = "23503"
+	sqlStateUndefinedTable       = "42P01"
 	sqlStateAbortedTransaction   = "25P02"
 	sqlStateQueryCanceled        = "57014"
 	sqlStateAdminShutdown        = "57P01"
@@ -341,6 +343,37 @@ func RetryableTransactionConflict(err error) bool {
 		}
 	}
 	return hasSQLState(err, sqlStateSerializationFailure) || hasSQLState(err, sqlStateDeadlockDetected)
+}
+
+func IsUniqueConstraintViolation(err error, constraints ...string) bool {
+	return matchesDriverViolation(err, sqlStateUniqueViolation, constraints)
+}
+
+func IsForeignKeyConstraintViolation(err error, constraints ...string) bool {
+	return matchesDriverViolation(err, sqlStateForeignKeyViolation, constraints)
+}
+
+func IsUndefinedTable(err error) bool {
+	pgErr, ok := pgErrorFrom(err)
+	return ok && pgErr.Code == sqlStateUndefinedTable
+}
+
+func IsDeadlockDetected(err error) bool {
+	pgErr, ok := pgErrorFrom(err)
+	return ok && pgErr.Code == sqlStateDeadlockDetected
+}
+
+func matchesDriverViolation(err error, code string, constraints []string) bool {
+	pgErr, ok := pgErrorFrom(err)
+	if !ok || pgErr.Code != code || len(constraints) == 0 {
+		return false
+	}
+	for _, name := range constraints {
+		if pgErr.ConstraintName == name {
+			return true
+		}
+	}
+	return false
 }
 
 func hasSQLState(err error, code string) bool {

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,11 +24,10 @@ import (
 var embeddedMigrationsFS embed.FS
 
 const (
-	migrationsDir          = "migrations"
-	LedgerTable            = "schema_migrations"
-	advisoryLockNamespace  = "loom:pgstore02:migrate:"
-	unlockTimeout          = 5 * time.Second
-	undefinedTableSQLState = "42P01"
+	migrationsDir         = "migrations"
+	LedgerTable           = "schema_migrations"
+	advisoryLockNamespace = "loom:pgstore02:migrate:"
+	unlockTimeout         = 5 * time.Second
 )
 
 var (
@@ -338,8 +336,7 @@ func (r *MigrationRunner) Verify(ctx context.Context) error {
 }
 
 func verifyStatementError(op string, err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if _, ok := pgErrorFrom(err); ok {
 		return err
 	}
 	return &ConnectError{Op: op, Err: err}
@@ -395,8 +392,7 @@ func (r *MigrationRunner) readLedger(ctx context.Context, conn *pgxpool.Conn) ([
 	rows, err := conn.Query(ctx,
 		"SELECT version, name, checksum, applied_at FROM "+r.ledgerFQN+" ORDER BY version")
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == undefinedTableSQLState {
+		if pgErr, ok := pgErrorFrom(err); ok && pgErr.Code == sqlStateUndefinedTable {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("postgres: read migration ledger: %w", err)

@@ -23,8 +23,6 @@ var (
 	ErrUnexpectedStoreResult      = errors.New("unexpected generation store result")
 )
 
-const uniqueViolationSQLState = "23505"
-
 var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 type ConnSource interface {
@@ -91,11 +89,6 @@ func queryRowConn(ctx context.Context, conn *pgxpool.Conn, c Command) pgx.Row {
 type errRow struct{ err error }
 
 func (r errRow) Scan(dest ...any) error { return r.err }
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolationSQLState
-}
 
 func validateProject(project string) error {
 	_, err := publication.NewRef(project, "generation-project-validation")

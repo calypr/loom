@@ -12,7 +12,6 @@ import (
 	storepostgres "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -20,7 +19,6 @@ const (
 	semanticInventoryBuildTableName     = "fhir_semantic_inventory_build"
 	maxSemanticInventoryDiagnosticBytes = 512
 	defaultSemanticInventoryDiagnostic  = "backfill failed"
-	uniqueViolationSQLState23505        = "23505"
 )
 
 var semanticBuildSchemaPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
@@ -377,9 +375,7 @@ func (r *SemanticBuildRepository) withConn(ctx context.Context, fn func(*pgxpool
 }
 
 func classifySemanticBuildWrite(op string, build catalog.SemanticInventoryBuild, err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolationSQLState23505 &&
-		pgErr.ConstraintName == semanticInventoryBuildTableName+"_key_ux" {
+	if storepostgres.IsUniqueConstraintViolation(err, semanticInventoryBuildTableName+"_key_ux") {
 		return fmt.Errorf("postgres: semantic inventory build key %s collides across scopes (corrupted sib_ derivation): %w",
 			build.Key, err)
 	}

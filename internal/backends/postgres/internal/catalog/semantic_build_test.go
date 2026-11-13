@@ -1195,3 +1195,59 @@ func TestZZZeroLeftoverSemanticInventoryBuildFixtures(t *testing.T) {
 		}
 	}
 }
+
+func TestIsConcurrentSemanticBuildKeyRaceClassification(t *testing.T) {
+	keyConstraint := semanticInventoryBuildTableName + "_key_ux"
+	race := &pgconn.PgError{Code: "23505", ConstraintName: keyConstraint, Message: "duplicate key"}
+	if !isConcurrentSemanticBuildKeyRace(race) {
+		t.Fatal("key unique violation must classify as a concurrent build race")
+	}
+	if !isConcurrentSemanticBuildKeyRace(fmt.Errorf("claim: %w", race)) {
+		t.Fatal("wrapped key unique violation must classify as a concurrent build race")
+	}
+	if isConcurrentSemanticBuildKeyRace(&pgconn.PgError{Code: "23505", ConstraintName: "fhir_semantic_inventory_build_pkey"}) {
+		t.Fatal("a different constraint's unique violation is not the build key race")
+	}
+	if isConcurrentSemanticBuildKeyRace(errors.New("plain error")) {
+		t.Fatal("a plain error is not the build key race")
+	}
+	for _, input := range []error{
+		error((*pgconn.PgError)(nil)),
+		fmt.Errorf("claim: %w", error((*pgconn.PgError)(nil))),
+		errors.Join(errors.New("context"), error((*pgconn.PgError)(nil))),
+	} {
+		if isConcurrentSemanticBuildKeyRace(input) {
+			t.Fatalf("typed-nil driver error reported as a build key race: %v", input)
+		}
+	}
+}
+
+func TestClassifySemanticBuildWriteKeepsCollisionClassification(t *testing.T) {
+	build := catalog.SemanticInventoryBuild{Key: "sib_1", Project: "p", DatasetGeneration: "g"}
+	keyConstraint := semanticInventoryBuildTableName + "_key_ux"
+	collision := &pgconn.PgError{Code: "23505", ConstraintName: keyConstraint, Message: "duplicate key"}
+	classified := classifySemanticBuildWrite("claim", build, collision)
+	if !strings.Contains(classified.Error(), "collides across scopes") {
+		t.Fatalf("key unique violation not classified as a collision: %v", classified)
+	}
+	if !errors.Is(classified, collision) {
+		t.Fatalf("collision classification lost the driver cause: %v", classified)
+	}
+	plain := errors.New("connection reset by peer")
+	classified = classifySemanticBuildWrite("claim", build, plain)
+	if !errors.Is(classified, plain) {
+		t.Fatalf("ordinary cause not preserved: %v", classified)
+	}
+	for _, input := range []error{
+		error((*pgconn.PgError)(nil)),
+		fmt.Errorf("claim: %w", error((*pgconn.PgError)(nil))),
+	} {
+		classified := classifySemanticBuildWrite("claim", build, input)
+		if classified == nil {
+			t.Fatalf("typed-nil driver error classified as no fault: %v", input)
+		}
+		if strings.Contains(classified.Error(), "collides across scopes") {
+			t.Fatalf("typed-nil driver error mistaken for a key collision: %v", classified)
+		}
+	}
+}

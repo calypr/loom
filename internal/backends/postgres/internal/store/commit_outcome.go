@@ -5,17 +5,14 @@ import (
 	"errors"
 	"net"
 	"strings"
-
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func CommitOutcomeUnknown(err error) bool {
 	if err == nil {
 		return false
 	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return strings.HasPrefix(pgErr.Code, "08") || pgErr.Code == "57P01" || pgErr.Code == "57P02"
+	if pgErr, ok := pgErrorFrom(err); ok {
+		return strings.HasPrefix(pgErr.Code, "08") || pgErr.Code == sqlStateAdminShutdown || pgErr.Code == sqlStateCrashShutdown
 	}
 	if errors.Is(err, ErrCommitOutcomeUnknown) {
 		return true

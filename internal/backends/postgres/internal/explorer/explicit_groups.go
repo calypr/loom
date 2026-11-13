@@ -432,10 +432,7 @@ func (s *ExplicitGroupStore) PutExplicitGroupDefinitions(ctx context.Context, re
 			args = append(args, string(revisionID), string(group.ID), group.Label, group.Ordinal)
 		}
 		if _, err := tx.Exec(ctx, s.stmts.defInsertStatement(len(canonical)), args...); err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == duplicateKeySQLState &&
-				(pgErr.ConstraintName == explicitGroupDefinitionPKConstraint ||
-					pgErr.ConstraintName == explicitGroupDefinitionOrdinalCK) {
+			if pgstore.IsUniqueConstraintViolation(err, explicitGroupDefinitionPKConstraint, explicitGroupDefinitionOrdinalCK) {
 				return errors.Join(explorer.ErrExplicitGroupRevisionConflict, err)
 			}
 			return fmt.Errorf("postgres explorer store: insert explicit-group definitions for %q: %w", revisionID, err)

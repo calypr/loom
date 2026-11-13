@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/calypr/loom/internal/explorer"
 
@@ -22,7 +21,6 @@ import (
 const (
 	publishTxMaxAttempts  = 4
 	publishDeadlockRetry  = 5 * time.Millisecond
-	publishDeadlockState  = "40P01"
 	publishDiagnosticsSet = "[]"
 )
 
@@ -657,6 +655,5 @@ func isTypedPublicationRefusal(err error) bool {
 }
 
 func isDeadlockError(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == publishDeadlockState
+	return pgstore.IsDeadlockDetected(err)
 }

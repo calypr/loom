@@ -15,7 +15,6 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,7 +26,6 @@ const (
 	maxRetainedSemanticPageLimit           = 1000
 	defaultSemanticContributionBatchSize   = 500
 	maxSemanticContributionChunkSize       = 1000
-	undefinedTableSQLState42P01            = "42P01"
 )
 
 var (
@@ -503,8 +501,7 @@ func (r *SemanticContributionRepository) scopedEvidenceExists(ctx context.Contex
 			return nil
 		}
 		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == undefinedTableSQLState42P01 {
+			if storepostgres.IsUndefinedTable(err) {
 				found = false
 				return nil
 			}
@@ -672,9 +669,7 @@ func (s *SemanticInventoryBackfillStore) ClaimSemanticInventoryBackfill(ctx cont
 }
 
 func isConcurrentSemanticBuildKeyRace(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505" &&
-		pgErr.ConstraintName == semanticInventoryBuildTableName+"_key_ux"
+	return storepostgres.IsUniqueConstraintViolation(err, semanticInventoryBuildTableName+"_key_ux")
 }
 
 func (s *SemanticInventoryBackfillStore) AdvanceSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, expected, next catalog.SemanticInventoryCheckpoint, scanned int64, lease time.Duration) (catalog.SemanticInventoryBuild, error) {
