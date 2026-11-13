@@ -279,6 +279,18 @@ func BuildWorkspace(workloadID string) ([]byte, error) {
 	return nil, fmt.Errorf("benchmark: no workspace template for workload %q", workloadID)
 }
 
+// BuildEmptyFloorWorkspace authors the identical-request empty-result floor
+// control: the same shape as filter-active-gender whose fixed filter cannot
+// match any patient, so the expectation is provably zero rows.
+func BuildEmptyFloorWorkspace() ([]byte, error) {
+	return patientWorkspace("empty_floor", []wsColumnDef{
+		fieldCol("patient_id", "base", "id", "VALUE", "string", 0),
+		fieldCol("gender", "base", "gender", "VALUE", "string", 1),
+	}, nil, []wsFixed{
+		{Column: "gender", Values: []string{"__bench_impossible_gender_value__"}},
+	}), nil
+}
+
 // AuthoringVerification asks the repository's own decoder about every
 // battery workspace. It runs before any service is contacted and feeds the
 // report's arm plan: rejected shapes are planned/not_run, named.

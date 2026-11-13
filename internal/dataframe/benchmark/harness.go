@@ -237,6 +237,9 @@ func MeasureArms(ctx context.Context, clock Clock, workloadID string, arango, po
 		for round := 1; round <= rounds; round++ {
 			if !warmup && coldRestart != nil {
 				for _, backend := range []string{BackendArango, BackendPostgres} {
+					if arms[backend] == nil {
+						continue // leg not participating in this scope
+					}
 					if err := coldRestart(ctx, arms[backend]); err != nil {
 						samples = append(samples, Sample{WorkloadID: workloadID, Backend: backend, Outcome: OutcomeError, ErrorCode: "cold restart: " + err.Error()})
 					}
@@ -246,6 +249,9 @@ func MeasureArms(ctx context.Context, clock Clock, workloadID string, arango, po
 				iteration++
 				for _, backend := range []string{BackendArango, BackendPostgres} { // fixed order: matched scheduling
 					arm := arms[backend]
+					if arm == nil {
+						continue
+					}
 					started := clock.Now()
 					result, err := arm.ExecuteOutput(ctx, tokenFor(backend, opts), opts.Project, opts.Explorer,
 						receiptIDs[backend], outputIDs[backend], opts.PreviewLimit)
@@ -475,4 +481,21 @@ func (a *Arm) AuthorWorkload(ctx context.Context, token, project, generation str
 		return "", "", err
 	}
 	return explorerID, receiptID, nil
+}
+
+// NegativeAuthControlSingleArm runs the pre-timing authorization gate for
+// the single participating arm.
+func NegativeAuthControlSingleArm(ctx context.Context, workloadID string, arm *Arm, opts RunOptions, receiptIDs, outputIDs map[string]string) WorkloadGateReport {
+	backend := arm.Backend
+	baseline, err := arm.ExecuteOutput(ctx, opts.UnrestrictedToken, opts.Project, opts.Explorer, receiptIDs[backend], outputIDs[backend], opts.PreviewLimit)
+	baselineRows := rowCountOr(baseline, err)
+	scoped, scopedErr := arm.ExecuteOutput(ctx, opts.ScopedToken, opts.Project, opts.Explorer, receiptIDs[backend], outputIDs[backend], opts.PreviewLimit)
+	return EvaluateNegativeAuthSingleArm(workloadID, backend, baselineRows, rowCountOr(scoped, scopedErr), errorText(scopedErr))
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

@@ -16,18 +16,20 @@ import (
 // fakeArm serves the public routes the harness uses, with scripted rows per
 // (backend, output) so the offline tests pin the client and protocol.
 type fakeArm struct {
-	server     *httptest.Server
-	mu         sync.Mutex
-	calls      []string // ordered "backend:route:output"
-	rows       map[string][]map[string]any
-	columns    []string
-	sampled    bool
-	leakScoped bool
-	failWith   map[string]int // output -> status
-	uploads    int
-	publish    int
-	noSnapshot bool
-	authoring  []string // ordered create/builder/reconcile calls
+	server      *httptest.Server
+	mu          sync.Mutex
+	calls       []string // ordered "backend:route:output"
+	rows        map[string][]map[string]any
+	columns     []string
+	sampled     bool
+	leakScoped  bool
+	failWith    map[string]int // output -> status
+	uploads     int
+	publish     int
+	noSnapshot  bool
+	scopedToken string // when the bearer equals this, deny like production: zero rows
+	explorerID  string
+	authoring   []string // ordered create/builder/reconcile calls
 }
 
 func (f *fakeArm) authoringCalls() []string {
@@ -53,8 +55,12 @@ func newFakeArm(backend string) *fakeArm {
 			}
 			f.mu.Lock()
 			f.authoring = append(f.authoring, "create:"+name)
+			explorerID := f.explorerID
+			if explorerID == "" {
+				explorerID = "exp-created"
+			}
 			f.mu.Unlock()
-			_ = json.NewEncoder(w).Encode(map[string]any{"explorerId": "exp-created"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"explorerId": explorerID})
 			return
 		case strings.Contains(path, "/authoring/v2/builder"):
 			explorer := path[strings.LastIndex(path, "/explorers/")+len("/explorers/") : strings.Index(path, "/authoring")]
@@ -79,10 +85,14 @@ func newFakeArm(backend string) *fakeArm {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			output, _ := body["outputId"].(string)
+			rows := f.rows[output]
+			if f.scopedToken != "" && r.Header.Get("Authorization") == f.scopedToken && !f.leakScoped {
+				// production denial shape: restricted intersection => rows: []
+				rows = []map[string]any{}
+			}
 			f.mu.Lock()
 			f.calls = append(f.calls, fmt.Sprintf("%s:preview:%s", backend, output))
 			status := f.failWith[output]
-			rows := f.rows[output]
 			columns := f.columns
 			sampled := f.sampled
 			f.mu.Unlock()

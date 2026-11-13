@@ -290,3 +290,34 @@ func FormatExclusionList(reports []WorkloadGateReport) string {
 	}
 	return "timings excluded (correctness not passed): " + strings.Join(excluded, "; ")
 }
+
+// EvaluateNegativeAuthSingleArm applies the pre-timing authorization gate
+// for a single participating arm (postgres-only sessions): the ran arm must
+// see data unrestricted and zero rows scoped; the absent arm is disclosed,
+// never imputed a pass.
+func EvaluateNegativeAuthSingleArm(workloadID, backend string, unrestrictedRows, scopedRows int, scopedErr string) WorkloadGateReport {
+	report := WorkloadGateReport{WorkloadID: workloadID, Claimable: true}
+	add := func(pass bool, format string, args ...any) {
+		result := GateResult{Gate: GateNegativeAuth, Pass: pass}
+		if !pass {
+			result.Detail = fmt.Sprintf(format, args...)
+			report.Claimable = false
+			if report.ExclusionReason == "" {
+				report.ExclusionReason = "negative_auth: " + result.Detail
+			}
+		}
+		report.Gates = append(report.Gates, result)
+	}
+	if unrestrictedRows <= 0 {
+		add(false, "unrestricted baseline has %d rows; a denial against an empty dataset proves nothing", unrestrictedRows)
+		return report
+	}
+	if scopedErr != "" {
+		add(false, "%s scoped read errored (%q); a transport failure is not a denial", backend, scopedErr)
+		return report
+	}
+	add(scopedRows == 0, "%s scoped principal saw %d rows outside its grant", backend, scopedRows)
+	report.Gates = append(report.Gates, GateResult{Gate: GateAuthUnrestricted, Pass: true,
+		Detail: fmt.Sprintf("unrestricted baseline rows=%d; other arm disclosed as not run", unrestrictedRows)})
+	return report
+}
