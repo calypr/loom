@@ -23,12 +23,31 @@ type Arm struct {
 	BaseURL string
 	Client  *http.Client
 	Proc    *ServerProcess // nil for external arms; required for process-cold samples
+	// AuthResourcePath is the Calypr resource path this benchmark loads and
+	// publishes under. Scoped authorization rejects a durable write without
+	// it (AuthorizeWrite: "auth_resource_path is required when scoped
+	// authorization is enabled"), and the routes read it from the query, not
+	// the body. Empty means the deployment runs unscoped, and no param is
+	// sent.
+	AuthResourcePath string
 }
 
 func (a *Arm) authed(req *http.Request, token string) {
 	if token != "" {
 		req.Header.Set("Authorization", token)
 	}
+}
+
+// scoped adds the auth_resource_path query parameter that every durable
+// write route requires under scoped authorization.
+func (a *Arm) scoped(endpoint string) string {
+	if strings.TrimSpace(a.AuthResourcePath) == "" {
+		return endpoint
+	}
+	if strings.Contains(endpoint, "?") {
+		return endpoint + "&auth_resource_path=" + url.QueryEscape(a.AuthResourcePath)
+	}
+	return endpoint + "?auth_resource_path=" + url.QueryEscape(a.AuthResourcePath)
 }
 
 // UploadGeneration posts the NDJSON fixture files to the dataset route.
@@ -85,7 +104,7 @@ type Publication struct {
 
 // PublishWorkspace posts the authored workspace for one workload.
 func (a *Arm) PublishWorkspace(ctx context.Context, token, project, generation string, workspace []byte, sourceCommit string) (Publication, error) {
-	endpoint := a.BaseURL + "/api/v1/projects/" + url.PathEscape(project) + "/generations/" + url.PathEscape(generation) + "/explorer-config"
+	endpoint := a.scoped(a.BaseURL + "/api/v1/projects/" + url.PathEscape(project) + "/generations/" + url.PathEscape(generation) + "/explorer-config")
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(workspace))
 	if err != nil {
 		return Publication{}, err
@@ -374,7 +393,7 @@ func (a *Arm) authoringURL(project, explorer string) string {
 // CreateExplorer clones a new explorer from sourceExplorerID (usually the
 // seeded "default") so each workload owns an independent draft.
 func (a *Arm) CreateExplorer(ctx context.Context, token, project, name, title, sourceExplorerID string) (string, error) {
-	endpoint := a.BaseURL + "/api/v1/projects/" + url.PathEscape(project) + "/explorers"
+	endpoint := a.scoped(a.BaseURL + "/api/v1/projects/" + url.PathEscape(project) + "/explorers")
 	body, _ := json.Marshal(map[string]any{"name": name, "title": title, "sourceExplorerId": sourceExplorerID})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -425,7 +444,7 @@ func (a *Arm) FetchBuilderState(ctx context.Context, token, project, explorer st
 // Reconcile compiles the current draft and returns its receipt id. The
 // receipt is what ties a preview to an exact authored revision.
 func (a *Arm) Reconcile(ctx context.Context, token, project, explorer, outputID string, state BuilderState) (string, error) {
-	endpoint := a.authoringURL(project, explorer) + "/reconcile"
+	endpoint := a.scoped(a.authoringURL(project, explorer) + "/reconcile")
 	body := map[string]any{
 		"snapshotToken": state.SnapshotToken(),
 		"draftVersion":  state.DraftVersion,

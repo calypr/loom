@@ -400,7 +400,7 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 func startArm(ctx context.Context, backend string, cfg ArmConfig, spawn SpawnFunc, opts DriverOptions) (*runningArm, error) {
 	if cfg.BaseURL != "" {
 		return &runningArm{
-			arm:      &Arm{Backend: backend, BaseURL: strings.TrimRight(cfg.BaseURL, "/"), Client: &http.Client{Timeout: 120 * time.Second}},
+			arm:      &Arm{Backend: backend, BaseURL: strings.TrimRight(cfg.BaseURL, "/"), Client: &http.Client{Timeout: 120 * time.Second}, AuthResourcePath: opts.Params.AuthResourcePath},
 			evidence: ArmEvidence{Backend: backend, BaseURL: cfg.BaseURL, Spawned: false},
 		}, nil
 	}
@@ -429,7 +429,7 @@ func startArm(ctx context.Context, backend string, cfg ArmConfig, spawn SpawnFun
 		return nil, err
 	}
 	return &runningArm{
-		arm:      &Arm{Backend: backend, BaseURL: "http://" + listen, Client: &http.Client{Timeout: 120 * time.Second}, Proc: proc},
+		arm:      &Arm{Backend: backend, BaseURL: "http://" + listen, Client: &http.Client{Timeout: 120 * time.Second}, Proc: proc, AuthResourcePath: opts.Params.AuthResourcePath},
 		proc:     proc,
 		evidence: ArmEvidence{Backend: backend, BaseURL: "http://" + listen, LogPath: proc.LogPath(), Spawned: true},
 	}, nil
