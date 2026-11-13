@@ -2,8 +2,6 @@ import { access, constants, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// Tokenize enough to ignore quoted test fixtures/comments; this is a dependency
-// inventory, not a JavaScript parser or proof about computed imports.
 function tokens(source) {
   const result = [], contexts = [];
   let index = 0, expressionStart = true;
@@ -69,8 +67,6 @@ function tokens(source) {
     if (operator === '(') contexts.push(controls.has(previous));
     expressionStart = operator === ')' ? Boolean(contexts.pop())
       : operator === ']' || operator === '++' || operator === '--' || operator === '?.' || operator === '.' ? false
-        // A closing block can begin a new regex statement. Ambiguous brace
-        // contexts prefer retaining a test over treating regex text as imports.
         : operator === '}' ? true : !/^[0-9]$/.test(operator);
     result.push({ value: operator, string: false });
   }
@@ -112,7 +108,6 @@ function formatNodeTestProblems(problems) {
 
 const POLICY = 'Relative static and literal dynamic import/require closure plus literal test-owned URL fixture existence; executable Playwright package imports and the retired browser directory are explicit nonfatal exclusions, incidental strings retained. A missing or unreadable retained dependency or test-owned fixture fails the inventory. Computed imports and external package availability are not proven.';
 
-/** A retained Node test can no longer execute because its source closure is broken. */
 export class NodeTestInventoryError extends Error {
   constructor(problems) {
     super(formatNodeTestProblems(problems));
@@ -136,14 +131,13 @@ async function scanRoots(projectRoot) {
   return candidates.sort();
 }
 
-/** Classify every candidate root against the shared dependency-closure policy. */
 async function nodeTestClassification(projectRoot) {
   const graph = new Map();
   const relative = file => path.relative(projectRoot, file).split(path.sep).join('/');
   async function load(file) {
     if (graph.has(file)) return;
     const node = { dependencies: [], problems: [] };
-    graph.set(file, node); // Register before recursion; cycles are checked per root below.
+    graph.set(file, node);
     let source;
     try { source = await readFile(file, 'utf8'); }
     catch (error) {
@@ -154,7 +148,6 @@ async function nodeTestClassification(projectRoot) {
       if (asset) {
         if (!file.endsWith('.test.mjs') || !specifier.startsWith('.')) continue;
         const dependency = path.resolve(path.dirname(file), specifier);
-        // Read access, not mere existence: the retained test reads this fixture.
         try { await access(dependency, constants.R_OK); }
         catch (error) { node.problems.push({ reason: 'missing-source-fixture', file: relative(dependency), code: error.code, target: relative(dependency) }); }
         continue;
@@ -177,9 +170,6 @@ async function nodeTestClassification(projectRoot) {
       continue;
     }
     await load(candidate);
-    // Inspect the complete retained closure: an intentional browser exclusion
-    // in one branch must not hide a missing dependency in another branch,
-    // including one reachable only through an import cycle.
     const queue = [[candidate]], seen = new Set(), found = [];
     for (let index = 0; index < queue.length; index++) {
       const chain = queue[index], file = chain.at(-1);
@@ -202,12 +192,6 @@ async function nodeTestClassification(projectRoot) {
   return { included, excluded, problems };
 }
 
-/**
- * List the retained Node tests for the CI shards. A missing or unreadable
- * retained dependency or test-owned URL fixture rejects instead of returning a
- * silently shrunken selection; explicit Playwright and retired-browser
- * exclusions stay ordinary results.
- */
 export async function nodeTestInventory(projectRoot = process.cwd()) {
   const { included, excluded, problems } = await nodeTestClassification(projectRoot);
   if (problems.length) throw new NodeTestInventoryError(problems);
@@ -224,7 +208,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   }
   catch (error) {
     if (!(error instanceof NodeTestInventoryError)) throw error;
-    // Never emit a shrunken selection that CI could run as if it were complete.
     await new Promise((resolve, reject) => process.stderr.write(`${error.message}\n`, error2 => error2 ? reject(error2) : resolve()));
     process.exitCode = 1;
   }

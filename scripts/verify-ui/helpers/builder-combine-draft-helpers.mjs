@@ -53,8 +53,6 @@ const normalizeConstructionOutputNullability = (construction) => {
   };
 };
 
-// Go omits false StageColumn.Nullable values on the response wire. Compare the
-// complete construction after only that one default-value normalization.
 export const constructionCandidateWireEquivalent = (request, response) =>
   isDeepStrictEqual(
     normalizeConstructionOutputNullability(request),

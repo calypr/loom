@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// Named Go test-event gate: reads `go test -json` output on stdin and fails
-// unless every required test (and every required subtest) emits run -> pass
-// with zero skips anywhere in the stream. A package exit code is never
-// acceptance: a filtered run that selects zero tests, a skip, or a silent
-// rename of a required test all fail this gate.
-//
-// Reuses the authoritative checkGoEvents from run-postgres-integration.mjs so
-// CI named gates and live integration runners share one acceptance semantics.
-//
-// Usage: go test -json -count=1 <pkg> -run '^TestX$' \
-//   | node scripts/lib/check-go-test-events.mjs TestX TestX/sub_a ...
 import { readFileSync } from 'node:fs';
 import { checkGoEvents } from '../run-postgres-integration.mjs';
 

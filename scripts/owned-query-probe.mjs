@@ -93,7 +93,6 @@ function escapeScriptAtSigns(script) {
   return script.replaceAll('@', '\\u0040');
 }
 
-/** Build the bounded arangosh request script used for parser plus EXPLAIN. */
 export function buildExplainRequestScript({ database = DATABASE, query, bindVars }) {
   const requestBody = quoteJavaScript(JSON.stringify({ query, bindVars }));
   const parseBody = quoteJavaScript(JSON.stringify({ query }));
@@ -266,7 +265,6 @@ try {
   return escapeScriptAtSigns(script);
 }
 
-/** Build the single bounded read-only db._query request script. */
 export function buildExecuteRequestScript({ query, bindVars, maxRuntimeSeconds, memoryLimitBytes, safeIntegerCounts = false, captureRows = false }) {
   const queryLiteral = quoteJavaScript(query);
   const bindLiteral = quoteJavaScript(bindVars);

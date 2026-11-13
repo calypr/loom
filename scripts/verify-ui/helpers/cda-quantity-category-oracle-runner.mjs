@@ -6,25 +6,6 @@ import {
 
 const RESULT_MARKER = '__LOOM_CDA_QUANTITY_ORACLE_RESULT__';
 
-/**
- * Run the independent raw-Arango quantity-category oracle for a local CDA
- * browser verification.
- *
- * The permanent Builder verifier runs against the local Compose API started
- * with `--no-auth` (see `compose.yaml`). That path has a nil ScopeResolver,
- * which source resolves to `ReadScopeUnrestricted`; therefore this runner
- * accepts only the corresponding explicit allow-mode binds. It deliberately
- * does not treat arbitrary resource-path arrays as proof of a restricted
- * caller's effective Fence scope. For a restricted/authenticated deployment,
- * obtain its resolved scope through a separately verified authorization path
- * before building an oracle query.
- *
- * @param {{project:string,dataset_generation:string,auth_resource_paths:string[],auth_resource_paths_unrestricted:boolean,scope_allowed:true}} scopeBinds
- *   Exact project and immutable generation from the selected CDA source, plus
- *   the local no-auth allow-mode scope. All fields are required.
- * @param {{container?:string,database?:string,dockerCommand?:string[],timeoutMs?:number,maxRuntime?:number}} [options]
- * @returns {{durationMs:number,oracle:object}}
- */
 export function runCDAQuantityCategoryOracle(scopeBinds, options = {}) {
   const { query, bindVars } = buildCDAQuantityCategoryOracle(scopeBinds);
   if (bindVars.auth_resource_paths_unrestricted !== true || bindVars.auth_resource_paths.length !== 0) {
@@ -44,13 +25,6 @@ export function runCDAQuantityCategoryOracle(scopeBinds, options = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('timeoutMs must be a positive integer');
   if (!Number.isFinite(maxRuntime) || maxRuntime <= 0) throw new Error('maxRuntime must be a positive number of seconds');
 
-  // Arangosh canonicalizes --javascript.execute paths and rejects /dev/stdin
-  // in the container image. Feed the program through Docker stdin into a
-  // uniquely named, private script file and remove it from an EXIT trap. The
-  // shell text is fixed; database and file path are positional arguments, and
-  // AQL/binds are JSON literals rather than shell text. This is only a
-  // temporary execution script; oracle results return over stdout and do not
-  // depend on any /tmp capture file.
   const script = `try {
   const rows = db._query(${JSON.stringify(query)}, ${JSON.stringify(bindVars)}, { maxRuntime: ${maxRuntime} }).toArray();
   print(${JSON.stringify(RESULT_MARKER)} + JSON.stringify({ ok: true, rows }));

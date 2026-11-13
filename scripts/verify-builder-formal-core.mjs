@@ -54,14 +54,8 @@ const emit = async (value) => new Promise((resolve, reject) => process.stdout.wr
 if (options.phase === 'inventory') {
     assert.ok(!options.feature && !options.pattern && !options.list, 'Inventory is a read-only command');
     const { verificationInventory } = await import('./lib/verification-inventory.mjs');
-    // A broken retained dependency closure rejects here, so the phase fails
-    // nonzero instead of emitting a reduced inventory.
     const inventory = await verificationInventory(options.projectRoot ? resolve(options.projectRoot) : root);
     if (options.out) {
-        // Resolve the output directory like every other --out path, then write a
-        // unique temp file in that same directory and rename it into place, so an
-        // interrupted or ENOSPC write can never leave a truncated document for the
-        // if-always upload step to publish. Same directory keeps the rename atomic.
         const outDirectory = resolve(options.out);
         mkdirSync(outDirectory, { recursive: true });
         const target = join(outDirectory, 'verification-inventory.json');

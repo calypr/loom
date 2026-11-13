@@ -76,7 +76,6 @@ const predicateProperties = {
     identity: 'Inv_AcceptedReceiptIsCurrent', snapshot: 'Inv_AcceptedReceiptMatchesRequest',
     output: 'Inv_ReceiptSelectsRequestedOutput', retry: 'Inv_RetryBounds', refresh: 'Inv_RetryBounds',
 };
-/** Evaluate the production predicate and a separate finite-domain oracle. */
 function predicateInput(api, kind, property, inputs) {
     assert.ok(Object.hasOwn(predicateProperties, kind), 'Unknown predicate witness kind');
     assert.equal(predicateProperties[kind], property, 'Unknown predicate witness property/kind');

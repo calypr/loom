@@ -13,7 +13,6 @@ const waitForPromises = (promises, timeoutMs) => new Promise((resolve, reject) =
   ]).then(resolve, reject).finally(() => clearTimeout(timer));
 });
 
-/** Capture Policy One's complete setup and formal authoring transport span by exact Playwright Request identity. */
 export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHORING_PREFIX } = {}) => {
   const captures = [];
   const entriesByRequest = new WeakMap();
