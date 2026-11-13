@@ -1217,7 +1217,7 @@ func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, project,
 	t.Helper()
 	query := `LET d = FIRST(FOR doc IN @@collection FILTER doc.project == @project AND doc.dataset_generation == @generation AND doc.logical_key == @logicalKey RETURN doc) RETURN d != null && d.payload != null && HAS(d.payload, @attribute)`
 	body := fmt.Sprintf(`{"query":%q,"bindVars":%s}`, query, mustAB10JSON(t, map[string]any{
-		"collection": collection, "project": project, "generation": generation,
+		"@collection": collection, "project": project, "generation": generation,
 		"logicalKey": logicalKey, "attribute": attribute,
 	}))
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
