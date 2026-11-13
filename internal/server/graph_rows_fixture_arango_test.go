@@ -35,6 +35,14 @@ func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
 	graphRowsIndependentFixtureAgainstArango(t, "fixture-v1", false, false, "original")
 }
 
+func TestGraphRowsDefaultRelatedInventoryAgainstArango(t *testing.T) {
+	for _, mode := range []string{"known", "drift", "type", "related-source", "related-source-drift", "related-source-type"} {
+		t.Run(mode, func(t *testing.T) {
+			graphRowsIndependentFixtureAgainstArango(t, "fixture-v1", false, false, "default-"+mode)
+		})
+	}
+}
+
 func TestGraphRowsLogicalContributorOrderAgainstArango(t *testing.T) {
 	for _, values := range []string{"original", "swapped", "duplicate"} {
 		for _, reverse := range []bool{false, true} {
@@ -111,6 +119,13 @@ func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, q
 				t.Fatal(err)
 			}
 			id := payload["id"].(string)
+			if collection == "ResearchSubject" && (values == "default-drift" || values == "default-related-source-drift") {
+				identifiers, _ := payload["identifier"].([]any)
+				payload["identifier"] = append(identifiers, map[string]any{"system": "urn:unexpected", "value": "unexpected"})
+			}
+			if collection == "ResearchSubject" && (values == "default-type" || values == "default-related-source-type") {
+				payload["identifier"] = []any{map[string]any{"system": "urn:graph-rows", "value": 123}}
+			}
 			if qualified && collection == "ResearchSubject" {
 				payload["meta"] = map[string]any{"lastUpdated": "2022-01-01T00:00:00Z"}
 				payload["extension"] = []any{map[string]any{"valueInteger": 9}, map[string]any{"valueInteger": 1}, map[string]any{"valueInteger": 9}}
@@ -180,7 +195,7 @@ func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, q
 		insert(collection, documents)
 	}
 	insert("fhir_edge", edges)
-	if !qualified {
+	if !qualified && !strings.HasPrefix(values, "default-") {
 		t.Run("group-dynamic-source-runtime-validation", func(t *testing.T) { graphRowsCheckGroupedDynamicInventories(t, ctx, client) })
 	}
 	var oracle struct {
@@ -257,6 +272,10 @@ func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, q
 			}
 		}
 		return rows
+	}
+	if strings.HasPrefix(values, "default-") {
+		graphRowsCheckDefaultRelatedInventory(t, ctx, client, generation, strings.TrimPrefix(values, "default-"))
+		return
 	}
 	if qualified {
 		if vertexKey("Observation", "obs-many-A") < vertexKey("Observation", "obs-many-B") {

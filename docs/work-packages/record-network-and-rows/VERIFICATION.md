@@ -36,11 +36,31 @@ and ordinary passes do not prove the complementary-editor follow-up.
 | Current imported whole case | PASS, 77.747s; all five outputs, overlay lifecycle, immutable pins, real two-editor 409 and explicit stale-owner Cancel, no ADD_ROUTE | `/tmp/loom-followup-imported-2/{command.json,native-evidence.json}` |
 | First-table metadata scheduling repair | reviewed one-action scheduling gate skips intermediate CREATE/ADD metadata without claiming network ownership; 37 focused tests and full test TypeScript pass. Parent controlled native red/green proves fresh final identity loading; no 409 waiver | `/workspace/loom-followup-root-review/work/review-first-table-network/receipt.md`; `/tmp/loom-ordinary-network-race/{red-coordinator,green-coordinator-2}` |
 | Ordinary attempts 1–2 | attempt 1 fails initial metadata race (21.963s). After the scheduling fix, attempt 2 completes functional actions but fails strict semantic-inventory assertion on a 409 after REMOVE_ROUTE (26.780s); incomplete, not an ordinary whole-case pass | `/tmp/loom-followup-ordinary-{1,2}/` |
-| Fresh authenticated doctor | exit 2: missing `LOOM_E2E_TOKEN` or token file; authenticated lifecycle not run | `/tmp/loom-followup-readiness-1794553181550017402/{commands.json,authenticated.log}` |
+| Closed Advanced catalog visibility repair | reviewed minimal gate prevents closed setup from mounting either background ConceptCatalog; root picker/main Add Columns/other forms unchanged. Two actual Builder tests pass (8.29s, 16 unrelated filtered skips); full TypeScript exit 0 | `/workspace/loom-followup-root-review/work/review-advanced-catalog/receipt.md`; `/tmp/loom-advanced-catalog-{focused,tsc}.log` |
+| Semantic-inventory race controlled native proof | coordinator red reproduces correlated stale 409 (17.937s); green has zero semantic-inventory requests, five real commands 200, exact four rows, full workspace and reload intact (19.896s). Scoped repair proof, not ordinary whole-case acceptance; initial optional-dispatch diagnostic retained as incomplete | `/tmp/loom-ordinary-semantic-race/{red-coordinator-2,green-coordinator}/`; red `correlated-api.log` |
+| Carry-in attempt 1 | source-step Preview/Cancel/Apply/edit/reload/restore passes; complete case fails stale public-field-name Group oracle (exit 1, 54.119s). Parent independently resolves stable IDs to patient_gender/status and verifies exact four tuples/counts in real receipt. Initial adapter review subsequently invalidated by carry-in 2; whole-case repair/rerun pending | `/tmp/loom-followup-carry-in-1/`; `/tmp/loom-carry-group-alias/parent-proof.json` |
+| Prior root UI build | actual exit 0; package Vite 46.53s / demo 24.79s; chunk-size warning remains. Later row-panel epoch repair invalidates affected build coverage; final UI build must repeat | `/tmp/loom-followup-final-catalog-build.log` |
+| Initial Group preview public-name adapter (invalidated) | earlier 13-test/review result used an incorrect internal sourceColumns mock shape. Native carry-in 2 disproved public compatibility; retain these passes only as historical focused evidence, not adapter acceptance | `/workspace/loom-followup-native-review/work/review-native/group-preview-alias-receipt.md`; `/tmp/loom-group-alias-parent-focused.log` |
+| Ordinary attempt 3 | WHOLE PASS, 26.431s, current source cec3182784afcb07ec1926ef3a49757085c2fd9db380322ec7947f4056fb40e4; six parent-verified actions, zero errors/409; API source/binary unchanged | `/tmp/loom-followup-ordinary-3/` |
+| Carry-in attempt 2 | WHOLE FAIL, 46.039s; eight source-step actions pass. Group helper reads absent internal candidateConstruction.sourceColumns; actual public proposal uses stages[source_projection].columns. Public-shape repair and carry-in helper/source registration now reviewed; complete native rerun pending | `/tmp/loom-followup-carry-in-2/`; invalidation appended to `/workspace/loom-followup-native-review/work/review-native/group-preview-alias-receipt.md` |
+| Public Group helper/registration repair | reviewed public stages-only mapping; no internal sourceColumns fallback. Parent old-helper TypeError reproduced; repaired main resolves unchanged real response to exact four literal tuples/counts. Parent registered carry checks 21/21 pass, actual exit 0 (14.691s); writer 21 pass (1.800s), independent 13 tests plus actual public record/13 adversarial controls pass | `/workspace/loom-followup-candidate/work/review-group-public/receipt.md`; `/tmp/loom-group-public-parent-registered.log`; `/tmp/loom-public-group-proposal/{parent-red.log,parent-green-main.log,parent-green-proof.json}` |
+| Carry-in attempt 3 | WHOLE FAIL, 79.633s at c352273281cb3abb527d17b61db18cf084016e9f33b57c0ff07d0dd59517405b. Eight source-step actions and exact Group tuple/count Preview/Cancel/Apply pass; delayed row choices reopen chooser (1 instead of 0), a confirmed product race | `/tmp/loom-followup-carry-in-3/` |
+| Row chooser handoff repair | reviewed two-path epoch invalidation for workspace Group/Related handoff; no shared cancellation, new effects or owner teardown. Actual Row Settings 54 tests pass (9.17s), full test TypeScript exit 0. Parent native red proves chooser 0→late actual 200 choices→1 with Group visible, unchanged saved state and zero blocked writes; parent repaired native green actual exit 0: after real response.finished and two frames chooser stays 0, Group visible, saved identity unchanged, blocked writes 0; elapsed not instrumented | `/workspace/loom-followup-root-review/work/review-row-settings-closure/receipt.md`; `/tmp/loom-row-settings-closure-{red,green}.log`; `/tmp/loom-row-choices-race/{red,green}-coordinator.log` |
+| Final chooser root UI build | actual exit 0 including TypeScript; package Vite 34.02s / demo 24.95s. No later product UI/source change recorded; chunk warning remains | `/tmp/loom-followup-final-chooser-build.log` |
+| Carry-in attempt 4 | WHOLE PASS, 73.707s, 17 native actions: eight source-step Preview/Cancel/Apply/edit/reload/restore actions, exact four-tuple Group Preview/Cancel/Apply with closed chooser, stage-bound ALL contributors, reload exact counts/values, saved Group edit/removal/reload restores original source. Zero browser/write/HTTP conflicts; source/API identity unchanged before/after | `/tmp/loom-followup-carry-in-4/{command.json,native-evidence.json}` |
+| Related rows attempt 1 | WHOLE PASS, 56.780s, seven actions; exact six preserve-parent/five drop-parent pairs and full lifecycle at source 45142ac0… | `/tmp/loom-followup-related-rows-1/` |
+| Upstream dependency attempt 1 | WHOLE PASS, 51.134s, four actions; atomic dependency rejection plus Group removal/reload at source 45142ac0…. Includes one expected HTTP 422 INVALID_IMPORTED_RELATIONSHIP; do not describe it as zero HTTP errors globally | `/tmp/loom-followup-upstream-dependency-1/` |
+| Mixed attempt 1 | WHOLE FAIL, 106.045s; Observation FIRST→ALL edit/reload and exact six-pair expansion retaining ALL lists pass. Explicit per-match scalar Preview returns 503 BACKEND_UNAVAILABLE; no Apply. RELATED_FIELD drops hidden __loom_dynamic_runtime_keys; validator reports missing identifier_by_system metadata | `/tmp/loom-followup-mixed-1/`; `/tmp/loom-mixed-scalar-metadata/parent-red.json` |
+| Mixed metadata repair (investigation checkpoint) | subsequently completed as compiler 21 below. Original minimal preserveDynamicRuntimeKeys admission and default-chain regression preserve generic historical 20 read/nonexecution/cache separation and current-only proposal-binding guards | candidate-contract isolated repair; parent persisted receipt_58426f50… reproduction is 503 with full workspace/version/digest unchanged |
+| Compiler-21 related inventory repair | integrated, reviewed seven-path unit: only RELATED_FIELD/RELATED_SOURCE admitted to existing hidden metadata carry; no metadata invention, drift/type guards retained, private keys removed before public output. Full affected compiler/.../execution/explorer/authoringv2/recipeimport/lifecycle pass with actual exit 0 (execution 11.310s; lifecycle 22.153s). Six real-Arango RF/RS known/drift/type cases pass (1.51s); parent independently passes all six (1.18s) | `/workspace/loom-followup-candidate-review/work/review-candidate/inventory21/receipt.md`; `/tmp/loom-related-inventory-parent-green.log` |
+| Fresh compiler-21 scalar native proof | no-Apply native proof passes (20.079s); parent fresh public request replay 200/READY, exact six pair/list/scalar literals, all prior public values preserved, no private leak. Cancel preserves full workspace/version/digest | `/tmp/loom-scalar-api21-proof/fresh-worker/result.json`; `/tmp/loom-scalar-api21-proof/parent-green.json` |
+| Previous proposal refusal | old compiler-20 proposal returns 503 RECEIPT_STORE_UNAVAILABLE from current-contract guard. Initial private expected-409 assumption was wrong and stopped before fresh browser proof; not a clean 409 migration or universal old-proposal readability claim | `/tmp/loom-scalar-api21-proof/worker/old-v20-receipt.json` |
+| Group missing-policy extension | five reviewed harness/fixture paths add explicit EXCLUDE Preview/Cancel/Apply/reload then restore GROUP, preserving all prior assertions and deadlines; parent 22 registered checks pass (actual exit 0, 0.993s). Full 23-action carry-in rerun pending | `/workspace/loom-followup-root-review/work/review-group-missing-policy/receipt.md`; `/tmp/loom-group-missing-policy-parent-checks.log` |
+| Refreshed authenticated doctor | actual exit 2 (0.309s): `usage: set LOOM_E2E_TOKEN or pass --token-file PATH`; no token available and no authenticated remote check performed. This credential blocker is separate from owned native coverage | `/tmp/loom-followup-authenticated-doctor-final.log`; earlier readiness `/tmp/loom-followup-readiness-1794553181550017402/` |
 
 The successful draft source fingerprint is
 `538fe62f7a3537eaa1debb9a32ee5a7c9f6856dd12cbfd0da6911a5dfb7fa7e3`.
-Its framework baseline metadata is not the working-branch baseline. The later reducer delta is covered by 27 focused tests and native red/green diagnosis; unchanged UI coverage is reused rather than rerunning the broad 210-test suite solely for that one-line repair. Final production UI build remains pending after the native repair batch. Backend ordering review is closed; source-label and row-focus deltas are covered by 40 focused tests and full test TypeScript, not a claimed full current 210-test rerun. Earlier draft
+Its framework baseline metadata is not the working-branch baseline. The later reducer delta is covered by 27 focused tests and native red/green diagnosis; unchanged UI coverage is reused rather than rerunning the broad 210-test suite solely for that one-line repair. The prior root UI production build passed; the later row-panel repair now has a repeated passing final build; complete native acceptance remains incomplete. Backend ordering review is closed; source-label and row-focus deltas are covered by 40 focused tests and full test TypeScript, not a claimed full current 210-test rerun. Earlier draft
 attempts remain recorded: 30s timeout without a report; 171 pass/29 fail; then
 199 pass/1 fail. They are failed/incomplete investigations, not additional passes.
 The isolated source-collection adapter experiment was abandoned and is excluded.
@@ -80,8 +100,8 @@ The imported pass belongs to native fingerprint
 `00990f30edd660c72d6cfa6c251e0033ddda4a544527768a866b8f54eb7b2ae1`.
 The later first-table scheduling gate changes current source to `557e277f75787a93245e18d7ee0a285c61e782b80e48ac2660290b0c660033a7`;
 retain its full identity in each new native report rather than promoting earlier passes.
-Only imported has a recorded complete pass at its recorded fingerprint at this checkpoint;
-ordinary attempt 2 is incomplete after a strict post-REMOVE_ROUTE semantic-inventory 409. The earlier graph/row whole passes and canonical comparison
+Imported and ordinary now have whole passes at their individually recorded fingerprints;
+ordinary attempt 2 remains failed historical evidence. The earlier graph/row whole passes and canonical comparison
 at `01b7fd280661390fd82e0fa776af21f3b3967b675e31f99760bd104bc24b328f`
 retain their exact scopes; final graph/row reruns remain required after the harness
 batch. Current API source is
@@ -101,6 +121,80 @@ Owned qualitative screenshot review found the five editing views usable, with sm
 graph text and internal scrolling at 900px; it does not establish the actual
 267-column authenticated Calypr frame. Fresh 100-operation fixture creation and
 its native case remain pending; no absent historical fixture proof is substituted.
+
+Backend contracts and contributor-ordering implementation are now committed in
+`60af4516`; this does not close UI/native acceptance. Advanced catalog review
+manifest is `d8f3de742f6f426d9ce8b8ef81eaef5666b82025b8ea8a8da5e69c89b4d27267`; exact production/test hashes are retained in
+`/workspace/loom-followup-root-review/work/review-advanced-catalog/manifest.json`
+(Builder `8c9712b8…`, regression `4302b3e1…`). That UI build completed with actual exit 0; the subsequent row-panel repair requires
+a repeated final build, as recorded above.
+
+The historical, now public-shape-invalidated Group adapter manifest is
+`9c191bab919d8fb8db87d63dc07dc7d78c2166cb77239f59289aa322405eb9a3`.
+Ordinary attempt 3 now has the current-source whole pass recorded above. Carry-in
+attempt 2 invalidates the initial Group adapter public-shape review: the same-model
+review missed a mocked internal shape, and carry-in registration omitted the helper
+focused tests/source file. The independent four-tuple real-receipt diagnostic remains
+valid but proves no complete Group lifecycle. The repaired helper/registry identity is now recorded below;
+API source and binary are unchanged.
+
+The final public Group helper/test/registry manifest is
+`bd0f64ed2e094aafbdb28ef37c85455e695f8cb56f0e9fd311995e3a22c83209`.
+Its three paths are helper `505a4a3e…`, test `0fee74ca…`, registry `255a2733…`;
+full hashes are in the review manifest. The unmodified public request/proposal/preview
+record at `/tmp/loom-public-group-proposal/worker/actual-public.json` was captured
+without Apply; native Cancel left saved state unchanged and blocked writes were zero.
+An initial private validator confused numeric blockedWrites=0 with an array and is
+retained as a diagnostic error, not a product/helper failure. No literal expectations,
+oracle ordering, native controls or deadlines were relaxed. Carry-in now registers
+the existing complementary helper tests and its source identity.
+
+Carry-in attempt 3 failed against native fingerprint
+`c352273281cb3abb527d17b61db18cf084016e9f33b57c0ff07d0dd59517405b`;
+its exact partial passes and later product race are recorded above. API source/binary
+remain unchanged. Product row-panel repair now has a repeated passing final UI build. Earlier invalid review
+and native failures remain retained; this repair review does not establish full
+Group lifecycle or authenticated Calypr acceptance.
+
+Row chooser repair manifest:
+`a6714cb76d3a9e758ed4635dbfc722f5d4593e41e0fd1d8ead119b2fef5b3327`;
+production Row Settings `7990d0cb…`, regression `d45d3d20…` (full hashes in receipt
+manifest). Pending choices success/error responses are invalidated only at workspace
+handoff. Parent repaired native green now passes (no elapsed measurement). Repeated final
+root UI build now passes, and carry-in attempt 4 completes its whole lifecycle.
+The passing carry-in/related/upstream source is
+`45142ac0e16c1a5fdf2c066bb0e526e512e076cd5b8dd9bd04b8b4ce57ebb3e1`;
+API source/binary remain unchanged. Related rows and upstream dependency now pass at that source; mixed attempt 1 exposes
+a new confirmed backend metadata failure.
+Final imported/ordinary/graph-first/row-first reruns and strict canonical comparison
+remain pending after the stable remainder; fresh 100-operation history preparation
+is last. Remaining full matrix and authenticated Calypr acceptance are incomplete.
+
+Compiler-21 repair/review and focused/full affected checks are complete; the new
+whole mixed case is running with no result yet. All final compiler-21 native matrix
+cases remain pending. Earlier 45142ac0 passes retain compiler-20 snapshot scope.
+The final UI build remains applicable because no UI source changed.
+
+Compiler-21 unit manifest:
+`6db91363bdae7fb0e886ca24b075f7d37d54a72167e6c6f2d9cb9514253a4ab8`.
+Generic v20 receipts remain inspectable with required shape digest, cannot execute,
+and have version-separated cache identity. Historical proposal bindings still require
+current contract; their readability is not promised. Prior RF 503 and old-binary RS
+missing-inventory red remain retained. This reviewed backend unit is ready for a
+coherent local commit with its tests and scoped verification, without closing UI
+or package acceptance.
+
+Current API readiness doctor passes (2.747s), with source
+`8be4c30004b88ea26d3c6d50f5b7735abe65c3340ec5b5efa6510b09cfe7e9e5`,
+binary `94ff59cafbaa78ed8bcdb9916629ad409f3b9c4e4888ea37c1b7ef055be3a07e`.
+Current 2,069-file main/runtime equality yields native fingerprint
+`8d23bdb2ad45a99c526ddfc7553cbb1b38af4d78ba0eb2559a7c88bc9601d62e`.
+The older API identities above belong to their respective attempts. Group EXCLUDE
+extension review manifest is
+`da90249ab6e6352c78b7148ea2eaaccd8e4d0712e8640e25f97ae7a1d4e4bf45`;
+its whole 23-action carry-in run and other final cases remain pending. Native
+no-Apply scalar proof is scoped repair evidence, not a substitute for mixed Apply,
+edit/removal/reload or authenticated Calypr acceptance.
 
 The current 12-case matrix and pending criteria are in
 [fixtures/ACCEPTANCE.md](fixtures/ACCEPTANCE.md). The remaining current-source native

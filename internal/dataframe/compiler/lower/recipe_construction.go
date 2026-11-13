@@ -444,7 +444,8 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 			}
 			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
 		}
-		if step.Operation.Kind == recipe.ConstructionFilterOp || step.Operation.Kind == recipe.ConstructionDeriveOp {
+		switch step.Operation.Kind {
+		case recipe.ConstructionFilterOp, recipe.ConstructionDeriveOp, recipe.ConstructionRelatedSourceOp, recipe.ConstructionRelatedFieldOp:
 			result = preserveDynamicRuntimeKeys(result, priorSchema)
 		}
 		if result.physical.InputStageID == sequence.SourceStageID && len(result.physical.InputColumns) > len(sequence.SourceColumns) {

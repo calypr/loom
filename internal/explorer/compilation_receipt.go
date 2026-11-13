@@ -27,7 +27,8 @@ const (
 	legacyCompilationReceiptFormatVersion   = 3
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v20"
+	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v21"
+	legacyCompilationReceiptV20CompilerContractVersion = "loom.explorer.compiler/v20"
 	legacyCompilationReceiptV19CompilerContractVersion = "loom.explorer.compiler/v19"
 	legacyCompilationReceiptV18CompilerContractVersion = "loom.explorer.compiler/v18"
 	legacyCompilationReceiptV17CompilerContractVersion = "loom.explorer.compiler/v17"
@@ -1005,7 +1006,7 @@ func (r CompilationReceipt) Validate() error {
 	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion && r.ReceiptFormatVersion != previousCompilationReceiptFormatVersion && r.ReceiptFormatVersion != legacyCompilationReceiptFormatVersion {
 		return fmt.Errorf("unsupported receipt format version %d", r.ReceiptFormatVersion)
 	}
-	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV19CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV18CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV17CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV16CompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV13CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
+	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV20CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV19CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV18CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV17CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV16CompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV13CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
 		return fmt.Errorf("unsupported compiler contract %q", r.CompilerContractVersion)
 	}
 	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.ExplorerID) == "" {
@@ -1036,7 +1037,7 @@ func (r CompilationReceipt) Validate() error {
 				return fmt.Errorf("receipt %s is required", field.name)
 			}
 		}
-		if (r.CompilerContractVersion == CompilationReceiptCompilerContractVersion || r.CompilerContractVersion == legacyCompilationReceiptV19CompilerContractVersion || r.CompilerContractVersion == previousCompilationReceiptCompilerContractVersion) && strings.TrimSpace(r.ShapeDigest) == "" {
+		if (r.CompilerContractVersion == CompilationReceiptCompilerContractVersion || r.CompilerContractVersion == legacyCompilationReceiptV20CompilerContractVersion || r.CompilerContractVersion == legacyCompilationReceiptV19CompilerContractVersion || r.CompilerContractVersion == previousCompilationReceiptCompilerContractVersion) && strings.TrimSpace(r.ShapeDigest) == "" {
 			return fmt.Errorf("receipt shapeDigest is required")
 		}
 		key, err := CompilationKey(r)
