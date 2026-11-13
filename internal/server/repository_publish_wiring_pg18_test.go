@@ -187,54 +187,88 @@ func TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned(
 		Username: os.Getenv("LOOM_CLICKHOUSE_USERNAME"),
 		Password: os.Getenv("LOOM_CLICKHOUSE_PASSWORD"),
 	}
-	bootConfig.Server.DevRepositoryActivationConflictOnce = true
-	server, closeRuntime, err := composePostgreSQLFullRuntime(ctx, bootConfig, logger)
-	if err != nil {
-		t.Fatalf("compose ClickHouse-enabled full runtime: %s", fixture.scrub(err))
-	}
-	defer func() {
-		if err := closeRuntime(); err != nil {
-			t.Errorf("close ClickHouse-enabled full runtime: %s", fixture.scrub(err))
-		}
-	}()
-	app := server.App()
-
-	path := "/api/v1/projects/" + pgCompProject + "/generations/" + pgCompGenA + "/explorer-config"
+	pathA := "/api/v1/projects/" + pgCompProject + "/generations/" + pgCompGenA + "/explorer-config"
 	workspace := string(baselineExplorerWorkspaceV2())
 	headers := map[string]string{pgPubCommitHeader: "commit-publish-11"}
 
-	first := requestJSONWithHeaders(t, app, http.MethodPost, path, workspace, headers)
+	bootstrapServer, closeBootstrap, err := composePostgreSQLFullRuntime(ctx, bootConfig, logger)
+	if err != nil {
+		t.Fatalf("compose bootstrap runtime: %s", fixture.scrub(err))
+	}
+	bootstrap := requestJSONWithHeaders(t, bootstrapServer.App(), http.MethodPost, pathA, workspace, headers)
+	pgCompAssertNoLaneLeak(t, fixture, "bootstrap deploy", bootstrap.Body)
+	if bootstrap.StatusCode != http.StatusOK {
+		closeBootstrap()
+		t.Fatalf("bootstrap deploy returned %d, want 200: %s", bootstrap.StatusCode, fixture.scrub(bootstrap.Body))
+	}
+	var bootResult struct {
+		RevisionID string `json:"revisionId"`
+		Activated  *bool  `json:"activated"`
+	}
+	if err := json.Unmarshal([]byte(bootstrap.Body), &bootResult); err != nil {
+		closeBootstrap()
+		t.Fatalf("decode bootstrap deploy body: %v\n%s", err, fixture.scrub(bootstrap.Body))
+	}
+	if bootResult.RevisionID == "" || bootResult.Activated == nil || !*bootResult.Activated {
+		closeBootstrap()
+		t.Fatalf("bootstrap deploy did not activate: %s", fixture.scrub(bootstrap.Body))
+	}
+	if err := closeBootstrap(); err != nil {
+		t.Fatalf("close bootstrap runtime: %s", fixture.scrub(err))
+	}
+
+	const conflictGeneration = "generation-b"
+	fixture.load(t, pgCompProject, conflictGeneration, map[string][]string{
+		"Patient.ndjson": pgCompPatientLines(t, "patient-publish-13", "patient-publish-14"),
+	})
+	fixture.activate(t, pgCompProject, conflictGeneration)
+
+	bootConfig.Server.DevRepositoryActivationConflictOnce = true
+	server, closeRuntime, err := composePostgreSQLFullRuntime(ctx, bootConfig, logger)
+	if err != nil {
+		t.Fatalf("compose conflict-armed runtime: %s", fixture.scrub(err))
+	}
+	defer func() {
+		if err := closeRuntime(); err != nil {
+			t.Errorf("close conflict-armed runtime: %s", fixture.scrub(err))
+		}
+	}()
+	app := server.App()
+	pathB := "/api/v1/projects/" + pgCompProject + "/generations/" + conflictGeneration + "/explorer-config"
+
+	first := requestJSONWithHeaders(t, app, http.MethodPost, pathB, workspace, headers)
 	pgCompAssertNoLaneLeak(t, fixture, "conflict-armed deploy", first.Body)
 	if first.StatusCode != http.StatusConflict || !strings.Contains(first.Body, "PUBLICATION_ACTIVATION_CONFLICT") {
 		t.Fatalf("conflict-armed deploy returned %d, want 409 PUBLICATION_ACTIVATION_CONFLICT: %s",
 			first.StatusCode, fixture.scrub(first.Body))
 	}
-	revisionID := pgPubConflictRevision(t, fixture, pgCompProject)
-	status, failedAt, diagnostics, pointer := pgPubConflictWitness(t, fixture, pgCompProject, revisionID)
+	revisionID := pgPubPinnedRevision(t, fixture, pgCompProject, conflictGeneration)
+	status, failedAt, diagnostics, pointer := pgPubPinnedWitness(t, fixture, pgCompProject, revisionID)
 	if status != "FAILED" || failedAt.IsZero() {
-		t.Fatalf("revision after activation failure = %s/failed_at %v, want FAILED with failed_at set", status, failedAt)
+		t.Fatalf("revision after the lost release CAS = %s/failed_at %v, want FAILED with failed_at set", status, failedAt)
 	}
 	if !strings.Contains(diagnostics, "PUBLICATION_ACTIVATION_CONFLICT") {
-		t.Fatalf("lifecycle did not mark the failure evidence: diagnostics = %s", fixture.scrub(diagnostics))
+		t.Fatalf("lifecycle did not mark the release-conflict evidence: diagnostics = %s", fixture.scrub(diagnostics))
 	}
-	if pointer != "" {
-		t.Fatalf("activation failure moved the owner pointer to %q, want unchanged", pointer)
+	if pointer != bootResult.RevisionID {
+		t.Fatalf("conflict deploy moved the owner pointer to %q, want the bootstrap revision %q",
+			pointer, bootResult.RevisionID)
 	}
 
 	for attempt := 2; attempt <= 3; attempt++ {
-		retry := requestJSONWithHeaders(t, app, http.MethodPost, path, workspace, headers)
+		retry := requestJSONWithHeaders(t, app, http.MethodPost, pathB, workspace, headers)
 		pgCompAssertNoLaneLeak(t, fixture, fmt.Sprintf("retry %d after activation failure", attempt), retry.Body)
 		if retry.StatusCode != http.StatusConflict || !strings.Contains(retry.Body, "GENERATION_ACTIVATION_FAILED") {
 			t.Fatalf("retry %d after an activation failure returned %d, want 409 GENERATION_ACTIVATION_FAILED: %s",
 				attempt, retry.StatusCode, fixture.scrub(retry.Body))
 		}
-		if got := pgPubConflictRevision(t, fixture, pgCompProject); got != revisionID {
+		if got := pgPubPinnedRevision(t, fixture, pgCompProject, conflictGeneration); got != revisionID {
 			t.Fatalf("retry %d minted a different revision %q, want the pinned identity %q", attempt, got, revisionID)
 		}
-		status, retryFailedAt, retryDiagnostics, retryPointer := pgPubConflictWitness(t, fixture, pgCompProject, revisionID)
-		if status != "FAILED" || !retryFailedAt.Equal(failedAt) || retryDiagnostics != diagnostics || retryPointer != pointer {
+		retryStatus, retryFailedAt, retryDiagnostics, retryPointer := pgPubPinnedWitness(t, fixture, pgCompProject, revisionID)
+		if retryStatus != "FAILED" || !retryFailedAt.Equal(failedAt) || retryDiagnostics != diagnostics || retryPointer != pointer {
 			t.Fatalf("retry %d churned the pinned revision: %s/failed_at %v, want FAILED/failed_at %v unchanged",
-				attempt, status, retryFailedAt, failedAt)
+				attempt, retryStatus, retryFailedAt, failedAt)
 		}
 	}
 
@@ -260,7 +294,7 @@ func TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned(
 	if result.RevisionID == "" || result.Activated == nil || !*result.Activated {
 		t.Fatalf("sibling deploy did not report an activated revision: %s", fixture.scrub(deploy.Body))
 	}
-	siblingStatus, siblingActivatedAt, siblingPointer := pgPubProjectWitness(t, fixture, siblingProject, result.RevisionID)
+	siblingStatus, siblingActivatedAt, _, siblingPointer := pgPubPinnedWitness(t, fixture, siblingProject, result.RevisionID)
 	if siblingStatus != "ACTIVE" || siblingActivatedAt.IsZero() || siblingPointer != result.RevisionID {
 		t.Fatalf("sibling witness after deploy: %s/activated_at %v/pointer %q, want ACTIVE/non-zero/%q",
 			siblingStatus, siblingActivatedAt, siblingPointer, result.RevisionID)
@@ -281,9 +315,9 @@ func TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned(
 		t.Fatalf("sibling replay must be the same activated revision: got %+v, want revisionId %q activated=true",
 			replayed, result.RevisionID)
 	}
-	siblingStatus, siblingReplayAt, siblingReplayPointer := pgPubProjectWitness(t, fixture, siblingProject, result.RevisionID)
-	if siblingStatus != "ACTIVE" || siblingReplayPointer != result.RevisionID {
-		t.Fatalf("sibling replay moved activation state: %s/pointer %q", siblingStatus, siblingReplayPointer)
+	siblingReplayStatus, siblingReplayAt, _, siblingReplayPointer := pgPubPinnedWitness(t, fixture, siblingProject, result.RevisionID)
+	if siblingReplayStatus != "ACTIVE" || siblingReplayPointer != result.RevisionID {
+		t.Fatalf("sibling replay moved activation state: %s/pointer %q", siblingReplayStatus, siblingReplayPointer)
 	}
 	if !siblingActivatedAt.Equal(siblingReplayAt) {
 		t.Fatalf("sibling replay restamped activated_at: %v -> %v (the no-op replay law forbids it)",
@@ -291,7 +325,7 @@ func TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureStaysPinned(
 	}
 }
 
-func pgPubConflictRevision(t *testing.T, fixture *pgCompFixture, project string) string {
+func pgPubPinnedRevision(t *testing.T, fixture *pgCompFixture, project, generation string) string {
 	t.Helper()
 	pool, err := pgxpool.New(context.Background(), fixture.dsn)
 	if err != nil {
@@ -300,34 +334,35 @@ func pgPubConflictRevision(t *testing.T, fixture *pgCompFixture, project string)
 	defer pool.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	ctl := `"` + fixture.schemas[control.SeriesExplorerControl] + `"`
-	if !pgCompSchemaPattern.MatchString(fixture.schemas[control.SeriesExplorerControl]) {
-		t.Fatalf("witness refuses a control schema %q outside the owned namespace", fixture.schemas[control.SeriesExplorerControl])
+	ctlSchema := fixture.schemas[control.SeriesExplorerControl]
+	if !pgCompSchemaPattern.MatchString(ctlSchema) {
+		t.Fatalf("witness refuses a control schema %q outside the owned namespace", ctlSchema)
 	}
 	rows, err := pool.Query(ctx,
-		`SELECT id FROM `+ctl+`.explorer_revisions WHERE project = $1 AND explorer_id = 'default'`, project)
+		`SELECT id FROM "`+ctlSchema+`".explorer_revisions WHERE project = $1 AND explorer_id = 'default' AND source_generation = $2`,
+		project, generation)
 	if err != nil {
-		t.Fatalf("witness revisions for %s: %s", project, fixture.scrub(err))
+		t.Fatalf("witness revisions for %s/%s: %s", project, generation, fixture.scrub(err))
 	}
 	defer rows.Close()
 	var ids []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			t.Fatalf("scan revision id for %s: %s", project, fixture.scrub(err))
+			t.Fatalf("scan revision id for %s/%s: %s", project, generation, fixture.scrub(err))
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
-		t.Fatalf("read revision ids for %s: %s", project, fixture.scrub(err))
+		t.Fatalf("read revision ids for %s/%s: %s", project, generation, fixture.scrub(err))
 	}
 	if len(ids) != 1 {
-		t.Fatalf("witness revisions for %s = %v, want exactly one pinned revision", project, ids)
+		t.Fatalf("witness revisions for %s/%s = %v, want exactly one pinned revision", project, generation, ids)
 	}
 	return ids[0]
 }
 
-func pgPubConflictWitness(t *testing.T, fixture *pgCompFixture, project, revisionID string) (string, time.Time, string, string) {
+func pgPubPinnedWitness(t *testing.T, fixture *pgCompFixture, project, revisionID string) (string, time.Time, string, string) {
 	t.Helper()
 	pool, err := pgxpool.New(context.Background(), fixture.dsn)
 	if err != nil {
@@ -342,11 +377,11 @@ func pgPubConflictWitness(t *testing.T, fixture *pgCompFixture, project, revisio
 	}
 	ctl := `"` + ctlSchema + `"`
 	var status string
-	var failedAt *time.Time
+	var failedAt, activatedAt *time.Time
 	var diagnostics string
 	if err := pool.QueryRow(ctx,
-		`SELECT status, failed_at, diagnostics::text FROM `+ctl+`.explorer_revisions WHERE id = $1`, revisionID).
-		Scan(&status, &failedAt, &diagnostics); err != nil {
+		`SELECT status, failed_at, activated_at, diagnostics::text FROM `+ctl+`.explorer_revisions WHERE id = $1`, revisionID).
+		Scan(&status, &failedAt, &activatedAt, &diagnostics); err != nil {
 		t.Fatalf("witness revision %s: %s", revisionID, fixture.scrub(err))
 	}
 	var pointer *string
@@ -356,46 +391,15 @@ func pgPubConflictWitness(t *testing.T, fixture *pgCompFixture, project, revisio
 		t.Fatalf("witness owner pointer for %s: %s", project, fixture.scrub(err))
 	}
 	at := time.Time{}
-	if failedAt != nil {
+	if status == "FAILED" && failedAt != nil {
 		at = *failedAt
+	}
+	if status == "ACTIVE" && activatedAt != nil {
+		at = *activatedAt
 	}
 	pointerText := ""
 	if pointer != nil {
 		pointerText = *pointer
 	}
 	return status, at, diagnostics, pointerText
-}
-
-func pgPubProjectWitness(t *testing.T, fixture *pgCompFixture, project, revisionID string) (string, time.Time, string) {
-	t.Helper()
-	pool, err := pgxpool.New(context.Background(), fixture.dsn)
-	if err != nil {
-		t.Fatalf("connect witness pool: %s", fixture.scrub(err))
-	}
-	defer pool.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	ctlSchema := fixture.schemas[control.SeriesExplorerControl]
-	if !pgCompSchemaPattern.MatchString(ctlSchema) {
-		t.Fatalf("witness refuses a control schema %q outside the owned namespace", ctlSchema)
-	}
-	ctl := `"` + ctlSchema + `"`
-	var status string
-	var activatedAt time.Time
-	if err := pool.QueryRow(ctx,
-		`SELECT status, activated_at FROM `+ctl+`.explorer_revisions WHERE id = $1`, revisionID).
-		Scan(&status, &activatedAt); err != nil {
-		t.Fatalf("witness revision %s: %s", revisionID, fixture.scrub(err))
-	}
-	var pointer *string
-	if err := pool.QueryRow(ctx,
-		`SELECT active_revision_id FROM `+ctl+`.explorers WHERE project = $1 AND explorer_id = 'default'`, project).
-		Scan(&pointer); err != nil {
-		t.Fatalf("witness owner pointer for %s: %s", project, fixture.scrub(err))
-	}
-	pointerText := ""
-	if pointer != nil {
-		pointerText = *pointer
-	}
-	return status, activatedAt, pointerText
 }
