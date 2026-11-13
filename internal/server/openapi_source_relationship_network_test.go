@@ -151,7 +151,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 			t.Fatalf("incomplete/injected change reached application: HTTP %d %s", response.StatusCode, response.Body)
 		}
 	}
-	for _, extra := range []string{`,"project":"other-project"`, `,"candidateWorkspace":{"documents":[]}`} {
+	for _, extra := range []string{`,"project":"other-project"`, `,"candidateWorkspace":{"documents":[]}`, `,"candidateDocument":{"output":{"id":"patients"}}`, `,"candidateNetwork":{"outputId":"patients"}`, `,"candidateRowIdentity":{"outputId":"patients"}`} {
 		response := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", "{"+identity+`,"change":{"action":"ADD","parentOccurrenceId":"base","edgeId":"authorized-edge","matchMode":"OPTIONAL"}`+extra+"}")
 		if response.StatusCode != http.StatusBadRequest {
 			t.Fatalf("injected source proposal envelope HTTP %d: %s", response.StatusCode, response.Body)
@@ -175,6 +175,12 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if proposal.ProposalID == "" || proposal.CandidateReceiptID != proposal.ProposalID || proposal.OutputID != "patients" || proposal.SnapshotToken != snapshot.Token || proposal.DraftVersion != 1 || proposal.DraftDigest != digest || proposal.BaseDocumentDigest == "" || proposal.CandidateWorkspaceDigest == "" || proposal.PreviewStatus != "READY" || proposal.SampledRows != 1 || proposal.Sampled || proposal.AffectedColumns == nil || len(proposal.Notices) == 0 || edits != 1 || previews != 1 {
 		t.Fatalf("proposal public contract lost fields: %s", proposed.Body)
 	}
+	if proposal.CandidateDocument.Output.ID != "patients" || proposal.CandidateDocument.ImportedSource == nil || proposal.CandidateDocument.ImportedSource.Steps[0].Enabled || proposal.CandidateNetwork.OutputID != "patients" || proposal.CandidateNetwork.Owner != "IMPORTED_SOURCE" || len(proposal.CandidateNetwork.Bindings) != 1 || proposal.CandidateNetwork.Bindings[0].OccurrenceID != "base" || proposal.CandidateRowIdentity.OutputID != "patients" || len(proposal.CandidateRowIdentity.Stages) != 1 || proposal.CandidateRowIdentity.Stages[0].Identity.Kind != "RECORD" {
+		t.Fatalf("HTTP transport lost authoritative candidate projection: %s", proposed.Body)
+	}
+	if *proposal.CandidateDocument.ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
+		t.Fatal("HTTP candidate projection changed immutable recipe pin")
+	}
 	after, err := service.Get(ctx, "project-a", "custom")
 	if err != nil {
 		t.Fatal(err)
@@ -195,6 +201,18 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	}
 	if saved.DraftVersion != 2 || previews != 2 {
 		t.Fatal("HTTP Apply did not validate receipt and save once")
+	}
+	savedWorkspace, err := authoringv2.DecodeWorkspace(saved.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateRaw, err := json.Marshal(proposal.CandidateDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedRaw, err := json.Marshal(savedWorkspace.Documents[0])
+	if err != nil || !bytes.Equal(candidateRaw, savedRaw) {
+		t.Fatal("HTTP candidate document does not describe the receipt-applied document")
 	}
 	stale := requestJSON(t, app, http.MethodPost, basePath+"/commands", applyBody("second-editor-stale"))
 	if stale.StatusCode != http.StatusConflict || !strings.Contains(stale.Body, `"code":"DRAFT_CONFLICT"`) {
@@ -219,6 +237,9 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	}
 	if stepProposal.ProposalID == "" || stepEdits != 1 {
 		t.Fatal("source-step proposal lost its selected settings")
+	}
+	if stepProposal.CandidateDocument.ImportedSource == nil || !stepProposal.CandidateDocument.ImportedSource.Steps[0].Enabled || stepProposal.CandidateNetwork.OutputID != "patients" || stepProposal.CandidateRowIdentity.OutputID != "patients" {
+		t.Fatalf("HTTP source-step candidate did not reflect restored settings: %s", stepResponse.Body)
 	}
 	afterStepPreview, err := service.Get(ctx, "project-a", "custom")
 	if err != nil {

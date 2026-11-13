@@ -215,6 +215,7 @@ func compactPhysicalSetOutput(node semantic.SemanticNode) *ir.PhysicalSetOutput 
 	fields := []ir.PhysicalSetOutputField{
 		ir.PhysicalSetGraphIDField,
 		ir.PhysicalSetKeyField,
+		ir.PhysicalSetLogicalKeyField,
 		ir.PhysicalSetIDField,
 		ir.PhysicalSetResourceTypeField,
 	}

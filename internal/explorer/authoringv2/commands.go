@@ -46,6 +46,7 @@ const (
 	CommandUpdateImportedSourceStep          = "UPDATE_IMPORTED_SOURCE_STEP"
 	CommandRefreshImportedSource             = "REFRESH_IMPORTED_SOURCE"
 	CommandApplyImportedRelationshipProposal = "APPLY_IMPORTED_RELATIONSHIP_PROPOSAL"
+	CommandApplyColumnPolicyProposal         = "APPLY_COLUMN_POLICY_PROPOSAL"
 	CommandUpdateColumnSource                = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                      = "REMOVE_COLUMN"
 	CommandAddSemanticSelections             = "ADD_SEMANTIC_SELECTIONS"
@@ -154,6 +155,7 @@ type Command struct {
 	ResolvedPopulationRoute  []PopulationRouteStep     `json:"-"`
 	OutputIDs                []string                  `json:"outputIds,omitempty"`
 	SourceStep               *ImportedSourceStepChange `json:"sourceStep,omitempty"`
+	resolvedColumnPolicy     *resolvedColumnPolicy
 	resolvedImportedDocument *Document
 	resolvedRowDefinition    *RowDefinition
 	resolvedTableShape       *TableShape
@@ -375,7 +377,7 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
-	if decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal || decoded.Type == CommandApplyConstructionProposal || decoded.Type == CommandApplyPopulationMemberProposal {
+	if decoded.Type == CommandApplyColumnPolicyProposal || decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal || decoded.Type == CommandApplyConstructionProposal || decoded.Type == CommandApplyPopulationMemberProposal {
 		if err := rejectUnknownProposalCommandFields(raw, decoded.Type); err != nil {
 			return err
 		}
@@ -572,7 +574,7 @@ func (r ApplyCommandsRequest) Validate() error {
 		if command.Type == CommandSetFrameSource || command.Type == CommandReplaceFrameSource || command.Type == CommandRemoveFrameSource {
 			frameSourceCommandCount++
 		}
-		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange != nil && command.RowChange.Mode == RowChangeModeReplace {
+		if command.Type == CommandApplyColumnPolicyProposal || command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange != nil && command.RowChange.Mode == RowChangeModeReplace {
 			proposalCommandCount++
 		}
 		if command.Type == CommandRestoreDraftRevision {
@@ -781,7 +783,7 @@ func (c Command) validate() error {
 			c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
 		}
-	case CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal, CommandApplyConstructionProposal, CommandApplyPopulationMemberProposal:
+	case CommandApplyColumnPolicyProposal, CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal, CommandApplyConstructionProposal, CommandApplyPopulationMemberProposal:
 		if !required(c.OutputID, c.ProposalID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
 			return fmt.Errorf("%s requires exact outputId and proposalId", c.Type)
 		}
@@ -922,6 +924,8 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 	}
 	switch command.Type {
+	case CommandApplyColumnPolicyProposal:
+		return applyColumnPolicyProposal(workspace, catalog, commandID, index, command)
 	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource, CommandApplyImportedRelationshipProposal:
 		position := documentIndex(workspace, command.OutputID)
 		if position < 0 || command.resolvedImportedDocument == nil {

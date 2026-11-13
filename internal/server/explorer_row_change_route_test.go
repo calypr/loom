@@ -91,6 +91,9 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if assessment.Status != loomapi.RowChangeAssessmentResponseStatusREADY || assessment.Mode == nil || string(*assessment.Mode) != string(authoringv2.RowChangeModePreserve) || assessment.Proposal == nil || assessment.CandidateReceiptId == nil || *assessment.CandidateReceiptId == "" || len(assessment.PreservedFeatureKeys) != 1 || assessment.PreservedFeatureKeys[0] != "patient_id" {
 		t.Fatalf("assessment=%#v", assessment)
 	}
+	if assessment.CandidateDocument == nil || assessment.CandidateNetwork == nil || assessment.CandidateRowIdentity == nil || assessment.CandidateDocument.RootResourceType != "Encounter" || assessment.CandidateDocument.Columns[0].OccurrenceId != "encounter" || assessment.CandidateNetwork.OutputId != "patients" || len(assessment.CandidateNetwork.Bindings) != 0 || assessment.CandidateDocument.Columns[0].ColumnId != nil || assessment.CandidateRowIdentity.Stages[0].Identity.ResourceType == nil || *assessment.CandidateRowIdentity.Stages[0].Identity.ResourceType != "Encounter" {
+		t.Fatalf("READY root response lost its exact candidate document/network/identity: %s", assessed.Body)
+	}
 	unknownMode := fmt.Sprintf(`{"mode":"MERGE","snapshotToken":%q,"draftVersion":1,"draftDigest":%q,"outputId":"patients","rootNodeId":"n_encounter"}`, snapshot.Token, digest)
 	unknownModeResponse := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/row-change", unknownMode)
 	if unknownModeResponse.StatusCode != http.StatusUnprocessableEntity {
@@ -107,6 +110,29 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	}
 	if blockedReplacement.Status != loomapi.RowChangeAssessmentResponseStatusBLOCKED || blockedReplacement.Mode == nil || string(*blockedReplacement.Mode) != string(authoringv2.RowChangeModeReplace) {
 		t.Fatalf("blocked replacement assessment omitted mode: %#v", blockedReplacement)
+	}
+	var blockedWire map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(blockedReplacementResponse.Body), &blockedWire); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"candidateDocument", "candidateNetwork", "candidateRowIdentity"} {
+		if _, ok := blockedWire[key]; ok {
+			t.Fatalf("BLOCKED root assessment exposed %s", key)
+		}
+	}
+	noChangeBody := fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":1,"draftDigest":%q,"outputId":"patients","rootNodeId":"n_patient"}`, snapshot.Token, digest)
+	noChange := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/row-change", noChangeBody)
+	if noChange.StatusCode != http.StatusOK {
+		t.Fatalf("no-change HTTP %d: %s", noChange.StatusCode, noChange.Body)
+	}
+	var noChangeWire map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(noChange.Body), &noChangeWire); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"candidateDocument", "candidateNetwork", "candidateRowIdentity"} {
+		if _, ok := noChangeWire[key]; ok {
+			t.Fatalf("NO_CHANGE root assessment exposed %s", key)
+		}
 	}
 	previewBody := fmt.Sprintf(`{"receiptId":%q,"outputId":"patients"}`, *assessment.CandidateReceiptId)
 	previewed := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/preview", previewBody)
@@ -138,6 +164,8 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		t.Fatalf("applied response=%#v", response)
 	}
 
+	assertRootCandidateDocumentEqualsApplied(t, assessment.CandidateDocument, document)
+
 	replacementDigest, err := response.Workspace.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +183,9 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if replacementAssessment.Mode == nil || string(*replacementAssessment.Mode) != string(authoringv2.RowChangeModeReplace) || replacementAssessment.Proposal == nil || replacementAssessment.Proposal.Mode == nil || string(*replacementAssessment.Proposal.Mode) != string(authoringv2.RowChangeModeReplace) ||
 		len(replacementAssessment.RemovedFeatureKeys) == 0 || replacementAssessment.Proposal.CatalogDigest == nil || *replacementAssessment.Proposal.CatalogDigest == "" || replacementAssessment.Proposal.CatalogGeneration == nil || *replacementAssessment.Proposal.CatalogGeneration == "" {
 		t.Fatalf("replacement assessment=%#v", replacementAssessment)
+	}
+	if replacementAssessment.CandidateDocument == nil || replacementAssessment.CandidateNetwork == nil || replacementAssessment.CandidateRowIdentity == nil || replacementAssessment.CandidateDocument.RootResourceType != "DiagnosticReport" || replacementAssessment.CandidateDocument.ImportedRecipe != nil || replacementAssessment.CandidateNetwork.Owner != "DOCUMENT" {
+		t.Fatalf("replacement response retained saved source semantics: %s", replacementAssessed.Body)
 	}
 	replacementPreviewBody := fmt.Sprintf(`{"receiptId":%q,"outputId":"patients"}`, *replacementAssessment.CandidateReceiptId)
 	replacementPreviewed := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/preview", replacementPreviewBody)
@@ -178,6 +209,8 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		len(replacementResponse.Workspace.Documents[0].Columns) != 1 || replacementResponse.Workspace.Documents[0].Columns[0].Column != "id" || replacementResponse.Workspace.Tabs[0].ID != "patients" {
 		t.Fatalf("replacement applied response=%#v", replacementResponse)
 	}
+
+	assertRootCandidateDocumentEqualsApplied(t, replacementAssessment.CandidateDocument, replacementResponse.Workspace.Documents[0])
 
 	stale := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/row-change", assessmentBody)
 	if stale.StatusCode != http.StatusConflict {
@@ -215,5 +248,28 @@ func assertWireArray(t *testing.T, object map[string]json.RawMessage, key string
 	}
 	if !expectEmpty && bytes.Equal(bytes.TrimSpace(raw), []byte("[]")) {
 		t.Fatalf("wire field %q must be a nonempty JSON array, got %s", key, raw)
+	}
+}
+
+func assertRootCandidateDocumentEqualsApplied(t *testing.T, candidate *loomapi.Document, applied authoringv2.Document) {
+	t.Helper()
+	raw, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected authoringv2.Document
+	if err := json.Unmarshal(raw, &expected); err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := json.Marshal(applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(want, actual) {
+		t.Fatalf("root Apply differs from exact candidate document: candidate=%s applied=%s", want, actual)
 	}
 }

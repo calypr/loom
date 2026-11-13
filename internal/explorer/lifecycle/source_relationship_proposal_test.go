@@ -35,6 +35,11 @@ func TestSourceRelationshipProposalCancelApplyReloadAndStaleDraft(t *testing.T) 
 		d.ImportedSource = &plan
 		return d, nil
 	}
+	config.AuthoringNetwork = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+		network := authoringv2.NewAuthoringNetwork(document, "IMPORTED_SOURCE")
+		network.Occurrences = append(network.Occurrences, authoringv2.NetworkOccurrence{OccurrenceID: "base", ResourceType: "Patient", Enabled: true, PreservesRowIdentity: true})
+		return network, nil
+	}
 	compileFailure := false
 	config.CompileReceipt = func(ctx context.Context, r CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		if compileFailure {
@@ -69,9 +74,27 @@ func TestSourceRelationshipProposalCancelApplyReloadAndStaleDraft(t *testing.T) 
 	if proposal.ProposalID == "" || proposal.SampledRows != 3 || proposal.Sampled || previewCalls != 1 {
 		t.Fatalf("proposal did not execute its candidate preview: %#v", proposal)
 	}
+	if proposal.CandidateDocument.Output.ID != request.OutputID || proposal.CandidateDocument.ImportedSource == nil || proposal.CandidateDocument.ImportedSource.Steps[0].Enabled || proposal.CandidateNetwork.OutputID != request.OutputID || proposal.CandidateRowIdentity.OutputID != request.OutputID {
+		t.Fatalf("candidate projection lost the proposed source edit: %#v", proposal)
+	}
+	if *proposal.CandidateDocument.ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
+		t.Fatal("candidate projection changed the immutable pin")
+	}
 	if store.saveDraftCalls != 0 || !bytes.Equal(raw, store.created.DraftConfig) {
 		t.Fatal("Preview or Cancel mutated saved source")
 	}
+	// A read-model failure cannot return a ready candidate or save the draft.
+	projectNetwork := service.config.AuthoringNetwork
+	service.config.AuthoringNetwork = func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
+		return authoringv2.AuthoringNetwork{}, errors.New("candidate source provenance is unavailable")
+	}
+	if failed, err := service.ProposeSourceRelationship(ctx, request); err == nil || failed.ProposalID != "" {
+		t.Fatal("failed candidate network produced a ready proposal")
+	}
+	if store.saveDraftCalls != 0 || !bytes.Equal(raw, store.created.DraftConfig) {
+		t.Fatal("failed candidate projection changed saved source")
+	}
+	service.config.AuthoringNetwork = projectNetwork
 	// A compile failure cannot create an applicable proposal or mutate the draft.
 	candidateReceipt := store.receipt
 	compileFailure = true

@@ -1,6 +1,124 @@
 # GRAPH-ROWS verification record
 
-## Scope and source
+## Follow-up 08–11: integrated implementation, acceptance incomplete
+
+The required planning revision `9613310fefacc987933275b9a9f92f3e456e886a` was
+fetched and verified on the requested branch. Existing work was preserved. Current
+source is not yet a completed acceptance snapshot; any layout repair requires
+rechecking affected source identities and guarantees. The original 01–07 record
+below belongs to `58544dcbb` and its explicitly recorded snapshots. Its imported
+and ordinary passes do not prove the complementary-editor follow-up.
+
+| Current check | Result and scope | Raw evidence |
+| --- | --- | --- |
+| Registered draft behavior | 210 passed, 0 failed/skipped, 19 registered suites, 68.503s, process exit 0; production components/functions with JSDOM and mocked services, no live persistence proof | `work/graph-rows-followup/drafts-final-inspector-20261113T0815/` |
+| Full root UI build after inspector integration | actual exit 0; Vite stages 30.07s and 23.44s; chunk-size warning remains. A later final build is required after the native repair batch | `/tmp/loom-followup-final-inspector-build.log` |
+| Full test TypeScript | actual exit 0 | `/tmp/loom-followup-final-210-types.log` |
+| Full authoringv2/lifecycle | exit 0, 0.391s / 22.259s; all 200 main Go package files byte-equal to tested copy | `/workspace/loom-followup-candidate-review/work/review-candidate/final-authoring-lifecycle-full.{log,exit}`, `final-go-package-manifest.json` |
+| Candidate HTTP/root equality | four HTTP candidate contracts pass (0.285s); exact entire root candidate versus Apply PRESERVE/REPLACE passes (0.097s) | `/workspace/loom-followup-candidate/work/graph-rows-followup/root-final-evidence.json` |
+| Real-Arango list expansion | retained ALL Observation and independent Condition lists over five/six pairs, distinct explicitly selected per-match scalar; pass (0.30s) | `/workspace/loom-followup-candidate/work/graph-rows-followup/row-candidate-and-list-checks.json`, `list-expansion-owned-container.log` |
+| Owned demo shell layout repair | demo-only CSS fix independently reviewed; coordinator red/green reproduction passes after repair; demo build exit 0 (Vite 21.02s). Source package unchanged, so 210-test and package-build evidence remains applicable. Native acceptance still pending | `/workspace/loom-followup-layout-review/work/review-layout/receipt-demo-shell.md`; `/tmp/loom-followup-demo-coordinator-{red,green}` |
+| Native graph-first attempt 1 | failed before authoring: initial 1536×900 document vertically overflowed; exit 1, 33.209s wrapper; no lifecycle pass | `/tmp/loom-followup-graph-first-1/` |
+| Native graph-first attempt 2 | all nine idle size/presentation captures pass after shell repair; selected occurrence inspector clips to 71.16% inside the graph pane; exit 1, 54.053s wrapper / 48.739s test; no lifecycle pass | `/tmp/loom-followup-graph-first-2/`; independent read-only reproduction `/tmp/loom-followup-inspector-coordinator-red-3/` |
+| Inspector portal and table navigation | narrow review and 59 focused tests pass; real inspector geometry at 900/1100/back and independent coordinator green pass; full native scope remains pending | `/workspace/loom-followup-root-review/work/review-inspection/receipt.md`; `/tmp/loom-followup-portal-geometry-green-1/geometry.json`; `/tmp/loom-followup-inspector-coordinator-green` |
+| Native graph-first attempt 3 | all 13 layout captures and candidate/shared-owner checks pass; fails saved preview recovery after A→B→A and Cancel; exit 1, 75.460s; no complete case pass | `/tmp/loom-followup-graph-first-3/` |
+| Saved-preview recovery repair | one-line reducer preview-generation fix; coordinator three red regressions then 27 green; full test TypeScript exit 0; unchanged saved workspace and real native prefix red/green verified | `/workspace/loom-followup-root-review/work/review-table-preview/receipt.md`; `/tmp/loom-table-preview-coordinator-green.log`; `/tmp/loom-followup-preview-coordinator-{red,green}/result.json` |
+| Native graph-first attempt 4 | Cancel recovery, connection Apply/required edit/reload pass; harness incorrectly assumes projection.occurrenceId; exit 1, 45.874s; no complete case pass | `/tmp/loom-followup-graph-first-4/`; `/tmp/loom-observation-provenance-coordinator.json` |
+| Observation resolver harness repair | uses unique EXACT column binding → sourceStepId, rejects ambiguous/unknown metadata; eight focused tests and real metadata proof pass; exact value oracles unchanged | `/workspace/loom-followup-native-review/work/review-native/observation-resolver-receipt.md` |
+| Native graph-first attempt 5 | independent ALL list oracle fails: actual [13, 11], expected [11, 13]; exit 1, 64.846s; no normalization or complete case pass | `/tmp/loom-followup-graph-first-5/`; `/tmp/loom-relationship-order-coordinator-red.json` |
+| Contributor ordering repair | integrated and reviewed: logical_key with storage-key fallback/tie-breaker; compact/projected/prepared provenance retained. Compiler 20; historical 19 readable, execution rejected, cache separated. All 1,272 Go files main/writer equal; full legacy fixture plus six real-Arango generation/insertion-order cases pass; parent six cases pass (0.87s), four HTTP contracts pass (0.090s) | `/workspace/loom-followup-candidate-review/work/review-candidate/order-final/receipt.md`; `/tmp/loom-compiler20-order-coordinator-green.log`; `/tmp/loom-compiler20-http-contracts.log` |
+| Imported ordering disclosure | narrow conditional-copy review, two existing component files/ten tests pass. Paragraph must ship only with the coupled validated backend ordering contract | `/workspace/loom-followup-root-review/work/review-ordering-copy/receipt.md`; `/tmp/loom-order-disclosure-tests.log` |
+| Affected-field readability and row focus | exact display/focus deltas independently reviewed; four focused files/40 tests pass (21.19s), full test TypeScript exit 0; technical IDs remain in closed disclosure | `/workspace/loom-followup-native-review/work/review-native/source-labels-receipt.md`; `/workspace/loom-followup-root-review/work/review-row-focus/receipt.md`; `/tmp/loom-row-focus-labels-final{.log,-types.log}` |
+| Native graph-first attempt 6 | setup-only empty Docker stdout guard failure before actions; configuration/source reads matched; not a product pass | `/tmp/loom-followup-graph-first-6/` |
+| Scoped whole graph/row passes | graph attempts 7/8/9 pass (143.900s/59.664s/69.574s); row attempts 2/3 pass (43.986s/61.639s), after row attempt 1 focus failure (83.114s). These belong to their recorded earlier harness/source identities | `/tmp/loom-followup-{graph-first-7,graph-first-8,graph-first-9,row-first-1,row-first-2,row-first-3}/` |
+| Strict graph/row equivalence | graph 9 and row 3 whole cases have equal canonical semantics and three exact rows with 17 layout captures; parent independently reran comparison. Explicit unique actual catalog mapping fixes generated-edge identity mismatch; no value oracle normalization | `/tmp/loom-followup-graph-first-9/canonical-equivalence.json`; `/workspace/loom-followup-native-review/work/review-native/catalog-equivalence-receipt.md` |
+| Imported selector repair | imported attempt 1 failed obsolete row selector after proving five default output IDs (59.990s). Five scoped row locators/three Group dialog checks repaired; no product/oracle/deadline changes; saved-state-unchanged Group diagnostic passes | `/workspace/loom-followup-native-review/work/review-native/source-row-selector-expanded-receipt.md`; `/tmp/loom-source-row-group-coordinator-green` |
+| Current imported whole case | PASS, 77.747s; all five outputs, overlay lifecycle, immutable pins, real two-editor 409 and explicit stale-owner Cancel, no ADD_ROUTE | `/tmp/loom-followup-imported-2/{command.json,native-evidence.json}` |
+| First-table metadata scheduling repair | reviewed one-action scheduling gate skips intermediate CREATE/ADD metadata without claiming network ownership; 37 focused tests and full test TypeScript pass. Parent controlled native red/green proves fresh final identity loading; no 409 waiver | `/workspace/loom-followup-root-review/work/review-first-table-network/receipt.md`; `/tmp/loom-ordinary-network-race/{red-coordinator,green-coordinator-2}` |
+| Ordinary attempts 1–2 | attempt 1 fails initial metadata race (21.963s). After the scheduling fix, attempt 2 completes functional actions but fails strict semantic-inventory assertion on a 409 after REMOVE_ROUTE (26.780s); incomplete, not an ordinary whole-case pass | `/tmp/loom-followup-ordinary-{1,2}/` |
+| Fresh authenticated doctor | exit 2: missing `LOOM_E2E_TOKEN` or token file; authenticated lifecycle not run | `/tmp/loom-followup-readiness-1794553181550017402/{commands.json,authenticated.log}` |
+
+The successful draft source fingerprint is
+`538fe62f7a3537eaa1debb9a32ee5a7c9f6856dd12cbfd0da6911a5dfb7fa7e3`.
+Its framework baseline metadata is not the working-branch baseline. The later reducer delta is covered by 27 focused tests and native red/green diagnosis; unchanged UI coverage is reused rather than rerunning the broad 210-test suite solely for that one-line repair. Final production UI build remains pending after the native repair batch. Backend ordering review is closed; source-label and row-focus deltas are covered by 40 focused tests and full test TypeScript, not a claimed full current 210-test rerun. Earlier draft
+attempts remain recorded: 30s timeout without a report; 171 pass/29 fail; then
+199 pass/1 fail. They are failed/incomplete investigations, not additional passes.
+The isolated source-collection adapter experiment was abandoned and is excluded.
+The existing **Rows per starting record** control remains the single source-row
+entry point and retains its supported choices and empty policies.
+
+Exact-source inherited same-model reviews cover backend candidates/receipt
+isolation, shared owner/workspace, row/traversal projections, ordinary policy,
+root replacement, single source-row entry, focus restoration, and the native
+verifier. Counts overlap and must not be summed. No cross-model review is claimed.
+Raw scoped receipts are under `/workspace/loom-followup-{candidate-review,workspace-review,projection-review,root-review,source-collection-review,native-review}/work/`.
+Demo-only layout manifest: `b0f5dc3540a2339d9eb24c383275624c5766abe94930641c94492038d5efed22`.
+Later narrow manifests: inspector `6ba6b3c866f1cf347b30429b0a181a230d22aecd6639611f7fa1735360060b19`;
+saved preview `1b93a0d9a6cf86b3af025d52ba223b8ee4849f60c99d9eddb933de61a6397fa5`;
+resolver `ea7c38cf55826a8e2cb2199628e595286942bf34ea7c3905ea506c9ccc2c1b42`;
+ordering copy `52c5108a2a1b9d29fc9a923176786b46b162044da1b16a96bb11940ce9ef9063`
+(component SHA `87fe9f2e9fba42c8b61c2c2ec2c03c4f4c2221e1854ba03311f5972773963258`).
+Key manifests: root `80c3a7185cfcec169a7be2455093cd587f9a498182e3f60a45985eaa6d244a37`;
+ordinary policy `72cd05450ef3266ce9f6f03f5c3d5bde10f70efb16a63152f89beb23eb0ffd64`;
+single entry `ad6e907b54b1cdea11cecc0bf788c4d57451ea31f034e8b0328126e960c25194`;
+current focus context `e4ea5072182fe46ff7a05212f23accfefc5c7bdf8500aa5e252f6de488002c2f`.
+Focus review passes 19 focused tests plus ten actual-helper controls; its unrelated
+later source-column dispatch change is outside that receipt. Relevant changes
+invalidate affected coverage. Verifier review/discovery is not native acceptance.
+
+Before the failed native attempt, main/runtime equality covered 2,066 files
+(`/tmp/loom-runtime-final-sync-1794554428436815185/source-manifest.json`). Owned
+readiness and identity passed under `/tmp/loom-followup-final-readiness-1794554463214956229/`.
+That attempt's 1,589-file source fingerprint was
+`4a4fa9508211f25ab1fbd8f74755f1d9375756fa3cec8f1dc7499096058c741d`,
+API source `ae1646e66a6190b5a7cc3994e3056be2b1573d4ac460c3177ad1687bde58de80`,
+binary `04294a9de2b2d703ead1230243207255797a0d0a20692ce3227bd5af013e3d32`.
+Readiness is not product acceptance. The measured 32-column notation comparison
+does not prove the actual 267-column Calypr layout or a native lifecycle.
+
+The imported pass belongs to native fingerprint
+`00990f30edd660c72d6cfa6c251e0033ddda4a544527768a866b8f54eb7b2ae1`.
+The later first-table scheduling gate changes current source to `557e277f75787a93245e18d7ee0a285c61e782b80e48ac2660290b0c660033a7`;
+retain its full identity in each new native report rather than promoting earlier passes.
+Only imported has a recorded complete pass at its recorded fingerprint at this checkpoint;
+ordinary attempt 2 is incomplete after a strict post-REMOVE_ROUTE semantic-inventory 409. The earlier graph/row whole passes and canonical comparison
+at `01b7fd280661390fd82e0fa776af21f3b3967b675e31f99760bd104bc24b328f`
+retain their exact scopes; final graph/row reruns remain required after the harness
+batch. Current API source is
+`e64d6819523a3172103f3f58a93816bacdba9257de973d0dd27e1381758152e8`,
+binary `3b1eb3335b424fb5b8a49876ccdafdef7327588cd983c0e7502398e6b6536241`.
+The earlier API identities above are historical attempt identities, not current.
+Ordering review manifest is
+`75b465357f4df552de900676d9ec87b48d7bcb9220b4617a2c90e205747b6cb4`;
+readability `c0be3bc910ecb3c0144c157d0cf4f0b72e5024df28c3510dbc32e92e06ad4520`;
+row focus `4766f94e947f78a9be0bc75596fc6a4b9c7dcdf53998f0f4219cec7eca6df5c6`;
+catalog equivalence `55a94ded2685d364d3c9f51a1af2c775e071c84835884c3daf6fa6a9a82b958f`;
+legacy selectors `bedee3e531cd8f9a9a623da228d0f276013cf69d208f7be8555d18aeaab9f9ad`.
+First-table gate manifest `90b6039ff0915c8e1f40503372b84c94952ef5db02be13a98d66705aa7c941e0`
+binds Builder `1fb70f984c15a06448e29a3fdec691fa80de7baae2d16b421d41ffd8e3f192d5`
+and helper regression `ccfe2bd4262c2d9f21faada6112c4458edf9be0d6f278e06b76bf8a162b1f908`.
+Owned qualitative screenshot review found the five editing views usable, with small
+graph text and internal scrolling at 900px; it does not establish the actual
+267-column authenticated Calypr frame. Fresh 100-operation fixture creation and
+its native case remain pending; no absent historical fixture proof is substituted.
+
+The current 12-case matrix and pending criteria are in
+[fixtures/ACCEPTANCE.md](fixtures/ACCEPTANCE.md). The remaining current-source native
+lifecycles and actual Calypr frame checks remain incomplete. To unblock authenticated
+readiness, provide a short-lived token through a secure 0600 file, then run:
+
+```bash
+node .codex/skills/verify-loom-ui/scripts/verify.mjs doctor --token-file /secure/loom-e2e.token
+node .codex/skills/verify-loom-ui/scripts/verify.mjs drive --token-file /secure/loom-e2e.token --chrome /usr/bin/chromium
+```
+
+Drive establishes load only; complete authoring lifecycle and desktop captures
+remain necessary. No credentials were invented, no acceptance waived, and no
+production deployment/publication performed.
+
+## Original 01–07 evidence (historical)
+
+## Original scope and source
 
 The implementation starts at `1685bc4c2adda944e380e721a80fcdcfbf04def5`
 on `feature/default-recipe-authoring`, containing
@@ -32,7 +150,7 @@ Independent related expansions that would require an unspecified product are
 rejected. Imported preserve-mode root edits remain unavailable; deliberate
 replacement discloses pin detachment and reset.
 
-The current frozen API source identity is
+The original 01–07 frozen API source identity was
 `8d6b1c244537b92e1eaafa50b4da24c1952310186f3c18c4361d907f29197a27`;
 its binary SHA-256 is
 `c956bddd7a4029e8a91b7939f6f2b621fb88204c7c3574846799ade65eefff28`.

@@ -88,6 +88,25 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if !receiptHasOutput(candidateReceipt.Bundle, request.OutputID) || validateReceiptOutputContract(candidateReceipt, request.OutputID) != nil {
 		return AssessRowChangeResult{}, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row-change candidate receipt does not contain the requested output", nil, nil)
 	}
+	// The receipt can be scoped to this output and its upstream inputs. Expose
+	// only its exact candidate document; never persist the scoped workspace as
+	// the complete saved plan or reconstruct a root rebase in the browser.
+	verified, err := s.verifyProposalReceipt(ctx, "row-change", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &previewWorkspace)
+	if err != nil {
+		return AssessRowChangeResult{}, err
+	}
+	candidateDocument := proposalDocument(verified, request.OutputID)
+	if candidateDocument == nil {
+		return AssessRowChangeResult{}, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "candidate output is missing", nil, nil)
+	}
+	candidateNetwork, err := authoringv2.NetworkForDocument(*candidateDocument, catalog)
+	if err != nil {
+		return AssessRowChangeResult{}, unprocessable("row-change", "INVALID_AUTHORING_NETWORK", err.Error(), err)
+	}
+	candidateIdentity := rowIdentityForNetwork(*candidateDocument, candidateNetwork)
+	result.CandidateDocument = candidateDocument
+	result.CandidateNetwork = &candidateNetwork
+	result.CandidateRowIdentity = &candidateIdentity
 	result.CandidateReceiptID = candidateReceipt.ID
 	return result, nil
 }

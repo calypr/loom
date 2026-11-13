@@ -31,3 +31,18 @@ func TestNetworkLegacyRouteUsesExactCatalogIdentity(t *testing.T) {
 		t.Fatal("explicit parallel edge was retargeted")
 	}
 }
+
+func TestNetworkLegacyColumnsRemainInDocumentWithoutInventedBindingIdentity(t *testing.T) {
+	d := Document{Output: Output{ID: "patients"}, Route: RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: RecordsRowDefinition(), Columns: []Column{{Column: "legacy_id", OccurrenceID: "base", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}}, {ColumnID: "saved-id", Column: "other_id", OccurrenceID: "base", Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "FIRST"}}}}}
+	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}}}
+	network, err := NetworkForDocument(d, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(network.Bindings) != 1 || network.Bindings[0].ColumnID != "saved-id" || network.Bindings[0].OccurrenceID != "base" || network.Bindings[0].ValueMode != "FIRST" {
+		t.Fatalf("legacy ID was invented or modern binding changed: %#v", network.Bindings)
+	}
+	if len(d.Columns) != 2 || d.Columns[0].ColumnID != "" || d.Columns[0].Column != "legacy_id" || d.Columns[0].Source.Field.Path != "id" || d.Columns[0].Source.Field.ProjectionMode != "VALUE" {
+		t.Fatal("read adapter rewrote or removed legacy source facts")
+	}
+}

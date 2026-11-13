@@ -557,6 +557,19 @@ func TestReceiptContractSupportedForExecutionOnlyCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	v19 := r
+	v19.CompilerContractVersion = legacyCompilationReceiptV19CompilerContractVersion
+	v19.CompilationKey, _ = CompilationKey(v19)
+	v19.ID, _ = ReceiptID(v19)
+	if err := v19.Validate(); err != nil {
+		t.Fatalf("v19 must remain readable: %v", err)
+	}
+	if ReceiptContractSupportedForExecution(v19) {
+		t.Fatal("v19 execution must require recompilation")
+	}
+	if v19.CompilationKey == currentKey {
+		t.Fatal("v20 must invalidate v19 compilation cache")
+	}
 	r.CompilerContractVersion = legacyCompilationReceiptV18CompilerContractVersion
 	r.CompilationKey, _ = CompilationKey(r)
 	r.ID, _ = ReceiptID(r)

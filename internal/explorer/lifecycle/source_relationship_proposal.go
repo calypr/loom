@@ -24,19 +24,22 @@ type SourceRelationshipProposalRequest struct {
 	Limit                int                                    `json:"limit,omitempty"`
 }
 type SourceRelationshipProposal struct {
-	ProposalID               string   `json:"proposalId"`
-	CandidateReceiptID       string   `json:"candidateReceiptId"`
-	OutputID                 string   `json:"outputId"`
-	SnapshotToken            string   `json:"snapshotToken"`
-	DraftVersion             int64    `json:"draftVersion"`
-	DraftDigest              string   `json:"draftDigest"`
-	BaseDocumentDigest       string   `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string   `json:"candidateWorkspaceDigest"`
-	PreviewStatus            string   `json:"previewStatus"`
-	SampledRows              int      `json:"sampledRows"`
-	Sampled                  bool     `json:"sampled"`
-	AffectedColumns          []string `json:"affectedColumns"`
-	Notices                  []string `json:"notices"`
+	CandidateDocument        authoringv2.Document         `json:"candidateDocument"`
+	CandidateNetwork         authoringv2.AuthoringNetwork `json:"candidateNetwork"`
+	CandidateRowIdentity     authoringv2.RowIdentityPlan  `json:"candidateRowIdentity"`
+	ProposalID               string                       `json:"proposalId"`
+	CandidateReceiptID       string                       `json:"candidateReceiptId"`
+	OutputID                 string                       `json:"outputId"`
+	SnapshotToken            string                       `json:"snapshotToken"`
+	DraftVersion             int64                        `json:"draftVersion"`
+	DraftDigest              string                       `json:"draftDigest"`
+	BaseDocumentDigest       string                       `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                       `json:"candidateWorkspaceDigest"`
+	PreviewStatus            string                       `json:"previewStatus"`
+	SampledRows              int                          `json:"sampledRows"`
+	Sampled                  bool                         `json:"sampled"`
+	AffectedColumns          []string                     `json:"affectedColumns"`
+	Notices                  []string                     `json:"notices"`
 }
 
 // ProposeSourceRelationship compiles the entire candidate workspace before
@@ -54,7 +57,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err := request.validateSourceSelection(); err != nil {
 		return fail, malformed("source-relationship-proposal", err.Error(), err)
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || (request.SourceStep == nil && s.config.EditImportedRelationship == nil) || (request.SourceStep != nil && s.config.EditImportedSource == nil) {
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.AuthoringNetwork == nil || (request.SourceStep == nil && s.config.EditImportedRelationship == nil) || (request.SourceStep != nil && s.config.EditImportedSource == nil) {
 		return fail, unavailable("source-relationship-proposal", "IMPORTED_SOURCE_UNAVAILABLE", "native relationship editing is unavailable", nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
@@ -117,9 +120,24 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err != nil {
 		return fail, err
 	}
-	if _, err := s.verifyProposalReceipt(ctx, "source-relationship-proposal", receipt, request.Project, request.ExplorerID, request.SnapshotToken, authorized.Snapshot, &candidate); err != nil {
+	verifiedCandidate, err := s.verifyProposalReceipt(ctx, "source-relationship-proposal", receipt, request.Project, request.ExplorerID, request.SnapshotToken, authorized.Snapshot, &candidate)
+	if err != nil {
 		return fail, err
 	}
+	// Project only the workspace that passed immutable receipt verification. This
+	// read model cannot be supplied by the client or persisted as another recipe.
+	candidateDocument := proposalDocument(verifiedCandidate, request.OutputID)
+	if candidateDocument == nil {
+		return fail, conflict("source-relationship-proposal", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
+	}
+	candidateNetwork, err := s.config.AuthoringNetwork(ctx, request.Project, authorized, *candidateDocument)
+	if err != nil {
+		return fail, unprocessable("source-relationship-proposal", "INVALID_AUTHORING_NETWORK", err.Error(), err)
+	}
+	if candidateNetwork.OutputID != request.OutputID {
+		return fail, unprocessable("source-relationship-proposal", "INVALID_AUTHORING_NETWORK", "candidate network belongs to another output", nil)
+	}
+	candidateRowIdentity := rowIdentityForNetwork(*candidateDocument, candidateNetwork)
 	preview, err := s.Preview(ctx, PreviewRequest{Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: receipt.ID, OutputID: request.OutputID, Limit: request.Limit, SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	}})
@@ -163,7 +181,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if request.Change.MatchMode == authoringv2.RouteMatchRequired {
 		notices = append(notices, "Required matches exclude source rows without a match; they do not expand rows.")
 	}
-	return SourceRelationshipProposal{ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: affected, Notices: notices}, nil
+	return SourceRelationshipProposal{CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity, ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: affected, Notices: notices}, nil
 }
 
 func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {

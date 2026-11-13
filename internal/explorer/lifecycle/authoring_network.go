@@ -66,7 +66,14 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	if err != nil {
 		return empty, unprocessable("authoring-network", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
-	effective := *document
+	rowIdentity := rowIdentityForNetwork(*document, network)
+	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
+}
+
+// rowIdentityForNetwork uses the effective imported overlay, not its historical
+// projected route. Saved and proposed recipes must describe identical semantics.
+func rowIdentityForNetwork(document authoringv2.Document, network authoringv2.AuthoringNetwork) authoringv2.RowIdentityPlan {
+	effective := document
 	effective.Rows = network.SourceRows
 	var route func(string) authoringv2.RouteNode
 	route = func(id string) authoringv2.RouteNode {
@@ -85,5 +92,5 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 		return result
 	}
 	effective.Route = route(authoringv2.RootOccurrenceID)
-	return AuthoringNetworkResponse{RowIdentity: authoringv2.DescribeRowIdentity(effective), SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
+	return authoringv2.DescribeRowIdentity(effective)
 }

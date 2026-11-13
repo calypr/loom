@@ -626,6 +626,13 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if result.DraftVersion != 7 || result.DraftDigest != digest || result.Assessment.Status != authoringv2.RowChangeReady || result.Assessment.Proposal == nil || result.CandidateReceiptID == "" {
 		t.Fatalf("row change result=%#v", result)
 	}
+	if result.CandidateDocument == nil || result.CandidateNetwork == nil || result.CandidateRowIdentity == nil || result.CandidateDocument.RootResourceType != "Encounter" || result.CandidateDocument.Columns[0].OccurrenceID != "encounter" || result.CandidateNetwork.OutputID != "patients" || result.CandidateNetwork.Owner != "DOCUMENT" || len(result.CandidateNetwork.Bindings) != 0 || result.CandidateDocument.Columns[0].ColumnID != "" || result.CandidateRowIdentity.Stages[0].Identity.ResourceType != "Encounter" {
+		t.Fatalf("READY root change did not expose its exact receipt candidate: %#v", result)
+	}
+	verifiedRoot, decodeErr := authoringv2.DecodeWorkspace(store.receipt.NormalizedBundle)
+	if decodeErr != nil || !reflect.DeepEqual(*result.CandidateDocument, verifiedRoot.Documents[0]) {
+		t.Fatal("root projection differs from the preview receipt document")
+	}
 	previewReceiptID = result.CandidateReceiptID
 	if compileCalls != 1 || compiledWorkspace.Documents[0].RootResourceType != "Encounter" || compiledWorkspace.Documents[0].Route.ResourceType != "Encounter" {
 		t.Fatalf("candidate compile calls=%d workspace=%#v", compileCalls, compiledWorkspace)
@@ -652,7 +659,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if blocked.Assessment.Status != authoringv2.RowChangeBlocked || blocked.CandidateReceiptID != "" || compileCalls != 1 {
+	if blocked.Assessment.Status != authoringv2.RowChangeBlocked || blocked.CandidateReceiptID != "" || blocked.CandidateDocument != nil || blocked.CandidateNetwork != nil || blocked.CandidateRowIdentity != nil || compileCalls != 1 {
 		t.Fatalf("blocked assessment compiled a receipt: result=%#v calls=%d", blocked, compileCalls)
 	}
 	noChange, err := service.AssessRowChange(context.Background(), AssessRowChangeRequest{
@@ -662,7 +669,7 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if noChange.Assessment.Status != authoringv2.RowChangeNoChange || noChange.CandidateReceiptID != "" || compileCalls != 1 {
+	if noChange.Assessment.Status != authoringv2.RowChangeNoChange || noChange.CandidateReceiptID != "" || noChange.CandidateDocument != nil || noChange.CandidateNetwork != nil || noChange.CandidateRowIdentity != nil || compileCalls != 1 {
 		t.Fatalf("no-change assessment compiled a receipt: result=%#v calls=%d", noChange, compileCalls)
 	}
 
@@ -684,6 +691,9 @@ func TestAssessRowChangeCompilesExactCandidateWithoutSavingDraft(t *testing.T) {
 	}
 	if replacement.Assessment.Mode != authoringv2.RowChangeModeReplace || len(replacement.Assessment.RemovedFeatureKeys) == 0 {
 		t.Fatalf("replacement effect preview=%#v", replacement.Assessment)
+	}
+	if replacement.CandidateDocument == nil || replacement.CandidateNetwork == nil || replacement.CandidateRowIdentity == nil || replacement.CandidateDocument.RootResourceType != "DiagnosticReport" || replacement.CandidateDocument.ImportedRecipe != nil || replacement.CandidateDocument.ImportedSource != nil || len(replacement.CandidateDocument.Columns) != 1 || replacement.CandidateDocument.Columns[0].Column != "id" || replacement.CandidateNetwork.Owner != "DOCUMENT" || replacement.CandidateRowIdentity.Stages[0].Identity.ResourceType != "DiagnosticReport" {
+		t.Fatalf("replacement projection retained the old source instead of its new document: %#v", replacement)
 	}
 	previewReceiptID = replacement.CandidateReceiptID
 	if _, err := service.Preview(context.Background(), PreviewRequest{
@@ -982,5 +992,55 @@ func TestAssessRowChangeRebasesRelatedSourceForSelectedCompilerRootRoute(t *test
 		gotRelated.Route[2].FromNodeID != "condition" || gotRelated.Route[2].ToNodeID != "patient" || gotRelated.Route[2].EdgeID != "condition-patient" ||
 		gotRelated.SourceOccurrenceID != "patient" {
 		t.Fatalf("candidate related-source route=%#v, want Specimen→Patient→Condition→Patient to preserve the Condition source anchor", gotRelated)
+	}
+}
+
+func TestAssessRowReplacementCandidateProjectsExplicitImportedDetachment(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "root-projection", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	snapshot.Nodes = []capability.Node{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, Populated: true}, {ID: "study", ResourceType: "ResearchStudy", RowRootEligible: true, Populated: true}}
+	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{ID: "study-id", NodeID: "study", ResourceType: "ResearchStudy", FieldPath: "id", Label: "Study ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: true})
+
+	pin := authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: strings.Repeat("a", 64), Output: "patients"}
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, SemanticsVersion: authoringv2.CurrentSemanticsVersion, Explorer: authoringv2.ExplorerMetadata{Title: "Pinned patients"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Pinned patients"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(), ImportedRecipe: &pin}}, Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Visible: true}}}
+	raw, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, _ := workspace.Digest()
+	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
+	config := testConfig(snapshot)
+	config.Capability.Catalog = func(snapshot capability.Snapshot, id string) authoringv2.CatalogSnapshot {
+		c := lifecycleInterpretationCatalog(snapshot, id)
+		c.Nodes = append(c.Nodes, authoringv2.CatalogNode{ID: "study", ResourceType: "ResearchStudy", RowRootEligible: true})
+		c.Candidates = append(c.Candidates, authoringv2.CatalogCandidate{ID: "study-id", NodeID: "study", FieldPath: "id", Cardinality: "optional_one", Label: "Study ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "study-id", "study", "ResearchStudy", "id", "optional_one", capability.ProjectionScalar)})
+		return c
+	}
+	config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		receipt, err := compileTraceReceipt(ctx, request, snapshot, config.Capability.Catalog(snapshot, request.ExplorerID))
+		if err != nil {
+			return nil, err
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+	config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		return dataframeexecution.PreviewSummary{Complete: true}, nil
+	}
+	service := newTestService(t, store, config)
+	request := AssessRowChangeRequest{Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, DraftVersion: 1, DraftDigest: digest, OutputID: "patients", RootNodeID: "study"}
+	blocked, err := service.AssessRowChange(context.Background(), request)
+	if err != nil || blocked.Assessment.Status != authoringv2.RowChangeBlocked || blocked.CandidateDocument != nil || blocked.CandidateNetwork != nil || blocked.CandidateRowIdentity != nil {
+		t.Fatalf("imported preserving root exposed a candidate: %#v error=%v", blocked, err)
+	}
+	request.Mode = authoringv2.RowChangeModeReplace
+	result, err := service.AssessRowChange(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Assessment.Status != authoringv2.RowChangeReady || result.CandidateDocument == nil || result.CandidateNetwork == nil || result.CandidateRowIdentity == nil || result.CandidateDocument.ImportedRecipe != nil || result.CandidateDocument.ImportedSource != nil || result.CandidateDocument.RootResourceType != "ResearchStudy" || result.CandidateNetwork.Owner != "DOCUMENT" || result.CandidateRowIdentity.Stages[0].Identity.ResourceType != "ResearchStudy" {
+		t.Fatalf("explicit detachment projection retained pin or old root: %#v", result)
+	}
+	if store.saveDraftCalls != 0 || string(store.created.DraftConfig) != string(raw) || *workspace.Documents[0].ImportedRecipe != pin {
+		t.Fatal("assessing replacement detached or changed the saved pin")
 	}
 }

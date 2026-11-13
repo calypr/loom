@@ -261,7 +261,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		binding := *request.PopulationMemberRemovalProposal
 		populationMemberRemovalProposal = &binding
 	}
-	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, CompiledOutputSchemas: compiledOutputSchemas, SourceRelationshipProposal: request.SourceRelationshipProposal, RowDefinitionProposal: rowDefinitionProposal, TableShapeProposal: tableShapeProposal, ConstructionProposal: constructionProposal, PopulationMemberRemovalProposal: populationMemberRemovalProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, CompiledOutputSchemas: compiledOutputSchemas, ColumnPolicyProposal: cloneColumnPolicyBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: request.SourceRelationshipProposal, RowDefinitionProposal: rowDefinitionProposal, TableShapeProposal: tableShapeProposal, ConstructionProposal: constructionProposal, PopulationMemberRemovalProposal: populationMemberRemovalProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 	if err != nil {
 		return nil, err
@@ -754,4 +754,12 @@ func compileValidatedReceiptResolution(ctx context.Context, recipeEngine *datafr
 		return dataframeexecution.Resolved{}, contractMismatch("public_columns", "", "receipt public columns", err.Error())
 	}
 	return resolved, nil
+}
+
+func cloneColumnPolicyBinding(binding *explorer.ColumnPolicyProposalBinding) *explorer.ColumnPolicyProposalBinding {
+	if binding == nil {
+		return nil
+	}
+	copy := *binding
+	return &copy
 }

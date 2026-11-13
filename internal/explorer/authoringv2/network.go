@@ -35,6 +35,9 @@ type NetworkOccurrence struct {
 }
 
 type NetworkColumnBinding struct {
+	// Only persisted stable identities are emitted. Legacy ordinary columns
+	// without ColumnID remain in the authoritative document and are omitted
+	// from this binding list rather than assigned a fabricated identity.
 	ColumnID     string `json:"columnId"`
 	OccurrenceID string `json:"occurrenceId,omitempty"`
 	SourceStepID string `json:"sourceStepId,omitempty"`
@@ -196,6 +199,9 @@ func NetworkForDocument(d Document, catalog CatalogSnapshot) (AuthoringNetwork, 
 		return AuthoringNetwork{}, err
 	}
 	for _, c := range d.Columns {
+		if c.ColumnID == "" {
+			continue
+		}
 		binding := NetworkColumnBinding{ColumnID: c.ColumnID, OccurrenceID: c.OccurrenceID, Status: "EXACT"}
 		if c.Source.Field != nil {
 			binding.ValueMode = c.Source.Field.ProjectionMode

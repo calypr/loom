@@ -29,8 +29,10 @@ type PhysicalSet struct {
 	// is bound by the renderer while iterating SourceSetVariable.
 	SourceSetVariable string
 	ItemVariable      string
-	// SortByKey makes the set's node order part of physical semantics. Optional
-	// relationship materialization must not rely on Arango traversal order.
+	// SortByKey orders contributors by their pre-generation logical record key,
+	// falling back to the physical key for legacy records, with the physical
+	// key as a tie-break. Project/generation hashes must not reorder values.
+	// This does not reorder repeated field items or explicit aggregate ordering.
 	SortByKey bool
 	// Reduction contains set-level reductions for direct child projections. It
 	// is intentionally separate from the identity-bearing set because nested
@@ -398,6 +400,7 @@ type PhysicalSetOutputField string
 const (
 	PhysicalSetGraphIDField      PhysicalSetOutputField = "_id"
 	PhysicalSetKeyField          PhysicalSetOutputField = "_key"
+	PhysicalSetLogicalKeyField   PhysicalSetOutputField = "logical_key"
 	PhysicalSetIDField           PhysicalSetOutputField = "id"
 	PhysicalSetResourceTypeField PhysicalSetOutputField = "resourceType"
 	PhysicalSetPayloadField      PhysicalSetOutputField = "payload"

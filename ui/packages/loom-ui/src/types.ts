@@ -777,6 +777,9 @@ export const rowDefinitionComparisonSchema = z.discriminatedUnion('status', [
 ]);
 export type RowDefinitionComparison = z.infer<typeof rowDefinitionComparisonSchema>;
 export const rowDefinitionProposalSchema = z.object({
+  candidateDocument: z.lazy(() => explorerBuilderDocumentSchema),
+  candidateNetwork: z.lazy(() => authoringNetworkSchema),
+  candidateRowIdentity: z.lazy(() => rowIdentityPlanSchema),
   proposalId: opaqueIdSchema.optional(),
   baseReceiptId: opaqueIdSchema,
   outputId: opaqueIdSchema,
@@ -3146,6 +3149,9 @@ export type RowChangeUnresolvedReference = z.infer<
 export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
   rowChangeAssessmentBaseSchema.extend({
     status: z.literal('READY'),
+    candidateDocument: explorerBuilderDocumentSchema.optional(),
+    candidateNetwork: authoringNetworkSchema.optional(),
+    candidateRowIdentity: rowIdentityPlanSchema.optional(),
     proposal: rowChangeProposalSchema,
     candidateReceiptId: opaqueIdSchema.optional(),
     unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
@@ -3223,6 +3229,9 @@ export const sourceRelationshipProposalRequestSchema = z.object({
 });
 export type SourceRelationshipProposalRequest = z.infer<typeof sourceRelationshipProposalRequestSchema>;
 export const sourceRelationshipProposalSchema = z.object({
+  candidateDocument: explorerBuilderDocumentSchema,
+  candidateNetwork: authoringNetworkSchema,
+  candidateRowIdentity: rowIdentityPlanSchema,
   proposalId: opaqueIdSchema, candidateReceiptId: opaqueIdSchema,
   outputId: opaqueIdSchema, snapshotToken: opaqueIdSchema,
   draftVersion: z.number().int().positive(), draftDigest: z.string().min(1),
@@ -3231,6 +3240,15 @@ export const sourceRelationshipProposalSchema = z.object({
   affectedColumns: z.array(z.string()), notices: z.array(z.string()),
 }).strict();
 export type SourceRelationshipProposal = z.infer<typeof sourceRelationshipProposalSchema>;
+
+export const columnPolicyProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema, columnId: opaqueIdSchema, projectionMode: projectionModeSchema,
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict();
+export type ColumnPolicyProposalRequest = z.infer<typeof columnPolicyProposalRequestSchema>;
+export const columnPolicyProposalSchema = sourceRelationshipProposalSchema;
+export type ColumnPolicyProposal = z.infer<typeof columnPolicyProposalSchema>;
 
 export const explorerBuilderCommandSchema = z
   .object({
@@ -3271,6 +3289,7 @@ export const explorerBuilderCommandSchema = z
       'UPDATE_IMPORTED_SOURCE_STEP',
       'REFRESH_IMPORTED_SOURCE',
       'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',
+      'APPLY_COLUMN_POLICY_PROPOSAL',
       'RESTORE_DRAFT_REVISION',
     ]),
     outputId: opaqueIdSchema.optional(),
@@ -3320,7 +3339,7 @@ export const explorerBuilderCommandSchema = z
   })
   .strict()
   .superRefine((command, context) => {
-    if (command.type === 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL') {
+    if (command.type === 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL' || command.type === 'APPLY_COLUMN_POLICY_PROPOSAL') {
       if (!command.outputId || !command.proposalId) context.addIssue({ code: 'custom', message: 'Relationship Apply requires outputId and proposalId.' });
       for (const [key, value] of Object.entries(command)) {
         if (!['type', 'outputId', 'proposalId'].includes(key) && value !== undefined) context.addIssue({ code: 'custom', path: [key], message: 'Relationship Apply accepts only outputId and proposalId.' });

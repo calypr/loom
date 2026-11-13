@@ -55,6 +55,7 @@ type CompileReceiptRequest struct {
 	Authorized                      AuthorizedCapability
 	ResolvedInputs                  explorercompilation.ResolvedInputs
 	SelectionMembersCollection      string
+	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
 	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
 	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
 	TableShapeProposal              *explorer.TableShapeProposalBinding
@@ -237,6 +238,7 @@ type compileRequest struct {
 	Workspace                       authoringv2.Workspace
 	SnapshotToken                   string
 	RequestID                       string
+	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
 	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
 	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
 	TableShapeProposal              *explorer.TableShapeProposalBinding
@@ -272,11 +274,14 @@ type AssessRowChangeRequest struct {
 }
 
 type AssessRowChangeResult struct {
-	SnapshotToken      string
-	DraftVersion       int64
-	DraftDigest        string
-	CandidateReceiptID string
-	Assessment         authoringv2.RowChangeAssessment
+	CandidateDocument    *authoringv2.Document
+	CandidateNetwork     *authoringv2.AuthoringNetwork
+	CandidateRowIdentity *authoringv2.RowIdentityPlan
+	SnapshotToken        string
+	DraftVersion         int64
+	DraftDigest          string
+	CandidateReceiptID   string
+	Assessment           authoringv2.RowChangeAssessment
 }
 
 type PreviewRequest struct {

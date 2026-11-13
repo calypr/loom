@@ -896,7 +896,7 @@ func validatePhysicalSet(set PhysicalSet, parent map[string]bool, bindVars map[s
 		seenOutputFields := map[PhysicalSetOutputField]bool{}
 		for _, field := range set.Output.Fields {
 			switch field {
-			case PhysicalSetGraphIDField, PhysicalSetKeyField, PhysicalSetIDField, PhysicalSetResourceTypeField, PhysicalSetPayloadField:
+			case PhysicalSetGraphIDField, PhysicalSetKeyField, PhysicalSetLogicalKeyField, PhysicalSetIDField, PhysicalSetResourceTypeField, PhysicalSetPayloadField:
 			default:
 				return fmt.Errorf("set %q compact output field %q is unsupported", set.Variable, field)
 			}

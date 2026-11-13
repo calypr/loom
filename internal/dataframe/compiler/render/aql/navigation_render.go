@@ -305,7 +305,7 @@ func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]strin
 		return nil, err
 	}
 	if set.SortByKey {
-		lines = append(lines, indent+"  SORT "+t.TargetVariable+"._key")
+		lines = append(lines, indent+"  SORT NOT_NULL("+t.TargetVariable+".logical_key, "+t.TargetVariable+"._key), "+t.TargetVariable+"._key")
 	}
 	lines = append(lines, indent+"  RETURN "+value, "  )")
 	if set.Unique {
@@ -339,7 +339,7 @@ func renderPhysicalSetOutput(value string, output *ir.PhysicalSetOutput) (string
 	for _, field := range output.Fields {
 		name := string(field)
 		switch field {
-		case ir.PhysicalSetGraphIDField, ir.PhysicalSetKeyField, ir.PhysicalSetIDField, ir.PhysicalSetResourceTypeField, ir.PhysicalSetPayloadField:
+		case ir.PhysicalSetGraphIDField, ir.PhysicalSetKeyField, ir.PhysicalSetLogicalKeyField, ir.PhysicalSetIDField, ir.PhysicalSetResourceTypeField, ir.PhysicalSetPayloadField:
 			fields = append(fields, fmt.Sprintf("%s: %s.%s", name, value, name))
 		default:
 			return "", fmt.Errorf("unsupported compact set output field %q", field)
@@ -355,6 +355,7 @@ func (r *physicalPlanRenderer) renderPhysicalSetProjection(item string, projecti
 	fields := []string{
 		"_id: " + item + "._id",
 		"_key: " + item + "._key",
+		"logical_key: " + item + ".logical_key",
 		"id: " + item + ".id",
 		"resourceType: " + item + ".resourceType",
 	}
@@ -404,6 +405,7 @@ func (r *physicalPlanRenderer) renderPreparedSet(prepared ir.PhysicalPreparedSet
 	// after a separate compact-set contract proves it safe.
 	fields := []string{
 		fmt.Sprintf("_key: %s._key", item),
+		fmt.Sprintf("logical_key: %s.logical_key", item),
 		fmt.Sprintf("id: %s.id", item),
 		fmt.Sprintf("resourceType: %s.resourceType", item),
 		fmt.Sprintf("payload: %s.payload", item),
@@ -470,7 +472,7 @@ func (r *physicalPlanRenderer) renderSharedSubset(set ir.PhysicalSet) ([]string,
 		return nil, err
 	}
 	if set.SortByKey {
-		lines = append(lines, "      SORT "+set.ItemVariable+"._key")
+		lines = append(lines, "      SORT NOT_NULL("+set.ItemVariable+".logical_key, "+set.ItemVariable+"._key), "+set.ItemVariable+"._key")
 	}
 	lines = append(lines, "      RETURN "+value, "    )")
 	if set.Unique {

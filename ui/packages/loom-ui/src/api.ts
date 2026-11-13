@@ -26,6 +26,7 @@ import {
   authoringNetworkResponseSchema,
   type AuthoringNetworkRequest,
   type AuthoringNetworkResponse,
+  columnPolicyProposalRequestSchema, columnPolicyProposalSchema, type ColumnPolicyProposalRequest, type ColumnPolicyProposal,
   sourceRelationshipProposalRequestSchema,
   sourceRelationshipProposalSchema,
   type SourceRelationshipProposalRequest,
@@ -489,6 +490,8 @@ export interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
 
 export type DescribeAuthoringNetworkArgs = ExplorerAuthoringStateArgs & AuthoringNetworkRequest;
 
+export type ProposeColumnPolicyArgs = ExplorerAuthoringStateArgs & ColumnPolicyProposalRequest & { readonly requestId?: string };
+
 export type ProposeSourceRelationshipArgs = ExplorerAuthoringStateArgs & SourceRelationshipProposalRequest & { readonly requestId?: string };
 
 export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
@@ -775,6 +778,7 @@ export interface LoomClient {
     signal?: AbortSignal,
   ) => Promise<ConstructionInputsResponse>;
   readonly describeAuthoringNetwork: (args: DescribeAuthoringNetworkArgs, signal?: AbortSignal) => Promise<AuthoringNetworkResponse>;
+  readonly proposeColumnPolicy: (args: ProposeColumnPolicyArgs, signal?: AbortSignal) => Promise<ColumnPolicyProposal>;
   readonly proposeSourceRelationship: (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => Promise<SourceRelationshipProposal>;
   readonly proposeConstruction: (
     args: ProposeConstructionArgs,
@@ -1711,6 +1715,12 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       authoringNetworkRequestSchema.parse(body), signal,
     )).then((value) => authoringNetworkResponseSchema.parse(value));
   };
+  const proposeColumnPolicy = (args: ProposeColumnPolicyArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/column-policy-proposals'), withJson(
+      columnPolicyProposalRequestSchema.parse(body), signal, requestId,
+    )).then((value) => columnPolicyProposalSchema.parse(value));
+  };
   const proposeSourceRelationship = (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => {
     const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
     return request(durableAuthoringPath(args, '/source-relationship-proposals'), withJson(
@@ -2005,6 +2015,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     discoverConstructionCategories,
     getConstructionInputs,
     describeAuthoringNetwork,
+    proposeColumnPolicy,
     proposeSourceRelationship,
     proposeConstruction,
     proposeConstructionChoices,

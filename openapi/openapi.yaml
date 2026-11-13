@@ -648,6 +648,32 @@ paths:
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
         '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-policy-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerColumnPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ColumnPolicyProposalRequest'}
+      responses:
+        '200':
+          description: An existing ordinary source column policy candidate bound to the saved draft and successful receipt preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ColumnPolicyProposal'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -3412,7 +3438,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, APPLY_IMPORTED_RELATIONSHIP_PROPOSAL, RESTORE_DRAFT_REVISION]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, APPLY_IMPORTED_RELATIONSHIP_PROPOSAL, APPLY_COLUMN_POLICY_PROPOSAL, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         draftRevisionId: {type: string, minLength: 1}
@@ -3487,8 +3513,11 @@ components:
     SourceRelationshipProposal:
       type: object
       additionalProperties: false
-      required: [proposalId, candidateReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, previewStatus, sampledRows, sampled, affectedColumns, notices]
+      required: [proposalId, candidateReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, previewStatus, sampledRows, sampled, affectedColumns, notices, candidateDocument, candidateNetwork, candidateRowIdentity]
       properties:
+        candidateDocument: {$ref: '#/components/schemas/Document'}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork'}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
         proposalId: {type: string, minLength: 1}
         candidateReceiptId: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
@@ -3502,6 +3531,24 @@ components:
         sampled: {type: boolean}
         affectedColumns: {type: array, items: {type: string}}
         notices: {type: array, items: {type: string}}
+    ColumnPolicyProposalRequest:
+      type: object
+      x-go-type: lifecycle.ColumnPolicyProposalRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, columnId, projectionMode]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+        projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+    ColumnPolicyProposal:
+      $ref: '#/components/schemas/SourceRelationshipProposal'
     ImportedSourceStepChange:
       type: object
       x-go-type: authoringv2.ImportedSourceStepChange
@@ -3630,6 +3677,9 @@ components:
         currentRootResourceType: {type: string, minLength: 1}
         candidateRootResourceType: {type: string, minLength: 1}
         proposal: {$ref: '#/components/schemas/RowChangeProposal'}
+        candidateDocument: {$ref: '#/components/schemas/Document', description: Exact verified target document; present only for READY. The preview receipt may scope out downstream consumers.}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork', description: Present only for READY.}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan', description: Present only for READY.}
         candidateReceiptId:
           type: string
           minLength: 1
@@ -4266,8 +4316,11 @@ components:
     RowDefinitionProposal:
       type: object
       additionalProperties: false
-      required: [baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison]
+      required: [baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison, candidateDocument, candidateNetwork, candidateRowIdentity]
       properties:
+        candidateDocument: {$ref: '#/components/schemas/Document'}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork'}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
         proposalId: {type: string, minLength: 1, description: Present only when a candidate receipt can be applied through the existing proposal command.}
         baseReceiptId: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}

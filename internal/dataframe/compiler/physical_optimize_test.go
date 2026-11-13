@@ -250,7 +250,7 @@ func TestBuildGenericPhysicalPlanCompactOutputPolicy(t *testing.T) {
 	if err := compact.Validate(); err != nil {
 		t.Fatalf("compact plan validation failed: %v", err)
 	}
-	if len(compactSet.Output.Fields) != 4 || compactSet.Output.Fields[0] != ir.PhysicalSetGraphIDField || compactSet.Output.Fields[1] != ir.PhysicalSetKeyField {
+	if len(compactSet.Output.Fields) != 5 || compactSet.Output.Fields[0] != ir.PhysicalSetGraphIDField || compactSet.Output.Fields[1] != ir.PhysicalSetKeyField || compactSet.Output.Fields[2] != ir.PhysicalSetLogicalKeyField {
 		t.Fatalf("compact output fields = %#v, want graph identity plus metadata", compactSet.Output.Fields)
 	}
 }

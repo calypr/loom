@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -31,6 +32,26 @@ import (
 // never from a preceding query response. This proves compiler/AQL execution,
 // not native browser interaction, draft persistence or authentication.
 func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
+	graphRowsIndependentFixtureAgainstArango(t, "fixture-v1", false, false, "original")
+}
+
+func TestGraphRowsLogicalContributorOrderAgainstArango(t *testing.T) {
+	for _, values := range []string{"original", "swapped", "duplicate"} {
+		for _, reverse := range []bool{false, true} {
+			t.Run(fmt.Sprintf("values-%s-reversed-insertion-%v", values, reverse), func(t *testing.T) {
+				graphRowsIndependentFixtureAgainstArango(t, "fixture-v2", true, reverse, values)
+			})
+		}
+	}
+}
+
+func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, qualified, reverse bool, values string) {
+	vertexKey := func(collection, id string) string {
+		if !qualified {
+			return id
+		}
+		return fmt.Sprintf("g_%x", sha256.Sum256([]byte("vertex\x00graph-fixture\x00"+generation+"\x00"+collection+"\x00"+id+"\x00")))
+	}
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
 	if endpoint == "" {
 		t.Skip("set LOOM_TEST_ARANGO_URL to the owned disposable Arango service")
@@ -67,6 +88,11 @@ func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
 	fixture := filepath.Join("..", "..", "testdata", "graph-rows")
 	insert := func(collection string, documents []json.RawMessage) {
 		t.Helper()
+		if reverse {
+			for i, j := 0, len(documents)-1; i < j; i, j = i+1, j-1 {
+				documents[i], documents[j] = documents[j], documents[i]
+			}
+		}
 		if err := client.InsertBatchRaw(ctx, collection, documents, false, "document"); err != nil {
 			t.Fatal(err)
 		}
@@ -85,7 +111,31 @@ func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			id := payload["id"].(string)
-			raw, err := json.Marshal(map[string]any{"_key": id, "id": id, "project": "graph-fixture", "project_id": "graph-fixture", "dataset_generation": "fixture-v1", "resourceType": collection, "payload": payload})
+			if qualified && collection == "ResearchSubject" {
+				payload["meta"] = map[string]any{"lastUpdated": "2022-01-01T00:00:00Z"}
+				payload["extension"] = []any{map[string]any{"valueInteger": 9}, map[string]any{"valueInteger": 1}, map[string]any{"valueInteger": 9}}
+			}
+			if qualified && collection == "Observation" {
+				if values == "swapped" && id == "obs-many-A" {
+					payload["valueInteger"] = 13
+				}
+				if values == "swapped" && id == "obs-many-B" {
+					payload["valueInteger"] = 11
+				}
+				if values == "duplicate" && id == "obs-many-B" {
+					payload["valueInteger"] = 11
+				}
+				payload["extension"] = []any{map[string]any{"url": "score", "valueInteger": payload["valueInteger"]}}
+				payload["effectiveDateTime"] = "2020-01-01T00:00:00Z"
+				if id == "obs-many-B" {
+					payload["effectiveDateTime"] = "2021-01-01T00:00:00Z"
+				}
+			}
+			resource := map[string]any{"_key": vertexKey(collection, id), "id": id, "project": "graph-fixture", "project_id": "graph-fixture", "dataset_generation": generation, "resourceType": collection, "payload": payload}
+			if qualified {
+				resource["logical_key"] = id
+			}
+			raw, err := json.Marshal(resource)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,11 +146,23 @@ func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
 				if len(target) != 2 {
 					t.Fatal("invalid fixture reference")
 				}
-				encoded, err := json.Marshal(map[string]any{"_key": fmt.Sprintf("edge_%d", len(edges)), "_from": collection + "/" + id, "_to": reference, "label": label, "from_type": collection, "to_type": target[0], "project": "graph-fixture", "project_id": "graph-fixture", "dataset_generation": "fixture-v1"})
+				encoded, err := json.Marshal(map[string]any{"_key": fmt.Sprintf("edge_%d", len(edges)), "_from": collection + "/" + vertexKey(collection, id), "_to": target[0] + "/" + vertexKey(target[0], target[1]), "label": label, "from_type": collection, "to_type": target[0], "project": "graph-fixture", "project_id": "graph-fixture", "dataset_generation": generation})
 				if err != nil {
 					t.Fatal(err)
 				}
 				edges = append(edges, encoded)
+				if qualified && collection == "Observation" && id == "obs-many-A" && label == "subject_Patient" {
+					var duplicate map[string]any
+					if err := json.Unmarshal(encoded, &duplicate); err != nil {
+						t.Fatal(err)
+					}
+					duplicate["_key"] = fmt.Sprint(duplicate["_key"]) + "_duplicate"
+					raw, err := json.Marshal(duplicate)
+					if err != nil {
+						t.Fatal(err)
+					}
+					edges = append(edges, raw)
+				}
 			}
 			if subject, ok := payload["subject"].(map[string]any); ok {
 				addEdge(subject["reference"].(string), "subject_Patient")
@@ -118,7 +180,9 @@ func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
 		insert(collection, documents)
 	}
 	insert("fhir_edge", edges)
-	t.Run("group-dynamic-source-runtime-validation", func(t *testing.T) { graphRowsCheckGroupedDynamicInventories(t, ctx, client) })
+	if !qualified {
+		t.Run("group-dynamic-source-runtime-validation", func(t *testing.T) { graphRowsCheckGroupedDynamicInventories(t, ctx, client) })
+	}
 	var oracle struct {
 		Preserving []struct {
 			Identity          []string `json:"identity"`
@@ -165,12 +229,102 @@ func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
 	}
 	execute := func(t *testing.T, output recipe.Output) []map[string]any {
 		t.Helper()
-		query := compileGraphRowsFixture(t, output)
+		query := compileGraphRowsFixtureWithBindings(t, output, recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, SelectionProject: "graph-fixture"})
+		if qualified {
+			for _, name := range append(append([]string{}, query.PublicColumns...), query.PivotFields...) {
+				if strings.Contains(name, "logical_key") {
+					t.Fatalf("internal ordering metadata in public schema: %q", name)
+				}
+			}
+		}
 		rows := []map[string]any{}
 		if err := client.QueryRows(ctx, query.Query, 100, query.BindVars, func(row map[string]any) error { rows = append(rows, row); return nil }); err != nil {
 			t.Fatal(err)
 		}
+		if qualified {
+			for _, row := range rows {
+				for name := range row {
+					if strings.Contains(name, "logical_key") {
+						t.Fatalf("internal ordering metadata in public row: %q", name)
+					}
+				}
+				if inventory, ok := row["__loom_dynamic_runtime_keys"]; ok {
+					raw, _ := json.Marshal(inventory)
+					if strings.Contains(string(raw), "logical_key") {
+						t.Fatalf("internal ordering metadata in dynamic inventory: %s", raw)
+					}
+				}
+			}
+		}
 		return rows
+	}
+	if qualified {
+		if vertexKey("Observation", "obs-many-A") < vertexKey("Observation", "obs-many-B") {
+			t.Fatal("fixture must reverse physical and logical contributor order")
+		}
+		output := graphRowsFixtureSource(false, true)
+		output.Fields = append(output.Fields,
+			recipe.Field{Name: "item_all", Expr: recipe.Expression{Select: "root.extension[].valueInteger"}, ValueMode: recipe.ValueModeAll},
+			recipe.Field{Name: "item_first", Expr: recipe.Expression{Select: "root.extension[].valueInteger"}, ValueMode: recipe.ValueModeFirst},
+			recipe.Field{Name: "item_distinct", Expr: recipe.Expression{Select: "root.extension[].valueInteger"}, ValueMode: recipe.ValueModeDistinct})
+		obs := &output.Traversals[0].Traversals[0]
+		obs.Fields = append(obs.Fields,
+			recipe.Field{Name: "first_value", Expr: recipe.Expression{Select: "observations.valueInteger"}, ValueMode: recipe.ValueModeFirst},
+			recipe.Field{Name: "distinct_values", Expr: recipe.Expression{Select: "observations.valueInteger"}, ValueMode: recipe.ValueModeDistinct})
+		dynamicKey, dynamicValue := recipe.Expression{Select: "item.url"}, recipe.Expression{Select: "item.valueInteger"}
+		obs.DynamicColumns = []recipe.DynamicColumn{{Name: "scores", Source: recipe.Expression{Select: "observations.extension[]"}, Key: &dynamicKey, Value: &dynamicValue, ValueMode: recipe.ValueModeAll, Columns: []string{"score"}}}
+		valueExpr := recipe.Expression{Select: "observations.valueInteger"}
+		obs.Aggregates = []recipe.Aggregate{{Name: "latest", OutputName: "latest", Operation: recipe.AggregateFirstOrdered, Expr: &valueExpr,
+			ContributorWindow: &recipe.ContributorWindow{Timestamp: recipe.Expression{Select: "observations.effectiveDateTime"}, Anchor: recipe.Expression{Select: "root.meta.lastUpdated"}, LowerOffset: -94608000, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true, Precision: recipe.TemporalPrecisionInstant},
+			Ordering:          &recipe.TemporalOrdering{Timestamp: recipe.Expression{Select: "observations.effectiveDateTime"}, Direction: recipe.TemporalDescending, TiePolicy: recipe.TemporalTieResourceKey}}}
+		rows := execute(t, output)
+		if len(rows) != 4 {
+			t.Fatalf("two by three branches changed rows: %#v", rows)
+		}
+		for _, row := range rows {
+			graphRowsAssertJSON(t, row["item_all"], []int{9, 1, 9})
+			graphRowsAssertJSON(t, row["item_first"], 9)
+			graphRowsAssertJSON(t, row["item_distinct"], []int{1, 9})
+			switch row["subject_id"] {
+			case "rs-many", "rs-shared":
+				if inventory, ok := row["__loom_dynamic_runtime_keys"]; !ok || inventory == nil {
+					t.Fatal("dynamic inventory negative control did not exercise a runtime inventory")
+				}
+				graphRowsAssertJSON(t, row["observations__id"], []string{"obs-many-A", "obs-many-B"})
+				expectedValues, first, latest, distinct := []int{11, 13}, 11, 13, []int{11, 13}
+				if values == "swapped" {
+					expectedValues, first, latest = []int{13, 11}, 13, 11
+				}
+				if values == "duplicate" {
+					expectedValues, first, latest, distinct = []int{11, 11}, 11, 11, []int{11}
+				}
+				graphRowsAssertJSON(t, row["observations__value"], expectedValues)
+				graphRowsAssertJSON(t, row["observations__first_value"], first)
+				graphRowsAssertJSON(t, row["latest"], latest)
+				graphRowsAssertJSON(t, row["observations__distinct_values"], distinct)
+				graphRowsAssertJSON(t, row["conditions__id"], []string{"condition-A", "condition-B", "condition-C"})
+			}
+		}
+		required := output
+		required.Traversals = append([]recipe.Traversal(nil), output.Traversals...)
+		required.Traversals[0].MatchMode = recipe.MatchRequired
+		required.Traversals[0].Traversals = append([]recipe.Traversal(nil), output.Traversals[0].Traversals...)
+		required.Traversals[0].Traversals[0].MatchMode = recipe.MatchRequired
+		requiredRows := execute(t, required)
+		if len(requiredRows) != 3 {
+			t.Fatalf("required match must only filter unmatched root: %#v", requiredRows)
+		}
+		byID := map[string]map[string]any{}
+		for _, row := range rows {
+			byID[row["subject_id"].(string)] = row
+		}
+		for _, row := range requiredRows {
+			if row["subject_id"] == "rs-zero" {
+				t.Fatal("unmatched row survived")
+			}
+			graphRowsAssertJSON(t, row["observations__value"], byID[row["subject_id"].(string)]["observations__value"])
+		}
+		return
 	}
 	t.Run("optional-two-by-three-values-preserve-four-source-identities", func(t *testing.T) {
 		rows := execute(t, graphRowsFixtureSource(false, true))
@@ -371,6 +525,75 @@ func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
 			t.Fatal("missing preserve-parent row")
 		}
 	})
+	t.Run("related-expansion-preserves-existing-all-lists-and-explicit-scalar", func(t *testing.T) {
+		output := graphRowsFixtureExpandedWithLists(recipe.ExpansionExclude)
+		// The existing list and the separately authored per-match scalar retain
+		// different identities and policies throughout the same expansion.
+		observation := output.Traversals[0].Traversals[0]
+		if observation.Fields[1].ColumnID != "observation-values" || observation.Fields[1].ValueMode != recipe.ValueModeAll || output.Construction.Steps[1].Operation.RelatedField.OutputColumnID != "observation-value" {
+			t.Fatal("expansion fixture rewrote existing column policy or identity")
+		}
+		for _, step := range output.Construction.Steps {
+			found := false
+			for _, column := range step.Outputs {
+				if column.ID == "observation-values" {
+					found = column.Name == "observations__value" && column.Type == "array"
+				}
+			}
+			if !found {
+				t.Fatalf("step %s dropped or scalarized the existing list", step.ID)
+			}
+		}
+		preserved := map[string]struct {
+			values     []int
+			conditions []string
+		}{}
+		for _, want := range oracle.Preserving {
+			preserved[want.Identity[0]] = struct {
+				values     []int
+				conditions []string
+			}{want.ObservationValues, want.ConditionIDs}
+		}
+		assertPairs := func(rows []map[string]any, keepParent bool) {
+			t.Helper()
+			wanted := len(oracle.Expanded)
+			if keepParent {
+				wanted++
+			}
+			if len(rows) != wanted {
+				t.Fatalf("unexpected multiplication: got %d rows, want %d", len(rows), wanted)
+			}
+			byPair := map[string]map[string]any{}
+			for _, row := range rows {
+				subject := fmt.Sprint(row["subject_id"])
+				graphRowsAssertJSON(t, row["observations__value"], preserved[subject].values)
+				graphRowsAssertJSON(t, row["conditions__id"], preserved[subject].conditions)
+				key := subject + "/" + fmt.Sprint(row["observation_id"])
+				if byPair[key] != nil {
+					t.Fatalf("duplicate related pair %s", key)
+				}
+				byPair[key] = row
+			}
+			for _, want := range oracle.Expanded {
+				row := byPair[strings.Join(want.Identity, "/")]
+				if row == nil {
+					t.Fatalf("missing pair %v", want.Identity)
+				}
+				graphRowsAssertJSON(t, row["observation_value"], want.Value)
+				if row["subject_status"] != want.Status || row["patient__id"] != want.PatientID {
+					t.Fatalf("upstream scalar changed: %#v", row)
+				}
+			}
+			if keepParent {
+				row := byPair["rs-zero/<nil>"]
+				if row == nil || row["observation_value"] != nil {
+					t.Fatalf("missing-parent policy changed: %#v", row)
+				}
+			}
+		}
+		assertPairs(execute(t, output), false)
+		assertPairs(execute(t, graphRowsFixtureExpandedWithLists(recipe.ExpansionPreserveParent)), true)
+	})
 	t.Run("named-source-groups-retain-empty-group-and-exact-member-identities", func(t *testing.T) {
 		collections := []storearango.CollectionSpec{}
 		for _, name := range []string{"loom_explorer_explicit_group_revisions", "loom_explorer_explicit_group_definitions", "loom_explorer_explicit_group_memberships", "loom_explorer_selections", "loom_explorer_selection_members"} {
@@ -493,6 +716,10 @@ func TestGraphRowsIndependentFixturePlansCompile(t *testing.T) {
 func compileGraphRowsFixture(t *testing.T, output recipe.Output) compiler.CompiledQuery {
 	t.Helper()
 	bindings := recipe.RuntimeBindings{Project: "graph-fixture", DatasetGeneration: "fixture-v1", AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeRowIdentity: true, SelectionProject: "graph-fixture"}
+	return compileGraphRowsFixtureWithBindings(t, output, bindings)
+}
+func compileGraphRowsFixtureWithBindings(t *testing.T, output recipe.Output, bindings recipe.RuntimeBindings) compiler.CompiledQuery {
+	t.Helper()
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "graph-rows-fixture", TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
@@ -609,5 +836,22 @@ func graphRowsFixtureOneDistinct(subject string) recipe.Output {
 	output.Construction = &recipe.Construction{Version: 1, SourceColumns: columns, Steps: []recipe.ConstructionStep{{ID: "one-distinct-observation", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
 		AnchorColumnID: "_key", ChoiceID: "one-distinct-observation", SourceOccurrenceID: "observation", Source: recipe.ConstructionRelatedFieldSource{CandidateID: "observation-value", NodeID: "observation", ResourceType: "Observation", Path: "Observation.valueInteger", Cardinality: "optional_one", LogicalType: "integer"}, Route: graphRowsFixtureObservationRoute(), ContributorPolicy: "ALL_MATCHES", Form: "ALL", RowValuePolicy: recipe.ConstructionRowValueOne, OutputColumnID: "observation-value",
 	}}, Outputs: append(append([]recipe.StageColumn{}, columns...), recipe.StageColumn{ID: "observation-value", Name: "observation_value", Type: "integer", Nullable: true})}}}
+	return output
+}
+
+// This fixture preserves existing source ALL columns while adding an explicit
+// related-record scalar. Their stable identities are intentionally distinct.
+func graphRowsFixtureExpandedWithLists(policy recipe.ExpansionEmptyPolicy) recipe.Output {
+	output := graphRowsFixtureExpanded(policy)
+	output.Traversals = graphRowsFixtureSource(false, true).Traversals
+	columns := append(graphRowsFixtureSourceColumns(),
+		recipe.StageColumn{ID: "observation-ids", Name: "observations__id", Type: "array"},
+		recipe.StageColumn{ID: "observation-values", Name: "observations__value", Type: "array"},
+		recipe.StageColumn{ID: "condition-ids", Name: "conditions__id", Type: "array"},
+	)
+	output.Construction.SourceColumns = columns
+	expanded := append(append([]recipe.StageColumn{}, columns...), recipe.StageColumn{ID: "observation-id", Name: "observation_id", Type: "string", Nullable: policy == recipe.ExpansionPreserveParent})
+	output.Construction.Steps[0].Outputs = expanded
+	output.Construction.Steps[1].Outputs = append(append([]recipe.StageColumn{}, expanded...), recipe.StageColumn{ID: "observation-value", Name: "observation_value", Type: "integer", Nullable: true})
 	return output
 }

@@ -182,16 +182,19 @@ type RowDefinitionComparison struct {
 }
 
 type RowDefinitionProposal struct {
-	ProposalID               string                     `json:"proposalId,omitempty"`
-	BaseReceiptID            string                     `json:"baseReceiptId"`
-	OutputID                 string                     `json:"outputId"`
-	SnapshotToken            string                     `json:"snapshotToken"`
-	DraftVersion             int64                      `json:"draftVersion"`
-	DraftDigest              string                     `json:"draftDigest"`
-	BaseDocumentDigest       string                     `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string                     `json:"candidateWorkspaceDigest"`
-	Mode                     RowDefinitionSelectionKind `json:"mode"`
-	Comparison               RowDefinitionComparison    `json:"comparison"`
+	CandidateDocument        authoringv2.Document         `json:"candidateDocument"`
+	CandidateNetwork         authoringv2.AuthoringNetwork `json:"candidateNetwork"`
+	CandidateRowIdentity     authoringv2.RowIdentityPlan  `json:"candidateRowIdentity"`
+	ProposalID               string                       `json:"proposalId,omitempty"`
+	BaseReceiptID            string                       `json:"baseReceiptId"`
+	OutputID                 string                       `json:"outputId"`
+	SnapshotToken            string                       `json:"snapshotToken"`
+	DraftVersion             int64                        `json:"draftVersion"`
+	DraftDigest              string                       `json:"draftDigest"`
+	BaseDocumentDigest       string                       `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                       `json:"candidateWorkspaceDigest"`
+	Mode                     RowDefinitionSelectionKind   `json:"mode"`
+	Comparison               RowDefinitionComparison      `json:"comparison"`
 }
 
 type RowChoiceKind string
@@ -379,17 +382,31 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
-	if _, err := s.verifyRowDefinitionReceipt(ctx, candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace); err != nil {
+	verifiedCandidate, err := s.verifyRowDefinitionReceipt(ctx, candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace)
+	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
 	if err := s.validateExplicitGroupReceipt(ctx, candidateGroupProof, candidateReceipt); err != nil {
 		return RowDefinitionProposal{}, err
 	}
+	// Source row proposals are restricted to ordinary documents. Project the
+	// exact receipt-verified candidate through the existing route adapter rather
+	// than guessing rows from the requested mode or the comparison sample.
+	candidateDocument := proposalDocument(verifiedCandidate, request.OutputID)
+	if candidateDocument == nil {
+		return RowDefinitionProposal{}, conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
+	}
+	candidateNetwork, err := authoringv2.NetworkForDocument(*candidateDocument, catalog)
+	if err != nil {
+		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_AUTHORING_NETWORK", err.Error(), err)
+	}
+	candidateRowIdentity := rowIdentityForNetwork(*candidateDocument, candidateNetwork)
 	comparison, err := s.compareRowDefinitionReceipts(ctx, request, snapshot, baseReceipt, candidateReceipt, limit)
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
 	return RowDefinitionProposal{
+		CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity,
 		ProposalID: candidateReceipt.ID, BaseReceiptID: baseReceipt.ID, OutputID: request.OutputID,
 		SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, Mode: request.Selection.Kind,

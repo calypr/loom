@@ -27,7 +27,8 @@ const (
 	legacyCompilationReceiptFormatVersion   = 3
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v19"
+	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v20"
+	legacyCompilationReceiptV19CompilerContractVersion = "loom.explorer.compiler/v19"
 	legacyCompilationReceiptV18CompilerContractVersion = "loom.explorer.compiler/v18"
 	legacyCompilationReceiptV17CompilerContractVersion = "loom.explorer.compiler/v17"
 	legacyCompilationReceiptV16CompilerContractVersion = "loom.explorer.compiler/v16"
@@ -114,6 +115,7 @@ type CompilationReceipt struct {
 	// source metadata when another draft output consumes a WORKSPACE_OUTPUT.
 	CompiledOutputSchemas      map[string][]ReceiptCompiledOutputColumn `json:"compiledOutputSchemas,omitempty"`
 	Warnings                   []CompilationWarning                     `json:"warnings,omitempty"`
+	ColumnPolicyProposal       *ColumnPolicyProposalBinding             `json:"columnPolicyProposal,omitempty"`
 	SourceRelationshipProposal *SourceRelationshipProposalBinding       `json:"sourceRelationshipProposal,omitempty"`
 	RowDefinitionProposal      *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
 	TableShapeProposal         *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
@@ -828,6 +830,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		CapabilitySchema                string                                  `json:"capabilitySchemaDigest,omitempty"`
 		ShapeDigest                     string                                  `json:"shapeDigest,omitempty"`
 		SourceGeneration                string                                  `json:"sourceGeneration"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding            `json:"columnPolicyProposal,omitempty"`
 		SourceRelationshipProposal      *SourceRelationshipProposalBinding      `json:"sourceRelationshipProposal,omitempty"`
 		RowDefinitionProposal           *RowDefinitionProposalBinding           `json:"rowDefinitionProposal,omitempty"`
 		TableShapeProposal              *TableShapeProposalBinding              `json:"tableShapeProposal,omitempty"`
@@ -853,6 +856,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		CapabilitySchema                string                                  `json:"capabilitySchemaDigest,omitempty"`
 		ShapeDigest                     string                                  `json:"shapeDigest,omitempty"`
 		SourceGeneration                string                                  `json:"sourceGeneration"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding            `json:"columnPolicyProposal,omitempty"`
 		SourceRelationshipProposal      *SourceRelationshipProposalBinding      `json:"sourceRelationshipProposal,omitempty"`
 		RowDefinitionProposal           *RowDefinitionProposalBinding           `json:"rowDefinitionProposal,omitempty"`
 		TableShapeProposal              *TableShapeProposalBinding              `json:"tableShapeProposal,omitempty"`
@@ -862,7 +866,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 	}{
 		r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
 		r.IntentDigest, r.ResolvedInputsDigest, r.ResolvedInterpretations, normalized, r.SnapshotToken,
-		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration, r.SourceRelationshipProposal, r.RowDefinitionProposal, r.TableShapeProposal,
+		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration, r.ColumnPolicyProposal, r.SourceRelationshipProposal, r.RowDefinitionProposal, r.TableShapeProposal,
 		r.ConstructionProposal, r.PopulationMemberRemovalProposal, r.ConstructionStages,
 	}
 	return digestIdentity("compile_", identity)
@@ -898,6 +902,7 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		ColumnProvenance                map[string]map[string]string             `json:"outputColumnProvenance,omitempty"`
 		ResolvedInterpretations         []ResolvedInterpretation                 `json:"resolvedInterpretations,omitempty"`
 		Warnings                        []CompilationWarning                     `json:"warnings,omitempty"`
+		ColumnPolicyProposal            *ColumnPolicyProposalBinding             `json:"columnPolicyProposal,omitempty"`
 		SourceRelationshipProposal      *SourceRelationshipProposalBinding       `json:"sourceRelationshipProposal,omitempty"`
 		RowDefinitionProposal           *RowDefinitionProposalBinding            `json:"rowDefinitionProposal,omitempty"`
 		TableShapeProposal              *TableShapeProposalBinding               `json:"tableShapeProposal,omitempty"`
@@ -909,7 +914,7 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
 		r.OutputContractDigest, r.Bundle, compiledConfig,
 		publicContract, r.IdentityMappings, r.EmittedColumns,
-		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.SourceRelationshipProposal, r.RowDefinitionProposal, r.TableShapeProposal,
+		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.ColumnPolicyProposal, r.SourceRelationshipProposal, r.RowDefinitionProposal, r.TableShapeProposal,
 		r.ConstructionProposal, r.PopulationMemberRemovalProposal, r.ConstructionStages, r.CompiledOutputSchemas,
 	}
 	return digestIdentity("receipt_", identity)
@@ -940,6 +945,17 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 
 // Validate checks that a receipt is a supported, executable artifact.
 func (r CompilationReceipt) Validate() error {
+	if r.ColumnPolicyProposal != nil {
+		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
+			return fmt.Errorf("column policy proposals require the current receipt and compiler contract")
+		}
+		if r.SourceRelationshipProposal != nil || r.RowDefinitionProposal != nil || r.TableShapeProposal != nil || r.ConstructionProposal != nil || r.PopulationMemberRemovalProposal != nil {
+			return fmt.Errorf("column policy proposal cannot share a receipt with another proposal")
+		}
+		if err := r.ColumnPolicyProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+	}
 	if r.SourceRelationshipProposal != nil {
 		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
 			return fmt.Errorf("source relationship proposals require the current receipt and compiler contract")
@@ -989,7 +1005,7 @@ func (r CompilationReceipt) Validate() error {
 	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion && r.ReceiptFormatVersion != previousCompilationReceiptFormatVersion && r.ReceiptFormatVersion != legacyCompilationReceiptFormatVersion {
 		return fmt.Errorf("unsupported receipt format version %d", r.ReceiptFormatVersion)
 	}
-	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV18CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV17CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV16CompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV13CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
+	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV19CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV18CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV17CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV16CompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV13CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
 		return fmt.Errorf("unsupported compiler contract %q", r.CompilerContractVersion)
 	}
 	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.ExplorerID) == "" {
@@ -1020,7 +1036,7 @@ func (r CompilationReceipt) Validate() error {
 				return fmt.Errorf("receipt %s is required", field.name)
 			}
 		}
-		if (r.CompilerContractVersion == CompilationReceiptCompilerContractVersion || r.CompilerContractVersion == previousCompilationReceiptCompilerContractVersion) && strings.TrimSpace(r.ShapeDigest) == "" {
+		if (r.CompilerContractVersion == CompilationReceiptCompilerContractVersion || r.CompilerContractVersion == legacyCompilationReceiptV19CompilerContractVersion || r.CompilerContractVersion == previousCompilationReceiptCompilerContractVersion) && strings.TrimSpace(r.ShapeDigest) == "" {
 			return fmt.Errorf("receipt shapeDigest is required")
 		}
 		key, err := CompilationKey(r)
@@ -1167,4 +1183,27 @@ type SourceRelationshipProposalBinding RowDefinitionProposalBinding
 
 func (b SourceRelationshipProposalBinding) Validate(intentDigest, snapshotToken string) error {
 	return RowDefinitionProposalBinding(b).Validate(intentDigest, snapshotToken)
+}
+
+// ColumnPolicyProposalBinding permits only one catalog-validated policy change
+// on an existing ordinary source column in a receipt-bound workspace.
+type ColumnPolicyProposalBinding struct {
+	RowDefinitionProposalBinding
+	ColumnID       string `json:"columnId"`
+	ProjectionMode string `json:"projectionMode"`
+}
+
+func (b ColumnPolicyProposalBinding) Validate(intentDigest, snapshotToken string) error {
+	if err := b.RowDefinitionProposalBinding.Validate(intentDigest, snapshotToken); err != nil {
+		return err
+	}
+	if strings.TrimSpace(b.ColumnID) == "" || b.ColumnID != strings.TrimSpace(b.ColumnID) {
+		return fmt.Errorf("column policy proposal requires an exact columnId")
+	}
+	switch b.ProjectionMode {
+	case "VALUE", "INDEXED", "FIRST", "ALL", "DISTINCT":
+	default:
+		return fmt.Errorf("column policy proposal projectionMode is unsupported")
+	}
+	return nil
 }
