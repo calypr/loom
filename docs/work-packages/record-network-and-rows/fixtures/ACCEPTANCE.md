@@ -47,6 +47,20 @@ value, identity, pin, persistence and CAS assertion. Record actual latencies and
 failed attempts separately; functional passes do not establish a five-second SLA. [../VERIFICATION.md](../VERIFICATION.md) records
 commands, evidence, review identity, final coverage and remaining limitations.
 
+## Follow-up acceptance for complementary editors
+
+The scoped outcomes above belong to the original implementation. Follow-up 08–11
+adds an editable abstract row recipe and its correspondence with the graph. Use
+[ticket 07](../tickets/GRAPH-ROWS-07-acceptance.md#follow-up-for-the-finished-two-interface-workflow)
+for graph-first, row-first, mixed-editing, proposal-ownership, and Calypr composition
+requirements. None of those follow-up paths has a recorded pass yet.
+
+Reuse this fixture and the existing runner. Equivalent recipes must produce the
+same canonical semantics, exact row identities, and values. Display-only collapse
+and selection do not affect equivalence. Distinct saved occurrences must retain
+their own identities within each recipe. Tests must prove editable expression
+terms and their effect, rather than locating only the row-settings trigger.
+
 ## Owned local target configuration
 
 The native cases require a physically separate, frozen source checkout and an

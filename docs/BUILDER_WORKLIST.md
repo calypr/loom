@@ -8,6 +8,15 @@
 
 The operator requested the [record network and row definition work package](work-packages/record-network-and-rows/README.md). `GRAPH-ROWS-01` through `GRAPH-ROWS-07` in the active TSV queue describe its contract, implementation, and acceptance work. The current presentation snapshot is `4b64797e3`; complete native source-edit and Group acceptance remains pending. These tickets preserve existing reliability obligations and unsupported-composition boundaries. They do not close historical cases or authorize deployment.
 
+The clarified product goal requires complementary **Record network** and **Define
+a row** recipe editors. The [current-source gap analysis](work-packages/record-network-and-rows/GAPS.md)
+at `58544dcbb` distinguishes the existing graph/action picker from the missing
+editable row expression and shared editing behavior. Follow-up `GRAPH-ROWS-08`
+through `GRAPH-ROWS-11` cover the shared editing contract, abstract row editor,
+authored traversal editor, and workspace refactor. Tickets 06 and 07 also retain
+explicit cross-interface persistence and native acceptance work. Prior scoped
+passes remain historical evidence; they do not close these follow-ups.
+
 ## Current finish policy (2026-10-11)
 
 Close core Apply/render/reload scopes only when the exact registered lifecycle passes. Defer optional variants whose required witness is unavailable as explicitly not passed; fixture unavailability is not a pass. Do not repeat failed performance runs or absence probes. The user-approved Pivot policy defers optimization and allows a bounded 30-second server/query and action-to-render budget for full-population root and related text-only quantity Pivot; ordinary previews remain 10 seconds, transport/response observation may use 35 seconds of headroom, and bounded fixtures and other operations retain five seconds. CASE-018 remains open and unpassed: the latest CdI0tY test reached the Playwright 180-second deadline before its category request produced a response, so it did not measure a completed 30-second query. The derived full-generation inventory rebuild completed on 2026-10-11, integer and string coded Pivot passed, and the compound CDA coded Pivot→Group lifecycle passed its exact registered scope. External trust/authorization and data-witness gaps remain. These scoped dispositions do not establish whole-goal completion.

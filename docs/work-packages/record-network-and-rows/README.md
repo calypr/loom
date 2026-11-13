@@ -1,6 +1,6 @@
 # Work package: edit the record network and row definition together
 
-Status: implementation and same-model reviews complete; required native acceptance incomplete (imported and ordinary pass; carry-in, related rows, upstream dependency and history remain open). See [VERIFICATION.md](VERIFICATION.md) for current evidence and the authenticated-environment blocker. Authorized by the operator on 2026-11-12. Baseline: `1685bc4c2` on `feature/default-recipe-authoring`, containing `4b64797e3`.
+Status: 01–07 core implementation and same-model reviews complete; required native acceptance incomplete (imported and ordinary pass; carry-in, related rows, upstream dependency and history remain open). Follow-up 08–11 specifies remaining product work for complementary recipe editors and the composed UI. See [GAPS.md](GAPS.md) for the current-source gap analysis and [VERIFICATION.md](VERIFICATION.md) for historical scoped evidence and the authenticated-environment blocker. Authorized by the operator on 2026-11-12. Baseline: `1685bc4c2` on `feature/default-recipe-authoring`, containing `4b64797e3`.
 
 ## Product goal
 
@@ -12,7 +12,35 @@ Example: connect research subjects to patients and observations while keeping on
 
 Grouping may define a row by several keys. Repeated-field expansion may define a row by an item within a record. Do not restrict row identity to a resource-type name or assume every row is a node in the graph.
 
+The operator clarified that these are two complementary recipe-editing interfaces,
+not a graph viewer with a row-settings shortcut. Users can start in **Record
+network** or **Define a row**, then combine supported edits from both. The graph
+expresses connections; the row expression defines how connected records become
+rows and values. Both project the same authoritative recipe and share its preview.
+
+## Follow-up implementation tickets
+
+The [gap analysis](GAPS.md) distinguishes existing APIs and controls from missing
+editing behavior. Preserve the scoped 01–07 evidence. These follow-ups do not
+retroactively claim that evidence proved the clarified two-interface workflow.
+
+| Ticket | Concrete result | Prerequisite |
+| --- | --- | --- |
+| [GRAPH-ROWS-08](tickets/GRAPH-ROWS-08-shared-editing-contract.md) | One editing contract and proposal owner for both interfaces, with explicit coverage and switching rules | Existing 01–03; reuse persistence APIs |
+| [GRAPH-ROWS-09](tickets/GRAPH-ROWS-09-row-recipe-editor.md) | An editable row expression for connections, row units, values, and supported operations | 08 |
+| [GRAPH-ROWS-10](tickets/GRAPH-ROWS-10-graph-recipe-editor.md) | An authored-traversal editor that reflects row-expression edits and explains row-stage effects | 08 |
+| [GRAPH-ROWS-11](tickets/GRAPH-ROWS-11-composed-workspace.md) | A refactored workspace with both interfaces, one inspector, bounded history, and a shared result preview | Prototype after 08; integrate 09 and 10 |
+
+Finish [06](tickets/GRAPH-ROWS-06-save-and-reload.md) and
+[07](tickets/GRAPH-ROWS-07-acceptance.md) with graph-first, row-first, and mixed
+editing paths after integration. Implement 09 and 10 in parallel under 08's
+contract. One workspace owner integrates shared files for 11. Keep the current
+compiler, recipe pin, proposal validation, and unsupported-composition boundaries.
+
 ## Current code and the main gap
+
+This section describes the pre-01 baseline. Use [GAPS.md](GAPS.md) for the current
+implementation and remaining work at `58544dcbb`.
 
 The existing graph in `GuidedGraphWorkspace.tsx` edits `Document.route`. It appears under **Advanced source setup**, then **Advanced graph**. Its route extension panel already uses **Add traversal** and **Add branch**. Imported recipes disable those mutation controls.
 
@@ -42,7 +70,7 @@ Source anchors:
 7. Show proposed row and column effects before Apply. Cancel, errors, stale responses, and rejected upstream edits preserve the saved plan.
 8. Use existing metadata for names. Put FHIR paths and compiler details behind inspection. An unfamiliar field or ambiguous relationship stays explicit.
 
-## Tickets and dependencies
+## Original 01–07 tickets and dependencies
 
 The [ticket files](tickets/) contain scope, code ownership, and acceptance checks. The active repository queue is [BUILDER_WORKLIST.tsv](../../BUILDER_WORKLIST.tsv).
 
@@ -56,7 +84,13 @@ The [ticket files](tickets/) contain scope, code ownership, and acceptance check
 | [GRAPH-ROWS-06](tickets/GRAPH-ROWS-06-save-and-reload.md) | Preserve the complete plan through save, reload, and conflict | 02, 03; integrate 04 and 05 |
 | [GRAPH-ROWS-07](tickets/GRAPH-ROWS-07-acceptance.md) | Prove exact rows and complete native lifecycles | Fixture work now; final run after 02–06 |
 
-Start 01 and the independent fixture specification in 07. After 01, run 02 and 03 in separate worktrees. Prototype 04 against the agreed response types while those backend changes proceed. Integrate 05 and 06 after their contracts exist. The coordinator owns shared OpenAPI, generated-client, and `BuilderWorkspace.tsx` integration so parallel jobs do not overwrite each other.
+The following is the original implementation sequence, retained for provenance.
+New work follows the 08–11 sequence above and the follow-up closure in 06 and 07.
+Originally, 01 and the independent fixture specification in 07 started first.
+Then 02 and 03 ran in separate worktrees, with 04 prototyped against the agreed
+response types. Integration of 05 and 06 followed their contracts. The coordinator
+owns shared OpenAPI, generated-client, and `BuilderWorkspace.tsx` integration so
+parallel jobs do not overwrite each other.
 
 Each remote job reads this README and its ticket. Give it one worktree, explicit file ownership, the baseline commit, and the required checks. Make the branch and [reference recipe](fixtures/README.md) available before dispatch. A local worktree or `/private/tmp` evidence path is not a cloud input.
 
