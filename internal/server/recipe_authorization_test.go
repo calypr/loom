@@ -10,11 +10,6 @@ import (
 )
 
 func TestRecipeAuthorizationBindsSavedSelectionToAuthorizedProject(t *testing.T) {
-	// Witness migrated by arch-backend-08: the stamp moved from a hardcoded
-	// constant inside recipeAuthorization to the lane-selected policy field,
-	// so this Arango-lane contract now constructs the authorizer exactly the
-	// way the Arango lane composes it. The server-owned collection must
-	// overwrite any caller-supplied value.
 	authorizer := recipeAuthorization{selectionMembersCollection: arangofactory.SelectionMembersCollection}
 	for name, authorize := range map[string]func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error){
 		"read":  authorizer.AuthorizeRead,
@@ -36,10 +31,6 @@ func TestRecipeAuthorizationBindsSavedSelectionToAuthorizedProject(t *testing.T)
 			}
 		})
 	}
-	// The PostgreSQL-policy contrast (arch-backend-08): the zero-value
-	// construction used by both PostgreSQL lanes must also overwrite a
-	// caller-supplied collection -- with the empty string, so an untrusted
-	// collection name never survives on the PostgreSQL lane either.
 	pgAuthorizer := recipeAuthorization{}
 	for name, authorize := range map[string]func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error){
 		"read":  pgAuthorizer.AuthorizeRead,

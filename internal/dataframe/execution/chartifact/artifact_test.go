@@ -300,7 +300,7 @@ func TestReconcileClaimsExpiredCreatingArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := writer.manifest
-	writer.lease.stop() // simulate a crashed process; the durable lease expires below
+	writer.lease.stop()
 	catalog.expire(manifest.ArtifactID, time.Now().UTC().Add(-time.Minute))
 	if err := manager.Reconcile(context.Background(), time.Now().UTC(), 20); err != nil {
 		t.Fatal(err)

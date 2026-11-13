@@ -1,11 +1,5 @@
 package queryapi
 
-// Graph mode is a deliberately small adapter over the dataframe semantic
-// pipeline.  It owns the transport contract (required-by-default traversals,
-// bounded lookahead pagination, and public resource sanitization); route
-// validation, generation/scope resolution, and AQL lowering remain in the
-// canonical compiler.
-
 import (
 	"context"
 	"encoding/json"
@@ -25,9 +19,6 @@ const (
 	FhirGraphMaxSteps     = 32
 )
 
-// FHIRGraphQuery is transport-neutral and intentionally mirrors only the
-// explicit graph DSL. GraphQL resolvers can map generated gqlgen models into
-// this type without exposing compiler or storage details.
 type FHIRGraphQuery struct {
 	Project           string
 	AuthResourcePaths []string
@@ -76,8 +67,6 @@ type FHIRGraphResult struct {
 	Diagnostics      any
 }
 
-// FHIRGraphExplanation is intentionally sanitized. The AQL text, bind vars,
-// collection names, and authorization predicates never cross this boundary.
 type FHIRGraphExplanation struct {
 	SourceGeneration string
 	RootResourceType string
@@ -167,9 +156,6 @@ func graphTraversalInputs(in []FHIRGraphTraversal) []*model.FhirTraversalStepInp
 	return out
 }
 
-// RunFHIRGraph compiles and executes one graph request. The compiler facade
-// returns a single physical query whose RETURN operation performs the global
-// path union/dedupe/sort and limit+1 lookahead.
 func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIRGraphResult, error) {
 	normalized, err := normalizeFHIRGraphQuery(input)
 	if err != nil {
@@ -215,9 +201,6 @@ func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIR
 	return &FHIRGraphResult{SourceGeneration: generation, Paths: paths, ReturnedCount: len(paths), PageInfo: FHIRGraphPageInfo{HasMore: hasMore}, Diagnostics: runtimeResult.Diagnostics}, nil
 }
 
-// ExplainFHIRGraph performs semantic/compiler validation. Live explain is an
-// optional compiler operation and must only issue Arango EXPLAIN; the facade
-// intentionally exposes no physical query text.
 func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, live bool) (*FHIRGraphExplanation, error) {
 	normalized, err := normalizeFHIRGraphQuery(input)
 	if err != nil {
@@ -236,17 +219,11 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
-	// The compiler facade performs semantic/physical validation without
-	// executing the result query. When requested, the runtime issues only an
-	// Arango EXPLAIN call; this transport contract never exposes AQL or bind
-	// variables.
 	compiled, err := compiler.CompileResolvedGraphQuery(s.compileTarget, resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, err
 	}
 	if live {
-		// Explain only: this invokes Arango's EXPLAIN endpoint and never opens a
-		// result cursor. The assessment is intentionally not returned here.
 		if s.explain == nil {
 			return nil, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 		}

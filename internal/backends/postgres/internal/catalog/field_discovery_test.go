@@ -1,10 +1,3 @@
-// Read-side field-discovery witnesses for the PostgreSQL catalog read lane
-// (pg-runtime-first-query-route, Ask C). Every test drives the real
-// persistence boundary against the LOOM_TEST_POSTGRES_URL 18 service on a
-// freshly minted isolated database and owned schema (the package harness's
-// registered names; cleanup audits them to zero). Counting and failure
-// wrappers around the REAL repository prove the no-query laws and failure
-// posture -- wrappers delegate, never fake results.
 package postgres
 
 import (
@@ -24,9 +17,6 @@ const (
 	fdPath2   = "/fhir/finance"
 )
 
-// fdDoc is one persisted field record with the profiler-uniform flags a
-// single run produces (complete, untruncated) and sample_count agreeing
-// with the retained distinct values, as the write contract demands.
 func fdDoc(project, generation, authPath, resourceType, path string, docCount int64, distinct ...string) catalog.FieldCatalogDocument {
 	complete := true
 	return catalog.FieldCatalogDocument{
@@ -38,10 +28,6 @@ func fdDoc(project, generation, authPath, resourceType, path string, docCount in
 	}
 }
 
-// fdRecordingStore wraps the real repository, counting every method call
-// and capturing the last filtered read's parameters and the last distinct
-// listing's project. It adds no behavior: every call delegates unchanged
-// unless a failure is explicitly injected.
 type fdRecordingStore struct {
 	real                 *storepostgres.FieldProfileRepository
 	filteredCalls        int
@@ -85,10 +71,6 @@ func (w *fdRecordingStore) ListDistinctAuthResourcePaths(ctx context.Context, pr
 		return nil, err
 	}
 	if w.reverseDistinctOrder {
-		// Boundary-order stress, not a fabricated result: the values are
-		// the real repository's own, delivered in reversed stream order
-		// (a real database is free to change its rendered order; the
-		// adapter's contract must not depend on it).
 		for i, j := 0, len(paths)-1; i < j; i, j = i+1, j-1 {
 			paths[i], paths[j] = paths[j], paths[i]
 		}
@@ -96,7 +78,6 @@ func (w *fdRecordingStore) ListDistinctAuthResourcePaths(ctx context.Context, pr
 	return paths, nil
 }
 
-// fdService writes one scope through the public write path.
 func fdWrite(t *testing.T, s *fieldProfileService, scope storepostgres.FieldProfileScope, docs ...catalog.FieldCatalogDocument) {
 	t.Helper()
 	store := s.adapter(t)
@@ -128,8 +109,6 @@ func TestDiscoverFieldsPostgreSQLExactSetOrderAndMapping(t *testing.T) {
 		full,
 		fdDoc(fdProject, fdGenA, fdPath1, "Patient", "active", 5),
 		fdDoc(fdProject, fdGenA, fdPath1, "Patient", "birthDate", 3),
-		// The scope-level profile_status marker (truncated-empty style row
-		// persisted into the profile table) must never surface as a field.
 		func() catalog.FieldCatalogDocument {
 			markerComplete := true
 			return catalog.FieldCatalogDocument{Key: "Patient|status", RecordType: catalog.FieldProfileStatusRecordType,
@@ -170,9 +149,6 @@ func TestDiscoverFieldsPostgreSQLExactSetOrderAndMapping(t *testing.T) {
 	}
 	t.Logf("registered PG discovery order witness (resource_type, path): %v", wantOrder)
 
-	// Full mapping witness on the richest record: every public field of
-	// the persisted document arrives on the read-side view, subrecords
-	// included.
 	var gender *catalog.PopulatedField
 	for i := range fields {
 		if fields[i].Path == "gender" {
@@ -195,8 +171,6 @@ func TestDiscoverFieldsPostgreSQLExactSetOrderAndMapping(t *testing.T) {
 		t.Fatalf("semantic observations lost in mapping: %#v", gender.SemanticObservations)
 	}
 
-	// Defensive copy: mutating the returned view must not poison the next
-	// read (same store, same options).
 	gender.DistinctValues[0] = "poisoned"
 	reread, err := store.DiscoverFields(s.ctx, catalog.PopulatedFieldOptions{
 		Project: fdProject, DatasetGeneration: fdGenA, AuthResourcePathsUnrestricted: fdUnrestricted(),
@@ -214,7 +188,7 @@ func TestDiscoverFieldsPostgreSQLExactSetOrderAndMapping(t *testing.T) {
 func TestDiscoverFieldsRestrictedEmptyMakesZeroRoundTrips(t *testing.T) {
 	s := newFieldProfileService(t)
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -236,7 +210,7 @@ func TestDiscoverFieldsRestrictedEmptyMakesZeroRoundTrips(t *testing.T) {
 func TestDiscoverFieldsUnrestrictedIgnoresStrayPaths(t *testing.T) {
 	s := newFieldProfileService(t)
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -298,10 +272,6 @@ func TestDiscoverFieldsNamedTypePivotAndConcreteLaws(t *testing.T) {
 		t.Fatalf("pivot-only discovery = %#v, want exactly the pivot candidate", pivots)
 	}
 
-	// A named non-concrete type binds through byte-for-byte (as the AQL
-	// equality does), reaches the store, and its rows are then silently
-	// skipped by the concrete-type law -- [] with no error, mirroring the
-	// reference DiscoverFields.
 	fake, err := store.DiscoverFields(s.ctx, catalog.PopulatedFieldOptions{
 		Project: fdProject, DatasetGeneration: fdGenA, ResourceType: "FakeResource",
 		AuthResourcePathsUnrestricted: fdUnrestricted(),
@@ -318,7 +288,7 @@ func TestDiscoverFieldsStoreFailureIsWrappedNotEmpty(t *testing.T) {
 	s := newFieldProfileService(t)
 	boom := errors.New("injected filtered read failure")
 	wrapper := &fdRecordingStore{real: s.realRepository(t), injectReadError: boom}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -342,8 +312,6 @@ func TestDiscoverExistingAuthResourcePathsSortedDistinctIncludingMarker(t *testi
 	fdWrite(t, s, fdScope(fdProject, fdGenA, fdPath1, "Patient"),
 		fdDoc(fdProject, fdGenA, fdPath1, "Patient", "gender", 3),
 		fdDoc(fdProject, fdGenA, fdPath1, "Patient", "birthDate", 3))
-	// Truncated-empty style scope: ONLY a profile_status row persisted into
-	// the profile table -- its path is a witness on both backends.
 	truncated := false
 	complete := false
 	fdWrite(t, s, fdScope(fdProject, fdGenA, "/fhir/research", "Patient"),
@@ -352,19 +320,8 @@ func TestDiscoverExistingAuthResourcePathsSortedDistinctIncludingMarker(t *testi
 			Project: fdProject, DatasetGeneration: fdGenA, AuthResourcePath: "/fhir/research",
 			ResourceType: "Patient", EnrichmentComplete: &complete, EnrichmentTruncated: truncated,
 		})
-	// A path witnessed ONLY on a non-concrete resource_type row must
-	// still list: the reference existingAuthResourcePathsAQL carries no
-	// resource_type filter, and this lister feeds wireAuth scope
-	// resolution, so dropping such a path would treat a legitimate scope
-	// as non-existent for restricted principals (review r4543172882).
-	// "CustomCarePlan" is outside fhirschema.ResourceTypes(); the write
-	// path persists it (the row validator requires only a non-blank
-	// type). DiscoverFields' silent concrete-type skip stays where the
-	// reference puts it -- that leg (named-type/pivot/concrete laws)
-	// pins the discovery side.
 	fdWrite(t, s, fdScope(fdProject, fdGenA, "/fhir/custom", "CustomCarePlan"),
 		fdDoc(fdProject, fdGenA, "/fhir/custom", "CustomCarePlan", "status", 2))
-	// Foreign project/generation must never appear.
 	fdWrite(t, s, fdScope("fd-other", fdGenA, "/fhir/foreign", "Patient"), fdDoc("fd-other", fdGenA, "/fhir/foreign", "Patient", "gender", 1))
 	fdWrite(t, s, fdScope(fdProject, "generation-z", fdPath1, "Patient"), fdDoc(fdProject, "generation-z", fdPath1, "Patient", "gender", 1))
 
@@ -375,23 +332,16 @@ func TestDiscoverExistingAuthResourcePathsSortedDistinctIncludingMarker(t *testi
 	if err != nil {
 		s.fail("auth-path listing", err)
 	}
-	// Ascending order is the contract: /fhir/clinical < /fhir/custom <
-	// /fhir/finance < /fhir/research.
 	want := []string{fdPath1, "/fhir/custom", fdPath2, "/fhir/research"}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("auth paths = %v, want sorted distinct %v", paths, want)
 	}
 }
 
-// TestDiscoverExistingAuthResourcePathsAllGenerationsConflictRefusedNoRoundTrips
-// pins the F-2 conflict on its way to being replaced by the union (defect
-// PG-PG-AUTH-PATH-DISCOVERY-ALLGENS): AllGenerations with a selected
-// generation stays refused, and the refusal issues no store call of either
-// shape -- a conflict must never reach the database.
 func TestDiscoverExistingAuthResourcePathsAllGenerationsConflictRefusedNoRoundTrips(t *testing.T) {
 	s := newFieldProfileService(t)
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -408,33 +358,15 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsConflictRefusedNoRoundTr
 	}
 }
 
-// TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion
-// is the PG counterpart of the Arango reference pin
-// (internal/backends/arango/internal/catalog/
-// all_generations_project_binding_integration_test.go). The union must
-// match what a no-generation-filter COLLECT returns: every recorded path
-// of the project from every generation -- including the legacy unscoped
-// namespace, profile_status marker rows, and rows witnessed only on a
-// non-concrete type -- deduplicated and ascending-sorted, while foreign
-// projects and empty paths stay out. The distinct-path read fires exactly
-// once and no filtered read fires at all: no generation enumeration, no
-// N+1, no faked composition (coordinator condition 1: the wrapper delegates,
-// never fakes results).
 func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion(t *testing.T) {
 	s := newFieldProfileService(t)
 	fdWrite(t, s, fdScope(fdProject, fdGenA, fdPath1, "Patient"),
 		fdDoc(fdProject, fdGenA, fdPath1, "Patient", "gender", 3),
 		fdDoc(fdProject, fdGenA, fdPath1, "Patient", "birthDate", 3))
 	fdWrite(t, s, fdScope(fdProject, fdGenA, fdPath2, "Observation"), fdDoc(fdProject, fdGenA, fdPath2, "Observation", "status", 4))
-	// Shared path across generations: unioned once.
 	fdWrite(t, s, fdScope(fdProject, "generation-z", fdPath1, "Patient"), fdDoc(fdProject, "generation-z", fdPath1, "Patient", "gender", 1))
-	// Generation-unique path.
 	fdWrite(t, s, fdScope(fdProject, "generation-z", "/fhir/archive", "Observation"), fdDoc(fdProject, "generation-z", "/fhir/archive", "Observation", "status", 2))
-	// Legacy unscoped namespace: no dataset-series manifest could ever
-	// enumerate "", which is exactly why manifest enumeration was rejected
-	// as the union's source.
 	fdWrite(t, s, fdScope(fdProject, "", "/fhir/legacy", "Patient"), fdDoc(fdProject, "", "/fhir/legacy", "Patient", "gender", 1))
-	// Truncated-empty marker row: its scope's path is a witness.
 	truncated := false
 	complete := false
 	fdWrite(t, s, fdScope(fdProject, fdGenA, "/fhir/research", "Patient"),
@@ -443,17 +375,13 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion(t
 			Project: fdProject, DatasetGeneration: fdGenA, AuthResourcePath: "/fhir/research",
 			ResourceType: "Patient", EnrichmentComplete: &complete, EnrichmentTruncated: truncated,
 		})
-	// Path witnessed only on a non-concrete type (no resource_type filter
-	// in the reference union; review r4543172882 applies to the union too).
 	fdWrite(t, s, fdScope(fdProject, "generation-z", "/fhir/custom", "CustomCarePlan"),
 		fdDoc(fdProject, "generation-z", "/fhir/custom", "CustomCarePlan", "status", 2))
-	// Unscoped empty-path rows stay out of the listing.
 	fdWrite(t, s, fdScope(fdProject, fdGenA, "", "Patient"), fdDoc(fdProject, fdGenA, "", "Patient", "gender", 1))
-	// Foreign project must never cross the project bind.
 	fdWrite(t, s, fdScope("fd-other", fdGenA, "/fhir/foreign", "Patient"), fdDoc("fd-other", fdGenA, "/fhir/foreign", "Patient", "gender", 1))
 
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -477,10 +405,6 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion(t
 			wrapper.filteredCalls)
 	}
 
-	// Whitespace-only generation alongside AllGenerations is the same
-	// normalized-empty shape the F-B27 caller sends (the reference
-	// ValidateAuthResourcePathOptions keeps it valid): it must union, not
-	// conflict.
 	ws, err := store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
 		Project: fdProject, DatasetGeneration: "  ", AllGenerations: true,
 	})
@@ -491,8 +415,6 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion(t
 		t.Fatalf("whitespace-generation union = %v, want %v", ws, want)
 	}
 
-	// The scoped branch is untouched by the union wiring: exact-bind
-	// isolation still holds, so the union is genuinely a superset.
 	scoped, err := store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
 		Project: fdProject, DatasetGeneration: "generation-z",
 	})
@@ -504,21 +426,13 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion(t
 	}
 }
 
-// TestDiscoverExistingAuthResourcePathsAllGenerationsAdapterOwnsByteOrder
-// pins the adapter-level half of the ordering guarantee (interrogation
-// finding M4): the boundary renders under COLLATE "C", but the adapter
-// must return ascending BYTE order whatever order the boundary delivers.
-// The wrapper hands over the real repository's own paths in reversed
-// stream order; deleting the adapter's final sort.Strings must fail here
-// (the adversarial path set is chosen so byte order and the service's
-// en_US-style collation order differ).
 func TestDiscoverExistingAuthResourcePathsAllGenerationsAdapterOwnsByteOrder(t *testing.T) {
 	s := newFieldProfileService(t)
 	for _, path := range []string{"/fhir/Beta", "/fhir/_x", "/fhir/alpha", "/fhir/Ω"} {
 		fdWrite(t, s, fdScope(fdProject, fdGenA, path, "Patient"), fdDoc(fdProject, fdGenA, path, "Patient", "gender", 1))
 	}
 	wrapper := &fdRecordingStore{real: s.realRepository(t), reverseDistinctOrder: true}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -536,24 +450,12 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsAdapterOwnsByteOrder(t *
 	}
 }
 
-// TestDiscoverExistingAuthResourcePathsAllGenerationsUnrecordedProjectIsHonestEmpty
-// documents the F-B27 bootstrap posture and pins that the fix does not
-// alter it: for a genuinely unrecorded project the all-generations listing
-// is an honest empty slice produced by a real zero-row union read -- never
-// a refusal, never nil. ScopeResolver.AuthorizeWrite reads exactly this
-// empty as "no recorded paths" and allows the first-generation bootstrap
-// (scope_resolver.go zero-path branch), unchanged from the Arango
-// reference semantics. Emptiness earned from the database is the ONLY
-// route to that branch; the retired typed refusal used to make the whole
-// branch unreachable on PostgreSQL.
 func TestDiscoverExistingAuthResourcePathsAllGenerationsUnrecordedProjectIsHonestEmpty(t *testing.T) {
 	s := newFieldProfileService(t)
-	// Evidence exists for other projects so the empty is project-scoped
-	// truth, not an empty table.
 	fdWrite(t, s, fdScope("fd-other", fdGenA, "/fhir/foreign", "Patient"), fdDoc("fd-other", fdGenA, "/fhir/foreign", "Patient", "gender", 1))
 
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -573,15 +475,11 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsUnrecordedProjectIsHones
 	}
 }
 
-// TestDiscoverExistingAuthResourcePathsAllGenerationsStoreFailureIsWrappedNotEmpty
-// pins the fail-closed half of the honesty rule: a store failure surfaces
-// wrapped and nil, never as the empty that reaches the F-B27 bootstrap
-// branch. An unavailable database must not downgrade the project binding.
 func TestDiscoverExistingAuthResourcePathsAllGenerationsStoreFailureIsWrappedNotEmpty(t *testing.T) {
 	s := newFieldProfileService(t)
 	boom := errors.New("injected distinct listing failure")
 	wrapper := &fdRecordingStore{real: s.realRepository(t), injectDistinctErr: boom}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -620,8 +518,6 @@ func TestDiscoverFieldsLegacyNullGenerationIsolation(t *testing.T) {
 	if err != nil {
 		s.fail("padded discovery", err)
 	}
-	// Whitespace is normalization, not identity: the padded selection
-	// resolves to exactly generation-a's row, not the legacy namespace.
 	if len(padded) != 1 || padded[0].DatasetGeneration != fdGenA {
 		t.Fatalf("padded generation selection = %#v, want exactly the generation-a row", padded)
 	}
@@ -631,8 +527,6 @@ func TestDiscoverFieldsLegacyNullGenerationIsolation(t *testing.T) {
 	if err != nil {
 		s.fail("absent-generation discovery", err)
 	}
-	// The exact-bind boundary never crosses generations: an unprofiled
-	// generation reads nothing, not the legacy row, not generation-a.
 	if len(absent) != 0 {
 		t.Fatalf("unprofiled generation matched stored rows: %#v", absent)
 	}

@@ -14,8 +14,6 @@ import (
 	"github.com/bmeg/jsonschemagraph/graph"
 )
 
-// Load selects the primary unversioned resource loader unless an immutable
-// dataset reference is supplied explicitly.
 func Load(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	if opts.Dataset == nil {
 		return loadResource(ctx, opts)
@@ -33,8 +31,6 @@ func totalResourceRows(resources map[string]int) int64 {
 	return total
 }
 
-// Cleanup actions receive independent deadlines. A stalled manifest transition
-// cannot consume the close deadline, so failure cleanup may use two windows.
 func boundedGenerationCleanup(parent context.Context, timeout time.Duration, cleanup func(context.Context) error) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
 	defer cancel()
@@ -64,9 +60,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		StageSeconds: map[string]float64{},
 	}
 
-	// Keep the existing ordered evidence path: discover staged files, parse the
-	// graph with its authoritative loader, capture identity from the same file,
-	// then preflight every staged payload before contacting Arango.
 	schema, err := graph.Load(opts.Schema)
 	if err != nil {
 		return summary, err
@@ -104,8 +97,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err != nil {
 		return summary, err
 	}
-	// Load dispatch guarantees a plan, but retaining this check makes the
-	// generation-only helper safe if it is called directly in a future test.
 	if plan == nil {
 		return summary, fmt.Errorf("dataset generation plan is required")
 	}
@@ -146,8 +137,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	})
 
 	bootstrapStart := time.Now()
-	// Metadata comes first and never truncates. This order means a failed
-	// graph bootstrap cannot delete lifecycle history from a prior generation.
 	emitEvent(opts.EventSink, "go_bootstrap_start", map[string]any{
 		"database":    opts.Database,
 		"resources":   0,
@@ -180,9 +169,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		if err == nil || manifestStaged {
 			return
 		}
-		// Once STAGED is persisted we deliberately leave it alone,
-		// because an activation error is an unknown outcome rather than proof
-		// that the generation failed.
 		err = generationCleanupError(ctx, generationCleanupTimeout, err, fmt.Sprintf("mark dataset generation %s/%s failed", plan.Dataset.Project, plan.Dataset.Generation), func(cleanupCtx context.Context) error {
 			_, err := lifecycleStore.TransitionManifest(cleanupCtx, manifest, publication.StateFailed)
 			return err
@@ -205,9 +191,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	lastInventoryCheckpoint := ""
-	// Row-error candidates are kept per file and only sampled into the summary
-	// when loadGeneration returns, so every staged file gets a chance at the
-	// shared sample budget. The deferred assignment covers the early returns.
 	var rowErrorCandidates [][]RowErrorSample
 	defer func() {
 		summary.RowErrors = selectGenerationRowErrorSamples(rowErrorCandidates)

@@ -10,13 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// ComposeClickHouseCombine adds a terminal typed Combine to an already lowered
-// construction prefix sourced from the named backend. Recipe authoring still
-// decides which mixed plans are reachable; this internal compiler seam accepts
-// only an exact typed stage reference, one supported authorization scope, and
-// an explicit prefix source backend. A restricted prefix on the PostgreSQL
-// source backend is refused here and again in IR validation, before any
-// private artifact exists.
 func ComposeClickHouseCombine(prefix ir.PhysicalPlan, combine ir.PhysicalClickHouseCombine, sourceBackend ir.PhysicalPrefixSourceBackend, bindings recipe.RuntimeBindings) (ir.PhysicalPlan, error) {
 	if err := sourceBackend.Validate(); err != nil {
 		return ir.PhysicalPlan{}, err

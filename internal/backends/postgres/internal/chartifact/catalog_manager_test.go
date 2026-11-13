@@ -1,15 +1,5 @@
 package postgres
 
-// Manager-level proofs over the real PostgreSQL catalog. The chartifact
-// ClickHouse contract ("the production adapter can be the existing typed
-// client; tests use a fake and do not need a server") is exercised with a
-// recording fake only for the ClickHouse data plane; the catalog under test
-// is always the real PostgreSQL 18 one, and every expectation is checked
-// against literal stored rows through the witness pool. These tests pin the
-// acceptance facts that the drop of the physical ClickHouse table remains
-// idempotent and outside any database transaction, that delete and release
-// validate the cleanup owner, and that reconcile races have one winner.
-
 import (
 	"context"
 	"errors"
@@ -22,9 +12,6 @@ import (
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// recordingClickHouse is the domain-sanctioned fake for the ClickHouse data
-// plane: it records every operation and can fail DropTable a bounded number
-// of times. It never stands in for the PostgreSQL catalog.
 type recordingClickHouse struct {
 	mu           sync.Mutex
 	creates      []string
@@ -135,12 +122,6 @@ func writeOneRow(t *testing.T, writer *chartifact.Writer) {
 	}
 }
 
-// TestManagerLifecycleThroughPostgresCatalogDropsOnceOutsideTransactions
-// drives Begin -> Write -> Finalize -> Release against the real catalog and
-// pins: progress rows land in PG (CREATING -> WRITING -> READY with counts),
-// Release drops the ClickHouse table exactly once (repeat calls are
-// no-ops), and the manifest row is gone afterwards with no transaction ever
-// opened by the catalog.
 func TestManagerLifecycleThroughPostgresCatalogDropsOnceOutsideTransactions(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)
@@ -187,10 +168,6 @@ func TestManagerLifecycleThroughPostgresCatalogDropsOnceOutsideTransactions(t *t
 	s.requireNoRow(t, artifactID)
 }
 
-// TestDropFailureLeavesReclaimableManifestForReconcile pins that a failed
-// ClickHouse drop leaves a CLEANUP_PENDING manifest with a reclaimable
-// lease (the row survives, so Reconcile can retry), and that a later
-// Reconcile claims it, drops it, and deletes the row.
 func TestDropFailureLeavesReclaimableManifestForReconcile(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)
@@ -211,8 +188,6 @@ func TestDropFailureLeavesReclaimableManifestForReconcile(t *testing.T) {
 	if row.State != "CLEANUP_PENDING" || row.PhysicalTable != table {
 		t.Fatalf("failed drop did not leave a cleanup-pending manifest: %+v", row)
 	}
-	// The stale stage owner is no longer the cleanup owner: a reconciler
-	// claims first, and only that owner may delete the manifest.
 	if _, ok, err := s.catalog.ClaimCleanup(s.ctx, artifactID, "cleanup-early",
 		time.Now().UTC().Add(time.Hour), time.Now().UTC().Add(2*time.Hour)); err != nil || !ok {
 		t.Fatalf("reconciler could not claim the failed-drop manifest = (%t, %v)", ok, err)
@@ -228,7 +203,6 @@ func TestDropFailureLeavesReclaimableManifestForReconcile(t *testing.T) {
 		t.Fatalf("failed drop was recorded as successful: %d", failingCH.dropCount(table))
 	}
 
-	// Second artifact through the full reconcile path with a healthy drop.
 	reconcileCH := &recordingClickHouse{}
 	reconcileManager := newManager(t, s, reconcileCH)
 	writer, err = reconcileManager.Begin(context.Background(), managerIdentity(), managerColumns(t))
@@ -237,9 +211,6 @@ func TestDropFailureLeavesReclaimableManifestForReconcile(t *testing.T) {
 	}
 	created = s.witnessSingleRow(t)
 	table, artifactID = created.PhysicalTable, created.ArtifactID
-	// Orphan it by expiring the durable lease through the witness pool; the
-	// physical ClickHouse table exists only in the fake, so the reconciler's
-	// drop is the last outstanding cleanup step.
 	if _, err := s.iso.Exec(s.ctx, "UPDATE "+s.qualified+
 		" SET lease_until = $2::timestamptz WHERE artifact_id = $1",
 		artifactID, time.Now().UTC().Add(-time.Minute)); err != nil {
@@ -254,12 +225,6 @@ func TestDropFailureLeavesReclaimableManifestForReconcile(t *testing.T) {
 	s.requireNoRow(t, artifactID)
 }
 
-// TestReconcileRaceDropsEachExpiredArtifactExactlyOnce runs two managers --
-// the shape of two service replicas -- reconciling the same expired
-// artifacts concurrently. Each physical table must be dropped exactly once
-// across both replicas and each manifest deleted exactly once: the
-// one-winner claim is what keeps a losing replica from dropping a table the
-// winner already reclaimed or deleting a manifest it no longer owns.
 func TestReconcileRaceDropsEachExpiredArtifactExactlyOnce(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)

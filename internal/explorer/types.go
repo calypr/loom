@@ -36,10 +36,6 @@ type Diagnostic struct {
 	RequestID string         `json:"requestId,omitempty"`
 }
 
-// DatasetMetadata is the live, server-derived shape of a published recipe.
-// It is deliberately separate from ConfigV2: physical columns and readiness
-// are properties of a materialized generation, not presentation authored by a
-// repository or Builder user.
 type DatasetMetadata struct {
 	Generation   string          `json:"generation,omitempty"`
 	SchemaDigest string          `json:"schemaDigest,omitempty"`
@@ -64,12 +60,10 @@ type PublicationMetadata struct {
 }
 
 type Explorer struct {
-	Project        string         `json:"project"`
-	ExplorerID     string         `json:"explorerId"`
-	Title          string         `json:"title"`
-	ManagementMode ManagementMode `json:"managementMode"`
-	// DraftConfig is the lossless, canonical ExplorerConfigV2 packet used by
-	// the Builder.
+	Project                       string          `json:"project"`
+	ExplorerID                    string          `json:"explorerId"`
+	Title                         string          `json:"title"`
+	ManagementMode                ManagementMode  `json:"managementMode"`
 	DraftConfig                   json.RawMessage `json:"draftConfig,omitempty"`
 	DraftVersion                  int64           `json:"draftVersion"`
 	DraftDigest                   string          `json:"draftDigest,omitempty"`
@@ -85,10 +79,6 @@ type Explorer struct {
 	UpdatedAt                     time.Time       `json:"updatedAt"`
 }
 
-// DraftRevision is an immutable snapshot of one accepted Explorer draft
-// state. It keeps the exact serialized workspace and the source context used
-// to accept it so restoration never reconstructs construction semantics from
-// a command log.
 type DraftRevision struct {
 	ID                       string          `json:"id"`
 	Project                  string          `json:"project"`
@@ -114,10 +104,9 @@ type Materialization struct {
 }
 
 type Revision struct {
-	ID         string `json:"id"`
-	Project    string `json:"project"`
-	ExplorerID string `json:"explorerId"`
-	// Config is the exact immutable ExplorerConfigV2 packet for this revision.
+	ID                   string                      `json:"id"`
+	Project              string                      `json:"project"`
+	ExplorerID           string                      `json:"explorerId"`
 	Config               json.RawMessage             `json:"config,omitempty"`
 	AuthoringBundle      json.RawMessage             `json:"authoringBundle,omitempty"`
 	IntentDigest         string                      `json:"intentDigest,omitempty"`

@@ -6,23 +6,12 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// T10: golden literals. The publish path's SQL shape, the canonicalization
-// single-source rule, and the deterministic stored values are pinned to
-// literals; every pin carries a break-one control proving the comparison is
-// byte-exact and the region is load-bearing.
-// ---------------------------------------------------------------------------
-
-// pubauthGoldenSchemas are the fixed schema names the literal pins use.
 const (
 	pubauthGoldenCtl   = "ctlg"
 	pubauthGoldenLane  = "lanesg"
 	pubauthGoldenTable = `"ctlg"."explorers"`
 )
 
-// pubauthGoldenStatementPins are the literal SQL shapes of the publish
-// transaction's own statements (the receipt/revision claim statements are
-// the standalone suites' statements, reused verbatim, and pinned there).
 func pubauthGoldenStatementPins() map[string]string {
 	return map[string]string{
 		"releaseCandidateLock": `SELECT payload::text, (payload - 'createdAt') = ($3::jsonb - 'createdAt') FROM "lanesg"."project_release" WHERE project = $1 AND id = $2 FOR SHARE`,
@@ -56,8 +45,6 @@ func TestPublishAuthoringStatementShapeLiterals(t *testing.T) {
 	}
 }
 
-// canonicalization single source: no SQL-side trim/lower/cast tricks may
-// appear in any publish statement -- canonical forms are computed in Go.
 func TestPublishAuthoringStatementsCanonicalizeOnlyInGo(t *testing.T) {
 	s := newPublishStatements(pubauthGoldenCtl, pubauthGoldenLane)
 	v := reflect.ValueOf(s)
@@ -81,8 +68,6 @@ func TestPublishAuthoringStoredWorldGoldenLiterals(t *testing.T) {
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	f.publishOK(t, ps, receipt, revision, release, 0)
 
-	// Deterministic identity literals: the content-addressed receipt id and
-	// the revision content digest for the fixed fixture inputs.
 	if receipt.ID != pubauthGoldenReceiptID {
 		t.Fatalf("golden receipt id = %s, want %s", receipt.ID, pubauthGoldenReceiptID)
 	}
@@ -102,9 +87,6 @@ func TestPublishAuthoringStoredWorldGoldenLiterals(t *testing.T) {
 		t.Fatalf("golden revision = %s/%s, want ACTIVE/%s", storedStatus, storedReceiptBinding, receipt.ID)
 	}
 
-	// The activation publication document: Go is the single source of the
-	// shape -- state/revisionId/updatedAt overwritten, executionId carried
-	// from the stored document, generation defaulted from source_generation.
 	var publication map[string]any
 	if err := f.iso.QueryRow(f.ctx, "SELECT publication FROM "+f.ctlTable(RevisionsTable)+
 		" WHERE id = $1", revision.ID).Scan(&publication); err != nil {
@@ -126,7 +108,6 @@ func TestPublishAuthoringStoredWorldGoldenLiterals(t *testing.T) {
 		t.Fatalf("golden publication keys = %v, want %v", keys, want)
 	}
 
-	// Owner + pointer golden rows (clock columns masked by omission).
 	var owner string
 	if err := f.iso.QueryRow(f.ctx, "SELECT (to_jsonb(t) - 'updated_at' - 'created_at')::text FROM "+
 		f.ctlTable(OwnerTable)+" t WHERE project = $1", project).Scan(&owner); err != nil {
@@ -148,9 +129,6 @@ func TestPublishAuthoringStoredWorldGoldenLiterals(t *testing.T) {
 	breakOnePin(t, "golden pointer row", pointer, pubauthGoldenPointerRow)
 }
 
-// breakOnePin is the non-vacuity control for a literal pin: a one-byte
-// tamper of the expected value must NOT match the stored value, proving the
-// comparison is byte-exact and covers the whole region.
 func breakOnePin(t *testing.T, label, stored, want string) {
 	t.Helper()
 	if len(want) == 0 {
@@ -172,10 +150,6 @@ func sortedStrings(in []string) []string {
 	return out
 }
 
-// Golden literals for the fixed fixture inputs (project proj_pubauth_golden,
-// explorer exp_golden, tag gold), discovered from the stored world and held
-// as literals on purpose: they move only when the canonicalization or the
-// stored shape changes.
 const (
 	pubauthGoldenReceiptID     = "receipt_20cc875b33f9db6614541f42344022ac7b85a981a443615ca2217d6b672c6320"
 	pubauthGoldenContentDigest = "sha256:25c52c00e6b86c4bf97d0df1d156942a50fb5f6449726f8eead80d96ef26dd08"

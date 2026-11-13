@@ -102,12 +102,9 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		map[string]any{"code": nil, "value": 20})
 	addObservation("observation-absent-code", absentCodePatient, project, generation, visible, project, generation, visible,
 		map[string]any{"value": 30})
-	// The entire nested valueQuantity parent is absent for this terminal.
 	observationKey := insertResource(project, generation, "Observation", "observation-absent-parent", visible, map[string]any{"status": "final"})
 	insertEdge(project, generation, "observation-absent-parent-patient", "Observation", observationKey, "Patient", absentParentPatient, visible)
 
-	// These linked rows are plausible route candidates but fail one of the
-	// independent terminal or edge scope predicates.
 	addObservation("observation-foreign-project", stringPatient, foreignProject, generation, visible, project, generation, visible,
 		map[string]any{"code": "forged-project", "value": 901})
 	addObservation("observation-stale-generation", stringPatient, project, generation+"-old", visible, project, generation, visible,
@@ -127,8 +124,6 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		t.Fatalf("related presence scan proof = %#v, want a complete tracked query without a conclusive-MISSING overflow witness", categoryScan.Proof)
 	}
 
-	// This raw traversal is deliberately independent of the compiler plans. It
-	// models the two PRESERVE_PARENT boundaries and the exact terminal field.
 	oracleCommand := testAQLCommand(`FOR root IN Specimen
   FILTER root.project == @project AND root.dataset_generation == @generation
     AND root.auth_resource_path IN @auth_paths AND root._key IN @root_keys
@@ -274,8 +269,6 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		}
 	}
 
-	// A NULL-only authored heading accepts both explicit NULL and the
-	// PRESERVE_PARENT no-target value without requiring a MISSING category.
 	nullOnlyOutput := relatedPresenceNullOnlyPivotOutput(recipe.PivotUnlistedCategoryError,
 		"root-null", "root-no-observation")
 	nullOnlyCompiled, _, _ := compileRelatedCategoryRuntimeScansWithBindings(t, nullOnlyOutput, bindings, MaxCategoryScanValues)
@@ -306,8 +299,6 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		t.Fatalf("NULL-only Pivot cells = %#v, want %#v", gotNullOnly, wantNullOnly)
 	}
 
-	// Isolate a MISSING category beside valid NULL rows so ERROR can only be
-	// justified by the absent code, not by the fixture's STRING d category.
 	nullOnlyErrorOutput := relatedPresenceNullOnlyPivotOutput(recipe.PivotUnlistedCategoryError,
 		"root-null", "root-absent-code", "root-no-observation")
 	nullOnlyErrorCompiled, _, _ := compileRelatedCategoryRuntimeScansWithBindings(t, nullOnlyErrorOutput, bindings, MaxCategoryScanValues)

@@ -1,13 +1,5 @@
 package postgres
 
-// pg-sql-10 offline suite: golden CALL projections with full ordered
-// arguments, the registered-capability refusal cells, placeholder
-// discipline, and determinism. Expected values are hand-derived from the
-// AQL producer text (render/aql/calls.go) and the official ArangoDB 3.9
-// documentation cited in calls.go's contract comment — never from
-// PostgreSQL execution, which belongs to the live-gated cells in
-// calls_live_test.go.
-
 import (
 	"encoding/json"
 	"errors"
@@ -32,10 +24,6 @@ const (
 	sql10Path    = "FHIR/Patient"
 )
 
-// sql10Plan builds the closed read-spine plan: one direct ROOT_SCAN over
-// resourceType with the canonical restricted scope binds, plus any extra
-// bind entries the CALL payloads need, then a RETURN of the given
-// projections.
 func sql10Plan(resourceType string, extraBinds map[string]any, projections ...ir.PhysicalProjection) ir.PhysicalPlan {
 	binds := map[string]any{
 		"root_collection":                  resourceType,
@@ -72,7 +60,6 @@ func sql10Call(name, targetKind string, args ...ir.PhysicalExpression) *ir.Physi
 	}
 }
 
-// sql10Nested embeds one registered call as an operand expression.
 func sql10Nested(call *ir.PhysicalExpression) ir.PhysicalExpression { return *call }
 
 func sql10Literal(bindKey string) ir.PhysicalExpression {
@@ -84,9 +71,6 @@ func sql10Literal(bindKey string) ir.PhysicalExpression {
 	}
 }
 
-// sql10ArrayLiteral is the distinct_present_one collection form: an
-// ARRAY-cardinality literal bind (the exact shape
-// ir/physical_validation_expr.go:296 requires for that call).
 func sql10ArrayLiteral(bindKey string) ir.PhysicalExpression {
 	return ir.PhysicalExpression{
 		Kind:         ir.PhysicalLiteralExpression,
@@ -105,9 +89,6 @@ func sql10Value(path ...string) ir.PhysicalExpression {
 	}
 }
 
-// sql10Aggregate builds an ir-valid COUNT aggregate expression — the
-// registered render walk must refuse every operand class outside
-// LITERAL/EXTRACT/VALUE/nested-CALL by name.
 func sql10Aggregate(cardinality ir.PhysicalCardinality) ir.PhysicalExpression {
 	behavior := ir.PhysicalPreserveNull
 	if cardinality == ir.PhysicalArrayCardinality {
@@ -133,8 +114,6 @@ func sql10Selector(t *testing.T, path string) spec.Selector {
 	return selector
 }
 
-// sql10Extract builds the closed EXTRACT operand: payload-anchored source,
-// schema resource type, direct property selector.
 func sql10Extract(t *testing.T, resourceType, path string,
 	cardinality ir.PhysicalCardinality, behavior ir.PhysicalNullBehavior) ir.PhysicalExpression {
 	t.Helper()
@@ -153,17 +132,10 @@ func sql10Extract(t *testing.T, resourceType, path string,
 
 func sql10RenderOK(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
 	t.Helper()
-	// The plan is validated first through the public entry (render.go
-	// runs plan.Validate before any assembly): a fixture that ir itself
-	// rejects can never pass a golden vacuously.
 	rendered, err := RenderPhysicalPlan(plan, mustBinding(t))
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}
-	// Placeholder discipline belt-and-braces: every $1..$n of a
-	// successful render is referenced in the statement (the command
-	// constructor enforces this; the scan makes the contract visible
-	// here as well).
 	for index := 1; index <= len(rendered.Args); index++ {
 		if !strings.Contains(rendered.SQL, fmt.Sprintf("$%d", index)) {
 			t.Fatalf("parameter $%d is never referenced: %s", index, rendered.SQL)
@@ -181,8 +153,6 @@ func sql10ScopeArgs() []command.PostgreSQLParameter {
 	}
 }
 
-// sql10Statement wraps a golden projection list in the canonical scope
-// frame the read spine assembles (same shape the pg-sql-03 goldens pin).
 func sql10Statement(selects string) string {
 	return `SELECT ` + selects +
 		` FROM "pgir02_it_unit"."fhir_resource" AS r0` +
@@ -206,8 +176,6 @@ func sql10Reject(t *testing.T, plan ir.PhysicalPlan, context string, want ...str
 	}
 }
 
-// sql10RejectAny asserts only that rendering fails: cells whose refusal
-// legitimately comes from ir.Validate upstream carry ir's own error type.
 func sql10RejectAny(t *testing.T, plan ir.PhysicalPlan, context string, want ...string) {
 	t.Helper()
 	_, err := RenderPhysicalPlan(plan, mustBinding(t))
@@ -221,74 +189,26 @@ func sql10RejectAny(t *testing.T, plan ir.PhysicalPlan, context string, want ...
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Golden registered surface
-// ---------------------------------------------------------------------------
-
-// sql10NumericText renders the operand text the arithmetic goldens pin:
-// one jsonb bind read through its canonical text as a numeric — the
-// registered band-test domain; the executed + - * / run in double (IEEE
-// parity) only inside arms whose numeric-domain guard has already proven
-// the operation cannot reach PG18's 22003 raise points.
 func sql10NumericText(parameter string) string {
 	return "((" + parameter + ") #>> '{}')::numeric"
 }
 
-// The registered IEEE-754 double boundaries, pinned from the measured
-// facts (PG18 probe battery): the overflow bound is DBL_MAX + 2^970, the
-// round-half-even tie above the largest finite double — the exact point
-// where numeric->double casts raise and where IEEE overflow begins (reads
-// NULL, the documented invalid-value reading); the add pass boundary is
-// DBL_MAX − 2^970 (two operand half-ulps below the tie); the multiply/
-// divide pass boundary is the tie − 2^973 (relative operand error 2^-52
-// ≈ 2^972 at the top, with margin); the cast pass floor is 2.5e-324
-// (above the measured 17-digit round-to-zero tie where the cast raises,
-// below the minimum subnormal — magnitudes below read the registered 0);
-// and the operation subnormal floor is 4.9406564584124655e-324 (above the
-// exact minimum subnormal — products/quotients below it read the
-// registered 0 instead of reaching the raising round-to-zero); the divisor
-// normal floor is DBL_MIN 2^-1022 in its exact binary decimal expansion
-// (divisors below it read the registered NULL — F-10,
-// sql10WantNormalFloor).
 const (
 	sql10WantOverflowBound   = "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792"
 	sql10WantAddPassUpper    = "179769313486231560835325876058105298516207002341652166261661174625869553267292326574530099287946549246750631490335877017522087105926987962906277604735569213290190919152394180476217125334960946356387261286640198029037799514183602981511756283727771403830521483963923935633133642802139091669457927874464075218944"
 	sql10WantMulDivPassUpper = "179769313486231500960116590016510948825025611236495184238123361562143308190875053458173343219024575698011666711264844337248681780152130643733137952927759391115036970607451570876046936802390650830255617955750582549437097177865883181587442630101659737164863430522599210419506436529457842398703070964143777382400"
 	sql10WantUnderflowFloor  = "2.5E-324"
 	sql10WantSubnormalFloor  = "4.9406564584124655E-324"
-	// sql10WantNormalFloor is DBL_MIN, the divisor gate (F-10): a
-	// subnormal-band divisor's numeric text can sit a relative ~9e-16 off
-	// the double it executes as — the 15-digit canonical spelling of the
-	// minimum subnormal passes any round-trip conjunct tautologically
-	// (float8->numeric rounds to 15 significant digits, probed) — so the
-	// whole band below DBL_MIN reads the registered NULL and every cast
-	// executes only on a normal double (half-ulp parse, inside the
-	// mul/div pass margin). TestCallsDivisorNormalBand pins this.
-	sql10WantNormalFloor = "2.225073858507201383090232717332404064219215980462331830553327416887204434813918195854283159012511020564067339731035811005152434161553460108856012385377718821130777993532002330479610147442583636071921565046942503734208375250806650616658158948720491179968591639648500635908770118304874799780887753749949451580451605050915399856582470818645113537935804992115981085766051992433352114352390148795699609591288891602992641511063466313393663477586513029371762047325631781485664350872122828637642044846811407613911477062801689853244110024161447421618567166150540154285084716752901903161322778896729707373123334086988983175067838846926092773977972858659654941091369095406136467568702398678315290680984617210924625396728515625E-308"
-	// Band-test operand cap (F-8): comparison-only CASE that caps
-	// band-test operands' magnitudes at 1e400 so the band tests' own
-	// numeric +,-,*,/ can never leave the storable numeric domain
-	// (PG18 raises 22003 on unclamped 1e5e9-class products, quotients,
-	// and near-max sums; tiny operands are safe because division flushes
-	// and tiny products read the registered 0 arm — probes in the F-8
-	// note). TestCallsBandTestClamps pins this against the emitter
-	// constant and against the band boundaries: every pass verdict needs
-	// both operands far inside the cap, so real-valued verdicts are
-	// byte-identical with or without the clamp.
-	sql10WantBandClampCap = "1e400"
+	sql10WantNormalFloor     = "2.225073858507201383090232717332404064219215980462331830553327416887204434813918195854283159012511020564067339731035811005152434161553460108856012385377718821130777993532002330479610147442583636071921565046942503734208375250806650616658158948720491179968591639648500635908770118304874799780887753749949451580451605050915399856582470818645113537935804992115981085766051992433352114352390148795699609591288891602992641511063466313393663477586513029371762047325631781485664350872122828637642044846811407613911477062801689853244110024161447421618567166150540154285084716752901903161322778896729707373123334086988983175067838846926092773977972858659654941091369095406136467568702398678315290680984617210924625396728515625E-308"
+	sql10WantBandClampCap    = "1e400"
 )
 
-// sql10WantNumericToJSONB mirrors the registered numeric->jsonb cast
-// (TO_NUMBER path): range-guarded in numeric, cast back exactly once,
-// overflow NULL, IEEE underflow 0, NULL propagated.
 func sql10WantNumericToJSONB(expression string) string {
 	return `to_jsonb(CASE WHEN abs(` + expression + `) < '` + sql10WantOverflowBound + `'::numeric` +
 		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantUnderflowFloor + `'::numeric` +
 		` THEN (` + expression + `)::double precision ELSE 0::double precision END END)`
 }
 
-// sql10WantDoubleOperand mirrors the guarded numeric->double parse:
-// overflow band NULL, subnormal-floor band 0, exact cast otherwise.
 func sql10WantDoubleOperand(expression string) string {
 	return `(CASE WHEN abs(` + expression + `) < '` + sql10WantOverflowBound + `'::numeric` +
 		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantUnderflowFloor + `'::numeric` +
@@ -296,13 +216,6 @@ func sql10WantDoubleOperand(expression string) string {
 		` ELSE NULL END)`
 }
 
-// sql10WantDoubleDivisor mirrors the divisor parse (F-10): zero and the
-// whole subnormal band below sql10WantNormalFloor read NULL — never a
-// zero-valued double reaches the division, and never a divisor whose
-// parse drifted more than half an ulp (the round-trip conjunct of F-9
-// was tautological for the 15-digit canonical spelling that float8->
-// numeric itself prints, so the band is refused outright) — overflow
-// reads NULL, and magnitudes at or above the normal floor cast exactly.
 func sql10WantDoubleDivisor(expression string) string {
 	return `(CASE WHEN abs(` + expression + `) < '` + sql10WantOverflowBound + `'::numeric` +
 		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantNormalFloor + `'::numeric` +
@@ -310,9 +223,6 @@ func sql10WantDoubleDivisor(expression string) string {
 		` ELSE NULL END)`
 }
 
-// sql10WantBandOperandClamp mirrors the band-test operand clamp (F-8):
-// sign-preserving magnitude cap by comparison only; zero and NULL pass
-// through the ELSE (the divisor's NULLIF fold keeps its meaning).
 func sql10WantBandOperandClamp(operand string) string {
 	return "(CASE" +
 		" WHEN " + operand + " > '" + sql10WantBandClampCap + "'::numeric THEN '" + sql10WantBandClampCap + "'::numeric" +
@@ -320,12 +230,6 @@ func sql10WantBandOperandClamp(operand string) string {
 		" ELSE " + operand + " END)"
 }
 
-// sql10WantArithmetic mirrors the registered IEEE-domain arithmetic
-// fragment: an exact numeric-domain band test — on clamp-windowed
-// operands (F-8), so the test's own numeric operation cannot raise —
-// selects the arm, the double operation runs inside the pass arm on the
-// RAW operands (their own guards do the parse), underflow reads 0 and
-// overflow (plus every NULL contribution) reads NULL.
 func sql10WantArithmetic(operator, left, right string) string {
 	clampedLeft, clampedRight := sql10WantBandOperandClamp(left), sql10WantBandOperandClamp(right)
 	switch operator {
@@ -351,13 +255,6 @@ func sql10WantArithmetic(operator, left, right string) string {
 	}
 }
 
-// TestCallsWhitespaceSingleSource structurally enforces the ratified F-5
-// disposition condition: ONE Go constant (callDecimalWhitespace) feeds
-// both SQL guard sites — the grammar's surrounding class and btrim's
-// erasure argument are derived from it, and the locale-dependent POSIX
-// class appears nowhere. Any duplicated whitespace literal — including a
-// re-widened [[:space:]], the shape PG18 measured admits U+2009 while
-// numeric_in raises 22P02 on the cast — dies on these assertions.
 func TestCallsWhitespaceSingleSource(t *testing.T) {
 	if callDecimalWhitespace != " \t\n\v\f\r" {
 		t.Fatalf("whitespace source = %q, want the explicit ASCII isspace set", callDecimalWhitespace)
@@ -386,8 +283,6 @@ func TestCallsWhitespaceSingleSource(t *testing.T) {
 			}
 		}
 	}
-	// Both guard sites consume the shared construction verbatim: the
-	// arithmetic coercion arm and the TO_NUMBER string arm.
 	for name, fragment := range map[string]string{
 		"coercion":  callNumericCoercion("o"),
 		"to_number": callToNumberExpression("o"),
@@ -399,24 +294,7 @@ func TestCallsWhitespaceSingleSource(t *testing.T) {
 	}
 }
 
-// TestCallsDecimalTierSingleSource structurally enforces the ratified F-7
-// disposition: the cast is gated by PostgreSQL's own input oracle
-// (pg_input_is_valid) rather than digit-count bounds — the guard site
-// must embed the oracle before the textual cast, the two provable-
-// underflow tiers derive from the callDecimalUnderflow* constants and
-// their provability arithmetic, and no quantifier anywhere exceeds the
-// measured PG18 repetition limit (255). Loosening an underflow constant
-// breaks the provability inequality asserted below or the live reading
-// cells; removing the oracle gate lets "1e999999999999" reach the cast
-// and the live battery cells die with a 22003 raise.
 func TestCallsDecimalTierSingleSource(t *testing.T) {
-	// Provable-IEEE-zero arithmetic: mantissa < 10^UD, exponent
-	// ≤ -10^(MD-1) — the bound holds because the exponent's FIRST digit
-	// is nonzero (a leading-zero exponent spells a small value and must
-	// never claim provability: "e-00001" is -1, verifier 136's
-	// provability spoof) — so the value magnitude is 10^(UD - 10^(MD-1)).
-	// Below the gradual-subnormal floor (≈10^-323.4) means the exponent
-	// difference must beat 324.
 	tenTo := func(n int) int {
 		v := 1
 		for range n {
@@ -432,11 +310,6 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 		t.Fatalf("underflow tiers are not provably IEEE-zero: 10^(%d-%d) = 10^-%d is not below the subnormal floor",
 			callDecimalUnderflowMinExponentDigits-1, callDecimalUnderflowIntegerDigits, margin)
 	}
-	// The only bounded digit quantifiers the grammar may contain,
-	// derived from the two underflow constants — the exponent arm's
-	// count is MD-1 because its first digit is [1-9] — and every
-	// repetition count anywhere stays within PG18's measured regex limit
-	// (a larger count is a compile error server-side, SQLSTATE 2201B).
 	derived := map[string]bool{
 		"[0-9]{1," + strconv.Itoa(callDecimalUnderflowIntegerDigits) + "}":      true,
 		"[0-9]{" + strconv.Itoa(callDecimalUnderflowMinExponentDigits-1) + ",}": true,
@@ -466,9 +339,6 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 			}
 		}
 	}
-	// The zero and tiny tiers are proper subsets of the registered
-	// shape: a text taking the registered 0 must also be a registered
-	// valid representation (Go RE2, matching PG18's probed acceptance).
 	wide := regexp.MustCompile(callDecimalStringPattern)
 	zero := regexp.MustCompile(callDecimalZeroPattern)
 	tiny := regexp.MustCompile(callDecimalUnderflowPattern)
@@ -489,12 +359,6 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 	if tiny.MatchString("1e-9999") {
 		t.Fatal("tiny tier admits an exponent below the registered digit bound")
 	}
-	// The provability spoof (verifier 136): leading-zero exponents spell
-	// SMALL values and must never claim the provable-underflow reading —
-	// a wrong 0 is worse than a raise. Both red probes (scale-overflow
-	// texts whose values are ~0.1 and ~1e98) and a normal-magnitude
-	// mantissa must fall through to the oracle-gated cast (which answers
-	// "1e-00001" with 0.1) or the fail-closed NULL arm.
 	for _, spoof := range []string{
 		"1e-00001",
 		"0." + strings.Repeat("9", 18000) + "e-00001",
@@ -509,14 +373,6 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 	if !wide.MatchString("1e-00001") {
 		t.Fatal(`"1e-00001" must stay inside the registered shape (the cast arm answers it)`)
 	}
-	// Both guard sites embed the registered arm shape: the shape test,
-	// then the oracle-gated cast (the textual cast strictly after its
-	// pg_input_is_valid gate — CASE ordering is the never-raise
-	// guarantee), then the provable-0 pair, then the fail-closed NULL.
-	// The oracle appears once per emitted tier arm: once in the
-	// coercion, and nine times in TO_NUMBER (the bounded recursion
-	// replicates the arm three ways, and callNumericToJSONB repeats the
-	// banded expression three ways — both registered shapes).
 	for name, cell := range map[string]struct {
 		fragment   string
 		wantOracle int
@@ -526,12 +382,6 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 	} {
 		fragment := cell.fragment
 		btrim := "btrim((o #>> '{}'), " + callDecimalTrimCharacters + ")"
-		// F-11: the cast rides the register's current_setting fold
-		// barrier — with a STRING bind operand a custom plan folds the
-		// CASE and evaluates the oracle-gated cast arm at plan time
-		// (measured: "1e999999999999" raised 22003 under auto/custom,
-		// read NULL under generic), so the arm must embed the barrier
-		// that keeps it non-foldable.
 		ordered := []string{
 			quoteSQLLiteral(callDecimalStringPattern) + " THEN CASE WHEN ",
 			"pg_input_is_valid(" + btrim + ", 'numeric') THEN (" + btrim +
@@ -554,18 +404,6 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 	}
 }
 
-// TestCallsBandTestClamps pins the F-8 disposition: the band tests' own
-// numeric-domain operations (which raised 22003 on storable extreme
-// operands before the clamp — PG18 measured 1e98303 × 1e98303,
-// 9.9e131071 + 9.9e131071, and 1e131071 / 1e-16383) run on sign-
-// preserved comparison-capped operands. The cap must sit above every
-// registered band boundary (so no pass-band verdict ever sees it and
-// real-valued verdicts are byte-identical), and every capped operation
-// result — the worst product cap² and the worst quotient cap ÷ the
-// smallest storable nonzero magnitude 1e-16383 — must stay inside the
-// measured storable ceiling (1e131071) so the tests cannot raise.
-// Tiny operands need no floor: PG18 division flushes and tiny products
-// read the registered 0 arm (probed).
 func TestCallsBandTestClamps(t *testing.T) {
 	if callBandClampCap != sql10WantBandClampCap {
 		t.Fatalf("emitter cap %s diverged from the mirror %s", callBandClampCap, sql10WantBandClampCap)
@@ -581,17 +419,11 @@ func TestCallsBandTestClamps(t *testing.T) {
 		return v
 	}
 	capV := parse(callBandClampCap)
-	// The cap clears every registered band boundary on the upper side:
-	// no pass verdict's operand magnitudes are ever capped.
 	for _, upper := range []string{callDoubleAddPassUpper, callDoubleMulDivPassUpper, callDoubleOverflowBound} {
 		if capV.Cmp(parse(upper)) <= 0 {
 			t.Fatalf("clamp cap %s does not exceed the boundary %s", callBandClampCap, upper)
 		}
 	}
-	// Capped operation results stay far inside numeric's storable domain
-	// (measured ceiling 1e131071 on PG18), so the band tests cannot
-	// raise: worst product cap², worst quotient cap ÷ 1e-16383 (the
-	// smallest storable nonzero magnitude), worst sum 2·cap.
 	ceiling := parse("1e131071")
 	if product := new(big.Float).Mul(capV, capV); product.Cmp(ceiling) >= 0 {
 		t.Fatalf("worst capped product %s reaches the measured numeric ceiling", product.Text('g', 6))
@@ -602,10 +434,6 @@ func TestCallsBandTestClamps(t *testing.T) {
 	if sum := new(big.Float).Mul(capV, big.NewFloat(2)); sum.Cmp(ceiling) >= 0 {
 		t.Fatalf("worst capped sum %s reaches the measured numeric ceiling", sum.Text('g', 6))
 	}
-	// The clamp is comparison-only: no arithmetic operator may appear
-	// (only registered literals and the operand), zero and NULL pass
-	// through the ELSE, and the cap literal appears exactly as its
-	// constant derived it (comparison + THEN on each sign side).
 	clamped := callBandOperandClamp("o")
 	for _, forbidden := range []string{" + ", " - ", " * ", " / ", "::double", "::float"} {
 		if strings.Contains(clamped, forbidden) {
@@ -623,24 +451,10 @@ func TestCallsBandTestClamps(t *testing.T) {
 	}
 }
 
-// TestCallsDivisorNormalBand pins the F-10 divisor gate. A round-trip
-// conjunct ((x)::double precision)::numeric = x cannot guard the
-// division: float8->numeric rounds to 15 significant digits (PG18
-// probe: ((4.9406564584124654e-324)::double precision)::numeric prints
-// 0.000…0494065645841247), so the 15-digit canonical spelling of the
-// minimum subnormal satisfies the conjunct TAUTOLOGICALLY while sitting
-// a relative 9.23e-16 off the double it executes as — above what the
-// 2^973 pass margin leaves after the dividend's own half ulp, and PG18
-// raised 22003 inside the pass arm on the measured witness
-// 8.88178419700125430e-16 ÷ 4.94065645841247e-324. The gate is instead
-// the DBL_MIN band refusal: the cast executes only at or above the
-// normal floor, where every parse is within half an ulp of its text.
 func TestCallsDivisorNormalBand(t *testing.T) {
 	if callDoubleNormalFloor != sql10WantNormalFloor {
 		t.Fatalf("emitter normal floor %s diverged from the mirror %s", callDoubleNormalFloor, sql10WantNormalFloor)
 	}
-	// The registered literal must be the exact double DBL_MIN = 2^1022,
-	// not a nearby spelling.
 	bits := math.Float64bits(func() float64 {
 		v, err := strconv.ParseFloat(callDoubleNormalFloor, 64)
 		if err != nil {
@@ -658,18 +472,12 @@ func TestCallsDivisorNormalBand(t *testing.T) {
 		}
 		return v
 	}
-	// Above the subnormal-floor region it replaces for the divisor, far
-	// below the pass upper: the gate refuses exactly the band whose
-	// double parse can drift more than half an ulp.
 	if parse(callDoubleSubnormalFloor).Cmp(parse(callDoubleNormalFloor)) >= 0 {
 		t.Fatal("divisor normal floor must sit above the operation subnormal floor")
 	}
 	if parse(callDoubleNormalFloor).Cmp(parse(callDoubleMulDivPassUpper)) >= 0 {
 		t.Fatal("divisor normal floor must sit below the pass upper")
 	}
-	// The divisor arm is two comparison gates plus one cast: the refused
-	// tautological conjunct must not return, the cast appears exactly
-	// once, and each registered bound embeds exactly once.
 	divisor := callDoubleDivisor("o")
 	if strings.Contains(divisor, ")::double precision)::numeric = ") {
 		t.Fatalf("divisor arm resurrected the tautological round-trip conjunct: %s", divisor)
@@ -709,10 +517,6 @@ func TestCallsGoldenArithmeticAddDivide(t *testing.T) {
 		t.Fatalf("add output columns = %v", rendered.OutputColumns)
 	}
 
-	// divide: the divisor is NULLIF-guarded so PostgreSQL's 22012 is
-	// unreachable; the documented 1/0 cell reads SQL NULL. The band test
-	// divides in numeric with a scale bias; the executed division is a
-	// double operation with a divisor arm that can never be zero.
 	dividePlan := sql10Plan("Patient", map[string]any{"a": int64(2), "b": float64(1.5)},
 		sql10CallProjection("ratio", sql10Call("divide", "", sql10Literal("a"), sql10Literal("b"))),
 	)
@@ -724,9 +528,6 @@ func TestCallsGoldenArithmeticAddDivide(t *testing.T) {
 }
 
 func TestCallsGoldenArithmeticDynamicOperandCoercion(t *testing.T) {
-	// extract + literal: the dynamic operand carries the registered
-	// coercion table (numbers, decimal-form strings; everything else
-	// NULL) while the literal must be a number bind.
 	number := sql10NumericText("$6::jsonb")
 	o := `(r0."payload" #> $5::text[])`
 	coercion := `(CASE WHEN ` + o + ` IS NULL OR jsonb_typeof(` + o + `) = 'null' THEN NULL` +
@@ -752,23 +553,6 @@ func TestCallsGoldenArithmeticDynamicOperandCoercion(t *testing.T) {
 	}
 }
 
-// sql10WantToNumberDouble mirrors the documented TO_NUMBER table
-// (functions-type-cast.md 47-77: null/false→0, true→1, number→identity,
-// decimal-form string→parse, other string→0, []→0, [x]→TO_NUMBER(x),
-// ≥2→0, object→0) independently of calls.go's emitter, with the same
-// bounded recursion the contract comment registers.
-// sql10WantDecimalTierArms mirrors the registered decimal-string tiers
-// (F-7) independently of calls.go's emitter: inside the registered
-// shape, the PostgreSQL input oracle gates the btrim'd cast
-// (pg_input_is_valid is false exactly where numeric_in would raise
-// 22003), the provable-underflow pair reads the registered 0, and every
-// other oracle-rejected representation reads the registered conservative
-// NULL. F-11: the cast carries the register's current_setting plan-time-
-// fold barrier (absent GUC ⇒ the concatenation is the identity), because
-// a custom plan with a STRING bind constant-folds the CASE and evaluates
-// the oracle-gated cast arm at plan time (measured 22003 on
-// "1e999999999999" under plan_cache_mode auto/custom; generic read the
-// registered NULL).
 func sql10WantDecimalTierArms(operand string) string {
 	text := "(" + operand + ` #>> '{}')`
 	btrim := "btrim(" + text + ", " + callDecimalTrimCharacters + ")"
@@ -798,7 +582,6 @@ func sql10WantToNumberDouble(operand string, depth int) string {
 }
 
 func TestCallsGoldenCastTables(t *testing.T) {
-	// cast string (TO_STRING scalar arms).
 	stringPlan := sql10Plan("Patient", nil,
 		sql10CallProjection("label", sql10Call("cast", "string",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
@@ -814,8 +597,6 @@ func TestCallsGoldenCastTables(t *testing.T) {
 		t.Fatalf("cast string SQL =\n%s\nwant\n%s", stringRendered.SQL, wantString)
 	}
 
-	// cast integer (TO_NUMBER table) over a literal bind, range-guarded
-	// in numeric before the single cast back to double.
 	numberPlan := sql10Plan("Patient", map[string]any{"v": "42"},
 		sql10CallProjection("count", sql10Call("cast", "integer", sql10Literal("v"))),
 	)
@@ -826,7 +607,6 @@ func TestCallsGoldenCastTables(t *testing.T) {
 		t.Fatalf("cast integer SQL =\n%s\nwant\n%s", numberRendered.SQL, wantNumber)
 	}
 
-	// cast boolean (full TO_BOOL table).
 	booleanPlan := sql10Plan("Patient", nil,
 		sql10CallProjection("flag", sql10Call("cast", "boolean",
 			sql10Extract(t, "Patient", "active", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
@@ -845,7 +625,6 @@ func TestCallsGoldenCastTables(t *testing.T) {
 }
 
 func TestCallsGoldenCoalesceConditionalsLogical(t *testing.T) {
-	// coalesce drops every null-reading arm; all-null yields SQL NULL.
 	coalescePlan := sql10Plan("Patient", map[string]any{"s": "x", "n": nil},
 		sql10CallProjection("pick", sql10Call("coalesce", "",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
@@ -860,7 +639,6 @@ func TestCallsGoldenCoalesceConditionalsLogical(t *testing.T) {
 		t.Fatalf("coalesce args = %d, want 7", len(coalesceRendered.Args))
 	}
 
-	// if under the documented falsy set.
 	ifPlan := sql10Plan("Patient", map[string]any{"t": true, "f": false},
 		sql10CallProjection("choice", sql10Call("if", "",
 			sql10Extract(t, "Patient", "active", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
@@ -875,7 +653,6 @@ func TestCallsGoldenCoalesceConditionalsLogical(t *testing.T) {
 		t.Fatalf("if SQL =\n%s\nwant\n%s", ifRendered.SQL, wantIf)
 	}
 
-	// case without else: the SQL NULL keyword, no stranded parameter.
 	casePlan := sql10Plan("Patient", map[string]any{"t": true},
 		sql10CallProjection("recoded", sql10Call("case", "",
 			sql10Literal("t"), sql10Literal("t"))),
@@ -887,13 +664,10 @@ func TestCallsGoldenCoalesceConditionalsLogical(t *testing.T) {
 	if caseRendered.SQL != wantCase {
 		t.Fatalf("case SQL =\n%s\nwant\n%s", caseRendered.SQL, wantCase)
 	}
-	// Condition and result take $5 and $6; the missing else bound
-	// nothing — a sixth call parameter would be a stranded scalarNull.
 	if len(caseRendered.Args) != 6 {
 		t.Fatalf("case args = %d, want 6 (no stranded else parameter)", len(caseRendered.Args))
 	}
 
-	// and returns an operand value, not a boolean.
 	andPlan := sql10Plan("Patient", map[string]any{"a": int64(0), "b": "x"},
 		sql10CallProjection("fallback_pair", sql10Call("and", "", sql10Literal("a"), sql10Literal("b"))),
 	)
@@ -905,7 +679,6 @@ func TestCallsGoldenCoalesceConditionalsLogical(t *testing.T) {
 		t.Fatalf("and SQL =\n%s\nwant\n%s", andRendered.SQL, wantAnd)
 	}
 
-	// not negates the two-valued truthiness test.
 	notPlan := sql10Plan("Patient", nil,
 		sql10CallProjection("inverted", sql10Call("not", "",
 			sql10Extract(t, "Patient", "active", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
@@ -918,7 +691,6 @@ func TestCallsGoldenCoalesceConditionalsLogical(t *testing.T) {
 }
 
 func TestCallsGoldenComparisons(t *testing.T) {
-	// eq is total: SQL NULL and missing normalize to the jsonb null.
 	eqPlan := sql10Plan("Patient", map[string]any{"s": "female"},
 		sql10CallProjection("is_female", sql10Call("eq", "",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
@@ -930,7 +702,6 @@ func TestCallsGoldenComparisons(t *testing.T) {
 		t.Fatalf("eq SQL =\n%s\nwant\n%s", eqRendered.SQL, wantEq)
 	}
 
-	// neq negates the total equality.
 	neqPlan := sql10Plan("Patient", map[string]any{"s": "female"},
 		sql10CallProjection("other", sql10Call("neq", "",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
@@ -942,8 +713,6 @@ func TestCallsGoldenComparisons(t *testing.T) {
 		t.Fatalf("neq SQL =\n%s\nwant\n%s", neqRendered.SQL, wantNeq)
 	}
 
-	// gt uses the AQL rank comparator: rank-4 (array/object) operands
-	// read NULL before any rank or value compare (L15).
 	gtPlan := sql10Plan("Patient", map[string]any{"n": float64(1)},
 		sql10CallProjection("over_one", sql10Call("gt", "",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
@@ -969,9 +738,6 @@ func TestCallsGoldenComparisons(t *testing.T) {
 }
 
 func TestCallsGoldenAssertBarrier(t *testing.T) {
-	// The raising arm keeps the population.go constant-folding barrier
-	// and carries the plan-data message on a $n text parameter inside
-	// the cast text (never interpolated).
 	plan := sql10Plan("Patient", map[string]any{"msg": "MISSING_GENDER"},
 		sql10CallProjection("checked", sql10Call("assert", "",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
@@ -996,19 +762,11 @@ func TestCallsGoldenAssertBarrier(t *testing.T) {
 }
 
 func TestCallsGoldenDistinctPresentOne(t *testing.T) {
-	// One correlated scalar subquery: one-level FLATTEN reproduction,
-	// null items dropped, type guard, distinct-count guard, MIN.
-	// The registered collection operand is the closed pg-sql-05 direct-
-	// property form: a schema-non-repeated path whose stored JSON value
-	// is the array (the same form predicates.go registers for selector
-	// comparisons; [] steps are unregistered).
 	plan := sql10Plan("Patient", nil,
 		sql10CallProjection("one_system", sql10Call("distinct_present_one", "STRING",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalArrayCardinality, ir.PhysicalEmptyOnNull))),
 	)
 	rendered := sql10RenderOK(t, plan)
-	// EMPTY_ON_NULL arms the array collection through the registered
-	// scalar extractor (null_semantics.go behavior table).
 	base := `COALESCE(NULLIF((r0."payload" #> $5::text[]), 'null'::jsonb), '""'::jsonb)`
 	want := sql10Statement(`((SELECT CASE` +
 		` WHEN bool_or(jsonb_typeof(loom_dp_item.item) <> 'string') THEN to_jsonb(CAST('CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH' || COALESCE(current_setting('loom.explorer_guard_barrier', true), '') AS integer))` +
@@ -1051,9 +809,6 @@ func TestCallsGoldenDistinctPresentOneLiteralArray(t *testing.T) {
 }
 
 func TestCallsGoldenNestedCall(t *testing.T) {
-	// A nested registered call renders through one fragment (the
-	// derived-column wrapper shape): eq over two literals inside an
-	// outer coalesce.
 	plan := sql10Plan("Patient", map[string]any{"a": int64(1), "b": float64(1.0), "c": "z"},
 		sql10CallProjection("pick", sql10Call("coalesce", "",
 			sql10Nested(sql10Call("eq", "", sql10Literal("a"), sql10Literal("b"))),
@@ -1069,13 +824,7 @@ func TestCallsGoldenNestedCall(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Refusal cells
-// ---------------------------------------------------------------------------
-
 func TestCallsRejectUnregisteredNames(t *testing.T) {
-	// Every G-row name from the parity table is ir-known and must be
-	// refused by this renderer with the registered-surface message.
 	for _, name := range []string{
 		"first", "all", "distinct", "length", "coalesce_string", "concat", "join",
 		"contains", "canonical_json", "reference_id", "path_segment", "basename",
@@ -1085,8 +834,6 @@ func TestCallsRejectUnregisteredNames(t *testing.T) {
 			sql10CallProjection("x", sql10Call(name, "", sql10Literal("a"))))
 		sql10Reject(t, plan, "call "+name, "not part of the v1 PostgreSQL registered call surface")
 	}
-	// Names ir itself rejects fail even earlier (defense in depth, both
-	// layers refuse).
 	for _, name := range []string{"drop_table", ""} {
 		plan := sql10Plan("Patient", map[string]any{"a": int64(1)},
 			sql10CallProjection("x", sql10Call(name, "", sql10Literal("a"))))
@@ -1095,9 +842,6 @@ func TestCallsRejectUnregisteredNames(t *testing.T) {
 }
 
 func TestCallsRejectUnknownLiteralTypes(t *testing.T) {
-	// Unknown call/type pairs are refused before execution: a literal
-	// bind whose Go type is not one of int64/float64/string/bool/nil/
-	// array-RawMessage never reaches the driver.
 	for name, bind := range map[string]any{
 		"int":        int(1),
 		"uint64":     uint64(1),
@@ -1112,15 +856,12 @@ func TestCallsRejectUnknownLiteralTypes(t *testing.T) {
 			sql10CallProjection("x", sql10Call("coalesce", "", sql10Literal("a"))))
 		sql10Reject(t, plan, "literal "+name, "unknown call/type pair")
 	}
-	// Infinity has no JSON and no jsonb representation.
 	plan := sql10Plan("Patient", map[string]any{"a": math.Inf(1)},
 		sql10CallProjection("x", sql10Call("coalesce", "", sql10Literal("a"))))
 	sql10Reject(t, plan, "infinite float", "not JSON-encodable")
-	// Arithmetic demands number binds.
 	stringArith := sql10Plan("Patient", map[string]any{"a": "x", "b": int64(1)},
 		sql10CallProjection("x", sql10Call("add", "", sql10Literal("a"), sql10Literal("b"))))
 	sql10Reject(t, stringArith, "string arithmetic literal", "arithmetic accepts number binds")
-	// A missing bind is refused, never rendered as a guess.
 	missing := sql10Plan("Patient", nil,
 		sql10CallProjection("x", sql10Call("coalesce", "", sql10Literal("ghost"))))
 	sql10RejectAny(t, missing, "missing bind", "ghost")
@@ -1164,7 +905,6 @@ func TestCallsRejectPlanLevelShapes(t *testing.T) {
 		sql10Reject(t, plan, cell.context, cell.want)
 	}
 
-	// ir-side refusals for the same classes (defense in depth upstream).
 	irCells := []struct {
 		context string
 		call    *ir.PhysicalExpression
@@ -1185,19 +925,6 @@ func TestCallsRejectPlanLevelShapes(t *testing.T) {
 	}
 }
 
-// TestCallsValueOperandRefusesNonJSONDerivedScope (review thread
-// r4529631198) proves a CALL VALUE operand may not read an ordinality or
-// has-item derived row: those scopes carry raw integer/boolean SQL
-// (unnest.go:683,687) which resolveDerivedValue hands back verbatim for a
-// bare path (unnest.go:716-718), so accepting them would put
-// (lateral.rn - 1) into jsonb operand positions and trade this file's
-// typed pre-SQL refusal for a raw 42804 at prepare time — the posture
-// renderCallExtractOperand already takes against derived rows. Driven
-// directly against the renderer's row bindings because the read-spine
-// contract refuses CALL projections on the unnest slice upstream; this arm
-// is the defense-in-depth layer beneath that gate. The registered JSON
-// derived rows (unnest item values, derivedJSON=true) must still be
-// accepted.
 func TestCallsValueOperandRefusesNonJSONDerivedScope(t *testing.T) {
 	r := &planRenderer{rows: map[string]rowScope{
 		"position": {derivedValue: "(lateral.rn - 1)"},
@@ -1222,23 +949,11 @@ func TestCallsValueOperandRefusesNonJSONDerivedScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("JSON-derived row must stay accepted: %v", err)
 	}
-	// The registered JSON derived value resolves through the derived arm
-	// (parenthesizing is the renderers'; only the source identity is the
-	// assertion here — never a raw column or storage-alias substitution).
 	if !strings.Contains(operand.sql, "lateral.item.value") {
 		t.Fatalf("JSON-derived operand fragment = %q", operand.sql)
 	}
 }
 
-// TestCallsRejectFragmentByteBudget (review thread r4529631959) proves the
-// registered fragment budget bounds emitted SQL size on its own: operand
-// replication (the arithmetic band test plus the callDoubleOperand guards
-// embed each operand around eight times per level, callTruthyTest/
-// callNumericCoercion ×5-7) multiplies per nesting level, so a left-nested
-// chain far inside the 64-level depth cap would otherwise expand beyond
-// memory before the depth guard fires. The budget must refuse with the
-// typed error first, while the depth cap still governs chains below the
-// byte bound's reach.
 func TestCallsRejectFragmentByteBudget(t *testing.T) {
 	nest := func(levels int) *ir.PhysicalExpression {
 		expression := sql10Literal("one")
@@ -1247,13 +962,8 @@ func TestCallsRejectFragmentByteBudget(t *testing.T) {
 		}
 		return &expression
 	}
-	// 40 levels: replication alone exceeds the 1 MiB bound long before
-	// the depth guard's 64.
 	sql10Reject(t, sql10Plan("Patient", map[string]any{"one": int64(1)},
 		sql10CallProjection("x", nest(40))), "fragment budget", "exceeds the")
-	// A legitimate depth (lowering nests at most three) stays far inside
-	// the budget and renders: the registered bound never touches a real
-	// plan shape.
 	shallow := sql10Plan("Patient", map[string]any{"one": int64(1)},
 		sql10CallProjection("x", nest(4)))
 	rendered := sql10RenderOK(t, shallow)
@@ -1263,7 +973,6 @@ func TestCallsRejectFragmentByteBudget(t *testing.T) {
 }
 
 func TestCallsRejectOperandContractViolations(t *testing.T) {
-	// EXTRACT operands keep the closed-selector contract: fallbacks…
 	fallback := sql10Plan("Patient", map[string]any{"a": int64(1)},
 		sql10CallProjection("x", sql10Call("coalesce", "", func() ir.PhysicalExpression {
 			expression := sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
@@ -1277,8 +986,6 @@ func TestCallsRejectOperandContractViolations(t *testing.T) {
 		}())))
 	sql10Reject(t, fallback, "extract fallbacks", "fallback selectors are a separate capability")
 
-	// …repeated steps (GENERIC mode keeps ir happy; the renderer owns
-	// the closed-path rule)…
 	repeated := sql10Plan("Patient", map[string]any{"a": int64(1)},
 		sql10CallProjection("x", sql10Call("coalesce", "", func() ir.PhysicalExpression {
 			expression := sql10Extract(t, "Patient", "identifier.system", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
@@ -1288,13 +995,11 @@ func TestCallsRejectOperandContractViolations(t *testing.T) {
 		}())))
 	sql10Reject(t, repeated, "repeated step", "repeated")
 
-	// …and the resource-type identity against the scanned row.
 	wrongType := sql10Plan("Patient", map[string]any{"a": int64(1)},
 		sql10CallProjection("x", sql10Call("coalesce", "",
 			sql10Extract(t, "Observation", "status", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))))
 	sql10Reject(t, wrongType, "resource-type contradiction", "scanned as")
 
-	// Posture violations on the CALL projection itself.
 	arrayCall := sql10Plan("Patient", map[string]any{"a": int64(1)},
 		ir.PhysicalProjection{Name: "x", Expression: func() *ir.PhysicalExpression {
 			call := sql10Call("coalesce", "", sql10Literal("a"))
@@ -1310,7 +1015,6 @@ func TestCallsRejectOperandContractViolations(t *testing.T) {
 		}()})
 	sql10Reject(t, omitCall, "omit-nulls CALL", "SCALAR-cardinality")
 
-	// Presence metadata and hidden posture keep their refusals.
 	presenceCell := sql10Plan("Patient", map[string]any{"a": int64(1)},
 		ir.PhysicalProjection{Name: "x", Presence: &ir.PhysicalProjectionPresence{
 			Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
@@ -1325,8 +1029,6 @@ func TestCallsRejectOperandContractViolations(t *testing.T) {
 		}())
 	sql10Reject(t, hiddenCell, "hidden CALL", "hidden executor-side metadata")
 
-	// Nesting beyond the registered bound: 66 coalesce nodes put the
-	// innermost call at depth 65, one past the 64-level guard.
 	binds := map[string]any{"a": int64(1)}
 	var inner ir.PhysicalExpression = sql10Literal("a")
 	for index := 0; index <= maxCallExpressionDepth+1; index++ {
@@ -1336,12 +1038,6 @@ func TestCallsRejectOperandContractViolations(t *testing.T) {
 	sql10Reject(t, deep, "deep nesting", "registered bound")
 }
 
-// TestHiddenAuthResourcePathArmShapeLaw pins the coordinator-ratified
-// pg-exec-11 hidden arm: the registered hidden auth_resource_path
-// projection renders exactly the row variable's typed scope column, and
-// every other hidden shape -- including shapes wearing the capture
-// column's own name -- keeps the typed hidden-metadata refusal, exactly
-// as every other hidden shape died before the arm was registered.
 func TestHiddenAuthResourcePathArmShapeLaw(t *testing.T) {
 	registered := func(mutate func(*ir.PhysicalProjection)) ir.PhysicalProjection {
 		projection := ir.PhysicalProjection{Name: "auth_resource_path", Hidden: true,
@@ -1382,8 +1078,6 @@ func TestHiddenAuthResourcePathArmShapeLaw(t *testing.T) {
 	}
 	for _, cell := range foreign {
 		if cell.irOnly {
-			// Shapes the shared ir contract refuses upstream still die;
-			// the refusal source differs, which these cells record.
 			sql10RejectAny(t, sql10Plan("Patient", map[string]any{"a": int64(1)}, registered(cell.mutate)),
 				"hidden auth_resource_path "+cell.context, "auth_resource_path")
 			continue
@@ -1395,9 +1089,6 @@ func TestHiddenAuthResourcePathArmShapeLaw(t *testing.T) {
 	if !strings.Contains(rendered.SQL, `r0."auth_resource_path" AS "c0"`) {
 		t.Fatalf("registered hidden auth_resource_path did not render the typed scope column:\n%s", rendered.SQL)
 	}
-	// The precedent arm is unchanged: the registered preview source identity
-	// column still renders its own typed root-key read, byte-identical to
-	// its pre-pg-exec-11 golden posture.
 	precedent := sql10RenderOK(t, sql10Plan("Patient", map[string]any{"a": int64(1)},
 		ir.PhysicalProjection{Name: ir.PreviewSourceResourceIDColumn, Hidden: true,
 			Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}}))
@@ -1407,9 +1098,6 @@ func TestHiddenAuthResourcePathArmShapeLaw(t *testing.T) {
 }
 
 func TestCallsDefenseInDepthShapeWalk(t *testing.T) {
-	// The render-walk re-read is callable directly: arity/TargetKind
-	// shapes ir also refuses must be refused here too, with the typed
-	// renderer error, independent of the classifier path.
 	literal := func(key string) ir.PhysicalExpression { return sql10Literal(key) }
 	shape := func(name, target string, args ...ir.PhysicalExpression) *ir.PhysicalCall {
 		return &ir.PhysicalCall{Name: name, TargetKind: target, Args: args}
@@ -1440,8 +1128,6 @@ func TestCallsDefenseInDepthShapeWalk(t *testing.T) {
 }
 
 func TestCallsSelectorSliceStaysClosed(t *testing.T) {
-	// Claim D0-b.4: the closed selector-extraction entry keeps refusing
-	// CALL projections; the call surface registers on the full spine only.
 	plan := sql10Plan("Patient", map[string]any{"a": int64(1)},
 		sql10CallProjection("x", sql10Call("coalesce", "", sql10Literal("a"))))
 	_, err := RenderSelectorExtraction(plan, mustBinding(t))
@@ -1471,7 +1157,6 @@ func TestCallsDeterministic(t *testing.T) {
 	if !reflect.DeepEqual(first.Args, second.Args) {
 		t.Fatalf("args drifted between renders: %#v vs %#v", first.Args, second.Args)
 	}
-	// No AQL syntax and no raw plan text anywhere in the statement.
 	for _, forbidden := range []string{"@", "FOR ", "RETURN ", "FILTER ", sql10Project, sql10Gen} {
 		if strings.Contains(first.SQL, forbidden) {
 			t.Fatalf("SQL leaked %q: %s", forbidden, first.SQL)
@@ -1480,8 +1165,6 @@ func TestCallsDeterministic(t *testing.T) {
 }
 
 func TestCallsRowVariableWalkVisitsOperands(t *testing.T) {
-	// The classifier walk covers VALUE, EXTRACT, and nested CALL
-	// operands; unknown operand kinds are left to the render refusal.
 	visited := 0
 	err := forEachCallOperandRowVariable(*sql10Call("coalesce", "",
 		sql10Value("payload", "gender"),
@@ -1506,10 +1189,6 @@ func TestCallsRowVariableWalkVisitsOperands(t *testing.T) {
 }
 
 func TestCallsRankComparatorIsTotalOverNulls(t *testing.T) {
-	// L1/D5: the comparator never propagates SQL NULL across ranks — a
-	// missing key still compares. Golden pins the rank CASE arms for
-	// both operands (null-rank 0 first) so the total structure is
-	// visible; the live suite pins the values.
 	plan := sql10Plan("Patient", map[string]any{"s": "female"},
 		sql10CallProjection("ordered", sql10Call("lte", "",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
@@ -1527,7 +1206,6 @@ func TestCallsRankComparatorIsTotalOverNulls(t *testing.T) {
 	}
 }
 
-// sql10ParameterPattern finds every $n reference in a statement.
 var sql10ParameterPattern = regexp.MustCompile(`\$(\d+)`)
 
 func TestCallsEveryParameterReferencedExactlyInOrder(t *testing.T) {

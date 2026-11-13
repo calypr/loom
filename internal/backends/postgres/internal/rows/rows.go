@@ -1,13 +1,3 @@
-// Package postgres adapts the execution row-visitor boundary to PostgreSQL 18.
-//
-// PostgreSQL 18 is an alternative to Arango for the source graph/catalog and
-// control persistence; Arango remains supported and ClickHouse remains the
-// publication data plane. This package streams result rows for one
-// parent-tagged command.CompiledCommand through the backend-tagged dispatch
-// surface: an AQL-tagged or unregistered command is rejected before any
-// statement executes, SQL arrives only through the tagged command, and the
-// adapter never translates AQL into SQL or falls back to another backend on
-// its own. Schema/migrations and SQL rendering are owned elsewhere.
 package postgres
 
 import (
@@ -28,69 +18,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// RowVisitor consumes one decoded result row. The adapter hands each row its
-// own freshly allocated map with copied byte slices, so a visitor may retain
-// the map after returning without aliasing driver buffers.
 type RowVisitor = execution.RowVisitor
 
-// Querier is the narrow, pool-shaped surface the Executor needs.
-// *pgxpool.Pool, *pgxpool.Conn, and *pgx.Conn all satisfy it; production
-// wiring supplies connections taken from a readiness-checked
-// internal/backends/postgres/internal/store pool. The Executor holds no transport policy of its
-// own: context deadlines, cancellation, and pool bounds belong to the Querier.
 type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// Sentinel errors for classifying adapter failures without string matching.
 var (
-	// ErrInvalidExecution reports a rejected execution request before any
-	// statement could run: a nil context, a nil row visitor, a nil Querier,
-	// or a declared result column set that is empty, blank, or duplicated.
-	ErrInvalidExecution = errors.New("postgres rows: invalid execution")
-	// ErrMalformedStatement reports a statement/argument shape defect that
-	// would bind positional parameters unsafely: placeholders outside the
-	// declared argument range or an argument that never appears as a
-	// placeholder.
-	ErrMalformedStatement = errors.New("postgres rows: malformed statement")
-	// ErrInvalidParameter reports a tagged command whose ordered argument
-	// violates its declared PostgreSQL parameter type, including a non-nil
-	// value on an SQL-null parameter, a value of the wrong Go type, a date
-	// carrying a time-of-day component, or JSON that does not parse. The
-	// three-state contract is enforced here: SQL NULL is bound only by a
-	// null-typed parameter with a nil value, a JSON null is a valid JSON
-	// value on a json/jsonb parameter, and a missing value is no argument
-	// at all; the adapter never flattens one into another.
-	ErrInvalidParameter = errors.New("postgres rows: invalid parameter")
-	// ErrColumnContractMismatch reports that the server's result columns do
-	// not exactly match the declared column contract (count, order, or
-	// name). No row is visited when this fires.
+	ErrInvalidExecution       = errors.New("postgres rows: invalid execution")
+	ErrMalformedStatement     = errors.New("postgres rows: malformed statement")
+	ErrInvalidParameter       = errors.New("postgres rows: invalid parameter")
 	ErrColumnContractMismatch = errors.New("postgres rows: column contract mismatch")
-	// ErrQuery classifies failures at the execution seam: statement start,
-	// row scanning, or mid-stream result errors. Every QueryError also
-	// unwraps to its identifiable driver or context cause for errors.Is and
-	// errors.As.
-	ErrQuery = errors.New("postgres rows: query failed")
+	ErrQuery                  = errors.New("postgres rows: query failed")
 )
 
-// QueryError wraps one execution-seam failure. errors.Is(err, ErrQuery)
-// classifies it as an execution failure while the cause chain stays intact:
-// for driver and server failures the As-visible identity is the
-// boundary-classified error — errors.As(err, &translated) reaches the
-// *storepostgres.TranslatedError carrying the stable condition, SQLSTATE,
-// and curated sentinels. The raw *pgconn.PgError is deliberately not
-// As-visible (its message can carry SQL text, constraint names, and
-// identifiers): server-side consumers reach it only through
-// TranslatedError.Cause behind the redaction guards, never via errors.As.
-// errors.Is(err, context.Canceled) / errors.Is(err, context.DeadlineExceeded)
-// still recognize cancellation.
 type QueryError struct {
-	// Op is the failing seam: "query", "scan", or "rows".
-	Op string
-	// Err is the cause: a store/postgres boundary-classified error for
-	// driver and server failures, a context error when the caller's
-	// context ended first, or an unchanged error the boundary does not
-	// own.
+	Op  string
 	Err error
 }
 
@@ -98,18 +41,12 @@ func (e *QueryError) Error() string {
 	return fmt.Sprintf("postgres rows: %s: %v", e.Op, e.Err)
 }
 
-// Unwrap exposes both the class sentinel and the cause for errors.Is/As.
 func (e *QueryError) Unwrap() []error { return []error{ErrQuery, e.Err} }
 
-// Executor streams result rows of parent-tagged PostgreSQL compiled commands
-// through the execution visitor boundary. The zero value is not usable; build
-// one with NewExecutor.
 type Executor struct {
 	querier Querier
 }
 
-// NewExecutor returns an Executor that obtains result streams from querier.
-// It fails closed on a nil Querier rather than inventing a connection.
 func NewExecutor(querier Querier) (*Executor, error) {
 	if querier == nil {
 		return nil, fmt.Errorf("%w: querier is required", ErrInvalidExecution)
@@ -119,41 +56,6 @@ func NewExecutor(querier Querier) (*Executor, error) {
 
 var _ execution.SourceRows = (*Executor)(nil).SourceRows
 
-// SourceRows dispatches exactly one parent-tagged PostgreSQL command, streams
-// its result rows, and visits decoded rows as they arrive.
-//
-// Dispatch is backend-tagged: a command tagged for AQL is rejected with the
-// compiler's ErrCompiledCommandBackendMismatch and an unregistered tag with
-// ErrCompiledCommandBackendNotRegistered, both before the Querier is touched;
-// this adapter never executes rendered AQL and performs no AQL-to-SQL
-// translation. SQL text and ordered typed parameters arrive only through
-// command.PostgreSQLParameters and are passed to the driver unchanged; bound
-// values are parameterized, so SQL punctuation inside a value remains a
-// value and cannot change query shape.
-//
-// The server's result columns must match columns exactly (count, order, and
-// name) before the first row is visited. Each visited row map is keyed by
-// the declared column names and carries decoded values: SQL NULL decodes to
-// nil, a JSON null inside a json/jsonb column decodes to a non-nil
-// json.RawMessage("null"), and the two are never flattened into each other.
-//
-// A row visitor error stops iteration immediately, closes the rows, and is
-// returned unchanged so callers keep its identity. Context cancellation or
-// deadline expiry during execution returns an error that satisfies
-// errors.Is against the matching context error in addition to ErrQuery.
-// Statement, scan, and server errors return a *QueryError that matches
-// ErrQuery and retains the boundary classification as the As-visible
-// identity (for example
-// errors.As(err, &*storepostgres.TranslatedError{})). The raw driver cause
-// is reachable only through TranslatedError.Cause behind the redaction
-// guards, never through errors.As.
-// SourceRows is the PostgreSQL adapter's implementation of the single
-// execution row port (execution.SourceRows): it consumes the parent-tagged
-// command and the declared column contract from one execution.RowsRequest,
-// keeping the statement and its ordered typed arguments inside the tagged
-// command envelope. Execution never hands loose SQL text or a named bind map
-// to this adapter. request.BatchSize tunes Arango fetch batching and is
-// ignored here; the driver streams result rows as they arrive.
 func (e *Executor) SourceRows(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
 	if ctx == nil {
 		return fmt.Errorf("%w: context is required", ErrInvalidExecution)
@@ -164,14 +66,6 @@ func (e *Executor) SourceRows(ctx context.Context, request execution.RowsRequest
 	if visit == nil {
 		return fmt.Errorf("%w: row visitor is required", ErrInvalidExecution)
 	}
-	// Backend-tagged dispatch is the routing law and runs FIRST: an
-	// AQL-tagged command, an unregistered tag, and the zero value are
-	// refused with their typed routing sentinels before any PostgreSQL
-	// dialect field is inspected. Validating the dialect (declared
-	// columns, statement shape, arguments) ahead of routing would mask a
-	// misrouted command behind generic dialect errors, hiding the tag
-	// that is the only routing key the leaf law recognizes. The returned
-	// argument slice is already a copy.
 	sqlText, args, err := request.Command.PostgreSQLParameters()
 	if err != nil {
 		return err
@@ -201,11 +95,6 @@ func (e *Executor) SourceRows(ctx context.Context, request execution.RowsRequest
 	return streamRows(ctx, rows, columns, visit)
 }
 
-// streamRows validates the column contract against the server's field
-// descriptions as soon as the first row is available, then decodes and
-// visits rows until exhaustion, a visitor error, or an execution-seam
-// failure. A stream that fails before producing a row is judged by its
-// error, not by its (never-received) field descriptions.
 func streamRows(ctx context.Context, rows pgx.Rows, columns []string, visit RowVisitor) error {
 	defer rows.Close()
 
@@ -216,10 +105,6 @@ func streamRows(ctx context.Context, rows pgx.Rows, columns []string, visit RowV
 			if err := checkColumnContract(columns, descriptions); err != nil {
 				return err
 			}
-			// json/jsonb columns decode to raw JSON bytes so a JSON null
-			// stays distinguishable from SQL NULL; every other column uses
-			// the driver's default decoded type (int64, string, float64,
-			// bool, time.Time, ...).
 			targets = make([]any, len(columns))
 			for i, description := range descriptions {
 				switch description.DataTypeOID {
@@ -238,8 +123,6 @@ func streamRows(ctx context.Context, rows pgx.Rows, columns []string, visit RowV
 			row[column] = decodeColumn(targets[i])
 		}
 		if err := visit(row); err != nil {
-			// The visitor's error is returned unchanged; the deferred
-			// Close stops iteration and releases the rows.
 			return err
 		}
 	}
@@ -247,8 +130,6 @@ func streamRows(ctx context.Context, rows pgx.Rows, columns []string, visit RowV
 		return classifyExecution(ctx, "rows", err)
 	}
 	if targets == nil {
-		// The stream completed without a row; the contract is still a
-		// positive requirement, verified against the server's descriptions.
 		if err := checkColumnContract(columns, rows.FieldDescriptions()); err != nil {
 			return err
 		}
@@ -256,8 +137,6 @@ func streamRows(ctx context.Context, rows pgx.Rows, columns []string, visit RowV
 	return nil
 }
 
-// validateColumns checks the declared result column contract syntactically
-// so a broken contract fails before any statement runs.
 func validateColumns(columns []string) error {
 	if len(columns) == 0 {
 		return fmt.Errorf("%w: at least one declared result column is required", ErrInvalidExecution)
@@ -275,24 +154,11 @@ func validateColumns(columns []string) error {
 	return nil
 }
 
-// checkColumnContract requires the server's returned columns to equal the
-// declared contract exactly, in count, order, and name.
 func checkColumnContract(columns []string, descriptions []pgconn.FieldDescription) error {
 	if len(descriptions) != len(columns) {
 		return fmt.Errorf("%w: statement returns %d column(s), contract declares %d",
 			ErrColumnContractMismatch, len(descriptions), len(columns))
 	}
-	// The declared contract is authoritative for result naming: rows are
-	// keyed by the contract, so a statement that returns a column name the
-	// contract did not declare is refused. The one accepted exception is the
-	// compiler renderer's positional output alias for THIS position:
-	// renderReturn emits every projection as "AS c" plus its zero-based
-	// index, deliberately keeping recipe-provided projection names out of
-	// the SQL text; those results take their public names from the contract.
-	// The exception is exact-position string equality, not a shape match —
-	// a swapped or off-by-one alias set (contract [a, b] against c1, c0) is
-	// drift, not aliasing, and is refused so rows can never be keyed under
-	// contract names with swapped values.
 	for i, column := range columns {
 		got := descriptions[i].Name
 		if got != column && got != "c"+strconv.Itoa(i) {
@@ -305,11 +171,6 @@ func checkColumnContract(columns []string, descriptions []pgconn.FieldDescriptio
 
 var statementPlaceholderRE = regexp.MustCompile(`\$\d+`)
 
-// validateStatementShape keeps positional binding honest: every $n in the
-// rendered statement must address a declared argument, and every declared
-// argument must appear as a placeholder. Placeholders may repeat; a hole in
-// the numbering means the renderer and the argument list disagree and the
-// command is refused before execution.
 func validateStatementShape(sqlText string, args []command.PostgreSQLParameter) error {
 	matches := statementPlaceholderRE.FindAllString(sqlText, -1)
 	if len(args) == 0 {
@@ -336,10 +197,6 @@ func validateStatementShape(sqlText string, args []command.PostgreSQLParameter) 
 	return nil
 }
 
-// bindParameters canonicalizes every ordered argument according to its
-// declared compiler parameter type. This is the adapter's single canonical
-// source for the three-state value contract; nothing is approximated on the
-// SQL side and the driver receives canonical Go values only.
 func bindParameters(args []command.PostgreSQLParameter) ([]any, error) {
 	bound := make([]any, 0, len(args))
 	for i, arg := range args {
@@ -424,10 +281,6 @@ func jsonBytes(value any) ([]byte, bool) {
 	}
 }
 
-// decodeColumn converts one scan target into the visited row value, copying
-// driver-owned byte buffers so a retained row map never aliases a connection
-// read buffer. A SQL NULL decodes to nil; a JSON null decodes to a non-nil
-// json.RawMessage("null").
 func decodeColumn(target any) any {
 	switch typed := target.(type) {
 	case *json.RawMessage:
@@ -451,22 +304,6 @@ func decodeColumn(target any) any {
 	}
 }
 
-// classifyExecution wraps one execution-seam failure. When the caller's
-// context is already done, the verdict is pinned to the context error so a
-// cancellation always satisfies errors.Is against context.Canceled or
-// context.DeadlineExceeded even when the driver surfaces an unrelated
-// transport error after the abort; otherwise the driver/server error is
-// retained as the cause.
-//
-// Vendor interpretation lives at this adapter boundary (arch-backend-03):
-// driver and server failures first pass through the store/postgres error
-// boundary, so execution above the adapter consumes Loom error identities
-// (stable condition, SQLSTATE, retryability) instead of interpreting
-// *pgconn.PgError fields or message text. The raw driver cause stays
-// reachable server-side only through (*TranslatedError).Cause and is never
-// Is/As-visible or rendered. Errors the boundary does not own pass through
-// unchanged; an already-classified error keeps its identity (double
-// application is stable).
 func classifyExecution(ctx context.Context, op string, err error) error {
 	if err == nil {
 		return nil

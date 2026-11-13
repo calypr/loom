@@ -208,9 +208,6 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 		t.Fatalf("limit-1 ALL values = %#v, want %#v (late value must survive post-GROUP limit)", got, want)
 	}
 
-	// Render the same finalized typed GROUP plan without its preview window.
-	// This is the generic full-source reference for the optimized root-key
-	// frontier query above, independent of the fixture's hand-written oracle.
 	genericPlan := clonePhysicalPlan(preview.PhysicalPlan)
 	genericPlan.StageSequence.PreviewLimitBindKey = ""
 	genericRendered, err := aql.RenderPhysicalPlan(genericPlan)

@@ -8,14 +8,6 @@ import (
 	"testing"
 )
 
-// TestBackendNeutralDiagnosticsAndPlanIdentity proves the CLI reads the
-// agreed backend-neutral diagnostics schema: it prints the source-query
-// interval under the neutral source_query label, takes it from the new
-// sourceQueryMs field when present (including a modern PostgreSQL server's
-// explicit arangoQueryMs=0), and falls back to the legacy arangoQueryMs only
-// for older servers that predate sourceQueryMs. It also pins that the
-// checked-in example queries select the neutral field, because the CLI's
-// measurement comes from whatever the request asks the server to project.
 func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 	t.Run("agreed schema drives the neutral label", func(t *testing.T) {
 		paths := writeRequestFiles(t)
@@ -34,9 +26,6 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 	})
 
 	t.Run("modern postgres zero does not mask the neutral field", func(t *testing.T) {
-		// A PostgreSQL server reports arangoQueryMs as an explicit zero; the
-		// neutral reading must come from sourceQueryMs, never from the zero
-		// legacy projection.
 		diagnostics := dataframeDiagnostics{SourceQueryMs: ptr(7.25), ArangoQueryMs: ptr(0)}
 		if got := diagnostics.sourceQueryMs(); got != 7.25 {
 			t.Fatalf("sourceQueryMs() = %v, want 7.25 from the neutral field", got)

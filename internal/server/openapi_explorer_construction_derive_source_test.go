@@ -337,8 +337,6 @@ func TestConstructionDeriveSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		t.Fatalf("forged deriveSources token did not reach choice validation: %s", forgedTokenHTTP.Body)
 	}
 
-	// The boolean active choice is not advertised as a derive source; a token
-	// forged from the filter capability surface must not compile as an operand.
 	nonNumericHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
 		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":"derive_step","candidateConstruction":%s,"deriveSources":[{"choiceId":%q,"columnId":%q}]}`,
 		snapshot.Token, digest, candidateJSON, choiceID+"x", projectionColumnID,

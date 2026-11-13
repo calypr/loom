@@ -37,19 +37,12 @@ const (
 	ConstructionOperationRelatedField       ConstructionOperationKind = "RELATED_FIELD"
 )
 
-// Construction stores the ordered, durable operations applied after the
-// document's source projection. A zero-step construction is the identity plan
-// over that source projection. A terminal Combine is a standalone plan over
-// exact published table revisions. Version identifies this operation
-// contract, independently of the workspace's older V2 semantics version.
 type Construction struct {
 	Version           int                            `json:"version"`
 	Steps             []ConstructionStep             `json:"steps"`
 	SourceProjections []ConstructionSourceProjection `json:"sourceProjections,omitempty"`
 }
 
-// ConstructionSourceProjection is a compiler-authorized source field needed
-// by a construction operation but excluded from the document's public columns.
 type ConstructionSourceProjection struct {
 	ColumnID     string `json:"columnId"`
 	OwnerStepID  string `json:"ownerStepId,omitempty"`
@@ -60,9 +53,6 @@ type ConstructionSourceProjection struct {
 	Label        string `json:"label"`
 }
 
-// MarshalJSON keeps an empty construction as an explicit empty sequence at
-// persistence and API boundaries. A nil slice can arrive from older drafts
-// that encoded "steps": null, but clients consume this field as an array.
 func (c Construction) MarshalJSON() ([]byte, error) {
 	type wire Construction
 	if c.Steps == nil {
@@ -71,10 +61,6 @@ func (c Construction) MarshalJSON() ([]byte, error) {
 	return json.Marshal(wire(c))
 }
 
-// ConstructionStep is one saved analytical operation. Its Inputs identify
-// the exact stage or immutable table revision it consumes. Outputs declare
-// the complete resulting stage schema; IDs remain stable when names or labels
-// change.
 type ConstructionStep struct {
 	ID          string                 `json:"id"`
 	OwnerStepID string                 `json:"ownerStepId,omitempty"`
@@ -91,8 +77,6 @@ const (
 	ConstructionRowValueOne ConstructionRowValuePolicy = "ONE"
 )
 
-// ConstructionRowValue populates a shaped row from the same records that
-// contributed to its grouping or pivot. It does not alter row membership.
 type ConstructionRowValue struct {
 	InputColumnID  string                        `json:"inputColumnId,omitempty"`
 	FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
@@ -122,10 +106,6 @@ func (value *ConstructionRowValue) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ConstructionInputRef is a closed source-stage, prior-stage, sibling-output,
-// or immutable table-revision reference. A table input always names a
-// concrete revision; floating references to a table's current head are not
-// supported.
 type ConstructionInputRef struct {
 	Kind       ConstructionInputKind `json:"kind"`
 	StepID     string                `json:"stepId,omitempty"`
@@ -171,9 +151,6 @@ func (r ConstructionInputRef) Validate() error {
 	return nil
 }
 
-// StageColumn describes one column at a stage boundary. Type is advisory for
-// source-derived operations, while terminal Combine requires a concrete scalar
-// type and uses Nullable to declare left-join output behavior.
 type StageColumn struct {
 	ID       string             `json:"id"`
 	Name     string             `json:"name"`
@@ -200,10 +177,6 @@ type ConstructionOperation struct {
 	RelatedField       *ConstructionRelatedField       `json:"relatedField,omitempty"`
 }
 
-// ConstructionRelatedSource adds one compiler-authorized field from related
-// resources to rows at the exact input stage. Route and field identity are
-// persisted alongside the choice token so saved constructions remain
-// self-contained after the capability snapshot expires.
 type ConstructionRelatedSource struct {
 	AnchorColumnID     string                             `json:"anchorColumnId"`
 	ChoiceID           string                             `json:"choiceId"`
@@ -216,8 +189,6 @@ type ConstructionRelatedSource struct {
 	OutputColumnID     string                             `json:"outputColumnId"`
 }
 
-// ConstructionRelatedExpand emits one row per distinct resource reached by
-// the exact, server-authorized route.
 type ConstructionRelatedExpand struct {
 	AnchorColumnID        string                             `json:"anchorColumnId"`
 	ChoiceID              string                             `json:"choiceId"`
@@ -231,9 +202,6 @@ type ConstructionRelatedExpand struct {
 	RelatedRecordColumnID string                             `json:"relatedRecordColumnId"`
 }
 
-// ConstructionRelatedEligibility filters rows by the number of distinct
-// terminal resources reached through an exact authorized route. It preserves
-// the input schema and row identity.
 type ConstructionRelatedEligibility struct {
 	AnchorColumnID      string                              `json:"anchorColumnId"`
 	ChoiceID            string                              `json:"choiceId"`
@@ -257,8 +225,6 @@ const (
 	ConstructionRelatedEligibilityCountAtLeast = "COUNT_AT_LEAST"
 )
 
-// ConstructionRelatedField adds one scalar field from the exact terminal
-// resource retained by a preceding RELATED_EXPAND stage.
 type ConstructionRelatedField struct {
 	ChoiceID       string                         `json:"choiceId"`
 	Source         ConstructionRelatedFieldSource `json:"source"`
@@ -293,9 +259,6 @@ func (o *ConstructionOperation) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ConstructionCombine describes one standalone operation over exact published
-// table revisions. InputColumnIDs refer to the schemas resolved for those
-// revisions; OutputColumnIDs remain stable in the authored output schema.
 type ConstructionCombine struct {
 	Kind             ConstructionCombineKind             `json:"kind"`
 	Keys             []ConstructionCombineKey            `json:"keys,omitempty"`
@@ -381,9 +344,6 @@ type ConstructionPivotCategory struct {
 	OutputColumnID string      `json:"outputColumnId"`
 }
 
-// ConstructionCodedPivot pivots a compiler-authorized coded value family
-// directly from root resources. Choice IDs authorize a proposal and are
-// cleared before the durable source and category facts are persisted.
 type ConstructionCodedPivot struct {
 	ConstructionID    string                             `json:"constructionId"`
 	SourceChoiceID    string                             `json:"sourceChoiceId,omitempty"`
@@ -567,8 +527,6 @@ type ConstructionUnpivotInput struct {
 	Key      TableScalar `json:"key"`
 }
 
-// ConstructionGroup replaces a stage's rows with one row per distinct key
-// tuple, or one table summary row when Keys is empty.
 type ConstructionGroup struct {
 	ConstructionID   string                            `json:"constructionId"`
 	MissingKeyPolicy ConstructionGroupMissingKeyPolicy `json:"missingKeyPolicy"`
@@ -576,9 +534,6 @@ type ConstructionGroup struct {
 	Aggregates       []ConstructionGroupAggregate      `json:"aggregates,omitempty"`
 }
 
-// ConstructionCodedGroup groups source rows by one correlated tuple from a
-// repeated Coding path. The source facts are durable compiler inputs; ChoiceID
-// is proposal authority only and is not required to recompile a saved step.
 type ConstructionCodedGroup struct {
 	ConstructionID                    string                            `json:"constructionId"`
 	ChoiceID                          string                            `json:"choiceId,omitempty"`
@@ -678,10 +633,6 @@ func (key *ConstructionGroupKey) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ConstructionGroupFieldSource is a signed Group-key choice or its durable
-// binding. A binding pins exactly one input provenance variant. Flat fields
-// remain accepted for saved CURRENT_STAGE bindings and are preserved when
-// those saved values cross the authoring boundary again.
 type ConstructionGroupFieldSource struct {
 	Kind          string                             `json:"kind"`
 	ChoiceID      string                             `json:"choiceId,omitempty"`
@@ -690,8 +641,6 @@ type ConstructionGroupFieldSource struct {
 	SourceShapeID string                             `json:"sourceShapeId,omitempty"`
 	Input         *ConstructionGroupFieldSourceInput `json:"input,omitempty"`
 
-	// Legacy flat CURRENT_STAGE fields. They are populated only when decoding
-	// saved recipes that predate the input provenance sum.
 	SourceRole        string `json:"-"`
 	OccurrenceID      string `json:"-"`
 	ResourceType      string `json:"-"`
@@ -1020,9 +969,6 @@ func (source ConstructionGroupFieldSource) legacyCurrentStage() *ConstructionGro
 	}
 }
 
-// ConstructionGroupSemanticCategory is either an ephemeral CHOICE supplied
-// by current stage capabilities or the durable server-resolved BINDING.
-// Version is an exact string; the empty string means versionless, not any.
 type ConstructionGroupSemanticCategory struct {
 	Kind         string `json:"kind"`
 	ChoiceID     string `json:"choiceId,omitempty"`
@@ -1052,8 +998,6 @@ const (
 	ConstructionGroupMean          ConstructionGroupAggregateOp = "MEAN"
 )
 
-// ConstructionExpand replaces one public list column with its items and, if
-// requested, the zero-based position of each item.
 type ConstructionExpand struct {
 	ConstructionID  string                           `json:"constructionId"`
 	InputColumnID   string                           `json:"inputColumnId"`
@@ -1063,14 +1007,6 @@ type ConstructionExpand struct {
 	ExpandedField   *ConstructionExpandedFieldSource `json:"expandedField,omitempty"`
 }
 
-// ConstructionExpandedFieldSource records the server-derived root array field
-// facts that authorize an EXPAND step to consume an array column materialized
-// through SourceProjections. The lane sets it only after resolving the signed
-// row choice against the current capability snapshot; Apply re-authorization
-// re-derives it and refuses drift, and the compiler independently re-verifies
-// the path against the generated FHIR schema before treating the input column
-// as array-valued. Client-authored values beyond a structurally consistent
-// echo of the accepted proposal are never trusted.
 type ConstructionExpandedFieldSource struct {
 	Path        string `json:"path"`
 	Cardinality string `json:"cardinality"`
@@ -1078,17 +1014,8 @@ type ConstructionExpandedFieldSource struct {
 	LogicalType string `json:"logicalType"`
 }
 
-// ConstructionExpandedFieldCardinalityMany mirrors the lowercase cardinality
-// spelling of expression.Many ("many") used by every compiled payload gate
-// (precedent: related source cardinality checks compare the same strings in
-// the compilation package, not authoringv2).
 const ConstructionExpandedFieldCardinalityMany = "many"
 
-// ValidateConstructionExpandedFieldSource shape-checks a signed expanded
-// field payload. A nil payload is a valid absence (plain selected-column
-// EXPAND). Shape checks here are structural only; the compile path re-proves
-// the array facts against the generated FHIR schema and never trusts this
-// payload for cardinality.
 func ValidateConstructionExpandedFieldSource(field *ConstructionExpandedFieldSource) error {
 	if field == nil {
 		return nil

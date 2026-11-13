@@ -1,14 +1,5 @@
 package server
 
-// TestRowCoreCrossTagGuardsRefusePreDispatch pins the closed-dispatch tag
-// guards inside the two row cores themselves (row_sources.go), independent
-// of any higher compiler-boundary check: a command tagged for the other
-// backend must be refused by the row core before its dispatch callback is
-// ever invoked. The witnesses that drive whole routes rely on the compiler
-// boundary refusing first; this witness closes the gap by feeding the
-// production lane functions directly, so the guard itself (not a neighbor)
-// is what a sabotage of the guard makes red.
-
 import (
 	"context"
 	"errors"

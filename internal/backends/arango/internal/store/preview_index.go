@@ -21,8 +21,6 @@ const previewCoveringIndexCleanupTimeout = 3 * time.Second
 
 var ErrPreviewCoveringIndexLimit = errors.New("preview covering index limit reached")
 
-// PreviewCoveringIndex is a verified compiler-owned persistent index that
-// may be used to cover a bounded preview without creating a new index.
 type PreviewCoveringIndex struct {
 	Collection   string
 	Name         string
@@ -42,8 +40,6 @@ type previewIndexReplacement struct {
 	storedValues []string
 }
 
-// ListPreviewCoveringIndexes returns only persistent, non-sparse,
-// non-unique indexes owned by the preview compiler for the named collection.
 func (c *Client) ListPreviewCoveringIndexes(ctx context.Context, collection string) ([]PreviewCoveringIndex, error) {
 	if err := c.checkOpen(); err != nil {
 		return nil, err
@@ -84,9 +80,6 @@ func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexRe
 	return definitions
 }
 
-// EnsurePreviewCoveringIndex adds one bounded, compiler-selected covering index.
-// The caller's AQL hint is non-forcing, so previews continue on the canonical
-// plan if index preparation is unavailable.
 func (c *Client) EnsurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
 	if err := c.checkOpen(); err != nil {
 		return err
@@ -94,10 +87,6 @@ func (c *Client) EnsurePreviewCoveringIndex(ctx context.Context, collection, nam
 	return c.ensurePreviewCoveringIndex(ctx, collection, name, fields, nil)
 }
 
-// EnsurePreviewCoveringIndexWithStoredValues provisions a compiler-owned
-// projection index. Stored values are validated and verified as part of the
-// exact index definition because Arango's ensure operation does not distinguish
-// otherwise identical field tuples by stored-value configuration.
 func (c *Client) EnsurePreviewCoveringIndexWithStoredValues(ctx context.Context, collection, name string, fields, storedValues []string) error {
 	if err := c.checkOpen(); err != nil {
 		return err
@@ -108,9 +97,6 @@ func (c *Client) EnsurePreviewCoveringIndexWithStoredValues(ctx context.Context,
 	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, storedValues, nil)
 }
 
-// EnsurePreviewCoveringIndexWithStoredValuesReplacing provisions a
-// compiler-owned stored-values index and replaces only the exact older
-// compiler-owned definition supplied by the same plan.
 func (c *Client) EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx context.Context, collection, name string, fields, storedValues []string, supersededName string, supersededFields, supersededStoredValues []string) error {
 	replacement := &previewIndexReplacement{
 		name: supersededName, fields: append([]string(nil), supersededFields...),
@@ -125,9 +111,6 @@ func (c *Client) EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx context
 	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, storedValues, replacement)
 }
 
-// EnsurePreviewCoveringIndexReplacing provisions a related-category index and,
-// only at the per-collection cap, may replace the exact compiler-named legacy
-// category index supplied by the same plan.
 func (c *Client) EnsurePreviewCoveringIndexReplacing(ctx context.Context, collection, name string, fields []string, supersededName string, supersededFields []string) error {
 	replacement := &previewIndexReplacement{name: supersededName, fields: append([]string(nil), supersededFields...)}
 	if err := c.checkOpen(); err != nil {
@@ -306,8 +289,6 @@ func validPreviewCoveringIndexStoredValuesReplacement(collection, name string, f
 		replacement.name == previewCoveringIndexNameWithStoredValues(collection, replacement.fields, replacement.storedValues)
 }
 
-// previewCoveringIndexName is kept in lockstep with the compiler's stable
-// field-only name derivation so replacement is limited to an exact owned spec.
 func previewCoveringIndexName(collection string, fields []string) string {
 	digest := sha256.Sum256([]byte(collection + "\x00" + strings.Join(fields, "\x00")))
 	return previewCoveringIndexPrefix + hex.EncodeToString(digest[:8])

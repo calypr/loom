@@ -365,8 +365,6 @@ func (r *physicalPlanRenderer) renderGroupedTablePivotStreamingMissingPreview(
 		)
 		reducer := pivot.DuplicatePolicy
 		if reducer == "ERROR" {
-			// Once the full-group cardinality assertion passes, MAX returns the
-			// sole value (or NULL) without retaining a per-group value array.
 			reducer = "MAX"
 		}
 		if reducer != "SUM" && reducer != "MIN" && reducer != "MAX" {

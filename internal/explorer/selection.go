@@ -27,9 +27,6 @@ var (
 	ErrResourceRefScopeMismatch = errors.New("resource reference scope mismatch")
 )
 
-// ResourceRef is the only identity accepted by a selection. A display label,
-// table row number, or serialized query value is deliberately not a resource
-// reference.
 type ResourceRef struct {
 	Project      string `json:"project"`
 	Generation   string `json:"generation"`
@@ -66,13 +63,8 @@ func (r ResourceRef) key() string {
 	return r.Project + "\x00" + r.Generation + "\x00" + r.ResourceType + "\x00" + r.ID
 }
 
-// SelectionFilter is the existing published-reader filter contract. Keeping
-// one predicate vocabulary prevents selection from persisting AQL/GraphQL
-// fragments or inventing a second operator representation.
 type SelectionFilter = published.Filter
 
-// SelectionRule describes intent, not the result membership. Reapplying a
-// rule always creates a new immutable revision.
 type SelectionRule struct {
 	Kind    string            `json:"kind"`
 	Filters []SelectionFilter `json:"filters,omitempty"`
@@ -262,11 +254,6 @@ func SelectionRuleDigest(rule SelectionRule, source SelectionSource, exclusions 
 	return SelectionRuleDigestWithMembers(rule, source, exclusions, nil)
 }
 
-// SelectionRuleDigestWithMembers binds explicit request membership into the
-// immutable intent digest. It is intentionally separate from the final
-// MembershipDigest: exclusions can make two requests produce the same final
-// rows while their requested inputs remain different and must conflict under
-// one idempotency key.
 func SelectionRuleDigestWithMembers(rule SelectionRule, source SelectionSource, exclusions []ResourceRef, members []ResourceRef) (string, error) {
 	rule = rule.Canonical()
 	source = source.Canonical()
@@ -301,9 +288,6 @@ func resourceRefsToMembers(refs []ResourceRef) []SelectionMember {
 	return members
 }
 
-// MembershipDigest computes an immutable digest over canonical,
-// deduplicated typed references. Storage adapters use the same framing while
-// streaming indexed member records.
 func MembershipDigest(members []SelectionMember) string {
 	refs := make([]ResourceRef, 0, len(members))
 	seen := make(map[string]struct{}, len(members))
@@ -323,8 +307,6 @@ func MembershipDigest(members []SelectionMember) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// WriteMembershipFrame writes an unambiguous length-prefixed identity frame.
-// It is shared by lifecycle and persistence finalizers.
 func WriteMembershipFrame(w interface{ Write([]byte) (int, error) }, ref ResourceRef) {
 	ref = ref.Canonical()
 	for _, value := range []string{ref.Project, ref.Generation, ref.ResourceType, ref.ID} {

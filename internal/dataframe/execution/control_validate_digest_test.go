@@ -11,13 +11,6 @@ import (
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
 
-// validateDataframeRecipe/explainDataframeRecipe used the named-registry
-// lookup unconditionally, ignoring bindings.recipeDigest. Since the named
-// registry only holds the startup default recipe, every digest-addressed
-// validation of a registered revision returned RECIPE_NOT_FOUND even though
-// the digest-addressed readback and preview/run paths resolved it (control
-// asymmetry: Validate was the only control entry bypassing Engine.Resolve).
-
 type valNamedAbsent struct{ loads int }
 
 func (r *valNamedAbsent) LoadRecipe(context.Context, string) (recipeexec.Entry, error) {
@@ -129,9 +122,6 @@ func TestValidateDigestBlankProjectGuardedFirst(t *testing.T) {
 	}
 }
 
-// Wave-3 boundary extended to validate: now that digest-addressed revisions
-// resolve here, structural user faults stay typed INVALID_REQUEST through
-// Validate (and therefore Explain, which delegates to it).
 func TestValidateDigestAddressedStructuralFaultStaysTyped(t *testing.T) {
 	controlEngine, _ := valControl(t, &valRevisions{revision: revisionFor("Patient", "abc")})
 	control := Control{Engine: controlEngine}
@@ -145,11 +135,6 @@ func TestValidateDigestAddressedStructuralFaultStaysTyped(t *testing.T) {
 	}
 }
 
-// A wrong digest must stay the resolver-classifiable sentinel (mapped to
-// RECIPE_NOT_FOUND by recipeGraphQLError), not be wrapped into
-// BACKEND_UNAVAILABLE by recipeControlBackend — the sibling preview lane
-// (Engine.Resolve, unwrapped) returns the sentinel raw, and both lanes must
-// give the boundary the same signal.
 func TestValidateUnknownDigestStaysResolverClassifiable(t *testing.T) {
 	controlEngine, _ := valControl(t, &valRevisions{revision: revisionFor("patient", "abc")})
 	control := Control{Engine: controlEngine}

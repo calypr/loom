@@ -1,14 +1,5 @@
 package execution
 
-// TestPreviewCapabilityBoundaryContract is the arch-backend-02 acceptance
-// gate: shared preview orchestration consumes only the neutral capabilities
-// in preview_capabilities.go, a rows-only adapter must still produce a
-// correct bounded preview, fresh matching evidence may enable the existing
-// optimization, missing/stale/failed evidence must take the canonical
-// fallback without changing authorization, row completeness, limits, or
-// query errors, and compile-only Explain must work without a database.
-// Every subtest runs service-free; no subtest may skip.
-
 import (
 	"context"
 	"errors"
@@ -24,8 +15,6 @@ import (
 	exec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
 
-// forbiddenPreviewPkgPrefixes name the vendor implementation trees that the
-// shared preview contracts and configuration must never reference by type.
 var forbiddenPreviewPkgPrefixes = []string{
 	"github.com/calypr/loom/internal/backends/arango/internal/store",
 	"github.com/jackc/pgx",
@@ -188,9 +177,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 				t.Fatalf("neutral preview contract %v references vendor types: %v", contract, offenders)
 			}
 		}
-		// Non-vacuity control: the same walker must flag the superseded
-		// vendor-shaped callbacks, proving the guard would fire if concrete
-		// Arango plan/index types returned to the shared contracts.
 		legacy := struct {
 			PreviewExplainQuery    func(context.Context, string, map[string]any) (arangofactory.ExplainResult, error)
 			PreviewCoveringIndexes func(context.Context, string) ([]arangofactory.PreviewCoveringIndex, error)
@@ -201,8 +187,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		}
 	})
 
-	// Baseline: the rows-only adapter (no optional evidence capability at
-	// all) must produce the canonical bounded preview.
 	rowsOnly := runPreviewCapabilityBoundary(t, previewCapabilityBoundaryOptions{restrictedAuth: true})
 	if rowsOnly.err != nil {
 		t.Fatalf("rows-only bounded preview: %v", rowsOnly.err)
@@ -214,8 +198,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 	if !strings.Contains(canonicalText, "COLLECT") {
 		t.Fatalf("rows-only fixture did not run a Group preview command:\n%s", canonicalText)
 	}
-	// The canonical Group query may carry its compiler-owned hint, but with
-	// no evidence capability it must never switch to the boundary candidate.
 	if strings.Contains(canonicalText, "loom_pivot_preview_boundary_covering") {
 		t.Fatalf("rows-only preview switched to the boundary candidate without evidence:\n%s", canonicalText)
 	}
@@ -230,9 +212,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 	}
 
 	t.Run("fresh matching evidence enables the existing optimization", func(t *testing.T) {
-		// The identical fixture with fresh matching evidence must take the
-		// hinted command — proving the rows-only canonical choice above came
-		// from missing evidence, not from a dead optimizer (guard-drop).
 		index := PreviewCollectionIndex{
 			Collection:   "Observation",
 			Name:         "loom_pivot_preview_boundary_covering",
@@ -280,11 +259,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		if !reflect.DeepEqual(fixture.commands[0].Binds, rowsOnly.commands[0].Binds) {
 			t.Fatalf("optimized command changed the authorization binds: %v vs %v", fixture.commands[0].Binds, rowsOnly.commands[0].Binds)
 		}
-		// The public planFingerprint is the diagnostic shape of the exact
-		// rendered command, so the indexHint legitimately moves it here
-		// while every bounded-delivery fact stays identical. Compare the
-		// delivery contract with the fingerprint stripped, and pin the
-		// fingerprint's own reaction to the rendered-shape change below.
 		optimizedSummary, rowsOnlySummary := fixture.summary, rowsOnly.summary
 		optimizedFingerprint, rowsOnlyFingerprint := optimizedSummary.PlanFingerprint, rowsOnlySummary.PlanFingerprint
 		optimizedSummary.PlanFingerprint, rowsOnlySummary.PlanFingerprint = "", ""
@@ -332,9 +306,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 				},
 			},
 			{
-				// With the listing unavailable no covering candidate can be
-				// attempted; the ordinary broad-scan check still consults
-				// the capability, and empty evidence certifies nothing.
 				name: "index listing fails",
 				scans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, nil
@@ -392,8 +363,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 	})
 
 	t.Run("compile only explain works without a database", func(t *testing.T) {
-		// A local AQL engine (no adapter armed) proves the compile-only
-		// Explain needs no backend and live dispatch stays tag-routed.
 		aqlCalls, pgCalls := 0, 0
 		engine, err := New(Config{
 			CompileTarget: compiler.ArangoTarget(),
@@ -431,8 +400,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 				t.Fatalf("compile-only Explain carried live assessments: %+v", output)
 			}
 		}
-		// Live dispatch stays backend-tagged: an AQL-tagged output must be
-		// refused when only the PostgreSQL connection is armed.
 		liveOnly := Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, compiler.CompiledQuery) (PostgreSQLPlanAssessment, error) {
 			pgCalls++
 			return PostgreSQLPlanAssessment{}, nil
@@ -447,14 +414,6 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 	})
 }
 
-// TestChooseGroupPreviewScanHintLoopAbortsWhenContextExpiresDuringCapabilityCall
-// pins the post-capability assessment-ctx boundary (verdict F-2): a covering
-// candidate whose inspection SUCCEEDS under an already-dead budget must never
-// reach DECIDE. The guard after the capability call, not the loop-top or the
-// final gate, is what keeps the hinted selection unapplied — deleting it
-// flips query.Command/stream.command to the hinted command before the final
-// context check can fail the preview, which this test's decision snapshot
-// catches.
 func TestChooseGroupPreviewScanHintLoopAbortsWhenContextExpiresDuringCapabilityCall(t *testing.T) {
 	engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
 	original := commandText(t, query.Command)
@@ -470,8 +429,6 @@ func TestChooseGroupPreviewScanHintLoopAbortsWhenContextExpiresDuringCapabilityC
 	scanCalls := 0
 	engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 		scanCalls++
-		// The inspection returns a covering verdict, but the budget dies
-		// while it is in flight: the post-call guard owns the abort.
 		cancel()
 		return PreviewCollectionScanEvidence{IndexNodes: []PreviewIndexNodeEvidence{
 			{IndexNames: []string{candidate.Name}, Coverage: PreviewIndexCoverageCovering},
@@ -492,13 +449,6 @@ func TestChooseGroupPreviewScanHintLoopAbortsWhenContextExpiresDuringCapabilityC
 	}
 }
 
-// TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired
-// pins the ordinary-path conjunct of the same boundary (verdict F-3): once
-// the assessment budget expires while the broad-scan inspection is in
-// flight, the advisory decision must be observably skipped — the scoped
-// count query is not executed at all — rather than merely ending non-fatally.
-// readGroupPreviewCount's own ctx hygiene makes the resulting STATE look
-// identical under a dropped conjunct, so the executor counter is the witness.
 func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t *testing.T) {
 	engine, query, stream := groupPreviewScanFixture()
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
@@ -515,15 +465,9 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 	scanCalls := 0
 	engine.previewCollectionScans = func(ctx context.Context, _ command.CompiledCommand, _ string) (PreviewCollectionScanEvidence, error) {
 		scanCalls++
-		// Certify broad non-covering, but only after the assessment budget
-		// has expired during the call.
 		<-ctx.Done()
 		return notCoveringGroupScans(), nil
 	}
-	// The assessment budget is advisory: its expiry must silently void the
-	// broad-scan decision (the user preview survives a slow external
-	// inspection), unlike a canceled REQUEST which fails through
-	// contextError(ctx) on the parent.
 	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 		t.Fatalf("advisory budget expiry failed the preview: %v", err)
 	}
@@ -538,8 +482,6 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 	}
 }
 
-// previewBoundaryExplainRegistry serves one compilable bundle for the
-// compile-only Explain subtest.
 type previewBoundaryExplainRegistry struct{}
 
 func (previewBoundaryExplainRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {

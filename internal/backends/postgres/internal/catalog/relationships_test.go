@@ -1,13 +1,5 @@
 package postgres
 
-// Offline unit tests for the pg-catalog-03 relationship-evidence adapter:
-// scope validation, the exact rendered aggregation SQL (golden literals),
-// storage-versus-Builder direction mapping, diagnostics, status, and digest
-// paths. These exercise the pure Go layer with recorded scan results; every
-// live-PostgreSQL claim (aggregation over real rows, authorization against
-// real data, races) is established by relationships_pg_test.go against real
-// PostgreSQL 18, never by these stubs.
-
 import (
 	"context"
 	"errors"
@@ -19,9 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// stubRelationshipStore records every scope it is asked to scan and replays
-// recorded groups. It exists to exercise the pure classification path; it
-// is not evidence about PostgreSQL behavior.
 type stubRelationshipStore struct {
 	calls  int
 	scopes []RelationshipScope
@@ -38,17 +27,17 @@ func (s *stubRelationshipStore) ScanRelationshipOccurrences(_ context.Context, s
 	return s.groups, nil
 }
 
-func stubStore(t *testing.T, stub *stubRelationshipStore) *Store {
+func stubStore(t *testing.T, stub *stubRelationshipStore) *RelationshipAdapter {
 	t.Helper()
-	store, err := NewRelationshipEvidenceStore(stub)
+	store, err := NewRelationshipAdapter(stub)
 	if err != nil {
-		t.Fatalf("NewRelationshipEvidenceStore: %v", err)
+		t.Fatalf("NewRelationshipAdapter: %v", err)
 	}
 	return store
 }
 
 func TestRelationshipEvidenceStoreRequiresBoundary(t *testing.T) {
-	if _, err := NewRelationshipEvidenceStore(nil); err == nil {
+	if _, err := NewRelationshipAdapter(nil); err == nil {
 		t.Fatal("nil relationship store accepted")
 	}
 	if _, err := NewRelationshipEvidenceRepository(nil, "rel_it"); err == nil {
@@ -61,8 +50,6 @@ func TestRelationshipEvidenceStoreRequiresBoundary(t *testing.T) {
 	}
 }
 
-// discardConnSource is a non-nil, never-live source: validation must reject
-// bad inputs before any acquire, so any call here is itself a failure.
 type discardConnSource struct{}
 
 func (discardConnSource) Acquire(context.Context) (*pgxpool.Conn, error) {
@@ -91,10 +78,6 @@ func TestRelationshipEvidenceScopeValidationRejectsBeforeQuery(t *testing.T) {
 	}
 }
 
-// TestRelationshipEvidenceAggregateSQLGoldens pins the exact statement for
-// each authorization mode. A GROUP BY that silently drops the auth path, a
-// COUNT(DISTINCT ...) that silently deduplicates occurrences, or a widened
-// WHERE would each break these literals.
 func TestRelationshipEvidenceAggregateSQLGoldens(t *testing.T) {
 	const tableFQN = `"rel_it"."fhir_edge_occurrence"`
 	const groupedTail = " GROUP BY auth_resource_path, source_resource_type, label, target_resource_type" +
@@ -120,10 +103,6 @@ func TestRelationshipEvidenceAggregateSQLGoldens(t *testing.T) {
 			wantArgs: []any{"proj", "g1", []string{"clinic/a"}},
 		},
 		{
-			// No mode carries an endpoint-type predicate: the requested-type
-			// filter is a Go-side canonical comparison, and any SQL-side
-			// pushdown (raw equality, or lower(btrim(...))) would silently
-			// drop the trim/fold variants Go's canonicalizer accepts.
 			name:     "restricted multiple paths",
 			scope:    RelationshipScope{Project: "proj", DatasetGeneration: "", AuthResourcePathsUnrestricted: &falseValue, AuthResourcePaths: []string{"clinic/a", "clinic/b"}},
 			wantSQL:  `SELECT auth_resource_path, source_resource_type, label, target_resource_type, COUNT(*) AS occurrence_count FROM "rel_it"."fhir_edge_occurrence" WHERE project = $1 AND dataset_generation = $2 AND auth_resource_path = ANY($3::text[])` + groupedTail,
@@ -168,9 +147,6 @@ func argsEqual(a, b any) bool {
 	return a == b
 }
 
-// TestRelationshipEvidenceScopeBindingNeverFlattensAuthPaths pins that a
-// restricted multi-path read reaches the boundary with exactly the
-// authorized paths and no silent fallback to unrestricted.
 func TestRelationshipEvidenceScopeBindingNeverFlattensAuthPaths(t *testing.T) {
 	stub := &stubRelationshipStore{}
 	store := stubStore(t, stub)
@@ -217,19 +193,12 @@ func TestRelationshipEvidenceRestrictedEmptyReadsNothing(t *testing.T) {
 	if result.Status != catalog.EvidenceEmpty || !result.Available || !result.Complete || len(result.Values) != 0 {
 		t.Fatalf("restricted-empty result = %+v, want available complete empty with no values", result)
 	}
-	// Golden digest of the empty value set.
 	if result.Digest != "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b" {
 		t.Fatalf("empty digest = %q", result.Digest)
 	}
 }
 
-// TestRelationshipEvidenceLegacyCompatRuleIsShared pins the shared
-// catalog.EffectiveAuthResourcePathsUnrestricted contract this adapter must
-// keep with the Arango adapter: an absent flag with no paths is the legacy
-// unrestricted read; an absent flag with paths is restricted to exactly
-// those paths; an explicit true flag wins over stray paths and binds none.
 func TestRelationshipEvidenceLegacyCompatRuleIsShared(t *testing.T) {
-	// Absent flag, no paths: legacy unrestricted.
 	stub := &stubRelationshipStore{}
 	store := stubStore(t, stub)
 	if _, err := store.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
@@ -242,7 +211,6 @@ func TestRelationshipEvidenceLegacyCompatRuleIsShared(t *testing.T) {
 		t.Fatalf("absent flag with no paths must be unrestricted: %+v", got)
 	}
 
-	// Absent flag with paths: restricted to exactly those paths.
 	stub2 := &stubRelationshipStore{}
 	store2 := stubStore(t, stub2)
 	if _, err := store2.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
@@ -258,7 +226,6 @@ func TestRelationshipEvidenceLegacyCompatRuleIsShared(t *testing.T) {
 		t.Fatalf("legacy restricted paths = %#v", got2.AuthResourcePaths)
 	}
 
-	// Explicit unrestricted wins over stray paths and binds none.
 	stub3 := &stubRelationshipStore{}
 	store3 := stubStore(t, stub3)
 	if _, err := store3.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
@@ -274,16 +241,9 @@ func TestRelationshipEvidenceLegacyCompatRuleIsShared(t *testing.T) {
 	}
 }
 
-// TestRelationshipEvidencePreservesStorageAndBuilderDirection pins the core
-// contract: the physical storage direction and the registry-derived Builder
-// direction are returned separately and never overwrite each other.
 func TestRelationshipEvidencePreservesStorageAndBuilderDirection(t *testing.T) {
 	stub := &stubRelationshipStore{groups: []RelationshipOccurrenceGroup{
-		// Registry pair Condition|subject_Patient|Patient (and its inverse)
-		// exists in the generated traversal registry, so the Builder view
-		// is the inverse, physically INBOUND.
 		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Condition", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 3},
-		// Registry pair BodyStructure|patient|Patient.
 		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "BodyStructure", Label: "patient", StorageTargetResourceType: "Patient", OccurrenceCount: 1},
 	}}
 	store := stubStore(t, stub)
@@ -326,7 +286,6 @@ func TestRelationshipEvidencePreservesStorageAndBuilderDirection(t *testing.T) {
 			t.Errorf("unexpected label %q", value.Label)
 		}
 	}
-	// Golden digest over the two-observation fixture above.
 	if result.Digest != "sha256:3a90f45976b58876882254602a6d9bbcc884f021a8f62cdbc468982915737083" {
 		t.Fatalf("direction fixture digest = %q", result.Digest)
 	}
@@ -335,10 +294,6 @@ func TestRelationshipEvidencePreservesStorageAndBuilderDirection(t *testing.T) {
 	}
 }
 
-// TestRelationshipEvidenceCasingIsCanonicalizedNotDiagnosed pins the
-// deliberate divergence from raw-string registry lookup: a lowercase
-// concrete endpoint canonicalizes into evidence instead of being
-// misdiagnosed as invalid.
 func TestRelationshipEvidenceCasingIsCanonicalizedNotDiagnosed(t *testing.T) {
 	stub := &stubRelationshipStore{groups: []RelationshipOccurrenceGroup{
 		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "condition", Label: "subject_Patient", StorageTargetResourceType: "patient", OccurrenceCount: 2},
@@ -358,11 +313,6 @@ func TestRelationshipEvidenceCasingIsCanonicalizedNotDiagnosed(t *testing.T) {
 	}
 }
 
-// TestRelationshipEvidenceDiagnosesInvalidEndpointsAndTraversals pins the
-// diagnostic path: invalid endpoints and unsupported labels are excluded
-// from Builder capability evidence with exact codes and messages, while the
-// valid subset still makes the result available. The stored rows themselves
-// are untouched — the live table witness is in the PostgreSQL tests.
 func TestRelationshipEvidenceDiagnosesInvalidEndpointsAndTraversals(t *testing.T) {
 	stub := &stubRelationshipStore{groups: []RelationshipOccurrenceGroup{
 		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "NotAThing", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 4},
@@ -407,10 +357,6 @@ func TestRelationshipEvidenceDiagnosesInvalidEndpointsAndTraversals(t *testing.T
 	}
 }
 
-// TestRelationshipEvidenceNonPositiveCountIsDiagnosed pins the defensive
-// parity branch of relationshipObservation. A real COUNT(*) is never
-// non-positive (the repository refuses such groups); the stub reaches the
-// branch a corrupted catalog document would take on the Arango path.
 func TestRelationshipEvidenceNonPositiveCountIsDiagnosed(t *testing.T) {
 	observation, ok, diagnostic := catalog.ProjectRelationshipObservation("proj", "g1", "clinic/a", "Condition", "subject_Patient", "Patient", 0)
 	if ok || observation.Label != "" {
@@ -423,16 +369,10 @@ func TestRelationshipEvidenceNonPositiveCountIsDiagnosed(t *testing.T) {
 	}
 }
 
-// TestRelationshipEvidenceRepeatedOccurrencesAndDirectionsStaySeparate pins
-// two non-merging guarantees of the observation key: aggregates for
-// different auth paths never sum together, and opposite storage directions
-// under one label stay two observations.
 func TestRelationshipEvidenceRepeatedOccurrencesAndDirectionsStaySeparate(t *testing.T) {
 	stub := &stubRelationshipStore{groups: []RelationshipOccurrenceGroup{
 		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Condition", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 2},
 		{AuthResourcePath: "clinic/b", StorageSourceResourceType: "Condition", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 5},
-		// Same label, opposite storage direction: its Builder projection is
-		// the inverse — a separate key, never summed with the first.
 		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Patient", Label: "subject_Patient", StorageTargetResourceType: "Condition", OccurrenceCount: 3},
 	}}
 	store := stubStore(t, stub)
@@ -452,7 +392,6 @@ func TestRelationshipEvidenceRepeatedOccurrencesAndDirectionsStaySeparate(t *tes
 	if seen["clinic/a|Condition->Patient"] != 2 || seen["clinic/b|Condition->Patient"] != 5 || seen["clinic/a|Patient->Condition"] != 3 {
 		t.Fatalf("cross-scope or cross-direction sum detected: %#v", seen)
 	}
-	// Values arrive ordered by the shared comparator.
 	for i := 1; i < len(result.Values); i++ {
 		if catalog.RelationshipEvidenceLess(result.Values[i], result.Values[i-1]) {
 			t.Fatalf("values not sorted at %d: %+v", i, result.Values)
@@ -460,8 +399,6 @@ func TestRelationshipEvidenceRepeatedOccurrencesAndDirectionsStaySeparate(t *tes
 	}
 }
 
-// TestRelationshipEvidenceReadAliasDelegates pins the capability-boundary
-// alias: ReadRelationshipObservations is DiscoverRelationshipObservations.
 func TestRelationshipEvidenceReadAliasDelegates(t *testing.T) {
 	stub := &stubRelationshipStore{groups: []RelationshipOccurrenceGroup{
 		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Condition", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 1},
@@ -510,9 +447,6 @@ func TestRelationshipEvidenceUnavailablePropagatesError(t *testing.T) {
 	}
 }
 
-// variantGroups holds the writer spellings the Go canonicalizer collapses
-// (case, tab, CR, NBSP, mixed) plus a second label/type pair and a
-// non-concrete endpoint row.
 func variantGroups() []RelationshipOccurrenceGroup {
 	return []RelationshipOccurrenceGroup{
 		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Condition", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 1},
@@ -527,17 +461,10 @@ func variantGroups() []RelationshipOccurrenceGroup {
 }
 
 func TestRelationshipEvidenceTypeRequestCanonicalizesAndDiagnoses(t *testing.T) {
-	// The requested-type filter is a Go-side canonical comparison: the
-	// scan never carries a type predicate, invalid requested types are
-	// diagnosed once, rows outside the requested canonical set are
-	// excluded without diagnostics (Arango IN-list parity), and the
-	// empty-after-canonicalization edge returns Empty.
 	stub := &stubRelationshipStore{groups: variantGroups()}
 	store := stubStore(t, stub)
 	result, err := store.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
 		Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
-		// The list filters both endpoints (Arango IN-list parity), so the
-		// request names Condition and Patient.
 		ResourceTypes: []string{"condition", "Patient", "NotAThing"},
 	})
 	if err != nil {
@@ -550,9 +477,6 @@ func TestRelationshipEvidenceTypeRequestCanonicalizesAndDiagnoses(t *testing.T) 
 		t.Fatalf("filtered values = %+v, want the six canonical Condition->Patient variants summed, with the BodyStructure and NotAThing groups silently out", result.Values)
 	}
 
-	// The requested read over the full canonical set is byte-identical to
-	// the unfiltered read except for the invalid-endpoint diagnostic the
-	// unfiltered read adds; the shared observations must match exactly.
 	unfiltered, err := store.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
 		Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
 	})
@@ -566,15 +490,10 @@ func TestRelationshipEvidenceTypeRequestCanonicalizesAndDiagnoses(t *testing.T) 
 	if err != nil {
 		t.Fatalf("full-set filtered: %v", err)
 	}
-	// The unfiltered read adds only the NotAThing diagnostic; the shared
-	// observation set (six-variant aggregate + BodyStructure) must be
-	// byte-identical, so digest and value count compare directly.
 	if full.Digest != unfiltered.Digest || len(full.Values) != 2 {
 		t.Fatalf("filtered full-set digest %q != unfiltered %q (values %v)", full.Digest, unfiltered.Digest, full.Values)
 	}
 
-	// Empty-after-canonicalization edge: an all-invalid request matches
-	// nothing (Arango IN [] posture) and the scan itself still runs.
 	stub2 := &stubRelationshipStore{groups: variantGroups()}
 	store2 := stubStore(t, stub2)
 	emptyResult, err := store2.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{

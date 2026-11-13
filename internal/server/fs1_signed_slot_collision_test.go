@@ -1,16 +1,5 @@
 package server
 
-// fs1_signed_slot_collision_test.go — F-DS1 durable regressions at the shipped
-// server-handler boundary (fiber app + real compileExplorerReceipt + recipe
-// engine, same harness as the derive/filter HTTP contract tests).
-//
-// Contract: a signed source slot (deriveSources/filterSources) for a root
-// field the user has already projected as a public ADD_COLUMN must be refused
-// with a NAMED 4xx reasonCode on both channels — never the catch-all 500
-// CONSTRUCTION_RECEIPT_CONTRACT_INVALID that the duplicate semantic path
-// triggers through the compiler's deliberate #<name> disambiguation. Legit
-// neighbors (bind-to-existing-column dedupe, distinct fields) keep their 200.
-
 import (
 	"bytes"
 	"context"
@@ -139,8 +128,6 @@ func fs1New(t *testing.T) *fs1Env {
 	return &fs1Env{t: t, app: app, basePath: "/api/v1/projects/project-a/explorers/custom/authoring/v2", service: service, snapshot: snapshot, initialVersion: 1, initialDigest: digest}
 }
 
-// fs1AddColumn performs the shipped picker ADD_COLUMN flow for one candidate
-// and returns the persisted upgraded document plus the current draft pin.
 func (e *fs1Env) fs1AddColumn(commandID, candidateID, title string) (authoringv2.Document, int64, string) {
 	e.t.Helper()
 	stored, err := e.service.Get(context.Background(), "project-a", "custom")
@@ -287,11 +274,6 @@ func fs1MarshalConstruction(t *testing.T, construction authoringv2.Construction)
 	return string(raw)
 }
 
-// TestFS1DeriveSignedSlotSameFieldRefused: user ADD_COLUMN of
-// Patient.multipleBirthInteger, then the CALCULATE lane signs the SAME field
-// through a fresh deriveSources slot. Pre-fix this composed into the
-// catch-all 500 (F-DS1 RED). The repair contract: named 422 refusal from the
-// lifecycle lane entry.
 func TestFS1DeriveSignedSlotSameFieldRefused(t *testing.T) {
 	env := fs1New(t)
 	document, version, digest := env.fs1AddColumn("fs1-derive-add", "c_patient_birth", "Birth count")
@@ -310,9 +292,6 @@ func TestFS1DeriveSignedSlotSameFieldRefused(t *testing.T) {
 	}
 }
 
-// TestFS1DeriveSignedSlotDistinctFieldStaysOK: the refusal boundary must not
-// over-reach — a signed slot for one field alongside a user column of a
-// DIFFERENT field stays a normal previewable proposal.
 func TestFS1DeriveSignedSlotDistinctFieldStaysOK(t *testing.T) {
 	env := fs1New(t)
 	document, version, digest := env.fs1AddColumn("fs1-distinct-add", "c_patient_id", "ID")
@@ -329,10 +308,6 @@ func TestFS1DeriveSignedSlotDistinctFieldStaysOK(t *testing.T) {
 	}
 }
 
-// TestFS1DeriveOperandExistingColumnStaysOK pins the probe6 case-D dedupe
-// shape: the DERIVE left operand reuses the user's OWN column id for the same
-// field with no signed slot binding (200 pre- and post-fix). The refusal must
-// not fire for the same-column dedupe.
 func TestFS1DeriveOperandExistingColumnStaysOK(t *testing.T) {
 	env := fs1New(t)
 	document, version, digest := env.fs1AddColumn("fs1-dedupe-add", "c_patient_birth", "Birth count")
@@ -354,11 +329,6 @@ func TestFS1DeriveOperandExistingColumnStaysOK(t *testing.T) {
 	}
 }
 
-// TestFS1FilterSignedSlotSameFieldRefused is the filter-lane twin of F-DS1:
-// user ADD_COLUMN of Patient.active, then a signed filterSources slot for the
-// SAME field on a fresh column. It shares the reconcile predicate through
-// c53759fe; pre-fix it must be captured at its own boundary and refused with
-// a named 422 post-fix.
 func TestFS1FilterSignedSlotSameFieldRefused(t *testing.T) {
 	env := fs1New(t)
 	document, version, digest := env.fs1AddColumn("fs1-filter-add", "c_patient_active", "Active")
@@ -375,8 +345,6 @@ func TestFS1FilterSignedSlotSameFieldRefused(t *testing.T) {
 	}
 }
 
-// TestFS1FilterSignedSlotDistinctFieldStaysOK keeps the filter lane's legit
-// neighborhood: user column for id + signed filter slot for active → 200.
 func TestFS1FilterSignedSlotDistinctFieldStaysOK(t *testing.T) {
 	env := fs1New(t)
 	document, version, digest := env.fs1AddColumn("fs1-filter-distinct-add", "c_patient_id", "ID")
@@ -390,8 +358,6 @@ func TestFS1FilterSignedSlotDistinctFieldStaysOK(t *testing.T) {
 		t.Fatalf("distinct-field signed filter slot regressed: status=%d body=%s", response.StatusCode, response.Body)
 	}
 }
-
-// --- v2 reviewer-scenario replicas (fs1-patch-review.md F1/F2) ---
 
 func (e *fs1Env) fs1V2Pin() (int64, string, authoringv2.Document) {
 	e.t.Helper()
@@ -423,13 +389,6 @@ func (e *fs1Env) fs1V2Command(commandID, commandsJSON string, version int64, dig
 	return requestJSON(e.t, e.app, http.MethodPost, e.basePath+"/commands", body)
 }
 
-// TestFS1RootPrefixedUserColumnStaysOK replicates reviewer finding F1: the
-// shipped UPDATE_COLUMN_SOURCE authors a user column whose Source.Field.Path
-// is the root.-prefixed cosmetic variant of the same field. The reconcile
-// guard (explorer_output_reconcile.go:507) compares strings.TrimSpace on both
-// sides verbatim, so "root.multipleBirthInteger" never collides with the
-// slot's "multipleBirthInteger" in the compiler's duplicate semantic-path
-// pass — clean b72a1322 returns 200 and must stay 200.
 func TestFS1RootPrefixedUserColumnStaysOK(t *testing.T) {
 	env := fs1New(t)
 	document, _, _ := env.fs1AddColumn("fs1-prefix-add", "c_patient_birth", "Birth count")
@@ -488,12 +447,6 @@ func fs1AppliedStep(stepID, outputColID, slot string, columnsOut []authoringv2.S
 	}
 }
 
-// TestFS1SecondSignedSlotConflictsAppliedSlot replicates reviewer finding F2:
-// slot A is signed+APPLIED for multipleBirthInteger, then a second signed
-// slot B for the same field arrives in a new proposal. The merged construction
-// carries both projections, so the compiler suffixes both public columns and
-// the reconcile guard 500s. Scanning only document.Columns misses this; the
-// refusal must name the merged source-projection carriers too.
 func TestFS1SecondSignedSlotConflictsAppliedSlot(t *testing.T) {
 	env := fs1New(t)
 	document, version, digest := env.fs1AddColumn("fs1-two-add", "c_patient_id", "ID")

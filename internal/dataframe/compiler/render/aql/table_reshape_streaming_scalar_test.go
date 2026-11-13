@@ -60,9 +60,6 @@ func TestStreamingMissingCategoryPivotUsesDirectScalarInputs(t *testing.T) {
 	}
 
 	query, renderer := render("SUM", "ERROR", "EXCLUDE_WITH_EVIDENCE")
-	// Reusing FIRST([root.payload.valueQuantity]) as a LET preserves the existing direct
-	// selector when that parent is missing, null, or a scalar: the field read
-	// remains the same unguarded AQL property access on its single result.
 	for _, fragment := range []string{
 		"LET __loom_physical_reshape_stream_source_parent = FIRST([root.payload.valueQuantity])",
 		"LET __loom_physical_reshape_stream_input_0 = __loom_physical_reshape_stream_source_parent.group_key",

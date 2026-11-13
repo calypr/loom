@@ -1,14 +1,5 @@
 package server
 
-// TestBackendErrorBoundaryContract is the named acceptance for ticket
-// arch-backend-03: shared execution and transport consume Loom errors, both
-// database adapters keep vendor interpretation and cause identity, and
-// equivalent supported failures produce the existing Loom public semantics
-// without SQL, query text, binds, or credentials in public payloads. It runs
-// the real composition paths (configuredAQLSourceRows,
-// preserveConfiguredQueryError, previewRouteError) over adapter-classified
-// failures and the merged PostgreSQL boundary.
-
 import (
 	"context"
 	"encoding/json"
@@ -28,9 +19,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// driveAQLAdapter runs the failure through the real configured AQL wiring,
-// with the inner execute behaving like the correctly wired adapter (the
-// adapter itself classifies its driver failures at its own seam).
 func driveAQLAdapter(t *testing.T, adapterFailure error) error {
 	t.Helper()
 	adapter := configuredAQLSourceRows(nil, "contract", func(context.Context, dataframeexecution.RowsRequest, dataframeexecution.RowVisitor) error {
@@ -150,13 +138,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 	})
 
 	t.Run("postgres_failures_produce_equivalent_public_semantics", func(t *testing.T) {
-		// Equivalent supported failure: a server-policy statement cancel
-		// (SQLSTATE 57014) must reach the public surface with the same
-		// semantics the ArangoDB configured-limit path produces. The
-		// classification runs through the merged store/postgres boundary —
-		// the same seam the PostgreSQL row adapter routes through — using the
-		// boundary's own severity literal spelling ("FATAL"/"PANIC"), not new
-		// ones.
 		pgErr := &pgconn.PgError{
 			Code: "57014", SeverityUnlocalized: "ERROR",
 			Message: `canceling statement due to statement_timeout; while binding {"secret":"hunter2","bind":"SELECT SECRET_COLUMN"}`,
@@ -204,9 +185,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		if mapped.Body.Error.Code != "BACKEND_UNAVAILABLE" || !mapped.Body.Error.Retryable {
 			t.Fatalf("deadline mapped = %d %q retryable=%t", mapped.Status, mapped.Body.Error.Code, mapped.Body.Error.Retryable)
 		}
-		// The PG boundary keeps the same identity through its translation:
-		// a caller cancel while waiting for the pool stays Is-visible as
-		// context.Canceled and never becomes retryable.
 		poolWait := fmt.Errorf("acquire: %w: %w", control.ErrConnect, context.Canceled)
 		translated, ok := control.TranslateError(poolWait)
 		if !ok {
@@ -244,9 +222,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		if mapped.Body.Error.Retryable {
 			t.Fatal("unproven unique violation must not be retryable")
 		}
-		// Stable boundary fields (backend/condition/sqlstate) are public by
-		// design; server message text, constraint names, and column material
-		// are not.
 		body := bodyJSON(t, mapped)
 		for _, forbidden := range []string{"uq_explorer_draft_revision_internal", "draft_id", "duplicate key", "violates unique constraint", "already exists"} {
 			if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
@@ -256,7 +231,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 	})
 
 	t.Run("ambiguous_commit_stays_distinguishable_from_proven_rollback", func(t *testing.T) {
-		// Proven rejection: the driver confirmed the commit rolled back.
 		proven, ok := control.TranslateCommitError(fmt.Errorf("commit: %w", pgx.ErrTxCommitRollback))
 		if !ok {
 			t.Fatal("commit rollback not classified")
@@ -264,8 +238,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		if errors.Is(proven, control.ErrCommitOutcomeUnknown) {
 			t.Fatal("a proven rollback must not be labeled ambiguous")
 		}
-		// Ambiguous: the session died mid-COMMIT (server-policy SQLSTATEs and
-		// the boundary's own FATAL severity literal spelling).
 		ambiguousPG := &pgconn.PgError{Code: "57P01", SeverityUnlocalized: "FATAL", Message: "terminating connection due to administrator command"}
 		ambiguous, ok := control.TranslateCommitError(fmt.Errorf("commit: %w", ambiguousPG))
 		if !ok {

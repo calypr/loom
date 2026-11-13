@@ -1,25 +1,5 @@
 package postgres
 
-// Real-PostgreSQL acceptance tests for the pg-catalog-04 semantic-inventory
-// build lifecycle, lease, and typed checkpoint state (check-2:
-// go test ./internal/backends/postgres/internal/catalog -run SemanticInventory).
-//
-// Every test drives the real SemanticBuildRepository against the PostgreSQL
-// 18 service named by LOOM_TEST_POSTGRES_URL. Fixtures are literal rows
-// inserted by direct SQL; witnesses are literal rows read back by direct
-// SQL. Nothing is mocked. Fixture databases and schemas are uniquely owned
-// as pgcat04_it_* and dropped by the test that created them; the final
-// TestZZ audit is ownership-scoped — it checks each name this file created
-// by exact match, never a global scan, so sibling workers sweeping their
-// own prefixes run concurrently without interference.
-//
-// Per the coordinator's migration conditions, this file also proves the
-// 000006 live contract on real PG18: a double-apply idempotency probe with
-// the ledger row pinned to its own sha256sum, and per-constraint negative
-// tests that each named CHECK and identity constraint REJECTS a violating
-// literal row (with a valid control row succeeding alongside, so a missing
-// constraint cannot let a test pass vacuously).
-
 import (
 	"context"
 	"crypto/rand"
@@ -45,12 +25,9 @@ import (
 
 var pgcat04NamePattern = regexp.MustCompile(`^pgcat04_it_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every resource whose creation this file verified is
-// recorded here, and TestZZ asserts each exact name is gone. Ownership
-// begins at verified CREATE, exactly as the per-test cleanup drops them.
 var (
 	semanticBuildOwnedMu     sync.Mutex
-	semanticBuildOwnedByName = map[string]string{} // database -> owned schema
+	semanticBuildOwnedByName = map[string]string{}
 )
 
 func semanticBuildRegister(db, schema string) {
@@ -135,7 +112,6 @@ func newSemanticBuildService(t *testing.T) *semanticBuildService {
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+dbName+`"`); err != nil {
 		fail("create isolated database", err)
 	}
-	// Ownership begins here: this exact database is this test's to drop.
 	semanticBuildRegister(dbName, "")
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
@@ -215,9 +191,6 @@ func (s *semanticBuildService) buildFQN() string {
 	return pgx.Identifier{s.schema, "fhir_semantic_inventory_build"}.Sanitize()
 }
 
-// semanticBuildRow is the full literal row: every persisted column, read
-// back by direct SQL. This is the witness every guard claim is checked
-// against.
 type semanticBuildRow struct {
 	BuildKey             string
 	Project              string
@@ -241,8 +214,6 @@ type semanticBuildRow struct {
 	UpdatedAt            time.Time
 }
 
-// sameSemanticRow compares two full witnesses for byte equality, including
-// the ordered diagnostics array and the stored updated_at.
 func sameSemanticRow(a, b semanticBuildRow) bool {
 	return fmt.Sprint(a) == fmt.Sprint(b)
 }
@@ -277,9 +248,6 @@ func (s *semanticBuildService) requireNoRow(t *testing.T, project, generation, b
 	}
 }
 
-// seedSemanticBuildLiteral inserts one fully literal row by direct SQL, so
-// negative tests start from an exact stored state the repository did not
-// write.
 func (s *semanticBuildService) seedSemanticBuildLiteral(t *testing.T, w semanticBuildRow) {
 	t.Helper()
 	diagnostics := w.Diagnostics
@@ -298,9 +266,6 @@ func (s *semanticBuildService) seedSemanticBuildLiteral(t *testing.T, w semantic
 		w.LeaseToken, w.LeaseExpiresAt, diagnostics)
 }
 
-// trySeedSemanticBuild runs the same literal INSERT as
-// seedSemanticBuildLiteral but returns the error instead of failing, so
-// constraint negative tests can name the exact rejection.
 func (s *semanticBuildService) trySeedSemanticBuild(t *testing.T, w semanticBuildRow) error {
 	t.Helper()
 	diagnostics := w.Diagnostics
@@ -320,16 +285,12 @@ func (s *semanticBuildService) trySeedSemanticBuild(t *testing.T, w semanticBuil
 	return err
 }
 
-// semanticBuildFixture is a valid retained-vertex claim build for one scope.
 func semanticBuildFixture(project, generation, authPath string) catalog.SemanticInventoryBuild {
 	build := catalog.NewSemanticInventoryBuild(project, generation, authPath)
 	build.SourceKind = catalog.SemanticInventorySourceRetained
 	return build
 }
 
-// literalBuildRowFor builds a fully literal stored row for the identity of
-// (project, generation), with every column set to a distinctive non-default
-// value. It is both a seeding template and the expected witness shape.
 func literalBuildRowFor(project, generation, state string) semanticBuildRow {
 	return semanticBuildRow{
 		BuildKey:             catalog.SemanticInventoryBuildKey(project, generation),
@@ -354,8 +315,6 @@ func literalBuildRowFor(project, generation, state string) semanticBuildRow {
 	}
 }
 
-// compareDomainBuildToRow checks that a repository-read build agrees with
-// the stored literal row on every field the struct carries.
 func compareDomainBuildToRow(t *testing.T, got catalog.SemanticInventoryBuild, row semanticBuildRow) {
 	t.Helper()
 	want := catalog.SemanticInventoryBuild{
@@ -406,8 +365,6 @@ func TestSemanticInventoryBuildClaimRoundTripsEveryField(t *testing.T) {
 		t.Fatalf("claim returned %#v, want the running claimed build", claimedBuild)
 	}
 
-	// The stored literal row: running, unknown availability, zeroed
-	// checkpoints and scan totals, cleared diagnostics, live fenced lease.
 	row, found := s.witnessBuild(t, "p", "g", build.BuildID)
 	if !found {
 		t.Fatal("claimed build was not stored")
@@ -435,7 +392,6 @@ func TestSemanticInventoryBuildClaimRoundTripsEveryField(t *testing.T) {
 			row.LeaseToken, row.LeaseExpiresAt, before+30*60*1000, after+30*60*1000)
 	}
 
-	// The repository read round-trips every field against the stored row.
 	got, found, err := repo.ReadSemanticInventoryBuild(s.ctx, "p", "g", build.BuildID)
 	if err != nil || !found {
 		t.Fatalf("read = found %v err %v", found, err)
@@ -445,9 +401,6 @@ func TestSemanticInventoryBuildClaimRoundTripsEveryField(t *testing.T) {
 		t.Fatalf("read lost the lease token: %#v", got)
 	}
 
-	// A fully literal stored row (written by direct SQL, never by the
-	// repository) round-trips through the read untouched, including the
-	// legacy string checkpoint and ordered diagnostics.
 	literal := literalBuildRowFor("p", "g2", "failed")
 	literal.Diagnostics = []string{"first diagnostic", "second diagnostic"}
 	s.seedSemanticBuildLiteral(t, literal)
@@ -494,8 +447,6 @@ func TestSemanticInventoryBuildSingleClaimantAndStaleTokenCannotAdvanceOrComplet
 		t.Fatalf("first claim = claimed %v err %v", claimed, err)
 	}
 
-	// A second claimant cannot steal a live lease: typed claimed error, and
-	// the stored row is byte-for-byte untouched.
 	untouched, _ := s.witnessBuild(t, "p", "g", build.BuildID)
 	_, claimed, err := repo.ClaimSemanticInventoryBackfill(s.ctx, build, "tok-b", 30*time.Minute)
 	if claimed || err == nil || !errors.Is(err, ErrSemanticInventoryClaimed) {
@@ -510,8 +461,6 @@ func TestSemanticInventoryBuildSingleClaimantAndStaleTokenCannotAdvanceOrComplet
 		t.Fatalf("rejected claim changed the row:\n before %+v\n after  %+v", untouched, after)
 	}
 
-	// A stale token cannot advance, complete, or fail: typed claim-lost
-	// naming the token guard, with the row unchanged each time.
 	staleCheckpoint := catalog.SemanticInventoryCheckpoint{}
 	next := catalog.SemanticInventoryCheckpoint{Collection: "Patient", Key: "p-1"}
 	_, staleTokenErr := repo.AdvanceSemanticInventoryBackfill(s.ctx, build, "tok-b", staleCheckpoint, next, 7, time.Minute)
@@ -538,8 +487,6 @@ func TestSemanticInventoryBuildSingleClaimantAndStaleTokenCannotAdvanceOrComplet
 		t.Fatalf("stale-token fail changed the row to %+v", row)
 	}
 
-	// The real token holder advances under the CAS, renews the lease, and
-	// completes exactly.
 	advanceBefore := time.Now().UnixMilli()
 	updated, err := repo.AdvanceSemanticInventoryBackfill(s.ctx, build, "tok-a", staleCheckpoint, next, 7, 60*time.Minute)
 	advanceAfter := time.Now().UnixMilli()
@@ -572,8 +519,6 @@ func TestSemanticInventoryBuildSingleClaimantAndStaleTokenCannotAdvanceOrComplet
 		t.Fatalf("complete returned %#v", completed)
 	}
 
-	// Re-claiming a completed build returns it unclaimed and never rewrites
-	// it — file and retained contribution sets cannot be mixed.
 	returned, claimed, err := repo.ClaimSemanticInventoryBackfill(s.ctx, semanticBuildFixture("p", "g", ""), "tok-c", 30*time.Minute)
 	if err != nil || claimed {
 		t.Fatalf("claim on complete = claimed %v err %v, want unclaimed success", claimed, err)
@@ -585,7 +530,6 @@ func TestSemanticInventoryBuildSingleClaimantAndStaleTokenCannotAdvanceOrComplet
 		t.Fatalf("claim on complete rewrote the marker row: %+v", row)
 	}
 
-	// Exactly one of eight concurrent claimants wins a fresh scope.
 	other := semanticBuildFixture("p", "race", "")
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -633,9 +577,6 @@ func TestSemanticInventoryBuildCheckpointCASRejectsStaleExpected(t *testing.T) {
 	}
 	stored, _ := s.witnessBuild(t, "p", "g", build.BuildID)
 
-	// Replaying the first CAS with its now-stale expectation is rejected by
-	// name, and nothing about the row moves — not the checkpoint, not the
-	// scan total, not the lease.
 	_, staleErr := repo.AdvanceSemanticInventoryBackfill(s.ctx, build, "tok-a", zero,
 		catalog.SemanticInventoryCheckpoint{Collection: "Patient", Key: "p-2"}, 99, 5*time.Minute)
 	if !errors.Is(staleErr, ErrSemanticInventoryClaimLost) {
@@ -649,7 +590,6 @@ func TestSemanticInventoryBuildCheckpointCASRejectsStaleExpected(t *testing.T) {
 		t.Fatalf("rejected CAS changed the row:\n before %+v\n after  %+v", stored, row)
 	}
 
-	// A wrong key under the right collection is likewise rejected untouched.
 	if _, err := repo.AdvanceSemanticInventoryBackfill(s.ctx, build, "tok-a",
 		catalog.SemanticInventoryCheckpoint{Collection: "Patient", Key: "p-99"},
 		catalog.SemanticInventoryCheckpoint{Collection: "Patient", Key: "p-2"}, 99, 5*time.Minute); !errors.Is(err, ErrSemanticInventoryClaimLost) {
@@ -659,8 +599,6 @@ func TestSemanticInventoryBuildCheckpointCASRejectsStaleExpected(t *testing.T) {
 		t.Fatalf("rejected wrong-key CAS changed the row to %+v", row)
 	}
 
-	// The live checkpoint advances the build exactly once; scanned counts
-	// are clamped at zero like the Arango adapter.
 	second := catalog.SemanticInventoryCheckpoint{Collection: "Patient", Key: "p-2"}
 	if _, err := repo.AdvanceSemanticInventoryBackfill(s.ctx, build, "tok-a", first, second, -5, 5*time.Minute); err != nil {
 		t.Fatalf("second advance: %v", err)
@@ -669,8 +607,6 @@ func TestSemanticInventoryBuildCheckpointCASRejectsStaleExpected(t *testing.T) {
 		t.Fatalf("second advance stored %+v", row)
 	}
 
-	// Completion shares the same CAS: a stale expectation cannot complete
-	// the build.
 	if _, err := repo.CompleteSemanticInventoryBackfill(s.ctx, build, "tok-a", first, 3); !errors.Is(err, ErrSemanticInventoryClaimLost) {
 		t.Fatalf("stale-expected complete err = %v, want claim lost", err)
 	}
@@ -694,9 +630,6 @@ func TestSemanticInventoryBuildFailureAndCompletionDiagnosticSemantics(t *testin
 		t.Fatalf("advance: %v", err)
 	}
 
-	// Failure releases the lease, records exactly one diagnostic, and keeps
-	// scanned progress, both checkpoints, the auth path, and the source
-	// availability meaning intact.
 	if err := repo.FailSemanticInventoryBackfill(s.ctx, build, "tok-a", "page read failed: timeout"); err != nil {
 		t.Fatalf("fail: %v", err)
 	}
@@ -716,10 +649,6 @@ func TestSemanticInventoryBuildFailureAndCompletionDiagnosticSemantics(t *testin
 		t.Fatalf("fail read-back = %#v found %v err %v", got, found, err)
 	}
 
-	// A blank diagnostic becomes the default; a 600-byte diagnostic is
-	// capped at 512 bytes, matching the Arango adapter. A failed build is
-	// resumable: re-claiming it starts running again while preserving the
-	// typed checkpoint and scan total.
 	if _, claimed, err := repo.ClaimSemanticInventoryBackfill(s.ctx, semanticBuildFixture("p", "g", "fhir/Patient"), "tok-a", 30*time.Minute); err != nil || !claimed {
 		t.Fatalf("re-claim after failure = claimed %v err %v (a failed build must be resumable)", claimed, err)
 	}
@@ -744,8 +673,6 @@ func TestSemanticInventoryBuildFailureAndCompletionDiagnosticSemantics(t *testin
 		t.Fatalf("long diagnostic not capped at 512 bytes: %d", len(row.Diagnostics[0]))
 	}
 
-	// A failed build's lease is released, so only a fresh claim — never the
-	// dead token — can move it again; failing twice is a guard miss.
 	if err := repo.FailSemanticInventoryBackfill(s.ctx, build, "tok-a", "again"); !errors.Is(err, ErrSemanticInventoryClaimLost) {
 		t.Fatalf("double fail err = %v, want claim lost", err)
 	}
@@ -753,10 +680,6 @@ func TestSemanticInventoryBuildFailureAndCompletionDiagnosticSemantics(t *testin
 		t.Fatalf("double fail changed the row: %+v", row)
 	}
 
-	// Completion clears diagnostics — a complete build carries no failure
-	// evidence — and records the caller's source availability exactly. The
-	// re-claimed failed build still stores the typed checkpoint, so the CAS
-	// completes directly under it.
 	if _, claimed, err := repo.ClaimSemanticInventoryBackfill(s.ctx, semanticBuildFixture("p", "g", "fhir/Patient"), "tok-b", 30*time.Minute); err != nil || !claimed {
 		t.Fatalf("re-claim after failure = claimed %v err %v", claimed, err)
 	}
@@ -768,7 +691,6 @@ func TestSemanticInventoryBuildFailureAndCompletionDiagnosticSemantics(t *testin
 		row.SourceAvailability != "unproven" || row.ScannedResources != 11 {
 		t.Fatalf("complete lost diagnostic/availability meaning: %+v", row)
 	}
-	// A completed build cannot be failed.
 	if err := repo.FailSemanticInventoryBackfill(s.ctx, build, "tok-b", "too late"); !errors.Is(err, ErrSemanticInventoryClaimLost) {
 		t.Fatalf("fail after complete err = %v, want claim lost", err)
 	}
@@ -787,7 +709,6 @@ func TestSemanticInventoryBuildLeaseExpiryBlocksAdvanceButNotFailure(t *testing.
 	if _, claimed, err := repo.ClaimSemanticInventoryBackfill(s.ctx, build, "tok-a", 30*time.Minute); err != nil || !claimed {
 		t.Fatalf("claim = claimed %v err %v", claimed, err)
 	}
-	// Age the lease by direct SQL: the token holder has lost the fence.
 	s.exec(t, "UPDATE "+s.buildFQN()+" SET lease_expires_at = $4 WHERE project = $1 AND dataset_generation = $2 AND build_id = $3",
 		"p", "g", build.BuildID, time.Now().Add(-time.Minute).UnixMilli())
 	stored, _ := s.witnessBuild(t, "p", "g", build.BuildID)
@@ -803,8 +724,6 @@ func TestSemanticInventoryBuildLeaseExpiryBlocksAdvanceButNotFailure(t *testing.
 		t.Fatalf("expired-lease advance changed the row to %+v", row)
 	}
 
-	// A new claimant takes over the stale lease and resumes progress; the
-	// dead token can no longer fail the build.
 	reclaimed, claimed, err := repo.ClaimSemanticInventoryBackfill(s.ctx, semanticBuildFixture("p", "g", ""), "tok-b", 30*time.Minute)
 	if err != nil || !claimed {
 		t.Fatalf("stale-lease takeover = claimed %v err %v", claimed, err)
@@ -819,8 +738,6 @@ func TestSemanticInventoryBuildLeaseExpiryBlocksAdvanceButNotFailure(t *testing.
 		t.Fatalf("dead-token fail changed the row: %+v", row)
 	}
 
-	// The token holder can always land cleanup, even after its own lease
-	// lapsed: the fail path carries no expiry guard, exactly like Arango.
 	s.exec(t, "UPDATE "+s.buildFQN()+" SET lease_expires_at = $4 WHERE project = $1 AND dataset_generation = $2 AND build_id = $3",
 		"p", "g", build.BuildID, time.Now().Add(-time.Minute).UnixMilli())
 	if err := repo.FailSemanticInventoryBackfill(s.ctx, build, "tok-b", "cleanup after expiry"); err != nil {
@@ -845,8 +762,6 @@ func TestSemanticInventoryBuildReclaimResumesProgressAndClearsVolatileFields(t *
 	if _, err := repo.AdvanceSemanticInventoryBackfill(s.ctx, build, "tok-a", zero, first, 3, 30*time.Minute); err != nil {
 		t.Fatalf("advance: %v", err)
 	}
-	// Seed volatile state a re-claim must clear: the legacy string
-	// checkpoint and a stray diagnostic (only reachable by direct SQL).
 	s.exec(t, "UPDATE "+s.buildFQN()+" SET checkpoint = $4, diagnostics = ARRAY['stale']::text[]"+
 		" WHERE project = $1 AND dataset_generation = $2 AND build_id = $3",
 		"p", "g", build.BuildID, "volatile-string-checkpoint")
@@ -855,8 +770,6 @@ func TestSemanticInventoryBuildReclaimResumesProgressAndClearsVolatileFields(t *
 		t.Fatalf("volatile seed did not land: %+v", seeded)
 	}
 
-	// Same-token resume keeps scanned progress, the typed checkpoint, and
-	// the stored auth path, and clears volatile fields.
 	resumed, claimed, err := repo.ClaimSemanticInventoryBackfill(s.ctx, semanticBuildFixture("p", "g", "OTHER/Path"), "tok-a", 30*time.Minute)
 	if err != nil || !claimed {
 		t.Fatalf("resume = claimed %v err %v", claimed, err)
@@ -875,9 +788,6 @@ func TestSemanticInventoryBuildReclaimResumesProgressAndClearsVolatileFields(t *
 		t.Fatalf("resume returned %#v", resumed)
 	}
 
-	// A stored file-kind row (direct SQL — the repository never writes one)
-	// is reset by a retained claim: progress and availability restart, so
-	// the two contribution sets are never mixed.
 	mixed := literalBuildRowFor("p", "g-mixed", "running")
 	mixed.SourceKind = catalog.SemanticInventorySourceFile
 	mixed.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
@@ -898,8 +808,6 @@ func TestSemanticInventoryBuildUnsupportedRequestsAreTypedRefusals(t *testing.T)
 	s := newSemanticBuildService(t)
 	repo := s.repository(t)
 
-	// A file-sourced claim is refused by the retained-backfill entry point;
-	// nothing is stored — no silent fallback to a file build path.
 	fileBuild := catalog.NewSemanticInventoryBuild("p", "file-kind", "")
 	_, fileClaimed, fileErr := repo.ClaimSemanticInventoryBackfill(s.ctx, fileBuild, "tok-a", time.Minute)
 	if !errors.Is(fileErr, ErrUnsupportedSemanticInventoryBuild) || fileClaimed {
@@ -911,7 +819,6 @@ func TestSemanticInventoryBuildUnsupportedRequestsAreTypedRefusals(t *testing.T)
 	}
 	s.requireNoRow(t, "p", "file-kind", fileBuild.BuildID, "file-kind claim stored a row")
 
-	// Blank token and non-positive lease are refused before any statement.
 	if _, _, err := repo.ClaimSemanticInventoryBackfill(s.ctx, semanticBuildFixture("p", "g", ""), "  ", time.Minute); !errors.Is(err, ErrUnsupportedSemanticInventoryBuild) {
 		t.Fatalf("blank-token claim err = %v, want typed refusal", err)
 	}
@@ -921,16 +828,12 @@ func TestSemanticInventoryBuildUnsupportedRequestsAreTypedRefusals(t *testing.T)
 	s.requireNoRow(t, "p", "g", catalog.SemanticInventoryBuildID("p", "g"), "blank-token claim stored a row")
 	s.requireNoRow(t, "p", "g2", catalog.SemanticInventoryBuildID("p", "g2"), "zero-lease claim stored a row")
 
-	// A build whose identity violates the shared contract is refused by the
-	// dedicated invalid-identity sentinel.
 	broken := semanticBuildFixture("p", "g3", "")
 	broken.BuildID = strings.Repeat("0", 64)
 	if _, _, err := repo.ClaimSemanticInventoryBackfill(s.ctx, broken, "tok-a", time.Minute); !errors.Is(err, ErrInvalidSemanticInventoryBuild) {
 		t.Fatalf("broken identity err = %v, want invalid-build sentinel", err)
 	}
 
-	// Malformed typed checkpoints, unknown availability, and blank read
-	// scope are refused before touching the table.
 	build := semanticBuildFixture("p", "g4", "")
 	half := catalog.SemanticInventoryCheckpoint{Collection: "Patient"}
 	if _, _, err := repo.ClaimSemanticInventoryBackfill(s.ctx, build, "tok-a", time.Minute); err != nil {
@@ -948,8 +851,6 @@ func TestSemanticInventoryBuildUnsupportedRequestsAreTypedRefusals(t *testing.T)
 		catalog.SemanticInventoryCheckpoint{}, catalog.SemanticInventoryCheckpoint{Collection: "Patient", Key: "p"}, 1, time.Minute); !errors.Is(err, ErrUnsupportedSemanticInventoryBuild) {
 		t.Fatalf("unknown availability advance err = %v, want typed refusal", err)
 	}
-	// A lease renewal of zero or less would store an already-expired lease:
-	// refused before the statement; a blank token likewise.
 	if _, err := repo.AdvanceSemanticInventoryBackfill(s.ctx, build, "tok-a",
 		catalog.SemanticInventoryCheckpoint{}, catalog.SemanticInventoryCheckpoint{Collection: "Patient", Key: "p"}, 1, 0); !errors.Is(err, ErrUnsupportedSemanticInventoryBuild) {
 		t.Fatalf("zero-lease advance err = %v, want typed refusal", err)
@@ -965,8 +866,6 @@ func TestSemanticInventoryBuildUnsupportedRequestsAreTypedRefusals(t *testing.T)
 		t.Fatalf("blank-scope read err = %v, want typed refusal", err)
 	}
 
-	// Transitioning an identity that was never claimed is a claim-lost
-	// naming the missing row, not a fallback write.
 	_, missingErr := repo.AdvanceSemanticInventoryBackfill(s.ctx, semanticBuildFixture("p", "never", ""), "tok-a",
 		catalog.SemanticInventoryCheckpoint{}, catalog.SemanticInventoryCheckpoint{Collection: "Patient", Key: "p"}, 1, time.Minute)
 	if !errors.Is(missingErr, ErrSemanticInventoryClaimLost) {
@@ -979,11 +878,6 @@ func TestSemanticInventoryBuildUnsupportedRequestsAreTypedRefusals(t *testing.T)
 	s.requireNoRow(t, "p", "never", catalog.SemanticInventoryBuildID("p", "never"), "advance created a row")
 }
 
-// TestSemanticInventoryBuildFailureTruncatesDiagnosticOnRuneBoundary pins
-// review finding 1: a >512-byte failure diagnostic whose 512-byte cut lands
-// inside a multi-byte rune must still record the failure. PostgreSQL
-// rejects a split rune with SQLSTATE 22021, so a naive byte cut loses the
-// failure entirely and leaves the build running with its lease live.
 func TestSemanticInventoryBuildFailureTruncatesDiagnosticOnRuneBoundary(t *testing.T) {
 	s := newSemanticBuildService(t)
 	repo := s.repository(t)
@@ -992,8 +886,6 @@ func TestSemanticInventoryBuildFailureTruncatesDiagnosticOnRuneBoundary(t *testi
 	if err != nil || !ok {
 		t.Fatalf("claim = claimed %v err %v", ok, err)
 	}
-	// 511 ASCII bytes, then euro signs: byte 512 is the lead byte of the
-	// first three-byte rune, so the raw cut ends mid-rune.
 	diagnostic := strings.Repeat("a", 511) + strings.Repeat("€", 30)
 	if err := repo.FailSemanticInventoryBackfill(s.ctx, claimed, "tok-owner", diagnostic); err != nil {
 		s.fail("FailSemanticInventoryBackfill with multi-byte diagnostic", err)
@@ -1017,21 +909,11 @@ func TestSemanticInventoryBuildFailureTruncatesDiagnosticOnRuneBoundary(t *testi
 	}
 }
 
-// TestSemanticInventoryBuildPaddedGenerationCannotForkIdentity pins review
-// finding 2: a whitespace-padded generation must not fork the primary key
-// against the clean spelling. The domain derives one build_id/build_key for
-// both spellings, and internal/catalog documents NormalizeDatasetGeneration
-// as the convention every catalog boundary applies; the Arango adapter
-// converges both spellings onto one _key, so the PostgreSQL repository must
-// converge them onto one row too.
 func TestSemanticInventoryBuildPaddedGenerationCannotForkIdentity(t *testing.T) {
 	s := newSemanticBuildService(t)
 	repo := s.repository(t)
 	const padded = " padded generation "
 	const clean = "padded generation"
-	// rawBuild carries the raw generation spelling, as a rehydrating caller
-	// does: the constructor normalizes, but the repository must not rely on
-	// every caller using it.
 	rawBuild := func(generation string) catalog.SemanticInventoryBuild {
 		b := catalog.NewSemanticInventoryBuild("p", generation, "")
 		b.SourceKind = catalog.SemanticInventorySourceRetained
@@ -1045,14 +927,11 @@ func TestSemanticInventoryBuildPaddedGenerationCannotForkIdentity(t *testing.T) 
 		t.Fatalf("claim = claimed %v err %v", ok, err)
 	}
 
-	// The clean spelling is the SAME identity, not a new row: it must meet
-	// the live lease, never a corrupted-derivation refusal.
 	cleanBuild := rawBuild(clean)
 	if _, secondOk, secondErr := repo.ClaimSemanticInventoryBackfill(s.ctx, cleanBuild, "tok-other", 30*time.Minute); secondOk || !errors.Is(secondErr, ErrSemanticInventoryClaimed) {
 		t.Fatalf("clean-spelling claim = claimed %v err %v, want ErrSemanticInventoryClaimed", secondOk, secondErr)
 	}
 
-	// Every follow-up under EITHER spelling acts on the one row.
 	if _, found, readErr := repo.ReadSemanticInventoryBuild(s.ctx, "p", clean, claimed.BuildID); readErr != nil || !found {
 		t.Fatalf("clean-spelling read = found %v err %v", found, readErr)
 	}
@@ -1065,7 +944,6 @@ func TestSemanticInventoryBuildPaddedGenerationCannotForkIdentity(t *testing.T) 
 		t.Fatalf("padded-spelling complete: %v", compErr)
 	}
 
-	// Exactly one row exists across both spellings, stored normalized.
 	var rowCount int
 	var storedGeneration string
 	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*), COALESCE(MAX(dataset_generation), '') FROM "+s.buildFQN()+
@@ -1082,21 +960,10 @@ func TestSemanticInventoryBuildPaddedGenerationCannotForkIdentity(t *testing.T) 
 	}
 }
 
-// semanticBuildMigrationChecksum is the sha256sum of the exact bytes of
-// internal/backends/postgres/internal/store/migrations/000006_semantic_inventory_build.sql,
-// pinned independently of the runner. The store package's
-// wantEmbeddedChecksums gate pins the same literal.
 const semanticBuildMigrationChecksum = "e69d0dfdd3fc67438b65df7da73ea12edb61324ec8356cbdc4abc1ae5172af3c"
 
-// TestSemanticInventoryBuildMigrationDoubleAppliesAndRecordsLedgerLiterally
-// is the runner-contract probe the coordinator required: applying the
-// embedded history twice to the live schema must be idempotent, and the
-// ledger must record migration 6 exactly once under the literal name and
-// checksum matching the file's own sha256sum. It also witnesses that every
-// named constraint of the table exists, which is the schema-level half of
-// the negative-test non-vacuity below.
 func TestSemanticInventoryBuildMigrationDoubleAppliesAndRecordsLedgerLiterally(t *testing.T) {
-	s := newSemanticBuildService(t) // first apply happened during service setup
+	s := newSemanticBuildService(t)
 
 	first, err := storepostgres.MigrateSchema(s.ctx, s.openClient(t), s.schema)
 	if err != nil {
@@ -1119,8 +986,6 @@ func TestSemanticInventoryBuildMigrationDoubleAppliesAndRecordsLedgerLiterally(t
 		}
 	}
 
-	// The ledger holds migration 6 exactly once, literally, and the pinned
-	// checksum agrees with the sha256sum of the actual file bytes.
 	var ledgerRows int
 	var name, checksum string
 	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*), COALESCE(MAX(name), ''), COALESCE(MAX(checksum), '') FROM "+
@@ -1146,8 +1011,6 @@ func TestSemanticInventoryBuildMigrationDoubleAppliesAndRecordsLedgerLiterally(t
 		t.Fatalf("file sha256sum %s disagrees with ledger checksum %s", got, checksum)
 	}
 
-	// Every constraint the contract and the negative tests rely on is
-	// actually present on the live table.
 	wantConstraints := []string{
 		"fhir_semantic_inventory_build_pkey",
 		"fhir_semantic_inventory_build_key_ux",
@@ -1188,11 +1051,6 @@ func TestSemanticInventoryBuildMigrationDoubleAppliesAndRecordsLedgerLiterally(t
 	}
 }
 
-// TestSemanticInventoryBuildMigrationConstraintsRejectViolations proves, per
-// constraint, that a violating literal row is REFUSED by the named
-// PostgreSQL constraint and stores nothing. Every negative is paired with a
-// valid control row that succeeds in the same run, so a dropped or renamed
-// constraint cannot let the test pass vacuously.
 func TestSemanticInventoryBuildMigrationConstraintsRejectViolations(t *testing.T) {
 	s := newSemanticBuildService(t)
 
@@ -1242,8 +1100,6 @@ func TestSemanticInventoryBuildMigrationConstraintsRejectViolations(t *testing.T
 	for i, tc := range cases {
 		bad := base(fmt.Sprintf("neg%d", i))
 		tc.mutate(&bad)
-		// Non-vacuity control: the identical row WITHOUT the violation must
-		// insert successfully in this same run and scope family.
 		control := base(fmt.Sprintf("ctrl%d", i))
 		s.seedSemanticBuildLiteral(t, control)
 		if _, found := s.witnessBuild(t, control.Project, control.DatasetGeneration, control.BuildID); !found {
@@ -1264,9 +1120,6 @@ func TestSemanticInventoryBuildMigrationConstraintsRejectViolations(t *testing.T
 		s.requireNoRow(t, bad.Project, bad.DatasetGeneration, bad.BuildID, tc.name)
 	}
 
-	// Identity arbitration lives in the database: the primary key refuses a
-	// second row for one (project, dataset_generation, build_id), and the
-	// UNIQUE build_key refuses a sib_ identity reused across scopes.
 	dup := base("dup-pk")
 	s.seedSemanticBuildLiteral(t, dup)
 	rewritten := dup
@@ -1289,12 +1142,6 @@ func TestSemanticInventoryBuildMigrationConstraintsRejectViolations(t *testing.T
 	s.requireNoRow(t, other.Project, other.DatasetGeneration, other.BuildID, "reused build_key")
 }
 
-// TestZZZeroLeftoverSemanticInventoryBuildFixtures is the ownership-scoped
-// zero-leftover audit. It checks, by exact name only, every database (and
-// the schema that lived inside it) this file verified into existence. It
-// performs no global scan of pg_database or pg_namespace, so concurrent
-// sibling workers sweeping their own prefixes neither race this audit nor
-// trip it.
 func TestZZZeroLeftoverSemanticInventoryBuildFixtures(t *testing.T) {
 	raw := semanticBuildTestPostgresURL(t)
 	semanticBuildOwnedMu.Lock()
@@ -1327,8 +1174,6 @@ func TestZZZeroLeftoverSemanticInventoryBuildFixtures(t *testing.T) {
 		if count != 0 {
 			t.Errorf("leftover owned database %s after all cleanups", db)
 			if schema != "" {
-				// Report the schema inside the leftover database, exact
-				// name only.
 				u, err := url.Parse(raw)
 				if err == nil {
 					if q := u.Query(); q.Get("dbname") != "" {
@@ -1347,6 +1192,62 @@ func TestZZZeroLeftoverSemanticInventoryBuildFixtures(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+func TestIsConcurrentSemanticBuildKeyRaceClassification(t *testing.T) {
+	keyConstraint := semanticInventoryBuildTableName + "_key_ux"
+	race := &pgconn.PgError{Code: "23505", ConstraintName: keyConstraint, Message: "duplicate key"}
+	if !isConcurrentSemanticBuildKeyRace(race) {
+		t.Fatal("key unique violation must classify as a concurrent build race")
+	}
+	if !isConcurrentSemanticBuildKeyRace(fmt.Errorf("claim: %w", race)) {
+		t.Fatal("wrapped key unique violation must classify as a concurrent build race")
+	}
+	if isConcurrentSemanticBuildKeyRace(&pgconn.PgError{Code: "23505", ConstraintName: "fhir_semantic_inventory_build_pkey"}) {
+		t.Fatal("a different constraint's unique violation is not the build key race")
+	}
+	if isConcurrentSemanticBuildKeyRace(errors.New("plain error")) {
+		t.Fatal("a plain error is not the build key race")
+	}
+	for _, input := range []error{
+		error((*pgconn.PgError)(nil)),
+		fmt.Errorf("claim: %w", error((*pgconn.PgError)(nil))),
+		errors.Join(errors.New("context"), error((*pgconn.PgError)(nil))),
+	} {
+		if isConcurrentSemanticBuildKeyRace(input) {
+			t.Fatalf("typed-nil driver error reported as a build key race: %v", input)
+		}
+	}
+}
+
+func TestClassifySemanticBuildWriteKeepsCollisionClassification(t *testing.T) {
+	build := catalog.SemanticInventoryBuild{Key: "sib_1", Project: "p", DatasetGeneration: "g"}
+	keyConstraint := semanticInventoryBuildTableName + "_key_ux"
+	collision := &pgconn.PgError{Code: "23505", ConstraintName: keyConstraint, Message: "duplicate key"}
+	classified := classifySemanticBuildWrite("claim", build, collision)
+	if !strings.Contains(classified.Error(), "collides across scopes") {
+		t.Fatalf("key unique violation not classified as a collision: %v", classified)
+	}
+	if !errors.Is(classified, collision) {
+		t.Fatalf("collision classification lost the driver cause: %v", classified)
+	}
+	plain := errors.New("connection reset by peer")
+	classified = classifySemanticBuildWrite("claim", build, plain)
+	if !errors.Is(classified, plain) {
+		t.Fatalf("ordinary cause not preserved: %v", classified)
+	}
+	for _, input := range []error{
+		error((*pgconn.PgError)(nil)),
+		fmt.Errorf("claim: %w", error((*pgconn.PgError)(nil))),
+	} {
+		classified := classifySemanticBuildWrite("claim", build, input)
+		if classified == nil {
+			t.Fatalf("typed-nil driver error classified as no fault: %v", input)
+		}
+		if strings.Contains(classified.Error(), "collides across scopes") {
+			t.Fatalf("typed-nil driver error mistaken for a key collision: %v", classified)
 		}
 	}
 }

@@ -16,8 +16,6 @@ const (
 	RowDefinitionExpanded RowDefinitionKind = "EXPANDED"
 )
 
-// RowDefinition is a closed persisted union. Exactly one payload must match
-// Kind; future composition semantics require a separate explicit variant.
 type RowDefinition struct {
 	Kind     RowDefinitionKind `json:"kind"`
 	Records  *RecordRows       `json:"records,omitempty"`
@@ -33,8 +31,6 @@ type GroupedRows struct {
 	RowValues   []ExplicitGroupRowValue `json:"rowValues,omitempty"`
 }
 
-// ExplicitGroupRowValue retains a selected root FHIR field on each named
-// group row using values from that group's authorized members.
 type ExplicitGroupRowValue struct {
 	ColumnID string                     `json:"columnId"`
 	Policy   ConstructionRowValuePolicy `json:"policy"`
@@ -47,8 +43,6 @@ const (
 	GroupSourceExplicit GroupSourceKind = "EXPLICIT"
 )
 
-// GroupSource is a closed union between a field key and an immutable group
-// revision reference.
 type GroupSource struct {
 	Kind     GroupSourceKind      `json:"kind"`
 	Field    *FieldGroupSource    `json:"field,omitempty"`
@@ -61,8 +55,6 @@ type FieldGroupSource struct {
 	MissingKeyPolicy MissingKeyPolicy `json:"missingKeyPolicy"`
 }
 
-// ExplicitGroupSource references a revision whose declared groups remain
-// present even when empty. Its policy applies to root members in no group.
 type ExplicitGroupSource struct {
 	RevisionID             string                 `json:"revisionId"`
 	UnassignedMemberPolicy UnassignedMemberPolicy `json:"unassignedMemberPolicy"`
@@ -249,7 +241,6 @@ func requireTrimmedIdentity(value, name string) error {
 	return nil
 }
 
-// RecordsRowDefinition returns the default row definition for one row per root record.
 func RecordsRowDefinition() RowDefinition {
 	return RowDefinition{Kind: RowDefinitionRecords, Records: &RecordRows{}}
 }
@@ -270,9 +261,6 @@ func missingRowDefinition(rows RowDefinition) bool {
 	return rows.Kind == "" && rows.Records == nil && rows.Groups == nil && rows.Expanded == nil
 }
 
-// migrateMissingRowsBeforeCurrent installs the historical root-record behavior only
-// across the semantics-version boundary. It copies the document slice before
-// editing and deliberately leaves the version bump to its migration owner.
 func migrateMissingRowsBeforeCurrent(workspace Workspace) Workspace {
 	if workspace.SemanticsVersion >= explicitRowsSemanticsVersion {
 		return workspace

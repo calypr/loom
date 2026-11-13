@@ -30,8 +30,6 @@ type fhirReferenceOwner struct {
 	depth     int
 }
 
-// fhirReferenceLookup includes the versioned-reference version so two versions
-// of one logical resource can never share a cached or pending result.
 type fhirReferenceLookup struct {
 	scope               fhirReferenceScopeKey
 	target, id, version string
@@ -42,8 +40,6 @@ type fhirReferenceResult struct {
 }
 type fhirReferenceWaiter struct{ ch chan fhirReferenceResult }
 
-// fhirReferenceLoader batches only for the lifetime of one GraphQL operation.
-// Keeping it request-local prevents cross-user cache and authorization leaks.
 type fhirReferenceLoader struct {
 	resolver *Resolver
 
@@ -76,7 +72,6 @@ func fhirReferenceLoaderFromContext(ctx context.Context, resolver *Resolver) *fh
 	if loader, ok := ctx.Value(fhirReferenceLoaderKey{}).(*fhirReferenceLoader); ok {
 		return loader
 	}
-	// Direct resolver tests do not pass through HTTP middleware.
 	return &fhirReferenceLoader{
 		resolver: resolver,
 		owners:   make(map[*fhir.Reference]fhirReferenceOwner),
@@ -160,7 +155,6 @@ func (l *fhirReferenceLoader) load(ctx context.Context, lookup fhirReferenceLook
 	l.pending[lookup] = append(l.pending[lookup], waiter)
 	if !l.timerSet {
 		l.timerSet = true
-		// ponytail: fixed 1ms coalescing window; tune only if profiling shows missed sibling batches.
 		time.AfterFunc(time.Millisecond, func() { l.dispatch(ctx) })
 	}
 	l.mu.Unlock()
@@ -288,17 +282,11 @@ type parsedFHIRReference struct {
 	contained           bool
 }
 
-// selectFHIRReferenceRow picks the row satisfying one reference out of the rows
-// returned for its logical id. Unversioned references keep the existing
-// selected-generation row; versioned references must match meta.versionId
-// exactly, so a versioned reference never resolves to a different version.
 func selectFHIRReferenceRow(rows []map[string]any, version string) (map[string]any, bool) {
 	if len(rows) == 0 {
 		return nil, false
 	}
 	if version == "" {
-		// Preserve the pre-version semantics: the last row the backend returned
-		// for the logical id wins.
 		return rows[len(rows)-1], true
 	}
 	for _, row := range rows {
@@ -318,9 +306,6 @@ func fhirResourceVersionID(resource map[string]any) string {
 	return version
 }
 
-// validFHIRReferenceVersion mirrors the generated Meta.versionId pattern
-// '^[A-Za-z0-9\-.]{1,64}$'; a version that cannot be a versionId can never
-// match a stored row and is rejected as malformed syntax.
 func validFHIRReferenceVersion(version string) bool {
 	if version == "" || len(version) > 64 {
 		return false

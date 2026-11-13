@@ -8,25 +8,10 @@ import (
 	"strings"
 )
 
-// generationIdentityField is deliberately distinct from the resource payload
-// and from the loader's error-generation counters. It identifies the immutable
-// Loom dataset generation that owns a persisted graph document.
 const generationIdentityField = "dataset_generation"
 
-// logicalKeyField preserves the pre-generation Arango key for operational
-// diagnostics and future stable external-ID policy. It is not used for graph
-// traversal: _key, _from, and _to are all generation-qualified below.
 const logicalKeyField = "logical_key"
 
-// generationRowBuilder is the one identity boundary shared by the generated
-// and generic FHIR row builders. Keeping it here avoids a second FHIR model or
-// a generator-wide change: both builders first produce the established Loom
-// vertex/edge representation, then this wrapper qualifies its physical graph
-// identity for one immutable dataset generation.
-//
-// It is intentionally not selected by Load until the dataset lifecycle owns
-// manifest creation and active-generation reads. Writing qualified identities
-// without generation-qualified readers would be an incomplete migration.
 type generationRowBuilder struct {
 	delegate          RowBuilder
 	project           string
@@ -64,12 +49,6 @@ func (b *generationRowBuilder) Build(resourceType string, line []byte, stageSeco
 	return namespaced, "", nil
 }
 
-// namespaceRowBuildResult rewrites one generated or generic result into a
-// generation-isolated graph identity. The original logical FHIR ID remains in
-// the existing top-level id field; logical_key captures the original Arango
-// key. Hashing is necessary because keys are global to a collection, while
-// both resource IDs and generated edge IDs are otherwise reused by later
-// project loads and dataset generations.
 func namespaceRowBuildResult(result rowBuildResult, project, datasetGeneration, resourceType string) (rowBuildResult, error) {
 	project = strings.TrimSpace(project)
 	datasetGeneration = strings.TrimSpace(datasetGeneration)

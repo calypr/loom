@@ -49,10 +49,6 @@ type activationState struct {
 	prior     map[string]any
 }
 
-// ActivateRepositoryGeneration is the repository-only composite visibility
-// switch. It validates all pointers first, then performs each single-collection
-// modification inside one Arango transaction so no partial activation is
-// visible if any update fails.
 func (s *Store) ActivateRepositoryGeneration(ctx context.Context, project, generation, revisionID string) error {
 	return s.client.WithTransaction(ctx, store.TransactionCollections{
 		Read:  []string{publicationarango.BundleExecutionsCollection},

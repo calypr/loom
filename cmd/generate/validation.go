@@ -24,7 +24,6 @@ func generateValidate(schema *Schema, path string) error {
 	}
 	sort.Strings(keys)
 
-	// Collect and write regexes
 	sb.WriteString("// Pre-compiled regular expressions for pattern validation\n")
 	sb.WriteString("var (\n")
 	regexMap := make(map[string]string)
@@ -43,7 +42,6 @@ func generateValidate(schema *Schema, path string) error {
 				regexMap[varName] = prop.Pattern
 				sb.WriteString(fmt.Sprintf("\t%s = regexp.MustCompile(%s)\n", varName, strconv.Quote(prop.Pattern)))
 			}
-			// check array items pattern
 			if prop.Items != nil && prop.Items.Pattern != "" && prop.Items.Pattern != "[ \\r\\n\\t\\S]+" && prop.Items.Pattern != "\\S*" {
 				varName := fmt.Sprintf("rx_%s_%s_items", k, toGoName(pk))
 				regexMap[varName] = prop.Items.Pattern
@@ -70,25 +68,18 @@ func generateValidate(schema *Schema, path string) error {
 			required := isRequired(def, pk)
 			goName := "x." + toGoName(pk)
 
-			// 1. Required field check
 			if required {
 				sb.WriteString(fmt.Sprintf("\tif %s == nil {\n", goName))
 				sb.WriteString(fmt.Sprintf("\t\treturn fmt.Errorf(\"required field '%s' is missing\")\n", pk))
 				sb.WriteString("\t}\n")
 			}
 
-			// Under what condition do we validate constraints?
-			// For optional fields: if not nil.
-			// For required fields: since they are pointers (or strings/bools if required), we check if they are not nil.
-			// Actually, if we made a required field non-pointer (like string), we can check it directly.
-			// Let's determine if goType is pointer.
 			goType := getGoType(prop, true)
 			isPointer := strings.HasPrefix(goType, "*")
 			isSlice := strings.HasPrefix(goType, "[]")
 			isCustomComments := goType == "FHIRComments"
 
 			if isCustomComments {
-				// No validation needed for FHIRComments
 				continue
 			}
 
@@ -101,13 +92,11 @@ func generateValidate(schema *Schema, path string) error {
 				indent = "\t\t"
 			}
 
-			// Validate constraints on the field value
 			valExpr := goName
 			if isPointer {
 				valExpr = "*" + goName
 			}
 
-			// 2. Const check
 			if prop.Const != nil {
 				constStr, ok := prop.Const.(string)
 				if ok {
@@ -117,14 +106,12 @@ func generateValidate(schema *Schema, path string) error {
 				}
 			}
 
-			// 3. Pattern check
 			if prop.Pattern != "" {
 				if prop.Pattern == "[ \\r\\n\\t\\S]+" {
 					sb.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", indent, valExpr))
 					sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s' does not match pattern '%s'\")\n", indent, pk, escapePattern(prop.Pattern)))
 					sb.WriteString(fmt.Sprintf("%s}\n", indent))
 				} else if prop.Pattern == "\\S*" {
-					// Skip unanchored \S* check since it always matches
 				} else {
 					varName := fmt.Sprintf("rx_%s_%s", k, toGoName(pk))
 					sb.WriteString(fmt.Sprintf("%sif !%s.MatchString(%s) {\n", indent, varName, valExpr))
@@ -133,35 +120,30 @@ func generateValidate(schema *Schema, path string) error {
 				}
 			}
 
-			// 4. MinLength check
 			if prop.MinLength != nil {
 				sb.WriteString(fmt.Sprintf("%sif utf8.RuneCountInString(%s) < %d {\n", indent, valExpr, *prop.MinLength))
 				sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s' is too short (min %d characters)\")\n", indent, pk, *prop.MinLength))
 				sb.WriteString(fmt.Sprintf("%s}\n", indent))
 			}
 
-			// 5. MaxLength check
 			if prop.MaxLength != nil {
 				sb.WriteString(fmt.Sprintf("%sif utf8.RuneCountInString(%s) > %d {\n", indent, valExpr, *prop.MaxLength))
 				sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s' is too long (max %d characters)\")\n", indent, pk, *prop.MaxLength))
 				sb.WriteString(fmt.Sprintf("%s}\n", indent))
 			}
 
-			// 6. Minimum check
 			if prop.Minimum != nil {
 				sb.WriteString(fmt.Sprintf("%sif %s < %f {\n", indent, valExpr, *prop.Minimum))
 				sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s' is below minimum %f\")\n", indent, pk, *prop.Minimum))
 				sb.WriteString(fmt.Sprintf("%s}\n", indent))
 			}
 
-			// 7. ExclusiveMinimum check
 			if prop.ExclusiveMinimum != nil {
 				sb.WriteString(fmt.Sprintf("%sif %s <= %f {\n", indent, valExpr, *prop.ExclusiveMinimum))
 				sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s' is below exclusive minimum %f\")\n", indent, pk, *prop.ExclusiveMinimum))
 				sb.WriteString(fmt.Sprintf("%s}\n", indent))
 			}
 
-			// 8. Format check
 			if prop.Format != "" {
 				switch prop.Format {
 				case "date-time":
@@ -191,14 +173,12 @@ func generateValidate(schema *Schema, path string) error {
 				}
 			}
 
-			// 9. Nested validation (Struct pointer)
 			if prop.Ref != "" && refName(prop.Ref) != "links" {
 				sb.WriteString(fmt.Sprintf("%sif err := %s.Validate(); err != nil {\n", indent, goName))
 				sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s' is invalid: %%w\", err)\n", indent, pk))
 				sb.WriteString(fmt.Sprintf("%s}\n", indent))
 			}
 
-			// 10. Slice item validation
 			if isSlice && prop.Items != nil {
 				hasItemValidation := (prop.Items.Pattern != "" && prop.Items.Pattern != "\\S*") || prop.Items.Format != "" || (prop.Items.Ref != "" && refName(prop.Items.Ref) != "links")
 				if hasItemValidation {
@@ -214,14 +194,12 @@ func generateValidate(schema *Schema, path string) error {
 						itemValExpr = "*" + itemName
 					}
 
-					// Check items constraints
 					if prop.Items.Pattern != "" {
 						if prop.Items.Pattern == "[ \\r\\n\\t\\S]+" {
 							sb.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", loopIndent, itemValExpr))
 							sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s[%%d]' does not match pattern '%s'\", i)\n", loopIndent, pk, escapePattern(prop.Items.Pattern)))
 							sb.WriteString(fmt.Sprintf("%s}\n", loopIndent))
 						} else if prop.Items.Pattern == "\\S*" {
-							// Skip unanchored \S* check
 						} else {
 							varName := fmt.Sprintf("rx_%s_%s_items", k, toGoName(pk))
 							sb.WriteString(fmt.Sprintf("%sif !%s.MatchString(%s) {\n", loopIndent, varName, itemValExpr))
@@ -258,7 +236,6 @@ func generateValidate(schema *Schema, path string) error {
 						}
 					}
 
-					// Check nested object validation for slice item
 					if prop.Items.Ref != "" && refName(prop.Items.Ref) != "links" {
 						sb.WriteString(fmt.Sprintf("%sif err := %s.Validate(); err != nil {\n", loopIndent, itemName))
 						sb.WriteString(fmt.Sprintf("%s\treturn fmt.Errorf(\"field '%s[%%d]' is invalid: %%w\", i, err)\n", loopIndent, pk))

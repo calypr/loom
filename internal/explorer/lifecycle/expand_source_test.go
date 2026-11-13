@@ -1,40 +1,5 @@
 package lifecycle
 
-// ROW-SOURCE-08 EXPAND source lane tests. Clones the Unpivot source lane test
-// structure for the EXPAND lane: capability advertisement (exact six-field
-// wire shape, skip-class reason codes, inventory fail-closed), request-boundary
-// validation, candidate-prep refusals that fire before choice resolution, and
-// the Apply-time reauthorization contract.
-//
-// Provenance: this file first shipped as a red deliverable whose acceptance
-// tests pinned four product bugs (BUG-001..004). The three lane defects were
-// repaired against these tests:
-//
-// BUG-001 (repaired) — the resolve/capability gates demanded a FieldGroupKey
-// identity with Cardinality==Many && Shape==Array, but the mint gate
-// (capability/row_choice.go validateRowChoiceFacts, re-run inside
-// DecodeRowChoiceID) pins FieldGroupKey~SCALAR/ONE and ExpandedScope~ARRAY/
-// MANY as disjoint classes, and the planner mints arrays only as
-// ExpandedScope (applicableRowChoiceKinds). The lane now enumerates, resolves,
-// and reauthorizes the honest ExpandedScope class, so an advertised array is
-// exactly an acceptable selection.
-//
-// BUG-002 (repaired) — authoringv2 validatePivotSourceProjection had no
-// ConstructionOperationExpand owner case, so the EXPAND-owned
-// SourceProjections entry the lane signs was rejected as INVALID_DOCUMENT on
-// every validation path. The owner case now requires the projection to be the
-// owner Expand step's declared array input.
-//
-// BUG-003 (repaired) — a lane-owned input with a stripped ExpandedField used
-// to reach a nil-pointer dereference in Apply-time reauthorization; both
-// payload consumers now refuse nil fail-closed with the contract error.
-//
-// BUG-004 (tracked) — the compiled root SOURCE_PROJECTION stage does not yet
-// map the Many-cardinality array column the physical EXPAND gate consumes
-// (lower/recipe_construction_reshape.go:469-478). The compile-package
-// positive test pins the finished contract; root-stage mapping completion is
-// tracked there.
-
 import (
 	"context"
 	"encoding/json"
@@ -57,22 +22,12 @@ const (
 	expandTestOutput  = "patients"
 )
 
-// expandTestPlanner hands back exactly the ExpandedScope array rows the real
-// planner mints; the struct fields (not the tokens) are what the lane
-// enumeration reads (expand_source.go).
 type expandTestPlanner struct{ choices []capability.RowChoice }
 
 func (p expandTestPlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
 	return p.choices, nil
 }
 
-// expandTestMintArrayChoice mints the only token shape that a legal ARRAY/MANY
-// row can carry: capability.NewRowChoice accepts RowChoiceExpandedScope with
-// ARRAY/MANY facts (capability/row_choice.go:123-126) and refuses
-// FieldGroupKey for anything but SCALAR/ONE. The planner itself mints arrays
-// only as ExpandedScope (applicableRowChoiceKinds), so this is the honest
-// input for the resolve-path tests: exactly what the server can sign for an
-// array root field.
 func expandTestMintArrayChoice(t *testing.T, snapshot capability.Snapshot, nodeID, resourceType, path, fhirType string) capability.RowChoice {
 	t.Helper()
 	occurrence := capability.RowChoiceOccurrence{OccurrenceID: authoringv2.RootOccurrenceID, NodeID: nodeID, ResourceType: resourceType}
@@ -84,19 +39,12 @@ func expandTestMintArrayChoice(t *testing.T, snapshot capability.Snapshot, nodeI
 	return choice
 }
 
-// expandTestAdvertisedRow sets the display label on a minted ExpandedScope
-// array row for the planner double. The lane enumerates exactly the
-// ExpandedScope + Many + non-reference class (expand_source.go), matching
-// what the real SchemaRowChoiceResolver mints for array root fields.
 func expandTestAdvertisedRow(choice capability.RowChoice, label string) capability.RowChoice {
 	choice.Label = label
 	return choice
 }
 
 func expandTestPatientArrayCandidate(id, path, logicalType, label string, populated bool) capability.Candidate {
-	// The capability builder mints repeated fields as many-cardinality with
-	// the ARRAY family of projection modes and a self-describing boundary;
-	// the lane's backing check requires exactly that honest shape.
 	candidate := rowSourceLaneCandidate("node-patient", "Patient", id, path, logicalType, "many", populated)
 	candidate.Label = label
 	candidate.ProjectionModes = []capability.ProjectionMode{capability.ProjectionArray, capability.ProjectionFirst, capability.ProjectionDistinctArray}
@@ -206,8 +154,6 @@ func expandTestPatientBase(snapshot capability.Snapshot, construction authoringv
 	}
 }
 
-// --- G1: stale stage reference ---------------------------------------------
-
 func TestConstructionExpandSourceCapabilityReportsStaleStageReference(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	base := expandTestPatientBase(harness.snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion})
@@ -219,8 +165,6 @@ func TestConstructionExpandSourceCapabilityReportsStaleStageReference(t *testing
 		t.Fatalf("stale stage capability = %#v, want unsupported STALE_STAGE_REFERENCE", result)
 	}
 }
-
-// --- G2: advertisement and the pinned six-field wire shape ------------------
 
 func TestConstructionExpandSourceCapabilityAdvertisesPopulatedRootPrimitiveArray(t *testing.T) {
 	harness := newFilterSourceHarness(t)
@@ -242,8 +186,6 @@ func TestConstructionExpandSourceCapabilityAdvertisesPopulatedRootPrimitiveArray
 		choice.LogicalType != "string" || !choice.IsPopulated || choice.ColumnID != "" {
 		t.Fatalf("advertised choice = %#v, want candidate-sourced label/logical with no durable column", choice)
 	}
-	// The UI capabilities schema is strict: exactly six wire fields, in the
-	// pinned spelling (expand_source.go:42-49), with no pivot-style extras.
 	encoded, err := json.Marshal(choice)
 	if err != nil {
 		t.Fatal(err)
@@ -253,8 +195,6 @@ func TestConstructionExpandSourceCapabilityAdvertisesPopulatedRootPrimitiveArray
 		t.Fatalf("choice wire = %s, want the pinned six-field encoding %s", encoded, wantJSON)
 	}
 }
-
-// --- G3: durable columnId restore only while the owner still signs ----------
 
 func TestConstructionExpandSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSigned(t *testing.T) {
 	harness := newFilterSourceHarness(t)
@@ -305,8 +245,6 @@ func TestConstructionExpandSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSig
 	}
 }
 
-// --- G4: precise per-skipped-class lane reason codes ------------------------
-
 func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
 	const rootStage = recipe.ConstructionSourceProjectionID
 	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
@@ -346,7 +284,7 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 			service: nil, construction: empty, stageID: rootStage,
 			choices: func(t *testing.T, s capability.Snapshot) []capability.RowChoice {
 				row := photoRow(t, s)
-				row.FHIRType = "Coding" // expand_source.go:214 refuses object/Coding element FHIR types
+				row.FHIRType = "Coding"
 				return []capability.RowChoice{row}
 			},
 			wantCode: "NO_TYPE_ELIGIBLE_EXPAND_SOURCE_FIELDS",
@@ -359,7 +297,7 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 			service: nil, construction: empty, stageID: rootStage,
 			choices: func(t *testing.T, s capability.Snapshot) []capability.RowChoice {
 				row := photoRow(t, s)
-				row.Cardinality = capability.RowChoiceOne // fails the Cardinality==MANY membership test at L205
+				row.Cardinality = capability.RowChoiceOne
 				return []capability.RowChoice{row}
 			},
 			wantCode: "NO_ROUTE_ELIGIBLE_EXPAND_SOURCE_FIELDS",
@@ -430,8 +368,6 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 			harness := newFilterSourceHarness(t)
 			snapshot := harness.snapshot
 			snapshot.Candidates = append(snapshot.Candidates, row.candidates...)
-			// Drop the fixture's scalars so they cannot skew the candidate
-			// verdicts; the lane decision sees only the array rows under test.
 			snapshot.Candidates = row.candidates
 			service := row.service
 			if service == nil {
@@ -468,8 +404,6 @@ func TestConstructionExpandSourceCapabilityReportsPreciseSkipClassReasonCodes(t 
 	}
 }
 
-// --- G5: inventory errors stay distinguishable from empty data --------------
-
 func TestConstructionExpandSourceCapabilityNamesInventoryFailureDistinctly(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	snapshot := harness.snapshot
@@ -484,8 +418,6 @@ func TestConstructionExpandSourceCapabilityNamesInventoryFailureDistinctly(t *te
 		t.Fatalf("inventory failure code = %q, want EXPAND_SOURCE_INVENTORY_UNAVAILABLE (err %v)", code, err)
 	}
 }
-
-// --- G6: request-boundary validation ----------------------------------------
 
 func TestConstructionExpandSourceSelectionsRejectMalformedInputAtRequestBoundary(t *testing.T) {
 	base := func() ConstructionProposalRequest {
@@ -521,8 +453,6 @@ func TestConstructionExpandSourceSelectionsRejectMalformedInputAtRequestBoundary
 	}
 }
 
-// --- G7-G10: candidate-prep refusals that fire before resolve ---------------
-
 func TestConstructionExpandSourceCandidatePrepIgnoresChannelWithoutExpandChange(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	service := harness.service
@@ -540,7 +470,6 @@ func TestConstructionExpandSourceCandidatePrepIgnoresChannelWithoutExpandChange(
 	if !reflect.DeepEqual(unchanged, candidate) {
 		t.Fatalf("non-expand candidate changed: %#v", unchanged)
 	}
-	// A nil channel is likewise a no-op on an expand step.
 	step := expandTestExpandStep(expandTestInput, expandTestCarrier)
 	withExpand := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, step}}
 	untouched, err := service.constructionCandidateWithExpandSources(context.Background(), base, ConstructionProposalRequest{
@@ -557,7 +486,7 @@ func TestConstructionExpandSourceCandidatePrepIgnoresChannelWithoutExpandChange(
 func TestConstructionExpandSourceCandidatePrepRequiresExpandPayload(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	step := expandTestExpandStep(expandTestInput, expandTestCarrier)
-	step.Operation.Expand = nil // kind says Expand, payload absent
+	step.Operation.Expand = nil
 	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{step}}
 	_, err := harness.service.constructionCandidateWithExpandSources(context.Background(),
 		expandTestPatientBase(harness.snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
@@ -629,7 +558,6 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 		t.Fatalf("foreign columnId error = %v, want EXPAND_SOURCE_COLUMN_MISMATCH", err)
 	}
 
-	// No resolvable input stage: the expand step declares no inputs.
 	orphan := step
 	orphan.Inputs = nil
 	orphanCandidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{orphan}}
@@ -639,7 +567,6 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 		t.Fatalf("unresolvable input stage error = %v, want EXPAND_SOURCE_STAGE_UNAVAILABLE", err)
 	}
 
-	// Input stage bound to a stage absent from the accepted receipt.
 	staleStageRequest := twoSelections()
 	staleStageRequest.ExpandSources = []ConstructionExpandSourceSelection{{ChoiceID: "row-choice-a", ColumnID: expandTestInput}}
 	carrierless := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{expandTestExpandStep(expandTestInput, expandTestCarrier)}}
@@ -649,8 +576,6 @@ func TestConstructionExpandSourceCandidatePrepRefusesColumnAndStageMisbinds(t *t
 		t.Fatalf("unbound stage error = %v, want STALE_STAGE_REFERENCE", err)
 	}
 }
-
-// --- G11-G12: forged or cross-snapshot tokens are refused -------------------
 
 func TestProposeConstructionExpandSourceRejectsForgedChoiceID(t *testing.T) {
 	harness := newFilterSourceHarness(t)
@@ -672,13 +597,6 @@ func TestProposeConstructionExpandSourceRejectsForgedChoiceID(t *testing.T) {
 	}
 }
 
-// Adversarial review finding (coordinator-reproduced): the candidate-side
-// projection used to establish ownership, so a client editing the EXPAND step
-// with a nil expandSources channel could author BOTH the expand-owned
-// sourceProjection and a self-consistent signed payload and keep them through
-// prep, prune, and document validation — a signed lane with no choiceId ever
-// presented. Ownership of an expand input is now server-derived only: this
-// shape must come out payload-stripped and projection-dropped.
 func TestProposeConstructionExpandSourceRefusesClientAuthoredLaneFacts(t *testing.T) {
 	snapshot := expandTestProcedureSnapshot("tok")
 	base := expandTestProcedureBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion})
@@ -696,14 +614,12 @@ func TestProposeConstructionExpandSourceRefusesClientAuthoredLaneFacts(t *testin
 		Steps:             []authoringv2.ConstructionStep{step},
 		SourceProjections: []authoringv2.ConstructionSourceProjection{clientProjection},
 	}
-	// nil planner: a genuine lane resolve would refuse outright, so anything
-	// surviving prep cannot have passed the mint.
 	out, err := expandTestService(nil).constructionCandidateWithExpandSources(context.Background(), base, ConstructionProposalRequest{
 		Project: filterSourceProject, ExplorerID: "explorer-a", OutputID: "procedures",
 		ChangedStepID: expandTestStep, CandidateConstruction: candidate,
 	}, candidate)
 	if err != nil {
-		return // a refusal is also a sound fail-closed outcome
+		return
 	}
 	if out.Steps[0].Operation.Expand.ExpandedField != nil {
 		t.Fatalf("client-authored signed payload survived prep with no choiceId and no planner: %+v", *out.Steps[0].Operation.Expand.ExpandedField)
@@ -720,8 +636,6 @@ func TestProposeConstructionExpandSourceRejectsChoiceFromAnotherSnapshot(t *test
 	carrier := deriveSourceLiteralOnlyStep(expandTestCarrier, append(deriveSourcePatientIdentityColumns(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"}))
 	carrier.Operation.Derive.OutputColumnID = "derived_total"
 	harness.saveDraft(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier}})
-	// A genuinely signed ARRAY/MANY token, but issued for a different dataset
-	// generation than the proposal's snapshot.
 	issued := rowSourceSnapshotWithGeneration(harness.snapshot, harness.snapshot.Identity.Generation+"-issued")
 	stale := expandTestMintArrayChoice(t, issued, "node-patient", "Patient", "photo[]", "string")
 	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
@@ -739,12 +653,8 @@ func TestProposeConstructionExpandSourceRejectsChoiceFromAnotherSnapshot(t *test
 	}
 }
 
-// --- G13: server-side fact derivation ---------------------------------------
-
 func TestConstructionExpandSourceFactsDerivesServerSignedArrayProjection(t *testing.T) {
 	snapshot := expandTestProcedureSnapshot("expand-facts-procedure")
-	// Procedure.instantiatesUri[] is a generated primitive ROOT ARRAY:
-	// canonical instantiatesUri[], ARRAY/MANY, FHIRType string, non-reference.
 	facts, ok := ConstructionExpandSourceFacts(snapshot, "Procedure", "instantiatesUri[]")
 	if !ok {
 		t.Fatalf("facts for a populated generated primitive array were refused")
@@ -753,8 +663,6 @@ func TestConstructionExpandSourceFactsDerivesServerSignedArrayProjection(t *test
 		facts.FHIRType != "string" || facts.LogicalType != "string" || facts.Label != "Instantiates uri" {
 		t.Fatalf("derived facts = %#v, want server-derived string-array facts with the candidate label", facts)
 	}
-	// The column and owner identities are claim-sourced (left empty here),
-	// exactly as Apply-time DeepEquals expects.
 	if facts.ColumnID != "" || facts.OwnerStepID != "" {
 		t.Fatalf("facts leaked claim identities: %#v", facts)
 	}
@@ -798,8 +706,6 @@ func TestConstructionExpandSourceFactsDerivesServerSignedArrayProjection(t *test
 		})
 	}
 }
-
-// --- G14-G16: Apply-time reauthorization ------------------------------------
 
 func expandTestLiveProcedureConstruction(payload *authoringv2.ConstructionExpandedFieldSource) (authoringv2.Construction, capability.Snapshot) {
 	snapshot := expandTestProcedureSnapshot("expand-reauth-procedure")
@@ -908,23 +814,6 @@ func TestReauthorizeConstructionExpandSourcesRefusesWithoutPlanner(t *testing.T)
 	}
 }
 
-// BUG-003 — expected failure: a lane-owned expand input whose step lost its
-// server-signed payload must be refused fail-closed, never panic.
-// expand_source.go:697-700 admits the nil payload because
-// authoringv2.ValidateConstructionExpandedFieldSource explicitly treats nil as
-// valid (construction.go:1093-1095 — nil is legal for client candidates), and
-// line 721 then dereferences signed.Path unconditionally:
-//
-//	panic: runtime error: invalid memory address or nil pointer dereference
-//	  expand_source.go:721 inside reauthorizeConstructionExpandSources
-//
-// Every durable expand-owned projection therefore carries a crash path into
-// ApplyCommands the moment its payload is stripped — exactly the state the
-// comment at expand_source.go:693-696 promises to refuse ("a lane-owned input
-// whose step lost (or forged) its server-signed ExpandedField never reaches
-// the claim-vs-redo DeepEqual below"). The recover block below keeps the
-// rest of the suite alive; the test fails today because the guard fires as a
-// crash rather than as the promised refusal.
 func TestReauthorizeConstructionExpandSourcesKeepsFailClosedWhenPayloadStripped(t *testing.T) {
 	construction, snapshot := expandTestLiveProcedureConstruction(expandTestSignedPayload("instantiatesUri[]", "string", "string"))
 	construction.Steps[0].Operation.Expand.ExpandedField = nil
@@ -946,24 +835,9 @@ func TestReauthorizeConstructionExpandSourcesKeepsFailClosedWhenPayloadStripped(
 	}
 }
 
-// --- Server-authoritative acceptance ----------------------------------------
-//
-// These tests drive ProposeConstruction/ApplyCommands on a Procedure-rooted
-// table. The generated FHIR schema carries no admissible primitive root array
-// on the Patient fixture (photo[] is Attachment, meta.tag[]/security[] are
-// Coding, meta.profile[] is a reference), so Procedure.instantiatesUri[] —
-// the only canonical generated ARRAY/MANY non-reference primitive the lane
-// can honestly sign — is the acceptance carrier, mirroring the compile
-// package's EXPAND fixtures.
-
-// newExpandProcedureHarness reuses the live-compiler proposal harness around
-// a Procedure-rooted saved table with the real planner/resolver on the
-// generated schema.
 func newExpandProcedureHarness(t *testing.T) *filterSourceHarness {
 	t.Helper()
 	h := newFilterSourceHarness(t)
-	// Reuse the harness's accepted authorization scope so the procedure
-	// snapshot stays compatible with the configured read-scope check.
 	scopeDigest := h.snapshot.Identity.AuthorizationScopeDigest
 	shapeDigest := h.snapshot.Identity.ShapeDigest
 	h.snapshot = expandTestProcedureSnapshot("expand-procedure-acceptance")
@@ -1026,9 +900,6 @@ func expandTestProcedureCarrier() authoringv2.ConstructionStep {
 	return carrier
 }
 
-// expandTestProcedureExpandStep declares the full step schema the authoring
-// contract requires: every carried input column except the expanded array
-// itself, plus the item column.
 func expandTestProcedureExpandStep(previousStep string, carried []authoringv2.StageColumn) authoringv2.ConstructionStep {
 	step := expandTestExpandStep(expandTestInput, previousStep)
 	outputs := make([]authoringv2.StageColumn, 0, len(carried)+1)
@@ -1043,14 +914,11 @@ func expandTestProcedureExpandStep(previousStep string, carried []authoringv2.St
 	return step
 }
 
-// Selecting the advertised array must sign the durable projection and
-// overwrite any client-forged payload.
 func TestProposeConstructionExpandSourceSignsServerOwnedPayload(t *testing.T) {
 	harness := newExpandProcedureHarness(t)
 	carrier := expandTestProcedureCarrier()
 	harness.saveDraft(t, authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier}})
 	step := expandTestProcedureExpandStep(expandTestCarrier, carrier.Outputs)
-	// A client-forged payload must be overwritten by the server derivation.
 	step.Operation.Expand.ExpandedField = expandTestSignedPayload("status", "string", "code")
 	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, step}}
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "procedure", "Procedure", "instantiatesUri[]", "string")
@@ -1079,9 +947,6 @@ func TestProposeConstructionExpandSourceSignsServerOwnedPayload(t *testing.T) {
 	}
 }
 
-// The row-preserving prefix must gain the array column so the expand input
-// stage can present it, and the expand step must not re-declare its own
-// input (the lowerer refuses that).
 func TestProposeConstructionExpandSourceCarriesArrayThroughCarryingPrefix(t *testing.T) {
 	harness := newExpandProcedureHarness(t)
 	carrier := expandTestProcedureCarrier()
@@ -1112,9 +977,6 @@ func TestProposeConstructionExpandSourceCarriesArrayThroughCarryingPrefix(t *tes
 	t.Fatalf("carrier prefix outputs must include the carried array column %#v", carrierOutputs)
 }
 
-// A row-changing (UNPIVOT) step earlier in the prefix must refuse to
-// transport the array into the expand input
-// (ConstructionCanCarrySourceProjection excludes UNPIVOT).
 func TestProposeConstructionExpandSourceRefusesCarryingThroughRowChangingPrefix(t *testing.T) {
 	harness := newExpandProcedureHarness(t)
 	melt := unpivotMeltStep("melt-prefix", []string{"procedure-id"}, unpivotMeltOutputs())
@@ -1136,8 +998,6 @@ func TestProposeConstructionExpandSourceRefusesCarryingThroughRowChangingPrefix(
 	}
 }
 
-// BUG-001 — expected failure: selecting a Coding-element array must be refused
-// by name as an unsupported expand source field, not as an invalid choice.
 func TestProposeConstructionExpandSourceRefusesCodingElementArray(t *testing.T) {
 	harness := newFilterSourceHarness(t)
 	snapshot := harness.snapshot
@@ -1149,9 +1009,6 @@ func TestProposeConstructionExpandSourceRefusesCodingElementArray(t *testing.T) 
 	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
 		carrier, expandTestExpandStep(expandTestInput, expandTestCarrier),
 	}}
-	// meta.tag[] is a generated ARRAY/MANY non-reference element of FHIRType
-	// Coding: the lane's generated-schema gate must refuse it (its mint is
-	// legal — ARRAY/MANY — so reaching any other code hides the defect).
 	choice := expandTestMintArrayChoice(t, harness.snapshot, "node-patient", "Patient", "meta.tag[]", "Coding")
 	_, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
@@ -1165,12 +1022,6 @@ func TestProposeConstructionExpandSourceRefusesCodingElementArray(t *testing.T) 
 	}
 }
 
-// --- Durable expand-owned state through Apply -------------------------------
-
-// The accepted proposal's durable binding must be rechecked at Apply: when
-// the signed array stops presenting observed values, Apply refuses with
-// STALE_EXPAND_SOURCE_BINDING and leaves the draft untouched; while current,
-// Apply saves the exact durable state the proposal carried.
 func TestApplyConstructionProposalRefusesStaleExpandSourceBinding(t *testing.T) {
 	for _, stale := range []bool{false, true} {
 		name := "current"
@@ -1197,8 +1048,6 @@ func TestApplyConstructionProposalRefusesStaleExpandSourceBinding(t *testing.T) 
 			}
 			version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
 			if stale {
-				// The array stops presenting observed values after the
-				// proposal was accepted, exactly like the unpivot precedent.
 				for index := range harness.snapshot.Candidates {
 					if harness.snapshot.Candidates[index].FieldPath == "instantiatesUri[]" {
 						harness.snapshot.Candidates[index].Populated = false

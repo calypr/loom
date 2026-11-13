@@ -1,37 +1,5 @@
 package postgres
 
-// Immutable Explorer revisions on PostgreSQL 18.
-//
-// The frozen boundary is the exact field set the Arango adapter compares
-// (internal/backends/arango/internal/explorer/revisions.go immutableRevision): definition,
-// recipe, digests, source generation, frozen materialization mappings,
-// emitted columns, dataset metadata, quality reports, and the authoring
-// payloads, decided equal the same way the adapter decides it: quality
-// reports are normalized through publication.CloneQualityReports (nil and
-// empty are one content), and the omitempty-tagged raw authoring payloads
-// collapse missing-vs-empty while an explicit JSON null stays distinct.
-// InsertRevision is insert-once; same ID + same frozen content (same
-// content digest) replays idempotently, and same ID + different frozen
-// content is the typed explorer.ErrImmutableRevision refusal. The
-// DB enforces the boundary independently of Go: migration
-// 000006_explorer_revision.sql freezes every frozen column, refuses
-// DELETE outright (insert-once against direct SQL, where a DELETE plus
-// re-INSERT would fire no guard on a fresh row), and admits only the
-// monotone lifecycle transitions READY->ACTIVE, READY->FAILED,
-// ACTIVE->SUPERSEDED and ACTIVE->FAILED, each in one statement, so a double
-// transition (FAILED->FAILED), a resurrection (FAILED->READY), or an
-// un-activation (ACTIVE->READY) is refused by PostgreSQL with 23514.
-//
-// Lifecycle mutations are compare-and-swap operations fenced by an
-// expected-status token: the UPDATE carries the expected status in its
-// WHERE clause, so a stale token updates zero rows and is refused as
-// ErrStaleRevisionTransition without writing anything -- including the
-// second, losing side of a real two-connection race, where PostgreSQL
-// re-evaluates the guard against the committed row.
-//
-// There is no fallback to any other backend: every failure is returned
-// typed for the caller to surface.
-
 import (
 	"bytes"
 	"context"
@@ -52,31 +20,16 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// RevisionsTable is the Explorer revision table created by migration
-// 000006_explorer_revision.sql inside the store's schema.
 const RevisionsTable = "explorer_revisions"
 
 const revisionInsertMaxAttempts = 4
 
 var (
-	// ErrStaleRevisionTransition reports that a lifecycle CAS carried an
-	// expected-status token that no longer matches the stored row (or the
-	// row is already terminal, so no further transition exists). Nothing
-	// was written.
 	ErrStaleRevisionTransition = errors.New("postgres explorer store: stale explorer revision lifecycle token")
-	// ErrRevisionClaimLost reports that every insert attempt lost the claim
-	// race to a winner whose transaction aborted.
-	ErrRevisionClaimLost = errors.New("postgres explorer store: revision insert lost every claim race to an aborted winner")
-	// ErrInvalidRevision reports a revision the store refuses to accept at
-	// all (a missing identity, or a lifecycle CAS expected-status token
-	// outside the status domain).
-	ErrInvalidRevision = errors.New("postgres explorer store: invalid explorer revision")
+	ErrRevisionClaimLost       = errors.New("postgres explorer store: revision insert lost every claim race to an aborted winner")
+	ErrInvalidRevision         = errors.New("postgres explorer store: invalid explorer revision")
 )
 
-// revisionColumns is the single source of truth for column order: the INSERT
-// column list, the RETURNING/SELECT column list, the argument order, and the
-// scan order all derive from it, so ordered SQL parameters ($1..$N) match
-// the Go argument slice by construction.
 var revisionColumns = []string{
 	"id",
 	"project",
@@ -105,17 +58,13 @@ var revisionColumns = []string{
 	"failed_at",
 }
 
-// revisionStatements are the backend-tagged statements of the revision
-// store. The two fail statements differ only in the lifecycle token: failAny
-// admits the two failure-eligible source states; failToken demands one
-// exact expected status.
 type revisionStatements struct {
-	insert    string // INSERT ... ON CONFLICT (id) DO NOTHING RETURNING
-	claim     string // SELECT ... WHERE id = $1 FOR UPDATE
-	get       string // SELECT ... WHERE id = $1
-	getScoped string // SELECT ... WHERE project = $1 AND explorer_id = $2 AND id = $3
-	failAny   string // CAS UPDATE ... WHERE id = $1 AND status IN ('READY','ACTIVE') RETURNING
-	failToken string // CAS UPDATE ... WHERE id = $1 AND status = $2 RETURNING
+	insert    string
+	claim     string
+	get       string
+	getScoped string
+	failAny   string
+	failToken string
 }
 
 func newRevisionStatements(schema string) revisionStatements {
@@ -135,11 +84,6 @@ func newRevisionStatements(schema string) revisionStatements {
 	}
 }
 
-// frozenRevision is the content identity of one revision. Its field set is
-// the exact immutable boundary the Arango adapter's sameRevisionContent
-// compares; lifecycle columns (status, diagnostics, publication,
-// activation/failure timestamps) are excluded, so a replay that differs
-// only in those still counts as the same content.
 type frozenRevision struct {
 	ID                   string
 	Project              string
@@ -159,17 +103,6 @@ type frozenRevision struct {
 	QualityReports       []publication.QualityReport
 }
 
-// digestableRaw maps one omitempty-tagged json.RawMessage payload
-// (Config, AuthoringBundle, PublicOutputContract) onto the equivalence
-// classes the Arango adapter's document round-trip produces: a nil and an
-// empty RawMessage are both dropped by omitempty and decode back as
-// missing, so they digest together; the four bytes null survive the
-// round-trip and remain distinct from missing (reflect.DeepEqual on the
-// adapter side); every other document keeps raw-byte identity (compacted,
-// so semantically identical whitespace still digests together but key
-// order, like the adapter's raw byte-for-byte comparison, is content).
-// The class tag can never collide with a document because document bytes
-// sit under the value key.
 func digestableRaw(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return json.RawMessage(`{"loomRaw":"missing"}`), nil
@@ -211,25 +144,10 @@ func frozenRevisionContent(revision explorer.Revision) (frozenRevision, error) {
 		Materializations:     append([]explorer.Materialization(nil), revision.Materializations...),
 		EmittedColumns:       append([]explorer.EmittedColumn(nil), revision.EmittedColumns...),
 		Dataset:              revision.Dataset,
-		// CloneQualityReports is the adapter's own normalization, applied
-		// before it compares: it collapses a nil slice into an empty one,
-		// so a nil-vs-empty replay is the same content here exactly as it
-		// is in Arango (idempotent), while a populated report still moves
-		// the digest.
-		QualityReports: publication.CloneQualityReports(revision.QualityReports),
+		QualityReports:       publication.CloneQualityReports(revision.QualityReports),
 	}, nil
 }
 
-// revisionContentDigest is the sha256 content identity of the frozen column
-// set. encoding/json emits struct fields in declaration order and sorts map
-// keys, and the raw authoring payloads enter through digestableRaw, so two
-// revisions digest identically exactly when the Arango adapter would
-// consider their immutable content equal: documents compare byte-exactly
-// (compact-normalized, key order significant), missing and empty collapse,
-// an explicit JSON null is its own class, and quality reports pass through
-// publication.CloneQualityReports. Canonical packets are the caller's
-// contract, mirroring the Arango adapter, which DeepEquals the same
-// normalized content.
 func revisionContentDigest(revision explorer.Revision) (string, error) {
 	frozen, err := frozenRevisionContent(revision)
 	if err != nil {
@@ -243,11 +161,6 @@ func revisionContentDigest(revision explorer.Revision) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// marshalOrNil encodes v for a jsonb parameter: a nil slice (or nil pointer)
-// is "missing" (SQL NULL), an empty slice is "[]", and a populated value is
-// its document. Together with jsonParam (for the json.RawMessage tri-state)
-// this preserves missing versus empty versus JSON-null across a fresh
-// connection.
 func marshalOrNil(v any) ([]byte, error) {
 	rv := reflect.ValueOf(v)
 	switch rv.Kind() {
@@ -259,7 +172,6 @@ func marshalOrNil(v any) ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// storedRevisionRow is the physically stored form of one revision row.
 type storedRevisionRow struct {
 	ID                   string
 	Project              string
@@ -288,7 +200,6 @@ type storedRevisionRow struct {
 	FailedAt             *time.Time
 }
 
-// scanRevisionRow decodes one row. Targets follow revisionColumns order.
 func scanRevisionRow(row rowScanner, out *storedRevisionRow) error {
 	return row.Scan(
 		&out.ID,
@@ -319,10 +230,6 @@ func scanRevisionRow(row rowScanner, out *storedRevisionRow) error {
 	)
 }
 
-// decodeRevision reconstructs the domain Revision from stored columns. The
-// jsonb payload columns carry the missing/empty/JSON-null states losslessly:
-// SQL NULL yields the Go zero value (a nil slice stays nil), "null" yields
-// nil through json.Unmarshal, and "[]" yields an empty non-nil slice.
 func decodeRevision(row storedRevisionRow) (*explorer.Revision, error) {
 	revision := &explorer.Revision{
 		ID:                   row.ID,
@@ -367,8 +274,6 @@ func decodeRevision(row storedRevisionRow) (*explorer.Revision, error) {
 	return revision, nil
 }
 
-// unmarshalOrNil decodes a jsonb payload into out, treating SQL NULL
-// (missing) as "leave the zero value alone".
 func unmarshalOrNil(raw json.RawMessage, out any) error {
 	if len(raw) == 0 {
 		return nil
@@ -376,8 +281,6 @@ func unmarshalOrNil(raw json.RawMessage, out any) error {
 	return json.Unmarshal(raw, out)
 }
 
-// revisionPayloads holds every jsonb column value pre-encoded so argument
-// assembly cannot fail midway through an attempt.
 type revisionPayloads struct {
 	config               []byte
 	authoringBundle      []byte
@@ -418,8 +321,6 @@ func encodeRevisionPayloads(revision explorer.Revision) (revisionPayloads, error
 	return payloads, nil
 }
 
-// revisionArgs maps a revision, its pre-encoded payloads, and its content
-// digest to column values in revisionColumns order.
 func revisionArgs(revision explorer.Revision, payloads revisionPayloads, contentDigest string, diagnostics []byte) []any {
 	return []any{
 		revision.ID,
@@ -450,20 +351,6 @@ func revisionArgs(revision explorer.Revision, payloads revisionPayloads, content
 	}
 }
 
-// InsertRevision stores an Explorer revision exactly once.
-//
-//   - A first insert stores the row and returns what PostgreSQL persisted.
-//   - Re-inserting the same ID with the same frozen content (same content
-//     digest; lifecycle differences never reach InsertRevision as an
-//     overwrite -- an insert replay differs only in mutable fields) is
-//     idempotent: nothing is written and the stored row is returned.
-//   - Reusing the same ID with different frozen content is a typed
-//     explorer.ErrImmutableRevision refusal; the stored row is never
-//     overwritten. The digest is the canonical content check, never jsonb
-//     object order.
-//   - Concurrent identical writers all succeed via the claim reread, which
-//     waits for an in-flight winner through FOR UPDATE and retries the
-//     insert a bounded number of times when a winner aborts.
 func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) (*explorer.Revision, error) {
 	if strings.TrimSpace(revision.ID) == "" {
 		return nil, fmt.Errorf("%w: revision ID is required", ErrInvalidRevision)
@@ -511,7 +398,6 @@ func (s *Store) InsertRevision(ctx context.Context, revision explorer.Revision) 
 	return nil, fmt.Errorf("postgres explorer store: insert revision %q: %w", revision.ID, lastErr)
 }
 
-// claimedRevision performs one insert attempt on conn.
 func (s *Store) claimedRevision(ctx context.Context, conn *pgxpool.Conn, id string, args []any, contentDigest string) (*explorer.Revision, error) {
 	var row storedRevisionRow
 	err := scanRevisionRow(conn.QueryRow(ctx, s.revision.insert, args...), &row)
@@ -522,8 +408,6 @@ func (s *Store) claimedRevision(ctx context.Context, conn *pgxpool.Conn, id stri
 		return nil, fmt.Errorf("postgres explorer store: claim revision %q: %w", id, err)
 	}
 
-	// The identity already exists or is being claimed right now: reread
-	// FOR UPDATE so the claim waits for an in-flight winner.
 	existing, err := s.readRevisionRow(ctx, conn, s.revision.claim, id)
 	if err != nil {
 		return nil, err
@@ -532,17 +416,12 @@ func (s *Store) claimedRevision(ctx context.Context, conn *pgxpool.Conn, id stri
 		return nil, fmt.Errorf("%w: revision claim %q vanished before it became visible", explorer.ErrNotFound, id)
 	}
 	if existing.ContentDigest != contentDigest {
-		// Same ID, different frozen content: an immutable revision was
-		// reused, refused with the stored row left exactly as it is.
 		return nil, fmt.Errorf("%w: revision id %q was reused with different content (stored %s, requested %s)",
 			explorer.ErrImmutableRevision, id, existing.ContentDigest, contentDigest)
 	}
 	return decodeRevision(*existing)
 }
 
-// GetRevision returns a revision by identity through the Store contract.
-// Callers that hold the tenant scope must prefer GetRevisionForExplorer,
-// which is scoped by project AND Explorer.
 func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision, error) {
 	conn, err := s.client.Acquire(ctx)
 	if err != nil {
@@ -560,9 +439,6 @@ func (s *Store) GetRevision(ctx context.Context, id string) (*explorer.Revision,
 	return decodeRevision(*row)
 }
 
-// GetRevisionForExplorer returns the revision for one Explorer. The read is
-// tenant-scoped: a revision that exists only under another project or
-// another Explorer returns explorer.ErrNotFound with no information leak.
 func (s *Store) GetRevisionForExplorer(ctx context.Context, project, explorerID, id string) (*explorer.Revision, error) {
 	conn, err := s.client.Acquire(ctx)
 	if err != nil {
@@ -581,8 +457,6 @@ func (s *Store) GetRevisionForExplorer(ctx context.Context, project, explorerID,
 	return decodeRevision(row)
 }
 
-// readRevisionRow executes one id-addressed revision statement. A missing
-// row yields (nil, nil).
 func (s *Store) readRevisionRow(ctx context.Context, conn *pgxpool.Conn, statement, id string) (*storedRevisionRow, error) {
 	var row storedRevisionRow
 	err := scanRevisionRow(conn.QueryRow(ctx, statement, id), &row)
@@ -595,26 +469,10 @@ func (s *Store) readRevisionRow(ctx context.Context, conn *pgxpool.Conn, stateme
 	return &row, nil
 }
 
-// FailRevision records the failure transition for one revision: it is the
-// compare-and-swap form of the Store contract, admitting exactly the two
-// failure-eligible source states (READY, ACTIVE) in one statement. A
-// revision that is already FAILED or SUPERSEDED is a stale token: the CAS
-// updates zero rows, the call fails as ErrStaleRevisionTransition, and the
-// stored row is not touched (the double-transition refusal). A missing
-// revision is explorer.ErrNotFound.
 func (s *Store) FailRevision(ctx context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
 	return s.failRevision(ctx, id, diagnostics, false, "")
 }
 
-// FailRevisionFrom is the explicit-token CAS form of FailRevision: it
-// transitions the revision to FAILED only while it carries the exact
-// expected status, so a caller that observed the status earlier cannot
-// clobber a transition committed in the meantime. Only the two
-// failure-eligible states are ever CAS targets: a token that no longer
-// matches the committed status, or names a terminal status (FAILED,
-// SUPERSEDED -- there is no transition out of those), is refused as
-// ErrStaleRevisionTransition without writing; a token outside the status
-// domain is ErrInvalidRevision; a missing revision is explorer.ErrNotFound.
 func (s *Store) FailRevisionFrom(ctx context.Context, id string, expected explorer.RevisionStatus, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
 	switch expected {
 	case explorer.RevisionReady, explorer.RevisionActive, explorer.RevisionSuperseded, explorer.RevisionFailed:
@@ -647,11 +505,6 @@ func (s *Store) failRevision(ctx context.Context, id string, diagnostics []explo
 	var row storedRevisionRow
 	err = scanRevisionRow(conn.QueryRow(ctx, statement, args...), &row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Either the revision does not exist, or its committed status no
-		// longer satisfies the CAS guard -- including the losing side of a
-		// concurrent race, where PostgreSQL re-evaluates the guard against
-		// the row the winner just committed. Distinguish by reading the
-		// row; neither branch writes anything.
 		existing, readErr := s.readRevisionRow(ctx, conn, s.revision.get, id)
 		if readErr != nil {
 			return nil, errors.Join(err, readErr)

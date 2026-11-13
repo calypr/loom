@@ -1999,8 +1999,6 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 		t.Fatalf("related-source default ALL value = %#v, want the full matching list", got)
 	}
 
-	// Exercise the same exact proposal through the generated OpenAPI request DTO.
-	// A missing wire field silently resets ONE to the default ALL array.
 	related.RowValuePolicy = authoringv2.ConstructionRowValueOne
 	candidateJSON, err = json.Marshal(candidateConstruction)
 	if err != nil {
@@ -2055,7 +2053,6 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	if !bytes.Contains(draft, []byte(`"steps":[]`)) {
 		t.Fatalf("test draft did not contain canonical empty steps: %s", draft)
 	}
-	// Simulate a legacy persisted draft that decoded its empty slice as null.
 	draft = bytes.Replace(draft, []byte(`"steps":[]`), []byte(`"steps":null`), 1)
 	legacyDigest, err := workspace.LegacyNilConstructionStepsDigest()
 	if err != nil {

@@ -46,7 +46,6 @@ func TestRecipeExecutionHTTPStatePreservesExplorerReadyContract(t *testing.T) {
 }
 
 func TestRecipeExecutionAuthorizationStatusDistinguishesDenialFromOutage(t *testing.T) {
-	// F-B32: concealed 404 — unified with GraphQL twin (reader:94 + authpolicy concealed-lookup) and CoversExecutionPaths sibling
 	if got := recipeExecutionAuthorizationStatus(authscope.ErrForbidden); got != http.StatusNotFound {
 		t.Fatalf("forbidden status = %d, want %d", got, http.StatusNotFound)
 	}
@@ -81,7 +80,6 @@ func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 func TestRecipeExecutionAuthorizationResponseConcealsDenialAndStructuresOutage(t *testing.T) {
 	denial, status := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrForbidden)
 	denialBody, ok := denial.(map[string]any)
-	// F-B32: concealed 404 — unified with GraphQL twin (reader:94 + authpolicy concealed-lookup) and CoversExecutionPaths sibling
 	if status != http.StatusNotFound || !ok || denialBody["error"] != "recipe execution not found" {
 		t.Fatalf("denial response = %#v, %d; want concealed 404", denial, status)
 	}
@@ -96,14 +94,6 @@ func TestRecipeExecutionAuthorizationResponseConcealsDenialAndStructuresOutage(t
 	}
 }
 
-// F-4 (reviewer ses_e66757becffe8uCNimGXbEeIfc): the default arm's own
-// promise. recipeExecutionAuthorizationResponse's docstring keeps a "retryable
-// shared service envelope" for an authorization outage, and the GraphQL twin
-// (recipe_execution_reader.go:94-98 -> recipeExecutionLookupError) emits
-// retryable BACKEND_UNAVAILABLE for an arbitrary catalog/authorization fault.
-// A non-sentinel fault leaving the resolver seam therefore has to keep that
-// envelope here too; the shipped arm instead emitted a non-retryable
-// INTERNAL_ERROR under the 503.
 func TestRecipeExecutionAuthorizationResponseStructuresArbitraryFaultLikeTheTwin(t *testing.T) {
 	outage, status := recipeExecutionAuthorizationResponse(context.Background(), errors.New("catalog auth path listing exploded"))
 	if status != http.StatusServiceUnavailable {
@@ -129,10 +119,6 @@ func TestRecipeExecutionAuthorizationResponseStructuresArbitraryFaultLikeTheTwin
 	}
 }
 
-// Same promise at the client-visible wire: an arbitrary (non-sentinel) fault
-// surfacing from the per-generation resolver must reach the caller as the
-// generated retryable 503 outage envelope, exactly like the sentinel outage
-// case below.
 func TestGetRecipeExecutionAuthorizationArbitraryFaultIsRetryableOutage(t *testing.T) {
 	routes := &HTTPRoutes{
 		releases: recipeExecutionCatalog{execution: publication.BundleExecution{
@@ -178,13 +164,6 @@ func TestGetRecipeExecutionReturnsGeneratedRetryableOutage(t *testing.T) {
 	}
 }
 
-// assertRecipeExecutionRetryableOutage proves the client-visible wire shape is
-// the generated typed retryable outage envelope: the concrete response type is
-// the retryable 503 discriminator, and the marshaled body carries an explicit
-// retryable=true flag with the stable BACKEND_UNAVAILABLE code. Derived from
-// docs/loom-reliability-contract.md ("Retryability is explicit; clients do not
-// infer it from an HTTP status or message") and openapi/openapi.yaml
-// getRecipeExecution's declared 503, not from the handler's internals.
 func assertRecipeExecutionRetryableOutage(t *testing.T, response loomapi.GetRecipeExecutionResponseObject, cause string) {
 	t.Helper()
 	typed, ok := response.(loomapi.GetRecipeExecution503JSONResponse)
@@ -207,9 +186,6 @@ func assertRecipeExecutionRetryableOutage(t *testing.T, response loomapi.GetReci
 	}
 }
 
-// A raw Arango fault must stay an explicit retryable outage instead of folding
-// into a permanent non-retryable not-found. Mirror of the GraphQL twin
-// recipe_execution_reader.go:81-99 (faults -> retryable BACKEND_UNAVAILABLE).
 func TestGetRecipeExecutionStoreFaultIsRetryableOutage(t *testing.T) {
 	routes := &HTTPRoutes{releases: recipeExecutionFaultCatalog{err: errors.New("arango connection reset")}}
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
@@ -219,7 +195,6 @@ func TestGetRecipeExecutionStoreFaultIsRetryableOutage(t *testing.T) {
 	assertRecipeExecutionRetryableOutage(t, response, "raw store fault")
 }
 
-// A deadline overrun is a transient fault, not evidence the execution is gone.
 func TestGetRecipeExecutionDeadlineExceededIsRetryableOutage(t *testing.T) {
 	routes := &HTTPRoutes{releases: recipeExecutionFaultCatalog{err: context.DeadlineExceeded}}
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})
@@ -229,8 +204,6 @@ func TestGetRecipeExecutionDeadlineExceededIsRetryableOutage(t *testing.T) {
 	assertRecipeExecutionRetryableOutage(t, response, "deadline exceeded")
 }
 
-// The only permanent-missing signal is the durable not-found sentinel; a
-// wrapped sentinel keeps the existing concealed not-found body.
 func TestGetRecipeExecutionWrappedBundleNotFoundStaysNotFound(t *testing.T) {
 	routes := &HTTPRoutes{releases: recipeExecutionFaultCatalog{err: fmt.Errorf("arango lookup failed: %w", publication.ErrBundleNotFound)}}
 	response, err := routes.GetRecipeExecution(context.Background(), loomapi.GetRecipeExecutionRequestObject{Id: "execution-a"})

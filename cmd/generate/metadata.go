@@ -71,10 +71,6 @@ func generateFHIRSchema(schema *Schema, path string) error {
 	return os.WriteFile(path, []byte(sb.String()), 0644)
 }
 
-// schemaConcreteLinkTargetType resolves a graph link target from schema
-// semantics. Relationship labels are only a compatibility fallback for older
-// schema entries; the fallback is accepted only when it resolves to a
-// concrete root, so labels can never introduce a graph node by themselves.
 func schemaConcreteLinkTargetType(schema *Schema, link Link) (string, bool) {
 	candidates := []string{refName(link.TargetSchema.Ref)}
 	if candidates[0] == "" {
@@ -98,16 +94,6 @@ func schemaConcreteLinkTargetType(schema *Schema, link Link) (string, bool) {
 	return "", false
 }
 
-// schemaFHIRRootResourceTypes discovers compiler-visible collections from the
-// checked-in graph schema. It deliberately does not carry a copied list of
-// FHIR resource names: a schema definition is a concrete root only when its
-// own resourceType constant names that definition and it has the FHIR Resource
-// root fields (a string id plus an explicit metadata object).
-//
-// The graph schema also publishes the abstract Resource base definition so
-// generated field references can resolve. Its resourceType constant is the
-// generic "Resource" placeholder rather than a concrete graph collection, so
-// it is excluded by role rather than maintaining a list of concrete types.
 func schemaFHIRRootResourceTypes(schema *Schema) []string {
 	if schema == nil {
 		return nil

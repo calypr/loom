@@ -102,20 +102,6 @@ func TestRowLineageRejectsQueryResultsLargerThanRequestedPage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pg-exec-08: the PostgreSQL row-lineage leg. The pg-sql-23 terminal publishes
-// one jsonb contributor page with the bounded {found, contributors, hasMore}
-// contract; the production PostgreSQL row adapter requires the declared
-// column contract on the request and decodes json/jsonb to json.RawMessage.
-// These offline cells pin both seams at the port, fail closed on poisoned
-// pages, keep the missing-row semantics distinct from the empty page, prove
-// cross-tag commands die before the port, and prove admission refusals run
-// zero statements. The Arango []any arm above is the byte-verbatim control.
-// ---------------------------------------------------------------------------
-
-// exec08GroupBundle authors the lineage-capable construction Group output:
-// one direct Observation root scan plus one ordinary GROUP stage (the exact
-// shape the registered pg-sql-23 contributor-page slice renders).
 func exec08GroupBundle() recipe.Bundle {
 	return recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -143,9 +129,6 @@ func exec08GroupBundle() recipe.Bundle {
 	}
 }
 
-// exec08PortCall records one port invocation with the fields the production
-// adapter judges: backend tag, ordered typed parameters, and the declared
-// column contract.
 type exec08PortCall struct {
 	tag      command.CompiledBackend
 	args     []command.PostgreSQLParameter
@@ -153,10 +136,6 @@ type exec08PortCall struct {
 	batch    int
 }
 
-// exec08pgPort mimics the production adapter's dispatch law: the backend tag
-// is checked first (an AQL-tagged or unregistered command is refused with the
-// compiler's typed mismatch before anything else), then each call serves the
-// next scripted row set.
 func exec08pgPort(calls *[]exec08PortCall, batches *[]int, serve func(callIndex int) []map[string]any) func(context.Context, RowsRequest, RowVisitor) error {
 	return func(_ context.Context, request RowsRequest, visit RowVisitor) error {
 		_, args, err := request.Command.PostgreSQLParameters()
@@ -183,8 +162,6 @@ func exec08aqlPort(calls *int) func(context.Context, RowsRequest, RowVisitor) er
 	}
 }
 
-// exec08taggedLineageCommand tags a lineage-shaped statement as the pg-sql-23
-// terminal publishes it, for the cells that drive rowLineageCompiled directly.
 func exec08taggedLineageCommand(t *testing.T) command.CompiledCommand {
 	t.Helper()
 	compiled, err := command.NewPostgreSQLCommand(
@@ -210,17 +187,10 @@ const (
 )
 
 func TestRowLineagePostgreSQLPageRunsThroughTheRowPort(t *testing.T) {
-	// L1: the parent-compiled pg-sql-23 command runs on the one source row
-	// port, the bounded column contract travels on the request, the jsonb
-	// contributor page decodes to typed contributors, and no Arango control
-	// or preview lane is touched.
 	spies := &dispatchSpies{}
 	var calls []exec08PortCall
 	config := spies.arangoEngine()
 	config.CompileTarget = exec02PostgreSQLTarget(t)
-	// The preview lane is armed as a poison port (not nil: the engine's
-	// constructor would fall it back onto SourceRows): the lineage read must
-	// ride the source row port, never the preview lane.
 	config.PreviewSourceRows = func(context.Context, RowsRequest, RowVisitor) error {
 		return errors.New("row lineage must never run on the preview lane")
 	}
@@ -259,8 +229,6 @@ func TestRowLineagePostgreSQLPageRunsThroughTheRowPort(t *testing.T) {
 	if call.batch <= 0 {
 		t.Fatalf("batch hint must be carried on the request: %d", call.batch)
 	}
-	// The requested row identity travels as an ordered text parameter, never
-	// as SQL text.
 	identityParameters := 0
 	for _, arg := range call.args {
 		if arg.Type == command.PostgreSQLParameterText {
@@ -286,9 +254,6 @@ func TestRowLineagePostgreSQLPageRunsThroughTheRowPort(t *testing.T) {
 }
 
 func TestRowLineagePostgreSQLContributorPageFailsClosed(t *testing.T) {
-	// L2: every poisoned contributor page is a typed contract error with no
-	// value, never a silent empty page. The decoded array re-enters the same
-	// per-contributor validation as the native arm.
 	for _, test := range []struct {
 		name         string
 		contributors any
@@ -328,8 +293,6 @@ func TestRowLineagePostgreSQLContributorPageFailsClosed(t *testing.T) {
 }
 
 func TestRowLineagePostgreSQLFoundSemanticsOverJSONB(t *testing.T) {
-	// L3: the missing-row, empty-page, and flag-shape semantics survive the
-	// jsonb wire shape exactly as on the native arm.
 	run := func(row map[string]any) (RowLineageResult, error) {
 		engine := &Engine{batchSize: 32, sourceRows: exec08pgPort(&[]exec08PortCall{}, nil, func(int) []map[string]any {
 			return []map[string]any{row}
@@ -339,8 +302,6 @@ func TestRowLineagePostgreSQLFoundSemanticsOverJSONB(t *testing.T) {
 	if _, err := run(map[string]any{"found": false, "contributors": json.RawMessage(`[]`), "hasMore": false}); !errors.Is(err, ErrRowLineageRowNotFound) {
 		t.Fatalf("keyed group miss over jsonb = %v, want the typed not-found", err)
 	}
-	// A found=false row never reads the contributor column: the not-found
-	// classification stands even when the page would be unreadable.
 	if _, err := run(map[string]any{"found": false, "contributors": json.RawMessage(`nonsense`), "hasMore": false}); !errors.Is(err, ErrRowLineageRowNotFound) {
 		t.Fatalf("found=false with unreadable page = %v, want the typed not-found", err)
 	}
@@ -360,10 +321,6 @@ func TestRowLineagePostgreSQLFoundSemanticsOverJSONB(t *testing.T) {
 }
 
 func TestRowLineageCrossTagCommandsFailBeforeThePort(t *testing.T) {
-	// L4: backend isolation. A PostgreSQL-tagged lineage command handed to an
-	// AQL-shaped port and an AQL-tagged lineage command handed to a
-	// PostgreSQL-shaped port both die on the tag dispatch with zero visits;
-	// the AQL []any arm stays the byte-verbatim control.
 	aqlCalls := 0
 	aqlEngine := &Engine{batchSize: 32, sourceRows: exec08aqlPort(&aqlCalls)}
 	if _, err := aqlEngine.rowLineageCompiled(context.Background(), exec08compiledQuery(exec08taggedLineageCommand(t), 0, 25)); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
@@ -384,7 +341,6 @@ func TestRowLineageCrossTagCommandsFailBeforeThePort(t *testing.T) {
 	if pgCalls != 0 {
 		t.Fatalf("cross-tag command reached the PostgreSQL port: %d calls", pgCalls)
 	}
-	// Control: the native arm still serves the Arango page shape unchanged.
 	nativeEngine := &Engine{batchSize: 32, sourceRows: exec08aqlPort(&aqlCalls)}
 	nativeEngine.sourceRows = func(_ context.Context, request RowsRequest, visit RowVisitor) error {
 		if _, _, err := request.Command.AQLParameters(); err != nil {
@@ -402,9 +358,6 @@ func TestRowLineageCrossTagCommandsFailBeforeThePort(t *testing.T) {
 }
 
 func TestRowLineageAdmissionRefusalsRunZeroStatements(t *testing.T) {
-	// Admission closes before the port: an unknown output, an out-of-range
-	// page, and a forged duplicate-name contract each refuse with zero
-	// statements on the recorder.
 	spies := &dispatchSpies{}
 	var calls []exec08PortCall
 	config := spies.arangoEngine()

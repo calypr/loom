@@ -1,10 +1,5 @@
 package queryapi
 
-// This file contains the transport-neutral FHIR document query facade.  It
-// deliberately delegates planning, authorization, generation resolution, and
-// execution to the same dataframe recipe/compiler/execution path as the rest of
-// GraphQL; no AQL or Arango client is constructed here.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -26,9 +21,6 @@ const (
 	FHIRMaxReadLimit = 10000
 )
 
-// FHIRListRequest is the canonical request used by generated GraphQL root
-// adapters.  Filters are the existing FhirFilterInput values; there is no
-// second filter language for this API.
 type FHIRListRequest struct {
 	Project      string
 	ResourceType string
@@ -36,17 +28,12 @@ type FHIRListRequest struct {
 	Limit        int
 }
 
-// FHIRListResult contains full resource envelopes.  The runtime row shape is
-// intentionally hidden from GraphQL callers; each map is decoded by the
-// generated resource registry in the resolver layer.
 type FHIRListResult struct {
 	Resources   []map[string]any
 	Diagnostics any
 	ReadContext FHIRReadContext
 }
 
-// FHIRReadContext pins reference lookups to the authorization decision and
-// active dataset generation used by the owning root resource.
 type FHIRReadContext struct {
 	Project           string
 	DatasetGeneration string
@@ -54,9 +41,6 @@ type FHIRReadContext struct {
 	Scope             authscope.ReadScope
 }
 
-// ListFHIR executes one whole-document FHIR read through the production
-// semantic and physical compiler.  The Document expression is lowered by the
-// compiler to an envelope containing payload, id, resourceType, and _key.
 func (s *Service) ListFHIR(ctx context.Context, request FHIRListRequest) (*FHIRListResult, error) {
 	request, err := normalizeFHIRListRequest(request)
 	if err != nil {
@@ -66,9 +50,6 @@ func (s *Service) ListFHIR(ctx context.Context, request FHIRListRequest) (*FHIRL
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidLimit, "limit must not exceed 10000 without project write access")
 	}
 
-	// Reuse the existing GraphQL input preparation.  Besides resolving active
-	// READY generation and authorization scope, this validates fieldRef
-	// provenance and preserves all existing filter/operator semantics.
 	in := model.FhirDataframeInput{
 		Project:          request.Project,
 		RootResourceType: request.ResourceType,
@@ -88,8 +69,6 @@ func (s *Service) ListFHIR(ctx context.Context, request FHIRListRequest) (*FHIRL
 	return s.listFHIRPrepared(ctx, request, prepared, read)
 }
 
-// ListFHIRInContext executes an internal reference batch against the exact
-// generation and read scope authorized for its owning resource.
 func (s *Service) ListFHIRInContext(ctx context.Context, read FHIRReadContext, request FHIRListRequest) (*FHIRListResult, error) {
 	request.Project = read.Project
 	normalized, err := normalizeFHIRListRequest(request)
@@ -119,8 +98,6 @@ func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest,
 	if len(bundle.Outputs) != 1 {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
-	// The whole-document expression is backend-neutral.  Compiler support is
-	// additive to the existing selector/literal/call expression nodes.
 	bundle.Outputs[0].Fields = []recipe.Field{{
 		Name: "resource",
 		Expr: recipe.Expression{Document: &recipe.DocumentRef{Context: "root"}},
@@ -151,8 +128,6 @@ func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest,
 		}
 		envelope, ok := value.(map[string]any)
 		if !ok {
-			// Some test/runtime adapters return JSON-shaped values.  Normalize
-			// those through JSON without exposing backend implementation details.
 			data, marshalErr := json.Marshal(value)
 			if marshalErr != nil {
 				return nil, dataframeerrors.Wrap(marshalErr, dataframeerrors.CodeResourceDecodeFailed, "")
@@ -164,9 +139,6 @@ func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest,
 		if envelope == nil {
 			continue
 		}
-		// Normalize the storage envelope for generated FHIR models.  The
-		// compiler emits payload plus envelope metadata under `key`; overlay
-		// id/resourceType and intentionally omit all internal keys.
 		if payload, ok := envelope["payload"].(map[string]any); ok {
 			overlay := make(map[string]any, len(payload)+2)
 			for key, value := range payload {

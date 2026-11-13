@@ -87,10 +87,6 @@ func (s *Store) AuditRelationshipEdges(ctx context.Context, opts catalog.Relatio
 	return summary, nil
 }
 
-// DiscoverRelationshipObservations returns both storage and Builder views of
-// each aggregate. The catalog stores physical fhir_edge direction; Builder
-// usually traverses its inverse, so dropping the storage provenance here is a
-// correctness bug rather than a presentation detail.
 func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
@@ -229,9 +225,6 @@ func (s *Store) RebuildRelationshipCatalog(ctx context.Context, opts catalog.Rel
 		return catalog.RelationshipRebuildSummary{}, err
 	}
 	vars := map[string]any{"project": opts.Project, "dataset_generation": generation(opts.DatasetGeneration), "auth_resource_paths": opts.AuthResourcePaths, "auth_resource_paths_unrestricted": catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted), "resource_types": fhirschema.ResourceTypes()}
-	// Write-only drain: the query's RETURN 1 rows are scalar, which the
-	// cursor row decoder rejects (map[string]any), so this must not go
-	// through QueryRows.
 	if err := s.client.ExecuteAQL(ctx, relationshipClearAQL, vars); err != nil {
 		return catalog.RelationshipRebuildSummary{}, err
 	}

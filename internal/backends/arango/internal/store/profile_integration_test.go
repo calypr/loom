@@ -9,10 +9,6 @@ import (
 	"time"
 )
 
-// TestProfileCorpusAgainstArango is opt-in because it reads a provisioned
-// Arango/META database. The queries are deliberately generic physical shapes,
-// not compiler or GDC fixtures: each protects a class of AQL operation that a
-// FHIR dataframe compiler must be able to emit for any schema route.
 func TestProfileCorpusAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run Arango profile corpus")
@@ -77,11 +73,6 @@ func TestProfileCorpusAgainstArango(t *testing.T) {
 	}
 }
 
-// TestCompoundEdgeIndexExplainAgainstArango audits the endpoint-first
-// persistent indexes without mutating the database. Equality filters should
-// select the complete inbound/outbound compound index. Multi-type filters are
-// recorded as an observation because Arango may choose the edge index for one
-// direction when the IN predicate is less selective.
 func TestCompoundEdgeIndexExplainAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run Arango index audit")
@@ -180,11 +171,6 @@ func TestCompoundEdgeIndexExplainAgainstArango(t *testing.T) {
 	}
 }
 
-// TestReceiptPreviewExplainAgainstArango is an opt-in contract smoke test for
-// the canonical query shapes emitted from immutable compilation receipts. It
-// deliberately asserts only that Arango can produce a plan (and records index
-// observations); physical index choice can vary with the provisioned corpus
-// and optimizer version.
 func TestReceiptPreviewExplainAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
 		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run receipt preview EXPLAIN fixtures")

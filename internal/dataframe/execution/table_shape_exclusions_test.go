@@ -131,6 +131,88 @@ func TestTableShapeExclusionsCompiledRejectsMalformedRowsWithoutPartialSuccess(t
 	}
 }
 
+func TestTableShapeExclusionsCompiledParserViolationsFailLoud(t *testing.T) {
+	base := func() map[string]any {
+		return tableShapeExclusionRow("Observation", "good", true, "a", "STRING", "row-a")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(row map[string]any)
+	}{
+		{"presence as string", func(row map[string]any) {
+			row["categoryPresent"] = "true"
+		}},
+		{"presence as SQL NULL", func(row map[string]any) {
+			row["categoryPresent"] = nil
+		}},
+		{"presence absent", func(row map[string]any) {
+			delete(row, "categoryPresent")
+		}},
+		{"category value absent", func(row map[string]any) {
+			delete(row, "categoryValue")
+		}},
+		{"category type as raw JSON", func(row map[string]any) {
+			row["categoryType"] = exec12JSON(`"STRING"`)
+		}},
+		{"category type empty", func(row map[string]any) {
+			row["categoryType"] = ""
+		}},
+		{"row identity as number", func(row map[string]any) {
+			row["outputRowId"] = 7
+		}},
+		{"row identity empty", func(row map[string]any) {
+			row["outputRowId"] = ""
+		}},
+		{"reason drifted", func(row map[string]any) {
+			row["reason"] = "SOMETHING_ELSE"
+		}},
+		{"identity status as raw JSON", func(row map[string]any) {
+			row["identityStatus"] = exec12JSON(`"EXACT"`)
+		}},
+		{"identity status unknown", func(row map[string]any) {
+			row["identityStatus"] = "SOMETHING"
+		}},
+		{"exact identity type not a string", func(row map[string]any) {
+			row["resourceType"] = 5
+		}},
+		{"exact identity type empty string", func(row map[string]any) {
+			row["resourceType"] = ""
+		}},
+		{"exact identity type SQL NULL", func(row map[string]any) {
+			row["resourceType"] = nil
+		}},
+		{"exact identity id empty string", func(row map[string]any) {
+			row["resourceId"] = ""
+		}},
+		{"exact identity id absent", func(row map[string]any) {
+			delete(row, "resourceId")
+		}},
+		{"unavailable omission missing", func(row map[string]any) {
+			row["identityStatus"] = ir.PhysicalTableShapeExclusionIdentityUnavailable
+			row["omission"] = nil
+		}},
+		{"unavailable omission drifted", func(row map[string]any) {
+			row["identityStatus"] = ir.PhysicalTableShapeExclusionIdentityUnavailable
+			row["omission"] = "WRONG"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			row := base()
+			test.mutate(row)
+			engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, _ RowsRequest, visit RowVisitor) error {
+				return visit(row)
+			}}
+			result, err := engine.TableShapeExclusionsCompiled(context.Background(), compiledTableShapeExclusionPage(0, 10))
+			if err == nil {
+				t.Fatalf("violating row must fail loud, got %#v", result)
+			}
+			if result.Exclusions != nil || result.Complete || result.Status == TableShapeExclusionComplete || result.Status == TableShapeExclusionIncomplete {
+				t.Fatalf("no partial success on parse violation: %#v", result)
+			}
+		})
+	}
+}
+
 func TestTableShapeExclusionsReportsUnsupportedAndNoPolicy(t *testing.T) {
 	engine := testEngine(func(_ context.Context, request RowsRequest, _ RowVisitor) error {
 		command := request.Command
@@ -204,18 +286,6 @@ func tableShapeExclusionRow(resourceType, resourceID string, present bool, value
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pg-exec-12: PostgreSQL evidence execution arm. These tests own the
-// execution-side consumption of the pg-sql-26 terminal: the backend switch,
-// the nine-field declared column contract derived from the compiled metadata
-// in renderer (c0..c8) order, the dialect parser's violation parity with the
-// AQL parser, the missing / JSON-null / SQL-NULL three-state carry, and the
-// honest-status matrix (UNSUPPORTED capability gaps vs fail-loud routing and
-// execution errors vs INCOMPLETE cancellation). The AQL arms above are
-// byte-own to Arango; the controls below pin that the switch did not reroute
-// or retime them.
-// ---------------------------------------------------------------------------
-
 func exec12PostgreSQLTarget(t *testing.T) compiler.Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("loom")
@@ -229,8 +299,6 @@ func exec12PostgreSQLTarget(t *testing.T) compiler.Target {
 	return target
 }
 
-// exec12PGCommand builds a PostgreSQL-tagged command shaped like the
-// pg-sql-26 terminal tail (window as two ordered bigint parameters).
 func exec12PGCommand(offset, fetchLimit int) command.CompiledCommand {
 	compiledCommand, err := command.NewPostgreSQLCommand(
 		`WITH px_src AS (SELECT 1) SELECT 1 FROM px_src AS p ORDER BY 1 OFFSET $1 LIMIT $2`,
@@ -259,8 +327,6 @@ func exec12PGCompiled(offset, limit int) compiler.CompiledTableShapeExclusionQue
 	}
 }
 
-// exec12PGRow renders one adapter-shaped evidence row: jsonb columns arrive
-// as json.RawMessage (SQL NULL as nil), text columns as Go strings.
 func exec12PGRow(resourceType, resourceID any, identityStatus string, present any, value any, categoryType, rowID string) map[string]any {
 	omission := any(nil)
 	if identityStatus == ir.PhysicalTableShapeExclusionIdentityUnavailable {
@@ -298,14 +364,9 @@ func exec12EngineForTarget(t *testing.T, target compiler.Target, port SourceRows
 
 func TestPostgreSQLTableShapeExclusionsDecodesCanonicalEvidenceRows(t *testing.T) {
 	rows := []map[string]any{
-		// Exact identity, string category.
 		exec12PGRow(exec12JSON(`"Patient"`), exec12JSON(`"patient-ada"`), ir.PhysicalTableShapeExclusionIdentityExact, exec12JSON(`true`), exec12JSON(`"zeta"`), "STRING", "row-1"),
-		// Exact identity, explicit JSON-null category: present=true, value is
-		// the raw JSON null, NOT flattened to SQL NULL.
 		exec12PGRow(exec12JSON(`"Patient"`), exec12JSON(`"patient-alan"`), ir.PhysicalTableShapeExclusionIdentityExact, exec12JSON(`true`), exec12JSON(`null`), "STRING", "row-2"),
-		// Missing category: present=false, SQL NULL value.
 		exec12PGRow(exec12JSON(`"Patient"`), exec12JSON(`"patient-grace"`), ir.PhysicalTableShapeExclusionIdentityExact, exec12JSON(`false`), nil, "STRING", "row-3"),
-		// Identity unavailable: explicit omission, no identity members.
 		exec12PGRow(nil, nil, ir.PhysicalTableShapeExclusionIdentityUnavailable, exec12JSON(`true`), exec12JSON(`"omega"`), "STRING", "row-4"),
 	}
 	var gotRequest RowsRequest
@@ -328,7 +389,6 @@ func TestPostgreSQLTableShapeExclusionsDecodesCanonicalEvidenceRows(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Contract law: nine frozen evidence fields in renderer c0..c8 order.
 	wantContract := []string{
 		ir.PhysicalTableShapeExclusionResourceTypeField,
 		ir.PhysicalTableShapeExclusionResourceIDField,
@@ -343,8 +403,6 @@ func TestPostgreSQLTableShapeExclusionsDecodesCanonicalEvidenceRows(t *testing.T
 	if !reflect.DeepEqual(gotRequest.DeclaredColumns, wantContract) {
 		t.Fatalf("declared contract = %v, want %v", gotRequest.DeclaredColumns, wantContract)
 	}
-	// The shared omission law (AQL-owned above): any identity-omission row
-	// marks the page INCOMPLETE, never a complete report.
 	if result.Status != TableShapeExclusionIncomplete || result.Complete || result.HasMore || result.NextOffset != 0 || len(result.Exclusions) != 4 {
 		t.Fatalf("result = %#v", result)
 	}
@@ -538,9 +596,6 @@ func TestPostgreSQLTableShapeExclusionsPortErrorsReportHonestStatuses(t *testing
 		}
 	})
 	t.Run("AQL arm keeps its hard-error law unchanged", func(t *testing.T) {
-		// Control: the switch must not have given the AQL voice an
-		// UNSUPPORTED escape. A not-registered error on the AQL arm stays a
-		// hard error, exactly as before pg-exec-12.
 		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(context.Context, RowsRequest, RowVisitor) error {
 			return fmt.Errorf("%w: arango down", command.ErrCompiledCommandBackendNotRegistered)
 		}}
@@ -575,7 +630,7 @@ func TestPostgreSQLTableShapeExclusionsPortErrorsReportHonestStatuses(t *testing
 			t.Fatalf("missing-metadata error drifted: %v", err)
 		}
 		zero := exec12PGCompiled(0, 10)
-		zero.Command = command.CompiledCommand{} // unregistered tag
+		zero.Command = command.CompiledCommand{}
 		if _, err := engine.TableShapeExclusionsCompiled(context.Background(), zero); err == nil || err.Error() != "table-shape exclusion query is missing typed result metadata" {
 			t.Fatalf("zero-tag command must be refused with the typed metadata error: %v", err)
 		}
@@ -610,8 +665,6 @@ func TestTableShapeExclusionsPostgreSQLTargetEntryRefusalsStayDistinct(t *testin
 	}
 	bindings := recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"}
 
-	// The PostgreSQL engine: statements are counted so every refusal leg
-	// also witnesses zero executed statements.
 	statements := 0
 	pgEngine := exec12EngineForTarget(t, exec12PostgreSQLTarget(t), func(_ context.Context, request RowsRequest, visit RowVisitor) error {
 		statements++
@@ -670,7 +723,6 @@ func TestTableShapeExclusionsPostgreSQLTargetEntryRefusalsStayDistinct(t *testin
 			if len(request.DeclaredColumns) != 0 {
 				t.Fatalf("the AQL arm stays contract-free, got %v", request.DeclaredColumns)
 			}
-			// AQL-native row shape: driver-decoded values, not RawMessage.
 			return visit(map[string]any{
 				ir.PhysicalTableShapeExclusionResourceTypeField:    "Observation",
 				ir.PhysicalTableShapeExclusionResourceIDField:      "obs-1",
@@ -690,9 +742,6 @@ func TestTableShapeExclusionsPostgreSQLTargetEntryRefusalsStayDistinct(t *testin
 		if result, err := aqlEngine.TableShapeExclusions(context.Background(), resolved, TableShapeExclusionRequest{Output: "Observations", Limit: 10}); err != nil || result.Status != TableShapeExclusionNoExclusionPolicy {
 			t.Fatalf("AQL no-policy twin drifted: %#v %v", result, err)
 		}
-		// The filtered shape renders at AQL (the X7 divergence is
-		// PostgreSQL-surface-specific): the same data that is UNSUPPORTED on
-		// PostgreSQL yields executed evidence on AQL.
 		filteredResolved, err := aqlEngine.CompileResolvedBundle(context.Background(), filteredBundle(), bindings)
 		if err != nil {
 			t.Fatal(err)

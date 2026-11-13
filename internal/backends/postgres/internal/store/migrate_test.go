@@ -48,12 +48,6 @@ func migrationSet(t *testing.T, base []Migration, extra map[string]string) []Mig
 	return set
 }
 
-// ledgerOnlyMigrations returns just the version-1 ledger bootstrap from the
-// embedded history. The runner-semantics tests build synthetic histories of
-// their own (their own 000002+ files) on top of this base; the base must
-// stay ledger-only so their fixed expectations (versions 2..3, {Latest:3,
-// Applied:3}) do not shift every time a feature ticket appends a migration
-// through the runner.
 func ledgerOnlyMigrations(t *testing.T) []Migration {
 	t.Helper()
 	migrations := mustEmbeddedMigrations(t)
@@ -122,15 +116,6 @@ func TestMigrationLoadRejectsInvalidFiles(t *testing.T) {
 	}
 }
 
-// wantEmbeddedChecksums pins, per migration version, the expected name and
-// the SHA-256 hex of the migration file's exact bytes, computed
-// independently of the runner (sha256sum of the file under migrations/).
-// The embedded loader computes every Checksum with migrationChecksum, so
-// comparing against migrationChecksum again would be self-referential;
-// these literals fail the bootstrap test if anyone edits migration SQL
-// without intending to. A ticket that appends a new migration must add its
-// entry here (the deliberate edit gate); the runner's edited-checksum test
-// covers the same drift against a stale ledger at apply time.
 var wantEmbeddedChecksums = map[int64]struct {
 	name     string
 	checksum string
@@ -151,11 +136,6 @@ func TestEmbeddedMigrationsBootstrapsTheLedger(t *testing.T) {
 	if len(migrations) == 0 {
 		t.Fatal("embedded history is empty; the ledger bootstrap must always be present")
 	}
-	// The history is a strictly ascending chain that begins with the
-	// ledger bootstrap. Feature tickets (pg-store-04 resources, pg-store-03
-	// edges, ...) append migrations through this runner, so the count is
-	// deliberately not pinned here; the bootstrap identity, the ordering,
-	// and the pinned per-file checksums are.
 	first := migrations[0]
 	if first.Version != 1 || first.Name != "ledger" {
 		t.Fatalf("bootstrap migration = {Version:%d Name:%q}, want {1 ledger}", first.Version, first.Name)
@@ -264,20 +244,13 @@ func TestMigrationAdvisoryLockKey(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-// ---------------------------------------------------------------------------
-
 var pgstore02ResourceNamePattern = regexp.MustCompile(`^pgstore02_it_[0-9]+_[0-9a-f]+$`)
 
-// migrationService owns one isolated database and one owned schema inside
-// it, both named pgstore02_it_*, created for exactly one test and removed by
-// that test's cleanups. Nothing outside these two resources is touched.
 type migrationService struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database
-	dsn    string        // isolated database DSN (credentials scrubbed on failure)
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
+	dsn    string
 	schema string
 	scrub  func(any) string
 	fail   func(step string, err error)
@@ -292,7 +265,6 @@ func newMigrationService(t *testing.T) *migrationService {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -331,15 +303,12 @@ func newMigrationService(t *testing.T) *migrationService {
 		fail("create isolated database", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the database this test created.
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
 			t.Errorf("drop isolated database: %s", scrub(err))
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -362,7 +331,6 @@ func newMigrationService(t *testing.T) *migrationService {
 		fail("create owned schema", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the schema this test created.
 		if _, err := iso.Exec(context.WithoutCancel(ctx),
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
 			t.Errorf("drop owned schema: %s", scrub(err))
@@ -372,8 +340,6 @@ func newMigrationService(t *testing.T) *migrationService {
 	return &migrationService{ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub, fail: fail}
 }
 
-// openClient opens a second readiness-checked pool against the isolated
-// database, so a caller gets its own physical connections.
 func (s *migrationService) openClient(t *testing.T) *Client {
 	t.Helper()
 	return s.openClientWithBounds(t, 1, 3)
@@ -403,14 +369,11 @@ func (s *migrationService) newRunner(t *testing.T, src ConnSource, migrations []
 	return runner
 }
 
-// readLedger witnesses the ledger through the test's own pool, independent
-// of the runner.
 func (s *migrationService) readLedger(t *testing.T) []LedgerRecord {
 	t.Helper()
 	rows, err := s.iso.Query(s.ctx,
 		`SELECT version, name, checksum, applied_at FROM "`+s.schema+`".`+LedgerTable+` ORDER BY version`)
 	if err != nil {
-		// A missing ledger table is an empty history, matching the runner.
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
 			return nil
@@ -483,7 +446,6 @@ func TestMigrationConcurrentCallersApplyExactlyOnce(t *testing.T) {
 	clientA := svc.openClient(t)
 	clientB := svc.openClient(t)
 
-	// Prove the two callers run on separate physical connections.
 	pidOf := func(client *Client, tag string) int32 {
 		conn, err := client.Acquire(svc.ctx)
 		if err != nil {
@@ -542,7 +504,6 @@ func TestMigrationConcurrentCallersApplyExactlyOnce(t *testing.T) {
 		t.Fatalf("result = {LatestVersion:%d Applied:%d}, want {3 3}",
 			results[0].LatestVersion, len(results[0].Applied))
 	}
-	// Exactly once: one ledger row per migration, no version twice.
 	assertLedgerEquals(t, svc.readLedger(t), set)
 	if got := svc.regclass(t, "alpha"); got == "" {
 		t.Error("alpha absent from the owned schema")
@@ -601,8 +562,6 @@ func TestMigrationEditedChecksumFailsBeforeApply(t *testing.T) {
 		t.Errorf("mismatch checksums = {ledger:%s computed:%s}, want the original and edited sha256",
 			mismatch.LedgerChecksum, mismatch.ComputedChecksum)
 	}
-	// Refused before application: the edited body never ran and the ledger
-	// still records the original checksum.
 	if got := svc.regclass(t, "edited_marker"); got != "" {
 		t.Errorf("edited_marker exists (%s); edited migration was applied", got)
 	}
@@ -617,7 +576,6 @@ func TestMigrationFutureSchemaVersionFailsBeforeApply(t *testing.T) {
 	})
 	svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), full))
 
-	// This binary only knows versions 1..2 while the ledger holds 3.
 	outdated := migrationSet(t, ledgerOnlyMigrations(t), map[string]string{
 		"000002_alpha.sql": "CREATE TABLE alpha (id int);\n",
 	})
@@ -632,7 +590,6 @@ func TestMigrationFutureSchemaVersionFailsBeforeApply(t *testing.T) {
 	if future.LedgerVersion != 3 || future.LedgerName != "beta" || future.LatestEmbedded != 2 {
 		t.Errorf("future-version error = %+v, want {LedgerVersion:3 LedgerName:beta LatestEmbedded:2}", future)
 	}
-	// Nothing was applied or recorded; the ledger is untouched.
 	assertLedgerEquals(t, svc.readLedger(t), full)
 }
 
@@ -644,7 +601,6 @@ func TestMigrationMissingEmbeddedFileFails(t *testing.T) {
 	})
 	svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), applied))
 
-	// Version 3 vanished from the history; version 4 would be pending.
 	shuffled := migrationSet(t, ledgerOnlyMigrations(t), map[string]string{
 		"000002_alpha.sql": "CREATE TABLE alpha (id int);\n",
 		"000004_delta.sql": "CREATE TABLE delta (id int);\n",
@@ -709,14 +665,11 @@ func TestMigrationFailingDDLRollsBackAndKeepsLedgerIntact(t *testing.T) {
 	if applyErr.Version != 3 || applyErr.Name != "bad" || applyErr.Op != "apply" {
 		t.Errorf("apply error = %+v, want {Version:3 Name:bad Op:apply}", applyErr)
 	}
-	// The failing statement's class must stay inspectable through the chain.
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "42P01" {
 		t.Errorf("apply error does not chain the undefined-table PgError: %v", err)
 	}
 
-	// The failing migration's DDL rolled back; the prior committed migration
-	// and its ledger rows are intact; nothing was recorded for version 3.
 	if got := svc.regclass(t, "rollback_probe"); got != "" {
 		t.Errorf("rollback_probe exists (%s); failing migration DDL was not rolled back", got)
 	}
@@ -728,8 +681,6 @@ func TestMigrationFailingDDLRollsBackAndKeepsLedgerIntact(t *testing.T) {
 	})
 	assertLedgerEquals(t, svc.readLedger(t), prior)
 
-	// Correcting the history converges: version 3 applies, version 2 is not
-	// re-run (its inserted row count proves exactly-once).
 	fixed := migrationSet(t, ledgerOnlyMigrations(t), map[string]string{
 		"000002_ok.sql":  "CREATE TABLE audit_ok (id int);\nINSERT INTO audit_ok VALUES (1);\n",
 		"000003_bad.sql": "CREATE TABLE rollback_probe (id int);\n",
@@ -751,24 +702,11 @@ func TestMigrationFailingDDLRollsBackAndKeepsLedgerIntact(t *testing.T) {
 	}
 }
 
-// TestMigrationUnconfirmedUnlockDiscardsConnection covers the
-// discardPoolConn branch: a migration whose SQL surrenders the session's
-// advisory locks makes the runner's confirming unlock report false, so the
-// connection's lock state is unproven and must be discarded rather than
-// pooled. The run must surface the unconfirmed release as an error even
-// though the migration itself applied and was recorded, and the pool must
-// prove the discard: with MinConns 0 the physical connection count drops
-// (a mere return-to-pool would leave it in place, which AcquiredConns
-// alone cannot detect).
 func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
 	svc := newMigrationService(t)
 	set := migrationSet(t, ledgerOnlyMigrations(t), map[string]string{
 		"000002_surrender.sql": "SELECT pg_catalog.pg_advisory_unlock_all();\nCREATE TABLE surrendered (id int);\n",
 	})
-	// MinConns 0 keeps the discard observable: a destroyed connection is
-	// never replaced in the background, so the pool's physical total drops
-	// exactly when the unproven connection was discarded rather than
-	// returned to the pool. AcquiredConns alone cannot tell the two apart.
 	client := svc.openClientWithBounds(t, 0, 3)
 	before := client.pool.Stat().TotalConns()
 	if before == 0 {
@@ -779,10 +717,7 @@ func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "already unlocked") {
 		t.Fatalf("Migrate with a lock-surrendering migration = %v, want already-unlocked release error", err)
 	}
-	// The migration still applied and recorded exactly once.
 	assertLedgerEquals(t, svc.readLedger(t), set)
-	// The unproven connection was discarded, not returned to the pool: it
-	// holds no acquired connection AND the pool's physical total dropped.
 	if acquired := client.pool.Stat().AcquiredConns(); acquired != 0 {
 		t.Errorf("pool still holds %d acquired connections; the poisoned connection was not discarded", acquired)
 	}
@@ -790,19 +725,12 @@ func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
 		t.Errorf("pool physical conns = %d after the unconfirmed unlock, want a drop below the pre-run %d: "+
 			"the unproven connection was returned to the pool instead of discarded", total, before)
 	}
-	// The pool is still usable for migrations on this schema.
 	again := svc.mustMigrate(t, svc.newRunner(t, client, set))
 	if again.LatestVersion != 2 {
 		t.Fatalf("follow-up LatestVersion = %d, want 2", again.LatestVersion)
 	}
 }
 
-// TestMigrationPanicUnderLockReleasesLockAndLeaksNothing pins the
-// panic-safety requirement: a panic inside the locked section must still
-// release the session-level advisory lock and return (or discard) the
-// connection, so a recovered panic upstream cannot permanently wedge every
-// future Migrate on the schema or leak a pool connection. The panic itself
-// must still propagate to the caller.
 func TestMigrationPanicUnderLockReleasesLockAndLeaksNothing(t *testing.T) {
 	svc := newMigrationService(t)
 	set := migrationSet(t, ledgerOnlyMigrations(t), map[string]string{
@@ -822,16 +750,12 @@ func TestMigrationPanicUnderLockReleasesLockAndLeaksNothing(t *testing.T) {
 	if recovered, ok := panicked.(error); !ok || !errors.Is(recovered, injected) {
 		t.Fatalf("panic under the lock was not propagated: %v", panicked)
 	}
-	// Nothing was applied: the panic landed before any ledger work.
 	if rows := svc.readLedger(t); len(rows) != 0 {
 		t.Errorf("ledger has %d rows after the injected panic, want 0", len(rows))
 	}
-	// The connection was returned or discarded, never orphaned in the
-	// acquired state.
 	if acquired := client.pool.Stat().AcquiredConns(); acquired != 0 {
 		t.Errorf("pool still holds %d acquired connections after the panic", acquired)
 	}
-	// The lock is free: a fresh connection can run the whole history now.
 	recovered := svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), set))
 	if recovered.LatestVersion != 2 {
 		t.Fatalf("post-panic LatestVersion = %d, want 2", recovered.LatestVersion)
@@ -839,10 +763,6 @@ func TestMigrationPanicUnderLockReleasesLockAndLeaksNothing(t *testing.T) {
 	assertLedgerEquals(t, svc.readLedger(t), set)
 }
 
-// waitAdvisoryLock blocks until an advisory lock on the isolated database
-// appears (granted=wait) or disappears (granted=return) in pg_locks, so the
-// contended-acquisition test starts its loser exactly while the holder is
-// inside the locked section.
 func waitAdvisoryLock(t *testing.T, svc *migrationService, present bool) {
 	t.Helper()
 	query := `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted
@@ -863,14 +783,6 @@ func waitAdvisoryLock(t *testing.T, svc *migrationService, present bool) {
 	}
 }
 
-// TestMigrationContendedAcquireDeadlineIsNamed drives the two-connection
-// contended-acquisition path: a holder migrates a sleep-bearing migration
-// while a second, separate connection attempts Migrate with a short context
-// deadline. The loser must fail with the named acquisition error (chained to
-// its deadline/cancellation cause), the racing connection must be closed
-// rather than pooled with an unknown lock state, and after the holder
-// finishes a fresh caller must acquire the lock immediately -- no residue
-// from the aborted attempt.
 func TestMigrationContendedAcquireDeadlineIsNamed(t *testing.T) {
 	svc := newMigrationService(t)
 	set := migrationSet(t, ledgerOnlyMigrations(t), map[string]string{
@@ -899,19 +811,14 @@ func TestMigrationContendedAcquireDeadlineIsNamed(t *testing.T) {
 		!(errors.As(err, &pgErr) && pgErr.Code == "57014") {
 		t.Fatalf("acquisition error does not chain a deadline or cancellation cause: %v", err)
 	}
-	// The racing connection was discarded, not pooled with unknown lock
-	// state: the loser's pool holds nothing acquired.
 	if acquired := loserClient.pool.Stat().AcquiredConns(); acquired != 0 {
 		t.Errorf("loser pool still holds %d acquired connections; racing connection was not discarded", acquired)
 	}
 
-	// The holder completes normally on its own connection.
 	if holderErr := <-holderDone; holderErr != nil {
 		svc.fail("holder Migrate", holderErr)
 	}
 
-	// No lock residue: a brand-new caller acquires immediately and sees the
-	// applied history.
 	started := time.Now()
 	fresh := svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), set))
 	if waited := time.Since(started); waited > 2*time.Second {
@@ -920,7 +827,6 @@ func TestMigrationContendedAcquireDeadlineIsNamed(t *testing.T) {
 	if fresh.LatestVersion != 2 {
 		t.Fatalf("fresh LatestVersion = %d, want 2", fresh.LatestVersion)
 	}
-	// The loser's pool recovered and can still migrate on this schema.
 	if _, err := loserRunner.Migrate(svc.ctx); err != nil {
 		svc.fail("loser client retry after deadline", err)
 	}
@@ -940,8 +846,6 @@ func TestMigrationSchemaMustExist(t *testing.T) {
 
 func TestMigrationEmbeddedBootstrapAppliesIdempotently(t *testing.T) {
 	svc := newMigrationService(t)
-	// Applies the full embedded history (bootstrap plus feature migrations
-	// appended through this runner) and proves idempotent re-apply.
 	embedded := mustEmbeddedMigrations(t)
 	wantLatest := embedded[len(embedded)-1].Version
 	first, err := MigrateSchema(svc.ctx, svc.openClient(t), svc.schema)
@@ -962,13 +866,6 @@ func TestMigrationEmbeddedBootstrapAppliesIdempotently(t *testing.T) {
 	assertLedgerEquals(t, svc.readLedger(t), mustEmbeddedMigrations(t))
 }
 
-// TestMigrationNoLeftovers runs after every other migration test in this
-// file (Go runs a package's tests in source order, and each test's cleanups
-// finish before the next test starts). It asserts that the suite left zero
-// owned resources behind: no pgstore02_it_* database on the service and no
-// pgstore02_it_* schema in the service database. A hit here means an earlier
-// run died before its cleanups converged; drop only resources carrying this
-// ticket's unique prefix.
 func TestMigrationNoLeftovers(t *testing.T) {
 	raw := testPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

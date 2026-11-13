@@ -1,92 +1,5 @@
 package postgres
 
-// This file registers the G3(c) related-occurrence Group adapter
-// (ir.PhysicalStageGroupRelatedOccurrenceAdapter) as an implemented, closed
-// PostgreSQL operation slice, closing the L-13.5 named gap for the composed
-// construction door (pg-sql-16 plan §5 G3(c)).
-//
-// The AQL counterpart is render/aql/construction_group.go
-// renderConstructionGroupRelatedOccurrenceInput (:445-615): for every input
-// row it runs the Group-owned route as a bounded related-expand subplan
-// (renderConstructionRelatedExpandStage, lowered by
-// lower/recipe_construction_related_expand.go lowerConstructionRelatedExpand),
-// merges the reached target's selected scalars, the unnested Coding
-// membership, and the occurrence key into the Group input row, and lets the
-// FOR loop multiply the rows the GROUP then aggregates.
-//
-// The registered PostgreSQL spelling keeps that reading with ONE correlated
-// expansion per (stage, route), materialized inside the group slice's own
-// source CTE:
-//
-//   - The hop chain reuses the traversal slice's validated contracts:
-//     validateTraversalContract re-reads every discriminator (direction,
-//     strategy, EdgeTargetTypeField, the fhir_edge bind, the label and
-//     endpoint type binds) and edgeOccurrencePredicates renders both
-//     predicate chains of the edge x target occurrence join — the exact
-//     INNER edge x target spelling sets.go:82-95 cites as the hop contract.
-//     The anchor is the prior relation's materialized root _key, so the
-//     first hop correlates through an explicit anchor scan of the root
-//     collection: the counterpart of the anchor-prefixed subplan the
-//     lowering emits (recipe_construction_related_expand.go:98-130), which
-//     sets.go refuses for its hop-only surfaces. Every hop closes with its
-//     canonical scope block, consumed by matchCanonicalScopeBlock and
-//     ignored (scope.go is the single scope authority, D5).
-//   - The route row set is UNIQUE by terminal identity and ordered by it:
-//     DISTINCT ON (target logical_id) ORDER BY the same expression under
-//     COLLATE "C". That is the subplan's Sort={terminal _id} + Unique
-//     contract (recipe_construction_related_expand.go:215-217), and
-//     logical_id is the registered counterpart of the Arango document
-//     identity (graph.go:99-107 and canonicalKeyColumn, render.go:171-184):
-//     the store never materializes the sanitized _key and identity is the
-//     raw id by the same ingest contract, so terminal_id and resource_id
-//     both read logical_id — the registered residual graph.go registers for
-//     ids that required Arango sanitization.
-//   - The Coding expansion reuses the unnest slice's registered shape
-//     (unnest.go:603-656): jsonb_array_elements(...) WITH ORDINALITY, the
-//     terminal stored-JSON-null item filter, and a ROW_NUMBER over the
-//     WITH-ORDINALITY position, whose dense survivor position minus one is
-//     the zero-based ordinal ir pins
-//     (ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY); "rn IS NOT NULL"
-//     is the two-valued has-item witness.
-//   - The declared Coding empty policy applies only when a target matched,
-//     exactly as the AQL reference does (construction_group.go:532-554):
-//     GROUP keeps the pad row, EXCLUDE drops it through a WHERE conjunct,
-//     ERROR raises CONSTRUCTION_EXPANSION_EMPTY through the registered
-//     guard cast.
-//   - The occurrence key is the AQL object of construction_group.go:599-607
-//     — {root_id, terminal_id, item_present, ordinal} — materialized as
-//     jsonb next to the has-item, route-has-item, and rank witnesses. The
-//     rank pins the registered total order (terminal identity under
-//     COLLATE "C", then the Coding ordinal), it is the ORDER BY of the
-//     group slice's source CTE, and it is handed to the composition
-//     terminal order as the registered refinement, so a route's row order
-//     never depends on PostgreSQL's unspecified scan order.
-//
-// The one-shared-expansion law: every adapter-owned read of one GROUP stage
-// materializes from the SAME lateral subquery — the expansion is rendered
-// once per stage and its materialized columns are what that stage's keys,
-// reducers, and row values address. There is deliberately NO cross-call
-// memo of expansions: a memo keyed by route ID would let one route borrow
-// another route's (or another stage's) correlation, which is exactly the
-// share violation the S9 mutant plants. The binding of an expansion to its
-// own prior relation is therefore structural, and a test re-renders the same
-// route over two relations and requires the two expansions to differ.
-//
-// Refusals (all ErrUnsupportedPostgresPlan, never an AQL fallback, never a
-// partial render): a non-root anchor (the root-contributor set is
-// production-unreachable, L-13.6; an active related-record anchor is a
-// related-route contract), a route subplan carrying an operation outside the
-// anchor prefix + canonical hops + typed contributor FILTER, a non-canonical
-// anchor equality, a target projection field outside the {terminal_id,
-// resource_id} identity pair plus the selected scalars and the one Coding
-// array, ANY direction or endpoint-lookup traversal (the traversal.go
-// twins), and every empty policy outside the three registered forms.
-//
-// All plan data still crosses only the $n boundary: resource types, edge
-// labels, selector paths, and the occurrence/membership object keys are
-// bound parameters; only registry-validated storage columns and
-// renderer-minted aliases reach SQL text.
-
 import (
 	"fmt"
 	"strconv"
@@ -96,53 +9,18 @@ import (
 )
 
 const (
-	// stageRelatedCodingOrdinalSemantics is the ir-pinned ordinal contract
-	// (physical_stage_validation.go:2078); the adapter refuses anything else
-	// rather than number items in the wrong base.
 	stageRelatedCodingOrdinalSemantics = "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY"
 
-	// stageRelatedTerminalField and stageRelatedResourceField are the two
-	// identity fields every related-expand target projection carries
-	// (recipe_construction_related_expand.go:215-225).
 	stageRelatedTerminalField = "terminal_id"
 	stageRelatedResourceField = "resource_id"
-
-	// stageRelatedMembershipFields is the AQL membership object's field set
-	// (construction_group.go:580-587); the CODING_IDENTITY consumer reads
-	// exactly these four names. Its typeof asserts under
-	// CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH belong to that key arm (the AQL
-	// codingIdentityMembershipTypeAssertions twin, group.go's CODING_IDENTITY
-	// registration), not to this emitter: the AQL adapter input rendering
-	// carries no membership assert either.
 )
 
-// stageRelatedOccurrenceRegion is one rendered adapter: the source SELECT the
-// group slice materializes over, the adapter-owned materialized columns
-// (keyed by the stage input column that addresses them), and the registered
-// total-order refinements the composition terminal appends after the group
-// slice's own key + identity order.
 type stageRelatedOccurrenceRegion struct {
-	// sourceText is the group slice's source SELECT: the prior relation's
-	// positional columns plus this adapter's materialized columns.
 	sourceText string
-	// columns maps each adapter-owned stage input column name onto its
-	// materialized column in the group slice's groupColumn form.
-	columns map[string]groupColumn
-	// orderTerms are the registered total-order refinements, already
-	// qualified for the composition terminal alias.
+	columns    map[string]groupColumn
 	orderTerms []string
 }
 
-// renderStageGroupRelatedOccurrence renders a GROUP stage's
-// related-occurrence adapter over the prior stage's relation. The
-// composition's GROUP emitter calls it only when
-// stage.Group.RelatedOccurrence is non-nil, and then:
-//
-//   - builds its groupColumn list from region.columns for every
-//     adapter-owned input column, and from the prior facts otherwise;
-//   - passes region.sourceText to renderGroupAggregateRegion as sourceText
-//     in place of "SELECT * FROM <relation>";
-//   - appends region.orderTerms to the region's registered ORDER BY.
 func (r *planRenderer) renderStageGroupRelatedOccurrence(
 	plan ir.PhysicalPlan,
 	stage ir.PhysicalConstructionStage,
@@ -160,7 +38,6 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 	}
 	related := adapter.RelatedRecords
 
-	// --- the anchor read: the prior relation's materialized root _key. ---
 	keyFact, ok := facts[related.AnchorColumnID]
 	if !ok {
 		return stageRelatedOccurrenceRegion{}, fmt.Errorf("%w: the related route anchor column %q is not among the prior stage's registered columns (L-16.1)",
@@ -172,30 +49,13 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 	}
 	anchorRead := stageTerminalAlias + "." + `"` + keyFact.alias + `"`
 
-	// --- the route: anchor scan, then the validated edge x target hops. ---
-	// The anchor equality correlates through the prior relation's terminal
-	// alias: one plan-text substitution, so the route never carries a
-	// caller-specific column name of its own.
 	route, err := r.renderStageRelatedRoute(plan, stage, anchorRead)
 	if err != nil {
 		return stageRelatedOccurrenceRegion{}, err
 	}
 
-	// Every read of the reached document addresses the materialized route
-	// row, never the hop's storage alias: the DISTINCT ON dedup happens
-	// below the laterals, so the target projection is evaluated once per
-	// deduped item (the UNIQUE-by-terminal contract above).
 	docBase := route.alias + ".doc"
 
-	// --- the target projection. ---
-	// The identity and selected-scalar fields go through the shared
-	// classification contract (selectors.go), which registers the SCALAR
-	// selector and value-expression forms only. The one Coding array field
-	// is the adapter's own registered arm (the stage slice's
-	// stageArraySelectorExpression precedent: a many column is read by the
-	// arm that owns its expansion, never by the RETURN classifier), so it
-	// splits out before classification and every other field — including an
-	// undeclared array — keeps the classifier's typed refusal.
 	fields := related.RelatedRecords.Return.Object.Fields
 	scalarFields := make([]ir.PhysicalProjection, 0, len(fields))
 	var codingProjection *ir.PhysicalProjection
@@ -248,7 +108,6 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 	columns := map[string]groupColumn{}
 	adapterSelects := make([]string, 0, len(adapter.ScalarProjections)+6)
 
-	// --- the selected scalar projections. ---
 	for _, projection := range adapter.ScalarProjections {
 		field, present := classified[projection.ResultField]
 		if !present {
@@ -284,7 +143,6 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 		}
 	}
 
-	// --- the Coding expansion, or its documented absence. ---
 	codingAlias := prefix + "cod"
 	codingSelect := ""
 	if adapter.CodingUnnest != nil {
@@ -311,11 +169,6 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 		if err != nil {
 			return stageRelatedOccurrenceRegion{}, fmt.Errorf("related route Coding array: %w", err)
 		}
-		// The unnest slice's registered expansion (unnest.go:603-656): the
-		// WITH-ORDINALITY position distinguishes equal items, the terminal
-		// filter drops stored JSON null items so the ROW_NUMBER is dense
-		// over survivors, and AQL's item index is that dense position
-		// minus one.
 		elementAlias := codingAlias + "_e"
 		codingSelect = "(SELECT " + elementAlias + ".item AS item, ROW_NUMBER() OVER (ORDER BY " +
 			elementAlias + ".ord) AS rn FROM jsonb_array_elements(" + arrayForm +
@@ -342,7 +195,6 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 			ErrUnsupportedPostgresPlan)
 	}
 
-	// --- the occurrence key and its witnesses. ---
 	routeHasItem := route.alias + ".term_id IS NOT NULL"
 	itemPresent := "false"
 	ordinalRead := "NULL::int"
@@ -373,20 +225,12 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 		ref: `"` + occurrenceAlias + `"`, jsonb: true,
 	}
 
-	// The two witnesses and the rank. has-item is total (never SQL NULL),
-	// so the ORDER BY arm needs no null treatment; the rank is the
-	// registered total order of one route's rows.
 	hasItemAlias := prefix + "h"
 	adapterSelects = append(adapterSelects,
 		"(CASE WHEN "+itemPresent+" THEN true ELSE false END) AS "+`"`+hasItemAlias+`"`)
 	routeHasItemAlias := prefix + "r"
 	adapterSelects = append(adapterSelects,
 		"(CASE WHEN "+routeHasItem+" THEN true ELSE false END) AS "+`"`+routeHasItemAlias+`"`)
-	// The total order follows the AQL FOR nesting (construction_group.go:
-	// the input-row FOR, then the route FOR, then the Coding FOR): parent
-	// identity first, then the reached terminal, then the dense Coding
-	// position. Leading with the terminal would tie two parents that reach
-	// the same target — and two unmatched parents — into an arbitrary order.
 	rankOrder := anchorRead + ` COLLATE "C" ASC NULLS FIRST, ` + route.alias + `.term_id COLLATE "C" ASC NULLS FIRST`
 	if adapter.CodingUnnest != nil {
 		rankOrder += ", " + codingAlias + ".rn ASC NULLS FIRST"
@@ -395,25 +239,14 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 	adapterSelects = append(adapterSelects,
 		"ROW_NUMBER() OVER (ORDER BY "+rankOrder+") - 1 AS "+`"`+rankAlias+`"`)
 
-	// --- the policy conjuncts (construction_group.go:532-554 parity). ---
-	// These are the only conjuncts the outer lateral may carry: they address
-	// the materialized route row and the Coding expansion, both of which
-	// exist at this level. The anchor scope legs, the root-key correlation,
-	// and the contributor FILTERs belong to the route subquery, whose hop
-	// aliases they address.
 	where := []string{}
 	if adapter.RelatedRecords.EmptyPolicy == ir.PhysicalUnnestError {
-		// The route join keeps the sentinel row (LEFT JOIN) so the guard has
-		// a row to raise on, exactly where AQL's empty-expansion ASSERT
-		// fires.
 		where = append(where, "(CASE WHEN "+routeHasItem+" THEN 1 ELSE "+guardCast(stageExpandEmptyTag)+" END) > 0")
 	}
 	if adapter.CodingUnnest != nil {
 		switch adapter.CodingEmptyPolicy {
 		case ir.PhysicalUnnestPreserveParent:
 		case ir.PhysicalUnnestExclude:
-			// A matched route with no Coding item is excluded; an unmatched
-			// route keeps its pad row (the AQL `!routeHasItem OR hasItem`).
 			where = append(where, "(CASE WHEN NOT ("+routeHasItem+") OR "+codingHasItem+" THEN 1 ELSE 0 END) > 0")
 		case ir.PhysicalUnnestError:
 			where = append(where, "(CASE WHEN NOT ("+routeHasItem+") OR "+codingHasItem+" THEN 1 ELSE "+
@@ -424,7 +257,6 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 		}
 	}
 
-	// --- the one shared expansion, joined once for this stage. ---
 	innerSelect := "SELECT " + strings.Join(adapterSelects, ", ") + " FROM (SELECT 1) AS " + unitAlias +
 		" " + route.joinKeyword + " (" + route.selectText + ") AS " + route.alias + " ON TRUE"
 	if adapter.CodingUnnest != nil {
@@ -433,18 +265,11 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 	if len(where) > 0 {
 		innerSelect += " WHERE " + strings.Join(where, " AND ")
 	}
-	// An unmatched route drops the parent under EXCLUDE (AQL emits no
-	// sentinel), keeps its pad row under PRESERVE_PARENT, and reaches its
-	// guard row under ERROR.
 	outerJoin := "LEFT JOIN LATERAL (" + innerSelect + ") AS " + relAlias + " ON TRUE"
 	if adapter.RelatedRecords.EmptyPolicy == ir.PhysicalUnnestExclude {
 		outerJoin = "INNER JOIN LATERAL (" + innerSelect + ") AS " + relAlias + " ON TRUE"
 	}
 
-	// The rank is the position WITHIN one parent's expansion (the lateral is
-	// re-evaluated per parent row, the AQL FOR nesting), so the relation's
-	// own order must lead with the parent identity: ranking alone interleaves
-	// every parent's first item, which is not a total order.
 	sourceText := "SELECT " + stageTerminalAlias + ".*, " + relAlias + ".* FROM " +
 		stageRelationSource(relation) + " " + outerJoin +
 		" ORDER BY " + anchorRead + " ASC, " + relAlias + `."` + rankAlias + `" ASC`
@@ -455,8 +280,6 @@ func (r *planRenderer) renderStageGroupRelatedOccurrence(
 	}, nil
 }
 
-// stageRelatedRoute is the rendered correlated hop chain of one adapter,
-// spelled as one lateral SELECT correlated to the prior relation.
 type stageRelatedRoute struct {
 	selectText  string
 	joinKeyword string
@@ -465,11 +288,6 @@ type stageRelatedRoute struct {
 	targetType  string
 }
 
-// renderStageRelatedRoute validates and renders the adapter's correlated
-// route, the anchor-prefixed subplan the lowering emits
-// (recipe_construction_related_expand.go:98-164), through the traversal
-// slice's hop contracts. anchorRead is the prior relation's materialized
-// root-key read the anchor equality correlates through.
 func (r *planRenderer) renderStageRelatedRoute(
 	plan ir.PhysicalPlan,
 	stage ir.PhysicalConstructionStage,
@@ -494,7 +312,6 @@ func (r *planRenderer) renderStageRelatedRoute(
 		return stageRelatedRoute{}, fmt.Errorf("%w: the related route subplan has no operations", ErrUnsupportedPostgresPlan)
 	}
 
-	// --- the anchor prefix: COLLECTION_SCAN + the root-key equality FILTER. ---
 	anchorOp := subplan.Operations[0]
 	if anchorOp.Kind != ir.PhysicalCollectionScanOp || anchorOp.CollectionScan == nil {
 		return stageRelatedRoute{}, fmt.Errorf("%w: the related route subplan must open with the root-collection anchor scan the lowering emits, got kind %q",
@@ -536,12 +353,10 @@ func (r *planRenderer) renderStageRelatedRoute(
 	anchorWhere := r.scopedResourcePredicate(anchorAlias, anchorTypeIndex)
 	rows := map[string]rowScope{scan.Variable: {alias: anchorAlias, resourceType: related.AnchorResourceType}}
 
-	// The anchor's canonical scope block (recipe_construction_related_expand.go:128-130).
 	if err := matchCanonicalScopeBlock(subplan.Operations, &index, []string{scan.Variable}); err != nil {
 		return stageRelatedRoute{}, fmt.Errorf("%w: related route anchor scope block: %s", ErrUnsupportedPostgresPlan, err.Error())
 	}
 
-	// --- the hops, each closing with its canonical scope block. ---
 	fromParts := []string{"FROM " + resource.Identifier().SQLText() + " AS " + anchorAlias}
 	var conjuncts []string
 	currentVar, currentAlias, currentType := scan.Variable, anchorAlias, related.AnchorResourceType
@@ -555,12 +370,6 @@ func (r *planRenderer) renderStageRelatedRoute(
 				ErrUnsupportedPostgresPlan, hopIndex, string(operation.Kind))
 		}
 		traversal := *operation.Traversal
-		// The endpoint-lookup strategy is a planner label: PostgreSQL
-		// renders the registered native typed-identity join for it, exactly
-		// as the graph spine normalizes (graph.go:340-349 payload proof +
-		// graph20NativeStrategyTraversal). The payload the AQL endpoint arm
-		// would read must be complete first, so a hand-assembled
-		// truncation fails closed instead of silently rendering native.
 		if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
 			if strings.TrimSpace(traversal.EndpointField) == "" || strings.TrimSpace(traversal.EndpointJoinField) == "" {
 				return stageRelatedRoute{}, fmt.Errorf("%w: related route hop %d endpoint-lookup traversal payload is incomplete (the planner always names EndpointField and EndpointJoinField, lower/traversal.go:143-147)",
@@ -608,7 +417,6 @@ func (r *planRenderer) renderStageRelatedRoute(
 			ErrUnsupportedPostgresPlan, currentType, related.TargetResourceType)
 	}
 
-	// --- the optional contributor FILTER over the reached row. ---
 	for ; index < len(subplan.Operations); index++ {
 		operation := subplan.Operations[index]
 		if operation.Kind != ir.PhysicalFilterOp || operation.Filter == nil || operation.Filter.Expression == nil {
@@ -622,22 +430,12 @@ func (r *planRenderer) renderStageRelatedRoute(
 		conjuncts = append(conjuncts, fragment.sql)
 	}
 
-	// The dedup and its order: the subplan's Sort={terminal _id} + Unique
-	// contract, one item per reached target (two edge occurrences to the same
-	// target contribute one row — the AQL UNIQUE(set) reading sets.go
-	// registers for the child set).
 	logicalID := resource.MustColumn("logical_id").SQLText()
 	payload := resource.MustColumn("payload").SQLText()
 	terminalRead := currentAlias + "." + logicalID
 	selectText := "SELECT DISTINCT ON (" + terminalRead + ` COLLATE "C") ` +
 		terminalRead + ` AS term_id, ` + currentAlias + "." + payload + ` AS doc` +
 		" " + strings.Join(fromParts, " ")
-	// The route carries its own WHERE: the anchor scope legs, the root-key
-	// correlation to the prior relation, and the contributor FILTERs all
-	// address the hop aliases (a1/e2/x2), which exist only inside this
-	// subquery. Promoting them to the outer lateral is a scope error the
-	// planner rejects (42P01), so they are composed here, below the joins
-	// and above the dedup order.
 	anchorPredicate := anchorWhere + " AND " + anchorAlias + "." + logicalID + " = " + anchorCorrelationPlaceholder
 	if !strings.Contains(anchorPredicate, anchorCorrelationPlaceholder) {
 		return stageRelatedRoute{}, fmt.Errorf("%w: internal error: the related route anchor equality lost its correlation marker",
@@ -661,12 +459,6 @@ func (r *planRenderer) renderStageRelatedRoute(
 	}, nil
 }
 
-// stageRelatedCodingArrayExpression renders one repeated Coding selector as
-// the jsonb array the expansion iterates, in the composition slice's
-// registered array-gathering shape (stage_sequence.go:1016-1091, whose AQL
-// twin is the FLATTEN over the iterated step): the guarded array read through
-// the path that ends at the single [] step, each element mapped through the
-// tail path, stored nulls and a missing document gathering to '[]'.
 func (r *planRenderer) stageRelatedCodingArrayExpression(
 	base string,
 	name string,
@@ -709,10 +501,6 @@ func (r *planRenderer) stageRelatedCodingArrayExpression(
 		return "", fmt.Errorf("%w: Coding column %q has no iterated selector step; a Coding array needs exactly one [] step",
 			ErrUnsupportedPostgresPlan, name)
 	}
-	// The array is read AT the iterated step, inclusive of its own field
-	// (unnest.go:540-560, whose AQL twin is selectors.go:268 and
-	// navigation_render.go:305): `valueCodeableConcept.coding[]` expands the
-	// array at {valueCodeableConcept,coding}, never the container above it.
 	prefixSteps := make([]string, 0, iterate+1)
 	for _, step := range extract.Selector.Steps[:iterate+1] {
 		prefixSteps = append(prefixSteps, step.Field)
@@ -739,11 +527,6 @@ func (r *planRenderer) stageRelatedCodingArrayExpression(
 		") FROM jsonb_array_elements(" + arr + ") AS e WHERE " + leaf + " IS NOT NULL), '[]'::jsonb) ELSE '[]'::jsonb END)", nil
 }
 
-// validateStageRelatedOccurrenceAdapter re-reads the adapter contract the
-// composition payload gate cannot see: the anchor form this slice renders,
-// the route/adapter agreement, and the ordinal semantics. ir already pins the
-// field-source agreement (physical_stage_validation.go:2128-2226); these are
-// the renderer-side boundaries.
 func validateStageRelatedOccurrenceAdapter(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage) error {
 	adapter := stage.Group.RelatedOccurrence
 	related := adapter.RelatedRecords
@@ -845,7 +628,6 @@ func validateStageRelatedOccurrenceAdapter(plan ir.PhysicalPlan, stage ir.Physic
 	}
 }
 
-// identityFieldValue returns one classified identity field's value read.
 func identityFieldValue(field classifiedExtractionProjection) *ir.PhysicalValue {
 	if field.kind == extractionValueExpression && field.projection.Expression != nil {
 		return field.projection.Expression.Value
@@ -856,25 +638,14 @@ func identityFieldValue(field classifiedExtractionProjection) *ir.PhysicalValue 
 	return nil
 }
 
-// toRelatedJSONBMember renders one SQL value as the jsonb member the
-// occurrence-key object carries. The AQL identity object writes each member
-// through its own value form; to_jsonb keeps the same scalar/jsonb and
-// SQL-NULL reading — a SQL NULL becomes the jsonb 'null', never a missing
-// key.
 func toRelatedJSONBMember(value string) string {
 	return "to_jsonb((" + value + "))"
 }
 
-// The renderer-owned aliases of one adapter expansion. Constants, never plan
-// data; one adapter renders per stage, so one spelling per role suffices.
 const (
 	relAlias   = "__loom_rel"
 	routeAlias = "__loom_route"
 	unitAlias  = "__loom_one"
 )
 
-// anchorCorrelationPlaceholder marks where the caller's materialized root
-// key crosses into the route's WHERE; renderStageGroupRelatedOccurrence
-// replaces it with that column read, so the route text never carries a
-// caller-specific name of its own.
 const anchorCorrelationPlaceholder = "__loom_anchor_key"

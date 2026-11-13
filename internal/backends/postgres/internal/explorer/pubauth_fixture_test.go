@@ -1,30 +1,5 @@
 package postgres
 
-// Test fixtures for pg-state-publish-authoring-atomic-v1
-// (publication_test.go). Everything this suite creates is named
-// verify_pubauth_* -- a namespace disjoint from the owner tests'
-// pgstate01v1_*, the receipt/revision tests' pgstate02_it_*, and every
-// concurrent sibling worker's prefix -- and is dropped by the fixture that
-// created it. TestPublishAuthoringZZNoLeftoverResources audits the
-// namespace at the end of the file order.
-//
-// One fixture owns one isolated database with two schemas: the Explorer
-// control-plane schema (this package's owner history [1..11]: ledger
-// bootstrap, owner, drafts, receipts, revisions, capability artifacts (4),
-// interpretation libraries (7), selection revisions (8), and the explicit-
-// group series (9-11), all embedded under migrations/ with bytes unchanged
-// from their earlier fixture directories per the coordinator ledger ruling)
-// and the release/generation lane schema (the internal/backends/postgres/internal/dataset
-// owner history [1,3,8]: ledger bootstrap, dataset generation manifest, and
-// project release, embedded under that package's migrations/). The publish
-// transaction spans both schemas of the one database; the double-apply
-// witnesses the FULL ledgers on the one shared version space each, through
-// the gap-tolerant sorted compose of pgstore.NewMigrationRunner
-// (internal/backends/postgres/internal/store/migrate.go sorts by version and never requires
-// contiguity), and pins every migrated file byte-for-byte via the checksum
-// constants in pubauthVerifyPins: those bytes are owned by their merged
-// tickets and must never drift under this suite.
-
 import (
 	"context"
 	"crypto/rand"
@@ -54,19 +29,12 @@ import (
 
 var pubauthNameRe = regexp.MustCompile(`^verify_pubauth_[0-9]+_[0-9a-f]+(?:_[a-z]+)?$`)
 
-// pubauthBaseline captures the service-database state at first contact so
-// the TestZZ audit can assert the ownership-scoped pg_database baseline:
-// the count of verify_pubauth_* databases must equal the baseline it was
-// when this process first connected, and the process's own databases must
-// all be gone. Global counts are never asserted against other namespaces:
-// concurrent sibling workers own their own prefixes, and a global sweep
-// would make their work a false failure for this suite.
 var (
 	pubauthBaselineOnce    sync.Once
-	pubauthDBBaseline      atomic.Int64 // verify_pubauth_* databases at first contact
-	pubauthLive            atomic.Int64 // databases this package created and has not dropped
-	pubauthSchemaBaseline  atomic.Int64 // verify_pubauth_* schemas at first contact
-	pubauthBaselineFailure atomic.Value // error surfaced by the first fixture
+	pubauthDBBaseline      atomic.Int64
+	pubauthLive            atomic.Int64
+	pubauthSchemaBaseline  atomic.Int64
+	pubauthBaselineFailure atomic.Value
 )
 
 func pubauthCaptureBaseline(admin *pgxpool.Pool) {
@@ -110,21 +78,16 @@ func pubauthRandomHex(t *testing.T) string {
 
 type pubAuthFixture struct {
 	ctx         context.Context
-	admin       *pgxpool.Pool // shared service database
-	iso         *pgxpool.Pool // isolated database
+	admin       *pgxpool.Pool
+	iso         *pgxpool.Pool
 	dbName      string
-	ctlSchema   string // Explorer control-plane tables
-	lanesSchema string // generation + release lane tables
+	ctlSchema   string
+	lanesSchema string
 	dsn         string
 	scrub       func(any) string
 	fail        func(step string, err error)
 }
 
-// newPGPubAuthFixture creates one isolated database (verify_pubauth_*), two
-// owned schemas inside it (..._ctl and ..._lanes), and registers LIFO
-// cleanups: drop both schemas, close the iso pool, drop the database, then
-// the ownership-scoped zero-leftover audit, then close the admin pool, then
-// cancel the context. Only resources this fixture created are ever dropped.
 func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 	t.Helper()
 	raw := pubauthTestPostgresURL(t)
@@ -155,8 +118,6 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 		t.Fatalf("%s: %s", step, scrub(err))
 	}
 
-	// Registered first so it runs last: the cleanups below still need a
-	// live context.
 	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	t.Cleanup(cancel)
 
@@ -165,8 +126,6 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 		fail("connect to test service", err)
 	}
 	pubauthCaptureBaseline(admin)
-	// Registered second so it runs second-to-last: the zero-leftover audit
-	// below still needs this admin pool.
 	t.Cleanup(admin.Close)
 
 	dbName := fmt.Sprintf("verify_pubauth_%d_%s", time.Now().UnixNano(), pubauthRandomHex(t))
@@ -174,9 +133,6 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
 
-	// Third-to-last: prove the database (and with it its schemas) is gone
-	// and that the ownership-scoped namespace equals its baseline. The scan
-	// is scoped to this package's own prefix, never a global sweep.
 	t.Cleanup(func() {
 		var mine int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = $1`, dbName).Scan(&mine); err != nil {
@@ -189,9 +145,6 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname LIKE 'verify_pubauth\_%' ESCAPE '\'`).Scan(&namespaceDatabases); err != nil {
 			t.Errorf("leftover audit: query database namespace: %s", scrub(err))
 		}
-		// Sibling fixtures owned by this package may still be live (two
-		// twin databases run side by side in the crash-window test); the
-		// audit only fails on DBs no live fixture owns.
 		if want := pubauthDBBaseline.Load() + pubauthLive.Load(); int64(namespaceDatabases) != want {
 			t.Errorf("leftover audit: %d verify_pubauth_* databases remain, baseline+live is %d",
 				namespaceDatabases, want)
@@ -206,7 +159,6 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 		}
 	})
 
-	// Fourth-to-last: drop only the database this test created.
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
@@ -215,8 +167,6 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 		pubauthLive.Add(-1)
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -237,7 +187,6 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 	if err != nil {
 		fail("connect to isolated database", err)
 	}
-	// Fifth-to-last: close the isolated-database pool before the drop.
 	t.Cleanup(iso.Close)
 
 	base := fmt.Sprintf("verify_pubauth_%d_%s", time.Now().UnixNano(), pubauthRandomHex(t))
@@ -251,7 +200,6 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 			fail("create owned schema "+schema, err)
 		}
 	}
-	// Runs first: drop only the schemas this test created.
 	t.Cleanup(func() {
 		for _, schema := range []string{lanesSchema, ctlSchema} {
 			if _, err := iso.Exec(context.WithoutCancel(ctx),
@@ -268,22 +216,12 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Migration composition (authoritative owners only: zero DirFS assembly).
-// ---------------------------------------------------------------------------
-
-// pubauthMigrationPin is one byte-frozen entry of an owner history: the
-// version/name/checksum identity of a migration that a merged sibling
-// applied and that must never drift under this suite.
 type pubauthMigrationPin struct {
 	version  int64
 	name     string
 	checksum string
 }
 
-// Pins for the capability/interpretation/selection migrations of the
-// Explorer owner history (moved in with bytes unchanged) and the
-// project-release migration of the dataset owner history.
 var (
 	pubauthControlPins = []pubauthMigrationPin{
 		{4, "capability_artifacts", "bec3e49f897b28ef71d7d69a5f7c71bb11d13b7c631ee26724de36a89d639222"},
@@ -297,9 +235,6 @@ var (
 	}
 )
 
-// pubauthVerifyPins checks that one owner history contains every pinned
-// version/name/checksum exactly, so byte-freeze is witnessed against the
-// owner's embedded bytes themselves.
 func pubauthVerifyPins(t *testing.T, label string, history []pgstore.Migration, pins []pubauthMigrationPin) {
 	t.Helper()
 	byVersion := make(map[int64]pgstore.Migration, len(history))
@@ -318,10 +253,6 @@ func pubauthVerifyPins(t *testing.T, label string, history []pgstore.Migration, 
 	}
 }
 
-// migrate applies the Explorer owner history [1..11] to ctlSchema and the
-// dataset owner history [1,3,8] to lanesSchema -- the two authoritative
-// production owner embeds -- each twice: the second apply witnesses
-// ledger-identical no-op convergence on the FULL version space.
 func (f *pubAuthFixture) migrate(t *testing.T) {
 	t.Helper()
 	ctlHistory, err := OwnerMigrations()
@@ -381,10 +312,6 @@ func (f *pubAuthFixture) migrateHistory(t *testing.T, client *pgstore.Client, sc
 	return result
 }
 
-// rerunMigration applies one embedded control-plane migration's exact SQL
-// text again through direct SQL (the sibling suites' restore mechanism for
-// guard-drop probes: the same text that created the guard is what blocks
-// the violating write again).
 func (f *pubAuthFixture) rerunMigration(t *testing.T, version int64) {
 	t.Helper()
 	migrations, err := OwnerMigrations()
@@ -403,7 +330,7 @@ func (f *pubAuthFixture) rerunMigration(t *testing.T, version int64) {
 				f.fail("begin migration rerun transaction", err)
 			}
 			if _, err := tx.Exec(f.ctx,
-				"SET LOCAL search_path TO "+sanitizeSchema(f.ctlSchema)); err != nil {
+				"SET LOCAL search_path TO "+pgx.Identifier{f.ctlSchema}.Sanitize()); err != nil {
 				tx.Rollback(f.ctx)
 				f.fail("set search_path for migration rerun", err)
 			}
@@ -420,10 +347,6 @@ func (f *pubAuthFixture) rerunMigration(t *testing.T, version int64) {
 	t.Fatalf("control-plane migration version %d is absent from the embedded history", version)
 }
 
-// ---------------------------------------------------------------------------
-// Stores and lanes.
-// ---------------------------------------------------------------------------
-
 func (f *pubAuthFixture) newStore(t *testing.T) *Store {
 	t.Helper()
 	client := f.newPool(t, 4, 0)
@@ -434,10 +357,6 @@ func (f *pubAuthFixture) newStore(t *testing.T) *Store {
 	return store
 }
 
-// newDedicatedStore opens a MaxConns=1 pool -- one single physical backend
-// connection -- warms it, and returns a control-plane Store plus that
-// backend's pg_backend_pid. Two dedicated stores are two real PG
-// connections for race proofs.
 func (f *pubAuthFixture) newDedicatedStore(t *testing.T) (*Store, int32) {
 	t.Helper()
 	client := f.newPool(t, 1, 1)
@@ -470,10 +389,6 @@ func (f *pubAuthFixture) newPublishStore(t *testing.T) *PublishStore {
 	return ps
 }
 
-// newDedicatedPublishStore is the single-backend sibling of
-// newPublishStore: every statement it runs provably executes on the
-// witnessed pg_backend_pid, the non-illusion precondition for every
-// two-connection race and in-transaction witness.
 func (f *pubAuthFixture) newDedicatedPublishStore(t *testing.T) (*PublishStore, int32) {
 	t.Helper()
 	client := f.newPool(t, 1, 1)
@@ -496,9 +411,6 @@ func (f *pubAuthFixture) newDedicatedPublishStore(t *testing.T) (*PublishStore, 
 	return ps, pid
 }
 
-// newDedicatedPool is the raw-SQL sibling: one physical backend connection
-// for direct-SQL witnesses (snapshots, guard probes, pg_locks) with its
-// backend pid witnessed up front.
 func (f *pubAuthFixture) newDedicatedPool(t *testing.T) (*pgxpool.Pool, int32) {
 	t.Helper()
 	poolConfig, err := pgxpool.ParseConfig(f.dsn)
@@ -561,10 +473,6 @@ func requireDistinctBackendsPubAuth(t *testing.T, pidA, pidB int32, labelA, labe
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Table witnesses.
-// ---------------------------------------------------------------------------
-
 func (f *pubAuthFixture) ctlTable(table string) string {
 	return sanitizeTableRef(f.ctlSchema, table)
 }
@@ -573,18 +481,11 @@ func (f *pubAuthFixture) lanesTable(table string) string {
 	return sanitizeTableRef(f.lanesSchema, table)
 }
 
-// snapshot renders every stored row of one table as one deterministic
-// string: jsonb of each row, optionally minus masked columns, sorted by
-// its own text. Byte-identical snapshots before and after a refused
-// operation (or across a zero-write replay) are the row witness that the
-// refusal wrote nothing.
 func (f *pubAuthFixture) snapshot(t *testing.T, table string, mask ...string) string {
 	t.Helper()
 	return f.snapshotWhere(t, table, "", nil, mask...)
 }
 
-// snapshotWhere is snapshot restricted to a WHERE clause -- the
-// tenant-scoped form used to compare one project's rows across runs.
 func (f *pubAuthFixture) snapshotWhere(t *testing.T, table, where string, args []any, mask ...string) string {
 	t.Helper()
 	expr := "to_jsonb(t)"
@@ -604,7 +505,6 @@ func (f *pubAuthFixture) snapshotWhere(t *testing.T, table, where string, args [
 	return out
 }
 
-// countRows counts rows of one table, optionally tenant-scoped.
 func (f *pubAuthFixture) countRows(t *testing.T, table, where string, args ...any) int {
 	t.Helper()
 	query := "SELECT count(*) FROM " + table
@@ -618,8 +518,6 @@ func (f *pubAuthFixture) countRows(t *testing.T, table, where string, args ...an
 	return count
 }
 
-// execRaw runs one direct statement on the isolated pool (guard probes and
-// fail-closed state seeding the owning lanes do not expose).
 func (f *pubAuthFixture) execRaw(t *testing.T, sql string, args ...any) {
 	t.Helper()
 	if _, err := f.iso.Exec(f.ctx, sql, args...); err != nil {
@@ -627,8 +525,6 @@ func (f *pubAuthFixture) execRaw(t *testing.T, sql string, args ...any) {
 	}
 }
 
-// locksHeldBy reports the distinct relation names whose row/table locks the
-// given backend currently holds inside the fixture's two schemas.
 func (f *pubAuthFixture) locksHeldBy(t *testing.T, pool *pgxpool.Pool, pid int32) map[string]bool {
 	t.Helper()
 	rows, err := pool.Query(f.ctx, `
@@ -656,7 +552,6 @@ WHERE l.pid = $1 AND l.relation IS NOT NULL AND n.nspname = ANY($2::text[])`,
 	return out
 }
 
-// requirePgErr asserts a *pgconn.PgError with the exact SQLSTATE.
 func requirePgErrPubAuth(t *testing.T, err error, sqlstate, step string) *pgconn.PgError {
 	t.Helper()
 	var pgErr *pgconn.PgError
@@ -669,10 +564,6 @@ func requirePgErrPubAuth(t *testing.T, err error, sqlstate, step string) *pgconn
 	return pgErr
 }
 
-// ---------------------------------------------------------------------------
-// Domain fixtures: owner, receipt, revision, generation, release.
-// ---------------------------------------------------------------------------
-
 var (
 	pubauthCreatedAt  = time.Date(2026, 4, 5, 6, 7, 8, 987654000, time.UTC)
 	pubauthVerifiedAt = time.Date(2026, 4, 5, 6, 7, 9, 123456000, time.UTC)
@@ -680,8 +571,6 @@ var (
 
 const pubauthGeneration = "gen_pubauth_01"
 
-// pubauthSnapshotSHA256 is the fixture manifest's schema snapshot digest: a
-// fixed lower-case 64-hex SHA-256 (dataset.NewSchemaSnapshot requires it).
 const pubauthSnapshotSHA256 = "2be6ca3efe274cf87ad45c17a516bc91f154e64de9e557516b973f0d22314341"
 
 func pubauthOwner(project, explorerID string, mode explorer.ManagementMode) explorer.Explorer {
@@ -716,9 +605,6 @@ func newPubauthBundle(name string) recipe.Bundle {
 	}
 }
 
-// pubauthReceipt builds a fully validated current-contract receipt with a
-// content-addressed ID (the sibling suites' validated-receipt shape, the
-// only receipt form the store will accept for a fresh claim).
 func pubauthReceipt(t *testing.T, project, explorerID, tag string) explorer.CompilationReceipt {
 	t.Helper()
 	bundle := newPubauthBundle("pubauth-" + tag)
@@ -758,11 +644,6 @@ func pubauthReceipt(t *testing.T, project, explorerID, tag string) explorer.Comp
 	return receipt
 }
 
-// pubauthManualReceipt builds the one receipt shape the store accepts with
-// a hand-claimed id: contract fields absent (domain validation then leaves
-// the id alone) and an id outside the content-addressed shape. Only
-// id-reuse probes need it; the content-addressed form makes id reuse
-// arithmetically impossible.
 func pubauthManualReceipt(t *testing.T, project, explorerID, tag, id string) explorer.CompilationReceipt {
 	t.Helper()
 	receipt := pubauthReceipt(t, project, explorerID, tag)
@@ -773,8 +654,6 @@ func pubauthManualReceipt(t *testing.T, project, explorerID, tag, id string) exp
 	return receipt
 }
 
-// pubauthRevision builds a READY publish-candidate revision bound to the
-// receipt, with fixed deterministic content so its digest is golden.
 func pubauthRevision(id, project, explorerID, receiptID, tag string) explorer.Revision {
 	return explorer.Revision{
 		ID:                   id,
@@ -815,7 +694,6 @@ func pubauthRevision(id, project, explorerID, receiptID, tag string) explorer.Re
 	}
 }
 
-// pubauthRelease builds one fixed candidate for the project/generation.
 func pubauthRelease(project, generation, id string) dataset.ProjectRelease {
 	return dataset.ProjectRelease{
 		ID:         id,
@@ -834,9 +712,6 @@ func pubauthRelease(project, generation, id string) dataset.ProjectRelease {
 	}
 }
 
-// seedPublishedWorld creates the owner, stages and activates the
-// generation, and saves the release candidate through the owning lanes'
-// production methods -- no duplicated schema, no direct-state hacks.
 func (f *pubAuthFixture) seedPublishedWorld(t *testing.T, store *Store, project, explorerID, tag string,
 ) (explorer.CompilationReceipt, explorer.Revision, dataset.ProjectRelease) {
 	t.Helper()
@@ -854,7 +729,6 @@ func (f *pubAuthFixture) seedPublishedWorld(t *testing.T, store *Store, project,
 	return receipt, revision, release
 }
 
-// publishOK runs PublishAuthoring or dies.
 func (f *pubAuthFixture) publishOK(t *testing.T, ps *PublishStore,
 	receipt explorer.CompilationReceipt, revision explorer.Revision,
 	release dataset.ProjectRelease, expected int64,
@@ -867,16 +741,8 @@ func (f *pubAuthFixture) publishOK(t *testing.T, ps *PublishStore,
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Small helpers.
-// ---------------------------------------------------------------------------
-
 func timePtr(v time.Time) *time.Time { return &v }
 
-// installCrashSeam installs a crash-at-step injector on the publish store
-// and returns the recorded steps plus a func that arms the injection for
-// the named step. Every step the transaction reaches is recorded; the
-// injection fires exactly once for the armed step.
 func installCrashSeam(ps *PublishStore, gate func(step string, tx pgx.Tx) error) *[]string {
 	steps := &[]string{}
 	ps.crashAt = func(ctx context.Context, tx pgx.Tx, step string) error {

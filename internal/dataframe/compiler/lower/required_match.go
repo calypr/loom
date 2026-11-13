@@ -9,10 +9,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// appendRequiredTraversalMatchFilters lowers every REQUIRED semantic route to
-// a correlated typed EXISTS subplan. The subplan is deliberately separate
-// from optional traversal materialization: it is a root semi-join and must run
-// before the root sort/window, while optional traversal sets remain post-limit.
 func appendRequiredTraversalMatchFilters(physical *ir.PhysicalPlan, root semantic.SemanticNode) error {
 	return appendRequiredTraversalMatchFiltersExcept(physical, root, nil)
 }
@@ -27,11 +23,6 @@ func appendRequiredTraversalMatchFiltersExcept(physical *ir.PhysicalPlan, root s
 			childRequired := child.MatchMode.Required()
 			_, selectedRouteStep := selectedOccurrences[child.OccurrenceID]
 			if childRequired && requiredPrefix && !selectedRouteStep {
-				// Two required children with the same physical route and typed
-				// predicates are the same root semi-join even when their aliases
-				// differ. Deduplicating this exact proof is safe: it does not
-				// move a predicate across the root execution window or alter any
-				// optional child materialization.
 				key, err := requiredSemanticRouteKey(root.ResourceType, next)
 				if err != nil {
 					return err
@@ -61,10 +52,6 @@ func appendRequiredTraversalMatchFiltersExcept(physical *ir.PhysicalPlan, root s
 	return walk(root, nil, true)
 }
 
-// requiredSemanticRouteKey intentionally excludes aliases and selection
-// shape. A required route only contributes root membership, so aliases cannot
-// distinguish two predicates. JSON gives us a deterministic key for typed
-// filters without using AQL text or resource-specific knowledge.
 func requiredSemanticRouteKey(rootResourceType string, route []semantic.SemanticNode) (string, error) {
 	type step struct {
 		ResourceType string

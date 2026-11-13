@@ -1,10 +1,5 @@
 package execution
 
-// Structural boundary: shared execution consumes Loom errors and never
-// interprets database-vendor failures itself. This guard keeps it that way:
-// no production (non-test) file in this package may import an ArangoDB or
-// PostgreSQL driver package or the ArangoDB store adapter.
-
 import (
 	"context"
 	"go/parser"
@@ -17,17 +12,12 @@ import (
 	arangofactory "github.com/calypr/loom/internal/backends/arango"
 )
 
-// forbiddenVendorImports are import-path prefixes that would reintroduce
-// vendor failure interpretation into shared execution.
 var forbiddenVendorImports = []string{
 	"github.com/calypr/loom/internal/backends/arango/internal/store",
 	"github.com/arangodb/go-driver",
 	"github.com/jackc/pgx",
 }
 
-// vendorImportOffenders scans dir's Go files for forbidden imports. When
-// includeTests is false, _test.go files are skipped, so a package that keeps
-// vendor fixtures only in tests passes while production drift fails.
 func vendorImportOffenders(dir string, includeTests bool) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -77,8 +67,6 @@ func TestProductionExecutionFilesNeverImportDatabaseVendors(t *testing.T) {
 	})
 
 	t.Run("non_vacuity_scanner_fires_on_a_real_vendor_package", func(t *testing.T) {
-		// The adapter directory this ticket moved vendor interpretation INTO
-		// must itself be flagged by the same scanner.
 		if offenders := vendorImportOffenders(filepath.Join("..", "..", "backends", "arango", "internal", "store"), false); len(offenders) == 0 {
 			t.Fatal("scanner missed the known vendor imports in the ArangoDB adapter")
 		}
@@ -93,8 +81,6 @@ func TestQueryMemoryBudgetIsExecutionOwnedNeutralValue(t *testing.T) {
 	if budget, ok := QueryMemoryBudgetFromContext(ctx); !ok || budget != 4096 {
 		t.Fatalf("budget = %d/%t, want 4096/true", budget, ok)
 	}
-	// The neutral value is not the ArangoDB mechanism: the adapter's own
-	// context key stays unset, so only composition wires it.
 	if _, ok := arangofactory.QueryMemoryLimitFromContext(ctx); ok {
 		t.Fatal("execution attached the ArangoDB memory-limit mechanism itself")
 	}

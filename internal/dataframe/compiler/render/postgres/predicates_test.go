@@ -15,23 +15,12 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-05: scalar filter comparisons and boolean predicates as registered
-// in predicates.go. This file pins the surface offline — byte-exact golden
-// SQL, full ordered-argument literals, truth-table null-guard placement, and
-// fail-closed rejection before any SQL is produced. The live matrix that
-// executes the independent-row acceptance cells against real PostgreSQL 18
-// lives in predicates_pg18_test.go.
-// ---------------------------------------------------------------------------
-
 const (
 	pgsq05Project = "pgsq05-proj"
 	pgsq05Gen     = "gen-1"
 	pgsq05Path    = "FHIR/Patient"
 )
 
-// pgsq05Plan is the scoped direct root scan over one resource type with a
-// positional logical-id return, matching the basePlan shape of the package.
 func pgsq05Plan(resourceType string) ir.PhysicalPlan {
 	return ir.PhysicalPlan{
 		Version: 1,
@@ -53,8 +42,6 @@ func pgsq05Plan(resourceType string) ir.PhysicalPlan {
 	}
 }
 
-// pgsq05AddFilter inserts one FILTER operation after the root scan and
-// before the RETURN terminal.
 func pgsq05AddFilter(plan ir.PhysicalPlan, operation ir.PhysicalOperation) ir.PhysicalPlan {
 	operations := make([]ir.PhysicalOperation, 0, len(plan.Operations)+1)
 	operations = append(operations, plan.Operations[0])
@@ -76,10 +63,6 @@ func pgsq05ComparisonLeaf(predicate ir.PhysicalPredicate) ir.PhysicalPredicateEx
 	return ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}
 }
 
-// pgsq05SelectorPredicate builds the exact closed selector-expression
-// comparison shape lowering emits (lower/typed_predicate.go
-// lowerTypedPredicate): array-cardinality EMPTY_ON_NULL EXTRACT anchored at
-// the root document payload with a bind-backed right value.
 func pgsq05SelectorPredicate(resourceType, selectorPath, operator string,
 	quantifier spec.ArrayQuantifier, kind spec.FilterValueKind, bindKey string, withRight bool) ir.PhysicalPredicate {
 	predicate := ir.PhysicalPredicate{
@@ -111,9 +94,6 @@ func pgsq05SelectorNoT(path string) spec.Selector {
 	return selector
 }
 
-// pgsq05WhereClause extracts the WHERE portion of a rendered statement so
-// goldens pin the predicate text without restating the canonical scope
-// frame that scope.go owns.
 func pgsq05WhereClause(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) string {
 	t.Helper()
 	marker := " AND r0.\"resource_type\" = $4"
@@ -133,8 +113,6 @@ func pgsq05WhereClause(t *testing.T, rendered command.RenderedPostgresPhysicalPl
 	return strings.TrimPrefix(clause, " AND ")
 }
 
-// pgsq05ScopeArgs are the four canonical scope parameters every restricted
-// statement binds before any filter parameters.
 func pgsq05ScopeArgs(resourceType string) []command.PostgreSQLParameter {
 	return []command.PostgreSQLParameter{
 		{Type: command.PostgreSQLParameterText, Value: pgsq05Project},
@@ -158,9 +136,6 @@ func pgsq05Reject(t *testing.T, plan ir.PhysicalPlan, context string) {
 	}
 }
 
-// pgsq05RejectAny pins "rejected before SQL" for shapes the frozen ir plan
-// validator itself refuses: the error class is ir's, but no plan data may
-// leak and no SQL may be produced.
 func pgsq05RejectAny(t *testing.T, plan ir.PhysicalPlan, context string) {
 	t.Helper()
 	rendered, err := RenderPhysicalPlan(plan, mustBinding(t))
@@ -180,10 +155,6 @@ func pgsq05JSONRaw(t *testing.T, value any) json.RawMessage {
 	}
 	return raw
 }
-
-// ---------------------------------------------------------------------------
-// Registered selector-expression comparisons: golden SQL + ordered args.
-// ---------------------------------------------------------------------------
 
 func TestRenderSelectorComparisonGoldenAnyEquality(t *testing.T) {
 	plan := pgsq05Plan("Patient")
@@ -234,10 +205,6 @@ func TestRenderSelectorComparisonNoneIsNegatedAny(t *testing.T) {
 }
 
 func TestRenderSelectorComparisonAllRequiresTheItem(t *testing.T) {
-	// Over the null-filtered 0..1-item multiset ALL coincides with ANY
-	// item-for-item but must still read false for a missing item; the
-	// presence conjunct is what makes that true, so ALL and ANY share the
-	// total form and NOT (ALL) stays unguarded.
 	plan := pgsq05Plan("Patient")
 	plan.BindVars["active_value"] = true
 	plan = pgsq05AddFilter(plan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
@@ -251,7 +218,6 @@ func TestRenderSelectorComparisonAllRequiresTheItem(t *testing.T) {
 	if got := rendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != "true" {
 		t.Fatalf("BOOLEAN equality arg = %#v", got)
 	}
-	// The quantifier result is total, so NOT needs no null guard.
 	negated := pgsq05Plan("Patient")
 	negated.BindVars["active_value"] = true
 	negated = pgsq05AddFilter(negated, pgsq05FilterByExpression(ir.PhysicalPredicateExpression{
@@ -317,7 +283,6 @@ func TestRenderSelectorComparisonInBindsTopLevelMembership(t *testing.T) {
 		t.Fatalf("selector IN arg = %#v", got)
 	}
 
-	// An empty list binds []: EXISTS reads false, matching x IN [].
 	empty := pgsq05Plan("Patient")
 	empty.BindVars["gender_values"] = []any{}
 	empty = pgsq05AddFilter(empty, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
@@ -385,9 +350,6 @@ func TestRenderSelectorComparisonDateTimeLiteralMustBeFullRFC3339(t *testing.T) 
 }
 
 func TestRenderSelectorComparisonIntegerAndDecimalBindTypedScalars(t *testing.T) {
-	// The renderer does not consult the FHIR schema for value kinds (spec
-	// + lowering own that pairing); what is pinned here is the bind-type
-	// discipline: INTEGER accepts only int64 and DECIMAL only float64.
 	plan := pgsq05Plan("Patient")
 	plan.BindVars["score_value"] = int64(7)
 	plan = pgsq05AddFilter(plan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
@@ -418,19 +380,13 @@ func TestRenderSelectorComparisonIntegerAndDecimalBindTypedScalars(t *testing.T)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registered selector shape: everything outside it fails closed.
-// ---------------------------------------------------------------------------
-
 func TestRenderSelectorComparisonFailsClosedOutsideClosedShape(t *testing.T) {
-	// Repeated step.
 	iterPlan := pgsq05Plan("Patient")
 	iterPlan.BindVars["v"] = "x"
 	iterPlan = pgsq05AddFilter(iterPlan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
 		"Patient", "link[].other.reference", "EQUALS", spec.QuantifierAny, spec.FilterString, "v", true)))
 	pgsq05Reject(t, iterPlan, "repeated selector step")
 
-	// Fallbacks.
 	fallback := pgsq05SelectorPredicate("Patient", "gender", "EQUALS", spec.QuantifierAny, spec.FilterString, "v", true)
 	fallback.LeftExpression.Extract.Fallbacks = []ir.PhysicalSelectorFallback{{
 		Source:       ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
@@ -442,7 +398,6 @@ func TestRenderSelectorComparisonFailsClosedOutsideClosedShape(t *testing.T) {
 	fallbackPlan = pgsq05AddFilter(fallbackPlan, pgsq05FilterByPredicate(fallback))
 	pgsq05Reject(t, fallbackPlan, "selector fallback")
 
-	// DISTINCT.
 	distinct := pgsq05SelectorPredicate("Patient", "gender", "EQUALS", spec.QuantifierAny, spec.FilterString, "v", true)
 	distinct.LeftExpression.Extract.Distinct = true
 	distinctPlan := pgsq05Plan("Patient")
@@ -450,7 +405,6 @@ func TestRenderSelectorComparisonFailsClosedOutsideClosedShape(t *testing.T) {
 	distinctPlan = pgsq05AddFilter(distinctPlan, pgsq05FilterByPredicate(distinct))
 	pgsq05Reject(t, distinctPlan, "selector DISTINCT")
 
-	// Non-EMPTY_ON_NULL behavior.
 	behavior := pgsq05SelectorPredicate("Patient", "gender", "EQUALS", spec.QuantifierAny, spec.FilterString, "v", true)
 	behavior.LeftExpression.NullBehavior = ir.PhysicalPreserveNull
 	behaviorPlan := pgsq05Plan("Patient")
@@ -458,14 +412,12 @@ func TestRenderSelectorComparisonFailsClosedOutsideClosedShape(t *testing.T) {
 	behaviorPlan = pgsq05AddFilter(behaviorPlan, pgsq05FilterByPredicate(behavior))
 	pgsq05Reject(t, behaviorPlan, "selector null behavior outside registered table")
 
-	// Resource type contradicting the scanned row.
 	contradict := pgsq05SelectorPredicate("Observation", "status", "EQUALS", spec.QuantifierAny, spec.FilterString, "v", true)
 	contradictPlan := pgsq05Plan("Patient")
 	contradictPlan.BindVars["v"] = "x"
 	contradictPlan = pgsq05AddFilter(contradictPlan, pgsq05FilterByPredicate(contradict))
 	pgsq05Reject(t, contradictPlan, "selector resource type contradiction")
 
-	// Source not anchored at the document payload.
 	source := pgsq05SelectorPredicate("Patient", "gender", "EQUALS", spec.QuantifierAny, spec.FilterString, "v", true)
 	source.LeftExpression.Extract.Source = ir.PhysicalValue{Variable: "root"}
 	sourcePlan := pgsq05Plan("Patient")
@@ -473,43 +425,36 @@ func TestRenderSelectorComparisonFailsClosedOutsideClosedShape(t *testing.T) {
 	sourcePlan = pgsq05AddFilter(sourcePlan, pgsq05FilterByPredicate(source))
 	pgsq05Reject(t, sourcePlan, "selector source without payload anchor")
 
-	// Null-literal right value constants the 0..1-item comparison.
 	nullRight := pgsq05SelectorPredicate("Patient", "gender", "EQUALS", spec.QuantifierAny, spec.FilterString, "v", true)
 	nullRightPlan := pgsq05Plan("Patient")
 	nullRightPlan.BindVars["v"] = json.RawMessage("null")
 	nullRightPlan = pgsq05AddFilter(nullRightPlan, pgsq05FilterByPredicate(nullRight))
 	pgsq05Reject(t, nullRightPlan, "selector comparison against a null literal")
 
-	// Operator/kind incompatibility inside the selector form.
 	ordering := pgsq05SelectorPredicate("Patient", "gender", "GT", spec.QuantifierAny, spec.FilterString, "v", true)
 	orderingPlan := pgsq05Plan("Patient")
 	orderingPlan.BindVars["v"] = "a"
 	orderingPlan = pgsq05AddFilter(orderingPlan, pgsq05FilterByPredicate(ordering))
 	pgsq05Reject(t, orderingPlan, "GT over STRING kind in selector form")
 
-	// Existence carrying a right value (the frozen ir validator refuses
-	// the shape outright).
 	existing := pgsq05SelectorPredicate("Patient", "gender", "EXISTS", "", "", "v", true)
 	existingPlan := pgsq05Plan("Patient")
 	existingPlan.BindVars["v"] = "a"
 	existingPlan = pgsq05AddFilter(existingPlan, pgsq05FilterByPredicate(existing))
 	pgsq05RejectAny(t, existingPlan, "selector EXISTS carrying a right value")
 
-	// IN with a non-list bind.
 	inBind := pgsq05SelectorPredicate("Patient", "gender", "IN", spec.QuantifierAny, spec.FilterString, "v", true)
 	inPlan := pgsq05Plan("Patient")
 	inPlan.BindVars["v"] = "a"
 	inPlan = pgsq05AddFilter(inPlan, pgsq05FilterByPredicate(inBind))
 	pgsq05Reject(t, inPlan, "selector IN with a non-list bind")
 
-	// CONTAINS_TEXT keeps its registered gap (same as the direct form).
 	contains := pgsq05SelectorPredicate("Patient", "gender", "CONTAINS_TEXT", spec.QuantifierAny, spec.FilterString, "v", true)
 	containsPlan := pgsq05Plan("Patient")
 	containsPlan.BindVars["v"] = "a"
 	containsPlan = pgsq05AddFilter(containsPlan, pgsq05FilterByPredicate(contains))
 	pgsq05Reject(t, containsPlan, "selector CONTAINS_TEXT stays a gap")
 
-	// A quantifier on the direct value form stays refused (pg-sql-02).
 	quantified := ir.PhysicalPredicate{
 		Operator:   "EQUALS",
 		Quantifier: spec.QuantifierAny,
@@ -521,8 +466,6 @@ func TestRenderSelectorComparisonFailsClosedOutsideClosedShape(t *testing.T) {
 	quantifiedPlan = pgsq05AddFilter(quantifiedPlan, pgsq05FilterByPredicate(quantified))
 	pgsq05Reject(t, quantifiedPlan, "quantifier on the direct value form")
 
-	// Correlated predicates stay refused (the frozen ir validator rejects
-	// an incomplete correlation before the renderer is reached).
 	correlated := pgsq05Plan("Patient")
 	correlated = pgsq05AddFilter(correlated, pgsq05FilterByPredicate(ir.PhysicalPredicate{
 		Operator:    "EXISTS",
@@ -530,8 +473,6 @@ func TestRenderSelectorComparisonFailsClosedOutsideClosedShape(t *testing.T) {
 	}))
 	pgsq05RejectAny(t, correlated, "correlated predicate")
 
-	// Unknown operators are rejected before SQL (ir owns the operator
-	// alphabet; LIKE is not in it).
 	unknown := pgsq05Plan("Patient")
 	unknown.BindVars["v"] = "x"
 	unknown = pgsq05AddFilter(unknown, pgsq05FilterByPredicate(ir.PhysicalPredicate{
@@ -541,10 +482,6 @@ func TestRenderSelectorComparisonFailsClosedOutsideClosedShape(t *testing.T) {
 	}))
 	pgsq05RejectAny(t, unknown, "LIKE operator")
 }
-
-// ---------------------------------------------------------------------------
-// Direct value form: typed filter values.
-// ---------------------------------------------------------------------------
 
 func TestRenderDirectTypedColumnTemporalLiterals(t *testing.T) {
 	plan := pgsq05Plan("Patient")
@@ -567,7 +504,6 @@ func TestRenderDirectTypedColumnTemporalLiterals(t *testing.T) {
 		t.Fatalf("recorded_at literal arg = %#v", arg.Value)
 	}
 
-	// Partial literals and kind contradictions never reach SQL.
 	for _, bad := range []struct {
 		kind  spec.FilterValueKind
 		value any
@@ -591,7 +527,6 @@ func TestRenderDirectTypedColumnTemporalLiterals(t *testing.T) {
 		}
 	}
 
-	// A time.Time bind keeps the pg-sql-02 reading.
 	timePlan := pgsq05Plan("Patient")
 	timePlan.BindVars["at_value"] = time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	timePlan = pgsq05AddFilter(timePlan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
@@ -649,7 +584,6 @@ func TestRenderDirectTypedPayloadKinds(t *testing.T) {
 				string(got.Value.(json.RawMessage)) != testCase.raw {
 				t.Fatalf("arg = %#v, want jsonb %s", got, testCase.raw)
 			}
-			// Go nil is not an explicit null literal: only raw JSON null is.
 			nilPlan := pgsq05Plan("Patient")
 			nilPlan.BindVars["v"] = nil
 			nilPlan = pgsq05AddFilter(nilPlan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
@@ -708,8 +642,6 @@ func TestRenderDirectTypedPayloadRangeUsesTemporalGuards(t *testing.T) {
 	if rendered.Args[5].Type != command.PostgreSQLParameterTimestamptz {
 		t.Fatalf("DATE_TIME payload arg = %#v", rendered.Args[5])
 	}
-	// NOT must be guarded: the guarded stored side reads NULL for missing
-	// and never-comparable stored strings.
 	negated := pgsq05Plan("Patient")
 	negated.BindVars["v"] = "2024-03-15T10:20:30Z"
 	negated = pgsq05AddFilter(negated, pgsq05FilterByExpression(ir.PhysicalPredicateExpression{
@@ -726,7 +658,6 @@ func TestRenderDirectTypedPayloadRangeUsesTemporalGuards(t *testing.T) {
 		t.Fatalf("NOT over a three-valued temporal comparison must be guarded:\n%s", negatedRendered.SQL)
 	}
 
-	// Ordering over an incompatible kind is rejected before SQL.
 	stringOrder := pgsq05Plan("Patient")
 	stringOrder.BindVars["v"] = "b"
 	stringOrder = pgsq05AddFilter(stringOrder, pgsq05FilterByPredicate(ir.PhysicalPredicate{
@@ -737,10 +668,6 @@ func TestRenderDirectTypedPayloadRangeUsesTemporalGuards(t *testing.T) {
 	}))
 	pgsq05Reject(t, stringOrder, "GT over STRING kind")
 }
-
-// ---------------------------------------------------------------------------
-// Boolean predicates: AND / OR / NOT truth-table plumbing.
-// ---------------------------------------------------------------------------
 
 func pgsq05PayloadLeaf(bindKey string) ir.PhysicalPredicate {
 	return ir.PhysicalPredicate{
@@ -770,14 +697,11 @@ func TestRenderOrPredicateGoldenAndNullGuardPlacement(t *testing.T) {
 		},
 	}))
 	rendered := renderOK(t, plan)
-	// Both leaves resolve the same document path, so the whole path binds
-	// once and only the two values take separate parameters.
 	wantClause := `((r0."payload" #> $5::text[]) = ($6::jsonb)) OR ((r0."payload" #> $5::text[]) = ($7::jsonb))`
 	if got := pgsq05WhereClause(t, rendered); got != wantClause {
 		t.Fatalf("OR clause =\n%s\nwant\n%s", got, wantClause)
 	}
 
-	// Two-valued leaves keep NOT plain.
 	twoValued := pgsq05Plan("Patient")
 	twoValued.BindVars["a"] = "x"
 	twoValued.BindVars["b"] = "y"
@@ -795,7 +719,6 @@ func TestRenderOrPredicateGoldenAndNullGuardPlacement(t *testing.T) {
 		t.Fatalf("NOT over a two-valued OR must stay plain:\n%s", got)
 	}
 
-	// One three-valued leaf makes the disjunction three-valued.
 	mixed := pgsq05Plan("Patient")
 	mixed.BindVars["a"] = "x"
 	mixed.BindVars["b"] = "y"
@@ -815,8 +738,6 @@ func TestRenderOrPredicateGoldenAndNullGuardPlacement(t *testing.T) {
 }
 
 func TestRenderNestedTruthTableShapes(t *testing.T) {
-	// NOT(AND(payloadLeaf, columnLeaf)) — the AND inherits the three-
-	// valued leaf, so negation is guarded; nesting keeps per-part parens.
 	plan := pgsq05Plan("Patient")
 	plan.BindVars["a"] = "x"
 	plan.BindVars["b"] = "y"
@@ -836,7 +757,6 @@ func TestRenderNestedTruthTableShapes(t *testing.T) {
 		t.Fatalf("nested clause =\n%s\nwant\n%s", got, want)
 	}
 
-	// OR inside AND inside NOT.
 	deep := pgsq05Plan("Patient")
 	deep.BindVars["a"] = "x"
 	deep.BindVars["b"] = "y"
@@ -866,9 +786,6 @@ func TestRenderNestedTruthTableShapes(t *testing.T) {
 }
 
 func TestRenderBooleanConnectiveShapeRejections(t *testing.T) {
-	// The frozen ir validator owns predicate-tree well-formedness, so the
-	// renderer's own guards are defense in depth; what is pinned here is
-	// that every malformed tree is refused before any SQL exists.
 	emptyAny := pgsq05Plan("Patient")
 	emptyAny = pgsq05AddFilter(emptyAny, pgsq05FilterByExpression(ir.PhysicalPredicateExpression{Kind: ir.PhysicalAnyPredicate}))
 	pgsq05RejectAny(t, emptyAny, "ANY without children")
@@ -895,10 +812,6 @@ func TestRenderBooleanConnectiveShapeRejections(t *testing.T) {
 	}))
 	pgsq05RejectAny(t, kindlessComparison, "COMPARISON without payload")
 }
-
-// ---------------------------------------------------------------------------
-// Freeze checks over the widened surface: determinism and leak-freedom.
-// ---------------------------------------------------------------------------
 
 func TestRenderWidenedSurfaceIsDeterministicAndLeakFree(t *testing.T) {
 	build := func() ir.PhysicalPlan {
@@ -935,14 +848,7 @@ func TestRenderWidenedSurfaceIsDeterministicAndLeakFree(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Review findings: numeric ordering type guard and IN list kind discipline.
-// ---------------------------------------------------------------------------
-
 func TestRenderNumericOrderingRequiresStoredNumber(t *testing.T) {
-	// jsonb orders strings below numbers across types, the reverse of
-	// ArangoDB; both forms must refuse to order a non-numeric stored
-	// item instead of silently using jsonb type order.
 	selectorPlan := pgsq05Plan("Patient")
 	selectorPlan.BindVars["score_value"] = int64(5)
 	selectorPlan = pgsq05AddFilter(selectorPlan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
@@ -972,8 +878,6 @@ func TestRenderNumericOrderingRequiresStoredNumber(t *testing.T) {
 }
 
 func TestRenderRejectsKindMismatchedSelectorInList(t *testing.T) {
-	// Each IN element must carry the canonical Go type of the declared
-	// kind; the []string shorthand belongs to the string-carrying kinds.
 	inPlan := func(kind spec.FilterValueKind, bind any) ir.PhysicalPlan {
 		plan := pgsq05Plan("Patient")
 		plan.BindVars["list"] = bind
@@ -985,7 +889,6 @@ func TestRenderRejectsKindMismatchedSelectorInList(t *testing.T) {
 	pgsq05Reject(t, inPlan(spec.FilterDecimal, []any{int64(1)}), "DECIMAL kind IN with int64 elements")
 	pgsq05Reject(t, inPlan(spec.FilterString, []any{int64(1)}), "STRING kind IN with int64 elements")
 
-	// The canonical types render: INTEGER accepts []any of int64.
 	plan := inPlan(spec.FilterInteger, []any{int64(1), int64(2)})
 	rendered := renderOK(t, plan)
 	if got := rendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB ||
@@ -995,8 +898,6 @@ func TestRenderRejectsKindMismatchedSelectorInList(t *testing.T) {
 }
 
 func TestRenderRejectsStringKindOrderingInAllThreeForms(t *testing.T) {
-	// OperatorSupportsKind is re-read at the renderer boundary, so a
-	// hand-built plan cannot order a STRING kind in any registered form.
 	columnPlan := pgsq05Plan("Patient")
 	columnPlan.BindVars["v"] = "Patient"
 	columnPlan = pgsq05AddFilter(columnPlan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
@@ -1024,15 +925,6 @@ func TestRenderRejectsStringKindOrderingInAllThreeForms(t *testing.T) {
 	pgsq05Reject(t, selectorPlan, "LT over STRING kind in selector form")
 }
 
-// TestRenderRejectsCommaDecimalLiteralsInAllThreeForms pins the F9 guard
-// in temporalComparisonValue. Go's time.Parse accepts a comma as the
-// fractional-second separator (stdlib-documented; measured in this tree:
-// without the guard "2024-03-15T10:20:30,5Z" rendered and bound the
-// instant .5Z — over-selection against AQL's DATE_TIMESTAMP, which folds
-// comma fractions to NaN and matches nothing), so refusal must be
-// explicit, before parsing. If the guard is removed, every case below
-// turns into a render success and this test goes RED by name — that is
-// the guard's liveness control.
 func TestRenderRejectsCommaDecimalLiteralsInAllThreeForms(t *testing.T) {
 	for _, value := range []string{
 		"2024-03-15T10:20:30,5Z",
@@ -1067,12 +959,6 @@ func TestRenderRejectsCommaDecimalLiteralsInAllThreeForms(t *testing.T) {
 	}
 }
 
-// TestRenderNormalizesFixedZoneTimeTimeBind exercises the .UTC()
-// normalization on the time.Time bind path with the displacement this
-// ticket bounds: a +16:00 FixedZone instant (beyond PostgreSQL's ±15:59
-// text-cast range) must reach the driver as the same instant in UTC, so
-// its RFC3339 text encoding is always "+00:00"/"Z" regardless of driver
-// encoding choices.
 func TestRenderNormalizesFixedZoneTimeTimeBind(t *testing.T) {
 	bind := time.Date(2024, 3, 14, 18, 20, 30, 0, time.FixedZone("Etc/GMT-16", 16*3600))
 	plan := pgsq05Plan("Patient")
@@ -1103,14 +989,6 @@ func TestRenderNormalizesFixedZoneTimeTimeBind(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Real unit arms for the temporal guard patterns (independent of the
-// captured goldens, which encode the pattern strings and therefore cannot
-// catch a pattern bug). These execute the constants themselves; the live
-// boundary sweep executes them through PostgreSQL's ~ operator and the
-// real ::timestamptz casts.
-// ---------------------------------------------------------------------------
-
 func TestRenderTemporalGuardPatternUnitArms(t *testing.T) {
 	date := regexp.MustCompile(temporalStoredDatePattern)
 	instant := regexp.MustCompile(temporalStoredInstantPattern)
@@ -1123,17 +1001,13 @@ func TestRenderTemporalGuardPatternUnitArms(t *testing.T) {
 		noOff bool
 	}
 	arms := []arm{
-		// Century-leap arms: div-by-400 keeps Feb 29; div-by-100-not-400
-		// and year 0000 never match.
 		arm{"2000-02-29", true, false, false}, {"2400-02-29", true, false, false},
 		arm{"1600-02-29", true, false, false}, {"1900-02-29", false, false, false},
 		arm{"2100-02-29", false, false, false}, {"0000-02-29", false, false, false},
 		arm{"0000-01-01", false, false, false},
-		// Leap/non-leap Feb for ordinary years.
 		arm{"2024-02-29", true, false, false}, {"2023-02-29", false, false, false},
 		arm{"2024-02-28", true, false, false}, {"2024-02-30", false, false, false},
 	}
-	// Every month against calendar truth (days 01, max, max+1).
 	maxDay := map[string]int{"01": 31, "02": 28, "03": 31, "04": 30, "05": 31, "06": 30,
 		"07": 31, "08": 31, "09": 30, "10": 31, "11": 30, "12": 31}
 	for month, max := range maxDay {
@@ -1146,13 +1020,11 @@ func TestRenderTemporalGuardPatternUnitArms(t *testing.T) {
 		)
 	}
 	arms = append(arms,
-		// Time bounds.
 		arm{"2024-03-15T23:59:59Z", false, true, false},
 		arm{"2024-03-15T24:00:00Z", false, false, false},
 		arm{"2024-03-15T23:60:00Z", false, false, false},
-		arm{"2024-03-15T23:59:60Z", false, false, false}, // leap second excluded, as before
+		arm{"2024-03-15T23:59:60Z", false, false, false},
 		arm{"2024-03-15T10:20Z", false, true, false},
-		// Offset bounds: PostgreSQL admits ±15:59 (SQLSTATE 22009 beyond).
 		arm{"2024-03-15T10:20:30+00:00", false, true, false},
 		arm{"2024-03-15T10:20:30+14:00", false, true, false},
 		arm{"2024-03-15T10:20:30+15:59", false, true, false},
@@ -1162,17 +1034,14 @@ func TestRenderTemporalGuardPatternUnitArms(t *testing.T) {
 		arm{"2024-03-15T10:20:30+23:59", false, false, false},
 		arm{"2024-03-15T10:20:30-23:59", false, false, false},
 		arm{"2024-03-15T10:20:30+15:60", false, false, false},
-		// Fractional seconds: '.' only (SQLSTATE 22007 on comma).
 		arm{"2024-03-15T10:20:30.5Z", false, true, false},
 		arm{"2024-03-15T10:20:30,5Z", false, false, false},
 		arm{"2024-03-15T10:20:30,5", false, false, false},
 		arm{"2024-03-15T10:20:30.5+02:00", false, true, false},
 		arm{"2024-03-15T10:20:30,5+02:00", false, false, false},
-		// No-offset instant branch.
 		arm{"2024-03-15T10:20:30", false, false, true},
 		arm{"2024-03-15T10:20", false, false, true},
 		arm{"2024-03-15T24:00:00", false, false, false},
-		// Garbage shapes never match any branch.
 		arm{"2024", false, false, false},
 		arm{"not-a-date", false, false, false},
 		arm{"2024-03-15 10:20:30Z", false, false, false},

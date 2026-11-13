@@ -57,9 +57,6 @@ func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (
 	}
 }
 
-// renderCorrelationPredicate keeps the Coding loop and owner value in one
-// lexical scope. A system from Coding[0] can therefore never match a code
-// from Coding[1], nor can a value from a different repeated component pass.
 func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.PhysicalCorrelation) (string, error) {
 	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
 	if err != nil {
@@ -140,9 +137,6 @@ func (r *physicalPlanRenderer) renderCorrelationOwners(source ir.PhysicalValue, 
 		if err != nil {
 			return "", err
 		}
-		// A selector whose terminal step iterates an array returns one array
-		// per source document. Correlation loops over owner items, so flatten
-		// exactly that selector-result layer before pairing Coding/value data.
 		return "FLATTEN(" + owners + ")", nil
 	}
 	return "[" + raw + "]", nil
@@ -177,11 +171,6 @@ func (r *physicalPlanRenderer) renderCorrelationValues(source string, selector s
 	return "FIRST(FOR __correlation_candidate IN [" + strings.Join(values, ", ") + "] FILTER " + eligible + " RETURN __correlation_candidate)", nil
 }
 
-// renderCorrelationUnsupportedChoiceValues returns values observed on choice
-// arms that are not part of the checked binding. Keeping this separate from
-// the selected value expression lets projections expose an explicit typed
-// incompatibility while predicates reject that row instead of treating it as
-// ordinary absence.
 func (r *physicalPlanRenderer) renderCorrelationUnsupportedChoiceValues(source string, correlation ir.PhysicalCorrelation) (string, error) {
 	if len(correlation.ChoiceSelectors) == 0 || len(correlation.ChoiceArms) == 0 {
 		return "[]", nil
@@ -300,9 +289,6 @@ func (r *physicalPlanRenderer) renderPredicateExpression(predicate ir.PhysicalPr
 	}
 }
 
-// renderExistsSubplan serializes a validated correlated subplan. EXISTS is
-// always bounded: relationship matching is a semi-join, never a row-expanding
-// traversal, so the renderer appends LIMIT 1 immediately before RETURN.
 func (r *physicalPlanRenderer) renderExistsSubplan(subplan ir.PhysicalSubplan, indent string) (string, error) {
 	value, err := r.renderSubplan(subplan, indent, true)
 	if err != nil {

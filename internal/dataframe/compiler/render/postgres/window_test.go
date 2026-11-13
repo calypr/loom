@@ -1,20 +1,5 @@
 package postgres
 
-// window_test.go witnesses the pg-sql-12 execution-window contract owned by
-// window.go: the W1 spine window kept byte-identical to the merged
-// pg-sql-02 behavior, the W2 final window over expanded rows keyed by the
-// complete typed row identity (never the root ID alone), the full refusal
-// surface for every shape outside the closed slice, and — in the
-// service-gated section — literal expected pages that repeat identically
-// across executions on a real PostgreSQL 18 server. A skipped required live
-// case is a failure for this ticket's acceptance; the gate exists only to
-// keep unrelated CI lanes green. TestZZNoLeftoverSQL12Resources audits that
-// nothing under the ticket-owned verify_sql12_ prefix survives; it is the
-// final function in this file, and window_test.go is the last-sorted test
-// file in the package, so every live resource this file mints predates the
-// audit in execution order (the Go file-order gotcha is a known vacuous-
-// audit failure mode and is deliberately avoided).
-
 import (
 	"context"
 	"encoding/json"
@@ -36,13 +21,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// Contract helpers
-// ---------------------------------------------------------------------------
-
-// windowTuple builds the plan SORT keys from the compiler-owned stable row
-// identity tuple, exactly as lowering emits them for a row expansion. The
-// renderer must accept this tuple verbatim and reject every deviation.
 func windowTuple(unnest ir.PhysicalUnnest) []ir.PhysicalValue {
 	return ir.PhysicalUnnestSortKeys(unnest)
 }
@@ -59,8 +37,6 @@ func windowReturnOp(projections ...ir.PhysicalProjection) ir.PhysicalOperation {
 	return ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: projections}}
 }
 
-// windowedUnnestPlan builds [ROOT_SCAN, UNNEST, SORT(tuple), LIMIT, RETURN]
-// over one registered expansion with the limit bound to "limit".
 func windowedUnnestPlan(unnest ir.PhysicalUnnest, limit int, projections ...ir.PhysicalProjection) ir.PhysicalPlan {
 	plan := basePlan()
 	plan.BindVars["limit"] = limit
@@ -74,8 +50,6 @@ func windowedUnnestPlan(unnest ir.PhysicalUnnest, limit int, projections ...ir.P
 	return plan
 }
 
-// windowOrderByClause extracts the exact ORDER BY term list, with any trailing
-// bound LIMIT cut off, so goldens pin the total order itself.
 func windowOrderByClause(t *testing.T, sql string) string {
 	t.Helper()
 	const marker = " ORDER BY "
@@ -103,9 +77,6 @@ func requireWindowRefusal(t *testing.T, plan ir.PhysicalPlan, context string) {
 		}
 	}
 	if !sawUnnest {
-		// Without UNNEST the plan belongs to the spine dispatch, which
-		// keeps its own merged gates; the entry/identity pair covers only
-		// plans this slice registers.
 		if _, err := RenderPhysicalPlan(plan, mustBinding(t)); err == nil {
 			t.Fatalf("%s: spine dispatch accepted a shape that must fail closed", context)
 		}
@@ -115,16 +86,10 @@ func requireWindowRefusal(t *testing.T, plan ir.PhysicalPlan, context string) {
 	if !errors.Is(dispatchErr, ErrUnsupportedPostgresPlan) {
 		t.Fatalf("%s: core dispatch error = %v, want ErrUnsupportedPostgresPlan", context, dispatchErr)
 	}
-	// The full-backstop invariant from pg-sql-09 carries over to the window
-	// arms: both entries must refuse with a byte-identical message.
 	if entryErr.Error() != dispatchErr.Error() {
 		t.Fatalf("%s: dispatch error %q diverged from entry error %q", context, dispatchErr, entryErr)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// W1: the spine window stays byte-identical to the merged pg-sql-02 contract
-// ---------------------------------------------------------------------------
 
 func TestWindowSpineSortLimitSQLIsByteIdentical(t *testing.T) {
 	plan := basePlan()
@@ -153,9 +118,6 @@ func TestWindowSpineSortLimitSQLIsByteIdentical(t *testing.T) {
 }
 
 func TestWindowSpineLimitWithoutSortStaysDeterministic(t *testing.T) {
-	// The merged spine contract (window.go D1) keeps accepting a bare LIMIT:
-	// the renderer-appended resource_seq witness makes the page a strict
-	// total order even when the plan sorts nothing.
 	plan := basePlan()
 	plan.Operations = []ir.PhysicalOperation{
 		plan.Operations[0],
@@ -172,13 +134,6 @@ func TestWindowSpineLimitWithoutSortStaysDeterministic(t *testing.T) {
 }
 
 func TestWindowSpineDuplicateSortKeysAreEmittedVerbatim(t *testing.T) {
-	// Review-pinned W1 invariant: ir.Validate accepts duplicate SORT keys
-	// (each key is validated independently), and the merged pg-sql-02
-	// renderer emitted duplicate ORDER BY terms. The spine window must keep
-	// that byte-identity: dedup is an expansion-only (W2) behavior, because
-	// the renderer witnesses resource_seq/edge_seq sit outside
-	// resourceFilterColumns and can never collide with a typed-column plan
-	// key when no expansion is present.
 	plan := basePlan()
 	plan.Operations = []ir.PhysicalOperation{
 		plan.Operations[0],
@@ -196,15 +151,6 @@ func TestWindowSpineDuplicateSortKeysAreEmittedVerbatim(t *testing.T) {
 }
 
 func TestWindowEdgeVariableRebindIsRefusedAtRegistration(t *testing.T) {
-	// The window's edge-join registration refuses re-binding one variable
-	// to a second join: the occurrence witness must name exactly one join
-	// per edge variable, or it would silently point at the later duplicate
-	// join. At the plan surface, ir.Validate already rejects duplicate
-	// variable definitions (verified against the merged pg-sql-02/09
-	// renderer: "validate physical plan: operation N: variable %q is
-	// already defined"), so both merged contexts below were refused before
-	// this PR as well — the arm narrows nothing merged; it pins the
-	// registration invariant directly inside the renderer.
 	t.Run("plan surface refuses duplicate edge variable in both contexts", func(t *testing.T) {
 		spine := basePlan()
 		spine.BindVars["edge_collection"] = "fhir_edge"
@@ -309,14 +255,6 @@ func requireRebindRefusal(t *testing.T, plan ir.PhysicalPlan, wantFragment strin
 }
 
 func TestWindowSpineSortsRootKeyByLogicalIdAndRejectsPayloadSorts(t *testing.T) {
-	// The _key spelling keeps its own tuple-vocabulary checks on W2 below.
-	// On the spine, the generic execution window's root _key sort is the
-	// canonical identity spelling: since the row-execution path became the
-	// compiled renderer path (arch-backend-11), every PostgreSQL stream
-	// carries a root _key spine sort, and the renderer maps it onto the
-	// logical_id storage column — exactly the term W2's identity segments
-	// emit. The mapping is live-verified by the engine stream witnesses
-	// (ORDER BY logical_id ASC, resource_seq ASC). Payload paths stay refused.
 	t.Run("RootKeySortRendersLogicalIdOrdering", func(t *testing.T) {
 		plan := basePlan()
 		plan.Operations = []ir.PhysicalOperation{
@@ -348,10 +286,6 @@ func TestWindowSpineSortsRootKeyByLogicalIdAndRejectsPayloadSorts(t *testing.T) 
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// W2: the final window after UNNEST over the complete typed row identity
-// ---------------------------------------------------------------------------
 
 func TestWindowFinalSortLimitOverExpansionIsExact(t *testing.T) {
 	unnest := identifierExpansion(ir.PhysicalUnnestExclude)
@@ -386,9 +320,6 @@ func TestWindowFinalSortLimitOverExpansionIsExact(t *testing.T) {
 }
 
 func TestWindowFinalSortLimitOverOuterExpansionOrdersHasItemWitness(t *testing.T) {
-	// The has-item witness renders immediately before the rn, the ORDER BY
-	// counterpart of the AQL tuple sorting has-item before ordinality
-	// (ir.PhysicalUnnestSortKeys; render/aql/render.go sorts every key ASC).
 	unnest := identifierExpansion(ir.PhysicalUnnestPreserveParent)
 	plan := windowedUnnestPlan(unnest, 2,
 		valueProjection("logical_id", "root", "logical_id"),
@@ -423,12 +354,6 @@ func TestWindowFinalSortLimitOverOwnerRouteIncludesOccurrenceWitness(t *testing.
 		),
 	}
 	rendered := renderOK(t, plan)
-	// Root identity, route occurrence witness, distinct-owner identity, then
-	// the has-item and rn witnesses, then the renderer completeness chain.
-	// Base-carried golden re-pinned at the hop: the owner route is the INNER
-	// renderTraversalScan scan (render/aql/navigation_render.go, review round
-	// at 061cd197), so the owner row is the top-level x{n}, not the old flat
-	// r{n} alias; e1."edge_seq" and the term order are unchanged.
 	if got, want := windowOrderByClause(t, rendered.SQL),
 		`r0."logical_id" ASC, e1."edge_seq" ASC, x1."logical_id" ASC, (u1.rn IS NOT NULL) ASC, u1.rn ASC, r0."resource_seq" ASC`; got != want {
 		t.Fatalf("owner-route final-window ORDER BY =\n got %q\nwant %q", got, want)
@@ -463,17 +388,9 @@ func TestWindowFinalSortLimitOverTwoExpansionsOrdersEveryWitness(t *testing.T) {
 	}
 }
 
-// mergedNoWindowUnnestGolden is the MERGED pg-sql-09 (commit 00676b9d,
-// PR #112) rendering of unnestPlan(expansionProjections()...) under
-// mustBinding, captured verbatim from the merged renderer in a detached
-// base checkout — ratification condition C2: asserted byte-for-byte, never
-// re-imagined.
 const mergedNoWindowUnnestGolden = `SELECT r0."logical_id" AS "c0", (u1.item) AS "c1", (u1.rn - 1) AS "c2", (u1.rn IS NOT NULL) AS "c3" FROM "pgir02_it_unit"."fhir_resource" AS r0 CROSS JOIN LATERAL (SELECT u1_e0.item AS item, ROW_NUMBER() OVER (ORDER BY u1_e0.ord) AS rn FROM jsonb_array_elements(CASE WHEN (r0."payload" #> $5::text[]) IS NULL OR jsonb_typeof((r0."payload" #> $5::text[])) = 'null' THEN '[]'::jsonb WHEN jsonb_typeof((r0."payload" #> $5::text[])) = 'array' THEN (r0."payload" #> $5::text[]) WHEN (r0."payload" #> $5::text[]) = 'false'::jsonb OR (r0."payload" #> $5::text[]) = '0'::jsonb OR (r0."payload" #> $5::text[]) = '""'::jsonb THEN '[]'::jsonb ELSE jsonb_build_array((r0."payload" #> $5::text[])) END) WITH ORDINALITY AS u1_e0(item, ord) WHERE jsonb_typeof(u1_e0.item) <> 'null') AS u1 WHERE r0."project" = $1 AND r0."dataset_generation" = $2 AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND r0."resource_type" = $4 ORDER BY r0."resource_seq" ASC, u1.rn ASC`
 
 func TestWindowWithoutWindowKeepsMergedUnnestSQLByteIdentical(t *testing.T) {
-	// Ratification condition C2: the no-window pg-sql-09 statement is
-	// untouched, asserted against the merged golden text verbatim. The
-	// has-item ORDER BY witness appears only while a window is open.
 	rendered := renderOK(t, unnestPlan(expansionProjections()...))
 	if rendered.SQL != mergedNoWindowUnnestGolden {
 		t.Fatalf("no-window statement drifted from the merged pg-sql-09 golden:\n got %q\nwant %q", rendered.SQL, mergedNoWindowUnnestGolden)
@@ -498,7 +415,6 @@ func TestWindowRenderIsDeterministicAndDoesNotAliasPlanData(t *testing.T) {
 	if first.SQL != second.SQL || !reflect.DeepEqual(first.Args, second.Args) {
 		t.Fatalf("window render is not deterministic")
 	}
-	// Mutating the plan binds after rendering must not move the bound value.
 	plan.BindVars["limit"] = 99
 	third := renderOK(t, plan)
 	if third.SQL != first.SQL {
@@ -510,10 +426,6 @@ func TestWindowRenderIsDeterministicAndDoesNotAliasPlanData(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// W2 refusal surface
-// ---------------------------------------------------------------------------
 
 func TestWindowFinalSortRejectsEveryTupleDeviation(t *testing.T) {
 	type mutation func(unnest *ir.PhysicalUnnest, keys *[]ir.PhysicalValue)
@@ -587,8 +499,6 @@ func TestWindowFinalSortKeepsThePlanRouteOccurrenceProofExact(t *testing.T) {
 	plan.BindVars["limit"] = 2
 	planRouteTraversal(&plan, &unnest, ir.PhysicalOutbound, "")
 	keys := windowTuple(unnest)
-	// The tuple must include the route edge occurrence witness: dropping it
-	// collapses two distinct join paths and is refused positionally.
 	for _, drop := range []int{1} {
 		broken := append([]ir.PhysicalValue(nil), keys[:drop]...)
 		broken = append(broken, keys[drop+1:]...)
@@ -658,9 +568,6 @@ func TestWindowRejectsWindowPositionViolations(t *testing.T) {
 }
 
 func TestWindowRejectsLimitBindDefects(t *testing.T) {
-	// Fail-closed controls: the frozen ir.Validate positive-int contract is
-	// the first line and the window's own bind check is the second. Either
-	// line refusing is acceptable; rendering must never succeed.
 	for _, tc := range []struct {
 		name  string
 		value any
@@ -685,8 +592,6 @@ func TestWindowRejectsLimitBindDefects(t *testing.T) {
 }
 
 func TestWindowPreviewSourceWindowByRootIDStaysRefused(t *testing.T) {
-	// The window is never taken at the source by root ID: the plan flag keeps
-	// its typed refusal (render.go), which is the point of this ticket.
 	unnest := identifierExpansion(ir.PhysicalUnnestExclude)
 	plan := windowedUnnestPlan(unnest, 3, expansionProjections()...)
 	plan.PreviewSourceWindowByRootID = true
@@ -705,11 +610,6 @@ func TestWindowPreviewSourceWindowByRootIDStaysRefused(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live PostgreSQL 18: pages over duplicate root rows and expanded children
-// repeat identically across executions against literal expected rows.
-// ---------------------------------------------------------------------------
-
 const (
 	sql12Project    = "sql12-proj"
 	sql12Generation = "gen-1"
@@ -727,11 +627,6 @@ type sql12Service struct {
 	fail      func(step string, err error)
 }
 
-// newSQL12Service mints one owned verify_sql12_* database and schema per
-// case, migrates through the merged pg-store-02 runner, and stores literal
-// rows through the merged pg-store-04/05 repositories. MUTATING live runs
-// are coordinated: the verify_sql12_* prefix is registered with the
-// coordinator and the first mutating run awaits its window signal.
 func newSQL12Service(t *testing.T) *sql12Service {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
@@ -877,10 +772,6 @@ func windowParameterValues(args []command.PostgreSQLParameter) []any {
 	return values
 }
 
-// windowRepeat executes the rendered statement the given number of times and
-// requires every execution to return the identical page. Expected pages are
-// additionally compared against literal rows supplied by the test, never
-// derived from renderer output.
 func windowRepeat(t *testing.T, svc *sql12Service, rendered command.RenderedPostgresPhysicalPlan, executions int, want [][]string) {
 	t.Helper()
 	for run := 1; run <= executions; run++ {
@@ -909,10 +800,6 @@ func (s *sql12Service) render(t *testing.T, plan ir.PhysicalPlan) command.Render
 	return rendered
 }
 
-// L1: five root rows share every plan-visible sort column (same resource
-// type); the page is cut by the bound LIMIT and must repeat identically,
-// ordered by the storage occurrence witness, with an independently written
-// literal witness.
 func TestPG18WindowDuplicateRootRowsPageStably(t *testing.T) {
 	svc := newSQL12Service(t)
 	for _, id := range []string{"dup-1", "dup-2", "dup-3", "dup-4", "dup-5"} {
@@ -938,9 +825,6 @@ func TestPG18WindowDuplicateRootRowsPageStably(t *testing.T) {
 	}
 }
 
-// L2: a LIMIT that cuts mid-expansion pages duplicate items in stored-array
-// order; the page repeats identically across executions and matches an
-// independent hand-written expansion witness.
 func TestPG18WindowExpandedChildrenPageStablyWithDuplicateItems(t *testing.T) {
 	svc := newSQL12Service(t)
 	svc.insertResource(t, "Patient", "p-array", "FHIR/Patient", map[string]any{
@@ -962,8 +846,6 @@ func TestPG18WindowExpandedChildrenPageStablyWithDuplicateItems(t *testing.T) {
 		valueProjection("position", "position"))
 	rendered := svc.render(t, plan)
 
-	// sql09StringifyCell decodes jsonb scalars to their Go-native form:
-	// `#> '{value}'` on a JSON string cell stringifies unquoted.
 	want := [][]string{
 		{"p-array", "a", "0"},
 		{"p-array", "a", "1"},
@@ -982,8 +864,6 @@ func TestPG18WindowExpandedChildrenPageStablyWithDuplicateItems(t *testing.T) {
 	}
 }
 
-// L3: two edge occurrences of one owner are distinguished by the occurrence
-// witness; a LIMIT cutting between them pages in stable insertion order.
 func TestPG18WindowOwnerOccurrencesPageStably(t *testing.T) {
 	svc := newSQL12Service(t)
 	svc.insertResource(t, "Patient", "p-own", "FHIR/Patient", map[string]any{})
@@ -1033,9 +913,6 @@ func TestPG18WindowOwnerOccurrencesPageStably(t *testing.T) {
 		valueProjection("owner_logical_id", "own", "logical_id"))
 	rendered := svc.render(t, plan)
 
-	// p-own sorts first and its two occurrences both fit; the third row is
-	// q-own's single occurrence. The page is the full result here, and it
-	// must repeat identically on every execution.
 	want := [][]string{
 		{"p-own", "p-ta"},
 		{"p-own", "p-tb"},
@@ -1062,9 +939,6 @@ func TestPG18WindowOwnerOccurrencesPageStably(t *testing.T) {
 	}
 }
 
-// L4: the OUTER pad row inside the cut page is asserted by CONTENTS — the
-// item and ordinality cells are SQL NULL and has-item is false on exactly
-// the padded row — never by positional trivia.
 func TestPG18WindowOuterPadRowPageContents(t *testing.T) {
 	svc := newSQL12Service(t)
 	svc.insertResource(t, "Patient", "a-empty", "FHIR/Patient", map[string]any{})
@@ -1085,8 +959,6 @@ func TestPG18WindowOuterPadRowPageContents(t *testing.T) {
 		valueProjection("has_item", "has_item"))
 	rendered := svc.render(t, plan)
 
-	// The item projection carries the whole element, so it stringifies as
-	// compact JSON; scalars inside it are quoted by JSON itself.
 	want := [][]string{
 		{"a-empty", "<null>", "<null>", "false"},
 		{"b-full", `{"value":"x"}`, "0", "true"},
@@ -1094,14 +966,6 @@ func TestPG18WindowOuterPadRowPageContents(t *testing.T) {
 	}
 	windowRepeat(t, svc, rendered, 5, want)
 
-	// Independent literal witness for the non-pad rows: a hand-written
-	// OUTER expansion over just b-full must reproduce its item rows, while
-	// the same statement without padding over a-empty yields zero rows —
-	// pinning that the pad row exists exactly once in the rendered page and
-	// carries no item content (its <null>/<null>/false cells above are the
-	// content proof).
-	// The witness projects the whole element, matching the page's item
-	// projection cell-for-cell.
 	witness := svc.witness(t, `SELECT r.logical_id, elem.value, elem.ord - 1`+
 		` FROM "`+svc.schema+`"."fhir_resource" AS r`+
 		` CROSS JOIN LATERAL jsonb_array_elements(r.payload #> '{identifier}'::text[])`+
@@ -1116,9 +980,6 @@ func TestPG18WindowOuterPadRowPageContents(t *testing.T) {
 	}
 }
 
-// L5: the filter executes before the final window as the plan specifies:
-// rows the filter removes never appear on any page, under repetition, with
-// an independent literal witness.
 func TestPG18WindowFilterExecutesBeforeFinalWindow(t *testing.T) {
 	svc := newSQL12Service(t)
 	svc.insertResource(t, "Patient", "x-final-1", "FHIR/Patient", map[string]any{"status": "final"})
@@ -1139,9 +1000,6 @@ func TestPG18WindowFilterExecutesBeforeFinalWindow(t *testing.T) {
 	plan = withReturn(plan, valueProjection("logical_id", "root", "logical_id"))
 	rendered := svc.render(t, plan)
 
-	// The LIMIT is larger than the filtered set: the page proves the filter
-	// ran before the window (prelim rows never surface), and the ORDER BY
-	// clause text proves the window is the final clause before LIMIT.
 	want := [][]string{{"x-final-1"}, {"x-final-2"}}
 	windowRepeat(t, svc, rendered, 5, want)
 	order := windowOrderByClause(t, rendered.SQL)
@@ -1158,12 +1016,6 @@ func TestPG18WindowFilterExecutesBeforeFinalWindow(t *testing.T) {
 		t.Fatalf("witness page = %v, want %v", witness, want)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Zero-survivor audit (delta-scoped): nothing this file mints may survive.
-// It is the final function in the last-sorted test file of the package, so
-// every live case above has already run when it executes.
-// ---------------------------------------------------------------------------
 
 func TestZZNoLeftoverSQL12Resources(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))

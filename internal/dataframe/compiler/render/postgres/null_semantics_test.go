@@ -14,17 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-03: the canonical missing/null/empty mapping in null_semantics.go,
-// pinned offline as golden SQL and ordered-argument literals. The live
-// behavior matrix that executes every cell of the contract against real
-// PostgreSQL 18 lives in selectors_test.go.
-//
-// These tests drive RenderPhysicalPlan directly (the shared read spine) so
-// the mappings are pinned independently of the closed-slice gate; the same
-// builders back RenderSelectorExtraction, which delegates here.
-// ---------------------------------------------------------------------------
-
 const (
 	pgsq03Project = "pgsq03-proj"
 	pgsq03Other   = "pgsq03-other"
@@ -32,17 +21,10 @@ const (
 	pgsq03Path    = "FHIR/Patient"
 )
 
-// pgsq03DocumentSource is the exact selector source shape lowering emits for
-// a root-document selector (internal/dataframe/compiler/lower/
-// root_projection.go: lowerSemanticFieldProjection anchors the extract at
-// PhysicalValue{Variable: "root", Path: ["payload"]}).
 func pgsq03DocumentSource() ir.PhysicalValue {
 	return ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}
 }
 
-// pgsq03SelectorPlan builds the closed extraction plan shape: one direct
-// ROOT_SCAN over resourceType plus a RETURN of the given projections, with
-// the canonical scope binds (restricted auth mode, scope_allowed true).
 func pgsq03SelectorPlan(resourceType string, projections ...ir.PhysicalProjection) ir.PhysicalPlan {
 	return ir.PhysicalPlan{
 		Version: 1,
@@ -62,9 +44,6 @@ func pgsq03SelectorPlan(resourceType string, projections ...ir.PhysicalProjectio
 	}
 }
 
-// pgsq03ExtractProjection mirrors the EXTRACT projection construction in
-// lower/root_projection.go: scalar-cardinality extract expression over the
-// root document with its schema resource type and presence metadata.
 func pgsq03ExtractProjection(t *testing.T, name, resourceType, selectorPath string,
 	behavior ir.PhysicalNullBehavior, mode ir.PhysicalSelectorExecutionMode) ir.PhysicalProjection {
 	t.Helper()
@@ -86,9 +65,6 @@ func pgsq03ExtractProjection(t *testing.T, name, resourceType, selectorPath stri
 				ExecutionMode: mode,
 			},
 		},
-		// The presence metadata form lowering attaches to every semantic
-		// field projection (lower/root_projection.go
-		// physicalProjectionPresence).
 		Presence: &ir.PhysicalProjectionPresence{
 			Source: source,
 			Paths:  [][]string{pgsq03SelectorPath(t, selectorPath)},
@@ -109,8 +85,6 @@ func pgsq03SelectorPath(t *testing.T, selectorPath string) []string {
 	return path
 }
 
-// pgsq03PresenceSidecar is the PresenceOutput form: a boolean proof of one
-// selector path, emitted as its own positional projection.
 func pgsq03PresenceSidecar(name string, path ...string) ir.PhysicalProjection {
 	return ir.PhysicalProjection{
 		Name: name,
@@ -131,14 +105,6 @@ func pgsq03RenderOK(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgres
 	return rendered
 }
 
-// ---------------------------------------------------------------------------
-// Golden value expressions: one exact statement per registered null
-// behavior, with the full ordered-argument list.
-// ---------------------------------------------------------------------------
-
-// pgsq03GoldenTail is the canonical scope-wrapped statement frame the
-// shared read spine assembles (scope.go predicates + deterministic order),
-// so each golden below pins only its projection list.
 const pgsq03GoldenTail = ` FROM "pgir02_it_unit"."fhir_resource" AS r0` +
 	` WHERE r0."project" = $1` +
 	` AND r0."dataset_generation" = $2` +
@@ -182,7 +148,6 @@ func TestNullSemanticsGoldenPreserveNullValueAndPresence(t *testing.T) {
 	if !reflect.DeepEqual(rendered.OutputColumns, []string{"logical_id", "gender", "gender_present"}) {
 		t.Fatalf("output columns = %v", rendered.OutputColumns)
 	}
-	// No path or scope data in the statement text; no AQL bind syntax.
 	for _, forbidden := range []string{"@", "gender", "Patient", pgsq03Project, pgsq03Gen, pgsq03Path} {
 		if strings.Contains(rendered.SQL, forbidden) {
 			t.Fatalf("SQL leaked %q: %s", forbidden, rendered.SQL)
@@ -228,9 +193,6 @@ func TestNullSemanticsGoldenNestedPathBindsPrefixAndTerminalKey(t *testing.T) {
 	)
 	rendered := pgsq03RenderOK(t, plan)
 
-	// The value binds the whole path; the presence proof binds the parent
-	// prefix and the terminal key separately — no segment is ever SQL text,
-	// and the prefix parameter is shared by the two presence operands.
 	wantSQL := pgsq03GoldenSQL(`(r0."payload" #> $5::text[]) AS "c0", ` +
 		`COALESCE(jsonb_typeof(r0."payload" #> $6::text[]) = 'object' AND jsonb_exists(r0."payload" #> $6::text[], $7), false) AS "c1"`)
 	if rendered.SQL != wantSQL {
@@ -244,10 +206,6 @@ func TestNullSemanticsGoldenNestedPathBindsPrefixAndTerminalKey(t *testing.T) {
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("nested args = %#v, want %#v", rendered.Args, wantArgs)
 	}
-	// Segments never reach SQL text. The projection list (everything before
-	// FROM) must not contain the bound path words as text — "resource"
-	// legitimately shares letters with "source", so the check is scoped to
-	// the emitted projections.
 	projections := rendered.SQL[:strings.Index(rendered.SQL, " FROM ")]
 	for _, forbidden := range []string{"meta", "source"} {
 		if strings.Contains(projections, forbidden) {
@@ -256,18 +214,6 @@ func TestNullSemanticsGoldenNestedPathBindsPrefixAndTerminalKey(t *testing.T) {
 	}
 }
 
-// TestNullSemanticsNullNamedSegmentsBindQuotedArrayElements exercises the
-// path-binding boundary directly — the same emitters the selector renderers
-// call. ir schema-gates every selector step today, so a null-named selector
-// cannot reach RenderSelectorExtraction yet; this boundary exists precisely
-// so a future loosening upstream cannot make an array literal ambiguous.
-// PostgreSQL parses an unquoted case-insensitive null element of a text[]
-// array literal as a SQL NULL path element, not the key named null — left
-// unquoted, a key literally called null would read ABSENT, violating the
-// PRESENT-VALUE row of the behavior table. Only keyword-matching elements
-// are quoted (every other goldens-pinned segment stays unquoted), and the
-// quote pins the exact case; the frozen pattern admits no quote or
-// backslash, so no escaping is needed and none is attempted.
 func TestNullSemanticsNullNamedSegmentsBindQuotedArrayElements(t *testing.T) {
 	r := &planRenderer{storage: mustBinding(t), parameters: map[string]int{}, rows: map[string]rowScope{}}
 
@@ -303,11 +249,6 @@ func TestNullSemanticsNullNamedSegmentsBindQuotedArrayElements(t *testing.T) {
 		t.Fatalf("nested keyword path = %q %v", got, err)
 	}
 
-	// The nested presence proof descends through the quoted prefix — the
-	// very element the array parser would have turned into SQL NULL — and
-	// dedupes onto the plain null-keyed path parameter. The terminal key
-	// stays a plain scalar text binding (jsonb_exists takes text, never an
-	// array literal, so it must NOT be quoted here).
 	presence, err := r.propertyPresenceExpression("r0", []string{"null", "x"})
 	if err != nil {
 		t.Fatalf("nested presence: %v", err)
@@ -331,8 +272,6 @@ func TestNullSemanticsNullNamedSegmentsBindQuotedArrayElements(t *testing.T) {
 		t.Fatalf("presence terminal key = %#v, want plain x", r.args[keyIndex-1])
 	}
 
-	// A single-segment presence proof binds the keyword as a plain scalar
-	// text key — never an array literal, so never quoted.
 	single, err := r.propertyPresenceExpression("r0", []string{"null"})
 	if err != nil {
 		t.Fatalf("single presence: %v", err)
@@ -346,8 +285,6 @@ func TestNullSemanticsNullNamedSegmentsBindQuotedArrayElements(t *testing.T) {
 		t.Fatalf("single presence key = %#v, want plain null (scalar keys are not array elements)", r.args[keyIndex-1])
 	}
 
-	// No bound path literal may carry the unquoted keyword — on the server
-	// that is a SQL NULL path element.
 	for _, argument := range r.args {
 		if text, ok := argument.Value.(string); ok && text == "{null}" {
 			t.Fatalf("unquoted null array element reached the driver: %s", text)
@@ -355,11 +292,6 @@ func TestNullSemanticsNullNamedSegmentsBindQuotedArrayElements(t *testing.T) {
 	}
 }
 
-// TestNullSemanticsFilterPayloadPathsShareQuotedEncoding proves the other
-// consumer of the shared encoding — resolveValue, which every filter
-// predicate payload path flows through — binds keyword-named segments
-// quoted, so no plan predicate can smuggle the array-literal null keyword
-// onto the server.
 func TestNullSemanticsFilterPayloadPathsShareQuotedEncoding(t *testing.T) {
 	plan := basePlan()
 	plan.BindVars["null_value"] = "present"
@@ -391,14 +323,7 @@ func TestNullSemanticsFilterPayloadPathsShareQuotedEncoding(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Contract invariants that the goldens alone would not catch.
-// ---------------------------------------------------------------------------
-
 func TestNullSemanticsPresenceIsTotalNeverNull(t *testing.T) {
-	// The presence bit is COALESCE(..., false): three-valued logic is
-	// admitted in the value column only, never in the presence metadata
-	// itself.
 	plan := pgsq03SelectorPlan("Patient",
 		pgsq03ExtractProjection(t, "gender", "Patient", "gender", ir.PhysicalPreserveNull, ir.PhysicalSelectorGeneric),
 		pgsq03PresenceSidecar("gender_present", "gender"),
@@ -407,9 +332,6 @@ func TestNullSemanticsPresenceIsTotalNeverNull(t *testing.T) {
 	if !strings.Contains(sql, `COALESCE(jsonb_typeof(r0."payload") = 'object' AND jsonb_exists(r0."payload", $6), false)`) {
 		t.Fatalf("presence proof must be a COALESCE-total two-valued predicate:\n%s", sql)
 	}
-	// Drop-probe (offline counterpart of the live guard-drop): without the
-	// COALESCE the same predicate is NULL for an absent document, which is
-	// exactly the collapse the contract forbids.
 	unguarded := strings.Replace(sql, `COALESCE(jsonb_typeof(r0."payload") = 'object' AND jsonb_exists(r0."payload", $6), false)`,
 		`jsonb_typeof(r0."payload") = 'object' AND jsonb_exists(r0."payload", $6)`, 1)
 	if unguarded == sql {
@@ -446,16 +368,13 @@ func TestNullSemanticsBehaviorFormsAreDistinctNotDecorated(t *testing.T) {
 }
 
 func TestNullSemanticsSamePathSharesOneParameter(t *testing.T) {
-	// Identical document paths across value and presence operands dedupe
-	// into one bound parameter — determinism and the single path-binding
-	// authority in documentPathExpression.
 	plan := pgsq03SelectorPlan("Patient",
 		pgsq03ExtractProjection(t, "a", "Patient", "meta.source", ir.PhysicalPreserveNull, ir.PhysicalSelectorGeneric),
 		pgsq03ExtractProjection(t, "b", "Patient", "meta.source", ir.PhysicalOmitNulls, ir.PhysicalSelectorGeneric),
 		pgsq03PresenceSidecar("c", "meta", "source"),
 	)
 	rendered := pgsq03RenderOK(t, plan)
-	if len(rendered.Args) != 7 { // 4 scope + {meta,source} + {meta} + source
+	if len(rendered.Args) != 7 {
 		t.Fatalf("deduplicated args = %d (%#v), want 7", len(rendered.Args), rendered.Args)
 	}
 	if !strings.Contains(rendered.SQL, `$5`) || !strings.Contains(rendered.SQL, `$6`) || !strings.Contains(rendered.SQL, `$7`) {
@@ -467,9 +386,6 @@ func TestNullSemanticsSamePathSharesOneParameter(t *testing.T) {
 }
 
 func TestNullSemanticsHostileSegmentsFailClosedBeforeSQL(t *testing.T) {
-	// Segments are re-checked against the frozen ir path contract at the
-	// renderer boundary: anything outside [A-Za-z_][A-Za-z0-9_]* is a
-	// typed refusal with no SQL and no parameters, never a quote escape.
 	for _, segment := range []string{"", "bad-name", "a.b", `"x"`, "drop;--", "1x", "ſexp"} {
 		projection := ir.PhysicalProjection{
 			Name: "evil",
@@ -492,8 +408,6 @@ func TestNullSemanticsHostileSegmentsFailClosedBeforeSQL(t *testing.T) {
 		if rendered.SQL != "" || rendered.Args != nil || rendered.OutputColumns != nil {
 			t.Fatalf("rejected segment %q produced output: %#v", segment, rendered)
 		}
-		// The refusal must name the offending segment verbatim (quoted) —
-		// an exact-named refusal, not a generic capability gap.
 		wantIn := strconv.Quote(segment)
 		if segment == "" {
 			wantIn = "has no property"
@@ -516,10 +430,6 @@ func TestNullSemanticsDeterministicAndNonAliasing(t *testing.T) {
 	}
 	capturedSQL, capturedArgs := first.SQL, append([]command.PostgreSQLParameter(nil), first.Args...)
 
-	// Mutate every piece of plan data the renderer read. The scanned
-	// resource type is deliberately not among them: drifting it away from
-	// the selector's schema type is itself a refusal (see the slice's
-	// resource-type trust gate), not a silent rebind.
 	plan.BindVars["project"] = "mutated"
 	plan.BindVars["auth_resource_paths"].([]string)[0] = "MUTATED"
 	third, err := RenderSelectorExtraction(plan, mustBinding(t))
@@ -529,8 +439,6 @@ func TestNullSemanticsDeterministicAndNonAliasing(t *testing.T) {
 	if first.SQL != capturedSQL || !reflect.DeepEqual(first.Args, capturedArgs) {
 		t.Fatalf("rendered result aliased plan data")
 	}
-	// The mutated plan must bind the mutated values (proof the earlier
-	// render froze copies, not references).
 	if reflect.DeepEqual(third.Args, capturedArgs) {
 		t.Fatalf("mutated plan re-bound the frozen arguments")
 	}

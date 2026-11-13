@@ -15,19 +15,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture: one isolated database plus one owned schema per test, both named
-// pgstore05_it_* and dropped by that test's cleanups. Mirrors the pg-store-04
-// fixture with this ticket's namespace.
-// ---------------------------------------------------------------------------
-
 var pgstore05EdgeNamePattern = regexp.MustCompile(`^pgstore05_it_[0-9]+_[0-9a-f]+$`)
 
 type edgeService struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database
-	dsn    string        // isolated database DSN (credentials scrubbed on failure)
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
+	dsn    string
 	schema string
 	scrub  func(any) string
 	fail   func(step string, err error)
@@ -42,7 +36,6 @@ func newEdgeService(t *testing.T) *edgeService {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -81,15 +74,12 @@ func newEdgeService(t *testing.T) *edgeService {
 		fail("create isolated database", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the database this test created.
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
 			t.Errorf("drop isolated database: %s", scrub(err))
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -112,7 +102,6 @@ func newEdgeService(t *testing.T) *edgeService {
 		fail("create owned schema", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the schema this test created.
 		if _, err := iso.Exec(context.WithoutCancel(ctx),
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
 			t.Errorf("drop owned schema: %s", scrub(err))
@@ -122,8 +111,6 @@ func newEdgeService(t *testing.T) *edgeService {
 	return &edgeService{ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub, fail: fail}
 }
 
-// openClient opens a readiness-checked pg-store-01 pool against the isolated
-// database and closes it at test end.
 func (s *edgeService) openClient(t *testing.T) *Client {
 	t.Helper()
 	client, err := Open(s.ctx, Config{
@@ -139,9 +126,6 @@ func (s *edgeService) openClient(t *testing.T) *Client {
 	return client
 }
 
-// newRepositories binds an EdgeRepository and a ResourceRepository (the
-// source-of-truth table the edge store precondition-checks and resolves
-// against) to the owned schema over their own readiness-checked pools.
 func (s *edgeService) newRepositories(t *testing.T) (*EdgeRepository, *ResourceRepository) {
 	t.Helper()
 	edgeRepo, err := NewEdgeRepository(s.openClient(t), s.schema)
@@ -155,10 +139,6 @@ func (s *edgeService) newRepositories(t *testing.T) (*EdgeRepository, *ResourceR
 	return edgeRepo, resourceRepo
 }
 
-// mustMigrateEmbedded applies the full embedded history (ledger bootstrap +
-// 000002_fhir_resource + 000004_edge_occurrence) to the owned schema.
-// 000003 is reserved for the generation-manifest ticket and is not this
-// suite's concern.
 func (s *edgeService) mustMigrateEmbedded(t *testing.T) MigrateResult {
 	t.Helper()
 	result, err := MigrateSchema(s.ctx, s.openClient(t), s.schema)
@@ -168,7 +148,6 @@ func (s *edgeService) mustMigrateEmbedded(t *testing.T) MigrateResult {
 	return result
 }
 
-// readLedger witnesses the migration ledger through the test's own pool.
 func (s *edgeService) readLedger(t *testing.T) []LedgerRecord {
 	t.Helper()
 	rows, err := s.iso.Query(s.ctx,
@@ -191,7 +170,6 @@ func (s *edgeService) readLedger(t *testing.T) []LedgerRecord {
 	return out
 }
 
-// mustSeedResource inserts one resource and returns its storage identity.
 func (s *edgeService) mustSeedResource(t *testing.T, repo *ResourceRepository,
 	project, generation, resourceType, logicalID, authPath string) int64 {
 	t.Helper()
@@ -206,8 +184,6 @@ func (s *edgeService) mustSeedResource(t *testing.T, repo *ResourceRepository,
 	return seq
 }
 
-// mustInsertEdge inserts one occurrence and returns its server-assigned
-// storage identity.
 func (s *edgeService) mustInsertEdge(t *testing.T, repo *EdgeRepository, rec EdgeOccurrenceRow) int64 {
 	t.Helper()
 	seq, err := repo.InsertEdge(s.ctx, rec)
@@ -244,8 +220,6 @@ func (s *edgeService) mustReadToTarget(t *testing.T, repo *EdgeRepository,
 	return rows, hasMore
 }
 
-// countEdges witnesses the raw row count for one full occurrence identity
-// through direct SQL — never through the repository under test.
 func (s *edgeService) countEdges(t *testing.T, rec EdgeOccurrenceRow) int64 {
 	t.Helper()
 	var count int64
@@ -262,8 +236,6 @@ func (s *edgeService) countEdges(t *testing.T, rec EdgeOccurrenceRow) int64 {
 	return count
 }
 
-// countResources witnesses the raw fhir_resource row count for one natural
-// identity through direct SQL.
 func (s *edgeService) countResources(t *testing.T, project, generation, resourceType, logicalID string) int64 {
 	t.Helper()
 	var count int64
@@ -276,7 +248,6 @@ func (s *edgeService) countResources(t *testing.T, project, generation, resource
 	return count
 }
 
-// edgeRowWitness is the literal full-row shape read back through direct SQL.
 type edgeRowWitness struct {
 	EdgeSeq            int64
 	Project            string
@@ -293,9 +264,6 @@ type edgeRowWitness struct {
 	RecordedAtPresent  bool
 }
 
-// witnessEdgeRows reads every row for one (project, dataset_generation,
-// source, target, label) occurrence group straight from the table, ordered
-// by storage identity, for literal expected-row comparison.
 func (s *edgeService) witnessEdgeRows(t *testing.T,
 	project, generation, sourceType, sourceID, label, targetType, targetID string) []edgeRowWitness {
 	t.Helper()
@@ -329,10 +297,6 @@ func (s *edgeService) witnessEdgeRows(t *testing.T,
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Scope helpers (edge scopes; resource scopes reuse resource_test.go)
-// ---------------------------------------------------------------------------
-
 func edgeRestrictedScope(project, generation string, paths ...string) EdgeScope {
 	restricted := false
 	return EdgeScope{
@@ -352,7 +316,6 @@ func edgeUnrestrictedScope(project, generation string) EdgeScope {
 	}
 }
 
-// edgeRow builds an occurrence with the common identity fields filled in.
 func edgeRow(project, generation, authPath, label, srcType, srcID, tgtType, tgtID, path string, ordinal int64) EdgeOccurrenceRow {
 	return EdgeOccurrenceRow{
 		Project: project, DatasetGeneration: generation, AuthResourcePath: authPath,
@@ -361,10 +324,6 @@ func edgeRow(project, generation, authPath, label, srcType, srcID, tgtType, tgtI
 		SourcePath: path, SourceOrdinal: ordinal,
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Validation unit tests (no live server: everything fails before Acquire).
-// ---------------------------------------------------------------------------
 
 func TestEdgeValidationRejectsInvalidInserts(t *testing.T) {
 	repo, err := NewEdgeRepository(stubConnSource{}, "pgstore05_stub")
@@ -409,7 +368,6 @@ func TestEdgeScopeAndTraversalValidation(t *testing.T) {
 		t.Errorf("NewEdgeRepository with invalid schema = %v, want ErrInvalidSchemaName", err)
 	}
 
-	// nil AuthResourcePathsUnrestricted must never read as unrestricted.
 	scope := EdgeScope{Project: "proj", AuthResourcePaths: []string{"a"}}
 	if _, _, err := repo.ReadEdgesFromSource(ctx, scope, "Encounter", "enc-1", 0, 10); !errors.Is(err, ErrInvalidEdgeScope) {
 		t.Errorf("source traversal with nil unrestricted flag = %v, want ErrInvalidEdgeScope", err)
@@ -418,19 +376,16 @@ func TestEdgeScopeAndTraversalValidation(t *testing.T) {
 		t.Errorf("target traversal with nil unrestricted flag = %v, want ErrInvalidEdgeScope", err)
 	}
 
-	// Unrestricted mode must not carry paths.
 	unrestrictedWithPaths := edgeUnrestrictedScope("proj", "gen")
 	unrestrictedWithPaths.AuthResourcePaths = []string{"practitioner/pr-1"}
 	if _, _, err := repo.ReadEdgesFromSource(ctx, unrestrictedWithPaths, "Encounter", "enc-1", 0, 10); !errors.Is(err, ErrInvalidEdgeScope) {
 		t.Errorf("unrestricted scope carrying paths = %v, want ErrInvalidEdgeScope", err)
 	}
 
-	// Blank project is rejected.
 	if _, _, err := repo.ReadEdgesFromSource(ctx, edgeRestrictedScope("  ", "gen", "a"), "Encounter", "enc-1", 0, 10); !errors.Is(err, ErrInvalidEdgeScope) {
 		t.Errorf("blank project = %v, want ErrInvalidEdgeScope", err)
 	}
 
-	// Blank traversal discriminators are rejected.
 	if _, _, err := repo.ReadEdgesFromSource(ctx, edgeUnrestrictedScope("proj", "gen"), " ", "enc-1", 0, 10); !errors.Is(err, ErrInvalidEdge) {
 		t.Errorf("blank source type = %v, want ErrInvalidEdge", err)
 	}
@@ -444,7 +399,6 @@ func TestEdgeScopeAndTraversalValidation(t *testing.T) {
 		t.Errorf("blank target id = %v, want ErrInvalidEdge", err)
 	}
 
-	// Page bounds are rejected before touching the server.
 	for _, limit := range []int{0, -1, MaxEdgeTraversalLimit + 1} {
 		if _, _, err := repo.ReadEdgesFromSource(ctx, edgeUnrestrictedScope("proj", "gen"), "Encounter", "enc-1", 0, limit); !errors.Is(err, ErrInvalidEdgeScope) {
 			t.Errorf("limit %d = %v, want ErrInvalidEdgeScope", limit, err)
@@ -455,16 +409,6 @@ func TestEdgeScopeAndTraversalValidation(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-// ---------------------------------------------------------------------------
-
-// TestEdgeMigrationCreatesTypedOccurrenceTable applies the embedded history
-// to the owned schema twice and witnesses the fhir_edge_occurrence table
-// against literal expectations: every scope/endpoint/occurrence column typed
-// and NOT NULL except the nullable diagnostic logical_edge_key, the storage
-// identity an always-generated bigint, the full occurrence identity a UNIQUE
-// constraint, and both scoped traversal indexes present.
 func TestEdgeMigrationCreatesTypedOccurrenceTable(t *testing.T) {
 	svc := newEdgeService(t)
 	first := svc.mustMigrateEmbedded(t)
@@ -474,8 +418,6 @@ func TestEdgeMigrationCreatesTypedOccurrenceTable(t *testing.T) {
 	}
 	assertLedgerEquals(t, svc.readLedger(t), mustEmbeddedMigrations(t))
 
-	// The edge migration must be recorded under this exact name at version 4
-	// (000003 is reserved for the generation-manifest ticket).
 	var recordedName string
 	if err := svc.iso.QueryRow(svc.ctx,
 		`SELECT name FROM "`+svc.schema+`".`+LedgerTable+` WHERE version = 4`).Scan(&recordedName); err != nil {
@@ -618,22 +560,15 @@ func TestEdgeMigrationCreatesTypedOccurrenceTable(t *testing.T) {
 	}
 }
 
-// TestEdgeInsertRequiresSourceInSameScope proves the source precondition: an
-// edge lands only when its source resource exists in the same
-// project/dataset_generation, and a missing source (absent entirely, or
-// present only under another generation or project) returns the typed
-// *EdgeSourceMissingError with zero rows written.
 func TestEdgeInsertRequiresSourceInSameScope(t *testing.T) {
 	svc := newEdgeService(t)
 	svc.mustMigrateEmbedded(t)
 	edgeRepo, resourceRepo := svc.newRepositories(t)
 
 	svc.mustSeedResource(t, resourceRepo, "proj-s", "gen-1", "Encounter", "enc-1", "practitioner/pr-1")
-	// Decoy source that exists only under gen-2 and only under proj-other.
 	svc.mustSeedResource(t, resourceRepo, "proj-s", "gen-2", "Encounter", "enc-late", "practitioner/pr-1")
 	svc.mustSeedResource(t, resourceRepo, "proj-other", "gen-1", "Encounter", "enc-1", "practitioner/pr-1")
 
-	// In-scope source: the edge lands.
 	landed := edgeRow("proj-s", "gen-1", "practitioner/pr-1", "participant",
 		"Encounter", "enc-1", "Practitioner", "pr-9", "participant[0]", 0)
 	seq := svc.mustInsertEdge(t, edgeRepo, landed)
@@ -672,24 +607,16 @@ func TestEdgeInsertRequiresSourceInSameScope(t *testing.T) {
 		if !reflect.DeepEqual(missing, want) {
 			t.Errorf("%s: error = %+v, want %+v", tc.name, missing, want)
 		}
-		// Direct SQL witness: the refused insert wrote nothing.
 		if count := svc.countEdges(t, tc.rec); count != 0 {
 			t.Errorf("%s: refused insert left %d rows, want 0", tc.name, count)
 		}
 	}
 
-	// The in-scope edge survived untouched while all three refusals ran.
 	if count := svc.countEdges(t, landed); count != 1 {
 		t.Fatalf("in-scope occurrence has %d rows, want exactly 1", count)
 	}
 }
 
-// TestEdgeUnresolvedTargetPreservesIdentityAndResolvesLater proves the
-// unresolved-target contract: an edge whose target resource does not exist
-// is stored with target resource type and logical id intact and reports
-// TargetResolved=false; once the target resource is stored in the same
-// scope, the very same edge row reports TargetResolved=true — resolution is
-// read-time state, not a stored flag rewritten at target insert.
 func TestEdgeUnresolvedTargetPreservesIdentityAndResolvesLater(t *testing.T) {
 	svc := newEdgeService(t)
 	svc.mustMigrateEmbedded(t)
@@ -701,7 +628,6 @@ func TestEdgeUnresolvedTargetPreservesIdentityAndResolvesLater(t *testing.T) {
 	rec.LogicalEdgeKey = ptr("Observation_obs-src_focus_Condition_cond-ghost")
 	insertedSeq := svc.mustInsertEdge(t, edgeRepo, rec)
 
-	// Direct SQL witness: the edge row exists; no target resource exists.
 	if svc.countResources(t, "proj-u", "gen-1", "Condition", "cond-ghost") != 0 {
 		t.Fatal("witness setup: Condition/cond-ghost must not exist yet")
 	}
@@ -722,7 +648,6 @@ func TestEdgeUnresolvedTargetPreservesIdentityAndResolvesLater(t *testing.T) {
 		t.Fatalf("stored edge row = %+v, want %+v", witnesses[0], want)
 	}
 
-	// Traversal reads the unresolved target's identity back verbatim.
 	rows, hasMore := svc.mustReadFromSource(t, edgeRepo, edgeUnrestrictedScope("proj-u", "gen-1"),
 		"Observation", "obs-src", 0, 10)
 	if len(rows) != 1 || hasMore {
@@ -744,7 +669,6 @@ func TestEdgeUnresolvedTargetPreservesIdentityAndResolvesLater(t *testing.T) {
 		t.Errorf("logical edge key = %v, want the stored diagnostic", row.LogicalEdgeKey)
 	}
 
-	// Store the target in the same scope: the same row now resolves.
 	svc.mustSeedResource(t, resourceRepo, "proj-u", "gen-1", "Condition", "cond-ghost", "")
 	rows, _ = svc.mustReadFromSource(t, edgeRepo, edgeUnrestrictedScope("proj-u", "gen-1"),
 		"Observation", "obs-src", 0, 10)
@@ -760,13 +684,6 @@ func TestEdgeUnresolvedTargetPreservesIdentityAndResolvesLater(t *testing.T) {
 	}
 }
 
-// TestEdgeRepeatedReferenceMultiplicityPreserved proves the acceptance case
-// the Arango endpoint key cannot express: two identical target/label
-// references from different source path occurrences are two rows with
-// distinct source path/ordinal identities (and the same collapsed
-// logical_edge_key, the exact multiplicity an endpoint-keyed store loses),
-// while the fully identical occurrence is a typed conflict that never
-// stores a second row.
 func TestEdgeRepeatedReferenceMultiplicityPreserved(t *testing.T) {
 	svc := newEdgeService(t)
 	svc.mustMigrateEmbedded(t)
@@ -787,8 +704,6 @@ func TestEdgeRepeatedReferenceMultiplicityPreserved(t *testing.T) {
 		t.Fatalf("both repeated references returned storage identity %d, want two distinct rows", seqA)
 	}
 
-	// Direct SQL witness: exactly two literal rows, identical endpoints and
-	// label, distinct path/ordinal identities, shared collapsed key.
 	witnesses := svc.witnessEdgeRows(t, "proj-m", "gen-1", "Encounter", "enc-1", "participant", "Practitioner", "pr-1")
 	if len(witnesses) != 2 {
 		t.Fatalf("repeated reference stored %d rows, want 2: %+v", len(witnesses), witnesses)
@@ -809,7 +724,6 @@ func TestEdgeRepeatedReferenceMultiplicityPreserved(t *testing.T) {
 		t.Fatalf("stored rows =\n%+v\nwant\n%+v", witnesses, wantRows)
 	}
 
-	// Same path, new ordinal: the ordinal alone distinguishes occurrences.
 	third := edgeRow("proj-m", "gen-1", "", "participant",
 		"Encounter", "enc-1", "Practitioner", "pr-1", "participant[0]", 1)
 	third.LogicalEdgeKey = ptr(collapsedKey)
@@ -818,9 +732,6 @@ func TestEdgeRepeatedReferenceMultiplicityPreserved(t *testing.T) {
 		t.Fatalf("same-path new-ordinal occurrence has %d rows, want 1", got)
 	}
 
-	// The fully identical occurrence is refused — even with a different
-	// auth path, which is not part of the identity — and the stored rows
-	// (identity, payload columns, auth path) are untouched.
 	duplicate := first
 	duplicate.AuthResourcePath = "practitioner/pr-other"
 	_, err := edgeRepo.InsertEdge(svc.ctx, duplicate)
@@ -854,23 +765,15 @@ func TestEdgeRepeatedReferenceMultiplicityPreserved(t *testing.T) {
 	}
 }
 
-// TestEdgeTraversalsBindScopeAndOrder pages both traversal directions across
-// decoys from other projects, generations, and unauthorized auth paths, and
-// asserts literal pages in storage order. Seeding is deliberate: the target
-// ids' lexical order contradicts the insertion/storage order, so a
-// regression that drops ORDER BY edge_seq fails the literal expectations.
 func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 	svc := newEdgeService(t)
 	svc.mustMigrateEmbedded(t)
 	edgeRepo, resourceRepo := svc.newRepositories(t)
 
-	// Every edge's source must exist in its own scope, decoys included.
 	svc.mustSeedResource(t, resourceRepo, "proj-t", "gen-1", "Encounter", "enc-w", "practitioner/pr-1")
 	svc.mustSeedResource(t, resourceRepo, "proj-t", "gen-1", "Encounter", "enc-w2", "practitioner/pr-1")
 	svc.mustSeedResource(t, resourceRepo, "proj-x", "gen-1", "Encounter", "enc-w", "practitioner/pr-1")
 	svc.mustSeedResource(t, resourceRepo, "proj-t", "gen-2", "Encounter", "enc-w", "practitioner/pr-1")
-	// Only two targets are backed by resources in scope; the walked rows
-	// for the others must report TargetResolved=false.
 	svc.mustSeedResource(t, resourceRepo, "proj-t", "gen-1", "Patient", "pt-2", "practitioner/pr-1")
 	svc.mustSeedResource(t, resourceRepo, "proj-t", "gen-1", "Patient", "pt-4", "practitioner/pr-1")
 
@@ -882,17 +785,11 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 		edgeRow("proj-t", "gen-1", "practitioner/pr-1", "have", "Encounter", "enc-w", "Patient", "pt-5", "p", 0),
 	}
 	decoys := []EdgeOccurrenceRow{
-		// Same source identity, other project / other generation /
-		// unauthorized auth path — interleaved so their storage identities
-		// land among the in-scope rows.
 		edgeRow("proj-x", "gen-1", "practitioner/pr-1", "have", "Encounter", "enc-w", "Patient", "x1", "p", 0),
 		edgeRow("proj-t", "gen-2", "practitioner/pr-1", "have", "Encounter", "enc-w", "Patient", "pt-6", "p", 0),
 		edgeRow("proj-t", "gen-1", "practitioner/pr-forbidden", "have", "Encounter", "enc-w", "Patient", "pt-7", "p", 0),
-		// A second authorized source pointing at one of the walked targets.
 		edgeRow("proj-t", "gen-1", "practitioner/pr-1", "have", "Encounter", "enc-w2", "Patient", "pt-2", "p", 0),
 	}
-	// Storage order deliberately contradicts the target ids' lexical order:
-	// pt-3, x1, pt-1, pt-6, pt-5, pt-7, pt-2(enc-w), pt-4, pt-2(enc-w2).
 	insertOrder := []EdgeOccurrenceRow{
 		inScope[2], decoys[0], inScope[0], decoys[1], inScope[4], decoys[2], inScope[1], inScope[3], decoys[3],
 	}
@@ -900,8 +797,6 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 		svc.mustInsertEdge(t, edgeRepo, rec)
 	}
 
-	// Source-directed walk: limit 2 over the authorized path list. Literal
-	// pages in storage order — the in-scope targets only.
 	wantPages := [][]string{{"pt-3", "pt-1"}, {"pt-5", "pt-2"}, {"pt-4"}}
 	scope := edgeRestrictedScope("proj-t", "gen-1", "practitioner/pr-1")
 	var walked []EdgeOccurrenceRow
@@ -934,8 +829,6 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 			if row.EdgeSeq <= cursor {
 				t.Fatalf("row %+v did not advance past cursor %d", row, cursor)
 			}
-			// pt-2 and pt-4 were seeded as resources; the rest are dangling
-			// references whose resolution must read false.
 			wantResolved := row.TargetLogicalID == "pt-2" || row.TargetLogicalID == "pt-4"
 			if row.TargetResolved != wantResolved {
 				t.Errorf("target %s TargetResolved = %t, want %t", row.TargetLogicalID, row.TargetResolved, wantResolved)
@@ -956,13 +849,11 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 		t.Fatalf("source walk returned %d rows, want 5: %+v", len(walked), walked)
 	}
 
-	// Past the end: empty page, no more rows.
 	rows, hasMore := svc.mustReadFromSource(t, edgeRepo, scope, "Encounter", "enc-w", cursor, 2)
 	if len(rows) != 0 || hasMore {
 		t.Errorf("read past the end returned %d rows (hasMore=%t), want empty", len(rows), hasMore)
 	}
 
-	// Restricted with no authorized paths reads nothing, without error.
 	rows, hasMore, err := edgeRepo.ReadEdgesFromSource(svc.ctx, edgeRestrictedScope("proj-t", "gen-1"),
 		"Encounter", "enc-w", 0, 10)
 	if err != nil || len(rows) != 0 || hasMore {
@@ -970,8 +861,6 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 			len(rows), hasMore, err)
 	}
 
-	// Unrestricted still cannot cross project or generation, but sees the
-	// forbidden-path row.
 	rows, hasMore = svc.mustReadFromSource(t, edgeRepo, edgeUnrestrictedScope("proj-t", "gen-1"),
 		"Encounter", "enc-w", 0, MaxEdgeTraversalLimit)
 	if hasMore {
@@ -986,9 +875,6 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 		}
 	}
 
-	// Target-directed traversal: Patient/pt-2 is pointed at by enc-w and
-	// enc-w2 in scope; the same target identity under another generation
-	// (pt-6 no — distinct id) and the decoy ids never appear. Literal rows.
 	rows, hasMore = svc.mustReadToTarget(t, edgeRepo, edgeRestrictedScope("proj-t", "gen-1", "practitioner/pr-1"),
 		"Patient", "pt-2", 0, 10)
 	if hasMore {
@@ -997,7 +883,7 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("target traversal returned %d rows, want 2: %+v", len(rows), rows)
 	}
-	wantSources := []string{"enc-w", "enc-w2"} // insertion/storage order
+	wantSources := []string{"enc-w", "enc-w2"}
 	for i, row := range rows {
 		if row.SourceLogicalID != wantSources[i] {
 			t.Errorf("target traversal position %d came from %q, want %q", i, row.SourceLogicalID, wantSources[i])
@@ -1007,8 +893,6 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 		}
 	}
 
-	// The gen-2-only decoy edge (target pt-6) is invisible to the gen-1
-	// target-directed walk: traversal cannot resolve across generation.
 	rows, _ = svc.mustReadToTarget(t, edgeRepo, edgeRestrictedScope("proj-t", "gen-1", "practitioner/pr-1"),
 		"Patient", "pt-6", 0, 10)
 	if len(rows) != 0 {
@@ -1021,10 +905,6 @@ func TestEdgeTraversalsBindScopeAndOrder(t *testing.T) {
 	}
 }
 
-// TestEdgeTargetResolutionBindsProjectAndGeneration proves the traversal's
-// resolution join binds the edge's own project and dataset_generation: a
-// target resource that exists only under another generation or another
-// project leaves the edge unresolved in its own scope.
 func TestEdgeTargetResolutionBindsProjectAndGeneration(t *testing.T) {
 	svc := newEdgeService(t)
 	svc.mustMigrateEmbedded(t)
@@ -1035,9 +915,7 @@ func TestEdgeTargetResolutionBindsProjectAndGeneration(t *testing.T) {
 		"Encounter", "enc-r", "Condition", "cond-r", "diagnosis[0]", 0)
 	svc.mustInsertEdge(t, edgeRepo, rec)
 
-	// Target exists only under gen-2 of the same project...
 	svc.mustSeedResource(t, resourceRepo, "proj-r", "gen-2", "Condition", "cond-r", "")
-	// ...and only under another project's gen-1.
 	svc.mustSeedResource(t, resourceRepo, "proj-other-r", "gen-1", "Condition", "cond-r", "")
 
 	rows, _ := svc.mustReadFromSource(t, edgeRepo, edgeUnrestrictedScope("proj-r", "gen-1"),
@@ -1049,14 +927,12 @@ func TestEdgeTargetResolutionBindsProjectAndGeneration(t *testing.T) {
 		t.Error("TargetResolved = true while the target exists only under another generation/project")
 	}
 
-	// Same story for the target-directed read.
 	rows, _ = svc.mustReadToTarget(t, edgeRepo, edgeUnrestrictedScope("proj-r", "gen-1"),
 		"Condition", "cond-r", 0, 10)
 	if len(rows) != 1 || rows[0].TargetResolved {
 		t.Errorf("target-directed traversal returned %+v, want the edge unresolved", rows)
 	}
 
-	// Storing the target in the edge's own scope resolves it.
 	svc.mustSeedResource(t, resourceRepo, "proj-r", "gen-1", "Condition", "cond-r", "")
 	rows, _ = svc.mustReadToTarget(t, edgeRepo, edgeUnrestrictedScope("proj-r", "gen-1"),
 		"Condition", "cond-r", 0, 10)
@@ -1065,10 +941,6 @@ func TestEdgeTargetResolutionBindsProjectAndGeneration(t *testing.T) {
 	}
 }
 
-// TestEdgeLogicalKeyDistinguishesSQLNullFromEmptyString proves the three-way
-// distinction on the diagnostic key: no key supplied is SQL NULL, a present
-// key whose value is the empty string is not NULL, and both read back
-// through the repository as their distinct Go forms.
 func TestEdgeLogicalKeyDistinguishesSQLNullFromEmptyString(t *testing.T) {
 	svc := newEdgeService(t)
 	svc.mustMigrateEmbedded(t)
@@ -1081,7 +953,6 @@ func TestEdgeLogicalKeyDistinguishesSQLNullFromEmptyString(t *testing.T) {
 	svc.mustInsertEdge(t, edgeRepo, noKey)
 	svc.mustInsertEdge(t, edgeRepo, emptyKey)
 
-	// Direct SQL witnesses.
 	var noKeyIsNull, emptyKeyIsNull bool
 	var emptyKeyValue *string
 	if err := svc.iso.QueryRow(svc.ctx,
@@ -1101,7 +972,6 @@ func TestEdgeLogicalKeyDistinguishesSQLNullFromEmptyString(t *testing.T) {
 		t.Errorf("empty-string key witness = (isNull=%t, value=%v), want a present empty string", emptyKeyIsNull, emptyKeyValue)
 	}
 
-	// Repository witnesses.
 	rows, _ := svc.mustReadFromSource(t, edgeRepo, edgeUnrestrictedScope("proj-k", "gen-1"),
 		"Observation", "obs-k", 0, 10)
 	if len(rows) != 2 {
@@ -1123,13 +993,6 @@ func TestEdgeLogicalKeyDistinguishesSQLNullFromEmptyString(t *testing.T) {
 	}
 }
 
-// TestEdgeNoLeftovers runs after every other edge test in this file (Go runs
-// a package's tests in source order and each test's cleanups finish before
-// the next test starts). It asserts this ticket's suite left zero owned
-// resources behind: no pgstore05_it_* database on the service and no
-// pgstore05_it_* schema in the service database. A hit here means an earlier
-// run died before its cleanups converged; drop only resources carrying this
-// ticket's unique prefix.
 func TestEdgeNoLeftovers(t *testing.T) {
 	raw := testPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1201,5 +1064,4 @@ func TestEdgeNoLeftovers(t *testing.T) {
 	}
 }
 
-// ptr returns a pointer to v, for nullable column expectations.
 func ptr[T any](v T) *T { return &v }

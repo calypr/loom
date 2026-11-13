@@ -1,24 +1,5 @@
 package compiler
 
-// TestBackendOwnershipGuardContract is the executable form of the accepted
-// backend ownership boundaries (ticket arch-backend-09, batch
-// c4b53e23b9d190fe / backend-architecture-20261109, consolidated into this
-// existing real package per the backend-simplification-20261110-clarify
-// precedence ruling — no empty ./internal/backends root package exists or
-// is created for it).
-//
-// One authoritative parsed-import implementation (scripts/packagepolicy)
-// drives every case here, the shell entrypoint
-// (scripts/check_dataframe_package_boundaries.sh -> check-boundaries CLI),
-// and TestCompilerProductionFilesNeverImportBackendsOrDrivers. Required
-// named subtests (event gate): compiler_backends_and_drivers,
-// neutral_domain_backend_import, renderer_runtime_import,
-// legitimate_adapter_domain_import, actual_relocated_adapter_import,
-// missing_or_malformed_input_is_error.
-//
-// Sabotage fixtures are built only under t.TempDir(): no planted file ever
-// touches the repository or the pushed commits.
-
 import (
 	"os"
 	"path/filepath"
@@ -60,12 +41,6 @@ func guardWrite(t *testing.T, dir, rel, imp string) string {
 	return path
 }
 
-// mustOldPath returns the authoritative retired-path table entry built
-// from segments (e.g. "store", "arango"). Segments keep this Go file free
-// of contiguous retired-path citations, which the arango ownership text
-// guard forbids even in comments; the returned value is still matched
-// against packagepolicy.OldConcreteImportPaths(), so a fixture can only
-// plant a path the guard actually knows.
 func mustOldPath(t *testing.T, segments ...string) string {
 	t.Helper()
 	candidate := "internal/" + strings.Join(segments, "/")
@@ -111,9 +86,6 @@ func requireClean(t *testing.T, res packagepolicy.Result) {
 func TestBackendOwnershipGuardContract(t *testing.T) {
 	repoRoot := repoRootForGuardTest(t)
 
-	// Named positive for the whole authoritative table: the repository
-	// as it stands passes every boundary rule with no verification
-	// failures and every obsolete path absent.
 	tableScan := packagepolicy.ScanAll(repoRoot)
 	for _, f := range tableScan.ImportFindings() {
 		t.Error(f.String())
@@ -140,11 +112,8 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 	oldPathsRule := guardRule(t, "old-concrete-paths: relocated under internal/backends by arch-backend-06/07")
 
 	t.Run("compiler_backends_and_drivers", func(t *testing.T) {
-		// Positive: the live compiler subtree is vendor-free.
 		requireClean(t, packagepolicy.ScanRule(repoRoot, compilerRule))
 
-		// Negative: each historical leak shape is planted and must
-		// bleed a named victim (file + offending import + owner).
 		dir := t.TempDir()
 		guardWrite(t, dir, "compiler/backends_leak.go", "github.com/calypr/loom/internal/backends/postgres/internal/store")
 		guardWrite(t, dir, "compiler/pgx_leak.go", "github.com/jackc/pgx/v5/pgxpool")
@@ -156,23 +125,13 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 	})
 
 	t.Run("neutral_domain_backend_import", func(t *testing.T) {
-		// Positive: the neutral domain trees are backend-free.
 		requireClean(t, packagepolicy.ScanRule(repoRoot, neutralRule))
 
-		// Negative fixtures for the actual historical leak shapes:
-		// Planted retired-path imports are taken from the authoritative
-		// table (scripts/packagepolicy/old_concrete_paths.txt) rather
-		// than restated here: the arango ownership contract forbids any
-		// Go file from citing a retired path, guard data included.
 		dir := t.TempDir()
-		// (a) execution importing Arango preview types — both the
-		// revived old path and the new private location are refused.
 		guardWrite(t, dir, "execution/preview_old.go", "github.com/calypr/loom/"+mustOldPath(t, "store", "arango"))
 		guardWrite(t, dir, "execution/preview_private.go", "github.com/calypr/loom/internal/backends/arango/internal/explorer")
-		// (b) generic catalog importing PG physical rows.
 		guardWrite(t, dir, "catalog/rows_old.go", "github.com/calypr/loom/"+mustOldPath(t, "store", "postgres"))
 		guardWrite(t, dir, "catalog/rows_private.go", "github.com/calypr/loom/internal/backends/postgres/internal/rows")
-		// (c) domain importing the backend factory directly.
 		guardWrite(t, dir, "dataset/factory_leak.go", "github.com/calypr/loom/internal/backends/postgres")
 
 		res := guardScan(t, neutralRule, dir, packagepolicy.Production)
@@ -183,8 +142,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 		requireFinding(t, old, oldPathsRule.Label, "preview_old.go", mustOldPath(t, "store", "arango"))
 		requireFinding(t, old, oldPathsRule.Label, "rows_old.go", mustOldPath(t, "store", "postgres"))
 
-		// Removal converges: after the forbidden imports are taken
-		// out, the identical target scans clean.
 		for _, rel := range []string{
 			"execution/preview_old.go", "execution/preview_private.go",
 			"catalog/rows_old.go", "catalog/rows_private.go",
@@ -197,26 +154,16 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 	})
 
 	t.Run("renderer_runtime_import", func(t *testing.T) {
-		// Positive: BOTH renderer dialect directories are checked
-		// against the runtime/store/driver/backend bans — no leak may
-		// hide by landing in only one dialect (the AQL-only blindness
-		// this ticket closes).
 		requireClean(t, packagepolicy.ScanRule(repoRoot, aqlRule))
 		requireClean(t, packagepolicy.ScanRule(repoRoot, postgresRenderRule))
 
 		dir := t.TempDir()
-		// Runtime import in each dialect.
 		guardWrite(t, dir, "render/aql/runtime_leak.go", "github.com/calypr/loom/internal/dataframe/execution")
 		guardWrite(t, dir, "render/postgres/runtime_leak.go", "github.com/calypr/loom/internal/dataframe/execution")
-		// Compiler-root import in each dialect (renderer-to-root ban).
 		guardWrite(t, dir, "render/aql/root_leak.go", "github.com/calypr/loom/internal/dataframe/compiler")
 		guardWrite(t, dir, "render/postgres/root_leak.go", "github.com/calypr/loom/internal/dataframe/compiler")
-		// Driver leak placed ONLY in the PostgreSQL dialect: an
-		// AQL-only scan would be blind, so the dialect-paired scan
-		// is what must catch it.
 		guardWrite(t, dir, "render/aql/clean.go", "")
 		guardWrite(t, dir, "render/postgres/driver_leak.go", "github.com/jackc/pgx/v5/pgxpool")
-		// Store leak in the PostgreSQL dialect.
 		guardWrite(t, dir, "render/postgres/store_leak.go", "github.com/calypr/loom/internal/store/clickhouse")
 
 		aqlRes := guardScan(t, aqlRule, filepath.Join(dir, "render/aql"), packagepolicy.Production)
@@ -231,11 +178,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 	})
 
 	t.Run("legitimate_adapter_domain_import", func(t *testing.T) {
-		// Accepted shapes: a private adapter consuming domain
-		// contracts (catalog, recipe) and shared execution ports, and
-		// a startup factory wired to domain ports, must not trip the
-		// domain/backend-ownership rules. This is the same direction
-		// the real relocated adapters use.
 		dir := t.TempDir()
 		guardWrite(t, dir, "adapter/rows_adapter.go", "github.com/calypr/loom/internal/catalog")
 		guardWrite(t, dir, "adapter/recipe_reader.go", "github.com/calypr/loom/internal/dataframe/recipe")
@@ -243,22 +185,12 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 		guardWrite(t, dir, "factory/factory.go", "github.com/calypr/loom/internal/dataset")
 		requireClean(t, guardScan(t, neutralRule, dir, packagepolicy.Production))
 
-		// The accepted adapter shape must be non-vacuous: swapping
-		// one file for a real backend import flips it RED.
 		guardWrite(t, dir, "factory/factory.go", "github.com/calypr/loom/internal/backends/arango/internal/store")
 		res := guardScan(t, neutralRule, dir, packagepolicy.Production)
 		requireFinding(t, res, neutralRule.Label, "factory.go", "internal/backends/arango/internal/store")
 	})
 
 	t.Run("actual_relocated_adapter_import", func(t *testing.T) {
-		// The historical real-adapter negative control: scan an
-		// EXISTING relocated adapter tree and assert a concrete
-		// rows.go pgx import finding. Missing directories, parse
-		// failures and execution errors fail verification; they
-		// cannot count as successfully catching an import violation
-		// (the fixed defect class: the retired control scanned the
-		// deleted internal/dataframe/postgres path and "passed" on
-		// folded-in filesystem errors).
 		res := guardScan(t, compilerRule, filepath.Join(repoRoot, "internal", "backends", "postgres", "internal", "rows"), packagepolicy.Production)
 		if len(res.Errors) != 0 {
 			t.Fatalf("real-adapter control must run with zero verification failures, got %v", res.Errors)
@@ -276,7 +208,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 			t.Fatalf("expected a concrete rows.go pgx import finding, got %v", res.ImportFindings())
 		}
 
-		// Arango twin.
 		arango := guardScan(t, compilerRule, filepath.Join(repoRoot, "internal", "backends", "arango", "internal", "store"), packagepolicy.Production)
 		if len(arango.Errors) != 0 || !arango.HasImportFindings() {
 			t.Fatalf("Arango real-adapter control failed: findings %v errors %v", arango.ImportFindings(), arango.Errors)
@@ -293,9 +224,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 	})
 
 	t.Run("missing_or_malformed_input_is_error", func(t *testing.T) {
-		// A nonexistent path can never satisfy an import-detection
-		// control: zero import findings, a missing-target verification
-		// failure.
 		dir := t.TempDir()
 		missing := guardScan(t, compilerRule, filepath.Join(dir, "does-not-exist"), packagepolicy.Production)
 		if missing.HasImportFindings() {
@@ -305,7 +233,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 			t.Fatalf("missing path must fail as %s, got %v", packagepolicy.ErrMissing, missing.Errors)
 		}
 
-		// An empty tree fails as vacuity, never as convergence.
 		empty := filepath.Join(dir, "empty")
 		if err := os.MkdirAll(empty, 0o755); err != nil {
 			t.Fatal(err)
@@ -318,8 +245,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 			t.Fatalf("empty scan must fail as %s, got %v", packagepolicy.ErrVacuous, vacuous.Errors)
 		}
 
-		// Malformed Go input fails verification; it never counts as
-		// having caught an import violation.
 		badDir := filepath.Join(dir, "bad")
 		guardWrite(t, badDir, "broken.go", "")
 		if err := os.WriteFile(filepath.Join(badDir, "broken.go"), []byte("!!! not go source >>> {{{"), 0o600); err != nil {
@@ -334,14 +259,7 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 		}
 	})
 
-	// The arch-backend-09 ruling (Option A, 2026-11-12) keeps
-	// internal/backends/postgres/control as the cycle-free public control
-	// plane and deletes the root facade. This subtest machine-enforces
-	// the four ruling conditions instead of documenting them.
 	t.Run("facade_law_control_plane", func(t *testing.T) {
-		// (1a) aliases.go stays absent. The repository-level assertion
-		// ran with the table scan above; here the rule itself must go
-		// RED on a recreated shim.
 		shim := packagepolicy.AbsenceRule{Label: "removed control-forwarding facade", Owner: "import control directly",
 			Paths: []string{"internal/backends/postgres/aliases.go"}}
 		dir := t.TempDir()
@@ -363,10 +281,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 			t.Fatalf("removal must converge: %v", errs)
 		}
 
-		// (1c) the root package must not re-export control's public
-		// surface. Repository-level: the check passed in the table scan
-		// (root now declares only Open/Runtime/Querier/bridges).
-		// Fixture: the two shim shapes are caught, composition is legal.
 		root := t.TempDir()
 		for _, f := range []struct{ rel, body string }{
 			{"internal/backends/postgres/control/config.go", "package control\n\nimport \"errors\"\n\ntype Config struct{ N int }\n\nvar ErrInvalid = errors.New(\"x\")\n"},
@@ -400,8 +314,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 		if !foundAlias {
 			t.Fatal("re-exported control.Config from root must be caught")
 		}
-		// (1b) QuerierAsAny stays absent (identifier table row) —
-		// positive repository scan ran above; planted reappearance:
 		idRule := packagepolicy.AbsenceRule{Label: "removed untyped row-querier bridge", Owner: "typed Querier",
 			Identifiers: []string{"QuerierAsAny"}, ScanRoots: []string{"internal/backends/postgres"}}
 		if err := os.WriteFile(filepath.Join(root, "internal/backends/postgres/bridge.go"),
@@ -415,9 +327,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// (1d) control never imports root, the rows adapter, or
-		// execution: repository-level by the table scan; fixture-level
-		// both banned shapes are named offenders.
 		cycleRule := guardRule(t, "postgres-control: cycle-free control plane")
 		cdir := t.TempDir()
 		guardWrite(t, cdir, "control/reaches_root.go", "github.com/calypr/loom/internal/backends/postgres")
@@ -425,7 +334,6 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 		res := guardScan(t, cycleRule, filepath.Join(cdir, "control"), packagepolicy.AllScopes)
 		requireFinding(t, res, cycleRule.Label, "reaches_root.go", "internal/backends/postgres")
 		requireFinding(t, res, cycleRule.Label, "reaches_rows.go", "internal/backends/postgres/internal/rows")
-		// And the real control tree is clean today (positive).
 		requireClean(t, packagepolicy.ScanRule(repoRoot, cycleRule))
 	})
 }

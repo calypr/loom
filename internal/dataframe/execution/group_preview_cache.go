@@ -16,9 +16,6 @@ const (
 	groupPreviewCacheRowOverhead   = 24
 )
 
-// groupPreviewRowsKey identifies raw rows for one exact preview query and
-// source collection version. It deliberately retains the full query and
-// canonical bind JSON so a cache hit cannot depend on a digest collision.
 type groupPreviewRowsKey struct {
 	query         string
 	bindVars      string
@@ -29,10 +26,6 @@ type groupPreviewRowsKey struct {
 	decision      bool
 }
 
-// newGroupPreviewRowsKey derives the exact-cache identity from a tagged AQL
-// command: dispatch through AQLParameters is the only way the key builder
-// obtains query text and binds, so a non-AQL command never keys the AQL row
-// cache. The derived pair is hashed exactly as before.
 func newGroupPreviewRowsKey(command command.CompiledCommand, collection, revision string, limit int) (groupPreviewRowsKey, int, bool) {
 	if collection == "" || revision == "" || limit <= 0 {
 		return groupPreviewRowsKey{}, 0, false
@@ -56,9 +49,6 @@ func newGroupPreviewRowsKey(command command.CompiledCommand, collection, revisio
 	return key, weight, weight <= groupPreviewCacheMaxEntryBytes
 }
 
-// newGroupPreviewProjectionDecisionKey derives the projection-decision
-// identity from a tagged AQL command through AQLParameters, the same closed
-// dispatch as the row cache key.
 func newGroupPreviewProjectionDecisionKey(command command.CompiledCommand, collection, revision, indexIdentity string) (groupPreviewRowsKey, int, bool) {
 	if collection == "" || revision == "" || indexIdentity == "" {
 		return groupPreviewRowsKey{}, 0, false
@@ -101,9 +91,6 @@ type groupPreviewRowsEntry struct {
 	weight   int
 }
 
-// groupPreviewRowsCache is a zero-value-usable LRU. Entries contain immutable
-// JSON-encoded raw query rows; consumers decode fresh maps before applying the
-// normal post-query checks and visitor.
 type groupPreviewRowsCache struct {
 	mu      sync.Mutex
 	entries map[groupPreviewRowsKey]*list.Element

@@ -1,22 +1,5 @@
 package execution_test
 
-// pg-exec-06 live acceptance battery: category presence/value scans through
-// the PostgreSQL executor arm against the real PostgreSQL 18 service
-// (check: go test ./internal/dataframe/execution -run PostgresCategory under
-// LOOM_TEST_POSTGRES_URL; without the URL every leg skips per the package
-// convention, and with the URL configured a skip can never pass — each leg
-// fails loudly on service or fixture faults).
-//
-// Every leg is production-compiled end to end through
-// Engine.CompileResolvedBundle on the selected PostgreSQL target; execution
-// streams the compiler-produced parent-tagged command onto the real server
-// via the production internal/backends/postgres adapter behind a recording
-// port. Witnesses are literal CategoryValue sequences, recorder witnesses
-// (statement, ordered typed arguments, declared contract, tag), and direct
-// SQL computed independently of the renderer. Fixtures are owned as
-// verify_exec06_cs_* and dropped by the tests that created them; the TestZZ
-// audit is ownership-scoped to this file's own prefix.
-
 import (
 	"context"
 	"crypto/rand"
@@ -293,10 +276,6 @@ func (s *exec06csService) witness(t *testing.T, query string, args ...any) [][]s
 	return out
 }
 
-// exec06csRecorder wraps the production adapter: it refuses any non-PostgreSQL
-// tag before the driver (there is no fallback to arm), pins the declared
-// contract at the port, records every statement, and can cancel the request
-// mid-stream through an after-row hook for the cancellation leg.
 type exec06csRecorder struct {
 	s        *exec06csService
 	calls    []exec06csCall
@@ -350,9 +329,6 @@ func (s *exec06csService) engine(t *testing.T, recorder *exec06csRecorder) *data
 	return engine
 }
 
-// exec06csCategoryFixture covers the three states (ABSENT, stored JSON null,
-// stored values) plus falsy survivors and duplicate contributors, under
-// P1/gen-a, with foreign-scope decoys that must never appear.
 func exec06csCategoryFixture() []exec04pvFixtureRow {
 	return []exec04pvFixtureRow{
 		{"P1", "gen-a", "Patient", "p-female-1", "FHIR/Patient", `{"gender":"female"}`},
@@ -401,12 +377,6 @@ func exec06csWantValues() []dataframeexecution.CategoryValue {
 	}
 }
 
-// TestPostgresCategoryExactValuesLivePG18 is acceptance 1: the production
-// compiled output scan returns the exact CategoryValue sequence — ABSENT as
-// {false,nil}, stored JSON null converging to {true,nil}, falsy "" / false /
-// zero surviving as Go natives, duplicates collapsed — through exactly one
-// bounded statement carrying the [present value] declared contract and the
-// bigint maxValues+1 bound, with the proof echoed.
 func TestPostgresCategoryExactValuesLivePG18(t *testing.T) {
 	s := newExec06csService(t)
 	recorder := &exec06csRecorder{s: s}
@@ -452,10 +422,6 @@ func TestPostgresCategoryExactValuesLivePG18(t *testing.T) {
 	}
 }
 
-// TestPostgresCategoryDeterministicRerunLivePG18 is acceptance 2: rerunning
-// the identical request yields a row-identical page (byte-pinned order), and
-// the decoded multiset agrees with a direct-SQL witness computed
-// independently of the renderer and executor.
 func TestPostgresCategoryDeterministicRerunLivePG18(t *testing.T) {
 	s := newExec06csService(t)
 	recorder := &exec06csRecorder{s: s}
@@ -471,10 +437,6 @@ func TestPostgresCategoryDeterministicRerunLivePG18(t *testing.T) {
 	if !reflect.DeepEqual(first.Values, second.Values) {
 		t.Fatalf("page order was not deterministic:\nfirst:  %#v\nsecond: %#v", first.Values, second.Values)
 	}
-	// The direct-SQL witness is compared as an ordered-free multiset: the
-	// executor pins its own type-rank order (proved byte-stable by the rerun
-	// check above), while this witness computes presence and canonical value
-	// text independently of the renderer.
 	direct := s.witness(t, `
 		SELECT present::text,
 		       CASE WHEN value IS NULL THEN '<sql-null>'
@@ -514,10 +476,6 @@ func TestPostgresCategoryDeterministicRerunLivePG18(t *testing.T) {
 	}
 }
 
-// TestPostgresCategoryOverflowLivePG18 is acceptance 3: with four distinct
-// values and maxValues two, the single maxValues+1 page caps the result at
-// two values with Overflow=true, Complete=false — and the executor issues
-// no second statement (no witness dispatch).
 func TestPostgresCategoryOverflowLivePG18(t *testing.T) {
 	s := newExec06csService(t)
 	recorder := &exec06csRecorder{s: s}
@@ -544,10 +502,6 @@ func TestPostgresCategoryOverflowLivePG18(t *testing.T) {
 	}
 }
 
-// TestPostgresCategoryEmptyScopeNoLeakLivePG18 is acceptance 4: a scan over
-// a scope with no rows returns zero values with Complete=true while the same
-// database holds witnesses under other projects/generations/auth paths, and
-// the ordered typed arguments carry the exact scope.
 func TestPostgresCategoryEmptyScopeNoLeakLivePG18(t *testing.T) {
 	s := newExec06csService(t)
 	recorder := &exec06csRecorder{s: s}
@@ -577,10 +531,6 @@ func TestPostgresCategoryEmptyScopeNoLeakLivePG18(t *testing.T) {
 	}
 }
 
-// TestPostgresCategoryCancellationLivePG18 is acceptance 5: cancelling the
-// request after the first delivered row returns an errors.Is(context.Canceled)
-// error with a zero result — never a partial complete page — and an alive
-// rerun on the same engine converges to the exact witness.
 func TestPostgresCategoryCancellationLivePG18(t *testing.T) {
 	s := newExec06csService(t)
 	recorder := &exec06csRecorder{s: s}
@@ -592,7 +542,6 @@ func TestPostgresCategoryCancellationLivePG18(t *testing.T) {
 			cancel()
 		}
 	}
-	// The scan is invoked with the cancellable context directly.
 	result, err := engine.ScanCategories(ctx, resolved, dataframeexecution.CategoryScanRequest{Output: "patients", Column: "gender", MaxValues: 8})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled scan = (%#v, %v), want an errors.Is(context.Canceled) error", result, err)
@@ -617,11 +566,6 @@ func TestPostgresCategoryCancellationLivePG18(t *testing.T) {
 	}
 }
 
-// TestPostgresCategoryAuthScopeLivePG18 is acceptance 6: a gender stored
-// outside the authorized resource paths never appears while the paths are
-// narrowed, the jsonb scope argument carries exactly the authorized paths,
-// and widening the paths adds the value — authorization travels with the
-// tagged command, not the executor.
 func TestPostgresCategoryAuthScopeLivePG18(t *testing.T) {
 	s := newExec06csService(t)
 	recorder := &exec06csRecorder{s: s}
@@ -674,10 +618,6 @@ func TestPostgresCategoryAuthScopeLivePG18(t *testing.T) {
 	}
 }
 
-// TestPostgresCategoryStageScanLivePG18 is acceptance 7: the stage form
-// (StageID=source_projection on a real construction-stage output) returns
-// the exact distinct stage values through one bounded statement with the
-// proof bound as Version 2 with StageID/ColumnID/ValueColumnID.
 func TestPostgresCategoryStageScanLivePG18(t *testing.T) {
 	s := newExec06csService(t)
 	recorder := &exec06csRecorder{s: s}
@@ -720,12 +660,6 @@ func TestPostgresCategoryStageScanLivePG18(t *testing.T) {
 	}
 }
 
-// TestPostgresCategoryRefusalsZeroTouchLivePG18 is acceptance 8: refusals
-// happen before the port and never soften into a result page — (a) a composed
-// construction stage beyond the source projection refuses with the renderer's
-// typed capability gap, (b/c) unknown stage and column identities refuse
-// with the existing compiler-entry CategoryScanRefusal codes (the live half
-// of the coverage condition). Every leg pins zero executed statements.
 func TestPostgresCategoryRefusalsZeroTouchLivePG18(t *testing.T) {
 	s := newExec06csService(t)
 	recorder := &exec06csRecorder{s: s}
@@ -784,8 +718,6 @@ func TestPostgresCategoryRefusalsZeroTouchLivePG18(t *testing.T) {
 			}
 		})
 	}
-	// ALIVE control on the same service: the authorized source_projection
-	// stage scan proceeds.
 	result, err := engine.ScanCategories(s.ctx, resolved, dataframeexecution.CategoryScanRequest{
 		Output: "trace", StageID: recipe.ConstructionSourceProjectionID,
 		ColumnID: "status_id", ValueColumnID: "amount_id", MaxValues: 8,
@@ -798,9 +730,6 @@ func TestPostgresCategoryRefusalsZeroTouchLivePG18(t *testing.T) {
 	}
 }
 
-// TestZZPostgresCategoryZeroLeftoverFixtures is the ownership-scoped audit:
-// every database this file verified into existence must be gone, and no
-// unregistered survivor may remain under this file's own prefix.
 func TestZZPostgresCategoryZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {

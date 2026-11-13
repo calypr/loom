@@ -86,9 +86,9 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 			}
 			if strings.Contains(query, "loom_private_") {
 				privateQueryCalls++
-				want := 3 // the nested output's writer is live while its two inputs are queried.
+				want := 3
 				if privateQueryCalls%2 == 0 {
-					want = 2 // the terminal query sees its two completed source captures.
+					want = 2
 				}
 				if len(catalog.items) != want {
 					return fmt.Errorf("private query %d sees %d live captures, want %d", privateQueryCalls, len(catalog.items), want)
@@ -321,7 +321,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 			}
 			wantLiveCaptures := 2
 			if failSourceCleanup {
-				wantLiveCaptures++ // the terminal writer is already live while its rows stream.
+				wantLiveCaptures++
 			}
 			if len(catalog.items) != wantLiveCaptures {
 				return fmt.Errorf("terminal Combine sees %d private captures, want %d", len(catalog.items), wantLiveCaptures)
@@ -330,7 +330,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 			for _, manifest := range catalog.items {
 				identity := manifest.Identity
 				if identity.OutputID == "joined" {
-					continue // the terminal writer is still filling its table in this callback.
+					continue
 				}
 				if identity.Project != bindings.Project || identity.DatasetGeneration != bindings.DatasetGeneration || identity.AuthScopeMode != authscope.ReadScopeUnrestricted || identity.ScopeMode != chartifact.ScopeModeWhole || identity.ScopeEvidenceDigest == "" {
 					return fmt.Errorf("group/Pivot artifact lost whole-scope identity: %#v", identity)
@@ -667,8 +667,6 @@ func TestOrdinaryRestrictedPreviewDoesNotRequirePrivateCaptureProof(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Model a valid typed source plan for which the stronger private-capture
-	// issuer declines a whole-source proof. Public preview must stay available.
 	resolved.Compiled.Outputs[0].ScopeEvidence = nil
 	resolved.Compiled.Outputs[0].ScopeEvidenceIdentity = nil
 	rows := []map[string]any{}

@@ -21,27 +21,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-01: the scoped direct root collection scan, asserted twice over.
-//
-// Offline: golden statement literals and value-identical ordered arguments
-// for the restricted and unrestricted auth modes, plus typed fail-closed
-// refusals for every shape outside the closed slice.
-//
-// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — control.Open/Ping
-// refuses any other major, and every fixture test acquires its pool
-// through it): each test owns one pgsq01_it_* database and one owned
-// schema, migrates through the real pg-store-02 runner, stores literal
-// rows through the real pg-store-04 repository, executes the rendered
-// statement with its ordered driver arguments, and compares literal rows
-// against a hand-written direct-SQL witness. Guard-drop probes prove every
-// emitted predicate is load-bearing; named-constraint refusals prove the
-// database, not the renderer, arbitrates physical identity.
-// TestZZNoLeftoverPgSQ01Resources audits that nothing under the
-// pgsq01_it_* prefix survives, scoped to this ticket's own prefix so
-// sibling root-scan slices may run their fixtures concurrently.
-// ---------------------------------------------------------------------------
-
 const (
 	pgsq01Project  = "pgsq01-proj"
 	pgsq01Other    = "pgsq01-other"
@@ -53,9 +32,6 @@ const (
 
 var pgsq01ResourceNamePattern = regexp.MustCompile(`^pgsq01_it_[0-9]+_[0-9a-f]+$`)
 
-// pgsq01Plan builds one IR-valid plan in the closed root-scan shape: one
-// direct ROOT_SCAN over the root variable bound to resourceType, then a
-// RETURN of the given typed scope columns.
 func pgsq01Plan(project, generation string, paths []string, unrestricted bool, resourceType string, columns ...string) ir.PhysicalPlan {
 	projections := make([]ir.PhysicalProjection, 0, len(columns))
 	for _, column := range columns {
@@ -81,12 +57,6 @@ func pgsq01Plan(project, generation string, paths []string, unrestricted bool, r
 		},
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Golden literals: the exact statement text and ordered arguments are the
-// contract downstream slices (scope enforcement, selector extraction) build
-// on. Any drift in this shape breaks these literals on purpose.
-// ---------------------------------------------------------------------------
 
 func TestRootScanGoldenRestrictedSQLAndArguments(t *testing.T) {
 	plan := pgsq01Plan(pgsq01Project, pgsq01Gen, []string{pgsq01Path, "FHIR/Encounter"}, false, "Patient", "logical_id", "resource_type")
@@ -119,8 +89,6 @@ func TestRootScanGoldenRestrictedSQLAndArguments(t *testing.T) {
 		t.Fatalf("output columns = %v", rendered.OutputColumns)
 	}
 
-	// No data in the statement text, and no traversal, collapsing, window,
-	// or AQL syntax anywhere in it.
 	for _, forbidden := range []string{"@", "DISTINCT", "GROUP BY", "JOIN", "LIMIT", "OFFSET",
 		pgsq01Project, pgsq01Gen, pgsq01Path, "Patient", "FHIR/Encounter"} {
 		if strings.Contains(rendered.SQL, forbidden) {
@@ -128,14 +96,11 @@ func TestRootScanGoldenRestrictedSQLAndArguments(t *testing.T) {
 		}
 	}
 
-	// Deterministic: the same plan and binding render byte-identically.
 	second, err := RenderRootScan(plan, binding)
 	if err != nil || second.SQL != rendered.SQL || !reflect.DeepEqual(second.Args, rendered.Args) {
 		t.Fatalf("second render drifted: %v %#v", err, second)
 	}
 
-	// Arguments never alias plan data: mutating the bind slice afterwards
-	// must not touch the frozen JSONB argument of the earlier render.
 	mutable := plan.BindVars["auth_resource_paths"].([]string)
 	mutable[0] = "FHIR/Stolen"
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
@@ -156,8 +121,6 @@ func TestRootScanGoldenUnrestrictedSQLAndArguments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderRootScan: %v", err)
 	}
-	// Explicit unrestricted mode adds no auth predicate at all, and the
-	// empty generation binds the legacy namespace literally.
 	const wantSQL = `SELECT r0."logical_id" AS "c0", r0."auth_resource_path" AS "c1"` +
 		` FROM "pgsq01_it_unit"."fhir_resource" AS r0` +
 		` WHERE r0."project" = $1` +
@@ -181,9 +144,6 @@ func TestRootScanGoldenUnrestrictedSQLAndArguments(t *testing.T) {
 }
 
 func TestRootScanEmptyRestrictedPathSetRendersEmptyArrayParameter(t *testing.T) {
-	// A restricted scope with no authorized paths must read nothing, never
-	// widen: the argument is a JSON empty array, not a SQL or JSON null,
-	// for both the empty-slice and nil-slice spellings.
 	for _, paths := range [][]string{{}, nil} {
 		plan := pgsq01Plan(pgsq01Project, pgsq01Gen, paths, false, "Patient", "logical_id")
 		rendered, err := RenderRootScan(plan, pgsq01UnitBinding(t))
@@ -198,12 +158,6 @@ func TestRootScanEmptyRestrictedPathSetRendersEmptyArrayParameter(t *testing.T) 
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Typed fail-closed refusals: every shape outside the closed slice returns
-// a wrapped ErrUnsupportedPostgresPlan (or the scope/identifier sentinels)
-// and no SQL.
-// ---------------------------------------------------------------------------
 
 func pgsq01UnitBinding(t *testing.T) ir.PostgresStorageBinding {
 	t.Helper()
@@ -350,12 +304,9 @@ func TestRootScanRejectsEveryShapeOutsideTheClosedSlice(t *testing.T) {
 			if rendered.SQL != "" || rendered.Args != nil || rendered.OutputColumns != nil {
 				t.Fatalf("rejected plan produced output: %#v", rendered)
 			}
-			// The refusal must name the boundary it enforces, never be a
-			// generic error.
 			if !strings.Contains(err.Error(), testCase.wantIn) {
 				t.Fatalf("error %q must contain %q", err.Error(), testCase.wantIn)
 			}
-			// No fallback: the refusal never offers AQL as an exit.
 			if strings.Contains(strings.ToUpper(err.Error()), "AQL") {
 				t.Fatalf("refusal mentions AQL: %v", err)
 			}
@@ -406,7 +357,6 @@ func TestRootScanRejectsMissingOrContradictoryScope(t *testing.T) {
 
 func TestRootScanRejectsUntrustedStorageBinding(t *testing.T) {
 	plan := pgsq01Plan(pgsq01Project, pgsq01Gen, []string{pgsq01Path}, false, "Patient", "logical_id")
-	// The zero value models a hand-assembled binding.
 	if _, err := RenderRootScan(plan, ir.PostgresStorageBinding{}); !errors.Is(err, ir.ErrUnregisteredPostgresIdentifier) {
 		t.Fatalf("zero binding error = %v, want ErrUnregisteredPostgresIdentifier", err)
 	}
@@ -414,13 +364,6 @@ func TestRootScanRejectsUntrustedStorageBinding(t *testing.T) {
 		t.Fatalf("uppercase schema error = %v, want ErrUnregisteredPostgresIdentifier", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 fixtures. A skip here only keeps unrelated CI lanes
-// green; for this ticket's acceptance the run below is live, and the
-// report pins it. control.Open Ping-verifies the server is PostgreSQL 18
-// before any fixture touches it.
-// ---------------------------------------------------------------------------
 
 type pgsq01Service struct {
 	ctx    context.Context
@@ -440,7 +383,6 @@ func newPGSQ01Service(t *testing.T) *pgsq01Service {
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -488,8 +430,6 @@ func newPGSQ01Service(t *testing.T) *pgsq01Service {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -514,8 +454,6 @@ func newPGSQ01Service(t *testing.T) *pgsq01Service {
 		}
 	})
 
-	// control.Open Ping-verifies PostgreSQL 18 and fails otherwise: every
-	// live assertion below is real-PG18 evidence by construction.
 	client, err := control.OpenPool(ctx, control.ClientConfig{
 		DSN:            dsn,
 		MaxConns:       4,
@@ -526,11 +464,6 @@ func newPGSQ01Service(t *testing.T) *pgsq01Service {
 		fail("open pg-store client (requires a live PostgreSQL 18 service)", err)
 	}
 	t.Cleanup(client.Close)
-	// The agreed resource relation arrives through the real pg-store-02
-	// runner over its own embedded sources: migrate.go NewMigrationRunner
-	// merges the registered sources and sorts them by version
-	// (internal/backends/postgres/internal/store/migrate.go), so this fixture needs no new
-	// migration files of its own.
 	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		fail("migrate owned schema", err)
 	}
@@ -624,22 +557,12 @@ func (s *pgsq01Service) expectRefused(t *testing.T, sql string, wantCode, wantCo
 	}
 }
 
-// TestPGSQ01RootScanReturnsOnlySelectedProjectGenerationType is the
-// acceptance fixture: an independent store holds rows for two projects,
-// two generations, and two resource types, and the scan returns only the
-// selected tuple — exact rows, exact ordered SQL arguments, every decoy
-// proven stored, and every predicate proven load-bearing by a guard-drop
-// probe.
 func TestPGSQ01RootScanReturnsOnlySelectedProjectGenerationType(t *testing.T) {
 	svc := newPGSQ01Service(t)
-	// Selected tuple: project, generation, resource type, and auth path all
-	// match, and p-dup-a/p-dup-b carry a byte-identical payload.
 	svc.insertResource(t, pgsq01Project, pgsq01Gen, "Patient", "p-1", pgsq01Path, map[string]any{"code": "shared"})
 	svc.insertResource(t, pgsq01Project, pgsq01Gen, "Patient", "p-dup-a", pgsq01Path, map[string]any{"code": "shared"})
 	svc.insertResource(t, pgsq01Project, pgsq01Gen, "Patient", "p-dup-b", pgsq01Path, map[string]any{"code": "shared"})
 	svc.insertResource(t, pgsq01Project, pgsq01Gen, "Patient", "p-plain", pgsq01Path, map[string]any{"code": "other"})
-	// Decoys, each differing from the selected tuple in exactly one scope
-	// dimension and each proven to exist below.
 	svc.insertResource(t, pgsq01Project, pgsq01Gen, "Observation", "p-1", pgsq01Path, nil)
 	svc.insertResource(t, pgsq01Project, pgsq01GenTwo, "Patient", "p-1", pgsq01Path, nil)
 	svc.insertResource(t, pgsq01Other, pgsq01Gen, "Patient", "p-1", pgsq01Path, nil)
@@ -651,7 +574,6 @@ func TestPGSQ01RootScanReturnsOnlySelectedProjectGenerationType(t *testing.T) {
 		t.Fatalf("RenderRootScan: %v", err)
 	}
 
-	// Exact ordered arguments, asserted before execution.
 	wantArgs := []command.PostgreSQLParameter{
 		{Type: command.PostgreSQLParameterText, Value: pgsq01Project},
 		{Type: command.PostgreSQLParameterText, Value: pgsq01Gen},
@@ -673,8 +595,6 @@ func TestPGSQ01RootScanReturnsOnlySelectedProjectGenerationType(t *testing.T) {
 		t.Fatalf("root scan rows = %v, want %v", got, want)
 	}
 
-	// Hand-written direct-SQL witness with the literals inline: identical
-	// rows, independently of the renderer.
 	witness := svc.run(t,
 		`SELECT logical_id, resource_type FROM "`+svc.schema+`"."fhir_resource"`+
 			` WHERE project = 'pgsq01-proj' AND dataset_generation = 'gen-1'`+
@@ -684,8 +604,6 @@ func TestPGSQ01RootScanReturnsOnlySelectedProjectGenerationType(t *testing.T) {
 		t.Fatalf("witness rows = %v, want %v", witness, want)
 	}
 
-	// Non-vacuity: every decoy is really stored, so exclusion is the scope
-	// chain doing work, not an empty database.
 	for _, probe := range []struct {
 		desc, sql string
 		args      []any
@@ -701,10 +619,6 @@ func TestPGSQ01RootScanReturnsOnlySelectedProjectGenerationType(t *testing.T) {
 		}
 	}
 
-	// Guard-drop probes: dropping each emitted predicate one at a time, in
-	// hand-written SQL over the same scope, must admit exactly its decoy.
-	// A predicate whose absence changed nothing would be decoration; none
-	// of them is. Rows are listed in resource_seq (insertion) order.
 	type probe struct {
 		desc     string
 		sql      string
@@ -713,9 +627,6 @@ func TestPGSQ01RootScanReturnsOnlySelectedProjectGenerationType(t *testing.T) {
 	}
 	base := `SELECT logical_id FROM "` + svc.schema + `".fhir_resource WHERE `
 	const orderTail = ` ORDER BY resource_seq`
-	// Each probe numbers its placeholders contiguously ($1..$k) and passes
-	// exactly k arguments; PostgreSQL refuses a statement whose parameter
-	// numbering has holes.
 	for _, probe := range []probe{
 		{"full chain (control)", base + `project=$1 AND dataset_generation=$2 AND auth_resource_path = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND resource_type=$4` + orderTail,
 			[]any{pgsq01Project, pgsq01Gen, json.RawMessage(`["FHIR/Patient"]`), "Patient"},
@@ -765,17 +676,11 @@ func TestPGSQ01AuthModeIsLoadBearingAndStableIdentityIsPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unrestricted render: %v", err)
 	}
-	// Explicit unrestricted mode sees every path state, including the
-	// legacy empty path: the restricted miss above was authorization, not
-	// an empty store.
 	want := [][]string{{"p-visible", "FHIR/Patient"}, {"p-conf", "FHIR/Confidential"}, {"p-legacy", ""}}
 	if got := svc.runRendered(t, unrestricted); !reflect.DeepEqual(got, want) {
 		t.Fatalf("unrestricted rows = %v, want %v", got, want)
 	}
 
-	// Stable resource identity: the server-assigned storage identity is
-	// immutable and the scan order is exactly its sequence, byte-identical
-	// across repeated executions.
 	orderSQL := `SELECT logical_id, resource_seq FROM "` + svc.schema + `".fhir_resource` +
 		` WHERE project=$1 AND dataset_generation=$2 AND resource_type='Patient' ORDER BY resource_seq`
 	first := svc.run(t, orderSQL, pgsq01Project, pgsq01Gen)
@@ -800,9 +705,6 @@ func TestPGSQ01DuplicatePhysicalDocumentsAreNotCollapsed(t *testing.T) {
 
 	binding := bindingFor(t, svc.schema)
 
-	// A projection constant across the scope: if the scan collapsed
-	// duplicate physical documents (DISTINCT or GROUP BY), this would read
-	// one row instead of three.
 	constantRendered, err := RenderRootScan(
 		pgsq01Plan(pgsq01Project, pgsq01Gen, []string{pgsq01Path}, false, "Patient", "resource_type"), binding)
 	if err != nil {
@@ -826,9 +728,6 @@ func TestPGSQ01DuplicatePhysicalDocumentsAreNotCollapsed(t *testing.T) {
 		t.Fatalf("stable logical ids = %v", got)
 	}
 
-	// The database is the arbiter: each natural identity has exactly one
-	// physical row (never silently doubled), and a second physical document
-	// for the same identity is refused by its exact named constraint.
 	for _, logicalID := range []string{"d-1", "d-2", "d-3"} {
 		rows := svc.run(t, `SELECT count(*) FROM "`+svc.schema+`".fhir_resource WHERE project=$1 AND dataset_generation=$2 AND resource_type='Patient' AND logical_id=$3`,
 			pgsq01Project, pgsq01Gen, logicalID)
@@ -840,9 +739,6 @@ func TestPGSQ01DuplicatePhysicalDocumentsAreNotCollapsed(t *testing.T) {
 	svc.expectRefused(t, duplicateInsert, "23505", "fhir_resource_natural_identity_ux",
 		pgsq01Project, pgsq01Gen, "Patient", "d-1", pgsq01Path)
 
-	// The scope-shaped CHECK constraints refuse their exact named cases;
-	// the empty auth path is the legitimate legacy namespace and must stay
-	// insertable so the auth probes elsewhere are meaningful.
 	svc.expectRefused(t, duplicateInsert, "23514", "fhir_resource_project_present",
 		"", pgsq01Gen, "Patient", "ck-project", pgsq01Path)
 	svc.expectRefused(t, duplicateInsert, "23514", "fhir_resource_resource_type_present",
@@ -853,8 +749,6 @@ func TestPGSQ01DuplicatePhysicalDocumentsAreNotCollapsed(t *testing.T) {
 		t.Fatalf("empty auth path is the legacy namespace and must insert: %v", err)
 	}
 
-	// The store layer agrees: a duplicate natural identity through the
-	// real repository returns the typed conflict, never a silent collapse.
 	repo, err := control.NewResourceRepository(svc.client, svc.schema)
 	if err != nil {
 		t.Fatalf("resource repository: %v", err)
@@ -867,15 +761,9 @@ func TestPGSQ01DuplicatePhysicalDocumentsAreNotCollapsed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Zero-leftover audit, scoped to this ticket's own pgsq01_it_* prefix so
-// sibling root-scan slices may run their fixtures concurrently.
-// ---------------------------------------------------------------------------
-
 func TestZZNoLeftoverPgSQ01Resources(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		// No service was used; nothing can have been created.
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

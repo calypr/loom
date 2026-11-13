@@ -1,16 +1,5 @@
 package server
 
-// Single backend-composition seam (arch-backend-08). Server startup, CLI
-// flows, and health checks compose through ONE explicit path:
-//
-//	run() --(source backend selection)--> compose{Arango|PostgreSQL*} --> serveRuntime
-//
-// compose.go owns the shared builders (publication plane, release hooks,
-// Explorer lifecycle, route wiring), the one listen/shutdown loop, and the
-// startup-only open seams. The open seams are composition-private package
-// vars -- they are NOT a runtime service locator: no request handler can
-// reach them, and they are read exactly once per composition.
-
 import (
 	"context"
 	"errors"
@@ -49,31 +38,11 @@ import (
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// ---------------------------------------------------------------------------
-// Startup-only open seams (composition-private).
-//
-// These are package-level variables solely so the backend-composition
-// contract test can install spies around exactly what a selected backend
-// opens. They are read once per composition on the startup path; no handler,
-// middleware, or request-time code path can reach them, so they are not a
-// service locator. Production values are the factories themselves.
-// ---------------------------------------------------------------------------
-
 var (
 	openArangoBackend   = arangofactory.Open
 	openPostgresBackend = backendspostgres.Open
 	newClickHouseClient = clickhousestore.New
 )
-
-// ---------------------------------------------------------------------------
-// serveRuntime: the one listen/shutdown loop.
-//
-// Every arm (Arango runtime, PostgreSQL full runtime, PostgreSQL first-query
-// route) starts Listen in a goroutine, returns when Listen fails, and on ctx
-// cancellation shuts the app down within cleanupTimeout. The runtime closer
-// is owned here and torn down exactly once, so startup, graceful shutdown,
-// and Listen failure share one close owner.
-// ---------------------------------------------------------------------------
 
 func serveRuntime(ctx context.Context, server *httpapi.HTTPServer, listen string, closeRuntime func() error, closeLabel string, logger *slog.Logger, startupAttrs ...any) error {
 	defer func() {
@@ -106,24 +75,7 @@ func serveRuntime(ctx context.Context, server *httpapi.HTTPServer, listen string
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Shared publication plane (ClickHouse client + database, private-artifact
-// manager, materialization reader, bundle store reconciliation).
-//
-// Both ClickHouse-enabled arms construct the identical sequence; the only
-// lane-specific steps are where the private-artifact catalog comes from
-// (Arango bootstraps its own collection; PostgreSQL rides the factory port)
-// and which reconciler sweeps abandoned executions (the Arango store's own
-// Reconcile versus the backend reconciler's ledger sweep with the physical
-// ClickHouse drop hook). Those arrive as the AcquireArtifactCatalog and
-// sweep parameters -- explicit typed inputs, never a bundle of loosely
-// checked ports.
-// ---------------------------------------------------------------------------
-
 type publicationPlaneInput struct {
-	// InitialDegradation and InitialPublicationReady carry degradation and
-	// readiness recorded by the lane BEFORE the plane (bootstrap steps), so
-	// recordDegradation sequencing stays composition-owned.
 	InitialDegradation      error
 	InitialPublicationReady bool
 	ClickHouse              clickhousestore.Options
@@ -146,14 +98,8 @@ type publicationPlane struct {
 	PublicationReady        bool
 }
 
-// publicationSweeper performs the lane-owned abandoned-execution sweep and
-// reports the degradation stage plus cause, or ("", nil) when clean.
 type publicationSweeper func(ctx context.Context, clickhouse *clickhousestore.Client, bundleStore *publicationclickhouse.ClickHouseBundleStore, cutoff time.Time) (stage string, cause error)
 
-// newPublicationPlane constructs the ClickHouse plane shared by both arms.
-// When it returns a non-nil closer, the caller MUST push it onto its
-// cleanups stack even if planeErr != nil: the client was acquired and the
-// error-path sweep owns it from then on.
 func newPublicationPlane(ctx context.Context, serverConfig Config, logger *slog.Logger, in publicationPlaneInput) (plane *publicationPlane, closeClickHouse func() error, err error) {
 	plane = &publicationPlane{Degradation: in.InitialDegradation, PublicationReady: in.InitialPublicationReady}
 	plane.ClickHouse, err = newClickHouseClient(in.ClickHouse)
@@ -184,10 +130,6 @@ func newPublicationPlane(ctx context.Context, serverConfig Config, logger *slog.
 	return plane, closeClickHouse, nil
 }
 
-// reconcileBundles builds the bundle store and runs the lane-supplied sweep
-// when (and only when) the lane is still publication-ready. A nil error with
-// a still-ready plane publishes the store as BundleTarget; sweep failures
-// degrade (never hard-fail) exactly as each lane did before extraction.
 func (p *publicationPlane) reconcileBundles(ctx context.Context, logger *slog.Logger, ready bool, degradation error, bundleCatalog publication.BundleCatalog, activeReleaseReader publicationclickhouse.ActiveReleaseReader, sweep publicationSweeper) error {
 	if !ready {
 		return nil
@@ -207,11 +149,6 @@ func (p *publicationPlane) reconcileBundles(ctx context.Context, logger *slog.Lo
 	}
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// Shared release hooks: the release service plus the prepare/activate/
-// validate closures, including the dev CAS-fault one-shot semantics.
-// ---------------------------------------------------------------------------
 
 type releaseHooks struct {
 	Activate           func(context.Context, string, string, []publicationcontract.DataframeSelector) error
@@ -239,10 +176,6 @@ func newReleaseHooks(serverConfig Config, manifests publicationcontract.Manifest
 			Project: project, Generation: generation, GitCommit: generation,
 			OptionalSelectors: selectors,
 		})
-		// Return a deliberately stale CAS revision exactly once in the isolated
-		// dev fault scenario. The candidate remains retained for audit, while
-		// PublishAuthoring's atomic activation fails without moving the prior
-		// active release pointer or exposing candidate rows.
 		if err == nil && activationConflictOnce.CompareAndSwap(true, false) {
 			expectedRevision++
 		}
@@ -254,19 +187,6 @@ func newReleaseHooks(serverConfig Config, manifests publicationcontract.Manifest
 	return releaseHooks{Activate: activateExplorerRelease, Prepare: prepareExplorerRelease, ValidateGeneration: validateExplorerReleaseGeneration}
 }
 
-// ---------------------------------------------------------------------------
-// Shared Explorer lifecycle composition.
-//
-// Both arms build the identical lifecycle.Config from the recipe engine: the
-// eight receipt-execution closures, the capability block, the artifact
-// wiring, and the cursor/row-choice/explicit-group scaffold. Backend
-// differences arrive as one typed lane-ports struct; nothing is sniffed at
-// runtime.
-// ---------------------------------------------------------------------------
-
-// explicitGroupRevisionSource is what the repository explicit-group resolver
-// consumes; both lane stores (Arango Explorer store, PostgreSQL explorer
-// reads) satisfy it.
 type explicitGroupRevisionSource interface {
 	explorer.ExplicitGroupRepository
 	GetSelection(context.Context, string, string) (*explorer.SelectionRevision, error)
@@ -275,15 +195,12 @@ type explicitGroupRevisionSource interface {
 type lifecycleLanePorts struct {
 	SemanticInventory                  func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
 	ResolveSemanticInventorySelections func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)
-	// SelectionMembersCollection is an AQL-only runtime binding (the AQL
-	// group-rows renderer is its sole consumer); the PostgreSQL lane passes
-	// the empty string, which the PostgreSQL renderer never reads.
-	SelectionMembersCollection  string
-	InterpretationRepository    explorer.InterpretationRepository
-	TableShapeCapabilities      tableshapecap.Repository
-	ExplicitGroups              explicitGroupRevisionSource
-	SelectionReferenceValidator lifecycle.SelectionReferenceValidator
-	ReceiptExecutions           receiptExecutionFinder
+	SelectionMembersCollection         string
+	InterpretationRepository           explorer.InterpretationRepository
+	TableShapeCapabilities             tableshapecap.Repository
+	ExplicitGroups                     explicitGroupRevisionSource
+	SelectionReferenceValidator        lifecycle.SelectionReferenceValidator
+	ReceiptExecutions                  receiptExecutionFinder
 }
 
 type lifecycleCompositionInput struct {
@@ -473,11 +390,6 @@ func buildLifecycleConfig(in lifecycleCompositionInput) (lifecycle.Config, error
 	return lifecycleConfig, nil
 }
 
-// ---------------------------------------------------------------------------
-// Shared Explorer route wiring: the handlers behind the project read-scope
-// guard, the construction-inputs catalog, and the validated route install.
-// ---------------------------------------------------------------------------
-
 func wireExplorerRoutes(server *httpapi.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, graphResolver *graphresolver.Resolver, scopeResolver *authscope.ScopeResolver, explorerService *explorer.Service, lifecycleConfig lifecycle.Config, inputs constructionInputsCatalog, deps routeDependencies) error {
 	explorerHandlers := newExplorerHTTPHandlers(authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
 		if scopeResolver == nil {
@@ -491,20 +403,6 @@ func wireExplorerRoutes(server *httpapi.HTTPServer, generationService *loadapi.S
 	}
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// ArangoDB runtime composition (moved verbatim from server.go run()'s Arango
-// branch). run() now selects the backend and dispatches; this is the only
-// place the ArangoDB adapter tree is opened for the server.
-//
-// Cleanup law (mirroring composePostgreSQLFullRuntime in runtime.go): this
-// compose must not own any cleanup whose duty outlives its return. Every
-// acquired resource is pushed onto cleanups in acquisition order; the one
-// deferred statement is the error-path sweep, and on success the same stack
-// is returned as the caller's closer (serveRuntime owns it). The AST witness
-// in runtime_test.go fails this build's tests if a defer reappears directly
-// in this body or a push is dropped.
-// ---------------------------------------------------------------------------
 
 func composeArangoRuntime(ctx context.Context, serverConfig Config, logger *slog.Logger) (server *httpapi.HTTPServer, closeRuntime func() error, err error) {
 	var cleanups []func() error
@@ -562,21 +460,8 @@ func composeArangoRuntime(ctx context.Context, serverConfig Config, logger *slog
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	// The Arango lane's one selected AQL row-execution adapter core
-	// (arch-backend-08): every FHIR/recipe row lane composes over this single
-	// adapter, so a request carries exactly one closed-dispatch unwrap and
-	// one dispatch site, with each lane keeping its own instrumentation.
 	aqlRows := selectedAQLAdapter{exec: lifecycleClient}
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{SourceRows: aqlRows.serviceRows})
-	// The lifecycle client already owns this Arango database. Reusing it avoids
-	// a second connection that can fail independently during optional startup.
-	// The compile target is selected once here, from the source store
-	// configuration: this deployment serves sources from Arango, so every
-	// compiler boundary (recipe engine, FHIR query compilation, graph mode,
-	// and preview) uses the AQL target through the same target-aware
-	// compiler operations. A PostgreSQL deployment would select
-	// compiler.PostgreSQLTarget once instead; per-request dialect selection
-	// is not available to any caller.
 	sourceCompileTarget := compiler.ArangoTarget()
 
 	publishedRegistry := arangoBackend.PublishedRegistry
@@ -738,13 +623,6 @@ func composeArangoRuntime(ctx context.Context, serverConfig Config, logger *slog
 		RecipeControl: dataframeexecution.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled compiler.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
 			return explainCompiledQuery(ctx, lifecycleClient, compiled)
 		}, ExplainPostgreSQLConnection: func(ctx context.Context, compiled compiler.CompiledQuery) (dataframeexecution.PostgreSQLPlanAssessment, error) {
-			// The PostgreSQL source runtime is configuration-only until its
-			// wiring slice lands (run() refuses to start on that backend), so
-			// no pool-shaped executor exists here yet. A PostgreSQL-tagged
-			// command therefore fails closed with a typed backend failure;
-			// it is never routed to the Arango EXPLAIN policy surface. When
-			// the runtime lands, pass Runtime.PlanJSON (postgres.Open) over the
-			// readiness-checked pool instead of nil.
 			return explainPostgreSQLCompiledQuery(ctx, nil, compiled)
 		}},
 		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver, selectionMembersCollection: arangofactory.SelectionMembersCollection},
@@ -855,17 +733,10 @@ func composeArangoRuntime(ctx context.Context, serverConfig Config, logger *slog
 			return nil
 		})
 	}
-	// The caller's closer tears the runtime down in reverse acquisition
-	// order: reconcilers stop first (they may still be writing through the
-	// ClickHouse client and the ArangoDB runtime), then the ClickHouse
-	// client closes, then the ArangoDB runtime.
 	closeRuntime = func() error { return runRuntimeCloseSteps(cleanups) }
 	return server, closeRuntime, nil
 }
 
-// runArangoRuntime is the Arango production entry: compose, then serve. The
-// startup line keeps the database placement visible for operators without
-// echoing credentials.
 func runArangoRuntime(ctx context.Context, serverConfig Config, logger *slog.Logger) error {
 	server, closeRuntime, err := composeArangoRuntime(ctx, serverConfig, logger)
 	if err != nil {

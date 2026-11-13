@@ -8,20 +8,6 @@ import (
 	"time"
 )
 
-// Controls for the retry half of the release-identity contract: identical
-// snapshots converge instead of minting identities, and a pre-widening stored
-// id converges after AT MOST one new-id transition.
-//
-// Both drive the production ReleaseService.Create/Activate path against the
-// package release fixture. The fixture's activation guard has the same shape as
-// the production Arango CAS alreadyActive branch
-// (internal/backends/arango/internal/dataset/release_store.go: "releasePointer.releaseId ==
-// @release_id" makes a re-submission that already owns the pointer a no-op),
-// modelled there as "expectedRevision+1 == current revision AND same id". So
-// the replay asserted here re-sends the successful expected revision. The real
-// store converges for a live revision as well, and that is exercised against
-// Arango in internal/backends/arango/internal/dataset/release_policy_change_e2e_test.go.
-
 func storedReleaseCandidates(store *MemoryLifecycleStore, project string) map[string]ProjectRelease {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
@@ -47,10 +33,6 @@ func r2FixtureService(store *MemoryLifecycleStore, now time.Time, required ...Da
 	return ReleaseService{Manifests: store, Releases: store, Verifier: nil, Required: required, Now: func() time.Time { return now }}
 }
 
-// TestIdenticalReleaseContentRemainsIdempotent asserts that re-submitting one
-// immutable snapshot neither bumps the active revision nor creates a repeated
-// identity: content addressing makes the retry land on the same document key,
-// and the already-active guard makes it a no-op.
 func TestIdenticalReleaseContentRemainsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryLifecycleStore()
@@ -68,8 +50,6 @@ func TestIdenticalReleaseContentRemainsIdempotent(t *testing.T) {
 		t.Fatalf("first activation = %#v, %v", first, err)
 	}
 
-	// Replays of the same immutable snapshot keep the whole active record, so
-	// neither the revision nor the identity moved.
 	for attempt := 2; attempt <= 4; attempt++ {
 		repeat, err := service.Activate(ctx, request)
 		if err != nil {
@@ -80,8 +60,6 @@ func TestIdenticalReleaseContentRemainsIdempotent(t *testing.T) {
 		}
 	}
 
-	// The authoring side is content-addressed too: repeated Create calls
-	// reproduce one id and never mint another immutable candidate.
 	for attempt := 1; attempt <= 3; attempt++ {
 		created, err := service.Create(ctx, ActivationRequest{Project: request.Project, Generation: request.Generation})
 		if err != nil {
@@ -106,10 +84,6 @@ func TestIdenticalReleaseContentRemainsIdempotent(t *testing.T) {
 	t.Logf("VERDICT=PASS 4 identical activations and 3 identical saves converge: revision 1, id %s, exactly one immutable candidate", first.Release.ID)
 }
 
-// TestLegacyReleaseIDReactivationConvergesOnce pins the upgrade boundary: an
-// immutable candidate persisted and activated by the pre-widening binary keeps
-// its old id, and the widened framing transitions it to the new id exactly
-// once. Every later retry converges on that id.
 func TestLegacyReleaseIDReactivationConvergesOnce(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC)
@@ -118,8 +92,6 @@ func TestLegacyReleaseIDReactivationConvergesOnce(t *testing.T) {
 		selector.Key(): published(selector, "execution-a", "commit-a", now),
 	}, errors: map[string]error{}}
 
-	// Derive the content the current binary produces for this snapshot, so the
-	// seeded legacy document is the SAME content under the old digest.
 	probe := NewMemoryLifecycleStore()
 	stageManifest(t, probe, "project-a", "commit-a")
 	probeService := r2FixtureService(probe, now, selector)
@@ -137,8 +109,6 @@ func TestLegacyReleaseIDReactivationConvergesOnce(t *testing.T) {
 		t.Fatalf("witness precondition broken: the historical framing must derive a different id for this content")
 	}
 
-	// Seed the upgrade boundary: the old binary saved AND activated this
-	// content under its narrow digest.
 	store := NewMemoryLifecycleStore()
 	stageManifest(t, store, "project-a", "commit-a")
 	service := r2FixtureService(store, now, selector)
@@ -154,8 +124,6 @@ func TestLegacyReleaseIDReactivationConvergesOnce(t *testing.T) {
 		t.Fatalf("legacy seeding = %#v, %v (want revision 1, id %s)", active, err, legacy.ID)
 	}
 
-	// First reactivation under the widened framing: exactly one new-id
-	// transition, one revision bump, and the id is the current derived id.
 	reactivation := ActivationRequest{Project: "project-a", Generation: "commit-a", ExpectedRevision: 1}
 	transitioned, err := service.Activate(ctx, reactivation)
 	if err != nil {
@@ -168,8 +136,6 @@ func TestLegacyReleaseIDReactivationConvergesOnce(t *testing.T) {
 		t.Fatalf("REGRESSION: first reactivation must converge on %s at revision 2, got %#v", derived.ID, transitioned)
 	}
 
-	// Every later retry of the same request converges: no second new-id
-	// transition and no further revision churn.
 	for attempt := 3; attempt <= 5; attempt++ {
 		repeat, err := service.Activate(ctx, reactivation)
 		if err != nil {

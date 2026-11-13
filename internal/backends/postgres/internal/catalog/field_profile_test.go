@@ -1,20 +1,5 @@
 package postgres
 
-// Real-PostgreSQL acceptance tests for the pg-catalog-01 field-profile
-// records (check-2: go test ./internal/backends/postgres/internal/catalog -run FieldProfile).
-//
-// Every test drives the real internal/backends/postgres/internal/store FieldProfileRepository
-// against the PostgreSQL 18 service named by LOOM_TEST_POSTGRES_URL.
-// Fixtures are literal rows inserted by direct SQL (or written through the
-// real repository); witnesses are literal rows read back by direct SQL.
-// Nothing is mocked: the profiler fixtures are real catalog.Profiler runs
-// and the negative fixtures assert PostgreSQL itself refuses malformed
-// shapes. Fixture databases and schemas are uniquely owned as pgcat01_it_*
-// and dropped by the test that created them; TestZZFieldProfileZeroLeftovers
-// audits that every name this package's ownership created is gone — the
-// audit is scoped to the pgcat01_it_ prefix this package owns, never a
-// global scan, because sibling packages run their own sweeps concurrently.
-
 import (
 	"context"
 	"crypto/rand"
@@ -65,8 +50,6 @@ func fieldProfileRandomHex(t *testing.T) string {
 	return fmt.Sprintf("%x", b[:])
 }
 
-// fieldProfileScrubber redacts the service URL and its credentials from any
-// value that could reach test output. The URL is never printed.
 func fieldProfileScrubber(raw string) func(any) string {
 	secrets := []string{raw}
 	if u, err := url.Parse(raw); err == nil && u.User != nil {
@@ -127,12 +110,6 @@ func newFieldProfileService(t *testing.T) *fieldProfileService {
 
 	var dbName, schema string
 
-	// Registered while the admin pool is open, so (LIFO) it runs after every
-	// drop. Ownership-based zero-leftover audit: every resource this test
-	// created must be gone afterward. The audit binds the exact owned names
-	// (an ownership-scoped assertion, race-free when sibling packages hold
-	// live pgcatNN_it_* fixtures in parallel); TestZZ below adds the
-	// prefix-scoped sweep for this package's own namespace.
 	t.Cleanup(func() {
 		var dbCount int
 		if err := admin.QueryRow(context.WithoutCancel(ctx),
@@ -223,9 +200,9 @@ func (s *fieldProfileService) realRepository(t *testing.T) *storepostgres.FieldP
 	return repo
 }
 
-func (s *fieldProfileService) adapter(t *testing.T) *Store {
+func (s *fieldProfileService) adapter(t *testing.T) *FieldProfileAdapter {
 	t.Helper()
-	store, err := NewFieldProfileStore(s.realRepository(t))
+	store, err := NewFieldProfileAdapter(s.realRepository(t))
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -247,9 +224,6 @@ func (s *fieldProfileService) coverageFQN() string {
 	return pgx.Identifier{s.schema, "fhir_field_profile_coverage"}.Sanitize()
 }
 
-// profileRowWitness is the literal row shape asserted by direct SQL after
-// every write path: counts, flags, and derived lengths exactly as
-// PostgreSQL stored them.
 type profileRowWitness struct {
 	Path                string
 	RecordType          string
@@ -295,8 +269,6 @@ func (s *fieldProfileService) witnessRows(t *testing.T, project, generation stri
 	return out
 }
 
-// argsSQL is a small helper to append optional auth/type predicates with
-// ordered parameters ($3, $4, ...) to the witness query.
 func argsSQL(args []any) string {
 	var b strings.Builder
 	next := 3
@@ -352,9 +324,6 @@ func (s *fieldProfileService) witnessRowCount(t *testing.T, project string) int 
 	return count
 }
 
-// countJSONB renders one direct-SQL count over the correlated subrecord
-// elements, the literal witness that correlations survived as whole objects.
-// path "*" counts across every row of the project/type.
 func (s *fieldProfileService) countJSONB(t *testing.T, project, resourceType, path, column, predicate string, args ...any) int {
 	t.Helper()
 	sql := "SELECT COUNT(*) FROM " + s.profileFQN() + ", jsonb_array_elements(" + column + ") e" +
@@ -372,8 +341,6 @@ func (s *fieldProfileService) countJSONB(t *testing.T, project, resourceType, pa
 	}
 	return count
 }
-
-// --- profiler fixtures -----------------------------------------------------
 
 func fieldProfileScope(project, generation, authPath, resourceType string) storepostgres.FieldProfileScope {
 	return storepostgres.FieldProfileScope{Project: project, DatasetGeneration: generation, AuthResourcePath: authPath, ResourceType: resourceType}
@@ -396,11 +363,6 @@ func patientPayload(gender, birthDate string) map[string]any {
 	}
 }
 
-// observationPayload is the proven correlated fixture from the shared
-// profiler acceptance suite: each component pairs its own code system with
-// the value observed on the SAME owning item (A↔111, B↔222). Flattening key
-// and value sets independently would cross-pair them, which the witnesses
-// below prove does not happen across this persistence boundary.
 func observationPayload() map[string]any {
 	return map[string]any{
 		"resourceType": "Observation",
@@ -430,10 +392,6 @@ func observationPayload() map[string]any {
 	}
 }
 
-// conditionPayload uses a generated schema root (Condition) so the
-// profiler's semantic member walk resolves the definition; the Codeable-
-// Concept-like code text provides the bounded distinct values that
-// truncation limits then clamp.
 func conditionPayload(label string) map[string]any {
 	return map[string]any{
 		"resourceType": "Condition",
@@ -453,25 +411,12 @@ func profilerDocuments(t *testing.T, project, generation, authPath, resourceType
 	return profiler.Documents()
 }
 
-// boolPointer is a local helper (test-only) for hand-built completeness
-// claims.
 func boolPointer(v bool) *bool { return &v }
 
-// --- check-2 acceptance tests ------------------------------------------------
-
-// TestFieldProfileProfilerRoundTripPreservesAllPublicFields is acceptance
-// bullet 1 and 4: documents emitted by the real catalog.Profiler persist and
-// read back with reflect.DeepEqual fidelity — including false booleans,
-// empty summaries, the bounded distinct values, the completeness and
-// truncation flags, the profile_status record, and the correlated
-// extension/semantic subrecords — with direct-SQL witnesses proving the
-// correlations are stored as whole objects.
 func TestFieldProfileProfilerRoundTripPreservesAllPublicFields(t *testing.T) {
 	s := newFieldProfileService(t)
 	store := s.adapter(t)
 
-	// (a) Populated complete profile with arrays, bounded distinct values,
-	// extension value correlations, and non-ASCII values.
 	patientScope := fieldProfileScope("pgcat01-round", "g1", "tenant/a", "Patient")
 	patientDocs := profilerDocuments(t, "pgcat01-round", "g1", "tenant/a", "Patient", catalog.DefaultProfileLimits(),
 		patientPayload("male", "2001-02-03"), patientPayload("female", "1999-12-31"))
@@ -489,8 +434,6 @@ func TestFieldProfileProfilerRoundTripPreservesAllPublicFields(t *testing.T) {
 		t.Fatalf("patient profile round-trip drifted\n got=%#v\nwant=%#v", got, patientDocs)
 	}
 
-	// (b) Observation profile: pivot metadata plus correlated semantic
-	// observations (component code system <-> value observed together).
 	obsScope := fieldProfileScope("pgcat01-round", "g1", "tenant/a", "Observation")
 	obsDocs := profilerDocuments(t, "pgcat01-round", "g1", "tenant/a", "Observation", catalog.DefaultProfileLimits(), observationPayload())
 	if err := store.WriteFieldProfile(s.ctx, obsScope, obsDocs, 0); err != nil {
@@ -504,9 +447,6 @@ func TestFieldProfileProfilerRoundTripPreservesAllPublicFields(t *testing.T) {
 		t.Fatalf("observation profile round-trip drifted\n got=%#v\nwant=%#v", gotObs, obsDocs)
 	}
 
-	// Direct-SQL witnesses: the correlated semantic observations are whole
-	// JSONB objects pairing each component's code system with the value
-	// observed on the same owning item — never cross-combined.
 	if n := s.countJSONB(t, "pgcat01-round", "Observation", "component[]", "semantic_observations",
 		"e->'key'->>'system' = $4 AND e->'examples' @> $5::jsonb", "urn:study:A", `["111"]`); n != 1 {
 		t.Fatalf("A↔111 correlated elements = %d, want exactly 1", n)
@@ -515,15 +455,11 @@ func TestFieldProfileProfilerRoundTripPreservesAllPublicFields(t *testing.T) {
 		"e->'key'->>'system' = $4 AND e->'examples' @> $5::jsonb", "urn:study:B", `["222"]`); n != 1 {
 		t.Fatalf("B↔222 correlated elements = %d, want exactly 1", n)
 	}
-	// The cross pairs must not exist: independent flattening would produce
-	// exactly these.
 	if n := s.countJSONB(t, "pgcat01-round", "Observation", "component[]", "semantic_observations",
 		"(e->'key'->>'system' = $4 AND e->'examples' @> $5::jsonb) OR (e->'key'->>'system' = $6 AND e->'examples' @> $7::jsonb)",
 		"urn:study:A", `["222"]`, "urn:study:B", `["111"]`); n != 0 {
 		t.Fatalf("cross-combined semantic elements = %d, want 0 (key and value must stay correlated)", n)
 	}
-	// Extension value correlations are whole objects too: each Extension URL
-	// pairs with the value[x] member observed on the same object.
 	if n := s.countJSONB(t, "pgcat01-round", "Patient", "extension[].url", "extension_values",
 		"e->>'url' = $4 AND e->>'value_path' = $5 AND e->>'value_type' = $6", "urn:ext:a", "valueString", "string"); n != 1 {
 		t.Fatalf("urn:ext:a→valueString elements = %d, want exactly 1", n)
@@ -537,15 +473,11 @@ func TestFieldProfileProfilerRoundTripPreservesAllPublicFields(t *testing.T) {
 		"urn:ext:a", "valueInteger", "urn:ext:b", "valueString"); n != 0 {
 		t.Fatalf("cross-combined extension elements = %d, want 0 (URL and value[x] must stay correlated)", n)
 	}
-	// The nested extension ancestry survived inside one observation object
-	// (attached at the profiler's extension storage path).
 	if n := s.countJSONB(t, "pgcat01-round", "Observation", "*", "semantic_observations",
 		"e->'extension_url_path' @> $3::jsonb AND e->'examples' @> $4::jsonb", `["parent","leaf"]`, `["left-only"]`); n == 0 {
 		t.Fatalf("nested extension ancestry observation not persisted as one correlated object")
 	}
 
-	// (c) Truncated profile: bounded distinct values plus a dropped field.
-	// The per-field and artifact-level truncation metadata must survive.
 	truncLimits := catalog.ProfileLimits{MaxDistinctValuesPerField: 2, MaxDistinctValueBytes: 64, MaxFields: 3, MaxPivotColumnsPerField: 8, MaxExtensionValuesPerField: 8, MaxShapePlans: 8, MaxRetainedBytes: 4096}
 	truncScope := fieldProfileScope("pgcat01-round", "g1", "tenant/a", "Condition")
 	truncDocs := profilerDocuments(t, "pgcat01-round", "g1", "tenant/a", "Condition", truncLimits,
@@ -575,25 +507,19 @@ func TestFieldProfileProfilerRoundTripPreservesAllPublicFields(t *testing.T) {
 		}
 	}
 
-	// (d) Hand-built records exercise the states the profiler happens not to
-	// emit but the contract must still honor: missing (*nil) completeness,
-	// true truncation booleans inside bounded examples, and the exact
-	// zero-value row.
 	handScope := fieldProfileScope("pgcat01-round", "g1", "tenant/a", "Practitioner")
 	handKey := "handcraft-practitioner-active"
 	handDocs := []catalog.FieldCatalogDocument{{
-		Key:               handKey,
-		Project:           "pgcat01-round",
-		DatasetGeneration: "g1",
-		AuthResourcePath:  "tenant/a",
-		ResourceType:      "Practitioner",
-		Path:              "active",
-		Kind:              "scalar",
-		DocCount:          0,
-		MaxItems:          0,
-		SampleCount:       0,
-		// EnrichmentComplete stays nil: the missing *bool, persisted as SQL
-		// NULL and distinct from both true and false.
+		Key:                 handKey,
+		Project:             "pgcat01-round",
+		DatasetGeneration:   "g1",
+		AuthResourcePath:    "tenant/a",
+		ResourceType:        "Practitioner",
+		Path:                "active",
+		Kind:                "scalar",
+		DocCount:            0,
+		MaxItems:            0,
+		SampleCount:         0,
 		DistinctTruncated:   true,
 		EnrichmentTruncated: false,
 		PivotCandidate:      false,
@@ -648,8 +574,6 @@ func TestFieldProfileProfilerRoundTripPreservesAllPublicFields(t *testing.T) {
 		t.Fatalf("bounded-example truncation metadata lost: %#v", gotHand[0].SemanticObservations[0])
 	}
 
-	// Literal witness spot-check on the patient profile: the gender row
-	// stored exactly what the profiler computed.
 	for _, w := range s.witnessRows(t, "pgcat01-round", "g1", "tenant/a", "Patient") {
 		if w.Path != "gender" {
 			continue
@@ -664,10 +588,6 @@ func TestFieldProfileProfilerRoundTripPreservesAllPublicFields(t *testing.T) {
 	}
 }
 
-// TestFieldProfileUpsertReplacesExactIdentityOnly is acceptance bullet 2:
-// upsert replaces exactly one identity, and the same path under another
-// project, generation, or auth path remains a separate row that keeps its
-// own bytes.
 func TestFieldProfileUpsertReplacesExactIdentityOnly(t *testing.T) {
 	s := newFieldProfileService(t)
 	store := s.adapter(t)
@@ -677,11 +597,11 @@ func TestFieldProfileUpsertReplacesExactIdentityOnly(t *testing.T) {
 		docs  []catalog.FieldCatalogDocument
 	}
 	scopes := []storepostgres.FieldProfileScope{
-		fieldProfileScope("pgcat01-up", "g1", "a", "Patient"),       // replaced below
-		fieldProfileScope("pgcat01-up", "g1", "b", "Patient"),       // same path, other auth path
-		fieldProfileScope("pgcat01-up", "g2", "a", "Patient"),       // same path, other generation
-		fieldProfileScope("pgcat01-up", "g1", "a", "Observation"),   // same path, other type
-		fieldProfileScope("pgcat02-neighbor", "g1", "a", "Patient"), // same path, other project
+		fieldProfileScope("pgcat01-up", "g1", "a", "Patient"),
+		fieldProfileScope("pgcat01-up", "g1", "b", "Patient"),
+		fieldProfileScope("pgcat01-up", "g2", "a", "Patient"),
+		fieldProfileScope("pgcat01-up", "g1", "a", "Observation"),
+		fieldProfileScope("pgcat02-neighbor", "g1", "a", "Patient"),
 	}
 	var snapshots []scopeSnapshot
 	for _, scope := range scopes {
@@ -704,8 +624,6 @@ func TestFieldProfileUpsertReplacesExactIdentityOnly(t *testing.T) {
 		totalBefore += s.witnessRowCount(t, project)
 	}
 
-	// Re-write ONLY the first scope's "gender" identity with new content:
-	// same identity, entirely different payload values.
 	replacement := []catalog.FieldCatalogDocument{{
 		Key:                 "gfc_replaced_gender",
 		Project:             "pgcat01-up",
@@ -748,8 +666,6 @@ func TestFieldProfileUpsertReplacesExactIdentityOnly(t *testing.T) {
 		!reflect.DeepEqual(gender.PivotColumns, []string{"replaced-column"}) || gender.Key != "gfc_replaced_gender" {
 		t.Fatalf("replacement did not fully overwrite the identity: %#v", gender)
 	}
-	// The replacement replaced, it did not append: exactly one row for the
-	// replaced identity.
 	witnesses := s.witnessRows(t, "pgcat01-up", "g1", "a", "Patient")
 	genderRows := 0
 	for _, w := range witnesses {
@@ -761,8 +677,6 @@ func TestFieldProfileUpsertReplacesExactIdentityOnly(t *testing.T) {
 		t.Fatalf("upsert left %d rows for the replaced identity, want exactly 1", genderRows)
 	}
 
-	// Every other identity — same path under another auth path, generation,
-	// type, or project — is byte-identical to its pre-replacement snapshot.
 	for i := 1; i < len(snapshots); i++ {
 		again, err := store.ReadFieldProfile(s.ctx, snapshots[i].scope)
 		if err != nil {
@@ -780,7 +694,6 @@ func TestFieldProfileUpsertReplacesExactIdentityOnly(t *testing.T) {
 		t.Fatalf("row count moved %d → %d; upsert must only replace, never append or drop", totalBefore, totalAfter)
 	}
 
-	// Re-applying the identical batch is a stable no-op.
 	if err := store.WriteFieldProfile(s.ctx, scopes[0], replacement, 0); err != nil {
 		t.Fatalf("re-apply replacement batch: %v", err)
 	}
@@ -793,9 +706,6 @@ func TestFieldProfileUpsertReplacesExactIdentityOnly(t *testing.T) {
 	}
 }
 
-// TestFieldProfileProfileStatesRemainDistinguishable is acceptance bullet 3:
-// empty population, unavailable profile, complete profile, and truncated
-// profile are four different readable outcomes, never collapsed.
 func TestFieldProfileProfileStatesRemainDistinguishable(t *testing.T) {
 	s := newFieldProfileService(t)
 	store := s.adapter(t)
@@ -826,7 +736,6 @@ func TestFieldProfileProfileStatesRemainDistinguishable(t *testing.T) {
 	if err := store.WriteFieldProfile(s.ctx, emptyScope, nil, 0); err != nil {
 		t.Fatalf("write known-empty: %v", err)
 	}
-	// pgcat01-never is intentionally never written.
 
 	type expectation struct {
 		project         string
@@ -875,9 +784,6 @@ func TestFieldProfileProfileStatesRemainDistinguishable(t *testing.T) {
 		}
 	}
 
-	// The empty-population write really is marker-only: zero rows, one
-	// coverage marker claiming complete/untruncated — and the status record
-	// row really is a profile_status row with NULL-able completeness false.
 	if rows := s.witnessRows(t, "pgcat01-empty", "g1"); len(rows) != 0 {
 		t.Fatalf("known-empty scope persisted field rows: %v", rows)
 	}
@@ -898,8 +804,6 @@ func TestFieldProfileProfileStatesRemainDistinguishable(t *testing.T) {
 		t.Fatalf("profile_status key %q lost its fpe_ identity", statusWitness[0].ProfileKey)
 	}
 
-	// A restricted read with no authorized path is a legitimate
-	// authorization state: empty, not unavailable, and no error.
 	restrictedEmpty, err := store.DiscoverFieldEnrichment(s.ctx, catalog.FieldEnrichmentOptions{
 		Project: "pgcat01-complete", DatasetGeneration: "g1", ResourceTypes: []string{"Observation"},
 		AuthResourcePathsUnrestricted: boolPointer(false), AuthResourcePaths: []string{},
@@ -911,10 +815,6 @@ func TestFieldProfileProfileStatesRemainDistinguishable(t *testing.T) {
 		t.Fatalf("restricted-empty result = %#v", restrictedEmpty)
 	}
 
-	// Direct-SQL witness that the coverage marker is per-scope: an
-	// authorized read on a scope that was never profiled fails closed as
-	// typed unavailable — a persisted marker for another auth path never
-	// makes this one readable as an empty truth.
 	otherAuth, err := store.DiscoverFieldEnrichment(s.ctx, catalog.FieldEnrichmentOptions{
 		Project: "pgcat01-empty", DatasetGeneration: "g1", ResourceTypes: []string{"Observation"},
 		AuthResourcePathsUnrestricted: boolPointer(false), AuthResourcePaths: []string{"other-path"},
@@ -927,9 +827,6 @@ func TestFieldProfileProfileStatesRemainDistinguishable(t *testing.T) {
 	}
 }
 
-// TestFieldProfileDiscoveryScopesAuthPathsAndDigests pins the capability-
-// read contract shared with the Arango adapter: auth-path scoping of
-// enrichment reads, deterministic ordering, and stable digests.
 func TestFieldProfileDiscoveryScopesAuthPathsAndDigests(t *testing.T) {
 	s := newFieldProfileService(t)
 	store := s.adapter(t)
@@ -991,13 +888,11 @@ func TestFieldProfileDiscoveryScopesAuthPathsAndDigests(t *testing.T) {
 	if len(unrestricted.Values) <= len(both.Values) {
 		t.Fatalf("unrestricted read did not widen beyond the restricted union: %d vs %d", len(unrestricted.Values), len(both.Values))
 	}
-	// Deterministic ordering: (auth path, resource type, path) byte order.
 	for i := 1; i < len(unrestricted.Values); i++ {
 		if !fieldEnrichmentLess(unrestricted.Values[i-1], unrestricted.Values[i]) {
 			t.Fatalf("values not ordered at %d: %+v then %+v", i, unrestricted.Values[i-1], unrestricted.Values[i])
 		}
 	}
-	// Digest stability across identical reads and across read paths.
 	again, err := store.DiscoverFieldEnrichment(s.ctx, catalog.FieldEnrichmentOptions{
 		Project: "pgcat01-disc", DatasetGeneration: "g1", ResourceTypes: []string{"Patient", "Observation"},
 	})
@@ -1009,10 +904,6 @@ func TestFieldProfileDiscoveryScopesAuthPathsAndDigests(t *testing.T) {
 	}
 }
 
-// TestFieldProfileWriteRejectionsLeaveNothingBehind pins the typed-error
-// boundary: every unsupported batch is refused with a named error before
-// any row lands, PostgreSQL itself refuses shapes the adapter would not
-// write, and invalid construction is typed.
 func TestFieldProfileWriteRejectionsLeaveNothingBehind(t *testing.T) {
 	s := newFieldProfileService(t)
 	store := s.adapter(t)
@@ -1063,8 +954,6 @@ func TestFieldProfileWriteRejectionsLeaveNothingBehind(t *testing.T) {
 			t.Fatalf("%s: rejected batch left a coverage marker behind", tc.name)
 		}
 	}
-	// A mixed batch — one valid document and one invalid — persists
-	// nothing: validation is total before the transaction begins.
 	mixed := []catalog.FieldCatalogDocument{
 		baseDoc(func(*catalog.FieldCatalogDocument) {}),
 		baseDoc(func(d *catalog.FieldCatalogDocument) { d.Path = "active"; d.Key = "reject-key-2"; d.SampleCount = 9 }),
@@ -1076,8 +965,6 @@ func TestFieldProfileWriteRejectionsLeaveNothingBehind(t *testing.T) {
 		t.Fatal("mixed batch persisted the valid half")
 	}
 
-	// A valid write followed by an atomic-batch rejection leaves the prior
-	// state intact.
 	validDocs := []catalog.FieldCatalogDocument{baseDoc(func(d *catalog.FieldCatalogDocument) { d.Key = "keep-me-key" })}
 	if err := store.WriteFieldProfile(s.ctx, fieldProfileScope("pgcat01-reject", "g1", "a", "Patient"), validDocs, 0); err != nil {
 		t.Fatalf("valid write: %v", err)
@@ -1097,7 +984,6 @@ func TestFieldProfileWriteRejectionsLeaveNothingBehind(t *testing.T) {
 		t.Fatalf("atomic rejection disturbed the stored state: %#v", after)
 	}
 
-	// The database itself refuses shapes the adapter would never write.
 	mustCheckViolation := func(step, sql string) {
 		t.Helper()
 		_, err := s.iso.Exec(s.ctx, sql)
@@ -1122,9 +1008,8 @@ func TestFieldProfileWriteRejectionsLeaveNothingBehind(t *testing.T) {
 		" pivot_family, pivot_column_selector, pivot_value_selector, pivot_item_source, pivot_item_resource_type, extension_values)"+
 		" VALUES ('pgcat01-dbcontract','','','Patient','gender','k','','scalar',0,0,0,false,false,false,'','','','','','','42'::jsonb)")
 
-	// Invalid construction and invalid filters are typed.
-	if _, err := NewFieldProfileStore(nil); err == nil {
-		t.Fatal("NewFieldProfileStore(nil) accepted a nil persistence boundary")
+	if _, err := NewFieldProfileAdapter(nil); err == nil {
+		t.Fatal("NewFieldProfileAdapter(nil) accepted a nil persistence boundary")
 	}
 	if _, err := storepostgres.NewFieldProfileRepository(s.openClient(t), "Bad-Name"); !errors.Is(err, storepostgres.ErrInvalidSchemaName) {
 		t.Fatalf("NewFieldProfileRepository invalid schema = %v, want ErrInvalidSchemaName", err)
@@ -1143,11 +1028,6 @@ func TestFieldProfileWriteRejectionsLeaveNothingBehind(t *testing.T) {
 	}
 }
 
-// TestZZFieldProfileZeroLeftovers runs last in this package's file order and
-// audits that every fixture name this package owns is gone. The audit is
-// scoped to the pgcat01_it_ prefix this package owns — never a global scan —
-// so sibling packages' concurrent sweeps and live fixtures cannot make this
-// fail spuriously.
 func TestZZFieldProfileZeroLeftovers(t *testing.T) {
 	raw := fieldProfileTestPostgresURL(t)
 	scrub := fieldProfileScrubber(raw)

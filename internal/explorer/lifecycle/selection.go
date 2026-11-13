@@ -43,9 +43,6 @@ type selectionCreateRequest struct {
 	BaseSelectionID string
 }
 
-// SelectionSourceIntent is the closed authoring input. It contains no
-// execution, receipt, schema, or addressability metadata; lifecycle resolves
-// those identities from the authorized snapshot and exact publication source.
 type SelectionSourceIntent struct {
 	Kind                string
 	Resources           []explorer.ResourceRef
@@ -126,8 +123,6 @@ type SelectionReadResult struct {
 	NextCursor string
 }
 
-// SelectionPublishedReader is the exact-output adapter required for
-// all-matching selections. *published.Reader satisfies this interface.
 type SelectionPublishedReader interface {
 	ExactExecutionMaterialization(context.Context, string, string) (published.Materialization, error)
 	StreamExactExecution(context.Context, string, string, published.StreamRequest, func(map[string]any) error) error
@@ -152,8 +147,6 @@ func (s *Service) createSelectionResolved(ctx context.Context, req selectionCrea
 	return s.createSelection(ctx, req, nil)
 }
 
-// CreateSelection authenticates and resolves the closed source intent before
-// any header or membership count can be disclosed.
 func (s *Service) CreateSelection(ctx context.Context, req SelectionIntentCreateRequest) (result SelectionCreateResult, err error) {
 	result, err = s.createSelectionIntent(ctx, req)
 	if err != nil {
@@ -168,9 +161,6 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 	}
 	resolver := s.config.SelectionSourceResolver
 	snapshotToken := strings.TrimSpace(req.SnapshotToken)
-	// Creation is bound to the active immutable dataset generation. Execution
-	// authorization intentionally supports retained generations, so using it
-	// here would allow a stale snapshot to create a new selection.
 	authorized, err := s.config.Capability.ForCompilation(ctx, req.Project, snapshotToken)
 	if err != nil {
 		return SelectionCreateResult{}, err
@@ -523,8 +513,6 @@ func (s *Service) appendPublished(ctx context.Context, header explorer.Selection
 	}); err != nil {
 		return err
 	}
-	// The reader callback runs synchronously, so flush a final bounded batch
-	// after the stream completes.
 	return appendBatch()
 }
 
@@ -584,8 +572,6 @@ func (s *Service) readSelectionResolved(ctx context.Context, req selectionReadRe
 	return SelectionReadResult{Header: header, Members: members, NextCursor: nextCursor}, nil
 }
 
-// ReadSelection derives the effective current scope before loading the
-// immutable header, so a stale or narrowed scope cannot disclose counts.
 func (s *Service) ReadSelection(ctx context.Context, req SelectionReadIntentRequest) (result SelectionReadResult, err error) {
 	result, err = s.readSelectionIntent(ctx, req)
 	if err != nil {
@@ -707,9 +693,6 @@ func refKey(ref explorer.ResourceRef) string {
 }
 
 func selectionID(project, generation, idempotency string) string {
-	// The idempotency key owns the durable selection identity. A retry with the
-	// same key must collide with the same header even if a caller changes its
-	// rule; BeginSelection then rejects that changed immutable intent.
 	sum := sha256.Sum256([]byte(strings.TrimSpace(project) + "\x00" + strings.TrimSpace(generation) + "\x00" + strings.TrimSpace(idempotency)))
 	return "selection_" + hex.EncodeToString(sum[:])
 }

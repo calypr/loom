@@ -18,20 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// These opt-in tests reproduce the registry-level discriminator gap behind
-// candidate F-B6 against a real ArangoDB in a fully owned database:
-//
-//	Registry.FindExecutionBySelector (bundle_registry.go:174-182) filters only
-//	project/generation/name/translationVersion/output plus state PUBLISHED|READY
-//	and returns publishedAt-DESC LIMIT 1. It never binds Key, RecipeDigest,
-//	SchemaDigest, or ReceiptID, so two PUBLISHED executions for the same
-//	selector are indistinguishable to the verifier path
-//	(internal/server/release_verifier.go:18-35 -> dataset/release.go:181-190),
-//	which echoes whatever execution the finder returned.
-//
-// Databases use the loom_verify_nlb_ prefix so this suite's residue is
-// checkable independently of other verification workers.
-
 const nameBindingDatabasePrefix = "loom_verify_nlb_"
 
 const nameBindingSortAQLMarker = "SORT doc.publishedAt DESC"
@@ -93,11 +79,6 @@ func (c *nameBindingRecorder) lastSelectorQuery(t *testing.T) nameBindingQuery {
 	return records[len(records)-1]
 }
 
-// nameBindingOpen mirrors the owned-database harness used by
-// internal/backends/arango/internal/explorer/selections_cleanup_e2e_test.go: opt-in via
-// LOOM_TEST_ARANGO_URL, uuid-suffixed name under the suite prefix, created via
-// store.Open (client.go:111-151 creates the database when absent), dropped by
-// HTTP DELETE /_api/database/<name> in t.Cleanup.
 func nameBindingOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Registry, *nameBindingRecorder) {
 	t.Helper()
 	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
@@ -147,11 +128,6 @@ func nameBindingOpen(t *testing.T, budget time.Duration) (context.Context, *stor
 	return ctx, client, registry, recorder
 }
 
-// nameBindingSeedPublished writes one PUBLISHED execution through the
-// production catalog path: AcquireBundleLease then SaveExecution. SaveExecution
-// is lease-fenced (bundle_registry.go:44-51 requires a live lease for the
-// execution Key), so production lease acquisition is the honest seed, matching
-// the lease-guarded flow the fake in bundle_registry_test.go asserts.
 func nameBindingSeedPublished(t *testing.T, ctx context.Context, registry *Registry, spec nameBindingExecSpec) publication.BundleExecution {
 	t.Helper()
 	owner := "nlb-publisher-" + spec.id
@@ -217,8 +193,6 @@ func nameBindingQuoteAQL(t *testing.T, recorded nameBindingQuery) {
 	t.Logf("FIND_EXECUTION_BY_SELECTOR_BIND_VALUES=%#v", recorded.bindVars)
 }
 
-// nameBindingMissingIdentityFields are the candidate F-B6 inputs that the
-// parent verified are absent from the selector AQL and its bind variables.
 var nameBindingMissingIdentityFields = []string{"recipeDigest", "RecipeDigest", "schemaDigest", "SchemaDigest", "receiptId", "ReceiptID", "doc.key", "doc.Key"}
 
 func nameBindingDiscriminatorsPresent(recorded nameBindingQuery) []string {
@@ -240,11 +214,6 @@ func nameBindingDiscriminatorsPresent(recorded nameBindingQuery) []string {
 	return present
 }
 
-// TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango is the
-// finding-assert for candidate F-B6: two PUBLISHED executions share
-// project/generation/recipe/translationVersion/output but carry distinct
-// Key/RecipeDigest/SchemaDigest/ReceiptID. The production finder must return
-// the publishedAt-newest doc no matter which identity the caller intended.
 func TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango(t *testing.T) {
 	ctx, _, registry, recorder := nameBindingOpen(t, 60*time.Second)
 
@@ -297,11 +266,6 @@ func TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango(t *testing.T)
 	}
 }
 
-// TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango reproduces the
-// brief's Bug-3: the selector AQL matches capitalized Project/Name/... in the
-// FILTER but SORT only reads lowercase publishedAt/readyAt/updatedAt. A legacy
-// capitalized doc storing the newest publish time in "PublishedAt" (capital P)
-// is FILTER-visible but sorts as if it had no publish time.
 func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 	ctx, client, registry, recorder := nameBindingOpen(t, 60*time.Second)
 
@@ -318,11 +282,6 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 		receiptID: "receipt-case-lower", publishedAt: t1,
 	})
 
-	// The legacy doc keeps lowercase "state" and the "outputs" array key
-	// because the AQL FILTER has no capitalised branch for either
-	// (bundle_registry.go:177-178), so a doc without them would be invisible
-	// rather than merely mis-sorted. Everything else, including "PublishedAt",
-	// uses the legacy capitalised shape the FILTER accepts via its OR branches.
 	legacyDoc := map[string]any{
 		"_key":               "nlb-case-legacy",
 		"id":                 "nlb-case-legacy",
@@ -380,11 +339,6 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 	}
 }
 
-// nameBindingReplicatedVerificationStore is a line-for-line replica of
-// internal/server/release_verifier.go:14-35 (publicationVerificationStore).
-// The original is unreachable from this package because internal/server/
-// server.go:35 imports this package, so importing server from this test would
-// be an import cycle; the brief authorises replicating these ~15 lines.
 type nameBindingReplicatedVerificationStore struct {
 	executions publication.ExactExecutionCatalog
 }
@@ -442,12 +396,6 @@ func (r *nameBindingReleaseRepository) savedRelease() dataset.ProjectRelease {
 	return r.saved
 }
 
-// TestVerifierToBindingChainEchoAgainstArango drives the seam the candidate
-// says is load-bearing: the (replicated) publicationVerificationStore over the
-// production registry, then production dataset.ReleaseService.Create, whose
-// publicationBinding echoes verification.ExecutionID into the release that
-// PublishAuthoring CAS-activates (explorer/arango/publication.go:57). It shows
-// the binding follows the newest doc while a distinct intended execution exists.
 func TestVerifierToBindingChainEchoAgainstArango(t *testing.T) {
 	ctx, _, registry, recorder := nameBindingOpen(t, 60*time.Second)
 
@@ -482,8 +430,6 @@ func TestVerifierToBindingChainEchoAgainstArango(t *testing.T) {
 		return
 	}
 
-	// The intended distinct execution must still exist for the echo to mean
-	// anything: it is shadowed at the finder, not absent.
 	storedIntended, err := registry.GetExecution(ctx, intended.ID)
 	if err != nil {
 		t.Fatalf("intended execution %s missing: %v", intended.ID, err)

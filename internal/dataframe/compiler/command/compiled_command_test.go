@@ -68,20 +68,14 @@ func TestCompiledCommand(t *testing.T) {
 			gotArgs[2].Type != command.PostgreSQLParameterNull || gotArgs[2].Value != nil {
 			t.Fatalf("argument order or null/JSON-null distinction lost: %#v", gotArgs)
 		}
-		// Caller mutation after construction must not reorder the statement.
 		args[0].Value = "Observation"
 		if _, reread, err := compiledCommand.PostgreSQLParameters(); err != nil || reread[0].Value != "Patient" {
 			t.Fatalf("args must be copied at construction: %#v %v", reread, err)
 		}
-		// The accessor hands out a fresh copy, unlike AQL's documented shared
-		// bind map: mutating the returned slice must not corrupt the
-		// command's positional bindings for a later dispatch.
 		gotArgs[0].Value = "Corrupted"
 		if _, afterMutate, err := compiledCommand.PostgreSQLParameters(); err != nil || afterMutate[0].Value != "Patient" {
 			t.Fatalf("PostgreSQLParameters must return a fresh copy on every read: %#v %v", afterMutate, err)
 		}
-		// The acceptance guarantee: PostgreSQL SQL is rejected before it can
-		// reach the AQL QueryRows(query, bindVars) adapter.
 		if _, _, err := compiledCommand.AQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 			t.Fatalf("PostgreSQL command to AQL dispatch error = %v, want mismatch", err)
 		} else if !strings.Contains(err.Error(), "AQL") {
@@ -132,8 +126,6 @@ func TestCompiledCommand(t *testing.T) {
 		if err := pgCommand.Dispatch(func(command.AQLCommand) error { aqlCalls++; return nil }, nil); !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
 			t.Fatalf("PostgreSQL command without PostgreSQL adapter error = %v, want backend-not-registered", err)
 		}
-		// Missing adapter registration is the fail-closed capability gap, not
-		// a routing defect: it must stay distinguishable from Mismatch.
 		aqlOnly, err := command.NewAQLCommand("RETURN 1", nil)
 		if err != nil {
 			t.Fatalf("NewAQLCommand: %v", err)
@@ -163,11 +155,6 @@ func TestCompiledCommand(t *testing.T) {
 		if err != nil || query != rendered.Query || !reflect.DeepEqual(bindVars, rendered.BindVars) {
 			t.Fatalf("AQL registration changed rendered result: %q vs %q, %v, %v", query, rendered.Query, bindVars, err)
 		}
-		// An unregistered tag never dispatches: the zero value is the only
-		// way to carry one, and it fails closed as not-registered. Unsupported
-		// dialect requests (including PostgreSQL requests without the
-		// PostgreSQL compile target) are refused at compiler-target
-		// selection, not here, and never fall back to the AQL rendering.
 		var zero command.CompiledCommand
 		if _, _, err := zero.AQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
 			t.Fatalf("zero-tag AQL dispatch error = %v, want not-registered", err)
@@ -231,8 +218,6 @@ func TestCompiledCommand(t *testing.T) {
 		if strings.TrimSpace(testAQLText(t, compiled.Command)) == "" || len(testAQLBinds(t, compiled.Command)) == 0 {
 			t.Fatalf("recipe path lost rendered command: %#v", compiled)
 		}
-		// The values the recipe path published are exactly what an
-		// AQL-tagged dispatch of the retained plan yields.
 		rendered, err := aql.RenderPhysicalPlan(compiled.PhysicalPlan)
 		if err != nil {
 			t.Fatalf("render retained plan: %v", err)
@@ -249,8 +234,6 @@ func TestCompiledCommand(t *testing.T) {
 			t.Fatalf("recipe-published command differs from dispatched AQL command: queryMatch=%t bindMatch=%t",
 				query == testAQLText(t, compiled.Command), reflect.DeepEqual(bindVars, testAQLBinds(t, compiled.Command)))
 		}
-		// The identical text, if it ever arrived tagged PostgreSQL, is
-		// rejected before the AQL QueryRows(query, bindVars) adapter.
 		mislabelled, err := command.NewPostgreSQLCommand(testAQLText(t, compiled.Command), []command.PostgreSQLParameter{{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`{"limit":7}`)}})
 		if err != nil {
 			t.Fatalf("NewPostgreSQLCommand: %v", err)
@@ -261,9 +244,6 @@ func TestCompiledCommand(t *testing.T) {
 	})
 }
 
-// TestCompiledCommandWithAQLBinds pins the closed per-page bind override
-// seam: existing-key-only same-type overrides on a fresh copied map, with
-// named fail-closed refusals for every other shape.
 func TestCompiledCommandWithAQLBinds(t *testing.T) {
 	aqlCommand, err := command.NewAQLCommand("FOR d IN @@collection FILTER d.p == @p LIMIT @size RETURN d", map[string]any{
 		"@@collection": "Patient",
@@ -302,8 +282,6 @@ func TestCompiledCommandWithAQLBinds(t *testing.T) {
 		if originalBinds["size"] != 10 || originalBinds["p"] != "alpha" {
 			t.Fatalf("override mutated the original command binds: %v", originalBinds)
 		}
-		// The returned command must own a fresh map: driving the original's
-		// accessor map to a sentinel must not move the override result.
 		if _, originalBinds, err := aqlCommand.AQLParameters(); err != nil {
 			t.Fatalf("original AQLParameters: %v", err)
 		} else {

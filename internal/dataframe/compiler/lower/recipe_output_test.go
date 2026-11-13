@@ -119,9 +119,6 @@ func TestCompileResolvedRecipePlanTypesOutputSelectionAsInvalidRequest(t *testin
 			if err == nil {
 				t.Fatal("expected rejection")
 			}
-			// The transport bulk wrappers (Engine.Materialize's ResolutionError,
-			// recipeGraphQLError) must keep the request defect classified after
-			// they add their own framing; assert traversal survives wrapping.
 			userErr, ok := dataframeerrors.AsUserError(fmt.Errorf("compile resolved bundle: %w", err))
 			if !ok {
 				t.Fatalf("selection fault escaped as untyped; transports publish retryable-free INTERNAL_ERROR 500 for a typo: %v", err)

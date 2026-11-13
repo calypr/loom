@@ -1,31 +1,5 @@
 package execution
 
-// pg-exec-04 battery (internal lane): the production-route half of
-// acceptance 6 — a PostgreSQL-served preview plan can never carry a
-// root-page command sequence while the production compiler refuses
-// root-key output paging for PostgreSQL — plus the conditional-form loop
-// leg at the streamRaw boundary with parent-shaped hand-tagged steps and
-// a production-compiled row contract (the ratified pg-exec-05/#123
-// precedent). Named gap pg-exec-04-GAP-1: the PostgreSQL root-key paging
-// producer is missing; enabling ticket pg-sql-27-root-key-output-paging
-// owns it. Until that producer exists no production path can attach
-// steps, and this file never hand-tags a step in production code.
-//
-// Live leg (check-2: go test ./internal/dataframe/execution -run
-// PostgresPreview under LOOM_TEST_POSTGRES_URL): the row contract,
-// RowIdentity, and command columns come from the real
-// Engine.CompileResolvedBundle + selected PostgreSQL compile target; the
-// key and row statements are parent-shaped commands frozen only through
-// the canonical single funnel newExec05PageCommand (command.
-// NewPostgreSQLCommand); fixtures are stored through the production
-// repositories in a schema installed by the production migration runner;
-// witnesses are literal per-page multisets, literal cursor progression,
-// and literal jsonb key pages counted at the port, never by timing.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec04_pg_*
-// and dropped by the test that created them; the TestZZ audit is
-// ownership-scoped to this file's own prefix.
-
 import (
 	"context"
 	"crypto/rand"
@@ -153,12 +127,6 @@ type exec04pgService struct {
 	executor SourceRows
 }
 
-// exec04pgScrubberFor returns an error formatter that replaces every
-// credential-bearing form of the raw test service URL with <redacted>, so no
-// fatal path echoes credentials into the test log: connection failures from
-// pgxpool.New / pgx.ParseConfig on the raw URL can quote the full URL.
-// addSecret registers further forms (the derived isolated-database DSN) for
-// scrubbing.
 func exec04pgScrubberFor(raw string) (func(any) string, func(string)) {
 	secrets := []string{raw}
 	if u, err := url.Parse(raw); err == nil && u.User != nil {
@@ -179,11 +147,6 @@ func exec04pgScrubberFor(raw string) (func(any) string, func(string)) {
 	return scrub, func(s string) { secrets = append(secrets, s) }
 }
 
-// TestExec04pgScrubberHidesCredentialForms pins the scrubber contract for
-// the credential-bearing URL forms: every verbatim occurrence of the raw
-// URL, the userinfo, the bare password, and registered derived DSNs must be
-// replaced, so no error path that echoes a pool or config failure can print
-// a credential. Offline string check: never contacts a service.
 func TestExec04pgScrubberHidesCredentialForms(t *testing.T) {
 	raw := "postgres://verify_user:S3cr3t-Pw@db.internal:5432/loomsvc?sslmode=require"
 	scrub, addSecret := exec04pgScrubberFor(raw)
@@ -335,9 +298,6 @@ func (s *exec04pgService) insertResource(t *testing.T, logicalID, project, gener
 	}
 }
 
-// seedRoots stores five scoped roots p0001..p0005 with deterministic gender
-// and birthDate payloads, plus two scope intruders that the bound
-// project/generation parameters must never surface.
 func (s *exec04pgService) seedRoots(t *testing.T) {
 	t.Helper()
 	s.migrate(t)
@@ -355,7 +315,6 @@ func (s *exec04pgService) seedRoots(t *testing.T) {
 	s.insertResource(t, "p0901", "P1", "gen-b", `{"gender":"unknown","birthDate":"1991-02-02"}`)
 }
 
-// exec04pgBundle is the authored recipe compiled for real by both lanes.
 func exec04pgBundle() recipe.Bundle {
 	return recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -386,11 +345,6 @@ func exec04pgCanonicalRow(row map[string]any) string {
 	return string(encoded)
 }
 
-// TestPostgresPreviewStreamNeverAttachesRootPages is the offline half of
-// acceptance 6: with Config.RootPageRows armed, the production-compiled
-// PostgreSQL preview stream carries no page shape of either backend, while
-// the paired ALIVE control proves the AQL engine does page (so the PG
-// inertness assertion can fail and is not a constant).
 func TestPostgresPreviewStreamNeverAttachesRootPages(t *testing.T) {
 	binding, err := ir.NewPostgresStorageBinding("verify_exec04_pg_it")
 	if err != nil {
@@ -449,8 +403,6 @@ func TestPostgresPreviewStreamNeverAttachesRootPages(t *testing.T) {
 				}
 				requests = append(requests, binds)
 				if after, isKeyQuery := binds[compiler.RootPageAfterKeyBind]; isKeyQuery {
-					// One root exists: the first key query yields it; every
-					// later key query is empty so the loop terminates.
 					if cursor, _ := after.(string); cursor == "" {
 						return visit(map[string]any{"_key": "root-1"})
 					}
@@ -488,11 +440,6 @@ func TestPostgresPreviewStreamNeverAttachesRootPages(t *testing.T) {
 	})
 }
 
-// TestPostgresPreviewRootPageProducerRefusalProbe is the probe-attested
-// unreachability witness for named gap pg-exec-04-GAP-1 (enabling ticket
-// pg-sql-27-root-key-output-paging): the whole-plan compiler entry for PG
-// page steps stays a typed refusal, so no preview plan can ever carry a
-// root-page command sequence and the streamRaw loop is production-dark.
 func TestPostgresPreviewRootPageProducerRefusalProbe(t *testing.T) {
 	binding, err := ir.NewPostgresStorageBinding("verify_exec04_pg_it")
 	if err != nil {
@@ -529,7 +476,6 @@ func TestPostgresPreviewRootPageProducerRefusalProbe(t *testing.T) {
 	}
 }
 
-// exec04pgCall records one statement through the single source row port.
 type exec04pgCall struct {
 	kind  string
 	sql   string
@@ -584,12 +530,6 @@ func (p *exec04pgPort) recordedKeyPages() []string {
 	return pages
 }
 
-// keySQLTemplate is the parent-shaped key-discovery statement over the
-// production fhir_resource placement: scoped, keyset-ordered by the root
-// continuation identity, bounded by a parameterized LIMIT. Parameter
-// positions: $1 project, $2 dataset generation, $3 resource type,
-// $4 auth path, $5 cursor (text, engine-bound), $6 page size (bigint,
-// engine-bound).
 func (s *exec04pgService) keySQLTemplate() string {
 	return "SELECT r.logical_id AS root_key FROM " + s.qualifiedTable("fhir_resource") +
 		" r WHERE r.project = $1 AND r.dataset_generation = $2 AND r.resource_type = $3" +
@@ -597,17 +537,6 @@ func (s *exec04pgService) keySQLTemplate() string {
 		" ORDER BY r.logical_id ASC LIMIT $6"
 }
 
-// rowsSQLTemplate is the parent-shaped row statement: the complete output
-// for exactly the requested key page. The key page arrives as one jsonb
-// array parameter; the returned columns carry the renderer's canonical
-// positional aliases (renderReturn emits every projection as "AS c" plus
-// its zero-based index, and the adapter accepts exactly those aliases
-// against the declared contract, which keeps recipe-provided names out of
-// the SQL text — quoted identity-case aliases like "birthDate" would be
-// folded to lowercase and refused), and the ORDER BY is the pg-sql-12
-// final-row window (logical_id, resource_seq). Parameter positions:
-// $1 project, $2 dataset generation, $3 resource type, $4 auth path,
-// $5 key page (jsonb, engine-bound).
 func (s *exec04pgService) rowsSQLTemplate() string {
 	return `SELECT r.logical_id AS c0, r.payload -> 'gender' AS c1, r.payload -> 'birthDate' AS c2` +
 		" FROM " + s.qualifiedTable("fhir_resource") + " r" +
@@ -638,9 +567,6 @@ func (s *exec04pgService) rowsArgs() []command.PostgreSQLParameter {
 	}
 }
 
-// newExec04pgSteps freezes the parent-shaped page pair through the single
-// canonical funnel newExec05PageCommand; RowRootKeyColumn names the
-// production-compiled identity column of the row contract.
 func (s *exec04pgService) newExec04pgSteps(t *testing.T, pageSize int) *PostgreSQLRootPageSteps {
 	t.Helper()
 	return &PostgreSQLRootPageSteps{
@@ -655,15 +581,6 @@ func (s *exec04pgService) newExec04pgSteps(t *testing.T, pageSize int) *PostgreS
 	}
 }
 
-// TestPostgresPreviewRootPageLoopProductionRowContract is the
-// conditional-form half of acceptance 6: when a preview plan shape carries
-// a root-page command sequence (here parent-shaped steps, since the
-// production producer is refused-and-registered under pg-exec-04-GAP-1
-// pending pg-sql-27-root-key-output-paging), the bounded loop returns
-// compiler-defined stable rows at page boundaries with no duplicate
-// identities: the row contract comes from the production-compiled stream,
-// pages are discovered through the key statement, and every row is
-// re-verified against its requested key page.
 func TestPostgresPreviewRootPageLoopProductionRowContract(t *testing.T) {
 	s := newExec04pgService(t)
 	s.seedRoots(t)
@@ -689,7 +606,6 @@ func TestPostgresPreviewRootPageLoopProductionRowContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("streamForOutput: %s", s.scrub(err))
 	}
-	// The row contract is the production-compiled one.
 	if fmt.Sprint(stream.commandColumns) != fmt.Sprint(query.Columns) || len(query.Columns) == 0 {
 		t.Fatalf("stream columns %v do not equal the compiled command columns %v", stream.commandColumns, query.Columns)
 	}
@@ -814,7 +730,6 @@ func TestPostgresPreviewRootPageLoopProductionRowContract(t *testing.T) {
 		if len(port.calls) != 0 {
 			t.Fatalf("sabotaged steps dispatched %d statements before refusing", len(port.calls))
 		}
-		// ALIVE control on the same fixture and stream: the untampered steps proceed.
 		livePort := &exec04pgPort{s: s}
 		stream.pgRootPage = s.newExec04pgSteps(t, 2)
 		stream.sourceRows = livePort.port
@@ -828,8 +743,6 @@ func TestPostgresPreviewRootPageLoopProductionRowContract(t *testing.T) {
 	})
 }
 
-// TestZZPostgresPreviewRootPageZeroLeftoverFixtures is the ownership-scoped
-// audit for this file's own prefix.
 func TestZZPostgresPreviewRootPageZeroLeftoverFixtures(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		t.Skip("set LOOM_TEST_POSTGRES_URL to run the PostgreSQL 18 preview root-page acceptance tests")

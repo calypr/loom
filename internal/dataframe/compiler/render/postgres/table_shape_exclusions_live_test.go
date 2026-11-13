@@ -1,19 +1,5 @@
 package postgres
 
-// table_shape_exclusions_live_test.go is the live PG18 acceptance surface for
-// the pg-sql-26 excluded-row evidence terminal. The legs L1-L7 are inventoried
-// in table_shape_exclusions_test.go's header; this file runs them over the
-// owned verify_sql26v1_* namespace. Never-skip: an acceptance lane without
-// LOOM_TEST_POSTGRES_URL establishes nothing (package-shared testPostgresURL
-// skip), so the ticket's acceptance run sets it and the zero-leftover census
-// (excl26RunDeltaAudit + TestZZNoLeftoverExcl26Resources) must come up clean.
-//
-// Ground-truth anchors: the evidence semantics follow the AQL renderer
-// (render/aql/table_shape_exclusion.go); each live leg names the AQL line it
-// witnesses. The listed predicate is the re-port cross-checked offline in
-// table_shape_exclusions_test.go; L4 re-pins it end-to-end against the
-// pivot's own __loom_reshape_unlisted_count, which the terminal never calls.
-
 import (
 	"context"
 	"encoding/json"
@@ -29,10 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
-
-// ---------------------------------------------------------------------------
-// Owned fixture plumbing (the pivot14 pattern, pivot_test.go:850-960)
-// ---------------------------------------------------------------------------
 
 var (
 	excl26FixturesMu      sync.Mutex
@@ -62,25 +44,15 @@ func excl26Binding(t *testing.T, svc *pgir02Service) ir.PostgresStorageBinding {
 	return binding
 }
 
-// excl26Seed stores one Patient row in the canonical scope.
 func excl26Seed(t *testing.T, svc *pgir02Service, logicalID string, payload any) {
 	t.Helper()
 	svc.insertResource(t, svc.schema, excl26Project, excl26Generation, "Patient", logicalID, excl26AuthPath, payload)
 }
 
-// excl26Doc is one document with the identity members the AQL
-// identity-available conjunction (table_shape_exclusion.go:71-76) checks:
-// non-empty string resourceType and id on the stored payload. Without them
-// every evidence row lands in the UNAVAILABLE branch, which L3's second leg
-// owns exclusively.
 func excl26Doc(logicalID, fields string) json.RawMessage {
 	return json.RawMessage(`{"resourceType":"Patient","id":"` + logicalID + `"` + fields + `}`)
 }
 
-// excl26StringCategories are the listed categories for live legs: two STRING
-// value matches whose bind values the legs set explicitly on plan.BindVars
-// (cat_zero / cat_one) after excl26Plan, because the shared builder seeds
-// INTEGER defaults for those keys.
 func excl26StringCategories() []ir.PhysicalGroupedPivotCategory {
 	return []ir.PhysicalGroupedPivotCategory{
 		{Output: "cell_zero", MatchKind: ir.PhysicalPivotCategoryValueMatch, ValueBindKey: "cat_zero", ValueKind: "STRING"},
@@ -88,8 +60,6 @@ func excl26StringCategories() []ir.PhysicalGroupedPivotCategory {
 	}
 }
 
-// excl26EvidencePlan is the canonical live terminal plan: STRING categories
-// listed as alpha-zero / alpha-one, unpaginated by default (limit 100).
 func excl26EvidencePlan(t *testing.T, offset, limit int) ir.PhysicalPlan {
 	t.Helper()
 	plan := excl26Plan(t, excl26Config{
@@ -137,18 +107,7 @@ func excl26ColIndex(t *testing.T, columns []string, field string) int {
 	return -1
 }
 
-// ---------------------------------------------------------------------------
-// L1 + L2 + L3 + L5 — evidence rows, foreign scope, tri-state, empty
-// ---------------------------------------------------------------------------
-
 func TestExclusion26LiveEvidenceRows(t *testing.T) {
-	// L1 (AQL table_shape_exclusion.go:10-135): the terminal returns exactly
-	// the unlisted contributors of the selected, authorized population, with
-	// the nine frozen fields; L2 (AQL :14-30 scope predicates): foreign
-	// project / generation / auth-path fixtures never appear; L3: absent vs
-	// stored-null category (presence contract) and a SQL-NULL payload
-	// (identity-unavailable pair); L5: an empty authorized population is
-	// zero rows, never a phantom row.
 	svc := excl26LiveService(t)
 	excl26Seed(t, svc, "e1", excl26Doc("e1", `,"gProp":"G1","cProp":"alpha-zero","vProp":1`))
 	excl26Seed(t, svc, "e2", excl26Doc("e2", `,"gProp":"G1","cProp":"alpha-one","vProp":1`))
@@ -157,8 +116,6 @@ func TestExclusion26LiveEvidenceRows(t *testing.T) {
 	excl26Seed(t, svc, "e5", excl26Doc("e5", `,"gProp":"G1","vProp":1`))
 	excl26Seed(t, svc, "e6", excl26Doc("e6", `,"gProp":"G1","cProp":null,"vProp":1`))
 	excl26Seed(t, svc, "e7", excl26Doc("e7", `,"gProp":"G2","cProp":"alpha-zero","vProp":1`))
-	// L2 negatives: one per axis, each would qualify as unlisted evidence
-	// if any scope predicate were dropped.
 	svc.insertResource(t, svc.schema, "other-project", excl26Generation, "Patient", "x1", excl26AuthPath,
 		excl26Doc("x-scope", `,"gProp":"G9","cProp":"nope"`))
 	svc.insertResource(t, svc.schema, excl26Project, "other-gen", "Patient", "x2", excl26AuthPath,
@@ -166,8 +123,6 @@ func TestExclusion26LiveEvidenceRows(t *testing.T) {
 	svc.insertResource(t, svc.schema, excl26Project, excl26Generation, "Patient", "x3", "FHIR/Observation",
 		excl26Doc("x-scope", `,"gProp":"G9","cProp":"nope"`))
 
-	// The presence-contract config makes absent vs stored-null observable:
-	// category_present is false only when the payload lacks the path.
 	plan := excl26Plan(t, excl26Config{
 		categories: excl26StringCategories(),
 		presence:   "contract",
@@ -186,8 +141,6 @@ func TestExclusion26LiveEvidenceRows(t *testing.T) {
 	statusCol := excl26ColIndex(t, out.OutputColumns, ir.PhysicalTableShapeExclusionIdentityStatusField)
 	reasonCol := excl26ColIndex(t, out.OutputColumns, ir.PhysicalTableShapeExclusionReasonField)
 
-	// Exactly the four unlisted G1 contributors; G2 contributes none, and
-	// the three foreign-scope rows (L2) never appear.
 	if len(rows) != 4 {
 		t.Fatalf("evidence rows = %d, want the four unlisted G1 contributors:\n%v", len(rows), rows)
 	}
@@ -202,10 +155,6 @@ func TestExclusion26LiveEvidenceRows(t *testing.T) {
 			t.Fatalf("identity = %q, want the G1 pivot identity (AQL :137-150)", row[idCol])
 		}
 	}
-	// Tri-state inside the kept set: stored "zzz" carries its JSON text,
-	// the absent category reads NULL, and the stored JSON null reads the
-	// jsonb null — with presence separating absent (false) from null (true)
-	// (AQL presence companion; the re-port's typeof conjunct).
 	var zzz, absent, storedNull int
 	for _, row := range rows {
 		switch {
@@ -221,8 +170,6 @@ func TestExclusion26LiveEvidenceRows(t *testing.T) {
 		t.Fatalf("tri-state split = zzz:%d absent:%d null:%d, want 2/1/1:\n%v", zzz, absent, storedNull, rows)
 	}
 
-	// Direct-SQL witness (L1): the same population's NOT-listed count
-	// computed without the renderer's own predicate machinery.
 	var witness int
 	if err := svc.iso.QueryRow(svc.ctx,
 		`SELECT count(*) FROM `+svc.schema+`.fhir_resource
@@ -237,7 +184,6 @@ func TestExclusion26LiveEvidenceRows(t *testing.T) {
 		t.Fatalf("direct-SQL witness = %d, want 4", witness)
 	}
 
-	// L5: empty authorized population (foreign auth scope) → zero rows.
 	empty := excl26EvidencePlan(t, 0, 100)
 	empty.BindVars["auth_resource_paths"] = []string{"FHIR/Encounter"}
 	emptyOut := excl26RenderLive(t, svc, empty)
@@ -247,13 +193,9 @@ func TestExclusion26LiveEvidenceRows(t *testing.T) {
 }
 
 func TestExclusion26LiveIdentityUnavailable(t *testing.T) {
-	// L3, the other branch of the pair (AQL :75, :132): a stored row whose
-	// document is SQL NULL is still an unlisted contributor, reported with
-	// identity status UNAVAILABLE, null document/id, and the source-identity
-	// omission — the evidence row that must not vanish with its document.
 	svc := excl26LiveService(t)
 	excl26Seed(t, svc, "d1", excl26Doc("d1", `,"gProp":"G1","cProp":"alpha-zero"`))
-	excl26Seed(t, svc, "d2", nil) // SQL-NULL payload
+	excl26Seed(t, svc, "d2", nil)
 
 	out := excl26RenderLive(t, svc, excl26EvidencePlan(t, 0, 100))
 	rows := svc.runRendered(t, out)
@@ -277,16 +219,7 @@ func TestExclusion26LiveIdentityUnavailable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L4 — the anti-divergence pin against the pivot's own unlisted count
-// ---------------------------------------------------------------------------
-
 func TestExclusion26LiveMatchesPivotUnlistedCount(t *testing.T) {
-	// The terminal re-ports the AQL listed predicate instead of calling the
-	// pivot's; L4 pins the two together per group: the evidence rows are
-	// exactly as many as the SAME pivot rendered as GROUPED_PIVOT counts in
-	// __loom_reshape_unlisted_count — and perturbing only the value column
-	// (never read by the terminal) leaves the evidence set untouched.
 	svc := excl26LiveService(t)
 	seeds := []struct {
 		id     string
@@ -305,7 +238,6 @@ func TestExclusion26LiveMatchesPivotUnlistedCount(t *testing.T) {
 		excl26Seed(t, svc, seed.id, excl26Doc(seed.id, seed.fields))
 	}
 
-	// The pivot leg: the same PhysicalGroupedPivot rendered whole.
 	pivotPlan := excl26EvidencePlan(t, 0, 100)
 	pivot := pivotPlan.Operations[1].TableShapeExclusionReturn.Pivot
 	pivot.UnlistedEvidenceColumn = "__loom_reshape_unlisted_count"
@@ -329,7 +261,6 @@ func TestExclusion26LiveMatchesPivotUnlistedCount(t *testing.T) {
 			wantPerGroup["GA"], wantPerGroup["GB"], wantPerGroup["GC"], pivotRows)
 	}
 
-	// The exclusion leg: per-group evidence rows must equal those counts.
 	out := excl26RenderLive(t, svc, excl26EvidencePlan(t, 0, 100))
 	rows := svc.runRendered(t, out)
 	idCol := excl26ColIndex(t, out.OutputColumns, ir.PhysicalTableShapeExclusionOutputRowIDField)
@@ -348,8 +279,6 @@ func TestExclusion26LiveMatchesPivotUnlistedCount(t *testing.T) {
 		}
 	}
 
-	// Perturb only the value column (duplicates now): the terminal never
-	// reads vcol, so the evidence rows must be byte-identical.
 	if _, err := svc.iso.Exec(svc.ctx,
 		`UPDATE `+svc.schema+`.fhir_resource SET payload = payload || '{"vProp":42}'::jsonb
 		  WHERE project = $1 AND dataset_generation = $2`, excl26Project, excl26Generation); err != nil {
@@ -361,9 +290,6 @@ func TestExclusion26LiveMatchesPivotUnlistedCount(t *testing.T) {
 	}
 }
 
-// pivotReturnProjections is the terminal RETURN the pivot slice demands
-// (pivot.go:607-637): direct single-name reads of the pivot output row over
-// the registered name set.
 func pivotReturnProjections(pivot ir.PhysicalGroupedPivot) []ir.PhysicalProjection {
 	names := []string{pivotRowIDColumn}
 	for _, key := range pivot.GroupKeys {
@@ -397,15 +323,7 @@ func flattenRows(rows [][]string) []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// L6 — paging: the limit+1 probe and the page-recombination law
-// ---------------------------------------------------------------------------
-
 func TestExclusion26LivePaging(t *testing.T) {
-	// AQL :84-95: deterministic page order comes from the identity, the
-	// type-ranked terms, and the _key tie-breaker; the executor's has-more
-	// probe reads limit+1 rows, so OFFSET/LIMIT must compose exactly:
-	// page1 ++ page2 == the unpaginated list, with no gap or repeat.
 	svc := excl26LiveService(t)
 	for index := 0; index < 5; index++ {
 		excl26Seed(t, svc, fmt.Sprintf("p%d", index),
@@ -415,10 +333,6 @@ func TestExclusion26LivePaging(t *testing.T) {
 	if len(full) != 5 {
 		t.Fatalf("unpaginated evidence = %d, want 5:\n%v", len(full), full)
 	}
-	// The executor's view: each statement carries limit+1 rows (the
-	// has-more probe, AQL :102 LIMIT @offset, @fetchLimit), and the page
-	// proper is the first limit of them. page1 ++ page2 (trimmed) must
-	// equal the unpaginated list row for row.
 	page1 := svc.runRendered(t, excl26RenderLive(t, svc, excl26EvidencePlan(t, 0, 2)))
 	page2 := svc.runRendered(t, excl26RenderLive(t, svc, excl26EvidencePlan(t, 2, 2)))
 	if len(page1) != 3 || len(page2) != 3 {
@@ -430,33 +344,21 @@ func TestExclusion26LivePaging(t *testing.T) {
 			t.Fatalf("page1++page2 diverges from the unpaginated list at %d:\n%v\n%v", index, recombined, full)
 		}
 	}
-	// The page-tail probe: the final page has no extra row (has-more false).
 	tail := svc.runRendered(t, excl26RenderLive(t, svc, excl26EvidencePlan(t, 4, 2)))
 	if len(tail) != 1 {
 		t.Fatalf("tail page = %d rows, want 1 (no phantom probe row):\n%v", len(tail), tail)
 	}
-	// The probe: offset 0, limit 4 fetches five (limit+1) rows so the
-	// executor learns has-more without a second statement.
 	probe := svc.runRendered(t, excl26RenderLive(t, svc, excl26EvidencePlan(t, 0, 4)))
 	if len(probe) != 5 {
 		t.Fatalf("limit-4 probe returned %d rows, want the fifth row to ride the limit+1 fetch:\n%v", len(probe), probe)
 	}
-	// Determinism: the same page rendered twice is identical row for row.
 	again := svc.runRendered(t, excl26RenderLive(t, svc, excl26EvidencePlan(t, 0, 2)))
-	if strings.Join(flattenRows(again), "|") != strings.Join(flattenRows(page1), "|") { // full probe pages
+	if strings.Join(flattenRows(again), "|") != strings.Join(flattenRows(page1), "|") {
 		t.Fatalf("page order is not deterministic:\n%v\n%v", page1, again)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L7 — hostile identity values are inert parameters
-// ---------------------------------------------------------------------------
-
 func TestExclusion26LiveHostileValues(t *testing.T) {
-	// Group values carrying quotes, backslashes, SQL punctuation, non-ASCII,
-	// and a huge numeric glyph all reach SQL only through bound parameters;
-	// page order is the identity under COLLATE "C", which is Go's byte-wise
-	// string order over the same UTF-8 bytes the identity composition emits.
 	svc := excl26LiveService(t)
 	hostile := []string{
 		`a"b`,
@@ -495,7 +397,6 @@ func TestExclusion26LiveHostileValues(t *testing.T) {
 		}
 		want = append(want, `["GROUPED_PIVOT","p26-hand-construct",["STRING",`+string(encoded)+`]]`)
 	}
-	// COLLATE "C" == byte order; sort.Strings compares the same bytes.
 	sortStrings(want)
 	sortStrings(got)
 	for index := range want {
@@ -503,14 +404,11 @@ func TestExclusion26LiveHostileValues(t *testing.T) {
 			t.Fatalf("hostile identity %d = %q, want %q", index, got[index], want[index])
 		}
 	}
-	// The statement text carries none of the hostile material: it is all
-	// parameters (the renderer's parameter law, re-proven on hostile data).
 	for _, value := range hostile {
 		if strings.Contains(out.SQL, value) {
 			t.Fatalf("hostile value %q reached the statement text", value)
 		}
 	}
-	// And the hostile parameter executed without touching the table.
 	var survivors int
 	if err := svc.iso.QueryRow(svc.ctx,
 		`SELECT count(*) FROM `+svc.schema+`.fhir_resource WHERE project = $1`, excl26Project).Scan(&survivors); err != nil {
@@ -520,10 +418,6 @@ func TestExclusion26LiveHostileValues(t *testing.T) {
 		t.Fatalf("surviving rows = %d, want %d (parameters are inert)", survivors, len(hostile))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Zero-leftover delta audit (pg-sql-26, the 11th hook)
-// ---------------------------------------------------------------------------
 
 func excl26SnapshotOwnedResources(ctx context.Context, raw string) ([]string, error) {
 	pool, err := pgxpool.New(ctx, raw)

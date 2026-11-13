@@ -1,6 +1,3 @@
-// Package arango stores private ClickHouse artifact manifests and leases in a
-// dedicated Arango collection. It does not register artifacts as published
-// outputs or update any publication pointer.
 package arango
 
 import (
@@ -22,8 +19,6 @@ const (
 	manifestTimeLayout         = "2006-01-02T15:04:05.000000000Z"
 )
 
-// Catalog implements chartifact.Catalog using single-document conditional
-// AQL writes. The Arango document key is the immutable ArtifactID.
 type Catalog struct {
 	client arangostore.RowQueryer
 }
@@ -44,9 +39,6 @@ func BootstrapSpec() arangostore.BootstrapSpec {
 	}}}
 }
 
-// Create inserts an immutable manifest only when its ArtifactID is unused.
-// Concurrent duplicate creates can produce an Arango write-conflict error;
-// neither path replaces an existing manifest.
 func (c *Catalog) Create(ctx context.Context, manifest chartifact.Manifest) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -79,9 +71,6 @@ RETURN {created: true}`, queryBatchSize, map[string]any{
 	return nil
 }
 
-// Update changes only progress fields. Active states cannot shorten a lease;
-// cleanup-pending is allowed to make a table immediately reclaimable after the
-// owner has stopped using it. An expired or stolen lease cannot be updated.
 func (c *Catalog) Update(ctx context.Context, artifactID, owner string, progress chartifact.Progress) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -127,8 +116,6 @@ RETURN {updated: true}`, queryBatchSize, map[string]any{
 	return nil
 }
 
-// Renew extends an active, unexpired lease owned by owner. It never shortens
-// an existing lease and never resurrects an expired one.
 func (c *Catalog) Renew(ctx context.Context, artifactID, owner string, until time.Time) (bool, error) {
 	if err := requireContext(ctx); err != nil {
 		return false, err
@@ -160,8 +147,6 @@ RETURN {renewed: true}`, queryBatchSize, map[string]any{
 	return renewed, nil
 }
 
-// ListExpired returns a bounded, stable-order page of manifests whose lease is
-// expired at or before expiredBefore. Cleanup claims recheck this condition.
 func (c *Catalog) ListExpired(ctx context.Context, expiredBefore time.Time, limit int) ([]chartifact.Manifest, error) {
 	if err := requireContext(ctx); err != nil {
 		return nil, err
@@ -198,9 +183,6 @@ RETURN manifest`, queryBatchSize, map[string]any{
 	return manifests, nil
 }
 
-// ClaimCleanup atomically changes an expired manifest's owner and state. The
-// old lease timestamp is rechecked in the write query so a concurrent renewer
-// wins cleanly; only one cleanup owner can claim a given expired manifest.
 func (c *Catalog) ClaimCleanup(ctx context.Context, artifactID, owner string, expiredBefore, until time.Time) (chartifact.Manifest, bool, error) {
 	if err := requireContext(ctx); err != nil {
 		return chartifact.Manifest{}, false, err
@@ -246,7 +228,6 @@ RETURN {manifest: NEW}`, queryBatchSize, map[string]any{
 	return *claimed, true, nil
 }
 
-// Delete removes a cleanup-pending manifest only for its current owner.
 func (c *Catalog) Delete(ctx context.Context, artifactID, owner string) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -278,8 +259,6 @@ RETURN {deleted: true}`, queryBatchSize, map[string]any{
 	return nil
 }
 
-// ReleaseCleanup makes a failed cleanup immediately reclaimable, but only
-// while the caller still owns the cleanup lease.
 func (c *Catalog) ReleaseCleanup(ctx context.Context, artifactID, owner string, until time.Time) error {
 	if err := requireContext(ctx); err != nil {
 		return err
@@ -338,9 +317,6 @@ func manifestDocument(manifest chartifact.Manifest) (map[string]any, error) {
 		return nil, err
 	}
 	document["_key"] = manifest.ArtifactID
-	// time.Time's default JSON encoding omits trailing fractional zeros. These
-	// fields are compared and sorted lexicographically by AQL, so persist a
-	// fixed-width UTC representation to keep string order chronological.
 	document["leaseUntil"] = formatManifestTime(manifest.LeaseUntil)
 	document["createdAt"] = formatManifestTime(manifest.CreatedAt)
 	document["updatedAt"] = formatManifestTime(manifest.UpdatedAt)

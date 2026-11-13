@@ -35,7 +35,6 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Repository metadata receives canonical projects from the service boundary.
 	project := projectid.Canonical("loom_explicit_group_test_" + uuid.NewString())
 	source, sourceWriter, err := persistExplicitGroupTestSelection(ctx, t, persistence, project)
 	if err != nil {

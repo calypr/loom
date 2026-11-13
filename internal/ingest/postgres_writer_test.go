@@ -1,35 +1,5 @@
 package ingest
 
-// Real-PostgreSQL acceptance tests for the ingest-layer PostgreSQL resource
-// writer (pg-ingest-01; check-2:
-// go test ./internal/ingest ./internal/backends/postgres/internal/store -run PostgresResourceWriter -count=1).
-//
-// These tests drive the real PostgresResourceWriter against the PostgreSQL
-// 18 service named by LOOM_TEST_POSTGRES_URL. Rows are built by the real
-// production row builders (generated and generic, generation-qualified
-// through generationRowBuilder) exactly as loadFile builds them, committed
-// through the real store batch writer, and witnessed by direct SQL against
-// golden literals captured from PostgreSQL 18. Nothing is mocked for a
-// live claim: the only double in this file is a recording decorator used
-// exclusively for the "refused before any round trip" and batch-content
-// capture claims — it never stands in for a commit.
-//
-// Non-vacuity: every refusal case has a paired control that passes the
-// same gate, refusals are proven to stop before the store surface
-// (recorder call count) and before the database (zero rows and zero ledger
-// markers witnessed by direct SQL on the live stack), and the identity
-// checks are fed real builder output. Race surfaces run at least ten
-// rounds each on two real single-connection pools whose distinct
-// pg_backend_pid values are witnessed, with byte-identical post-convergence
-// witnesses.
-//
-// Fixture databases and schemas are uniquely owned as verify_ing01_ing_*
-// and dropped by the test that created them; the TestZZ audit is
-// ownership-scoped (exact names) and counts only its own
-// verify_ing01_ing_* prefix against the baseline captured before this
-// process created anything, so concurrent sibling workers (including the
-// store-surface tests under verify_ing01_store_*) neither race nor trip it.
-
 import (
 	"context"
 	"crypto/rand"
@@ -122,7 +92,7 @@ func str(s string) *string { return &s }
 type ing01IngestService struct {
 	ctx    context.Context
 	admin  *pgxpool.Pool
-	iso    *pgxpool.Pool // isolated database (direct-SQL witnesses)
+	iso    *pgxpool.Pool
 	dsn    string
 	schema string
 	scrub  func(any) string
@@ -387,22 +357,13 @@ func (s *ing01IngestService) waitBackendWaiting(t *testing.T, app string) int64 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Built-row fixtures: real builders, real generation qualification.
-// ---------------------------------------------------------------------------
-
 const (
 	ing01ResearchSubjectLine = `{"resourceType":"ResearchSubject","id":"research-subject-1","status":"active","study":{"reference":"ResearchStudy/study-1"},"subject":{"reference":"Patient/patient-1"},"project_id":"source-value","unknown_payload_field":{"nested":["kept",42]}}`
 	ing01SubstanceLine       = `{"resourceType":"SubstanceDefinition","id":"substance-1","name":[{"name":"Gemcitabine"}]}`
 
-	// Canonical payload texts witnessed from PostgreSQL 18 (JSONB sorts
-	// keys by length then bytes). The generated loader injects
-	// project_id over the source value; the generic builder injects
-	// project_id and the auth path through extraArgs.
 	ing01ResearchSubjectPayloadText = `{"id": "research-subject-1", "study": {"reference": "ResearchStudy/study-1"}, "status": "active", "subject": {"reference": "Patient/patient-1"}, "project_id": "prj-ing01-ing", "resourceType": "ResearchSubject", "unknown_payload_field": {"nested": ["kept", 42]}}`
 	ing01SubstancePayloadText       = `{"id": "substance-1", "name": [{"name": "Gemcitabine"}], "project_id": "prj-ing01-ing", "resourceType": "SubstanceDefinition", "auth_resource_path": "/fhir"}`
 
-	// Golden batch digests captured from PostgreSQL 18 through the ledger.
 	ing01BuiltBatchID     = "ing01-ing/built/0"
 	ing01BuiltBatchDigest = "7fe13c3d615ec75a169f03491708478a30756bb68aa8d7c02bbd3dc0cbc040e2"
 	ing01HandBatchID      = "ing01-ing/hand/0"
@@ -418,8 +379,6 @@ func ing01LoadGraphSchema(t *testing.T) *graph.GraphSchema {
 	return schema
 }
 
-// buildGeneratedRow builds one generation-qualified row with the real
-// generated builder, exactly as loadFile wraps it.
 func buildGeneratedRow(t *testing.T, project, generation, authPath, resourceType, line string) rowBuildResult {
 	t.Helper()
 	var builder RowBuilder = NewGeneratedRowBuilder(project, authPath)
@@ -437,8 +396,6 @@ func buildGeneratedRow(t *testing.T, project, generation, authPath, resourceType
 	return built
 }
 
-// buildGenericRow builds one generation-qualified row with the real
-// generic builder and the repository graph schema.
 func buildGenericRow(t *testing.T, project, generation, authPath, resourceType, line string) rowBuildResult {
 	t.Helper()
 	schema := ing01LoadGraphSchema(t)
@@ -461,8 +418,6 @@ func buildGenericRow(t *testing.T, project, generation, authPath, resourceType, 
 	return built
 }
 
-// handBuiltVertex assembles a built-vertex row verbatim: the payload bytes
-// land exactly as given (or the key is omitted when payload == "").
 func handBuiltVertex(project, generation, resourceType, logicalID, authPath, payload string, extraFields map[string]string) rowBuildResult {
 	var b strings.Builder
 	b.WriteString(`{"_key":"`)
@@ -500,8 +455,6 @@ func handBuiltVertex(project, generation, resourceType, logicalID, authPath, pay
 	return rowBuildResult{vertex: json.RawMessage(b.String())}
 }
 
-// replaceField rewrites one top-level field of a built vertex. The result
-// is only used to feed defect cases, so key order churn is acceptable.
 func replaceField(t *testing.T, built rowBuildResult, field string, rawValue json.RawMessage) rowBuildResult {
 	t.Helper()
 	document, err := decodeTopLevelDocument(built.vertex)
@@ -531,11 +484,6 @@ func dropField(t *testing.T, built rowBuildResult, field string) rowBuildResult 
 	built.vertex = encoded
 	return built
 }
-
-// ---------------------------------------------------------------------------
-// Recording store-surface decorator: used ONLY for the absence/capture
-// claims. Live commit claims always run through the real surface.
-// ---------------------------------------------------------------------------
 
 type ing01Recorder struct {
 	mu      sync.Mutex
@@ -571,10 +519,6 @@ func (r *ing01Recorder) lastBatch(t *testing.T) control.ResourceBatch {
 	return r.batches[r.calls-1]
 }
 
-// ---------------------------------------------------------------------------
-// End-to-end exact writes through the real builders.
-// ---------------------------------------------------------------------------
-
 func TestPostgresResourceWriterWritesBuiltRowsWithExactTypedColumnsAndLedger(t *testing.T) {
 	s := newIngest01IngestService(t)
 	s.migrate(t)
@@ -583,8 +527,6 @@ func TestPostgresResourceWriterWritesBuiltRowsWithExactTypedColumnsAndLedger(t *
 	rows := []rowBuildResult{
 		buildGeneratedRow(t, ing01IngestProject, ing01IngestGen, ing01IngestAuth, "ResearchSubject", ing01ResearchSubjectLine),
 		buildGenericRow(t, ing01IngestProject, ing01IngestGen, ing01IngestAuth, "SubstanceDefinition", ing01SubstanceLine),
-		// A hand-built row that advertises a storage identity: the writer
-		// must never read it — resource_seq is server-assigned.
 		handBuiltVertex(ing01IngestProject, ing01IngestGen, "Observation", "hand-1", ing01IngestAuth,
 			`{"resourceType":"Observation","id":"hand-1","effective":"2026"}`,
 			map[string]string{"resource_seq": "999", "logical_key": `"hand-1"`}),
@@ -605,7 +547,6 @@ func TestPostgresResourceWriterWritesBuiltRowsWithExactTypedColumnsAndLedger(t *
 		t.Fatalf("digest = %s, want the pinned golden %s", res.Digest, ing01BuiltBatchDigest)
 	}
 
-	// Direct-SQL witnesses: exact typed columns and canonical JSONB texts.
 	s.requireResourceRow(t, ing01IngestProject, ing01IngestGen, "ResearchSubject", "research-subject-1",
 		ing01IngestAuth, str(ing01ResearchSubjectPayloadText))
 	s.requireResourceRow(t, ing01IngestProject, ing01IngestGen, "SubstanceDefinition", "substance-1",
@@ -616,8 +557,6 @@ func TestPostgresResourceWriterWritesBuiltRowsWithExactTypedColumnsAndLedger(t *
 		t.Fatalf("rows = %d, want 3", n)
 	}
 
-	// The advertised storage identity was ignored: server-assigned seqs
-	// are distinct and none carries the advertised 999.
 	var advertised bool
 	if err := s.iso.QueryRow(s.ctx,
 		"SELECT coalesce(bool_or(resource_seq = 999), false) FROM "+s.qualified("fhir_resource")+
@@ -634,7 +573,6 @@ func TestPostgresResourceWriterWritesBuiltRowsWithExactTypedColumnsAndLedger(t *
 		t.Fatalf("distinct resource_seq = %d, want 3", distinct)
 	}
 
-	// The ledger marker matches the reported digest and exact accounting.
 	digest, resources, found := s.witnessLedger(t, ing01BuiltBatchID)
 	if !found || digest != ing01BuiltBatchDigest || resources != 3 {
 		t.Fatalf("marker = (%s, %d, found %v), want the golden digest and 3 committed rows",
@@ -664,10 +602,6 @@ func TestPostgresResourceWriterBatchContentMatchesLiteralCommittedBatch(t *testi
 	if got := recorder.callCount(); got != 1 {
 		t.Fatalf("committer calls = %d, want 1", got)
 	}
-	// The exact batch handed to the store surface, as literals: scope,
-	// ordered typed columns, the canonical encoding of each payload
-	// document (sorted keys, compact, numeric literals verbatim), and a
-	// nil payload for the absent key.
 	want := control.ResourceBatch{
 		ID:                "ing01-ing/capture/0",
 		Project:           ing01IngestProject,
@@ -687,12 +621,6 @@ func TestPostgresResourceWriterBatchContentMatchesLiteralCommittedBatch(t *testi
 	}
 }
 
-// TestPostgresResourceWriterCanonicalPayloadEncoding pins the exact bytes
-// the writer commits payloads as: keys sorted by byte order, insignificant
-// whitespace gone, numeric literals verbatim (no float round trip),
-// duplicate keys last-wins, and malformed input (including trailing
-// content) refused. The ledger digest hashes these bytes, so identical
-// content must always encode identically — across processes included.
 func TestPostgresResourceWriterCanonicalPayloadEncoding(t *testing.T) {
 	for _, tc := range []struct{ name, in, out string }{
 		{"sorted keys, compact, numbers verbatim, duplicates last-wins",
@@ -717,19 +645,11 @@ func TestPostgresResourceWriterCanonicalPayloadEncoding(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Legacy namespace and payload null fidelity.
-// ---------------------------------------------------------------------------
-
 func TestPostgresResourceWriterLegacyNamespaceAndPayloadNullFidelity(t *testing.T) {
 	s := newIngest01IngestService(t)
 	s.migrate(t)
 	writer := s.newWriter(t)
 
-	// Legacy batch: generation "" and auth "" accept unstamped,
-	// auth-less vertices. Payload fidelity: an absent payload key stores
-	// SQL NULL; the bytes "null" store the JSON null document; the two
-	// stay distinct.
 	rows := []rowBuildResult{
 		handBuiltVertex(ing01IngestProject, "", "Patient", "legacy-1", "",
 			`{"resourceType":"Patient","id":"legacy-1"}`, nil),
@@ -749,7 +669,6 @@ func TestPostgresResourceWriterLegacyNamespaceAndPayloadNullFidelity(t *testing.
 	s.requireResourceRow(t, ing01IngestProject, "", "Patient", "legacy-null", "", str("null"))
 	s.requireResourceRow(t, ing01IngestProject, "", "Patient", "legacy-absent", "", nil)
 
-	// SQL NULL versus JSON null are distinguishable through SQL itself.
 	nulls := s.mustInt64(t, "SELECT count(*) FROM "+s.qualified("fhir_resource")+
 		" WHERE project = $1 AND dataset_generation = '' AND payload IS NULL", ing01IngestProject)
 	if nulls != 1 {
@@ -765,10 +684,6 @@ func TestPostgresResourceWriterLegacyNamespaceAndPayloadNullFidelity(t *testing.
 		t.Fatalf("legacy marker = (%s, %d, found %v), want the pinned digest and 3 rows", digest, resources, found)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Replay and duplicate identity through the full ingest stack.
-// ---------------------------------------------------------------------------
 
 func TestPostgresResourceWriterReplayIdenticalBatchIsLedgerNoOp(t *testing.T) {
 	s := newIngest01IngestService(t)
@@ -795,8 +710,6 @@ func TestPostgresResourceWriterReplayIdenticalBatchIsLedgerNoOp(t *testing.T) {
 		if err != nil {
 			s.fail("replay", err)
 		}
-		// Byte-identical accounting to the original commit, differing
-		// only in the Replay flag itself.
 		if !replay.Replay || replay.BatchID != first.BatchID || replay.Digest != first.Digest ||
 			replay.Offered != first.Offered || replay.Committed != first.Committed ||
 			replay.SkippedIdentical != first.SkippedIdentical {
@@ -831,8 +744,6 @@ func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t
 	}
 	stored := s.scopeFingerprint(t, ing01IngestProject, ing01IngestGen)
 
-	// Same logical id, different payload (status changed), plus a fresh
-	// row: the whole second batch must roll back with the typed conflict.
 	changedLine := strings.Replace(ing01ResearchSubjectLine, `"status":"active"`, `"status":"withdrawn"`, 1)
 	second := []rowBuildResult{
 		buildGeneratedRow(t, ing01IngestProject, ing01IngestGen, ing01IngestAuth, "ResearchSubject", changedLine),
@@ -865,9 +776,6 @@ func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t
 		t.Fatal("refused batch left a ledger marker")
 	}
 
-	// Guard non-vacuity: identical re-offer under a fresh batch identity
-	// commits zero rows (identical duplicates collapse), proving the
-	// refusal above was about content drift, not duplication.
 	thirdScope := scope
 	thirdScope.BatchID = "ing01-ing/dup/control"
 	res, err := writer.WriteResourceBatch(s.ctx, thirdScope, rows)
@@ -878,11 +786,6 @@ func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t
 		t.Fatalf("control = %+v, want 0 committed and 1 identical row skipped", res)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Refusal matrix: exact typed errors, recorder proof of zero store calls,
-// and direct-SQL witnesses of zero rows/markers on the live stack.
-// ---------------------------------------------------------------------------
 
 func ing01GoodVertex() rowBuildResult {
 	return handBuiltVertex(ing01IngestProject, ing01IngestGen, "Observation", "refuse-ok", ing01IngestAuth,
@@ -993,25 +896,17 @@ func TestPostgresResourceWriterRejectsInvalidScopeAndIdentityBeforeAnyRow(t *tes
 					tc.name, rowErr, tc.row, tc.column, tc.contains)
 			}
 		}
-		// Control: the untouched good batch must pass the same gate — a
-		// guard that always refused would fail here.
 		if _, err := recWriter.WriteResourceBatch(context.Background(), goodScope, goodRows); err != nil {
 			t.Fatalf("%s: control batch refused: %v", tc.name, err)
 		}
 	}
 
-	// Absence proof: exactly the controls reached the store surface; not
-	// one refusal got a call. The recorder never touches a database, so
-	// this is the "no round trip" half of the pre-write guarantee; the
-	// database half is witnessed live below.
 	cases := ing01RefusalCases(t, goodScope, goodRows)
 	if got := recorder.callCount(); got != len(cases) {
 		t.Fatalf("committer calls = %d, want %d (controls only — every refusal must stop before the store)",
 			got, len(cases))
 	}
 
-	// Live-stack witness for representative row-level defects: same typed
-	// error, zero rows, and zero ledger markers.
 	s := newIngest01IngestService(t)
 	s.migrate(t)
 	live := s.newWriter(t)
@@ -1039,8 +934,6 @@ func TestPostgresResourceWriterRejectsInvalidScopeAndIdentityBeforeAnyRow(t *tes
 		}
 	}
 
-	// Live guard non-vacuity: the identical good batch (only a distinct
-	// identity) commits through the same writer and the same schema.
 	scope := goodScope
 	scope.BatchID = "ing01-ing/refuse/live-control"
 	res, err := live.WriteResourceBatch(s.ctx, scope, []rowBuildResult{
@@ -1057,8 +950,6 @@ func TestPostgresResourceWriterRejectsInvalidScopeAndIdentityBeforeAnyRow(t *tes
 	}
 }
 
-// replaceFieldDirect/dropFieldDirect wrap the defect injectors so the
-// refusal table below reads as pure data.
 func replaceFieldDirect(t *testing.T, built rowBuildResult, field string, rawValue json.RawMessage) rowBuildResult {
 	t.Helper()
 	return replaceField(t, built, field, rawValue)
@@ -1068,11 +959,6 @@ func dropFieldDirect(t *testing.T, built rowBuildResult, field string) rowBuildR
 	t.Helper()
 	return dropField(t, built, field)
 }
-
-// ---------------------------------------------------------------------------
-// Two-real-connection race surfaces (>= 10 rounds each, distinct
-// pg_backend_pid witnesses, byte-identical convergence).
-// ---------------------------------------------------------------------------
 
 func TestPostgresResourceWriterConcurrentIdenticalBatchCommitsOnceTwoConnections(t *testing.T) {
 	const rounds = 12
@@ -1119,8 +1005,6 @@ func TestPostgresResourceWriterConcurrentIdenticalBatchCommitsOnceTwoConnections
 			s.fail(fmt.Sprintf("round %d connection B", round), o2.err)
 		}
 
-		// Byte-identical observable accounting except for the Replay flag;
-		// exactly one fresh commit.
 		if o1.res.BatchID != o2.res.BatchID || o1.res.Digest != o2.res.Digest ||
 			o1.res.Offered != o2.res.Offered || o1.res.Committed != o2.res.Committed ||
 			o1.res.SkippedIdentical != o2.res.SkippedIdentical {
@@ -1133,8 +1017,6 @@ func TestPostgresResourceWriterConcurrentIdenticalBatchCommitsOnceTwoConnections
 			t.Fatalf("round %d shared accounting = %+v, want 2 committed under a real digest", round, o1.res)
 		}
 
-		// Post-convergence: committed once, marker once, and the digests
-		// agree with the ledger.
 		if n := s.countIn(t, ing01IngestProject, generation); n != 2 {
 			t.Fatalf("round %d rows = %d, want exactly 2 (committed once)", round, n)
 		}
@@ -1184,8 +1066,6 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 			DatasetGeneration: generation, AuthResourcePath: ing01IngestAuth,
 		}
 
-		// The observer holds the resource table exclusively: the batch
-		// blocks at its first resource-table touch, uncommitted.
 		if _, err := obsConn.Exec(s.ctx, "BEGIN"); err != nil {
 			s.fail("observer begin", err)
 		}
@@ -1203,17 +1083,12 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 			done <- outcome{res, err}
 		}()
 
-		// The writer backend is genuinely blocked on the observer's lock.
 		blockedPID := s.waitBackendWaiting(t, "ing01-ing-commit-w")
 		if blockedPID != writerPID || blockedPID == observerPID {
 			t.Fatalf("round %d blocked backend pid = %d, want the writer backend %d (observer is %d)",
 				round, blockedPID, writerPID, observerPID)
 		}
 
-		// Mid-transaction witness from the lock holder itself (a third
-		// connection's SELECT would queue behind the same ACCESS EXCLUSIVE
-		// lock): persisted count has not moved. The ledger table carries
-		// no lock, so it is witnessed from the independent pool.
 		var midRows int64
 		if err := obsConn.QueryRow(s.ctx, "SELECT count(*) FROM "+s.qualified("fhir_resource")+
 			" WHERE project = $1 AND dataset_generation = $2", ing01IngestProject, generation).
@@ -1242,8 +1117,6 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 		if o.res.Committed != 1 || o.res.Replay {
 			t.Fatalf("round %d result = %+v, want a fresh single-row commit", round, o.res)
 		}
-		// Post-commit: the direct-SQL count moved to exactly the reported
-		// number, and only now.
 		if n := s.countIn(t, ing01IngestProject, generation); n != int64(o.res.Committed) {
 			t.Fatalf("round %d rows after commit = %d, want the reported %d", round, n, o.res.Committed)
 		}
@@ -1253,16 +1126,6 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit.
-// ---------------------------------------------------------------------------
-
-// TestZZZeroLeftoverIngestPostgresResourceWriterFixtures is the
-// ownership-scoped zero-leftover audit for this file: exact-name checks for
-// every database (and schema inside it) this file verified into existence,
-// then a count of the file's own verify_ing01_ing_* prefix against the
-// pre-test baseline. It never inspects other prefixes, so concurrent
-// sibling workers (store-surface tests included) neither race nor trip it.
 func TestZZZeroLeftoverIngestPostgresResourceWriterFixtures(t *testing.T) {
 	raw := ing01TestPostgresURL(t)
 	ing01IngestOwnedMu.Lock()
@@ -1327,42 +1190,6 @@ func TestZZZeroLeftoverIngestPostgresResourceWriterFixtures(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// PostgreSQL edge-occurrence writes (pg-ingest-02, ingest surface).
-//
-// Real-PostgreSQL acceptance tests for the ingest-layer PostgreSQL edge
-// writer (check-2: go test ./internal/ingest -run PostgresEdge -count=1).
-//
-// These tests drive the real PostgresEdgeWriter against the PostgreSQL 18
-// service named by LOOM_TEST_POSTGRES_URL. Rows are built by the real
-// production row builders (generated and generic, generation-qualified
-// through generationRowBuilder) exactly as loadFile builds them, resources
-// are committed through the real pg-ingest-01 resource writer, edges
-// through the real store edge batch writer, and every claim is witnessed by
-// direct SQL against golden literals captured from PostgreSQL 18 — the
-// digest literal is proven load-bearing by a break-one mutation, the
-// duplicate-reference fixture is test-owned, and the only double is the
-// recording decorator used exclusively for the "refused before any round
-// trip" claims.
-//
-// Non-vacuity: every refusal has a paired control that passes the same
-// gate, refusals are proven to stop before the store surface (recorder
-// call count) and before the database (zero rows and zero ledger markers
-// witnessed by direct SQL on the live stack), and guard refusals carry the
-// exact named typed category (edge vs generation). Race surfaces run at
-// least ten rounds each on two real single-connection pools whose distinct
-// pg_backend_pid values are witnessed, with byte-identical post-
-// convergence witnesses.
-//
-// Fixture databases and schemas are uniquely owned as verify_ing02_ing_*
-// and dropped by the test that created them; the TestZZ audit is
-// ownership-scoped (exact names) and counts only this suite's
-// verify_ing02_ing_* prefix against the baseline captured before this
-// process created anything, so concurrent sibling workers (the store-
-// surface suite under verify_ing02_store_* included) neither race nor trip
-// it.
-// ===========================================================================
-
 const (
 	ing02IngestPrefix = "verify_ing02_ing_"
 	ing02IngestFmt    = ing02IngestPrefix + "%d_%s"
@@ -1371,31 +1198,15 @@ const (
 	ing02IngestGen     = "gen-build-a"
 	ing02IngestAuth    = "/fhir"
 
-	// Test-owned duplicate-reference fixtures: two identical focus
-	// references at distinct repeated-array positions (the generic path
-	// retains the multiplicity the Arango edge model collapses; the
-	// generated loader deduplicates on its endpoint key, and the
-	// converter must persist exactly what each builder offered), a
-	// subject to a stored patient (resolvable), and the focus target as
-	// its own resource row.
 	ing02GenericDupFocusLine   = `{"resourceType":"Observation","id":"obs-generic","status":"final","code":{"text":"dup focus"},"focus":[{"reference":"Observation/focus-1"},{"reference":"Observation/focus-1"}]}`
 	ing02GeneratedDupFocusLine = `{"resourceType":"Observation","id":"obs-generated","status":"final","code":{"text":"dup focus"},"focus":[{"reference":"Observation/focus-1"},{"reference":"Observation/focus-1"}],"subject":{"reference":"Patient/patient-1"}}`
 	ing02FocusTargetLine       = `{"resourceType":"Observation","id":"focus-1","status":"final","code":{"text":"target"}}`
 	ing02PatientLine           = `{"resourceType":"Patient","id":"patient-1","gender":"male"}`
 
-	// Cross-type generic fixture: EdgeFromGrip stamps the subject
-	// back-reference _from/from_type with the OWNING row's type
-	// (Observation), never Patient — the converter must recover the
-	// source type from the matched payload reference.
 	ing02GenericCrossTypeLine = `{"resourceType":"Observation","id":"obs-cross","status":"final","code":{"text":"cross"},"focus":[{"reference":"Observation/focus-1"}],"subject":{"reference":"Patient/patient-1"}}`
 
-	// Caller-cased reference prefix: EdgeFromGrip and the generated loader
-	// canonicalize through ConcreteResourceType, so this document is
-	// legitimately emitted with to_type/from_type Patient while the
-	// payload prefix stays lower-case.
 	ing02GeneratedCaseRefLine = `{"resourceType":"Observation","id":"obs-case","status":"final","code":{"text":"case"},"subject":{"reference":"patient/patient-1"}}`
 
-	// Builder-derived logical edge keys for the case-variant fixture.
 	ing02KeyCaseSubjectFwd  = "b530ab0f-b761-56aa-ae92-e3fd0298c2c4"
 	ing02KeyCaseSubjectBack = "3b338272-bc4e-5ca6-9ea9-e75862e04da8"
 )
@@ -1625,9 +1436,6 @@ func (s *ing02IngestService) countEdges(t *testing.T, project, generation string
 		" WHERE project = $1 AND dataset_generation = $2", project, generation)
 }
 
-// requireEdgeRow witnesses one stored occurrence by its full nine-column
-// identity against literal expectations, including auth and the logical
-// edge key (SQL NULL versus a present value).
 func (s *ing02IngestService) requireEdgeRow(t *testing.T, project, generation, authPath, label,
 	srcType, srcID, tgtType, tgtID, sourcePath string, sourceOrdinal int64, wantKey *string,
 ) {
@@ -1722,10 +1530,6 @@ func (s *ing02IngestService) waitBackendWaiting(t *testing.T, app string) int64 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Built-row fixtures for the edge surface.
-// ---------------------------------------------------------------------------
-
 func ing02DupFocusRows(t *testing.T, authPath string) []rowBuildResult {
 	t.Helper()
 	return []rowBuildResult{
@@ -1736,8 +1540,6 @@ func ing02DupFocusRows(t *testing.T, authPath string) []rowBuildResult {
 	}
 }
 
-// handBuiltEdgeDocument assembles a built edge document verbatim for defect
-// injection; empty strings omit the optional keys.
 func handBuiltEdgeDocument(from, to, label, fromType, toType, project, generation, auth string) json.RawMessage {
 	var b strings.Builder
 	b.WriteString(`{"_key":"`)
@@ -1775,9 +1577,6 @@ func replaceEdges(t *testing.T, built rowBuildResult, edges ...json.RawMessage) 
 	return built
 }
 
-// ing02LegacyRefRow is a legacy (unversioned, unauthed) Observation whose
-// payload backs one forward reference position each for focus-1 (repeated
-// twice) and patient-1 (once), plus the matching edge documents.
 func ing02LegacyRefRow(t *testing.T) rowBuildResult {
 	t.Helper()
 	built := handBuiltVertex(ing02IngestProject, "", "Observation", "ref-1", "",
@@ -1791,8 +1590,6 @@ func ing02LegacyRefRow(t *testing.T) rowBuildResult {
 	return replaceEdges(t, built, fwd, rev, subj, subjRev)
 }
 
-// ing02Recorder is the recording decorator used ONLY for the absence and
-// capture claims; live write claims always run through the real surface.
 type ing02Recorder struct {
 	mu      sync.Mutex
 	calls   int
@@ -1827,17 +1624,10 @@ func (r *ing02Recorder) lastBatch(t *testing.T) control.EdgeBatch {
 	return r.batches[r.calls-1]
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 1+2+4: end-to-end exact writes through the real builders.
-// ---------------------------------------------------------------------------
-
-// Golden literals captured from PostgreSQL 18.
 const (
 	ing02DupBatchID     = "ing02-ing/duplicate/0"
 	ing02DupBatchDigest = "f57c41f7895b2bcc2deef22b140d1d2a17884503bff90040ffea55fe5233955d"
 
-	// Builder-derived logical edge keys for the duplicate-reference fixture
-	// (uuid v5 over the endpoint triple, pinned from the real builders).
 	ing02KeyGenericFocusFwd = "4e618179-60ea-5808-b9cd-4a3ec93e0ef2"
 	ing02KeyGenericFocusRev = "df2a2588-3ed1-5a05-853d-657b040b6d95"
 	ing02KeyGenFocusFwd     = "07e79b4d-7f23-5a35-a6f0-bf4d75251c3a"
@@ -1873,8 +1663,6 @@ func TestPostgresEdgeWriterPersistsOccurrencesEndToEndWithExactRows(t *testing.T
 	s.migrate(t)
 	rows := ing02DupFocusRows(t, ing02IngestAuth)
 
-	// Resources first through the real pg-ingest-01 surface (edge sources
-	// must exist in the exact project/generation scope).
 	scope := PGResourceBatchScope{
 		BatchID: "ing02-ing/resources/0", Project: ing02IngestProject,
 		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
@@ -1900,9 +1688,6 @@ func TestPostgresEdgeWriterPersistsOccurrencesEndToEndWithExactRows(t *testing.T
 		t.Fatalf("digest = %s, want the golden %s", res.Digest, ing02DupBatchDigest)
 	}
 
-	// Direct-SQL witnesses: every occurrence by full identity against
-	// literals, including the two independently addressable duplicate
-	// focus occurrences (identical endpoints, distinct path/ordinal).
 	for _, want := range ing02ExpectedOccurrences(ing02IngestAuth) {
 		s.requireEdgeRow(t, want.Project, want.DatasetGeneration, want.AuthResourcePath, want.Label,
 			want.SourceResourceType, want.SourceLogicalID, want.TargetResourceType, want.TargetLogicalID,
@@ -1921,10 +1706,6 @@ func TestPostgresEdgeWriterPersistsOccurrencesEndToEndWithExactRows(t *testing.T
 		t.Fatalf("marker = (%s, %d, found %v), want the golden digest with 8 rows", digest, edges, found)
 	}
 
-	// Break-one proof that the golden digest is load-bearing: the same
-	// batch identity with one occurrence mutated (the generated row's
-	// second focus reference repointed at a different target) must move
-	// the digest, be refused by the ledger, and store nothing.
 	mutatedLine := strings.Replace(ing02GeneratedDupFocusLine,
 		`{"reference":"Observation/focus-1"}],"subject"`,
 		`{"reference":"Observation/focus-other"}],"subject"`, 1)
@@ -1944,10 +1725,6 @@ func TestPostgresEdgeWriterPersistsOccurrencesEndToEndWithExactRows(t *testing.T
 	}
 }
 
-// TestPostgresEdgeWriterCommitmentToLiteralConvertedBatch pins the exact
-// EdgeBatch the converter hands the store surface: scope columns, endpoint
-// identities recovered from generation-qualified documents back to raw
-// logical ids, exact paths, and per-path ordinals — as literals.
 func TestPostgresEdgeWriterCommitmentToLiteralConvertedBatch(t *testing.T) {
 	recorder := &ing02Recorder{}
 	writer := &PostgresEdgeWriter{committer: recorder}
@@ -1972,20 +1749,6 @@ func TestPostgresEdgeWriterCommitmentToLiteralConvertedBatch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 2: source resolution and unresolved typed endpoints.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Acceptance 2: exact-scope source resolution and unresolved typed endpoints.
-// ---------------------------------------------------------------------------
-
-// TestPostgresEdgeWriterTargetResolutionIsScopeExact pins the read-time
-// resolution rule on real stored rows: a target stored inside the edge's
-// own project/generation resolves; the SAME typed/logical target stored
-// only in ANOTHER generation leaves the occurrence an unresolved typed
-// endpoint. The occurrence itself persists either way — the endpoint is
-// typed and addressable regardless of resolution.
 func TestPostgresEdgeWriterTargetResolutionIsScopeExact(t *testing.T) {
 	s := newIngest02IngestService(t)
 	s.migrate(t)
@@ -2012,20 +1775,13 @@ func TestPostgresEdgeWriterTargetResolutionIsScopeExact(t *testing.T) {
 		}
 	}
 
-	// gen-build-a holds everything: every stored target must resolve.
 	scopeRes("full", ing02IngestGen, rows)
 	scopeEdges("full", ing02IngestGen, rows)
 
-	// gen-decoy holds only the decoy source vertex (its own resource row)
-	// and forward edges toward the SAME typed/logical targets that exist
-	// only in gen-build-a: focus-1 and patient-1.
 	decoyVertex := handBuiltVertex(ing02IngestProject, "gen-decoy", "Observation", "obs-decoy", ing02IngestAuth,
 		`{"resourceType":"Observation","id":"obs-decoy","status":"final",`+
 			`"focus":[{"reference":"Observation/focus-1"}],`+
 			`"subject":{"reference":"Patient/patient-1"}}`, nil)
-	// Versioned-batch edge documents carry the generation-qualified peer
-	// key, exactly as namespaceEdgeDocuments leaves it; the converter
-	// maps it back through the payload's raw reference.
 	qualifiedFocus := "Observation/" + generationDocumentKey(ing02IngestProject, "gen-decoy", "Observation", SanitizeKey("focus-1"))
 	qualifiedPatient := "Patient/" + generationDocumentKey(ing02IngestProject, "gen-decoy", "Patient", SanitizeKey("patient-1"))
 	decoyEdgeFocus := handBuiltEdgeDocument("Observation/obs-decoy", qualifiedFocus,
@@ -2050,8 +1806,6 @@ func TestPostgresEdgeWriterTargetResolutionIsScopeExact(t *testing.T) {
 		AuthResourcePathsUnrestricted: &unrestricted,
 	}
 
-	// Same-scope witnesses: focus-1 and patient-1 resolve from the real
-	// generation's edges.
 	resolvedTargets := map[string]bool{}
 	for _, source := range []struct{ rtype, lid string }{
 		{"Observation", "obs-generic"}, {"Observation", "obs-generated"},
@@ -2071,9 +1825,6 @@ func TestPostgresEdgeWriterTargetResolutionIsScopeExact(t *testing.T) {
 		t.Fatal("same-generation stored target patient-1 reported unresolved")
 	}
 
-	// Cross-generation decoy: identical typed endpoints, but gen-decoy
-	// stores no patient-1 or focus-1 resource — the occurrences persist
-	// and report TargetResolved=false. Resolution never crosses scope.
 	decoyEdges, _, err := repo.ReadEdgesFromSource(s.ctx, decoyScope, "Observation", "obs-decoy", 0, 50)
 	if err != nil {
 		s.fail("decoy traverse", err)
@@ -2092,18 +1843,10 @@ func TestPostgresEdgeWriterTargetResolutionIsScopeExact(t *testing.T) {
 		}
 	}
 
-	// Cross-project decoy control: the same logical target under another
-	// project cannot resolve either. Seed gen-build-a rows for a second
-	// project and confirm the original edges are untouched.
 	if n := s.countEdges(t, ing02IngestProject, ing02IngestGen); n != 8 {
 		t.Fatalf("original occurrences after decoys = %d, want 8", n)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 3 (source precondition): refused batches persist nothing and
-// never increment any count.
-// ---------------------------------------------------------------------------
 
 func TestPostgresEdgeWriterMissingSourceBatchPersistsNothing(t *testing.T) {
 	s := newIngest02IngestService(t)
@@ -2115,8 +1858,6 @@ func TestPostgresEdgeWriterMissingSourceBatchPersistsNothing(t *testing.T) {
 		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
 	}
 
-	// No resource rows committed at all: the edge batch must be refused
-	// with the typed source-missing error and persist nothing.
 	res, err := s.newEdgeWriter(t).WriteEdgeBatch(s.ctx, edgeScope, rows)
 	var missing *control.EdgeSourceMissingError
 	if !errors.As(err, &missing) || !errors.Is(err, control.ErrEdgeSourceMissing) {
@@ -2136,8 +1877,6 @@ func TestPostgresEdgeWriterMissingSourceBatchPersistsNothing(t *testing.T) {
 		t.Fatalf("resource rows after refused edge batch = %d, want 0 — edge writes never touch resources", resources)
 	}
 
-	// Control proving the refusal was the precondition, not the fixture:
-	// after committing the resources, the same edge batch commits all 8.
 	scopeRes := PGResourceBatchScope{
 		BatchID: "ing02-ing/missing-source-res", Project: ing02IngestProject,
 		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
@@ -2157,18 +1896,12 @@ func TestPostgresEdgeWriterMissingSourceBatchPersistsNothing(t *testing.T) {
 	}
 }
 
-// TestPostgresEdgeWriterPartialSourceLossRollsBackWholeBatch proves batch
-// atomicity on the edge surface: a batch whose LAST row's source is missing
-// stores not even the earlier rows' occurrences.
 func TestPostgresEdgeWriterPartialSourceLossRollsBackWholeBatch(t *testing.T) {
 	s := newIngest02IngestService(t)
 	s.migrate(t)
 	rows := ing02DupFocusRows(t, ing02IngestAuth)
 
-	// Store only the generic Observation (plus its back-ref source
-	// focus-1), so the generated row's sources obs-generated/patient-1
-	// are missing while the generic row's sources are present.
-	partial := rows[0] // generic obs-generic
+	partial := rows[0]
 	focusVertex := handBuiltVertex(ing02IngestProject, ing02IngestGen, "Observation", "focus-1", ing02IngestAuth,
 		`{"resourceType":"Observation","id":"focus-1","status":"final","code":{"text":"target"}}`, nil)
 	seedRes := PGResourceBatchScope{
@@ -2191,8 +1924,6 @@ func TestPostgresEdgeWriterPartialSourceLossRollsBackWholeBatch(t *testing.T) {
 	if res.Committed != 0 {
 		t.Fatalf("mixed batch reported %+v, want zero committed", res)
 	}
-	// Even the fully-seeded generic row's 4 occurrences must be absent —
-	// the whole batch rolled back.
 	if n := s.countEdges(t, ing02IngestProject, ing02IngestGen); n != 0 {
 		t.Fatalf("edge rows after partial-source refusal = %d, want 0 (whole-batch rollback)", n)
 	}
@@ -2201,11 +1932,6 @@ func TestPostgresEdgeWriterPartialSourceLossRollsBackWholeBatch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Refusal matrix: typed refusals stop before the store surface.
-// ---------------------------------------------------------------------------
-
-// editEdgeDocument rewrites one built edge document for defect injection.
 func editEdgeDocument(t *testing.T, built rowBuildResult, index int, mutate func(map[string]json.RawMessage)) rowBuildResult {
 	t.Helper()
 	if index < 0 || index >= len(built.edges) {
@@ -2224,9 +1950,6 @@ func editEdgeDocument(t *testing.T, built rowBuildResult, index int, mutate func
 	return built
 }
 
-// edgeIndexOf finds the index of the edge document with the given label
-// whose forward ownership matches, keeping column expectations honest
-// regardless of the builder's emission order.
 func edgeIndexOf(t *testing.T, built rowBuildResult, label string) int {
 	t.Helper()
 	for i, raw := range built.edges {
@@ -2262,9 +1985,6 @@ func ing02GenDupRow(t *testing.T) rowBuildResult {
 	return buildGeneratedRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Observation", ing02GeneratedDupFocusLine)
 }
 
-// bigHandBuiltRow assembles a legacy vertex whose payload holds n identical
-// focus references, plus n byte-identical forward edge documents: the
-// maximal single-group batch for capacity proofs.
 func bigHandBuiltRow(t *testing.T, n int) rowBuildResult {
 	t.Helper()
 	refs := strings.TrimSuffix(strings.Repeat(`{"reference":"Observation/focus-1"},`, n), ",")
@@ -2283,10 +2003,10 @@ type edgeRefusalCase struct {
 	name         string
 	rows         []rowBuildResult
 	scope        PGEdgeBatchScope
-	controlScope PGEdgeBatchScope // zero value = defect scope with a fresh id
+	controlScope PGEdgeBatchScope
 	controlRows  []rowBuildResult
 	scopeErr     bool
-	wantField    string // scope error field
+	wantField    string
 	wantCategory rowErrorType
 	wantColumn   string
 	wantReason   string
@@ -2562,7 +2282,6 @@ func TestPostgresEdgeWriterRefusalMatrix(t *testing.T) {
 				t.Fatalf("err = %v, want reason containing %q", err, tc.wantReason)
 			}
 
-			// Control: the same scope without the defect passes the gate.
 			cscope := tc.controlScope
 			if cscope.Project == "" {
 				cscope = tc.scope
@@ -2586,10 +2305,6 @@ func TestPostgresEdgeWriterRefusalMatrix(t *testing.T) {
 		t.Fatalf("store-surface calls = %d, want %d (one per control only)", got, calls)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Live refusals persist nothing (guard non-vacuity against the database).
-// ---------------------------------------------------------------------------
 
 func TestPostgresEdgeWriterLiveRefusalsPersistNothing(t *testing.T) {
 	s := newIngest02IngestService(t)
@@ -2659,8 +2374,6 @@ func TestPostgresEdgeWriterLiveRefusalsPersistNothing(t *testing.T) {
 		}
 	}
 
-	// Control: the defect-free batch through the same live writer commits
-	// everything — the refusals above were the guards, not the fixture.
 	if _, err := s.newResourceWriter(t).WriteResourceBatch(s.ctx, PGResourceBatchScope{
 		BatchID: "ing02-ing/live-refuse-res", Project: ing02IngestProject,
 		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
@@ -2676,12 +2389,6 @@ func TestPostgresEdgeWriterLiveRefusalsPersistNothing(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Replay and identical re-offer.
-// ---------------------------------------------------------------------------
-
-// ing02RowsForGen builds the full duplicate-reference fixture for one
-// generation (race rounds each get a fresh generation).
 func ing02RowsForGen(t *testing.T, generation, authPath string) []rowBuildResult {
 	t.Helper()
 	return []rowBuildResult{
@@ -2740,9 +2447,6 @@ func TestPostgresEdgeWriterReplayIsByteIdenticalNoOp(t *testing.T) {
 		t.Fatalf("marker after replays = (found %v, edges %d), want 8", found, edges)
 	}
 
-	// Identical content under a FRESH batch identity: nothing is written,
-	// every row is skipped-as-identical, and the new marker accounts zero
-	// committed edges.
 	fresh, err := writer.WriteEdgeBatch(s.ctx, PGEdgeBatchScope{
 		BatchID: "ing02-ing/replay/reoffer", Project: ing02IngestProject,
 		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
@@ -2758,14 +2462,6 @@ func TestPostgresEdgeWriterReplayIsByteIdenticalNoOp(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Races on real connections (>= 10 rounds each).
-// ---------------------------------------------------------------------------
-
-// TestPostgresEdgeWriterConcurrentIdenticalEdgeBatchCommitsOnce drives the
-// same edge batch through two independent single-connection clients against
-// a fresh generation each round: exactly one caller commits, the other
-// replays, and both witness byte-identical converged rows.
 func TestPostgresEdgeWriterConcurrentIdenticalEdgeBatchCommitsOnce(t *testing.T) {
 	s := newIngest02IngestService(t)
 	s.migrate(t)
@@ -2836,10 +2532,6 @@ func TestPostgresEdgeWriterConcurrentIdenticalEdgeBatchCommitsOnce(t *testing.T)
 	}
 }
 
-// TestPostgresEdgeWriterCountsChangeOnlyAtCommit locks the edge table from
-// an independent backend while the writer commits: mid-transaction, no
-// occurrence row and no ledger marker are visible; only after the writer's
-// COMMIT do reported counts become true.
 func TestPostgresEdgeWriterCountsChangeOnlyAtCommit(t *testing.T) {
 	s := newIngest02IngestService(t)
 	s.migrate(t)
@@ -2933,17 +2625,6 @@ func TestPostgresEdgeWriterCountsChangeOnlyAtCommit(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Reproducibility of path/ordinal assignment.
-// ---------------------------------------------------------------------------
-
-// TestPostgresEdgeWriterOrdinalAssignmentIsReproducibleAcrossSerializations
-// builds the same logical vertex twice with different raw payload byte
-// orders (builder map serialization order varies per process; a retry must
-// assign the same ordinal to the same occurrence or the digest of identical
-// content would drift), converts both through the recorder, and commits
-// each into an isolated generation: the converted batches and the
-// post-commit row fingerprints are byte-identical modulo scope columns.
 func TestPostgresEdgeWriterOrdinalAssignmentIsReproducibleAcrossSerializations(t *testing.T) {
 	recorder := &ing02Recorder{}
 	writer := &PostgresEdgeWriter{committer: recorder}
@@ -2979,7 +2660,6 @@ func TestPostgresEdgeWriterOrdinalAssignmentIsReproducibleAcrossSerializations(t
 	if len(batchA.Rows) != 4 {
 		t.Fatalf("converted %d rows, want 2 per direction for the duplicate pair", len(batchA.Rows))
 	}
-	// The duplicate pair carries distinct ordinals on the same path.
 	ordinals := map[string][]int64{}
 	for _, row := range batchA.Rows {
 		key := row.Label + "|" + row.SourcePath
@@ -2991,8 +2671,6 @@ func TestPostgresEdgeWriterOrdinalAssignmentIsReproducibleAcrossSerializations(t
 		}
 	}
 
-	// Live half: commit each serialization into its own generation and
-	// witness byte-identical stored rows through the fingerprint.
 	s := newIngest02IngestService(t)
 	s.migrate(t)
 	live := s.newEdgeWriter(t)
@@ -3027,10 +2705,6 @@ func TestPostgresEdgeWriterOrdinalAssignmentIsReproducibleAcrossSerializations(t
 			s.fail(fmt.Sprintf("repro edge commit %d", i), err)
 		}
 	}
-	// The logical edge key of a versioned batch embeds the generation-
-	// qualified endpoint hash and is therefore generation-scoped; the
-	// serialization-reproducibility claim is about the identity columns
-	// the converter derives from the payload (endpoints, path, ordinals).
 	keyless := func(generation string) string {
 		var fp string
 		sql := "SELECT coalesce(md5(string_agg(entry, E'\n' ORDER BY edge_seq)),'EMPTY') FROM (" +
@@ -3049,12 +2723,6 @@ func TestPostgresEdgeWriterOrdinalAssignmentIsReproducibleAcrossSerializations(t
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Generic cross-type back-references: payload-wins source-type recovery.
-// ---------------------------------------------------------------------------
-
-// Builder-derived logical edge keys for the cross-type generic fixture
-// (uuid v5 over the endpoint triple, pinned from the real generic builder).
 const (
 	ing02KeyCrossFocusFwd   = "35af41b5-d5e6-5541-a691-9612d0c6c0ed"
 	ing02KeyCrossFocusBack  = "5190907f-9a27-58cd-b917-c0931230e5cb"
@@ -3062,22 +2730,11 @@ const (
 	ing02KeyCrossSubjectBk  = "838c4a72-1e7c-5f70-a781-321ef7656b5d"
 )
 
-// TestPostgresEdgeWriterGenericCrossTypeBackReferenceStoresPayloadSource
-// witnesses the real generic builder's cross-type shape: EdgeFromGrip
-// stamps the subject back-reference _from and from_type with the row's own
-// type (asserted directly on the built document), which uncorrected would
-// persist source (Observation, patient-1) — refused batch-wide by the
-// store's source precondition because Patient/patient-1 is the only stored
-// peer, or silently mislabeled on an id collision. The converter recovers
-// the source type from the matched payload reference, and the occurrence
-// commits with the FHIR-truth typed identity.
 func TestPostgresEdgeWriterGenericCrossTypeBackReferenceStoresPayloadSource(t *testing.T) {
 	s := newIngest02IngestService(t)
 	s.migrate(t)
 	crossRow := buildGenericRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Observation", ing02GenericCrossTypeLine)
 
-	// The quirk is present in the real builder's document: the
-	// subject_observation back-reference claims the row's own collection.
 	mislabelWitnessed := false
 	for _, raw := range crossRow.edges {
 		document, err := decodeTopLevelDocument(raw)
@@ -3134,8 +2791,6 @@ func TestPostgresEdgeWriterGenericCrossTypeBackReferenceStoresPayloadSource(t *t
 		"Observation", "focus-1", "Observation", "obs-cross", "focus", 0, k(ing02KeyCrossFocusBack))
 	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "subject_Patient",
 		"Observation", "obs-cross", "Patient", "patient-1", "subject", 0, k(ing02KeyCrossSubjectFwd))
-	// The recovered occurrence: typed source Patient/patient-1, not the
-	// document's mislabeled (Observation, patient-1).
 	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "subject_observation",
 		"Patient", "patient-1", "Observation", "obs-cross", "subject", 0, k(ing02KeyCrossSubjectBk))
 	if n := s.countEdges(t, ing02IngestProject, ing02IngestGen); n != 4 {
@@ -3143,12 +2798,6 @@ func TestPostgresEdgeWriterGenericCrossTypeBackReferenceStoresPayloadSource(t *t
 	}
 }
 
-// TestPostgresEdgeWriterBackReferenceSelectionPrefersLabelOverMistypedDecoy
-// pins the candidate-narrowing half: with the same peer key under two
-// fields — a decoy Observation/patient-1 under focus and the true
-// Patient/patient-1 under subject — the mis-declared row type must not let
-// the decoy outrank the position that built the document; the label token
-// does. The stored occurrence names the subject path and the Patient type.
 func TestPostgresEdgeWriterBackReferenceSelectionPrefersLabelOverMistypedDecoy(t *testing.T) {
 	payload := `{"resourceType":"Observation","id":"ref-e","status":"final",` +
 		`"focus":[{"reference":"Observation/patient-1"}],` +
@@ -3175,8 +2824,6 @@ func TestPostgresEdgeWriterBackReferenceSelectionPrefersLabelOverMistypedDecoy(t
 		t.Fatalf("decoy position won selection: %+v, want Patient/patient-1 at subject#0", r)
 	}
 
-	// Live half: the recovered source (Patient/patient-1) exists in scope,
-	// so the batch commits; the mislabeled source would not.
 	s := newIngest02IngestService(t)
 	s.migrate(t)
 	ownVertex := handBuiltVertex(ing02IngestProject, "", "Observation", "ref-e", "", payload, nil)
@@ -3199,24 +2846,9 @@ func TestPostgresEdgeWriterBackReferenceSelectionPrefersLabelOverMistypedDecoy(t
 		"Patient", "patient-1", "Observation", "ref-e", "subject", 0, &key)
 }
 
-// ---------------------------------------------------------------------------
-// Caller-cased reference prefixes: canonicalize, never byte-compare.
-// ---------------------------------------------------------------------------
-
-// TestPostgresEdgeWriterCaseVariantReferencePrefixStoresCanonicalTypes
-// witnesses the pipeline's documented casing tolerance (ConcreteResourceType
-// EqualFold fallback): the generated loader emits subject edges with
-// canonical Patient types for a "patient/patient-1" payload prefix. A
-// byte-for-byte comparison against the raw prefix would refuse the batch
-// the Arango pipeline accepts today, and persisting the raw prefix would
-// store a SourceResourceType that can never match the canonically stored
-// fhir_resource row. The unresolvable prefix must refuse typed instead.
 func TestPostgresEdgeWriterCaseVariantReferencePrefixStoresCanonicalTypes(t *testing.T) {
 	caseRow := buildGeneratedRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Observation", ing02GeneratedCaseRefLine)
 
-	// Offline: the document declares canonical Patient while the payload
-	// prefix is lower-case; conversion succeeds and stores canonical types
-	// on both directions.
 	recorder := &ing02Recorder{}
 	writer := &PostgresEdgeWriter{committer: recorder}
 	if _, err := writer.WriteEdgeBatch(context.Background(), ing02GenScope("ing02-ing/case/capture"),
@@ -3236,8 +2868,6 @@ func TestPostgresEdgeWriterCaseVariantReferencePrefixStoresCanonicalTypes(t *tes
 		}
 	}
 
-	// Live half: the canonically stored Patient/patient-1 satisfies the
-	// source precondition for the recovered back-reference.
 	s := newIngest02IngestService(t)
 	s.migrate(t)
 	rowsAll := []rowBuildResult{
@@ -3266,9 +2896,6 @@ func TestPostgresEdgeWriterCaseVariantReferencePrefixStoresCanonicalTypes(t *tes
 	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "subject_observation",
 		"Patient", "patient-1", "Observation", "obs-case", "subject", 0, k(ing02KeyCaseSubjectBack))
 
-	// Recovery half: the generic-shape mislabeled document over a
-	// lower-case prefix stores the CANONICAL recovered type, not the raw
-	// prefix (which could never satisfy the source precondition).
 	payload := `{"resourceType":"Observation","id":"ref-c","status":"final",` +
 		`"subject":{"reference":"patient/patient-1"}}`
 	built := handBuiltVertex(ing02IngestProject, "", "Observation", "ref-c", "", payload, nil)
@@ -3287,8 +2914,6 @@ func TestPostgresEdgeWriterCaseVariantReferencePrefixStoresCanonicalTypes(t *tes
 		t.Fatalf("recovery stored %+v, want canonical Patient/patient-1 at subject", got)
 	}
 
-	// Control: a genuinely unresolvable prefix is refused typed, never
-	// persisted.
 	badPayload := `{"resourceType":"Observation","id":"ref-u","status":"final",` +
 		`"subject":{"reference":"notatype/patient-1"}}`
 	badBuilt := handBuiltVertex(ing02IngestProject, "", "Observation", "ref-u", "", badPayload, nil)
@@ -3306,10 +2931,6 @@ func TestPostgresEdgeWriterCaseVariantReferencePrefixStoresCanonicalTypes(t *tes
 		t.Fatalf("unresolvable refusal category = %q, want %q", rowErr.Category, rowErrorEdge)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit.
-// ---------------------------------------------------------------------------
 
 func TestZZZeroLeftoverIngestPostgresEdgeFixtures(t *testing.T) {
 	raw := ing01TestPostgresURL(t)

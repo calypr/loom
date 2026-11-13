@@ -7,8 +7,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// Service is the Explorer application layer. It coordinates persistence and
-// deployment adapters while leaving all wire representation to transports.
 type Service struct {
 	store  *explorer.Service
 	config Config

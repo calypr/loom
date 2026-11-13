@@ -12,13 +12,7 @@ func valueString(value any) string {
 	return fmt.Sprint(value)
 }
 
-// CompilerPlanDiagnostics describes work the physical renderer will ask AQL to
-// perform. It deliberately reports compiler facts, not estimated database
-// cost: use it alongside Arango PROFILE to decide which rewrite is worthwhile.
 type CompilerPlanDiagnostics struct {
-	// Fingerprint is a deterministic structural identity for the validated
-	// physical plan. It is safe to expose in Explain because it is a digest,
-	// never the plan's bind values or authorization paths.
 	Fingerprint                       string
 	TraversalSets                     int
 	EndpointTraversalCount            int
@@ -35,17 +29,9 @@ type CompilerPlanDiagnostics struct {
 	ExpressionBindingCount            int
 	SharedKeyedMapCount               int
 	ObjectLookupConsumerCount         int
-	// OptimizationPolicy is the explainable decision record for optional
-	// physical rewrites. It reports both enabled rewrites and conservative
-	// rejections so rendered AQL is never the only evidence of a decision.
-	OptimizationPolicy PhysicalOptimizationReport
+	OptimizationPolicy                PhysicalOptimizationReport
 }
 
-// PhysicalTraversalDecision exposes the route strategy selected by the typed
-// physical compiler. It is deliberately metadata-only: no user values or raw
-// AQL are included. Native decisions explain whether endpoint lowering was
-// disabled by policy or rejected because its validated storage contract was
-// unavailable.
 type PhysicalTraversalDecision struct {
 	SourceVariable      string
 	TargetVariable      string
@@ -59,10 +45,6 @@ type PhysicalTraversalDecision struct {
 	Reason              string
 }
 
-// RichSourceReuse identifies a materialized relationship set that is scanned
-// repeatedly by rich projections. A high count does not mean the traversal is
-// repeated; it means aggregate/pivot/slice operations each loop over the same
-// already-materialized child set.
 type RichSourceReuse struct {
 	SourceSet          string
 	AggregateConsumers int
@@ -70,11 +52,6 @@ type RichSourceReuse struct {
 	SliceConsumers     int
 }
 
-// RichConsumerGroup is a renderer-independent compatibility classification
-// for rich expressions over one materialized set. A group is eligible only
-// when its complete semantic expression signature is identical; source reuse
-// alone is not enough to fuse predicates, ordering, pivot reduction, or slice
-// limits safely.
 type RichConsumerGroup struct {
 	SourceSet string
 	Kind      PhysicalExpressionKind
@@ -292,9 +269,6 @@ func collectRichConsumerGroups(expression *PhysicalExpression, groups map[string
 	groups[key] = &RichConsumerGroup{SourceSet: source, Kind: expression.Kind, Signature: signature, Consumers: 1}
 }
 
-// physicalTraversalOpportunityKey intentionally ignores scoped filters and
-// semantic provenance. It identifies broader neighbor traversals that could
-// serve multiple typed children once the scope-safe rewrite exists.
 func physicalTraversalOpportunityKey(plan PhysicalPlan, set PhysicalSet, setIndex int) string {
 	traversal := set.Subplan.Operations[0].Traversal
 	if traversal == nil {
@@ -302,9 +276,6 @@ func physicalTraversalOpportunityKey(plan PhysicalPlan, set PhysicalSet, setInde
 	}
 	unnestScope, err := physicalUnnestScopeIdentityAt(plan, setIndex)
 	if err != nil {
-		// Diagnostics must remain total even for a malformed candidate. The
-		// malformed scope is deliberately isolated from valid candidates rather
-		// than silently grouping it with the root scope.
 		unnestScope = "invalid-unnest-scope"
 	}
 	return traversal.SourceVariable + "|" + string(traversal.Direction) + "|" + valueString(plan.BindVars[traversal.EdgeCollectionBindKey]) + "|" + valueString(plan.BindVars[traversal.EdgeLabelBindKey]) + "|" + traversal.EdgeTargetTypeField + "|unnest=" + unnestScope

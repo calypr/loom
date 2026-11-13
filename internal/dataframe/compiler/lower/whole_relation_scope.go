@@ -31,18 +31,12 @@ func issueWholeRelationScopeEvidence(outputID string, plan ir.PhysicalPlan, sche
 	}
 	evidence, err := ir.NewWholeRelationScopeEvidence(plan, identity)
 	if err != nil {
-		// A typed plan can remain valid for ordinary execution while falling
-		// outside the stronger sealed-capture proof contract. Omit evidence so
-		// private grouped capture fails closed without changing query compilation.
 		return nil, nil, nil
 	}
 	return &evidence, &identity, nil
 }
 
 func wholeRelationScopeCandidate(plan ir.PhysicalPlan) bool {
-	// Ordinary AQL outputs can be captured as complete source relations too.
-	// Workspace ClickHouse plans receive evidence only after their ordered
-	// resolver and child-evidence operands have been validated.
 	return plan.Engine == "" || plan.Engine == ir.PhysicalEngineAQL
 }
 

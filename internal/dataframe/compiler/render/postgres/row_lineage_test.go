@@ -1,13 +1,5 @@
 package postgres
 
-// Offline + live battery for the pg-sql-23 bounded exact-row lineage
-// contributor page (row_lineage.go). The plans are production-lowered group
-// plans (group13LoweredPlan) with the contributor-page terminal attached in
-// exactly the compiler's minting posture (compiler/row_lineage.go:939-972) —
-// the render package may not import the compiler (cycle), so this helper is
-// the contract mirror; the compiler-side PostgreSQL lineage tests keep the
-// real mint honest.
-
 import (
 	"context"
 	"encoding/json"
@@ -24,15 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// Builders.
-// ---------------------------------------------------------------------------
-
-// sql23AttachTerminal mints the contributor-page terminal over a lowered
-// inline single-stage GROUP plan exactly as compiler/row_lineage.go does:
-// the two hidden root-row identity projections on the terminal RETURN, the
-// four page binds, and the typed terminal carrying the request/output proof
-// metadata. Bind-key names are the compiler's constants.
 func sql23AttachTerminal(t *testing.T, plan ir.PhysicalPlan, rowID string, offset, limit int) ir.PhysicalPlan {
 	t.Helper()
 	plan = ir.ClonePhysicalPlan(plan)
@@ -94,9 +77,6 @@ func sql23ContributorCell(resourceType, resourceID, occurrenceKey string) string
 		occurrenceKey, resourceID, resourceType)
 }
 
-// sql23Contributors decodes the published jsonb array into canonical
-// per-member texts (jsonb key order is not insertion order, so decoding,
-// not text comparison, is the authority).
 func sql23Contributors(t *testing.T, cell string) []string {
 	t.Helper()
 	var members []struct {
@@ -113,10 +93,6 @@ func sql23Contributors(t *testing.T, cell string) []string {
 	}
 	return out
 }
-
-// ---------------------------------------------------------------------------
-// Offline: the registered statement shape.
-// ---------------------------------------------------------------------------
 
 func TestRowLineageOfflineStatementShape(t *testing.T) {
 	plan := sql23LineagePlan(t, recipe.ConstructionGroupMissingKeyGroup, "opaque-row-id", 25, 10)
@@ -142,9 +118,6 @@ func TestRowLineageOfflineStatementShape(t *testing.T) {
 			t.Errorf("statement carries %q (AQL surface leaked):\n%s", forbidden, sqlText)
 		}
 	}
-	// Hidden minted reads reach their storage twins: the payload "id"
-	// property (the AQL root.payload.id twin) and logical_id (the root
-	// document key), never a payload.payload double-nesting.
 	var sawIDPath bool
 	for _, parameter := range rendered.Args {
 		if text, ok := parameter.Value.(string); ok && text == "{id}" {
@@ -155,14 +128,10 @@ func TestRowLineageOfflineStatementShape(t *testing.T) {
 		t.Errorf("the resource-id read must bind the payload-relative {id} path:\n%s", sqlText)
 	}
 	if !strings.Contains(sqlText, `"logical_id" AS "c2"`) && !strings.Contains(sqlText, `"logical_id" AS "c1"`) {
-		// The occurrence-key column materializes onto the typed logical_id
-		// column (canonicalKeyColumn reading).
 		if !strings.Contains(sqlText, `"logical_id"`) {
 			t.Errorf("the occurrence key must read the typed logical_id column:\n%s", sqlText)
 		}
 	}
-	// Page coordinates bind as bigint parameters: offset 25, fetch 11,
-	// limit 10 (the lookahead twin).
 	var bigints []int64
 	for _, parameter := range rendered.Args {
 		if parameter.Type == command.PostgreSQLParameterBigint {
@@ -172,11 +141,9 @@ func TestRowLineageOfflineStatementShape(t *testing.T) {
 	if len(bigints) != 3 || bigints[0] != 25 || bigints[1] != 11 || bigints[2] != 10 {
 		t.Fatalf("page coordinate parameters = %v, want [25 11 10]", bigints)
 	}
-	// The declared result contract.
 	if strings.Join(rendered.OutputColumns, ",") != "found,contributors,hasMore" {
 		t.Fatalf("output columns = %v", rendered.OutputColumns)
 	}
-	// Determinism: byte-identical re-render.
 	second := sql23Render(t, plan)
 	if second.SQL != sqlText {
 		t.Fatalf("re-render is not byte-identical")
@@ -185,10 +152,6 @@ func TestRowLineageOfflineStatementShape(t *testing.T) {
 		t.Fatalf("re-render arguments drifted")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Offline: the refusal register (entry == dispatch equality).
-// ---------------------------------------------------------------------------
 
 func TestRowLineageRefusalRegister(t *testing.T) {
 	cases := []struct {
@@ -308,10 +271,6 @@ func TestRowLineageRefusalRegister(t *testing.T) {
 	}
 }
 
-// TestRowLineageUnclaimedShapesDualVoices pins shapes the claim test
-// releases: the ENTRY must keep the merged door voice (the shape falls
-// through untouched), while a direct door call — the arm's perspective —
-// speaks this slice's registered contract refusal for the same shape.
 func TestRowLineageUnclaimedShapesDualVoices(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -354,9 +313,6 @@ func TestRowLineageUnclaimedShapesDualVoices(t *testing.T) {
 	}
 }
 
-// TestRowLineageDoorClaimsNothingElse pins the #132 voice law: every shape
-// this slice does not claim keeps speaking the merged voice of the door
-// that claimed it before the row-lineage door existed.
 func TestRowLineageDoorClaimsNothingElse(t *testing.T) {
 	t.Run("cell-trace-companion", func(t *testing.T) {
 		plan := sql23LineagePlan(t, recipe.ConstructionGroupMissingKeyGroup, "opaque-row-id", 0, 5)
@@ -383,9 +339,6 @@ func TestRowLineageDoorClaimsNothingElse(t *testing.T) {
 		}
 	})
 	t.Run("traced-falls-to-registered-voice", func(t *testing.T) {
-		// A traced terminal is not claimed (Trace != nil in the claim
-		// test); the door that owns the shape must speak its registered
-		// refusal, never this slice's.
 		plan := sql23LineagePlan(t, recipe.ConstructionGroupMissingKeyGroup, "opaque-row-id", 0, 5)
 		plan.StageSequence.RowLineageReturn.Trace = &ir.PhysicalRowLineageTrace{RootKeyBindKey: "row_lineage_root_key"}
 		_, err := RenderPhysicalPlan(plan, mustBinding(t))
@@ -397,9 +350,6 @@ func TestRowLineageDoorClaimsNothingElse(t *testing.T) {
 		}
 	})
 	t.Run("hand-assembled-empty-terminal-falls-through", func(t *testing.T) {
-		// The hand-assembled posture the merged tests pinned: a terminal
-		// with no bind keys is not claimed and keeps the pre-existing
-		// registered voice (it never reaches the validator's arms).
 		plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
 		plan.StageSequence.RowLineageReturn = &ir.PhysicalRowLineageReturn{}
 		_, err := RenderPhysicalPlan(plan, mustBinding(t))
@@ -409,7 +359,6 @@ func TestRowLineageDoorClaimsNothingElse(t *testing.T) {
 	})
 }
 
-// TestRowLineagePolicyAndOrderArms pins the registered page laws offline.
 func TestRowLineagePolicyAndOrderArms(t *testing.T) {
 	t.Run("exclude-drops-null-key-rows", func(t *testing.T) {
 		rendered := sql23Render(t, sql23LineagePlan(t, recipe.ConstructionGroupMissingKeyExclude, "opaque-row-id", 0, 5))
@@ -438,9 +387,6 @@ func TestRowLineagePolicyAndOrderArms(t *testing.T) {
 	})
 	t.Run("page-capped-at-limit-not-fetch", func(t *testing.T) {
 		rendered := sql23Render(t, sql23LineagePlan(t, recipe.ConstructionGroupMissingKeyGroup, "opaque-row-id", 3, 7))
-		// The published array is the first @limit of the bounded relation;
-		// hasMore compares the fetch-bounded relation against @limit. The
-		// group selection is a literal LIMIT 1.
 		if strings.Count(rendered.SQL, "LIMIT $") != 2 || !strings.Contains(rendered.SQL, "LIMIT 1") {
 			t.Fatalf("statement must bound the page at the fetch limit, cap the published array at the limit, and select one group:\n%s", rendered.SQL)
 		}
@@ -455,10 +401,6 @@ func TestRowLineagePolicyAndOrderArms(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// Live fixtures: the verify_sql23v1_* namespace, owned by this ticket.
-// ---------------------------------------------------------------------------
 
 const sql23Namespace = "verify_sql23v1_"
 
@@ -503,10 +445,6 @@ func sql23SnapshotOwnedResources(ctx context.Context, raw string) ([]string, err
 	return names, rows.Err()
 }
 
-// sql23RunDeltaAudit wraps the composed audit chain with a delta-scoped
-// audit over the disjoint verify_sql23v1_* namespace (the group13/pivot14/
-// sql16 pattern): every resource born during the run and surviving must
-// have been tracked by a live test here, and none may survive at all.
 func sql23RunDeltaAudit(inner func() int) int {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
@@ -578,10 +516,6 @@ func sql23Payload(id, status string) map[string]any {
 	return row
 }
 
-// sql23PreviewIdentity executes the preview statement (the group slice's own
-// rendering of the same plan without the terminal) and returns the identity
-// cell of the row whose first column equals statusKey — the identity is
-// taken OUT of the executed preview, never re-derived, per the L1 law.
 func sql23PreviewIdentity(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan, statusKey string) string {
 	t.Helper()
 	preview := ir.ClonePhysicalPlan(plan)
@@ -605,10 +539,6 @@ func sql23PreviewIdentity(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan
 func sql23RunPage(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) (found, hasMore string, contributors []string) {
 	t.Helper()
 	rendered := group13RenderSvc(t, svc, plan)
-	// The published contract is jsonb, and rows.Values() hands back a decoded
-	// Go value whose %v form is Go map syntax, not JSON. The runner wraps the
-	// compiled statement unchanged and casts the three contract columns to
-	// text, so the cell the driver reports is the JSON PostgreSQL published.
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {
 		args[index] = parameter.Value
@@ -641,22 +571,16 @@ func sql23RunPage(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) (found
 	return foundCells[0], hasMoreCells[0], sql23Contributors(t, contributorCells[0])
 }
 
-// ---------------------------------------------------------------------------
-// L1/L2: preview round-trip and the missing row.
-// ---------------------------------------------------------------------------
-
 func TestRowLineageLivePreviewRoundTrip(t *testing.T) {
 	svc := newSQL23Service(t)
 	sql23TrackFixtures(t, svc)
 	sql23Insert(t, svc, "obs-a", sql23Payload("obs-a", "final"))
 	sql23Insert(t, svc, "obs-b", sql23Payload("obs-b", "final"))
 	sql23Insert(t, svc, "obs-c", sql23Payload("obs-c", "amended"))
-	// A stored JSON-null id must reach the member as JSON null.
 	sql23Insert(t, svc, "obs-d", map[string]any{"id": nil, "status": "final"})
 
 	plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
 	identity := sql23PreviewIdentity(t, svc, plan, "final")
-	// The published identity is the group emitter's exact composition.
 	if want := group13Identity(t, plan, []group13Member{group13TextMember("status_group", "final")}); identity != want {
 		t.Fatalf("preview identity %q, want %q", identity, want)
 	}
@@ -675,12 +599,10 @@ func TestRowLineageLivePreviewRoundTrip(t *testing.T) {
 		t.Fatalf("contributors mismatch:\n got %v\nwant %v", contributors, want)
 	}
 
-	// Determinism across executions.
 	if again, _, againMembers := sql23RunPage(t, svc, page); again != "true" || strings.Join(againMembers, "|") != strings.Join(want, "|") {
 		t.Fatalf("page drifted between executions: %v", againMembers)
 	}
 
-	// No plan value leaks into statement text.
 	rendered := group13RenderSvc(t, svc, page)
 	for _, leaked := range []string{group13Project, group13Generation, group13AuthPath, "final", "amended", identity} {
 		if strings.Contains(rendered.SQL, leaked) {
@@ -688,7 +610,6 @@ func TestRowLineageLivePreviewRoundTrip(t *testing.T) {
 		}
 	}
 
-	// L2: a missing row is one distinguishable row, not an empty group.
 	missing := sql23AttachTerminal(t, plan, `[["construction","pg13_group"],["operation","GROUP"],["status_group","cancelled"]]`, 0, 10)
 	found, hasMore, contributors = sql23RunPage(t, svc, missing)
 	if found != "false" || hasMore != "false" || strings.Join(contributors, "|") != "" {
@@ -696,15 +617,11 @@ func TestRowLineageLivePreviewRoundTrip(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L3: the null-key group resolves through IS NOT DISTINCT FROM.
-// ---------------------------------------------------------------------------
-
 func TestRowLineageLiveNullKeyGroup(t *testing.T) {
 	svc := newSQL23Service(t)
 	sql23TrackFixtures(t, svc)
-	sql23Insert(t, svc, "obs-n1", sql23Payload("obs-n1", ""))                    // status MISSING
-	sql23Insert(t, svc, "obs-n2", map[string]any{"id": "obs-n2", "status": nil}) // status JSON null
+	sql23Insert(t, svc, "obs-n1", sql23Payload("obs-n1", ""))
+	sql23Insert(t, svc, "obs-n2", map[string]any{"id": "obs-n2", "status": nil})
 	sql23Insert(t, svc, "obs-k", sql23Payload("obs-k", "final"))
 
 	plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
@@ -724,8 +641,6 @@ func TestRowLineageLiveNullKeyGroup(t *testing.T) {
 		t.Fatalf("null-key contributors (AQL == is null-equal; SQL = would drop them):\n got %v\nwant %v", contributors, want)
 	}
 
-	// EXCLUDE: the null-key rows never group, so the page distinguishes
-	// found=false from the GROUP policy's found=true above.
 	found, hasMore, contributors = sql23RunPage(t, svc, sql23AttachTerminal(t,
 		group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyExclude), identity, 0, 10))
 	if found != "false" || hasMore != "false" || strings.Join(contributors, "|") != "" {
@@ -733,22 +648,15 @@ func TestRowLineageLiveNullKeyGroup(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L4: page bounds, order, and the hasMore lookahead.
-// ---------------------------------------------------------------------------
-
 func TestRowLineageLivePaging(t *testing.T) {
 	svc := newSQL23Service(t)
 	sql23TrackFixtures(t, svc)
 	for _, id := range []string{"p-a", "p-b", "p-c", "p-d", "p-e"} {
 		sql23Insert(t, svc, id, sql23Payload(id, "final"))
 	}
-	// Out-of-scope witnesses must never contribute.
 	svc.insertResource(t, svc.schema, group13Project, group13Generation, "Observation", "w-denied", "FHIR/Hidden", sql23Payload("w-denied", "final"))
 	svc.insertResource(t, svc.schema, group13Project, "p23-old-gen", "Observation", "w-oldgen", group13AuthPath, sql23Payload("w-oldgen", "final"))
 	svc.insertResource(t, svc.schema, "p23-foreign", group13Generation, "Observation", "w-foreign", group13AuthPath, sql23Payload("w-foreign", "final"))
-	// A same-scope row of another resource type: dropping the resource-type
-	// predicate would let it into both the keyed group and the keyless page.
 	svc.insertResource(t, svc.schema, group13Project, group13Generation, "Patient", "w-patient", group13AuthPath, sql23Payload("w-patient", "final"))
 
 	plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
@@ -790,23 +698,12 @@ func TestRowLineageLivePaging(t *testing.T) {
 		}
 	}
 
-	// Keyless-group witness: the whole-population group covers exactly the
-	// five in-scope rows — the auth-path, generation, project, and
-	// resource-type witnesses never contribute.
 	if _, _, all := sql23RunPage(t, svc, sql23AttachTerminal(t,
 		group13KeylessPlan(t), group13Identity(t, group13KeylessPlan(t), nil), 0, 100)); len(all) != 5 {
 		t.Fatalf("keyless page must hold exactly the in-scope rows: %v", all)
 	}
 }
 
-// TestRowLineageLiveCollationOrder pins the byte order of the page. The
-// service database collates en_US.utf8, so "C" is a real difference, not a
-// no-op: the four keys below order k-B,k-C,k-a,k-b in "C" but k-a,k-b,k-B,k-C
-// under the database default. The published order is set by the aggregate's
-// own COLLATE "C"; which rows reach the published window is set by the page
-// relation's COLLATE "C" before its OFFSET/LIMIT, so a page order that fell
-// back to the database collation publishes a different MEMBER SET, not just a
-// different sequence.
 func TestRowLineageLiveCollationOrder(t *testing.T) {
 	svc := newSQL23Service(t)
 	sql23TrackFixtures(t, svc)
@@ -822,9 +719,6 @@ func TestRowLineageLiveCollationOrder(t *testing.T) {
 		want          []string
 		hasMore       string
 	}{
-		// The limit-1 window is the membership check: "C" reaches the page
-		// with k-B and k-C, the database collation would reach it with k-a
-		// and k-b.
 		{0, 1, []string{"k-B"}, "true"},
 		{0, 2, []string{"k-B", "k-C"}, "true"},
 		{1, 1, []string{"k-C"}, "true"},
@@ -853,10 +747,6 @@ func cellsOf(ids []string) []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// L5: guard raises are candidate-positioned and scope is exact.
-// ---------------------------------------------------------------------------
-
 func TestRowLineageLiveGuardRaises(t *testing.T) {
 	svc := newSQL23Service(t)
 	sql23TrackFixtures(t, svc)
@@ -866,18 +756,14 @@ func TestRowLineageLiveGuardRaises(t *testing.T) {
 	base := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
 	identity := sql23PreviewIdentity(t, svc, base, "final")
 
-	// A healthy page over healthy rows.
 	if found, _, members := sql23RunPage(t, svc, sql23AttachTerminal(t, base, identity, 0, 10)); found != "true" || len(members) != 2 {
 		t.Fatalf("healthy page: %s %v", found, members)
 	}
 
-	// ERROR policy: a null-key row raises the canonical tag through the
-	// guard barrier even though the GROUP-policy page resolves fine.
 	sql23Insert(t, svc, "poison-null", sql23Payload("poison-null", ""))
 	errorPlan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyError)
 	group13ExpectRaise(t, svc, group13RenderSvc(t, svc, sql23AttachTerminal(t, errorPlan, identity, 0, 10)), groupMissingKeyTag)
 
-	// Key-type witness: a numeric status raises the canonical mismatch tag.
 	sql23Insert(t, svc, "poison-type", map[string]any{"id": "poison-type", "status": 7})
 	group13ExpectRaise(t, svc, group13RenderSvc(t, svc, sql23AttachTerminal(t,
 		group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup), identity, 0, 10)), groupKeyTypeTag)

@@ -145,8 +145,6 @@ func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *test
 	staleTargetRoot := addObservation("027_stale_target", "stale-target", project, generation, "/allowed")
 	foreignTargetRoot := addObservation("028_foreign_target", "foreign-target", project, generation, "/allowed")
 
-	// The first root is a seed-only false positive: its later related Patient
-	// matches, but its sorted-first Patient does not.
 	addEdge("false_first_nonmatch", falsePositiveRoot, nonmatchingFirst, project, generation, "/allowed")
 	addEdge("false_later_match", falsePositiveRoot, target, project, generation, "/allowed")
 	addEdge("first_target", firstEligibleRoot, target, project, generation, "/allowed")

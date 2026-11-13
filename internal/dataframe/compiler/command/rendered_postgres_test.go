@@ -39,7 +39,6 @@ func TestRenderedPostgresPlanPlaceholderContract(t *testing.T) {
 	text := func(v string) command.PostgreSQLParameter {
 		return command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: v}
 	}
-	// Placeholder reuse is legal; every $1..$n must appear at least once.
 	okPlan(t, `SELECT $1, $1 WHERE $2 = $1`, []command.PostgreSQLParameter{text("a"), text("b")}, nil)
 
 	for _, tc := range []struct {
@@ -57,7 +56,6 @@ func TestRenderedPostgresPlanPlaceholderContract(t *testing.T) {
 			t.Errorf("%s: error = %v, want ErrRenderedPostgresPlaceholderMismatch", tc.name, err)
 		}
 	}
-	// Zero arguments require zero placeholders.
 	okPlan(t, `SELECT resource_seq FROM "s"."fhir_resource"`, nil, nil)
 	if _, err := command.NewRenderedPostgresPhysicalPlan(`SELECT $1`, nil, nil); !errors.Is(err, command.ErrRenderedPostgresPlaceholderMismatch) {
 		t.Fatalf("placeholder without arguments: error = %v", err)
@@ -74,9 +72,7 @@ func TestRenderedPostgresPlanArgumentValidationMatchesCommandContract(t *testing
 			t.Fatalf("malformed arguments accepted: %#v", args)
 		}
 	}
-	// SQL NULL is the dedicated null type with no value.
 	okPlan(t, `SELECT $1`, []command.PostgreSQLParameter{{Type: command.PostgreSQLParameterNull}}, nil)
-	// JSON null stays a JSONB value, distinct from SQL NULL.
 	okPlan(t, `SELECT $1`, []command.PostgreSQLParameter{{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage("null")}}, nil)
 }
 
@@ -100,8 +96,6 @@ func TestRenderedPostgresPlanCopiesAndValidatesOutputColumns(t *testing.T) {
 }
 
 func TestRenderedPostgresPlanSQLCarriesOnlyIdentifiersAndPlaceholders(t *testing.T) {
-	// A representative statement from the PostgreSQL renderer path: hostile
-	// values live only in the ordered arguments.
 	sql := `SELECT r0."logical_id" AS "c0" FROM "owner_schema"."fhir_resource" AS r0` +
 		` WHERE r0."project" = $1 AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($2::jsonb))`
 	hostile := `x'; DROP TABLE fhir_resource; --`

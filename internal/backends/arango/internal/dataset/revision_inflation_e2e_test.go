@@ -16,20 +16,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// F-B15 durable control (product repaired in REPAIR-5/Round 31; the red arm
-// stays armed as the regression witness and was observed PREVENTED against
-// the real store in Round 36): idempotent re-activation through the
-// pre-repair production ReleaseService.Activate path was NOT a no-op. Each identical
-// activation mints revision+1 into the sha-derived release ID
-// (internal/dataset/release.go:227,273-280) so the AQL alreadyActive guard
-// (internal/backends/arango/internal/dataset/release_store.go:209-210) can never match for
-// callers that re-enter via Create, and both pointer documents churn while the
-// release CONTENT (project/generation/gitCommit/publications/verifications) is
-// byte-identical. Recorded CONFIRMED in
-// verification/publication-bundle/FINDINGS.md Round 10 (runs 22ffa92b and
-// 97d6ab0f); this file replaces the broken truncated re-write (quarantined at
-// /tmp/opencode/revision_inflation_broken_a3a58c18.go).
-
 const riDatabasePrefix = "loom_verify_ri_"
 
 type riNoopVerifier struct{}
@@ -138,8 +124,6 @@ func riObserve(t *testing.T, ctx context.Context, client *store.Client, svc *dat
 		if uErr := json.Unmarshal(raw, &m); uErr != nil {
 			t.Fatalf("unmarshal active release: %v", uErr)
 		}
-		// Exclude derived, revision-dependent / wall-clock fields: content
-		// identity means project/generation/gitCommit/publications/verifications.
 		delete(m, "createdAt")
 		delete(m, "id")
 		canonical, mErr := json.Marshal(m)

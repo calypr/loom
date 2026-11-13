@@ -9,26 +9,11 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// TestRelationshipRegistryHasNoDirectOnlyTraversals is the tripwire that
-// keeps the direct-fallback branch of ProjectRelationshipObservation honest.
-// The shared projection prefers the inverse generated traversal and keeps
-// the direct orientation only as a fallback; every relationship-evidence
-// test pins that preference, so if the generated registry ever gains a
-// triple whose inverse is not also registered, real evidence would silently
-// start flowing through the fallback branch without any behavioral test
-// noticing. The census below proves no such triple exists. If it fails, the
-// named triple must be handled deliberately: either the registry gained an
-// asymmetric orientation by design (then the fallback branch needs a live
-// witness, not just the stub variant in TestRelationshipEvidenceProjection)
-// or the registry entry is wrong.
 func TestRelationshipRegistryHasNoDirectOnlyTraversals(t *testing.T) {
 	var directOnly []string
 	census := 0
 	for key, spec := range generatedschema.Traversals {
 		from, label, to := spec.FromType, spec.EdgeLabel, spec.ToType
-		// Production resolves through the composite key, so the record's
-		// own fields must agree with it; a disagreement makes the entry
-		// unreachable-by-lookup and is registry corruption worth failing.
 		if triple(from, label, to) != key {
 			t.Errorf("generated traversal record under key %q declares inconsistent fields %q", key, triple(from, label, to))
 			continue

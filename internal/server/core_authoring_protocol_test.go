@@ -117,11 +117,6 @@ type coreProtocolFixture struct {
 	beforeCompile func()
 }
 
-// newCoreProtocolFixture mounts the production generated strict adapter with the
-// real authoring handlers, lifecycle service, compile chain and persisted receipt
-// store. CompileReceipt/PreviewReceipt are the repository's established test-owned
-// service seams (mirroring the injected production implementations); the compile
-// callback stays available for scheduling interleavings at that existing boundary.
 func newCoreProtocolFixture(t *testing.T) *coreProtocolFixture {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
@@ -281,16 +276,9 @@ func (f *coreProtocolFixture) receiptEmittedLabel(t *testing.T, receiptID, publi
 	return ""
 }
 
-// TestCoreAuthoringProtocolVerticalWitness is the first joined production witness
-// (plan step 4 / M2): public Builder GET hydration, real POST commands save with
-// CAS identity, public reconcile compile with receipt validation and persistence,
-// and receipt-bound preview. Requests and identities are the ones the production
-// UI client actually sends. Rows come from the controlled execution boundary;
-// semantic row correctness is a separate milestone.
 func TestCoreAuthoringProtocolVerticalWitness(t *testing.T) {
 	fixture := newCoreProtocolFixture(t)
 
-	// 1. Initial hydration through the production read handler.
 	first, hydrated := fixture.getBuilder()
 	if first.StatusCode != http.StatusOK {
 		t.Fatalf("builder status=%d body=%s", first.StatusCode, first.Body)
@@ -299,7 +287,6 @@ func TestCoreAuthoringProtocolVerticalWitness(t *testing.T) {
 		t.Fatalf("builder identity mismatch: %+v", hydrated)
 	}
 
-	// 2. Real save with the identities the production UI client sends.
 	saved, ack := fixture.saveLabel("core-witness-save-1", "Patient Identifier", hydrated.DraftVersion, hydrated.DraftDigest)
 	if saved.StatusCode != http.StatusOK {
 		t.Fatalf("commands status=%d body=%s", saved.StatusCode, saved.Body)
@@ -327,13 +314,11 @@ func TestCoreAuthoringProtocolVerticalWitness(t *testing.T) {
 		t.Fatalf("history revision did not capture prior head: %+v err=%v", prior, err)
 	}
 
-	// 3. Public reload agrees with the acknowledged revision (later coherent read).
 	second, reloaded := fixture.getBuilder()
 	if second.StatusCode != http.StatusOK || reloaded.DraftVersion != 2 || reloaded.DraftDigest != ack.DraftDigest || reloaded.PreviousDraftRevisionId == nil || *reloaded.PreviousDraftRevisionId != wantRevision {
 		t.Fatalf("reload disagrees with acknowledgement: %+v", reloaded)
 	}
 
-	// 4. Reconciling the obsolete pre-save head is rejected at the CAS boundary.
 	stale, err := fixture.reconcile(1, fixture.initialDigest, "builder-1-1")
 	if err != nil {
 		t.Fatal(err)
@@ -342,7 +327,6 @@ func TestCoreAuthoringProtocolVerticalWitness(t *testing.T) {
 		t.Fatalf("stale reconcile status=%d body=%s", stale.StatusCode, stale.Body)
 	}
 
-	// 5. Reconcile the saved head: real compile, validation and receipt persistence.
 	response := fixture.MustReconcile(2, ack.DraftDigest, "builder-1-2")
 	compiled := fixture.decodeCompile(response)
 	coreProtocolExpectLabels(t, response.Body, "builder", "patients", "Patient Identifier")
@@ -357,7 +341,6 @@ func TestCoreAuthoringProtocolVerticalWitness(t *testing.T) {
 		t.Fatalf("persisted receipt contract label=%q want Patient Identifier", label)
 	}
 
-	// 6. Receipt-bound preview keeps the accepted compilation identity.
 	previewed := fixture.preview(compiled.ReceiptId)
 	if previewed.StatusCode != http.StatusOK {
 		t.Fatalf("preview status=%d body=%s", previewed.StatusCode, previewed.Body)
@@ -380,21 +363,12 @@ func TestCoreAuthoringProtocolVerticalWitness(t *testing.T) {
 		t.Fatalf("preview contract labels=%v", previewLabels)
 	}
 
-	// 7. A substituted receipt label cannot publish rows as success.
 	foreign := coreProtocolRequest(t, fixture.app, http.MethodPost, fixture.basePath+"/preview", `{"receiptId":"core-witness-foreign-receipt","outputId":"patients","limit":10}`, "")
 	if foreign.StatusCode == http.StatusOK || strings.Contains(foreign.Body, "Patient Identifier") {
 		t.Fatalf("foreign receipt label unexpectedly admitted: status=%d body=%s", foreign.StatusCode, foreign.Body)
 	}
 }
 
-// TestCoreAuthoringProtocolCompetingSaveDuringReconcile exercises one competing
-// save/refetch schedule: reconcile of saved head A is paused inside the compile
-// service seam, a concurrent commands request saves head B, then A's compile
-// completes. Acceptance: A's receipt and returned workspace describe the captured
-// CAS-validated A (not the later head), the public head is B, A's retained receipt
-// still executes (immutable-receipt contract), and B independently compiles and
-// previews. UI admission of A against B's current ownership is a separate mounted
-// driver boundary; this witness owns the server-side contract observations.
 func TestCoreAuthoringProtocolCompetingSaveDuringReconcile(t *testing.T) {
 	fixture := newCoreProtocolFixture(t)
 	first, hydrated := fixture.getBuilder()
@@ -427,7 +401,6 @@ func TestCoreAuthoringProtocolCompetingSaveDuringReconcile(t *testing.T) {
 		t.Fatal("compile seam was not reached")
 	}
 
-	// Save B while A's compile is suspended after CAS validation.
 	savedB, ackB := fixture.saveLabel("core-competing-save-b", "Patient Competing B", 1, fixture.initialDigest)
 	if savedB.StatusCode != http.StatusOK {
 		close(release)
@@ -445,7 +418,6 @@ func TestCoreAuthoringProtocolCompetingSaveDuringReconcile(t *testing.T) {
 	}
 	compiled := fixture.decodeCompile(response)
 
-	// The receipt and the returned workspace describe captured A, never B.
 	coreProtocolExpectLabels(t, response.Body, "builder", "patients", "Patient ID")
 	if label := fixture.receiptEmittedLabel(t, compiled.ReceiptId, "c_patient"); label != "Patient ID" {
 		t.Fatalf("receipt from A compile described %q, not the captured saved head", label)
@@ -454,13 +426,11 @@ func TestCoreAuthoringProtocolCompetingSaveDuringReconcile(t *testing.T) {
 		t.Fatalf("reconcile response leaked the later head into the validated workspace: %s", response.Body)
 	}
 
-	// The authoritative head advanced to B; the later coherent read shows it.
 	second, reloaded := fixture.getBuilder()
 	if second.StatusCode != http.StatusOK || reloaded.DraftVersion != 2 || reloaded.DraftDigest != ackB.DraftDigest {
 		t.Fatalf("head did not advance to the concurrent save: %+v", reloaded)
 	}
 
-	// A retained authorized historical receipt executes despite the newer head.
 	previewA := fixture.preview(compiled.ReceiptId)
 	if previewA.StatusCode != http.StatusOK {
 		t.Fatalf("historical receipt execution rejected: status=%d body=%s", previewA.StatusCode, previewA.Body)
@@ -473,7 +443,6 @@ func TestCoreAuthoringProtocolCompetingSaveDuringReconcile(t *testing.T) {
 		t.Fatalf("historical preview identity mismatch: %+v", previewResponse)
 	}
 
-	// The current head B compiles, previews and returns its own contract.
 	responseB := fixture.MustReconcile(2, ackB.DraftDigest, "builder-1-2")
 	compiledB := fixture.decodeCompile(responseB)
 	if compiledB.ReceiptId == compiled.ReceiptId {
@@ -488,16 +457,11 @@ func TestCoreAuthoringProtocolCompetingSaveDuringReconcile(t *testing.T) {
 		t.Fatalf("current preview B rejected or unbound: status=%d body=%s", previewB.StatusCode, previewB.Body)
 	}
 
-	// A's older receipt remains distinguishable by its frozen contract after B exists.
 	if labelA := fixture.receiptEmittedLabel(t, compiled.ReceiptId, "c_patient"); labelA != "Patient ID" {
 		t.Fatalf("frozen receipt A was mutated by the later head: %q", labelA)
 	}
 }
 
-// coreProtocolSeedStoredDraft replaces the persisted draft head through the same
-// CAS store write the production command path performs (testExplorerStore.SaveDraft,
-// http_test_helpers_test.go:142) so malformed or poisoned persisted state is seeded
-// without substituting any production service seam. It returns the accepted head.
 func coreProtocolSeedStoredDraft(t *testing.T, fixture *coreProtocolFixture, raw []byte, digest string) (int64, string) {
 	t.Helper()
 	current, err := fixture.store.Get(context.Background(), "project-a", "core-protocol")
@@ -514,13 +478,6 @@ func coreProtocolSeedStoredDraft(t *testing.T, fixture *coreProtocolFixture, raw
 	return stored.DraftVersion, stored.DraftDigest
 }
 
-// coreProtocolBoundaryFailure asserts the production strict route reported the typed
-// boundary failure (status, error code, error stage) and published no successful
-// compile/preview payload. Every authored error reaches this shape through
-// authoringErrorForOpenAPI (openapi_explorer_authoring_direct.go:738), which recovers the
-// lifecycle class/code/stage even when the preview transport wrapped it
-// (previewRouteError unwraps via explorer.AuthoringError.Unwrap,
-// explorer/authoring_errors.go:26).
 func coreProtocolBoundaryFailure(t *testing.T, response testHTTPResponse, stage string, wantStatus int, wantCode, wantErrorStage, wantMessageContains string) {
 	t.Helper()
 	if response.StatusCode != wantStatus {
@@ -553,22 +510,7 @@ func coreProtocolBoundaryFailure(t *testing.T, response testHTTPResponse, stage 
 	}
 }
 
-// TestCoreAuthoringProtocolErrorBoundaries is the C18 error family
-// (docs/verification/CORE_PROTOCOL_VERIFICATION_PLAN.md:335): malformed/incomplete
-// decoded data, missing output/receipt, compile failure, unsupported receipt contract
-// and invalid preview response must each be reported by the correct boundary as the
-// intended typed failure, without publishing a partial successful result, while the
-// relevant valid companion keeps working and retained prior state stays distinguishable
-// from newly accepted state. Requests go only through the production generated strict
-// adapter, handlers, lifecycle service, compile chain and persisted receipt store; the
-// only test-side action is persisted-state seeding through the exposed store handle.
 func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
-	// Malformed/incomplete decoded data at the reconcile boundary.
-	// ReconcileWithWorkspace decodes the persisted draft after CAS
-	// (authoring.go:559-561) and reports conflict AUTHORING_STATE_MISSING, so a draft
-	// that fails workspace decoding is a 409 typed failure, never a partial compile.
-	// The same undecodable head is refused by hydration as DRAFT_STATE_INVALID
-	// (query.go:127-130) rather than a partially hydrated Builder state.
 	t.Run("malformed-stored-draft", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		if _, hydrated := fixture.getBuilder(); hydrated.DraftVersion != 1 || hydrated.DraftDigest != fixture.initialDigest {
@@ -576,7 +518,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		}
 		receiptsBefore := len(fixture.store.receipts)
 
-		// (a) Truncated JSON: the persisted bytes cannot be decoded at all.
 		truncated := []byte(`{"apiVersion":"explorer.calypr.org/authoringv2"`)
 		if _, err := authoringv2.DecodeWorkspace(truncated); err == nil {
 			t.Fatal("truncated seed unexpectedly decodes as a workspace")
@@ -590,11 +531,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		hydrated, _ := fixture.getBuilder()
 		coreProtocolBoundaryFailure(t, hydrated, "builder hydration of truncated stored draft", http.StatusConflict, "DRAFT_STATE_INVALID", "builder", "")
 
-		// (b) Complete JSON that violates the persisted-workspace contract: the same
-		// canonical bytes with a blank explorer.title, which the persisted decoder rejects
-		// through authoringv2.Workspace.Validate ("explorer.title is required")
-		// (canonical.go:343-351). The seeded bytes are re-checked against the very decoder
-		// the handler uses, so this case cannot silently degrade into valid input.
 		raw, err := fixture.workspace.CanonicalJSON()
 		if err != nil {
 			t.Fatal(err)
@@ -625,7 +561,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 			t.Fatalf("rejected malformed drafts persisted receipts: %d new", len(fixture.store.receipts)-receiptsBefore)
 		}
 
-		// Valid companion: the same route accepts and compiles restored valid state.
 		restoredVersion, restoredDigest := coreProtocolSeedStoredDraft(t, fixture, raw, fixture.initialDigest)
 		saved, ack := fixture.saveLabel("core-errors-malformed-companion", "Patient Identifier", restoredVersion, restoredDigest)
 		if saved.StatusCode != http.StatusOK || ack.DraftVersion != restoredVersion+1 {
@@ -640,11 +575,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		}
 	})
 
-	// Missing receipt at the preview boundary. Preview looks the receipt up through the
-	// configured lookup (preview.go:28) which is domain.CompilationReceiptForExplorer for
-	// this fixture; a never-issued id yields explorer.ErrNotFound, wrapped as
-	// ClassNotFound COMPILE_RECEIPT_NOT_FOUND (lifecycle/errors.go:89-94) and mapped to 404
-	// by lifecycleErrorStatus (openapi_explorer_authoring_direct.go:810).
 	t.Run("missing-receipt-preview", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		compiled := fixture.decodeCompile(fixture.MustReconcile(1, fixture.initialDigest, "errors-missing-receipt-baseline"))
@@ -665,25 +595,12 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 			t.Fatalf("missing receipt preview moved the saved head")
 		}
 
-		// Valid companion: the real receipt still previews.
 		valid := fixture.preview(compiled.ReceiptId)
 		if valid.StatusCode != http.StatusOK || !strings.Contains(valid.Body, `"rows":[]`) {
 			t.Fatalf("valid companion preview rejected: status=%d body=%s", valid.StatusCode, valid.Body)
 		}
 	})
 
-	// Compile failure at the reconcile/compile boundary, driven by input the real engine
-	// rejects rather than by a substituted seam: the saved column source addresses a field
-	// for which the resolved capability snapshot has no candidate, so the document fails
-	// with the compiler's typed intent STALE_FIELD (semantic_compile.go:124-127), which
-	// CompileWorkspace reports as compile DOCUMENT_COMPILE_FAILED carrying that cause and
-	// JSON path (compile.go:184); lifecycle then maps *explorercompilation.Error to
-	// ClassUnprocessable with compilationErrorCode (authoring.go:410-415) → 422
-	// (openapi_explorer_authoring_direct.go:814). The fixture hook surface (beforeCompile,
-	// core_authoring_protocol_test.go:173-178) only observes the existing compile seam and
-	// cannot inject a compile error; the repository's existing tests drive it purely for
-	// scheduling interleavings (core_authoring_protocol_formal_replay_test.go:87-94), so it
-	// is deliberately not reused or widened here.
 	t.Run("compile-failure", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		retained := fixture.decodeCompile(fixture.MustReconcile(1, fixture.initialDigest, "errors-compile-retained"))
@@ -706,7 +623,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// The rejection must come from the compiler, not from an undecodable draft.
 		if _, err := authoringv2.DecodeWorkspace(variantRaw); err != nil {
 			t.Fatalf("compiler-rejection variant must stay a decodable draft: %v", err)
 		}
@@ -722,7 +638,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		}
 		coreProtocolBoundaryFailure(t, response, "reconcile of compiler-rejected saved draft", http.StatusUnprocessableEntity, "DOCUMENT_COMPILE_FAILED", "compile", "STALE_FIELD")
 
-		// No receipt published for the rejected attempt, retained state is untouched.
 		if len(fixture.store.receipts) != receiptsBefore {
 			t.Fatalf("failed compile persisted %d new receipts", len(fixture.store.receipts)-receiptsBefore)
 		}
@@ -736,17 +651,10 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		if retainedAfter.StatusCode != http.StatusOK || !strings.Contains(retainedAfter.Body, `"rows":[]`) {
 			t.Fatalf("retained receipt no longer previews after a failed compile: status=%d body=%s", retainedAfter.StatusCode, retainedAfter.Body)
 		}
-		// Retained vs newly accepted: the head carries the rejected draft identity while
-		// the only persisted receipt still describes the earlier accepted compilation.
 		if _, head := fixture.getBuilder(); head.DraftVersion != rejectedVersion || head.DraftDigest != rejectedDigest {
 			t.Fatalf("rejected draft did not remain the described head: %+v", head)
 		}
 
-		// Valid companion. Restoring the identical draft first shows the receipt store's
-		// content-addressed identity (the same compilation resolves to the same persisted
-		// receipt), so the newly accepted state is demonstrated with a real saved edit: a
-		// distinct receipt is published while the retained earlier receipt keeps its frozen
-		// contract and keeps previewing.
 		restoredVersion, restoredDigest := coreProtocolSeedStoredDraft(t, fixture, baseline, fixture.initialDigest)
 		restoredCompile := fixture.decodeCompile(fixture.MustReconcile(restoredVersion, restoredDigest, "errors-compile-companion-restore"))
 		if restoredCompile.ReceiptId != retained.ReceiptId {
@@ -777,21 +685,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		}
 	})
 
-	// Unsupported receipt contract at the preview boundary. The fixture wires
-	// ReceiptLookup straight to domain.CompilationReceiptForExplorer
-	// (core_authoring_protocol_test.go:179-181) and exposes no lookup hook, so this
-	// variant is driven only by persisted receipt state through the production lookup
-	// chain (service.go:357-359 → store.GetCompilationReceiptForExplorer) and the
-	// contract branches of validateReceiptRoute (policy.go:125-142): a receipt whose
-	// compiler contract is not executable is conflict RECEIPT_RECOMPILE_REQUIRED, and so
-	// is an incomplete receipt identity. Both are 409 via lifecycleErrorStatus.
-	// Boundaries recorded honestly instead of faked: a receipt with a foreign project or
-	// Explorer is rejected before any contract branch, at the lookup, as
-	// COMPILE_RECEIPT_NOT_FOUND (http_test_helpers_test.go:200-206) — that rejection is
-	// T1's coverage and is not re-asserted here; and the public-output-contract decode
-	// branch of validateReceiptOutputContract (policy.go:206-225) collapses into the same
-	// typed UNKNOWN_AUTHORING_OUTPUT as recipe membership, asserted in
-	// invalid-preview-response.
 	t.Run("unsupported-receipt-contract", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		compiled := fixture.decodeCompile(fixture.MustReconcile(1, fixture.initialDigest, "errors-contract-baseline"))
@@ -804,9 +697,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 		}
 		receiptsBefore := len(fixture.store.receipts)
 
-		// (a) Historical compiler contract: readable, but not executable natively.
-		// Constants mirror the unexported legacy identities in
-		// internal/explorer/compilation_receipt.go:27,36.
 		unsupported := genuine
 		unsupported.ID = "core-protocol-unsupported-contract"
 		unsupported.ReceiptFormatVersion = 3
@@ -820,7 +710,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 			t.Fatalf("unsupported-contract receipt executed: %s", response.Body)
 		}
 
-		// (b) Incomplete receipt identity (no recipe digest / no compiled outputs).
 		incomplete := genuine
 		incomplete.ID = "core-protocol-incomplete-contract"
 		incomplete.RecipeDigest = ""
@@ -834,21 +723,12 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 			t.Fatalf("preview failures changed persisted receipts: before=%d now=%d", receiptsBefore, len(fixture.store.receipts))
 		}
 
-		// Valid companion: the genuine current-contract receipt is unaffected.
 		valid := fixture.preview(compiled.ReceiptId)
 		if valid.StatusCode != http.StatusOK || !strings.Contains(valid.Body, `"rows":[]`) || !strings.Contains(valid.Body, "Patient ID") {
 			t.Fatalf("genuine receipt preview rejected: status=%d body=%s", valid.StatusCode, valid.Body)
 		}
 	})
 
-	// Invalid preview request/response at the preview boundary. Missing or blank
-	// identities are the malformed class of Preview itself, which trims them away
-	// (preview.go:13-15 → MALFORMED_REQUEST → 400), and an output the receipt never
-	// emitted is unprocessable UNKNOWN_AUTHORING_OUTPUT (preview.go:42-44). Neither can
-	// publish state. Note a nil body (openapi_explorer_authoring_direct.go:501-503) is
-	// unreachable through the generated strict adapter, which always binds a JSON object
-	// into the request struct (api.gen.go:20945-20949), so MALFORMED_AUTHORING_REQUEST is
-	// not exercisable from this route and is recorded as a boundary, not faked.
 	t.Run("invalid-preview-response", func(t *testing.T) {
 		fixture := newCoreProtocolFixture(t)
 		compiled := fixture.decodeCompile(fixture.MustReconcile(1, fixture.initialDigest, "errors-preview-baseline"))
@@ -872,8 +752,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 			}
 		}
 
-		// An output the receipt never emitted, whether absent from the recipe or outside
-		// its public contract, is one typed rejection at the same boundary.
 		response := coreProtocolRequest(t, fixture.app, http.MethodPost, fixture.basePath+"/preview", fmt.Sprintf(`{"receiptId":%q,"outputId":"never-emitted-output","limit":10}`, compiled.ReceiptId), "")
 		coreProtocolBoundaryFailure(t, response, "preview of output absent from the receipt", http.StatusUnprocessableEntity, "UNKNOWN_AUTHORING_OUTPUT", "preview", "")
 
@@ -884,7 +762,6 @@ func TestCoreAuthoringProtocolErrorBoundaries(t *testing.T) {
 			t.Fatalf("invalid preview requests moved the saved head")
 		}
 
-		// Valid companion: the well-formed receipt-bound request still succeeds.
 		valid := fixture.preview(compiled.ReceiptId)
 		var preview loomapi.PreviewResponse
 		if err := json.Unmarshal([]byte(valid.Body), &preview); err != nil {

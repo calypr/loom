@@ -11,14 +11,6 @@ import (
 	rows "github.com/calypr/loom/internal/backends/postgres/internal/rows"
 )
 
-// newPostgreSQLPlanJSONExecutor adapts the pool-shaped Querier (the
-// readiness-checked store pool) to the execution EXPLAIN runner. The
-// EXPLAIN statement and its ordered typed arguments arrive only inside the
-// tagged command via the shared DataFrame PostgreSQL row executor; the raw
-// single "QUERY PLAN" row is returned to the sanitizer and never surfaced.
-// (Moved verbatim from internal/server/explain_wiring.go by arch-backend-06:
-// the server may not import the private rows adapter; the adapter belongs to
-// the assembly that owns the pool.)
 func newPostgreSQLPlanJSONExecutor(querier rows.Querier) (dataframeexecution.PostgreSQLPlanJSONExecutor, error) {
 	executor, err := rows.NewExecutor(querier)
 	if err != nil {

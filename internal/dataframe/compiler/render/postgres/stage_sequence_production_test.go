@@ -1,32 +1,5 @@
 package postgres
 
-// Production-path and live acceptance legs for the pg-sql-16 composed
-// construction stage sequence (stage_sequence.go), plan §§9-10.
-//
-// The offline battery (stage_sequence_test.go) pins SQL shape; this file
-// executes it. Every composition here is production-compiled
-// (semantic.BuildRecipePlan → ResolveRecipePlan →
-// lower.CompileResolvedRecipePlan via sql16Compile/sql16ThreeStagePlans);
-// hand-shaping appears only in named single-point mutations documented at
-// the cell. Live legs are never-skip: with LOOM_TEST_POSTGRES_URL set a
-// broken environment fails through svc.fail, never a silent pass
-// ("mocks and skipped tests do not establish parity"). Service-less lanes
-// keep green by the package-shared testPostgresURL skip, which establishes
-// nothing; the ticket acceptance run must be LIVE (report-pinned).
-//
-// Live inventory (plan §10): L1 EXPAND→GROUP after-every-stage rows,
-// typed columns, independent identity; L2 three-stage exact after every
-// stage (×3 orderings — also P2/P3 production-compiled legs); L3 staged
-// PIVOT coexisting with the single-stage pivot door in one owned schema;
-// L6/P5 source-region SET over a production child-set recipe; L7
-// tail-index parity against the banked o1 oracle receipts (G1 emitter);
-// L9 preview LIMIT, guard raises (ASSERT tags via 22P02), and the
-// TestMain delta audit (census) over the verify_sql16v1_* namespace.
-// L4/L5 (semantic key, route adapter) land with the worker arms; L8/S10
-// are discharged by the D-16f fail-closed battery pins — the composition
-// correlation carries no registered comparison surface, so no live arm
-// exists to run (coordinator-ratified divergence register).
-
 import (
 	"encoding/json"
 	"errors"
@@ -43,9 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// sql16LiveService is one owned isolated database + schema per live cell
-// under the disjoint verify_sql16v1_* namespace, registered with the
-// TestMain delta audit (exact-name drops are the convergence proof).
 func sql16LiveService(t *testing.T) *pgir02Service {
 	t.Helper()
 	svc := newOwnedService(t, 0, "verify_sql16v1")
@@ -58,8 +28,6 @@ func sql16LiveService(t *testing.T) *pgir02Service {
 	return svc
 }
 
-// sql16SeedObservation inserts one Observation under the bindings the
-// production compile carries (group13 project/generation/auth path).
 func sql16SeedObservation(t *testing.T, svc *pgir02Service, logicalID string, payload map[string]any) {
 	t.Helper()
 	svc.insertResource(t, svc.schema, group13Project, group13Generation, "Observation", logicalID, group13AuthPath, payload)
@@ -73,9 +41,6 @@ func sql16DriverArgs(rendered command.RenderedPostgresPhysicalPlan) []any {
 	return args
 }
 
-// sql16ThroughStage returns the after-every-stage prefix: stages 0..through
-// only, with FinalColumns/FinalStageID/FinalRowIdentity re-derived from
-// the new terminal stage (the door's chain re-read still governs).
 func sql16ThroughStage(t *testing.T, plan ir.PhysicalPlan, through int) ir.PhysicalPlan {
 	t.Helper()
 	clone := ir.ClonePhysicalPlan(plan)
@@ -90,12 +55,6 @@ func sql16ThroughStage(t *testing.T, plan ir.PhysicalPlan, through int) ir.Physi
 	clone.StageSequence.FinalRowIdentity = last.RowIdentityColumn
 	return clone
 }
-
-// ---------------------------------------------------------------------------
-// Independent identity builders (group13Identity pattern): the expected
-// _key strings are assembled from the fixture literals and the plan's
-// registered construction IDs — never from the rendered SQL.
-// ---------------------------------------------------------------------------
 
 func sql16GroupIdentity(constructionID, keyColumnID, keyJSON string) string {
 	return fmt.Sprintf(`[["construction",%q],["operation","GROUP"],[%q,%s]]`,
@@ -119,8 +78,6 @@ func sql16JSONString(value string) string {
 	return string(encoded)
 }
 
-// sql16ExpectRows renders the plan against the owned schema and compares
-// the full result to literal rows (never recomputed from the renderer).
 func sql16ExpectRows(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan, want [][]string) {
 	t.Helper()
 	rendered, err := renderPhysicalPlanForSchema(plan, svc.schema)
@@ -146,9 +103,6 @@ func renderPhysicalPlanForSchema(plan ir.PhysicalPlan, schema string) (command.R
 	return RenderPhysicalPlan(plan, binding)
 }
 
-// sql16ProbeTypes wraps a rendered statement and probes the SQL type of
-// every output column through pg_typeof (the typed-column half of the
-// after-every-stage contract; the driver side is runRendered's scan types).
 func sql16ProbeTypes(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) []string {
 	t.Helper()
 	rendered, err := renderPhysicalPlanForSchema(plan, svc.schema)
@@ -167,11 +121,6 @@ func sql16ProbeTypes(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) []s
 	return rows[0]
 }
 
-// ---------------------------------------------------------------------------
-// L1 / P1 — EXPAND→GROUP: exact rows, typed columns, and independent
-// identity after EVERY stage (plan §11 first criterion).
-// ---------------------------------------------------------------------------
-
 func TestSQL16LiveExpandGroupAfterEveryStage(t *testing.T) {
 	svc := sql16LiveService(t)
 	sql16SeedObservation(t, svc, "obs-1", map[string]any{"status": "final", "note": []any{
@@ -184,9 +133,6 @@ func TestSQL16LiveExpandGroupAfterEveryStage(t *testing.T) {
 	sql16SeedObservation(t, svc, "obs-4", map[string]any{"status": "final"})
 	plan := sql16ExpandGroupPlan(t)
 
-	// After stage 0 (EXPAND, preserve-parent): five rows, ordinals from the
-	// LATERAL WITH ORDINALITY, identity = input source identity (the
-	// logical_id the source CTE materializes) + construction + ordinal.
 	expand := sql16ThroughStage(t, plan, 0)
 	sql16ExpectRows(t, svc, expand, [][]string{
 		{"final", "a", "0", "obs-1", sql16ExpandIdentity("expand_tag_values", sql16JSONString("obs-1"), "0")},
@@ -195,15 +141,10 @@ func TestSQL16LiveExpandGroupAfterEveryStage(t *testing.T) {
 		{"final", "<null>", "<null>", "obs-3", sql16ExpandIdentity("expand_tag_values", sql16JSONString("obs-3"), "null")},
 		{"final", "<null>", "<null>", "obs-4", sql16ExpandIdentity("expand_tag_values", sql16JSONString("obs-4"), "null")},
 	})
-	// Intermediate stage columns keep the jsonb document class (registered
-	// path reads); only the group key/reducers and identity scalars and the
-	// carried source identity cross as SQL scalars.
 	if got := sql16ProbeTypes(t, svc, expand); strings.Join(got, "|") != "jsonb|jsonb|bigint|text|text" {
 		t.Fatalf("expand stage SQL types = %v, want jsonb|jsonb|bigint|text|text", got)
 	}
 
-	// Terminal (GROUP): NULLS FIRST key order under COLLATE "C", identity
-	// built independently from the plan's construction ID.
 	sql16ExpectRows(t, svc, plan, [][]string{
 		{"<null>", "2", "2", "1", sql16GroupIdentity("group_tag_values", "grouped_tag_id", "null")},
 		{"a", "1", "1", "1", sql16GroupIdentity("group_tag_values", "grouped_tag_id", `"a"`)},
@@ -213,11 +154,6 @@ func TestSQL16LiveExpandGroupAfterEveryStage(t *testing.T) {
 		t.Fatalf("group stage SQL types = %v, want text|bigint|bigint|bigint|text", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// L2 / P2 / P3 — three-stage exact rows after every stage, all three
-// registered orderings, each production-compiled with zero hand-shaping.
-// ---------------------------------------------------------------------------
 
 func TestSQL16LiveThreeStageAfterEveryStage(t *testing.T) {
 	svc := sql16LiveService(t)
@@ -237,7 +173,6 @@ func TestSQL16LiveThreeStageAfterEveryStage(t *testing.T) {
 		{"final", "[]", "obs-4"},
 	}
 
-	// P2: FILTER→EXPAND→GROUP.
 	t1 := plans["group-last"]
 	sql16ExpectRows(t, svc, sql16ThroughStage(t, t1, 0), filtered)
 	t1Expand := [][]string{
@@ -253,7 +188,6 @@ func TestSQL16LiveThreeStageAfterEveryStage(t *testing.T) {
 		{"b", "1", "1", "1", sql16GroupIdentity("group_tag_values", "grouped_tag_id", `"b"`)},
 	})
 
-	// P3: FILTER→GROUP→staged PIVOT (row-value ONE feeds the category).
 	t2 := plans["pivot-last"]
 	sql16ExpectRows(t, svc, sql16ThroughStage(t, t2, 0), filtered)
 	groupIdentity := sql16GroupIdentity("group_status_values", "status_group_id", `"final"`)
@@ -264,7 +198,6 @@ func TestSQL16LiveThreeStageAfterEveryStage(t *testing.T) {
 		{"final", "3", sql16PivotIdentity("tier_pivot", "STRING", `"final"`)},
 	})
 
-	// T3: FILTER→GROUP→EXPAND over the ALL row-value array (D-16c posture).
 	t3 := plans["expand-last"]
 	sql16ExpectRows(t, svc, sql16ThroughStage(t, t3, 0), filtered)
 	sql16ExpectRows(t, svc, sql16ThroughStage(t, t3, 1), [][]string{
@@ -276,21 +209,12 @@ func TestSQL16LiveThreeStageAfterEveryStage(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// L3 — staged PIVOT coexisting with the single-stage pivot door in one
-// owned schema: both registered render paths execute side by side.
-// ---------------------------------------------------------------------------
-
 func TestSQL16LiveStagedPivotCoexistence(t *testing.T) {
 	svc := sql16LiveService(t)
 	sql16SeedObservation(t, svc, "obs-1", map[string]any{"status": "final", "valueString": "x"})
 	sql16SeedObservation(t, svc, "obs-3", map[string]any{"status": "final", "valueString": "y"})
 	sql16SeedObservation(t, svc, "obs-4", map[string]any{"status": "final", "valueString": "z"})
 
-	// The single-stage PIVOT goes through the registered inline door
-	// (C-06), not the composition: one PIVOT step over the direct source.
-	// Keys class, category status, value id (the three slot roles must be
-	// pairwise distinct by the registered pivot contract).
 	final := "final"
 	single := sql16Compile(t, recipe.Output{
 		Name: "sql16_single_pivot", RootResourceType: "Observation", RowGrain: "observation",
@@ -320,11 +244,6 @@ func TestSQL16LiveStagedPivotCoexistence(t *testing.T) {
 				},
 			}}},
 	})
-	// The single-step PIVOT reaches the composition door's single-stage
-	// claim (one stage; the C-06 receipt), while GROUP/CODED_GROUP/CODED_
-	// PIVOT keep their untouched inline doors (C-07..C-09 goldens, offline
-	// battery). Coexistence here: both pivot render paths mint CTE names
-	// in one owned schema without collision and both execute.
 	if single.StageSequence == nil || len(single.StageSequence.Stages) != 1 {
 		t.Fatalf("single-step pivot compiled without a one-stage sequence: %#v", single.StageSequence)
 	}
@@ -338,19 +257,12 @@ func TestSQL16LiveStagedPivotCoexistence(t *testing.T) {
 		{"z", "obs-4", sql16PivotIdentity("class_pivot", "STRING", `"z"`)},
 	})
 
-	// The composed staged PIVOT executes in the same owned schema.
 	t2 := sql16ThreeStagePlans(t)["pivot-last"]
 	sql16SeedObservation(t, svc, "obs-2", map[string]any{"status": "entered-in-errors", "note": []any{}})
 	sql16ExpectRows(t, svc, t2, [][]string{
 		{"final", "3", sql16PivotIdentity("tier_pivot", "STRING", `"final"`)},
 	})
 }
-
-// ---------------------------------------------------------------------------
-// L6 / P5 — the source-region SET arm (L-13.2 closure) over a production
-// child-set recipe: the SET is lowering-minted, the composition renders
-// it, and its removal would be the L-19.4 silent-drop class.
-// ---------------------------------------------------------------------------
 
 func TestSQL16LiveSourceRegionSET(t *testing.T) {
 	svc := sql16LiveService(t)
@@ -388,10 +300,6 @@ func TestSQL16LiveSourceRegionSET(t *testing.T) {
 	if !sawSet {
 		t.Fatalf("production lowering emitted no child-set SET: %#v", plan.Operations)
 	}
-	// The SET arm is load-bearing: the correlated child set survives
-	// rendering (its slice column arrives populated for the row that owns
-	// the edge, empty for the one that does not — here only the kept row
-	// is compared) and the FILTER stage converges to the literal row.
 	rendered, err := renderPhysicalPlanForSchema(plan, svc.schema)
 	if err != nil {
 		svc.fail("render SET composition", err)
@@ -411,10 +319,6 @@ func TestSQL16LiveSourceRegionSET(t *testing.T) {
 	}
 }
 
-// compileWithRegisteredSurfacePolicy runs the production lowering with the
-// endpoint-traversal rule ablated exactly as the registered PostgreSQL
-// surface requires (obj11RegisteredSurfacePolicy, sanctioned single-rule
-// switch); everything else is production default.
 func compileWithRegisteredSurfacePolicy(t *testing.T, bundle recipe.Bundle) (ir.PhysicalPlan, error) {
 	t.Helper()
 	bindings := recipe.RuntimeBindings{
@@ -447,18 +351,8 @@ func compileWithRegisteredSurfacePolicy(t *testing.T, bundle recipe.Bundle) (ir.
 	return output.Plan, nil
 }
 
-// ---------------------------------------------------------------------------
-// L7 — tail-index parity against the banked o1 oracle receipts: the G1
-// emitter (documentPathStepsFromExpression) must read the LAST item for a
-// bound negative index, exactly as the ArangoDB wire receipts attest.
-// ---------------------------------------------------------------------------
-
 func TestSQL16LiveTailIndexParity(t *testing.T) {
 	svc := sql16LiveService(t)
-	// The last component carries the only UCUM/cm reading: index 0 drops
-	// empty (non-conforming unit), index -1 must read it — the oracle-
-	// attested tail branch of the registered CASE, never an out-of-range
-	// null and never an in-range alias.
 	payload := map[string]any{"status": "final", "component": []any{
 		map[string]any{"valueQuantity": map[string]any{"value": 7, "system": "urn:not-ucum", "code": "cm"}},
 		map[string]any{"valueQuantity": map[string]any{"value": 9, "system": sql21UCUM, "code": "cm"}},
@@ -479,16 +373,9 @@ func TestSQL16LiveTailIndexParity(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L9 — preview LIMIT binding, guard raises (ASSERT tags via 22P02), and
-// (via TestMain) the verify_sql16v1_* census.
-// ---------------------------------------------------------------------------
-
 func TestSQL16LivePreviewLimitAndGuardRaises(t *testing.T) {
 	svc := sql16LiveService(t)
 
-	// Preview LIMIT: the terminal LIMIT binds a bigint parameter and
-	// truncates the totally-ordered result to the bound count.
 	sql16SeedObservation(t, svc, "obs-1", map[string]any{"status": "final", "note": []any{
 		map[string]any{"text": "a"}, map[string]any{"text": "b"},
 	}})
@@ -500,8 +387,6 @@ func TestSQL16LivePreviewLimitAndGuardRaises(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("preview limit rows = %v, want the first 2 of the total order", rows)
 	}
-	// A non-positive or non-int bind is the registered typed refusal
-	// (stage_sequence.go:452-453 twin).
 	bad := ir.ClonePhysicalPlan(limited)
 	bad.BindVars["preview_limit"] = 0
 	if _, err := renderPhysicalPlanForSchema(bad, svc.schema); err == nil ||
@@ -509,8 +394,6 @@ func TestSQL16LivePreviewLimitAndGuardRaises(t *testing.T) {
 		t.Fatalf("non-positive preview bind refused with %v, want the registered refusal", err)
 	}
 
-	// Guard raise: a numeric EXPAND item reaches the ASSERT barrier and
-	// raises 22P02 naming the registered tag (plain under EXPLAIN first).
 	sql16SeedObservation(t, svc, "obs-bad-item", map[string]any{"status": "final", "note": []any{
 		map[string]any{"text": 42},
 	}})
@@ -531,7 +414,6 @@ func TestSQL16LivePreviewLimitAndGuardRaises(t *testing.T) {
 		t.Fatalf("numeric expand item = %v, want 22P02 naming CONSTRUCTION_EXPAND_ITEM_TYPE_MISMATCH", err)
 	}
 
-	// Guard raise: a numeric GROUP key raises the key-tag barrier.
 	sql16SeedObservation(t, svc, "obs-bad-key", map[string]any{"status": 42})
 	badKey := sql16ThreeStagePlans(t)["pivot-last"]
 	guardedKey := mustRender(t, badKey, svc.schema)

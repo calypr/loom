@@ -158,10 +158,6 @@ func bearerTokenWithIssuer(issuer string) string {
 	return "Bearer e30." + encodedIssuer + ".signature"
 }
 
-// bearerTokenWithIssuerAndNonce mints a distinct bearer token for the same
-// issuer so each call hashes to its own cache key, the way a renewing client
-// does. The nonce is echoed back as the granted resource by
-// fenceGrantHandler so a test can tell which snapshot a lookup served.
 func bearerTokenWithIssuerAndNonce(issuer, nonce string) string {
 	encodedIssuer := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"` + issuer + `"}`))
 	return "Bearer e30." + encodedIssuer + ".sig-" + nonce
@@ -178,8 +174,6 @@ func fenceGrantHandler(calls *atomic.Int32) http.HandlerFunc {
 	}
 }
 
-// fenceGrantedResource is the resource fenceGrantHandler advertises for a
-// token minted with the given nonce.
 func fenceGrantedResource(nonce string) string {
 	return "/programs/example/projects/sig-" + nonce
 }
@@ -240,7 +234,6 @@ func TestFenceUserAccessClientEvictsExpiredSnapshotAndRefetches(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatalf("Fence calls = %d, want a fresh fetch after expiry", calls.Load())
 	}
-	// The expired snapshot is replaced, not accumulated.
 	if got := fenceCacheLen(client); got != 1 {
 		t.Fatalf("retained entries = %d, want 1 after refetch", got)
 	}
@@ -274,7 +267,6 @@ func TestFenceUserAccessClientCapsRetainedSnapshotsAcrossTokenChurn(t *testing.T
 		t.Fatalf("retained entries = %d, want the configured bound %d", got, bound)
 	}
 
-	// The most recent token is still cached; the churned-away oldest is not.
 	before := calls.Load()
 	if _, err := client.GetAllowedResources(context.Background(), newest, "read", "*"); err != nil {
 		t.Fatalf("GetAllowedResources(newest) error = %v", err)
@@ -330,8 +322,6 @@ func TestFenceUserAccessClientDropsExpiredEntriesOnInsert(t *testing.T) {
 		t.Fatalf("retained entries = %d, want 3 before expiry", got)
 	}
 
-	// Churned-away tokens are never looked up again, so only the insert-time
-	// sweep can release them; the cap alone would leave them retained.
 	clock.advance(2 * time.Minute)
 	if _, err := client.GetAllowedResources(context.Background(), bearerTokenWithIssuerAndNonce(serverURL, "d"), "read", "*"); err != nil {
 		t.Fatalf("GetAllowedResources(d) error = %v", err)
@@ -358,7 +348,6 @@ func TestFenceUserAccessClientEvictionDoesNotMixGrantsAcrossTokens(t *testing.T)
 	if got := fenceCacheLen(client); got != 2 {
 		t.Fatalf("retained entries = %d, want the bound 2", got)
 	}
-	// Evicting A must leave B's own grants intact.
 	before := calls.Load()
 	snapshotB, err := client.getResourceAccess(context.Background(), tokenB)
 	if err != nil {
@@ -377,8 +366,6 @@ func TestFenceUserAccessClientEvictionDoesNotMixGrantsAcrossTokens(t *testing.T)
 		t.Fatalf("B snapshot = %#v, want no grants from another token", snapshotB)
 	}
 
-	// Reads hand out independent copies: mutating a returned snapshot must not
-	// reach the cached one, for the same token or any other.
 	snapshotB[fenceGrantedResource("b")][0].Service = "tampered"
 	delete(snapshotB, fenceGrantedResource("b"))
 	snapshotB["/programs/example/projects/injected"] = []resourceAccessRecord{{Method: "write", Service: "*"}}
@@ -410,8 +397,6 @@ func TestFenceUserAccessClientDropsExpiredEntryWhenRefetchFails(t *testing.T) {
 		t.Fatal("snapshot absent before expiry")
 	}
 
-	// The expired snapshot can never be served again, so the lookup that
-	// discovers it must release the slot even when the refresh fails.
 	clock.advance(2 * time.Minute)
 	backend.down.Store(true)
 	if _, err := client.GetAllowedResources(context.Background(), token, "read", "*"); err == nil {
@@ -421,7 +406,6 @@ func TestFenceUserAccessClientDropsExpiredEntryWhenRefetchFails(t *testing.T) {
 		t.Fatalf("retained entries = %d, want the expired snapshot released", got)
 	}
 
-	// Recovery refetches and repopulates the released slot.
 	backend.down.Store(false)
 	resources, err := client.GetAllowedResources(context.Background(), token, "read", "*")
 	if err != nil || len(resources) != 1 || resources[0] != fenceGrantedResource("stale") {
@@ -432,8 +416,6 @@ func TestFenceUserAccessClientDropsExpiredEntryWhenRefetchFails(t *testing.T) {
 	}
 }
 
-// fenceTransport fronts the test Fence server so a refresh can be failed on
-// demand without tearing the server down.
 type fenceTransport struct {
 	down atomic.Bool
 }

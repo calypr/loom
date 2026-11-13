@@ -12,24 +12,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// Adversarial probe: header-indistinguishability of the malformed-scope
-// concealment.
-//
-// The R4 repair makes the REST reader answer a persisted execution whose
-// declaration carries a malformed non-blank path with the same concealed 404 a
-// missing id gets. The question this probe attacks: can a caller turn that
-// concealment into an oracle by varying request headers — sending an
-// Authorization header, an X-Request-Id, duplicate or empty header values, or
-// unusual content negotiation — so that the malformed-scope response becomes
-// distinguishable from a genuinely missing execution (status, body, header
-// set, or header values)?
-//
-// Contract pinned here: across every request-header variation, the
-// malformed-scope response and the missing-id response stay byte-identical
-// (status, exact body bytes, and the full header map), carry no Authorization
-// or WWW-Authenticate material, and never echo a fragment of the malformed
-// declaration. Backend-fault classification is likewise header-invariant.
-
 func mscGetWithHeaders(t *testing.T, app *fiber.App, id string, headers [][2]string) *http.Response {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, twinRoutePrefix+id, nil)
@@ -112,10 +94,6 @@ func TestRESTRecipeExecutionMalformedScopeIsHeaderIndistinguishable(t *testing.T
 	}
 }
 
-// TestRESTRecipeExecutionMalformedScopeFaultClassificationIsHeaderInvariant
-// pins that the fault-vs-concealment split does not move when request headers
-// move: an authorization-backend failure stays the retryable 503 even with a
-// bearer header, and a clean malformed read stays the concealed 404.
 func TestRESTRecipeExecutionMalformedScopeFaultClassificationIsHeaderInvariant(t *testing.T) {
 	bearer := &authscope.Principal{
 		Subject:             "operator-bearer",
@@ -133,18 +111,12 @@ func TestRESTRecipeExecutionMalformedScopeFaultClassificationIsHeaderInvariant(t
 
 	probeFaulty := &mscProbe{pathsByProjectGeneration: mscKnownPaths(), fault: errors.New("arangodb connection reset")}
 	appFaulty := twinHTTPStack(mscRoutesWith(probeFaulty, nil), mscMemberPrincipal())
-	// The malformed-scope read reaches the resolver (the record exists), so its
-	// backend fault stays the retryable 503 under every request header — it
-	// must never collapse into the concealed 404 depending on headers.
 	for _, variation := range mscHeaderVariations {
 		faultyStatus, faultyBody, _ := mscReadResponse(t, mscGetWithHeaders(t, appFaulty, mscMalformedExecID, variation.headers))
 		if faultyStatus != http.StatusServiceUnavailable || !strings.Contains(faultyBody, "BACKEND_UNAVAILABLE") {
 			t.Fatalf("resolver-path fault must stay the retryable 503 under headers %v, got %d %s", variation.headers, faultyStatus, faultyBody)
 		}
 	}
-	// A missing id short-circuits at the durable store before the resolver
-	// (pre-existing ordering), so a resolver fault is invisible to it under
-	// every header variation: the concealed 404 stays the concealed 404.
 	for _, variation := range mscHeaderVariations {
 		missingStatus, missingBody, _ := mscReadResponse(t, mscGetWithHeaders(t, appFaulty, mscMissingID, variation.headers))
 		if missingStatus != http.StatusNotFound || !strings.Contains(missingBody, twinConcealedError) {

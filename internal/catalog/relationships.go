@@ -11,10 +11,6 @@ import (
 
 const relationshipCatalogKeyPrefix = "rfc_"
 
-// rawRelationshipEdge is the small subset of an edge document needed to
-// build the ingest-owned relationship catalog. It deliberately does not
-// depend on a generated FHIR type: graph edge routing is schema-owned and the
-// persisted edge contract is stable across generated and generic loaders.
 type rawRelationshipEdge struct {
 	Project           string `json:"project"`
 	DatasetGeneration string `json:"dataset_generation"`
@@ -24,10 +20,6 @@ type rawRelationshipEdge struct {
 	ToType            string `json:"to_type"`
 }
 
-// RelationshipCountsFromRawEdges counts only complete, routable edge
-// documents. Callers add these counts to their committed-write result only
-// after InsertBatchRaw succeeds, so failed batches can never advertise facts
-// that are absent from Arango.
 func RelationshipCountsFromRawEdges(docs []json.RawMessage) (map[RelationshipKey]int64, error) {
 	counts := make(map[RelationshipKey]int64)
 	for index, raw := range docs {

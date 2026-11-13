@@ -9,19 +9,11 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// SourceRowDescriptor identifies the physical output column that preserves a
-// root resource identity. It is intentionally transport-neutral so lifecycle
-// and publication can build their source-row descriptor without importing the
-// authoring compiler or guessing from labels and internal row IDs.
 type SourceRowDescriptor struct {
 	ResourceType   string
 	PhysicalColumn string
 }
 
-// ResolveAddressableSourceRow proves that one validated workspace output can
-// map rows back to source resources. The proof is deliberately narrow:
-// resource-grain output, root occurrence, direct id field, VALUE projection,
-// and one emitted physical column with the same source provenance.
 func ResolveAddressableSourceRow(workspace authoringv2.Workspace, contract explorer.PublicOutputContract, emitted []explorer.EmittedColumn) (SourceRowDescriptor, error) {
 	if err := workspace.Validate(); err != nil {
 		return SourceRowDescriptor{}, fmt.Errorf("authoring workspace: %w", err)

@@ -9,9 +9,6 @@ import (
 	"strings"
 )
 
-// BasicAuthenticator authenticates the standalone/operator mode. A basic
-// principal is deliberately unrestricted: Basic is a process-level operator
-// credential, not a substitute for a per-project Fence ACL.
 type BasicAuthenticator struct {
 	Username string
 	Password string
@@ -40,17 +37,12 @@ func (a BasicAuthenticator) Authenticate(_ context.Context, headers map[string][
 func constantTimeEqual(left, right string) bool {
 	leftBytes, rightBytes := []byte(left), []byte(right)
 	if len(leftBytes) != len(rightBytes) {
-		// Still perform a comparison to avoid making the common length mismatch
-		// an immediately observable fast path.
 		_ = subtle.ConstantTimeCompare(leftBytes, rightBytes)
 		return false
 	}
 	return subtle.ConstantTimeCompare(leftBytes, rightBytes) == 1
 }
 
-// CalyprAuthenticator is the strict HTTP boundary for Fence-backed mode. It
-// validates presence and shape here; the ScopeResolver performs the signed
-// resource authorization lookup using the same bearer header.
 type CalyprAuthenticator struct{}
 
 func (CalyprAuthenticator) Authenticate(_ context.Context, headers map[string][]string) (*Principal, error) {

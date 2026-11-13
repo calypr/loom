@@ -141,15 +141,11 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 	}
 	addValid("missing_key", "observation_missing_key", nil, false, "one")
 	addValid("null_key", "observation_null_key", nil, true, "one", "two")
-	// This malformed key has no eligible relationship. It must not trigger the
-	// STRING-key assertion in either the preview frontier or the generic Group.
 	roots = append(roots, resource("malformed_ineligible", "Specimen", project, generation, "/allowed",
 		rootPayload(map[string]any{"unexpected": "object"}, true)))
 	observations = append(observations, resource("observation_malformed_ineligible", "Observation", project, generation, "/allowed", observationPayload()))
 	roots = append(roots, resource("malformed_eligible", "Specimen", project, generation, "/allowed",
 		rootPayload(map[string]any{"unexpected": "eligible-object"}, true)))
-	// A key without any route is excluded from both the scoped source rows and
-	// the preview frontier.
 	roots = append(roots, resource("no_eligible_route", "Specimen", project, generation, "/allowed", rootPayload("00-no-route", true)))
 
 	addInvalidRoute := func(rootID, observationID, relation string, edgeProject, edgeGeneration, edgeAuth, targetProject, targetGeneration, targetAuth string) {
@@ -191,8 +187,6 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 		t.Fatalf("last generic Group = %#v, want group_26 after the 25-row preview boundary", fullRows[len(fullRows)-1])
 	}
 
-	// Confirm from Arango's own mixed-type sort that an object key lies beyond
-	// this 25-group page before making it relationship-eligible below.
 	var orderedTypes []string
 	orderQuery := `FOR root IN Specimen
 FILTER root.project == @project AND root.dataset_generation == @dataset_generation

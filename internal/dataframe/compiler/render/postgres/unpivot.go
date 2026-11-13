@@ -1,131 +1,5 @@
 package postgres
 
-// This file registers the terminal melt as an implemented, closed PostgreSQL
-// operation (pg-sql-15): PhysicalUnpivot expanded through one CROSS JOIN
-// LATERAL VALUES list that carries one slot per authored input column in
-// authored order — the renderer-facing capability registration point for the
-// operation the backend-neutral plan names. The AQL behavior being matched is
-// render/aql/table_reshape.go renderTableUnpivot (lines 502-620), the SOLE
-// emitter of the operation shape; its consumers are render/aql/render.go:571
-// (post-window dispatch via renderTableReshape, table_reshape.go:11-26),
-// render/aql/stage_sequence.go:379-383 (the construction-stage arm calling
-// the SAME emitter — PostgreSQL keeps its plan.StageSequence refusal, so
-// that surface stays a typed gap citing this emitter), and the
-// window/layout readers render/aql/navigation_layout.go:179,253-254,376-378.
-// render/aql/cell_trace.go:383 renderUnpivotValueTraceQuery is a DIFFERENT
-// shape (cell-trace evidence return, not the melt) and cell trace is
-// unregistered for PostgreSQL (pg-sql-24 pending): no PG path renders it. The
-// exclusion witness read (compiler/table_shape_exclusions.go:84 →
-// traceReshapeApplies, table_reshape.go:622-627) is never populated here;
-// PG carries no exclusion channel, so D6 stays a gap by absence of producer.
-//
-// The PostgreSQL spelling chosen so each AQL guarantee has an exact SQL
-// counterpart rather than an approximation:
-//
-//   - One output row per (source row, authored input) pair: the VALUES list
-//     is built over unpivot.Inputs in plan order, the counterpart of the AQL
-//     slot array (table_reshape.go:511-531), whose order is the authored
-//     input order. The slot ordinality integers are renderer-owned
-//     constants; the ORDER BY witness unpivotOrdinals (window.go) makes the
-//     authored order deterministic on every execution.
-//   - The key is the declared key literal from the plan bind — ir type-
-//     checks it against KeyKind (ir/physical_table_shape.go
-//     validateTableScalarBind) and the renderer re-reads and re-marshals it
-//     as one JSONB parameter. AQL renders the same bind into every slot
-//     (slot {key: @KeyBindKey}).
-//   - The value is the input column's canonical projection expression — the
-//     single contract of classifyExtractionProjections (selectors.go)
-//     rendered exactly as renderReturn renders it — wrapped in to_jsonb so
-//     every VALUES row is homogeneous jsonb. Under PRESERVE_NULL extraction
-//     the tri-state stays observable apart (SQL NULL for absent, jsonb
-//     'null' for a stored JSON null) exactly as null_semantics.go maps the
-//     stored states; AQL's object-property read collapses the two
-//     (table_reshape.go:516), so this is a declared superset refinement
-//     (D3), never a regression.
-//   - DROP drops BOTH states: the AQL FILTER slot.value != null
-//     (table_reshape.go:539-541) drops absent and stored JSON null alike
-//     because the object read already folded them; the PostgreSQL conjunct
-//     slot_value IS NOT NULL AND slot_value <> 'null'::jsonb drops SQL NULL
-//     and the jsonb 'null' scalar alike. PRESERVE emits both, distinguished
-//     only by the tri-state.
-//   - The value-type check is the per-row counterpart of the AQL FILTER
-//     ASSERT (table_reshape.go:538) with the SAME tag
-//     TABLE_UNPIVOT_VALUE_TYPE_MISMATCH: a CASE whose violating arm raises
-//     through population.go's guardCast barrier (population.go:1059-1113),
-//     which prevents plan-time constant folding of the cast (the sabotage
-//     pattern population.go documents and proves live). Because the AQL
-//     ASSERT lives inside the slot loop, the per-row CASE is its exact
-//     position: zero source rows means the check never fires in either
-//     backend. Conjunct order is immaterial: a raising row is non-null
-//     wrong-typed, so the DROP conjunct (which removes only SQL NULL and
-//     the jsonb null scalar) never hides it, and null rows pass the witness
-//     — the order_qual_clauses lesson from population.go applies to a plain
-//     per-row qual with no sublink to prune.
-//   - Stable row identity is the counterpart of TO_STRING([parts]) at
-//     table_reshape.go:543-559: renderer-composed JSON-compact concatenation
-//     over ['[' , to_jsonb($name), value-text, ']'] pairs — the identity
-//     part names and the construction ID as TEXT parameters JSON-encoded by
-//     to_jsonb, input-row values through COALESCE(to_jsonb(expr), 'null')
-//     so both null states render the four characters null exactly as the
-//     AQL object read collapses them, the construction pair
-//     [constructionID, "TABLE_UNPIVOT"], and the key pair
-//     [Inputs[0].KeyKind, slot.key] replicating the deliberate
-//     first-input-kind spelling of table_reshape.go:557. Byte-exactness is
-//     claimed against independent literal expected rows only: Arango's
-//     TO_STRING rendering of exotic numbers and control characters is a
-//     QUARANTINED unverified runtime fact and is never load-bearing here
-//     (fixtures use deterministic ASCII identities, the same bound
-//     window.go declares for collation). INTEGER keys outside ±2^53 and
-//     non-finite DECIMAL keys are refused: beyond the double round-trip the
-//     two backends' number spellings are unproven, and divergence must
-//     fail closed.
-//
-// The slice is deliberately closed. The plan is exactly one direct ROOT_SCAN,
-// exactly one UNPIVOT (ir/physical_validation.go:319-323 already refuses a
-// second table reshape), an optional stable-identity SORT then LIMIT window,
-// and a terminal RETURN whose every projection reads only the melt output
-// variable by one name. Coexisting FILTER, TRAVERSAL, UNNEST, SET,
-// subplans, EXPRESSION_LET, cell trace, or any other operation — and the
-// richer AQL spines they form (D5) — are capability gaps: typed
-// ErrUnsupportedPostgresPlan refusals that yield no SQL. The window arm is
-// W3: SORT must be exactly one key {OutputRowVariable, ["__loom_row_id"]} —
-// the ir reshaped-window guard's contract (ir/physical_validation.go:117-123,
-// pinned by internal/dataframe/compiler/table_reshape_execution_window_test
-// .go:62-102) — mapped to the renderer's identity expression, and LIMIT
-// requires it (ir/physical_validation.go:125-129). window.go stays the single
-// SORT/LIMIT contract owner: the hasUnpivot flag and the slot-ordinality
-// witness list are registered through the same seam precedent as
-// unnest.go's hasUnnest (unnest.go:670), and window.go's W1/W2 arms are
-// untouched. The dedicated unpivotOrdinals witness (rather than reusing the
-// unnest lateralAliases witnesses) keeps every existing ORDER BY term
-// byte-identical: the expansion exposes slot_ord, not rn, and the unnest
-// has-item term would be a vacuous constant here.
-//
-// validateUnpivotPlanSurface is the single contract definition, applied as
-// the first plan-facing act at both entry points: RenderUnpivot applies it
-// before delegation, and RenderPhysicalPlan — the read-spine dispatch —
-// applies it before plan validation, scope loading, or any rendering once a
-// plan mentions UNPIVOT, re-applying at the melt as a local invariant. The
-// dispatch entry is a full backstop refusing the same shapes with the same
-// typed error and message (defense in depth, not two contracts — the
-// unnest.go:93-102 precedent).
-//
-// Planner-facing command registration (the selected compiler target) stays
-// fail-closed for PostgreSQL exactly as in pg-sql-01/02/03/09/18: this entry
-// point — not command dispatch — is where the unpivot operation is
-// implemented and registered.
-//
-// Parameter discipline is inherited unchanged: everything the plan carries
-// (key literals, identity part names, the construction ID, selector paths,
-// scope binds) reaches PostgreSQL as ordered $n parameters through the
-// package's existing binders — document paths through
-// documentPathFromExpression (null_semantics.go, the single path-binding
-// authority), keys and values through addParameter/jsonbParameter. The
-// 'null'::jsonb coercions, the typeof constants, the "TABLE_UNPIVOT" tag,
-// the key-kind literals, and the slot ordinals are renderer-owned contract
-// constants fixed by this file, never plan data; expansion aliases are
-// renderer-owned counters. No plan string is ever interpolated into SQL text.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -136,19 +10,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// unpivotValueTypeTag is the canonical AQL assertion tag (table_reshape.go
-// :538) raised verbatim inside a 22P02 driver message through guardCast.
 const unpivotValueTypeTag = "TABLE_UNPIVOT_VALUE_TYPE_MISMATCH"
 
-// unpivotRowIDColumn is the compiler-owned stable row identity column the
-// reshaped execution SORT and the melt output contract address.
 const unpivotRowIDColumn = "__loom_row_id"
 
-// unpivotValueTypeOf maps the frozen table scalar kind to the closed
-// jsonb_typeof constant matching aqlTableScalarType's TYPENAME mapping
-// (table_reshape.go:693-704): STRING→string, INTEGER/DECIMAL→number,
-// BOOLEAN→bool/boolean. The map's existence is the refusal: an unknown kind
-// is not rendered.
 var unpivotValueTypeOf = map[string]string{
 	"STRING":  "string",
 	"INTEGER": "number",
@@ -156,29 +21,6 @@ var unpivotValueTypeOf = map[string]string{
 	"BOOLEAN": "boolean",
 }
 
-// RenderUnpivot renders exactly one scoped direct root scan melted by one
-// registered UNPIVOT onto the trusted PostgreSQL storage binding.
-//
-// The accepted plan shape is one leading ROOT_SCAN with a direct scan
-// payload (no population, cohort, or candidate-seed source), exactly one
-// UNNEST-free melt as registered above, an optional SORT then LIMIT
-// execution window in the reshaped-window form, and a terminal RETURN whose
-// projections read only the melt output variable by single names. Every
-// failure is typed: ErrUnsupportedPostgresPlan for shapes outside this
-// slice, ErrInvalidPostgresPlanScope for missing or contradictory scope
-// binds, and ir.ErrUnregisteredPostgresIdentifier for a binding that did
-// not come from ir.NewPostgresStorageBinding. A rejected plan never produces
-// SQL and never routes to AQL. The result is deterministic: the same plan
-// and binding always yield byte-identical SQL and value-identical ordered
-// arguments.
-//
-// The closed shape passing here means RenderPhysicalPlan's own gates
-// (binding trust, plan validation including validatePhysicalUnpivot,
-// engine/ClickHouse/stage refusals, scope re-reading, deterministic
-// assembly) all operate over a plan this slice has already pinned, and the
-// core dispatch re-applies the same surface contract at the melt. There is
-// no second SQL builder by design: one statement-shape authority keeps this
-// registration and the read spine byte-identical for the shapes they share.
 func RenderUnpivot(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := validateUnpivotPlanSurface(plan); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
@@ -186,12 +28,6 @@ func RenderUnpivot(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (com
 	return RenderPhysicalPlan(plan, storage)
 }
 
-// validateUnpivotPlanSurface enforces the closed plan slice before any
-// rendering work begins. Every refusal is an ErrUnsupportedPostgresPlan so
-// callers classify the whole family as a capability gap, and payload-nil
-// checks run before any dereference so a malformed plan can never reach a
-// payload dereference downstream (the validateUnnestPlanSurface ordering
-// discipline).
 func validateUnpivotPlanSurface(plan ir.PhysicalPlan) error {
 	if len(plan.Operations) == 0 {
 		return fmt.Errorf("%w: plan has no operations", ErrUnsupportedPostgresPlan)
@@ -285,9 +121,6 @@ func validateUnpivotPlanSurface(plan ir.PhysicalPlan) error {
 	return nil
 }
 
-// validateUnpivotRootScan re-reads the direct root scan exactly as the spine
-// and the other registered slices bind it before any melt renders over its
-// rows.
 func validateUnpivotRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRootScan) error {
 	if scan.Population != nil || scan.CohortSource != nil || scan.PageCandidateSeed != nil {
 		return fmt.Errorf("%w: population, cohort, and candidate-seed roots are not registered for PostgreSQL; only the direct root collection scan has a rendered contract",
@@ -306,14 +139,6 @@ func validateUnpivotRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRootScan) err
 	return nil
 }
 
-// validateUnpivotOperationShape enforces the structural half of the closed
-// melt payload with re-read, never trusted, identity facts: the registry
-// membership of every kind, the non-empty variable and column names ir's
-// frozen patterns will also check, the construction-ID equality, and the
-// shapes the renderer dereferences. ir.Validate carries the authoritative
-// semantic gate (ir/physical_table_shape.go validatePhysicalUnpivot); this
-// is the renderer-side boundary that keeps the slice closed and refuses the
-// same shapes with the capability-gap type at the dispatch entry.
 func validateUnpivotOperationShape(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpivot) error {
 	if unpivot.InputRowVariable == "" || unpivot.SlotVariable == "" || unpivot.OutputRowVariable == "" {
 		return fmt.Errorf("%w: unpivot requires input-row, slot, and output-row variables", ErrUnsupportedPostgresPlan)
@@ -391,18 +216,6 @@ func validateUnpivotOperationShape(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpi
 		if preservedInputs[output.InputColumn] || preservedOutputs[output.OutputColumn] {
 			return fmt.Errorf("%w: unpivot preserved output mapping duplicates %q", ErrUnsupportedPostgresPlan, output.InputColumn)
 		}
-		// The hidden melt identity name joins the key/value collision set
-		// (reviewer finding, PR #121 r4529533013): ir validates preserved
-		// OutputColumn only against the key/value outputs and each other
-		// (ir/physical_table_shape.go:397), so a rename onto
-		// unpivotRowIDColumn is IR-legal; rendering it would silently
-		// overwrite the preserved expression with the melt identity below
-		// (the taken check cannot fire because the identity is assigned
-		// after the preserved loop). Fail closed at the gate: a registered
-		// slice never silently mis-serves a name RETURN reads. The AQL
-		// emitter's appended-identity-wins behavior
-		// (render/aql/table_reshape.go:571-587) is an emitter consequence,
-		// not a contract to mirror when the renderer can refuse.
 		if output.OutputColumn == unpivot.KeyOutput || output.OutputColumn == unpivot.ValueOutput ||
 			output.OutputColumn == unpivotRowIDColumn {
 			return fmt.Errorf("%w: unpivot preserved output %q collides with the key, value, or stable row identity output",
@@ -431,23 +244,10 @@ func validateUnpivotOperationShape(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpi
 	return nil
 }
 
-// unpivotValueKindCompatible mirrors the closed INTEGER/DECIMAL widening of
-// ir tableScalarKindsCompatible (ir/physical_table_shape.go:563-565:
-// same-kind plus DECIMAL from INTEGER only): the renderer re-reads, never
-// trusts, and the re-read is never looser than the gate it mirrors
-// (reviewer finding, PR #121 r4529533025 — an INTEGER-from-DECIMAL arm
-// would be dead only while plan.Validate rejects first, and the typeof
-// witness compares jsonb_typeof only, so an INTEGER melt cannot separate
-// 1 from 1.5 if ir ever widens).
 func unpivotValueKindCompatible(output, input string) bool {
 	return output == input || output == "DECIMAL" && input == "INTEGER"
 }
 
-// validateUnpivotSortKeys re-reads the reshaped-window SORT contract at the
-// surface: exactly one key, the melt output variable's stable identity
-// column, no bind (ir/physical_validation.go:117-123; the AQL counterpart is
-// the layout guard navigation_layout.go renders into SORT
-// <output>.__loom_row_id ASC).
 func validateUnpivotSortKeys(sort ir.PhysicalSort, unpivot ir.PhysicalUnpivot) error {
 	if len(sort.Keys) != 1 {
 		return fmt.Errorf("%w: the reshaped execution SORT must carry exactly the stable row identity key", ErrUnsupportedPostgresPlan)
@@ -460,9 +260,6 @@ func validateUnpivotSortKeys(sort ir.PhysicalSort, unpivot ir.PhysicalUnpivot) e
 	return nil
 }
 
-// validateUnpivotReturn pins the terminal projection list to the melt output
-// contract: every projection reads only the melt output variable, by one
-// legal output name, in direct value form.
 func validateUnpivotReturn(ret ir.PhysicalReturn, unpivot ir.PhysicalUnpivot) error {
 	if len(ret.Projections) == 0 {
 		return fmt.Errorf("%w: the unpivot slice RETURN must project at least one value", ErrUnsupportedPostgresPlan)
@@ -505,10 +302,6 @@ func unpivotProjectionForm(projection ir.PhysicalProjection) string {
 	}
 }
 
-// unpivotLegalOutputNames is the closed output-name set of one melt: the key
-// and value outputs, the stable row identity column, and every preserved
-// input under its mapped output name (the PreservedOutputs contract ir
-// already proved covers each retained input exactly).
 func unpivotLegalOutputNames(unpivot ir.PhysicalUnpivot) map[string]bool {
 	legal := map[string]bool{unpivot.KeyOutput: true, unpivot.ValueOutput: true, unpivotRowIDColumn: true}
 	for _, output := range unpivot.PreservedOutputs {
@@ -517,12 +310,6 @@ func unpivotLegalOutputNames(unpivot ir.PhysicalUnpivot) map[string]bool {
 	return legal
 }
 
-// renderUnpivot renders the registered melt as one CROSS JOIN LATERAL VALUES
-// expansion over the authored inputs. It is invoked only through the core
-// dispatch, whose RenderPhysicalPlan entry pins the whole plan to the
-// registered slice before any plan validation or rendering once a plan
-// mentions UNPIVOT; this re-check keeps that invariant local, so one
-// contract stands at both entry points.
 func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpivot) error {
 	if r.unpivotSeq == 0 {
 		if err := validateUnpivotPlanSurface(plan); err != nil {
@@ -541,9 +328,6 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 			ErrUnsupportedPostgresPlan, unpivot.OutputRowVariable)
 	}
 
-	// The input columns are the spine's own projection contract: classify
-	// with the single definition and render each expression exactly as
-	// renderReturn would, so the melt can never build a second extractor.
 	classified, err := classifyExtractionProjections(unpivot.InputProjections, func(variable string) (string, bool) {
 		scope, ok := r.rows[variable]
 		return scope.resourceType, ok
@@ -583,9 +367,6 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 			}
 			expression = presence
 		case extractionObject, extractionSlice:
-			// pg-sql-11 contract receipt: the melt input stays the spine's
-			// scalar/selector projection contract; composites are the read
-			// spine's RETURN surface (objects.go) and never an melt input.
 			return fmt.Errorf("%w: unpivot input %q uses a %s expression; melt inputs are the spine's scalar/selector projections, composites belong to the read spine registration (objects.go)",
 				ErrUnsupportedPostgresPlan, projection.projection.Name, string(projection.projection.Expression.Kind))
 		}
@@ -606,22 +387,11 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 	}
 	r.unpivotOutputs[unpivot.OutputRowVariable] = region.columns
 
-	// Window registration through the sanctioned seam (unnest.go:670's
-	// hasUnnest precedent): W3 orders by the renderer's identity expression
-	// (mapped in renderFinalWindowSortUnpivot) and appends exactly the
-	// slot-ordinality witness below. The dedicated list — not the unnest
-	// lateralAliases witnesses — keeps every existing ORDER BY term
-	// byte-identical: the expansion exposes slot_ord, not rn, and the
-	// has-item term would be a vacuous constant on a VALUES expansion that
-	// never pads.
 	r.window.hasUnpivot = true
 	r.window.unpivotOrdinals = append(r.window.unpivotOrdinals, region.ordinal)
 	return nil
 }
 
-// meltRegionResult is one rendered melt expansion: the VALUES LATERAL text,
-// the row-level conjuncts the caller places in its own WHERE, the legal
-// output-name to expression map, and the slot-ordinality ORDER BY witness.
 type meltRegionResult struct {
 	lateral   string
 	conjuncts []string
@@ -629,21 +399,7 @@ type meltRegionResult struct {
 	ordinal   string
 }
 
-// renderMeltRegion renders the registered melt over caller-supplied input
-// expressions. The inline door (renderUnpivot) classifies the spine's own
-// projection contract; composition (stage_sequence.go) passes reads over the
-// prior stage CTE's materialized columns. Both then share this ONE emitter —
-// the VALUES slots, the per-row type witness, the null-row policy, the legal
-// output map, and the melt identity — so a staged melt cannot drift from the
-// inline melt (the byte-preservation law).
 func (r *planRenderer) renderMeltRegion(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpivot, inputExprs map[string]string, alias string) (meltRegionResult, error) {
-	// The VALUES rows: one per authored input in authored order — the
-	// counterpart of the AQL slot array (table_reshape.go:511-531). The key
-	// is the declared literal, re-read and re-marshalled as one JSONB
-	// parameter; the value is the canonical expression wrapped in to_jsonb
-	// so the VALUES column is homogeneously jsonb (typed-column inputs such
-	// as the canonical logical id read as JSON strings, the counterpart of
-	// the AQL object property carrying the spine's own rendered value).
 	rows := make([]string, 0, len(unpivot.Inputs))
 	for _, input := range unpivot.Inputs {
 		raw, err := unpivotKeyJSON(plan.BindVars[input.KeyBindKey], input.KeyKind)
@@ -660,28 +416,14 @@ func (r *planRenderer) renderMeltRegion(plan ir.PhysicalPlan, unpivot ir.Physica
 	lateral := "CROSS JOIN LATERAL (VALUES " + strings.Join(rows, ", ") + ") AS " +
 		alias + "(slot_key, slot_value, slot_ord)"
 
-	// The per-row type witness (the AQL FILTER ASSERT counterpart,
-	// table_reshape.go:538) and the null-row policy. Conjunct order is
-	// immaterial: a raising row is non-null wrong-typed and the DROP
-	// conjunct removes only null states, so no planner qual reordering can
-	// hide a violation, and null rows pass the witness.
 	slotValue := alias + ".slot_value"
 	valueTypeOf := unpivotValueTypeOf[unpivot.ValueType]
 	bad := "(" + slotValue + " IS NOT NULL AND " + slotValue + " <> 'null'::jsonb AND jsonb_typeof(" + slotValue + ") <> " + quoteSQLLiteral(valueTypeOf) + ")"
-	// The comparison tail and the all-integer branch set are the
-	// population.go guard idiom (guard+" = 1", population.go:1023-1035):
-	// PostgreSQL requires one resolvable type across CASE branches, so an
-	// ELSE true against the guardCast integer aborts at parse time
-	// (SQLSTATE 42804) and never plans.
 	conjuncts := []string{"(CASE WHEN " + bad + " THEN " + guardCast(unpivotValueTypeTag) + " ELSE 1 END) = 1"}
 	if unpivot.NullRowPolicy == "DROP" {
 		conjuncts = append(conjuncts, "("+slotValue+" IS NOT NULL AND "+slotValue+" <> 'null'::jsonb)")
 	}
 
-	// The melt output contract: each legal output name maps to the SQL
-	// expression that emits it. The RETURN dispatch (render.go's single
-	// routed line) reads only this map, so a melt output can never be
-	// resolved through the stored-row path by accident.
 	columns := map[string]string{
 		unpivot.KeyOutput:   alias + ".slot_key",
 		unpivot.ValueOutput: slotValue,
@@ -696,14 +438,9 @@ func (r *planRenderer) renderMeltRegion(plan ir.PhysicalPlan, unpivot ir.Physica
 	}
 	for _, projection := range unpivot.InputProjections {
 		if selectedColumns[projection.Name] {
-			// A melted input leaves the source row: the AQL output object
-			// skips selected columns entirely (table_reshape.go:561-573).
 			continue
 		}
 		if projection.Name == unpivotRowIDColumn {
-			// The source row identity never passes through: the melt emits
-			// its own identity (table_reshape.go:571), and the AQL output
-			// row's __loom_row_id is the computed melt identity.
 			continue
 		}
 		outputName := projection.Name
@@ -719,11 +456,6 @@ func (r *planRenderer) renderMeltRegion(plan ir.PhysicalPlan, unpivot ir.Physica
 		}
 		columns[outputName] = expression
 	}
-	// Unconditional by construction: validateUnpivotOperationShape refuses
-	// any preserved output renamed onto the identity name (reviewer
-	// finding, PR #121 r4529533013), and an input projection named
-	// __loom_row_id never passes through (skip above), so nothing can
-	// occupy this slot before the melt identity owns it.
 	columns[unpivotRowIDColumn] = r.unpivotIdentityExpression(plan, unpivot, inputExprs, alias)
 	if columns[unpivotRowIDColumn] == "" {
 		return meltRegionResult{}, fmt.Errorf("%w: unpivot identity expression failed", ErrUnsupportedPostgresPlan)
@@ -731,12 +463,6 @@ func (r *planRenderer) renderMeltRegion(plan ir.PhysicalPlan, unpivot ir.Physica
 	return meltRegionResult{lateral: lateral, conjuncts: conjuncts, columns: columns, ordinal: alias + ".slot_ord"}, nil
 }
 
-// unpivotKeyJSON re-reads one key bind under the closed per-kind type table
-// (matching ir validateTableScalarBind at physical_table_shape.go:437-464)
-// and encodes it as the canonical JSON the slot carries. The renderer's own
-// encoder is the authority; the DB never re-spells the key. Integers beyond
-// the double round-trip and non-finite decimals refuse (D4): their two-
-// backend spellings are unproven, and divergence fails closed.
 func unpivotKeyJSON(value any, kind string) (json.RawMessage, error) {
 	switch kind {
 	case "STRING":
@@ -811,16 +537,6 @@ func marshalUnpivotKey(value any) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// unpivotIdentityExpression composes the counterpart of the AQL stable row
-// identity, TO_STRING([pairs]) (table_reshape.go:543-559): the identity
-// parts in plan order, then [constructionID, "TABLE_UNPIVOT"], then
-// [Inputs[0].KeyKind, slot.key] with the deliberate first-input-kind
-// spelling. Names and the construction ID cross the parameter boundary as
-// TEXT parameters and are JSON-encoded by to_jsonb; input-row values render
-// through COALESCE(to_jsonb(expr), 'null') so absent and stored JSON null
-// both read the four characters null, exactly as the AQL object read
-// collapses them. Every part is total: three-valued logic never reaches the
-// concatenation.
 func (r *planRenderer) unpivotIdentityExpression(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpivot, inputExprs map[string]string, alias string) string {
 	pairs := make([]string, 0, len(unpivot.IdentityParts)+2)
 	for _, part := range unpivot.IdentityParts {
@@ -833,10 +549,6 @@ func (r *planRenderer) unpivotIdentityExpression(plan ir.PhysicalPlan, unpivot i
 			}
 			valueText = "COALESCE(to_jsonb(" + expression + "), 'null'::jsonb)::text"
 		} else {
-			// Scalar identity binds are plan data: re-read, never trust. The
-			// melt accepts string binds only (the canonical "project" leg
-			// lowering emits); other Go types have unproven two-backend
-			// spellings and fail closed.
 			bound, ok := plan.BindVars[part.Value.BindKey]
 			if !ok {
 				return ""
@@ -857,10 +569,6 @@ func (r *planRenderer) unpivotIdentityExpression(plan ir.PhysicalPlan, unpivot i
 	return "'[' || " + strings.Join(pairs, " || ',' || ") + " || ']'"
 }
 
-// resolveUnpivotOutputValue maps one melt output read onto its registered
-// SQL expression. It is reached only through resolveValue's routed branch,
-// and it refuses anything the melt output contract does not register: bind
-// values, multi-segment paths, and unknown names never resolve.
 func (r *planRenderer) resolveUnpivotOutputValue(columns map[string]string, value ir.PhysicalValue) (string, error) {
 	if value.BindKey != "" {
 		return "", fmt.Errorf("%w: melt reads must name an output column, not a bind value", ErrUnsupportedPostgresPlan)
@@ -875,11 +583,6 @@ func (r *planRenderer) resolveUnpivotOutputValue(columns map[string]string, valu
 	return "(" + expression + ")", nil
 }
 
-// renderUnpivotReturn assembles the positional projection list for a melted
-// plan. It is the melt counterpart of renderReturn (render.go routes here
-// only when a melt rendered), over the same positional c<n> contract so the
-// assembler is untouched; every projection passed validateUnpivotReturn at
-// the surface, and the checks stand again here as the local invariant.
 func (r *planRenderer) renderUnpivotReturn(ret ir.PhysicalReturn) error {
 	if len(ret.Projections) == 0 {
 		return fmt.Errorf("%w: the unpivot slice RETURN must project at least one value", ErrUnsupportedPostgresPlan)
@@ -906,12 +609,6 @@ func (r *planRenderer) renderUnpivotReturn(ret ir.PhysicalReturn) error {
 	return nil
 }
 
-// renderFinalWindowSortUnpivot is the W3 SORT entry point, called from
-// window.go's single SORT dispatch when the registered melt rendered
-// (window.go owns the contract; this is the melt's contribution to it, the
-// counterpart of renderFinalWindowSort for W2). The plan key must equal the
-// stable row identity exactly — surface gate re-check — and the ORDER BY
-// term is the renderer's own identity expression, never a plan string.
 func (r *planRenderer) renderFinalWindowSortUnpivot(sort ir.PhysicalSort) error {
 	if r.window.sortSeen {
 		return fmt.Errorf("%w: at most one SORT", ErrUnsupportedPostgresPlan)

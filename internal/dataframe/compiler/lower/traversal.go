@@ -7,22 +7,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// TraversalLoweringRequest is the backend-neutral input to the shared
-// schema-derived traversal constructor. The caller supplies semantic resource
-// identities and compiler-owned variable names; route direction, edge type
-// discriminator, and endpoint fields are resolved from fhirschema through
-// resolveStorageRoute.
-//
-// BindPrefix is part of the physical naming contract. It must be unique in
-// the containing plan and stable for a given semantic traversal. It is used
-// only to derive bind keys; it is never rendered as AQL source.
 type TraversalLoweringRequest struct {
-	FromType  string
-	EdgeLabel string
-	ToType    string
-	// DirectionOverride is only for a route whose exact stored-edge direction
-	// was already proven by its caller. It resolves self-type inverse routes,
-	// where swapping endpoint types cannot distinguish the original direction.
+	FromType          string
+	EdgeLabel         string
+	ToType            string
 	DirectionOverride ir.PhysicalTraversalDirection
 	SourceVariable    string
 	TargetVariable    string
@@ -31,17 +19,11 @@ type TraversalLoweringRequest struct {
 	Policy            ir.PhysicalOptimizationPolicy
 }
 
-// TraversalLoweringResult contains the canonical physical traversal and the
-// bind values required by its renderer.
 type TraversalLoweringResult struct {
 	Traversal ir.PhysicalTraversal
 	BindVars  map[string]any
 }
 
-// BuildPhysicalTraversal resolves one FHIR relationship and constructs the
-// canonical physical traversal used by every compiler frontend. It is the
-// only lower-layer entry point that should assemble traversal direction,
-// target discriminator, endpoint fields, and traversal bind keys.
 func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLoweringResult, error) {
 	if strings.TrimSpace(request.FromType) == "" {
 		return TraversalLoweringResult{}, fmt.Errorf("traversal source resource type is required")
@@ -136,9 +118,6 @@ func isCompilerIdentifier(value string) bool {
 	return true
 }
 
-// physicalTraversalStrategyForRoute selects an execution strategy only after
-// route metadata has been validated. Endpoint lookup is a typed physical
-// choice; it does not permit callers to provide endpoint fields or AQL.
 func physicalTraversalStrategyForRoute(policy ir.PhysicalOptimizationPolicy, route storageRoute) (ir.PhysicalTraversalStrategy, string, string, []string) {
 	if !policy.RuleEnabled(ir.PhysicalOptimizationRuleEndpointTraversal) {
 		return ir.PhysicalTraversalNative, "", "", nil

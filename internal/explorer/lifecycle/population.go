@@ -11,9 +11,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// resolveWorkspacePopulations verifies every durable population against the
-// exact capability snapshot and returns the bounded identity needed by the
-// receipt compiler. Selection member rows are intentionally not loaded here.
 func (s *Service) resolveWorkspacePopulations(ctx context.Context, project string, workspace authoringv2.Workspace, snapshot capability.Snapshot, scopeDigest string) (explorercompilation.ResolvedInputs, error) {
 	project = projectid.Canonical(project)
 	inputs := explorercompilation.ResolvedInputs{}

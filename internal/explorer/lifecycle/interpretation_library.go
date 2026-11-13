@@ -17,9 +17,6 @@ func (s *Service) interpretationRepository() (explorer.InterpretationRepository,
 	return s.config.InterpretationRepository, nil
 }
 
-// ListInterpretationLibraries returns project-scoped libraries with their exact
-// current head revision expanded. The head is a browsing affordance only; no
-// compiler or workspace resolver consumes it as a mutable reference.
 func (s *Service) ListInterpretationLibraries(ctx context.Context, rawProject string) (ListInterpretationLibrariesResult, error) {
 	repository, err := s.interpretationRepository()
 	if err != nil {
@@ -80,10 +77,6 @@ func (s *Service) GetInterpretationRevision(ctx context.Context, request GetInte
 	return *revision, nil
 }
 
-// CreateInterpretationRevision prepares closed typed content and advances the
-// repository head only if its expected parent still matches. A missing parent
-// request explicitly means a root revision; callers revising an existing
-// library must send its exact current head as the parent.
 func (s *Service) CreateInterpretationRevision(ctx context.Context, request CreateInterpretationRevisionRequest) (explorer.InterpretationRevision, error) {
 	repository, err := s.interpretationRepository()
 	if err != nil {

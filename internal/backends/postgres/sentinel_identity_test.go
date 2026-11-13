@@ -1,21 +1,5 @@
 package postgres
 
-// Sentinel-identity contract for the readiness classifier (PR #148
-// verifier finding F1).
-//
-// internal/server's postgreSQLCoreReadinessState classifies probe failures
-// with errors.Is against the control sentinels below. The probe lives in
-// control.Runtime.Readiness and emits through the six per-series
-// VerifySchema wrappers, which all build a pgstore.MigrationRunner — so a
-// control sentinel that resolves to a DIFFERENT errors.New than the one
-// the probe emits makes its token unreachable: the offline classifier cell
-// cannot catch it because a cell fabricates the error from the control
-// sentinel itself. This guard pins, for every sentinel the classifier
-// consumes, that the control identity and the probe-emitted identity match
-// in both directions. (Before arch-backend-09 this also pinned the
-// root-facade aliases; aliases.go is deleted, so the control plane is now
-// the single identity source.)
-
 import (
 	"errors"
 	"testing"
@@ -26,9 +10,6 @@ import (
 )
 
 func TestControlSentinelsMatchProbeEmittedIdentities(t *testing.T) {
-	// each row: control symbol <-> the identity the production probe path
-	// actually wraps. Both directions are identity checks for leaf
-	// sentinels; a one-directional match would mean wrapping, not alias.
 	for _, row := range []struct {
 		name        string
 		controlSide error

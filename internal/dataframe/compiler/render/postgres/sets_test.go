@@ -11,19 +11,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-08 offline registration tests: the closed child-set slice, its
-// FIRST/ALL/DISTINCT reductions, the hop-only canonical RELATED existence
-// shape, and the refusal battery. The set fixtures are plan.Validate-aware
-// structural mirrors of lower/child_sets.go buildOptionalChildPhysicalSet.
-// The RELATED existence fixtures are the hop-only canonical shape only:
-// production related-eligibility lowering prefixes its subplan with an
-// anchor operation and attaches the filter at stage level, so no lowered
-// plan reaches the hop-only renderer — that production shape's fail-closed
-// refusal is pinned here too (TestRelatedExistsAnchorPrefixedProductionShapeStaysRefused),
-// and every assertion exercises the renderer gate, never an IR escape.
-// ---------------------------------------------------------------------------
-
 const (
 	setsPrefix          = "child_set_0"
 	setsEdgeVariable    = "child_set_0_edge"
@@ -31,8 +18,6 @@ const (
 	setsReducedVariable = "child_set_0_reduced"
 )
 
-// setsTraversal is the depth-one OUTBOUND hop child_sets.go:17-27 lowers
-// for a Patient→Observation has-observation route.
 func setsTraversal() ir.PhysicalTraversal {
 	return ir.PhysicalTraversal{
 		SourceVariable: "root", TargetVariable: setsTargetVariable, EdgeVariable: setsEdgeVariable,
@@ -44,8 +29,6 @@ func setsTraversal() ir.PhysicalTraversal {
 	}
 }
 
-// setsPlan lays the spine and the child-set bind vars exactly as the
-// lowering emits them (@fhir_edge collection, label, target type).
 func setsPlan() ir.PhysicalPlan {
 	plan := basePlan()
 	plan.BindVars[setsPrefix+"_edge_collection"] = "fhir_edge"
@@ -54,8 +37,6 @@ func setsPlan() ir.PhysicalPlan {
 	return plan
 }
 
-// setsProjectionField is one traversal-time selector slot over the child
-// document, the form projectPhysicalChildSet declares.
 func setsProjectionField(name, property string) ir.PhysicalSetProjectionField {
 	return ir.PhysicalSetProjectionField{
 		Name: name, ResourceType: "Observation",
@@ -64,10 +45,6 @@ func setsProjectionField(name, property string) ir.PhysicalSetProjectionField {
 	}
 }
 
-// setsChildSet builds the closed set payload: one capture, one hop, the
-// canonical scope block for [edge, target], the child_sets.go:88
-// whole-document return, Unique/SortByKey pinned, and a reduction over the
-// named slots with the given modes.
 func setsChildSet(modes ...ir.PhysicalSetReductionMode) ir.PhysicalSet {
 	traversal := setsTraversal()
 	operations := []ir.PhysicalOperation{{Kind: ir.PhysicalTraversalOp, Traversal: &traversal}}
@@ -103,9 +80,6 @@ func setsChildSet(modes ...ir.PhysicalSetReductionMode) ir.PhysicalSet {
 	}
 }
 
-// setsReturn projects the reduced slots positionally, mirroring the
-// projectPhysicalChildSet rewrite (projection.Value = {variable:
-// <set>_reduced, path: [name]}).
 func setsReturn(names ...string) ir.PhysicalOperation {
 	projections := make([]ir.PhysicalProjection, 0, len(names)+1)
 	projections = append(projections, ir.PhysicalProjection{
@@ -119,7 +93,6 @@ func setsReturn(names ...string) ir.PhysicalOperation {
 
 func setsPlanWithSet(set ir.PhysicalSet, names ...string) ir.PhysicalPlan {
 	plan := setsPlan()
-	// Drop the RETURN that basePlan carries, then splice SET before it.
 	plan.Operations = plan.Operations[:len(plan.Operations)-1]
 	plan.Operations = append(plan.Operations,
 		ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Set: &set},
@@ -133,17 +106,11 @@ func TestSetChildSetReductionsRenderAsCorrelatedScalarSublinks(t *testing.T) {
 		"__loom_reduced_0", "__loom_reduced_1", "__loom_reduced_2"))
 
 	sql := rendered.SQL
-	// E2 (parent-grain invariance): the set materializes no join; the
-	// outer statement is the bare spine plus SELECT-list sublinks.
 	for _, forbidden := range []string{"LEFT JOIN", "LATERAL (SELECT"} {
 		if strings.Contains(sql, forbidden) {
 			t.Fatalf("set must not add outer joins (%q present): %s", forbidden, sql)
 		}
 	}
-	// Each of the three reduction modes appears once per RETURN projection
-	// that reads the reduced variable (derived values inline their text;
-	// PostgreSQL's planner shares one SubPlan across the equal sublinks,
-	// so the repetition is textual, not per-row execution).
 	for _, want := range []string{
 		`ORDER BY i2."logical_id", s2.ord LIMIT 1`,
 		`jsonb_agg(s3.v ORDER BY i3."logical_id", s3.ord)`,
@@ -153,23 +120,15 @@ func TestSetChildSetReductionsRenderAsCorrelatedScalarSublinks(t *testing.T) {
 			t.Fatalf("occurrences of %q = %d, want 3 (one per reduced-variable projection): %s", want, got, sql)
 		}
 	}
-	// E1 (per-row execution, not a one-shot InitPlan): every item scan is
-	// correlated to the outer row identity through the edge anchor.
 	if got := strings.Count(sql, `= r0."logical_id"`); got != 9 {
 		t.Fatalf("correlated item scans = %d, want 9 (3 fields x 3 readers): %s", got, sql)
 	}
-	// AQL UNIQUE(set) parity: items are the deduped child documents.
 	if got := strings.Count(sql, `SELECT DISTINCT x1."logical_id"`); got != 9 {
 		t.Fatalf("item dedup count = %d, want 9: %s", got, sql)
 	}
-	// The reduced variable is one jsonb_build_object over bound field
-	// names; nothing reads the raw set variable. The keys must carry an
-	// explicit ::text cast (jsonb_build_object is variadic "any"; untyped
-	// parameters fail planning with SQLSTATE 42P18).
 	if !strings.Contains(sql, "jsonb_build_object($") || !strings.Contains(sql, "::text, (SELECT") {
 		t.Fatalf("reduced object must bind text-cast keys over sublink values: %s", sql)
 	}
-	// Parameter discipline: labels/types/names bind, no plan data in text.
 	for _, leaked := range []string{"has-observation", "Observation", "proj-a", "gen-1", "FHIR/Patient", "__loom_reduced_0"} {
 		if strings.Contains(sql, leaked) {
 			t.Fatalf("value %q leaked into statement text: %s", leaked, sql)
@@ -178,16 +137,12 @@ func TestSetChildSetReductionsRenderAsCorrelatedScalarSublinks(t *testing.T) {
 	if !strings.Contains(sql, "$") {
 		t.Fatalf("expected bound parameters: %s", sql)
 	}
-	// Canonical edge-scope conjuncts live inside the sublinks (structural
-	// scope.go predicates, D5: the consumed scope block must not widen
-	// them away — E4 deny-never-narrowed, offline leg).
 	for _, want := range []string{"e1.", "auth_resource_path"} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("sublinks must carry the structural edge scope (%q missing): %s", want, sql)
 		}
 	}
 
-	// Determinism: same plan, byte-identical statement and arguments.
 	again := renderOK(t, setsPlanWithSet(set,
 		"__loom_reduced_0", "__loom_reduced_1", "__loom_reduced_2"))
 	if again.SQL != sql || !reflect.DeepEqual(again.Args, rendered.Args) {
@@ -197,13 +152,6 @@ func TestSetChildSetReductionsRenderAsCorrelatedScalarSublinks(t *testing.T) {
 		t.Fatalf("output columns = %d, want %d", got, want)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// RELATED existence: the hop-only canonical shape (the canonical {_id}
-// return of lower/recipe_construction_related_eligibility.go:208-213 over
-// hops that close with their canonical scope blocks) and the refusal of
-// the anchor-prefixed shape production actually emits.
-// ---------------------------------------------------------------------------
 
 func setsRelatedExistsExpression(negate bool) ir.PhysicalPredicateExpression {
 	traversal := setsTraversal()
@@ -247,14 +195,11 @@ func TestRelatedExistsFilterRendersBoundedSemiJoin(t *testing.T) {
 	if !strings.Contains(sql, `= r0."logical_id"`) {
 		t.Fatalf("semi-join must correlate on the outer row identity: %s", sql)
 	}
-	// E4 (deny-never-narrowed, offline leg): the canonical auth predicate
-	// survives structurally inside the semi-join for both edge and target.
 	for _, want := range []string{`e1."auth_resource_path"`, `x1."auth_resource_path"`} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("semi-join must carry the canonical auth scope (%q missing): %s", want, sql)
 		}
 	}
-	// Semi-join never multiplies rows: no lateral child join was added.
 	if strings.Contains(sql, "LEFT JOIN") {
 		t.Fatalf("semi-join must not add a row-multiplying join: %s", sql)
 	}
@@ -266,17 +211,12 @@ func TestRelatedExistsNotFormIsUnguardedTotalNot(t *testing.T) {
 	if !strings.Contains(sql, "AND NOT (EXISTS (SELECT 1 FROM ") {
 		t.Fatalf("registered top-level NOT(EXISTS) form missing:\n%s", sql)
 	}
-	// E3 (semi-join totality): EXISTS is never SQL NULL, so NOT needs no
-	// COALESCE guard — and none may appear (a guard would mask a NULL-
-	// producing rewrite of the semi-join).
 	if strings.Contains(sql, "COALESCE") {
 		t.Fatalf("NOT over the total semi-join must stay unguarded: %s", sql)
 	}
 }
 
 func TestRequiredShapeAndUnknownReturnsKeepTheTraversalPath(t *testing.T) {
-	// The canonical REQUIRED constant-1 return inside NOT stays refused by
-	// the legacy composition rule, byte-identically to pre-pg-sql-08.
 	plan := setsPlan()
 	plan.Operations = plan.Operations[:len(plan.Operations)-1]
 	plan.BindVars["required_0_result"] = 1
@@ -299,8 +239,6 @@ func TestRequiredShapeAndUnknownReturnsKeepTheTraversalPath(t *testing.T) {
 	_, err := RenderPhysicalPlan(plan, mustBinding(t))
 	wantUnsupported(t, err, "NOT over the REQUIRED constant-1 EXISTS")
 
-	// An EXISTS return outside both canonical shapes (whole document with
-	// no scalar {_id} read) keeps the legacy traversal.go refusal text.
 	plan = setsPlan()
 	plan.Operations = plan.Operations[:len(plan.Operations)-1]
 	traversal = setsTraversal()
@@ -323,11 +261,6 @@ func TestRequiredShapeAndUnknownReturnsKeepTheTraversalPath(t *testing.T) {
 		t.Fatalf("unknown EXISTS shapes must keep the traversal.go refusal, got: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Typed subplan FILTER parity: child filters render through the shared
-// selector-match contract; values cross only the $n boundary.
-// ---------------------------------------------------------------------------
 
 func TestSetSubplanFilterRendersSharedSelectorMatch(t *testing.T) {
 	set := setsChildSet(ir.PhysicalSetReductionAll)
@@ -356,13 +289,9 @@ func TestSetSubplanFilterRendersSharedSelectorMatch(t *testing.T) {
 	if !strings.Contains(sql, "x1.") || strings.Contains(sql, filterValue) {
 		t.Fatalf("child filter value must bind, not inline: %s", sql)
 	}
-	// The filter lands inside every item scan (alive control: without it
-	// the reduction would aggregate over unfiltered children).
 	if got := strings.Count(sql, `x1."payload" #> $`); got < 2 {
 		t.Fatalf("child filter must participate in the correlated scan (payload path count %d): %s", got, sql)
 	}
-	// Alive control: the value crossed the $n boundary (payload
-	// comparisons bind JSONB-encoded).
 	boundFilter := false
 	for _, arg := range rendered.Args {
 		if strings.Contains(fmt.Sprintf("%s", arg.Value), strconv.Quote(filterValue)) {
@@ -374,19 +303,12 @@ func TestSetSubplanFilterRendersSharedSelectorMatch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Anchor rules: SET captures may be OPTIONAL rows (parent-preserving empty
-// aggregates); EXISTS captures may not (traversal.go:350-354 rule).
-// ---------------------------------------------------------------------------
-
 func setsSpineTraversal() ir.PhysicalOperation {
 	traversal := setsTraversal()
 	return ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp, Traversal: &traversal}
 }
 
 func TestSetCaptureAllowsOptionalAnchorExistanceCaptureRefuses(t *testing.T) {
-	// SET anchored on the OPTIONAL spine row: correlation rides the lateral
-	// alias, and a NULL-extended parent aggregates over zero child rows.
 	optional := setsTraversal()
 	optional.TargetVariable = "spine_node"
 	plan := setsPlan()
@@ -403,8 +325,6 @@ func TestSetCaptureAllowsOptionalAnchorExistanceCaptureRefuses(t *testing.T) {
 		t.Fatalf("SET sublink must correlate on the OPTIONAL lateral row: %s", rendered.SQL)
 	}
 
-	// The same anchor under EXISTS is refused: NULL-extended anchor columns
-	// would let the semi-join compare absent rows.
 	expression := setsRelatedExistsExpression(false)
 	expression.Exists.Captures = []string{"spine_node"}
 	expression.Exists.Operations[0].Traversal.SourceVariable = "spine_node"
@@ -420,13 +340,6 @@ func TestSetCaptureAllowsOptionalAnchorExistanceCaptureRefuses(t *testing.T) {
 		t.Fatalf("refusal must name the anchor rule, got: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Refusal battery: every shape outside the registered slice must fail
-// closed with a typed capability-gap error (renderer-owned refusals are
-// checked as ErrUnsupportedPostgresPlan; shapes the IR gate refuses first
-// are accepted at either level, since the plan never reaches rendering).
-// ---------------------------------------------------------------------------
 
 func setsBatteryCase(t *testing.T, name, want string, rendererLevel bool, mutate func(*ir.PhysicalPlan)) {
 	t.Helper()
@@ -468,8 +381,6 @@ func TestSetSurfaceRefusals(t *testing.T) {
 			mutate: func(plan *ir.PhysicalPlan) {
 				set := setsBatterySet(plan)
 				set.Reduction = nil
-				// The reduced variable must leave the RETURN first, or the
-				// IR gate refuses the undefined variable before rendering.
 				plan.Operations[len(plan.Operations)-1] = setsReturn()
 			},
 		},
@@ -512,10 +423,6 @@ func TestSetSurfaceRefusals(t *testing.T) {
 				set := setsBatterySet(plan)
 				set.SourceSetVariable = "root"
 				set.ItemVariable = "item"
-				// The IR's shared-subset shape forbids a TRAVERSAL start
-				// (it iterates the materialized source set), so rewrite the
-				// subplan to that shape and let the renderer own the gap:
-				// renderSharedSubset has no registered PostgreSQL contract.
 				filter := ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
 					Operator: "EQUALS",
 					Left:     ir.PhysicalValue{Variable: "root", Path: []string{"project"}},
@@ -619,7 +526,6 @@ func TestSetSurfaceRefusals(t *testing.T) {
 			rendererLevel: true,
 			mutate: func(plan *ir.PhysicalPlan) {
 				set := setsBatterySet(plan)
-				// The first scope leg compares the wrong property.
 				set.Subplan.Operations[1].Filter.Predicate.Left.Path = []string{"projekt"}
 			},
 		},
@@ -660,10 +566,6 @@ func TestRelatedExistsSurfaceRefusals(t *testing.T) {
 		mutate        func(*ir.PhysicalSubplan, *ir.PhysicalPlan)
 	}{
 		{
-			// The IR gate already refuses bounded-EXISTS modifiers
-			// (physical_validation_shapes.go), matching the AQL renderer's
-			// refusal (render/aql/predicates.go:315-317); the renderer's
-			// own pin is the second line of defense.
 			name: "projection modifiers on an EXISTS subplan",
 			want: "projection-only sort or unique modifiers",
 			mutate: func(subplan *ir.PhysicalSubplan, _ *ir.PhysicalPlan) {
@@ -676,7 +578,6 @@ func TestRelatedExistsSurfaceRefusals(t *testing.T) {
 			want:          "canonical subplan scope block",
 			rendererLevel: true,
 			mutate: func(subplan *ir.PhysicalSubplan, _ *ir.PhysicalPlan) {
-				// Drop the closing auth equality of the block.
 				subplan.Operations = subplan.Operations[:len(subplan.Operations)-1]
 			},
 		},
@@ -691,7 +592,6 @@ func TestRelatedExistsSurfaceRefusals(t *testing.T) {
 				second.EdgeVariable = setsPrefix + "_edge2"
 				subplan.Operations = append(subplan.Operations,
 					ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp, Traversal: &second})
-				// The canonical {_id} return follows the LAST hop's target.
 				subplan.Return.Value.Variable = setsPrefix + "_node2"
 			},
 		},
@@ -744,7 +644,6 @@ func TestTwoSetsRenderIndependentReducedObjects(t *testing.T) {
 	if got := strings.Count(rendered.SQL, "jsonb_build_object("); got != 2 {
 		t.Fatalf("reduced objects = %d, want one per set: %s", got, rendered.SQL)
 	}
-	// Independent selectors bind their own paths: {status} and {code}.
 	bound := map[string]bool{}
 	for _, arg := range rendered.Args {
 		if text, ok := arg.Value.(string); ok {
@@ -758,17 +657,6 @@ func TestTwoSetsRenderIndependentReducedObjects(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Production-shape honesty: the eligibility subplans
-// lowerConstructionRelatedEligibility actually emits carry an anchor
-// operation (COLLECTION_SCAN + variable-right Predicate FILTER, or
-// DOCUMENT_LOOKUP) plus the anchor's own canonical scope block before the
-// first hop, and their filter attaches only as stage.Filter on a
-// PhysicalStageRelatedEligibilityOp (rejected upstream with StageSequence).
-// The anchor operations are subplan-argument calls, unregistered this wave,
-// so the production shape must fail closed here.
-// ---------------------------------------------------------------------------
-
 func setsAnchorPrefixedPlan(t *testing.T, anchorKind string) ir.PhysicalPlan {
 	t.Helper()
 	traversal := setsTraversal()
@@ -776,9 +664,6 @@ func setsAnchorPrefixedPlan(t *testing.T, anchorKind string) ir.PhysicalPlan {
 	operations := make([]ir.PhysicalOperation, 0, 10)
 	switch anchorKind {
 	case "scan":
-		// recipe_construction_related_eligibility.go:95-115: the
-		// root/rootContributors anchor is a COLLECTION_SCAN plus a
-		// Predicate-form FILTER whose right side is a VARIABLE.
 		operations = append(operations,
 			ir.PhysicalOperation{Kind: ir.PhysicalCollectionScanOp, CollectionScan: &ir.PhysicalCollectionScan{
 				Variable: anchorVariable, CollectionBindKey: "root_collection",
@@ -789,7 +674,6 @@ func setsAnchorPrefixedPlan(t *testing.T, anchorKind string) ir.PhysicalPlan {
 				Right:    &ir.PhysicalValue{Variable: "root", Path: []string{"_key"}},
 			}}})
 	case "lookup":
-		// :116-127: the activeRelatedRecord anchor is a DOCUMENT_LOOKUP.
 		operations = append(operations,
 			ir.PhysicalOperation{Kind: ir.PhysicalDocumentLookupOp, DocumentLookup: &ir.PhysicalDocumentLookup{
 				Variable: anchorVariable, CollectionBindKey: "related_eligibility_anchor_collection",
@@ -798,7 +682,6 @@ func setsAnchorPrefixedPlan(t *testing.T, anchorKind string) ir.PhysicalPlan {
 	default:
 		t.Fatalf("unknown anchor kind %q", anchorKind)
 	}
-	// :128-130: the anchor variable's own canonical scope block.
 	operations = appendScopeBlock(operations, []string{anchorVariable}, "related_eligibility_0_anchor_scope_allowed")
 	operations = append(operations, ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp, Traversal: &traversal})
 	operations = appendScopeBlock(operations, []string{setsEdgeVariable, setsTargetVariable}, setsPrefix+"_scope_auth")
@@ -826,23 +709,11 @@ func TestRelatedExistsAnchorPrefixedProductionShapeStaysRefused(t *testing.T) {
 		plan := setsAnchorPrefixedPlan(t, anchorKind)
 		_, err := RenderPhysicalPlan(plan, mustBinding(t))
 		wantUnsupported(t, err, "anchor-prefixed ("+anchorKind+") eligibility subplan")
-		// The refusal must be the subplan-argument gap, not an accidental
-		// success further along: the anchor operation is the first thing
-		// the loop sees.
 		if !strings.Contains(err.Error(), "has kind") {
 			t.Fatalf("%s anchor refusal must name the anchor operation kind: %v", anchorKind, err)
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Chained-hop happy path: the multipleTraversals surface (the hop-only
-// RELATED existence shape's multi-hop route) has no production caller yet,
-// so its second-hop assembly — the edge INNER JOIN carrying the full
-// predicate chain in ON, the chained anchor identity equality, the target
-// INNER JOIN, and the chained scope-block consumption — is pinned here and
-// witnessed live (sets_live_test.go) rather than left provably-refused-only.
-// ---------------------------------------------------------------------------
 
 func setsRelatedExistsTwoHopPlan() ir.PhysicalPlan {
 	hopOne := setsTraversal()
@@ -882,9 +753,6 @@ func setsRelatedExistsTwoHopPlan() ir.PhysicalPlan {
 func TestRelatedExistsChainedRouteGoldenAssemblesBothHops(t *testing.T) {
 	rendered := renderOK(t, setsRelatedExistsTwoHopPlan())
 	sql := rendered.SQL
-	// FROM list: the first hop's edge relation carries the correlation in
-	// WHERE; every later hop joins its edge in ON with the full predicate
-	// chain, mirroring traversal.go's chained assembly.
 	for _, want := range []string{
 		`FROM "pgir02_it_unit"."fhir_edge_occurrence" AS e1`,
 		`INNER JOIN "pgir02_it_unit"."fhir_resource" AS x1 ON`,
@@ -895,20 +763,15 @@ func TestRelatedExistsChainedRouteGoldenAssemblesBothHops(t *testing.T) {
 			t.Fatalf("chained FROM missing %q:\n%s", want, sql)
 		}
 	}
-	// WHERE conjunction: only the first hop correlates to the outer row.
 	if !strings.Contains(sql, `e1."source_logical_id" = r0."logical_id"`) {
 		t.Fatalf("first hop must correlate on the outer row: %s", sql)
 	}
-	// The chained hop anchors on the first hop's reached row, carried in
-	// the second edge join's ON clause.
 	if !strings.Contains(sql, `e2."source_logical_id" = x1."logical_id"`) {
 		t.Fatalf("second hop must anchor on x1 with its full predicate chain: %s", sql)
 	}
-	// Second-hop discriminators bind their own label/type values.
 	if !strings.Contains(sql, `e2."label" = $`) || !strings.Contains(sql, `e2."target_resource_type" = $`) {
 		t.Fatalf("second hop must bind its label and reached type: %s", sql)
 	}
-	// Canonical auth survives structurally on every hop's rows (E4).
 	for _, want := range []string{`e1."auth_resource_path"`, `x1."auth_resource_path"`, `e2."auth_resource_path"`, `x2."auth_resource_path"`} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("chained semi-join must carry the canonical auth scope (%q missing): %s", want, sql)
@@ -917,9 +780,6 @@ func TestRelatedExistsChainedRouteGoldenAssemblesBothHops(t *testing.T) {
 	if strings.Contains(sql, "LIMIT") {
 		t.Fatalf("EXISTS stays limit-free: %s", sql)
 	}
-	// Bind-parameter discipline: exactly project, generation, auth array,
-	// Patient, label1, Observation, label2, Specimen — with the repeated
-	// Patient/Observation discriminators deduplicated by the shared cache.
 	if got := len(rendered.Args); got != 8 {
 		t.Fatalf("chained parameter count = %d, want 8 (deduped discriminators): %v", got, rendered.Args)
 	}
@@ -928,7 +788,6 @@ func TestRelatedExistsChainedRouteGoldenAssemblesBothHops(t *testing.T) {
 			t.Fatalf("value %q leaked into statement text: %s", leaked, sql)
 		}
 	}
-	// Determinism: the same plan re-renders byte-identically.
 	again := renderOK(t, setsRelatedExistsTwoHopPlan())
 	if again.SQL != sql || !reflect.DeepEqual(again.Args, rendered.Args) {
 		t.Fatalf("chained rendering is not deterministic")

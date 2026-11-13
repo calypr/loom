@@ -352,7 +352,7 @@ func lowerConstructionRowValues(
 			if err != nil {
 				return nil, nil, fmt.Errorf("row value fieldSource: %w", err)
 			}
-			_ = projection // The exact source projection is installed by the shared helper.
+			_ = projection
 		} else {
 			var ok bool
 			inputColumn, ok = input[rowValue.InputColumnID]

@@ -1,55 +1,5 @@
 package postgres
 
-// Real-PostgreSQL 18 acceptance tests for the atomic publish commit
-// (pg-publication-atomic-visibility-v1; check-2:
-// go test -count=1 -run ^TestPublishExecutionAtomicity$ ./internal/backends/postgres/internal/publication/).
-//
-// These tests are the PostgreSQL counterpart of the Arango
-// publish_atomicity_e2e_test.go F-B16 evidence: the execution state
-// transition and the logical reader pointer move must become externally
-// visible together, never half. The promise under test is the publish.go
-// contract:
-//
-//	A. Commit-boundary visibility: while the publish transaction is open
-//	   (after every visibility write has applied), readers on a second real
-//	   PG connection still see the OLD pointer and the OLD execution state;
-//	   after COMMIT they see the pointer naming the execution and the full
-//	   exact execution. Two real connections with distinct pg_backend_pid,
-//	   at least ten rounds per racing surface.
-//	B. Injected transaction failure -- a crash in the window after the
-//	   pointer CAS and execution UPDATE have applied but before COMMIT --
-//	   exposes neither the new execution visibility nor the pointer: both
-//	   rows stay byte-identical to their pre-attempt bytes, and a clean
-//	   retry converges (post-abort convergence).
-//	C. Republishing the same execution is idempotent: the second call is a
-//	   converged no-op with byte-identical rows and the exact convergence
-//	   statement set; a drifted retry is refused with the named conflict.
-//	D. Concurrent publishers on two real connections converge to exactly
-//	   one winner; every stale loser is refused with the exact named
-//	   publication.ErrBundlePointerConflict (and not any sibling error)
-//	   with its own rows untouched.
-//	E. ClickHouse operations never run inside the PG transaction: the
-//	   transaction's statement stream is exactly the golden catalog
-//	   literals (witnessed at the driver), the backend is witnessed idle in
-//	   transaction on the final catalog UPDATE from a second connection,
-//	   no backend anywhere runs a ClickHouse-shaped statement during the
-//	   window, and the method signature carries no callback that could
-//	   smuggle one in.
-//	F. Sensitivity control (Arango arm A): replaying the pre-fix two-leg
-//	   shape (execution UPDATE applied outside the publish transaction,
-//	   pointer leg stopped) MUST expose the split state -- the witnesses in
-//	   A/B/D genuinely see a half-publish when one exists.
-//
-// Every fixture database and schema is uniquely owned as verify_pubvis_it_*
-// and dropped by the test that created it. The TestZZ audit is
-// ownership-scoped for exact-name checks plus a pg_database==baseline
-// equality over the process-lifetime baseline; concurrent sibling suites
-// (pgpubcat01_it_*, pgleases01_it_*) own their prefixes and their own
-// audits, so their transient databases are noted, not counted against this
-// file. A skipped required case is a failure for this ticket's acceptance,
-// so the check is run with LOOM_TEST_POSTGRES_URL configured; the gate
-// exists only to keep unrelated CI lanes green.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -74,11 +24,9 @@ import (
 
 var pubvisResourceNamePattern = regexp.MustCompile(`^verify_pubvis_it_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every database this file verified into existence is
-// recorded here and TestZZ asserts each exact name is gone.
 var (
 	pubvisOwnedMu sync.Mutex
-	pubvisOwned   = map[string]string{} // database -> owned schema
+	pubvisOwned   = map[string]string{}
 )
 
 func pubvisRegisterOwned(db, schema string) {
@@ -87,62 +35,9 @@ func pubvisRegisterOwned(db, schema string) {
 	pubvisOwned[db] = schema
 }
 
-// pg_database baseline captured before any test runs, for the
-// pg_database==baseline equality in the zero-leftover audit.
-var (
-	pubvisBaselineOnce sync.Once
-	pubvisBaseline     map[string]bool
-	pubvisBaselineErr  error
-)
-
-func capturePubvisBaseline() {
-	pubvisBaselineOnce.Do(func() {
-		raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
-		if raw == "" {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		admin, err := pgxpool.New(ctx, raw)
-		if err != nil {
-			pubvisBaselineErr = fmt.Errorf("baseline connect: %w", err)
-			return
-		}
-		defer admin.Close()
-		rows, err := admin.Query(ctx, "SELECT datname FROM pg_database")
-		if err != nil {
-			pubvisBaselineErr = fmt.Errorf("baseline query: %w", err)
-			return
-		}
-		defer rows.Close()
-		pubvisBaseline = map[string]bool{}
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				pubvisBaselineErr = fmt.Errorf("baseline scan: %w", err)
-				return
-			}
-			pubvisBaseline[name] = true
-		}
-		if err := rows.Err(); err != nil {
-			pubvisBaselineErr = fmt.Errorf("baseline rows: %w", err)
-		}
-	})
-}
-
-func init() { capturePubvisBaseline() }
-
-// auditPublishVisibilityLeftovers is the zero-leftover audit: (1) every
-// exact database name this file created is gone, and (2) the pg_database
-// set still equals the process baseline -- new databases outside the
-// documented sibling-suite prefixes are failures.
 func auditPublishVisibilityLeftovers() error {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		return nil
-	}
-	capturePubvisBaseline()
-	if pubvisBaselineErr != nil {
-		return pubvisBaselineErr
 	}
 	pubvisOwnedMu.Lock()
 	owned := make(map[string]string, len(pubvisOwned))
@@ -172,54 +67,56 @@ func auditPublishVisibilityLeftovers() error {
 		}
 	}
 
-	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database")
+	var leftoverDatabases []string
+	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE left(datname, $1) = $2", len("verify_pubvis_"), "verify_pubvis_")
 	if err != nil {
-		return fmt.Errorf("audit current databases: %w", err)
+		return fmt.Errorf("audit database namespace scan: %w", err)
 	}
 	defer rows.Close()
-	current := map[string]bool{}
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			return fmt.Errorf("audit scan: %w", err)
+			return fmt.Errorf("audit database namespace scan: %w", err)
 		}
-		current[name] = true
+		leftoverDatabases = append(leftoverDatabases, name)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("audit rows: %w", err)
+		return fmt.Errorf("audit database namespace scan: %w", err)
 	}
-	for name := range current {
-		if pubvisBaseline[name] {
-			continue
-		}
-		// Sibling suites own their prefixes and their own zero-leftover
-		// audits in this same package; their transient databases are
-		// documented, not counted against this file.
-		if strings.HasPrefix(name, "pgpubcat01_it_") || strings.HasPrefix(name, "pgleases01_it_") {
-			continue
-		}
-		return fmt.Errorf("pg_database drifted from the baseline: unexpected database %q", name)
+	rows.Close()
+	if len(leftoverDatabases) != 0 {
+		return fmt.Errorf("leftover databases under this suite's fixture namespace verify_pubvis_* after all cleanups: %v", leftoverDatabases)
 	}
-	for name := range pubvisBaseline {
-		if !current[name] {
-			return fmt.Errorf("pg_database drifted from the baseline: baseline database %q vanished", name)
+
+	var leftoverSchemas []string
+	schemaRows, err := admin.Query(ctx, "SELECT nspname FROM pg_namespace WHERE left(nspname, $1) = $2", len("verify_pubvis_"), "verify_pubvis_")
+	if err != nil {
+		return fmt.Errorf("audit schema namespace scan: %w", err)
+	}
+	defer schemaRows.Close()
+	for schemaRows.Next() {
+		var name string
+		if err := schemaRows.Scan(&name); err != nil {
+			return fmt.Errorf("audit schema namespace scan: %w", err)
 		}
+		leftoverSchemas = append(leftoverSchemas, name)
+	}
+	if err := schemaRows.Err(); err != nil {
+		return fmt.Errorf("audit schema namespace scan: %w", err)
+	}
+	schemaRows.Close()
+	if len(leftoverSchemas) != 0 {
+		return fmt.Errorf("leftover schemas under this suite's fixture namespace verify_pubvis_* after all cleanups: %v", leftoverSchemas)
 	}
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Fixture service: one owned database, one owned schema, three pools pinned
-// to one physical connection each -- publisher A, publisher B, reader -- so
-// every racing surface provably runs on distinct real PG backends.
-// ---------------------------------------------------------------------------
-
 type pubvisService struct {
 	ctx    context.Context
 	admin  *pgxpool.Pool
-	pub    *pgxpool.Pool // publisher A (one backend)
-	pubB   *pgxpool.Pool // publisher B / stale (one backend)
-	reader *pgxpool.Pool // readers and SQL witnesses (one backend)
+	pub    *pgxpool.Pool
+	pubB   *pgxpool.Pool
+	reader *pgxpool.Pool
 	schema string
 	regA   *Registry
 	regB   *Registry
@@ -254,11 +151,6 @@ func newPubvisService(t *testing.T) *pubvisService {
 		return s
 	}
 	fail := func(step string, err error) { t.Fatalf("%s: %s", step, scrub(err)) }
-
-	capturePubvisBaseline()
-	if pubvisBaselineErr != nil {
-		fail("capture pg_database baseline", pubvisBaselineErr)
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	t.Cleanup(cancel)
@@ -340,12 +232,6 @@ func (s *pubvisService) registry(t *testing.T, pool *pgxpool.Pool) *Registry {
 	return registry
 }
 
-// migrate applies exactly the ledger bootstrap plus the 000004 publication
-// bundle catalog from this package's authoritative owner embed (migrate.go)
-// through the real pg-store-02 runner. The publish path adds no DDL --
-// NewMigrationRunner sorts the owner history and tolerates the 1..4 version
-// gap (internal/backends/postgres/internal/store/migrate.go), the proven composition the
-// sibling suites already apply.
 func (s *pubvisService) migrate(t *testing.T) {
 	t.Helper()
 	history := mustOwnerHistorySubset(t, 1, 4)
@@ -361,10 +247,6 @@ func (s *pubvisService) migrate(t *testing.T) {
 		t.Fatalf("applied history = %+v, want ledger + publication_bundle_catalog", result.Applied)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Witnesses on dedicated pools.
-// ---------------------------------------------------------------------------
 
 func (s *pubvisService) wText(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) string {
 	t.Helper()
@@ -393,7 +275,6 @@ func (s *pubvisService) wInt64(t *testing.T, pool *pgxpool.Pool, sql string, arg
 	return value
 }
 
-// backendPID asks a one-connection pool which real PG backend it owns.
 func (s *pubvisService) backendPID(t *testing.T, pool *pgxpool.Pool, role string) uint32 {
 	t.Helper()
 	raw := s.wText(t, pool, "SELECT pg_backend_pid()::text")
@@ -407,8 +288,6 @@ func (s *pubvisService) backendPID(t *testing.T, pool *pgxpool.Pool, role string
 	return pid
 }
 
-// pointerRow returns the literal pointer row for a name as stable witness
-// strings, or nil when no row exists.
 type pubvisPointerRow struct {
 	PointerKey string
 	NameHex    string
@@ -433,7 +312,6 @@ func (s *pubvisService) pointerRow(t *testing.T, name string) *pubvisPointerRow 
 	return &row
 }
 
-// pointerValue reads the pointer row and fails when it is absent.
 func (s *pubvisService) pointerValue(t *testing.T, name string) pubvisPointerRow {
 	t.Helper()
 	row := s.pointerRow(t, name)
@@ -443,8 +321,6 @@ func (s *pubvisService) pointerValue(t *testing.T, name string) pubvisPointerRow
 	return *row
 }
 
-// payloadText returns the stored payload's jsonb text bytes for one
-// execution -- the byte witness compared across operations.
 func (s *pubvisService) payloadText(t *testing.T, id string) string {
 	t.Helper()
 	return s.wText(t, s.reader,
@@ -460,9 +336,6 @@ func (s *pubvisService) qualified(table string) string {
 	return pgx.Identifier{s.schema, table}.Sanitize()
 }
 
-// activity returns (state, last query) for one backend as seen from the
-// reader connection -- a real cross-connection witness of what the publish
-// backend is doing during the gate window.
 func (s *pubvisService) activity(t *testing.T, pid uint32) (string, string) {
 	t.Helper()
 	var state, query string
@@ -472,12 +345,6 @@ func (s *pubvisService) activity(t *testing.T, pid uint32) (string, string) {
 	}
 	return state, query
 }
-
-// ---------------------------------------------------------------------------
-// Canonical fixture data. All timestamps carry non-zero, non-microsecond-
-// trailing nanoseconds so an RFC3339Nano round trip is a real precision
-// test; digests and names are literal fixtures.
-// ---------------------------------------------------------------------------
 
 const (
 	pubvisOwnerA   = "pubvis-owner-a"
@@ -505,16 +372,10 @@ func pubvisIdentity() publication.BundleIdentity {
 		ScopeDigest:        "sha256:scope-pubvis",
 		EngineVersion:      "loom-engine-pubvis",
 		AuthScopeMode:      "project",
-		// Deliberately unsorted: the payload keeps what the caller stored,
-		// and the pointer-name encoding must stay injective around the
-		// embedded colons.
-		AuthResourcePaths: []string{"fhir/Observation", "fhir/Patient"},
+		AuthResourcePaths:  []string{"fhir/Observation", "fhir/Patient"},
 	}
 }
 
-// pubvisExecution builds one canonical execution for an id. published=false
-// yields the RUNNING pre-publish shape; published=true carries the
-// PUBLISHED state, PublishedAt, and per-output VerifiedAt.
 func pubvisExecution(id string, published bool, owner string) publication.BundleExecution {
 	identity := pubvisIdentity()
 	updatedAt := pubvisRunUpdated
@@ -562,14 +423,8 @@ func pubvisExecution(id string, published bool, owner string) publication.Bundle
 	return execution
 }
 
-// pubvisPointerName is the canonical chain pointer name for an id -- the
-// untouched domain encoding of the canonical identity.
 func pubvisPointerName() string { return pubvisIdentity().PointerName() }
 
-// pubvisPayloadGoldenSHA256 holds the golden sha256 of the jsonb-normalized
-// payload text for every canonical PUBLISHED execution id used below. The
-// literals were pinned once from the production write path; any payload
-// drift trips the literal, not a re-marshaled proxy.
 var pubvisPayloadGoldenSHA256 = map[string]string{
 	"pubvis-exec-c":       "86887eb9943381092f7188d1b8413c7cd978ef0f26f602c1fd16f6f28f934ce6",
 	"pubvis-exec-e":       "1fbe8e253ce9d56d1ceaeeb874b62f706d6b83c5868ee34e5ac516ca00fe1f6b",
@@ -647,10 +502,6 @@ func pubvisWantPayloadSHA(t *testing.T, id string) string {
 	return want
 }
 
-// ---------------------------------------------------------------------------
-// Production-entry-point seeding helpers (registry API only).
-// ---------------------------------------------------------------------------
-
 func (s *pubvisService) seed(t *testing.T, reg *Registry, owner string, id string) publication.BundleExecution {
 	t.Helper()
 	execution := pubvisExecution(id, false, owner)
@@ -673,10 +524,6 @@ func (s *pubvisService) publishClean(t *testing.T, reg *Registry, name, expected
 	return published
 }
 
-// ---------------------------------------------------------------------------
-// Publish gate: the test seam inside the publish transaction.
-// ---------------------------------------------------------------------------
-
 type pubvisGate struct {
 	arrived chan publishAttempt
 	release chan error
@@ -688,9 +535,6 @@ func newPubvisGate() *pubvisGate {
 
 func pubvisArmGate(t *testing.T, gate *pubvisGate) {
 	t.Helper()
-	// One-shot engagement: the hook rendezvous with the FIRST publish that
-	// reaches it and passes every later call through, so subsequent
-	// publishes in the same subtest are never captured by a stale hook.
 	var once sync.Once
 	fn := func(attempt publishAttempt) error {
 		engaged := false
@@ -705,8 +549,6 @@ func pubvisArmGate(t *testing.T, gate *pubvisGate) {
 	previous := publishGate.Swap(&fn)
 	t.Cleanup(func() {
 		publishGate.Store(previous)
-		// Never leave a publish parked when the test has already failed:
-		// unblock a still-waiting hook exactly once if nobody else did.
 		select {
 		case gate.release <- nil:
 		default:
@@ -730,12 +572,6 @@ func pubvisWaitAttempt(t *testing.T, gate *pubvisGate) publishAttempt {
 }
 
 var errPubvisInjected = errors.New("injected publish transaction failure")
-
-// ---------------------------------------------------------------------------
-// Golden statement literals. These mirror, byte for byte, the catalog
-// statements publish.go must hand to the driver; the witness compares the
-// recorded statement stream against these literals.
-// ---------------------------------------------------------------------------
 
 func pubvisGoldenFence(fqLeases string) string {
 	return "SELECT true FROM " + fqLeases + " WHERE key = $1 AND owner_id = $2 AND expires_at >= $3 FOR UPDATE"
@@ -775,9 +611,6 @@ func (s *pubvisService) goldenPublishStatements(fqLeases, fqExec, fqPointers str
 	}
 }
 
-// goldenConvergedStatements is the NO-OP statement set: the three guards
-// plus the two convergence reads -- the execution UPDATE is never issued
-// on the converged path.
 func (s *pubvisService) goldenConvergedStatements(fqLeases, fqExec, fqPointers string) []string {
 	return []string{
 		pubvisGoldenFence(fqLeases),
@@ -799,10 +632,6 @@ func pubvisEqualStrings(t *testing.T, label string, got, want []string) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Full exact execution comparison against the published fixture.
-// ---------------------------------------------------------------------------
 
 func pubvisExpectExactPublished(t *testing.T, s *pubvisService, want publication.BundleExecution) {
 	t.Helper()
@@ -854,18 +683,12 @@ func pubvisExpectExactPublished(t *testing.T, s *pubvisService, want publication
 	}
 }
 
-// ---------------------------------------------------------------------------
-// The acceptance test.
-// ---------------------------------------------------------------------------
-
 func TestPublishExecutionAtomicity(t *testing.T) {
 	t.Run("A_reader_sees_old_pointer_until_commit", func(t *testing.T) {
 		s := newPubvisService(t)
 		name := pubvisPointerName()
 		fqLeases, fqExec, fqPointers := s.qualified(BundleLeasesTable), s.qualified(BundleExecutionsTable), s.qualified(BundlePointersTable)
 
-		// The pre-chain published execution gives readers an OLD pointer
-		// value to keep seeing while the next publish is open.
 		s.seed(t, s.regA, pubvisOwnerA, "pubvis-exec-a0")
 		a0 := s.publishClean(t, s.regA, name, "", "pubvis-exec-a0", pubvisOwnerA)
 		pubvisExpectExactPublished(t, s, a0)
@@ -877,9 +700,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			s.seed(t, s.regA, pubvisOwnerA, id)
 			published := pubvisExecution(id, true, pubvisOwnerA)
 
-			// Capture the two backend pids BEFORE the publish opens its
-			// transaction: the publisher pool carries exactly one physical
-			// connection, so querying it mid-transaction would queue.
 			pubPID := s.backendPID(t, s.pub, "publisher")
 			readPID := s.backendPID(t, s.reader, "reader")
 			if pubPID == readPID {
@@ -901,8 +721,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			pubvisEqualStrings(t, fmt.Sprintf("round %d statements", round), attempt.Statements,
 				s.goldenPublishStatements(fqLeases, fqExec, fqPointers))
 
-			// WHILE THE TRANSACTION IS OPEN: readers still see the old
-			// pointer and the old execution state.
 			pointer, err := s.regR.GetPointer(s.ctx, name)
 			if err != nil || pointer.ExecutionID != previous {
 				t.Fatalf("round %d: reader saw pointer %+v err=%v during publish, want %q", round, pointer, err, previous)
@@ -918,8 +736,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 				"SELECT payload->>'state' FROM "+fqExec+" WHERE id = $1", id); state != "RUNNING" {
 				t.Fatalf("round %d: SQL witness of execution during publish = %q, want RUNNING", round, state)
 			}
-			// The publish backend is genuinely parked mid-transaction on
-			// the catalog UPDATE -- not executing anything else.
 			txState, lastQuery := s.activity(t, attempt.BackendPID)
 			if txState != "idle in transaction" {
 				t.Fatalf("round %d: publish backend state = %q, want idle in transaction", round, txState)
@@ -933,8 +749,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 				s.fail(fmt.Sprintf("round %d publish", round), err)
 			}
 
-			// AFTER COMMIT: the pointer names the execution and the full
-			// exact execution is visible in the same reader surface.
 			pointer, err = s.regR.GetPointer(s.ctx, name)
 			if err != nil || pointer.ExecutionID != id {
 				t.Fatalf("round %d: reader saw pointer %+v err=%v after commit, want %q", round, pointer, err, id)
@@ -953,8 +767,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			t.Logf("OBS A round %d: old pointer held until COMMIT; full exact execution after (pids %d/%d)", round, attempt.BackendPID, readPID)
 		}
 
-		// Canonical pointer literals after the chain: golden digest key,
-		// byte-exact NUL-free bytea name, single row.
 		row := s.pointerRow(t, name)
 		wantName := pubvisPointerName()
 		sum := sha256.Sum256([]byte(wantName))
@@ -978,7 +790,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			s.seed(t, s.regA, pubvisOwnerA, id)
 			published := pubvisExecution(id, true, pubvisOwnerA)
 
-			// Pre-attempt byte witnesses.
 			prePointer := s.pointerRow(t, name)
 			prePayload := s.payloadText(t, id)
 			if pubvisSHA256Hex(prePayload) == pubvisWantPayloadSHA(t, id) {
@@ -991,8 +802,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			go func() { done <- s.regA.PublishExecution(s.ctx, name, "pubvis-exec-b0", published) }()
 
 			attempt := pubvisWaitAttempt(t, gate)
-			// Even while the aborted attempt is open, readers see only the
-			// old world.
 			pointer, err := s.regR.GetPointer(s.ctx, name)
 			if err != nil || pointer.ExecutionID != "pubvis-exec-b0" {
 				t.Fatalf("round %d: reader saw pointer %+v err=%v during the doomed publish", round, pointer, err)
@@ -1003,8 +812,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 				t.Fatalf("round %d: injected failure did not surface, got %v", round, err)
 			}
 
-			// NEITHER half may be exposed: pointer and execution rows stay
-			// byte-identical to their pre-attempt bytes.
 			postPointer := s.pointerRow(t, name)
 			if postPointer == nil || *postPointer != *prePointer {
 				t.Fatalf("round %d: pointer row drifted across the abort: %+v vs %+v", round, postPointer, prePointer)
@@ -1021,8 +828,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			t.Logf("OBS B round %d: crash window after statements pid=%d rolled back; rows byte-identical", round, attempt.BackendPID)
 		}
 
-		// Post-abort convergence: the clean retry of the last aborted
-		// publish lands both halves together, byte-exact.
 		const finalID = "pubvis-exec-b3"
 		published := pubvisExecution(finalID, true, pubvisOwnerA)
 		if err := s.regA.PublishExecution(s.ctx, name, "pubvis-exec-b0", published); err != nil {
@@ -1037,8 +842,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			t.Fatalf("post-abort pointer row = %+v, want %q", row, finalID)
 		}
 
-		// Absent-pointer abort: a first publish whose pointer row never
-		// existed must leave NO pointer row at all after the abort.
 		absentID := "pubvis-exec-b9"
 		s.seed(t, s.regA, pubvisOwnerA, absentID)
 		absentName := pubvisPointerName() + "|absent"
@@ -1059,7 +862,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 		if _, err := s.regR.GetPointer(s.ctx, absentName); !errors.Is(err, publication.ErrBundleNotFound) {
 			t.Fatalf("aborted first publish pointer readable: %v, want ErrBundleNotFound", err)
 		}
-		// Recovery from the absent-pointer abort publishes cleanly.
 		if err := s.regA.PublishExecution(s.ctx, absentName, "", pubvisExecution(absentID, true, pubvisOwnerA)); err != nil {
 			s.fail("recovery publish after absent-pointer abort", err)
 		}
@@ -1077,7 +879,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 		s.seed(t, s.regA, pubvisOwnerA, id)
 		published := pubvisExecution(id, true, pubvisOwnerA)
 
-		// First publish: ordinary path with the golden statement set.
 		gate := newPubvisGate()
 		pubvisArmGate(t, gate)
 		done := make(chan error, 1)
@@ -1092,7 +893,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			s.fail("first publish", err)
 		}
 
-		// Byte witnesses across the retry.
 		pointerBefore := s.pointerValue(t, name)
 		payloadBefore := s.payloadText(t, id)
 		epochBefore := s.wInt64(t, s.reader,
@@ -1102,7 +902,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			t.Fatalf("pointer updated_at literal = %q, want the published stamp to microsecond precision", updatedAtLiteral)
 		}
 
-		// Identical retry: converged no-op success.
 		gate2 := newPubvisGate()
 		pubvisArmGate(t, gate2)
 		done = make(chan error, 1)
@@ -1126,8 +925,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			t.Fatalf("retry bumped the lease epoch to %d, want it untouched at %d", epoch, epochBefore)
 		}
 
-		// A drifted retry is refused with the named conflict -- the
-		// converged path only forgives the EXACT execution.
 		drifted := published
 		drifted.PublishedAt = nil
 		driftedErr := s.regA.PublishExecution(s.ctx, name, "", drifted)
@@ -1144,8 +941,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			t.Fatalf("refused drifted retry mutated the payload (first difference at byte %d)", firstDiff(payloadBefore, after))
 		}
 
-		// Concurrency with no new work: the exact retry still converges
-		// after the refusals.
 		if err := s.regA.PublishExecution(s.ctx, name, "", published); err != nil {
 			t.Fatalf("exact retry after refusals = %v, want nil", err)
 		}
@@ -1166,8 +961,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			s.seed(t, s.regA, pubvisOwnerA, idA)
 			s.seed(t, s.regB, pubvisOwnerB, idB)
 			if staleLease {
-				// Same-owner reclaim with a past expiry: B's fence is now
-				// expired, making B the literal stale publisher.
 				claimed, err := s.regB.AcquireBundleLease(s.ctx, "bundle-"+idB, pubvisOwnerB, time.Now().UTC().Add(-time.Minute))
 				if err != nil || !claimed {
 					s.fail("expire stale lease", fmt.Errorf("claimed=%v err=%w", claimed, err))
@@ -1214,8 +1007,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			if n := s.wInt64(t, s.reader, "SELECT count(*) FROM "+fqPointers+" WHERE pointer_key = $1", pointerKey(name)); n != 1 {
 				t.Fatalf("round %s: pointer rows = %d, want 1", tag, n)
 			}
-			// The loser's execution row is untouched RUNNING and its
-			// payload is byte-identical to the pre-publish fixture.
 			if state := s.wText(t, s.reader,
 				"SELECT payload->>'state' FROM "+fqExec+" WHERE id = $1", loser); state != "RUNNING" {
 				t.Fatalf("round %s: loser execution state = %q, want RUNNING (fully rolled back)", tag, state)
@@ -1223,8 +1014,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			if pubvisSHA256Hex(s.payloadText(t, loser)) == pubvisWantPayloadSHA(t, loser) {
 				t.Fatalf("round %s: loser payload carries the published digest", tag)
 			}
-			// The winner is fully exact and byte-stable under its own
-			// idempotent retry.
 			want := pubvisExecution(winner, true, map[string]string{idA: pubvisOwnerA, idB: pubvisOwnerB}[winner])
 			pubvisExpectExactPublished(t, s, want)
 			regWinner, winnerID := s.regA, idA
@@ -1266,14 +1055,9 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 		go func() { done <- s.regA.PublishExecution(s.ctx, name, "", published) }()
 		attempt := pubvisWaitAttempt(t, gate)
 
-		// (1) Statement stream: exactly the golden catalog literals, in
-		// order, nothing else -- no statement can be a ClickHouse
-		// operation because the whole set is the catalog contract.
 		pubvisEqualStrings(t, "publish statement stream", attempt.Statements,
 			s.goldenPublishStatements(fqLeases, fqExec, fqPointers))
 
-		// (2) Cross-connection witness: the publish backend is parked
-		// idle in transaction on the final catalog UPDATE.
 		txState, lastQuery := s.activity(t, attempt.BackendPID)
 		if txState != "idle in transaction" {
 			t.Fatalf("publish backend state during the window = %q, want idle in transaction", txState)
@@ -1282,9 +1066,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			t.Fatalf("publish backend last query is not the golden catalog UPDATE:\n got: %q", lastQuery)
 		}
 
-		// (3) Live sweep from the reader backend: while the publish
-		// transaction is open, no client backend anywhere is executing a
-		// ClickHouse-shaped statement.
 		sweep := s.wInt64(t, s.reader,
 			"SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' "+
 				"AND pid <> pg_backend_pid() AND query ~* 'clickhouse|ch_send|insert into .*ch_'")
@@ -1298,9 +1079,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 		}
 		pubvisExpectExactPublished(t, s, published)
 
-		// (4) Structural guarantee: PublishExecution takes values only --
-		// no callback or channel can smuggle a ClickHouse call into the
-		// transaction window.
 		method, ok := reflect.TypeOf(&Registry{}).MethodByName("PublishExecution")
 		if !ok {
 			t.Fatal("Registry.PublishExecution missing")
@@ -1322,12 +1100,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 	})
 
 	t.Run("F_prefix_split_control_is_observable", func(t *testing.T) {
-		// Sensitivity control (the Arango arm-A analogue): replaying the
-		// pre-fix two-leg shape -- the execution UPDATE applied outside
-		// any publish transaction, pointer leg stopped -- MUST expose
-		// PUBLISHED-without-pointer to the same witnesses B and A rely on.
-		// If this control ever fails to see the split, the atomicity
-		// witnesses above are vacuous.
 		s := newPubvisService(t)
 		name := pubvisPointerName()
 		const id = "pubvis-exec-f"
@@ -1339,8 +1111,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			s.fail("build publish params", err)
 		}
 
-		// Leg 1 verbatim in the production statement shape, but committed
-		// on its own -- the pre-fix product bug.
 		leg1 := pubvisGoldenUpdate(fqExec)
 		if _, err := s.pub.Exec(s.ctx, leg1, params...); err != nil {
 			s.fail("pre-fix leg 1", err)
@@ -1358,8 +1128,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 		}
 		t.Log("OBS F: the pre-fix split IS observable -- witnesses in A/B/D are sensitive to half-publish")
 
-		// The repaired path then lands both halves together from exactly
-		// this split state.
 		if err := s.regA.PublishExecution(s.ctx, name, "", published); err != nil {
 			s.fail("repaired publish from the split state", err)
 		}
@@ -1371,13 +1139,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 	})
 
 	t.Run("G_payload_goldens_are_load_bearing", func(t *testing.T) {
-		// Every d-* golden pin is asserted POSITIVELY: publishing the
-		// canonical execution through the production write path with its
-		// round-D owner binding (a->owner-a, b->owner-b) must store a
-		// payload whose sha256 equals the pin. Negative-only usage (D's
-		// loser control) can never redden on pin drift -- this closes that
-		// gap: a future payload change or a wrong-owner pin fails here by
-		// name.
 		s := newPubvisService(t)
 		pinned := 0
 		for _, p := range []string{"r", "s"} {
@@ -1408,8 +1169,6 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 	})
 }
 
-// firstDiff reports the first byte offset where two witnesses differ, or
-// the shorter length when one is a prefix of the other.
 func firstDiff(a, b string) int {
 	limit := min(len(a), len(b))
 	for i := 0; i < limit; i++ {
@@ -1420,15 +1179,125 @@ func firstDiff(a, b string) int {
 	return limit
 }
 
-// TestZZZeroLeftoverPublishVisibilityFixtures audits only the exact
-// verify_pubvis_it_* resources this file creates. This test MUST stay the
-// last test declared in this file: Go runs a package's tests in
-// declaration order within each source file, and only tests in this file
-// create verify_pubvis_it_* resources, so it executes after every fixture
-// this file owns has run and been dropped. TestMain additionally invokes
-// the same audit after the whole package (registry_test.go) so the
-// required zero-leftover and pg_database==baseline checks still execute
-// under the filtered -run of the ticket's check-2.
+func TestAuditPublishVisibilityForeignFixtureActivity(t *testing.T) {
+	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+	if raw == "" {
+		t.Skip("no service configured; nothing could have been created")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect to test service: %v", err)
+	}
+	t.Cleanup(admin.Close)
+
+	foreign := fmt.Sprintf("verify_pubvisx_it_%d_%s", time.Now().UnixNano(), randomHex())
+	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+foreign+`"`); err != nil {
+		t.Fatalf("create foreign fixture database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+			`DROP DATABASE IF EXISTS "`+foreign+`" WITH (FORCE)`); err != nil {
+			t.Errorf("drop foreign fixture database: %v", err)
+		}
+	})
+
+	if err := auditPublishVisibilityLeftovers(); err != nil {
+		t.Errorf("audit with foreign fixture database alive = %v, want nil", err)
+	}
+
+	var survived int
+	if err := admin.QueryRow(ctx, "SELECT COUNT(*) FROM pg_database WHERE datname = $1", foreign).Scan(&survived); err != nil {
+		t.Fatalf("check foreign fixture database survived the audit: %v", err)
+	}
+	if survived != 1 {
+		t.Fatalf("audit removed foreign fixture database %q", foreign)
+	}
+
+	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS "`+foreign+`" WITH (FORCE)`); err != nil {
+		t.Fatalf("remove foreign fixture database: %v", err)
+	}
+	if err := auditPublishVisibilityLeftovers(); err != nil {
+		t.Errorf("audit after foreign fixture database was removed = %v, want nil", err)
+	}
+}
+
+func TestAuditPublishVisibilityOwnedLeakControls(t *testing.T) {
+	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+	if raw == "" {
+		t.Skip("no service configured; nothing could have been created")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect to test service: %v", err)
+	}
+	defer admin.Close()
+
+	t.Run("registered database leak", func(t *testing.T) {
+		db := fmt.Sprintf("verify_pubvis_it_%d_%s", time.Now().UnixNano(), randomHex())
+		if !pubvisResourceNamePattern.MatchString(db) {
+			t.Fatalf("leak database name %q does not match the required pattern", db)
+		}
+		if _, err := admin.Exec(ctx, `CREATE DATABASE "`+db+`"`); err != nil {
+			t.Fatalf("create leak database: %v", err)
+		}
+		pubvisRegisterOwned(db, "")
+		t.Cleanup(func() {
+			if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+				`DROP DATABASE IF EXISTS "`+db+`" WITH (FORCE)`); err != nil {
+				t.Errorf("drop leak database: %v", err)
+			}
+		})
+		err := auditPublishVisibilityLeftovers()
+		if err == nil || !strings.Contains(err.Error(), "leftover owned database") || !strings.Contains(err.Error(), db) {
+			t.Fatalf("audit with a registered owned database leak = %v, want a leftover owned database failure naming %q", err, db)
+		}
+	})
+
+	t.Run("unregistered namespace database leak", func(t *testing.T) {
+		db := fmt.Sprintf("verify_pubvis_it_%d_%s", time.Now().UnixNano(), randomHex())
+		if !pubvisResourceNamePattern.MatchString(db) {
+			t.Fatalf("leak database name %q does not match the required pattern", db)
+		}
+		if _, err := admin.Exec(ctx, `CREATE DATABASE "`+db+`"`); err != nil {
+			t.Fatalf("create leak database: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+				`DROP DATABASE IF EXISTS "`+db+`" WITH (FORCE)`); err != nil {
+				t.Errorf("drop leak database: %v", err)
+			}
+		})
+		err := auditPublishVisibilityLeftovers()
+		if err == nil || !strings.Contains(err.Error(), "leftover databases under this suite's fixture namespace") || !strings.Contains(err.Error(), db) {
+			t.Fatalf("audit with an unregistered namespace database leak = %v, want a fixture namespace failure naming %q", err, db)
+		}
+	})
+
+	t.Run("namespace schema leak", func(t *testing.T) {
+		schema := fmt.Sprintf("verify_pubvis_it_%d_%s", time.Now().UnixNano(), randomHex())
+		if !pubvisResourceNamePattern.MatchString(schema) {
+			t.Fatalf("leak schema name %q does not match the required pattern", schema)
+		}
+		if _, err := admin.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
+			t.Fatalf("create leak schema: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+				`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
+				t.Errorf("drop leak schema: %v", err)
+			}
+		})
+		err := auditPublishVisibilityLeftovers()
+		if err == nil || !strings.Contains(err.Error(), "leftover schemas under this suite's fixture namespace") || !strings.Contains(err.Error(), schema) {
+			t.Fatalf("audit with a namespace schema leak = %v, want a fixture namespace failure naming %q", err, schema)
+		}
+	})
+}
+
 func TestZZZeroLeftoverPublishVisibilityFixtures(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		t.Skip("no service configured; nothing could have been created")

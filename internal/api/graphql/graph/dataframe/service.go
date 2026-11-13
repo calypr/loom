@@ -1,6 +1,3 @@
-// Package dataframe adapts one project's published ClickHouse
-// dataframe outputs to GraphQL. Project identity is explicit on every read;
-// this package never discovers or combines data from other projects.
 package dataframe
 
 import (
@@ -82,12 +79,6 @@ func (s *Service) authorizeMaterialization(ctx context.Context, principal *auths
 		if len(principal.AuthResourcePaths) == 0 {
 			return projectAccess{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
 		}
-		// F-B22 Tier-1: this slice flows verbatim to PageRequest.AuthResourcePaths
-		// and the ClickHouse `auth_resource_path IN ?` bind list (published/page.go).
-		// Normalize at this boundary with the same authscope helper repair-7 applied
-		// at query/input_resolution.go, so control bytes, stray slashes, and
-		// duplicate spellings can never reach the scope-digest join; a garbage-only
-		// principal fails closed instead of widening.
 		normalizedPaths := authscope.NormalizeAuthResourcePaths(principal.AuthResourcePaths)
 		if len(normalizedPaths) == 0 {
 			return projectAccess{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
