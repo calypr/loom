@@ -1181,7 +1181,7 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 	bind := map[string]any{"project": project, "generation": generation}
 	body := fmt.Sprintf(`{"query":%q,"bindVars":%s}`, query, mustAB10JSON(t, bind))
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		strings.TrimRight(p.endpoint, "/")+"/_api/cursor/"+url.PathEscape(p.database),
+		strings.TrimRight(p.endpoint, "/")+"/_db/"+url.PathEscape(p.database)+"/_api/cursor",
 		strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("build cursor request: %v", err)
@@ -1192,7 +1192,8 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 		t.Fatalf("census cursor: %v", err)
 	}
 	defer response.Body.Close()
-	// POST /_api/cursor answers 201 on cursor creation (200 also accepted).
+	// POST /_db/<db>/_api/cursor (the production profile_client route)
+	// answers 201 on cursor creation (200 also accepted).
 	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusCreated) {
 		payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 		t.Fatalf("census cursor HTTP %d: %s", response.StatusCode, payload)
@@ -1215,7 +1216,7 @@ func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, key, att
 		"collection": collection, "key": key, "attribute": attribute,
 	}))
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		strings.TrimRight(p.endpoint, "/")+"/_api/cursor/"+url.PathEscape(p.database),
+		strings.TrimRight(p.endpoint, "/")+"/_db/"+url.PathEscape(p.database)+"/_api/cursor",
 		strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("build payload attribute request: %v", err)
@@ -2666,7 +2667,6 @@ func ab10AttemptJSON(app *fiber.App, method, path, body string) (testHTTPRespons
 
 func ab10CellUpgradeReopen(t *testing.T, arm *ab10Arm) {
 	t.Run("upgradeFromPinnedPreRefactorReopensSafely", func(t *testing.T) {
-		ab10AuditLegMints(t, "postgresql", 1) // the pinned pre-refactor fixture
 		ctx, cancel := context.WithTimeout(context.Background(), 420*time.Second)
 		defer cancel()
 		if arm.name == "postgresql" {
@@ -2700,6 +2700,7 @@ func ab10CellUpgradeReopen(t *testing.T, arm *ab10Arm) {
 
 func ab10CellUpgradeReopenPG(t *testing.T, arm *ab10Arm, ctx context.Context) {
 	t.Helper()
+	ab10AuditLegMints(t, "postgresql", 1) // the pinned pre-refactor fixture
 	// A fresh owned database migrated by the pinned pre-refactor ledger
 	// (the frozen migration bytes the runner replays), seeded with one
 	// resource row, then reopened through the production compose: rows,
