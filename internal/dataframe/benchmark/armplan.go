@@ -64,13 +64,20 @@ const ClickHouseCIImage = "clickhouse/clickhouse-server:" + ClickHouseCIVersion
 // PublicationCapabilityCH names the missing capability when the
 // publication chain cannot execute because ClickHouse is not deployed.
 // Publication is structurally ClickHouse-backed: publication.Target has
-// exactly one production implementation (ClickHouseBundleStore) and
-// POST .../explorer-config materializes through it BEFORE persisting the
-// revision that seeds the authoring draft, so publish, reconcile, preview,
-// workload gates, timing, and controls form one chain behind ClickHouse.
-// The preview EXECUTION path itself stays ClickHouse-free (matched reader
-// path ruling); it is the draft-seeding publish that needs the service.
+// exactly one production implementation (ClickHouseBundleStore).
+// The dataset→bundle→ClickHouse CHAIN needs the service; the authoring
+// battery (explorer publish, builder, reconcile, preview, timing, gates,
+// controls) does not — the backend-conformance lane runs it on both real
+// drivers with clickhouse.enabled=false, and the PostgreSQL backend
+// forbids clickhouse.enabled in this slice outright.
 const PublicationCapabilityCH = "CH-" + ClickHouseCIVersion + "-unavailable-in-container"
+
+// PublicationCapabilityTimed names why the chain stays not_run on the
+// paired timing lane: the dataframe legs run both drivers with
+// clickhouse.enabled=false (the matched reader path ruling; the chain
+// belongs to the ClickHouse CI lane), and the timing battery provably
+// does not consume the chain.
+const PublicationCapabilityTimed = "CH-not-deployed-for-timed-dataframe-legs"
 
 // PublicationPlan declares whether the publication chain ran. It is a
 // plan-level property so VerifyReport, not the driver's self-description,
@@ -82,6 +89,24 @@ type PublicationPlan struct {
 	// PublicationCapabilityCH is the canonical value for a ClickHouse-less
 	// deployment.
 	Capability string `json:"capability,omitempty"`
+	// Battery is the timed mode: the chain stays not_run (Run false) but
+	// the timing battery — authoring, preview, timing, gates, controls —
+	// executes for real. Only the chain itself ships disclosed not_run.
+	// Run and Battery together is contradictory and refused.
+	Battery bool `json:"battery,omitempty"`
+}
+
+// PublicationTimed reports the timed mode: chain excluded, battery run.
+func (p RunPlan) PublicationTimed() bool {
+	return p.Publication != nil && !p.Publication.Run && p.Publication.Battery
+}
+
+// PublicationZeroEvidence reports the pure excluded mode: chain excluded
+// AND the battery excluded, so the run measured nothing and a report
+// carrying samples, summaries, claims, control values, or non-blocked
+// arms would be forged. This is what VerifyReport pins.
+func (p RunPlan) PublicationZeroEvidence() bool {
+	return p.PublicationExcluded() && !p.Publication.Battery
 }
 
 // ApplyExcludedWorkloadGateReports replaces any gate report for an
@@ -252,6 +277,9 @@ func PublicationGateReports(legs []LegPlan, capability string) []WorkloadGateRep
 // shape: an excluded chain must name its missing capability.
 func ValidatePublicationPlan(plan RunPlan) error {
 	if plan.Publication == nil || plan.Publication.Run {
+		if plan.Publication != nil && plan.Publication.Run && plan.Publication.Battery {
+			return fmt.Errorf("benchmark: publication plan declares run and battery together; battery names the timed mode where the chain did not run")
+		}
 		return nil
 	}
 	if strings.TrimSpace(plan.Publication.Capability) == "" {

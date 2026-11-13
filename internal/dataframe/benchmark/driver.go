@@ -191,13 +191,16 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		}
 	}
 
-	// Excluded publication chain (coordinator ruling 2026-11-13): the
-	// chain is ClickHouse-backed end to end and ClickHouse is not
-	// deployed here, so spawn and upload have run for real and every
-	// publication-dependent stage ships as planned/not_run with the
-	// capability named. Nothing below this point executes, so the report
-	// carries zero samples, zero claims, and zero control values.
-	if opts.Plan.PublicationExcluded() {
+	// Excluded publication chain (pure excluded mode): spawn and upload
+	// have run for real and every downstream stage ships as
+	// planned/not_run with the capability named. Nothing below this point
+	// executes, so the report carries zero samples, zero claims, and zero
+	// control values. The timed mode (Battery) skips this return: the
+	// timing battery provably does not consume the chain (the
+	// backend-conformance lane runs authoring+publish on both drivers
+	// with clickhouse.enabled=false), so only the chain itself is
+	// disclosed not_run while timing is collected for real.
+	if opts.Plan.PublicationZeroEvidence() {
 		identity := RunIdentity{
 			RunID: opts.RunID, StartedAt: opts.StartedAt.UTC(), Preset: opts.Preset,
 			SourceCommit: opts.SourceCommit, DatasetDigest: files.Digest,

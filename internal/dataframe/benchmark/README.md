@@ -52,21 +52,27 @@ planned capabilities).
 
 ## Exit codes (`run`)
 
-- `0` — live legs ran and the artifact verifies.
-- `1` — a live run executed and failed.
-- `3` — disclosed not_run: preflight refused (missing `LOOM_BENCH_LIVE=1`,
-  window note, source commit, namespace guard, existing output) or the
-  planned disclosure artifact was written.
+ - `0` — the live legs ran and the report status is `passed`.
+ - `1` — the run measured something and failed (a correctness gate failed,
+   or any leg failed after real timings were captured).
+ - `3` — disclosed not_run, never a pass: preflight refused (missing
+   `LOOM_BENCH_LIVE=1`, window note, source commit, namespace guard,
+   existing output), the planned disclosure artifact was written, or a
+   live run ended non-passed with zero measured samples (for example the
+   default `--publication=excluded` path, where every gate arm is
+   blocked). A run that timed nothing must not look like a success.
 
-## Publication chain (ClickHouse-backed)
+## Publication chain (ClickHouse-backed) and the timed lane
 
-The publication chain is ClickHouse-backed end to end: `publication.Target`
-has exactly one production implementation (`ClickHouseBundleStore`), and
-`POST /generations/{g}/explorer-config` materializes through it *before*
-the revision that seeds the authoring draft persists. Publish → authoring →
-reconcile → preview receipts → workload gates → timing → controls is one
-chain behind that service. (The preview *execution* path is ClickHouse-free;
-it is the draft-seeding publish that needs it.)
+The publication *chain* — dataset → bundle →
+`publication.Target`/`ClickHouseBundleStore`, the chain's only production
+implementation — is ClickHouse-backed. The timing battery is not: the
+authoring battery (explorer publish, builder, reconcile, preview,
+receipts, workload gates, timing, controls) runs for real against both
+drivers with `server.clickhouse.enabled=false`, the same posture the
+`backend-conformance` CI lane adjudicates on the actual services. The
+PostgreSQL backend forbids `clickhouse.enabled` in this slice outright,
+so the chain and the battery must be disclosed separately.
 
 - `--publication=excluded` (default): spawn, upload, and version probes run
   for real on every ran leg; the whole publication chain ships as
@@ -76,9 +82,38 @@ it is the draft-seeding publish that needs it.)
   `.github/workflows/tests.yaml` — currently 25.3). `VerifyReport` then
   refuses any samples, summaries, claims, or control values, requires every
   gate arm blocked, and one disclosure row per battery workload per ran leg.
+  This mode measures nothing and can never satisfy a benchmark check.
+- `--publication=timed`: the paired timing lane. The battery executes for
+  real on every ran leg with `clickhouse.enabled=false`; only the chain
+  ships disclosed not_run under `PublicationCapabilityTimed`
+  (`CH-not-deployed-for-timed-dataframe-legs`). Reports from this lane
+  carry real samples, summaries, controls, and claims; `VerifyReport`
+  still refuses them if the battery flag is flipped off while evidence
+  is present.
 - `--publication=run`: requires `--clickhouse-enabled`, i.e. the CI lane
   with the pinned service. A report whose identity says ClickHouse is
   disabled while claiming the chain ran fails verification.
+
+## Paired speed comparison (operator acceptance, 2026-11-13)
+
+`node scripts/benchmark-backends.mjs --paired --binary <server> --benchcli
+<benchcli> --out <dir> [--profile tiny|small|representative]
+[--iterations N>=5 --warmup N>=1 --rounds N] [--source-commit <40-hex>]`
+runs the same matched battery against BOTH real drivers discovered from
+`LOOM_TEST_ARANGO_URL` + `LOOM_TEST_POSTGRES_URL` (the same variables the
+`backend-conformance` job exports; the CI job
+`factory/paired-driver-benchmark` in `.github/workflows/tests.yaml` runs
+this exact command with services `arangodb:3.12` + `postgres:18`).
+Correctness gates decide first; then >= 5 alternating measured timings per
+driver are required. The check FAILS — never skips, never passes — when a
+service is missing, an arm is planned/not_run/excluded (beyond the two
+reviewer-accepted live-battery exclusions), a driver produced no usable
+timing samples, or the Go verifier rejects the artifact. On success it
+writes `comparison.md` (median/min/max/range in milliseconds per workload
+per driver, plus versions, source SHA, fixture digest, warmup/cache/
+rounds/concurrency conditions) beside the raw `report.json`. No speedup is
+claimed unless the claim clears correctness and the stability control;
+either driver may win.
 
 ## Live-run guards (all fail closed, exit 3)
 
@@ -90,10 +125,10 @@ from the MockFence.
 
 ## Current blockers (cited in planned artifacts)
 
-- ClickHouse service: the publication chain (and everything timed behind
-  it) needs `clickhouse/clickhouse-server:25.3` as provisioned by the CI
-  lane; no container engine exists in the worker session, so live worker
-  runs use `--publication=excluded`. Owner: CI lane.
+- ClickHouse service: needed only by the publication *chain*
+  (`--publication=run`), which requires `clickhouse/clickhouse-server:25.3`
+  as provisioned by the CI lane. Paired timing uses
+  `--publication=timed` and does not wait on it. Owner: CI lane.
 - `PG-PG-AUTH-PATH-DISCOVERY-ALLGENS` — FIXED in PR #156 (verified live:
   upload accepted, fence hit once, no 403); the branch base predates the
   library-side fix, so live legs go green when it merges. Evidence:

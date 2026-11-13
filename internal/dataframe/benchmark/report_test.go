@@ -284,3 +284,76 @@ func TestBuildReportRefusesInconsistentConfig(t *testing.T) {
 		t.Fatal("zero config must be refused at build, not defaulted")
 	}
 }
+
+// --- timed publication lane (operator amendment 2026-11-13) --------------------
+
+// timedReport builds the paired-timing shape: the ClickHouse-backed
+// publication chain is disclosed not_run, but the battery ran for real,
+// so samples, summaries, controls, and claims are legitimate evidence
+// rather than forgery.
+func timedReport(t *testing.T) *Report {
+	t.Helper()
+	report := validReport(t)
+	report.Identity.ClickHouseDisabled = true
+	plan := report.Plan
+	plan.Publication = &PublicationPlan{Run: false, Battery: true, Capability: PublicationCapabilityTimed}
+	plan.PlannedNotRun = append(plan.PlannedNotRun, PublicationDisclosures(plan.Legs, PublicationCapabilityTimed)...)
+	built, err := BuildReport(report.Identity, plan, report.Controls, report.GateReports, report.Samples)
+	if err != nil {
+		t.Fatalf("timed publication report must verify: %v", err)
+	}
+	return built
+}
+
+func TestTimedPublicationCarriesTimingEvidence(t *testing.T) {
+	report := timedReport(t)
+	if report.Status != "passed" {
+		t.Fatalf("timed lane status: %s (%v)", report.Status, report.StatusReasons)
+	}
+	if len(report.Samples) == 0 || len(report.Summaries) == 0 {
+		t.Fatal("timed lane must carry real timing evidence")
+	}
+	if len(report.Claims) != len(Battery)-len(LiveBatteryExclusions()) {
+		t.Fatalf("timed lane claims: %d want %d", len(report.Claims), len(Battery)-len(LiveBatteryExclusions()))
+	}
+	if !report.Plan.PublicationTimed() || report.Plan.PublicationZeroEvidence() {
+		t.Fatalf("timed lane classification wrong: %+v", report.Plan.Publication)
+	}
+	for _, leg := range report.Plan.Legs {
+		disclosed := 0
+		for _, row := range report.Plan.PlannedNotRun {
+			if row.Backend == leg.Backend && strings.HasPrefix(row.Reason, PublicationChainReason) {
+				disclosed++
+			}
+		}
+		if disclosed != len(Battery) {
+			t.Fatalf("%s: %d publication-chain disclosure rows want %d (one per workload)", leg.Backend, disclosed, len(Battery))
+		}
+	}
+}
+
+func TestPublicationBatteryFlagMustNotBeFalseToPass(t *testing.T) {
+	report := timedReport(t)
+	plan := report.Plan
+	plan.Publication.Battery = false
+	report.Plan = plan
+	if err := VerifyReport(report); err == nil {
+		t.Fatal("battery=false on a report with timing evidence must be refused")
+	}
+}
+
+func TestPublicationBatteryRequiresExcludedChain(t *testing.T) {
+	plan := BothArmsPlan()
+	plan.Publication = &PublicationPlan{Run: true, Battery: true, Capability: PublicationCapabilityTimed}
+	if err := ValidatePublicationPlan(plan); err == nil {
+		t.Fatal("run=true with battery=true must be refused as contradictory")
+	}
+}
+
+func TestTimedPublicationRequiresNamedCapability(t *testing.T) {
+	plan := BothArmsPlan()
+	plan.Publication = &PublicationPlan{Run: false, Battery: true}
+	if err := ValidatePublicationPlan(plan); err == nil {
+		t.Fatal("timed lane must name the capability it discloses")
+	}
+}

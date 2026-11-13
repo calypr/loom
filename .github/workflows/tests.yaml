@@ -423,6 +423,98 @@ jobs:
           path: ${{ runner.temp }}/backend-conformance
           if-no-files-found: warn
 
+  paired-driver-benchmark:
+    name: factory/paired-driver-benchmark
+    runs-on: ubuntu-latest
+    # Operator acceptance (2026-11-13): the actual speed comparison between
+    # the two real drivers. Both arms run the SAME matched battery against
+    # actual ArangoDB and PostgreSQL services -- the same images, ports,
+    # and health options the backend-conformance lane adjudicates -- with
+    # clickhouse.enabled=false, which is honest for the dataframe legs:
+    # the timing battery never consumes the ClickHouse-backed publication
+    # chain (that chain stays disclosed not_run in the timed lane). The
+    # gate fails closed if either arm is planned/not_run/excluded or
+    # produces no real timing samples; a disclosure artifact can never
+    # turn this check green.
+    timeout-minutes: 20
+    services:
+      arangodb:
+        image: arangodb:3.12
+        env:
+          ARANGO_NO_AUTH: '1'
+        ports:
+          - 8529:8529
+        options: >-
+          --health-cmd "wget --quiet --tries=1 --spider http://127.0.0.1:8529/_api/version"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+      postgres18:
+        image: postgres:18
+        env:
+          POSTGRES_DB: loom_bench_ci
+          POSTGRES_USER: loom_bench
+          POSTGRES_PASSWORD: loom_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U loom_bench -d loom_bench_ci"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+    env:
+      LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
+      LOOM_TEST_POSTGRES_URL: postgresql://loom_bench:loom_ci_test_only@127.0.0.1:5432/loom_bench_ci?sslmode=disable
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Build the server binary and benchcli from this SHA
+        run: |
+          mkdir -p "$RUNNER_TEMP/paired-bin"
+          go build -o "$RUNNER_TEMP/paired-bin/loom-server" ./cmd/arango-fhir-server
+          go build -o "$RUNNER_TEMP/paired-bin/benchcli" ./internal/dataframe/benchmark/cmd/benchcli
+      - name: Run the paired benchmark against both services
+        # Five alternating measured samples per driver, one warmup, tiny
+        # matched fixture. The script verifies the artifact through the Go
+        # verifier, classifies realness (both arms ran, both timed), and
+        # writes comparison.md; it exits nonzero on any shortfall, so the
+        # job goes red rather than reporting scaffolding as a comparison.
+        run: >-
+          node scripts/benchmark-backends.mjs --paired
+          --binary "$RUNNER_TEMP/paired-bin/loom-server"
+          --benchcli "$RUNNER_TEMP/paired-bin/benchcli"
+          --profile tiny
+          --iterations 5
+          --warmup 1
+          --rounds 5
+          --source-commit "$GITHUB_SHA"
+          --window-note "granted by the paired-driver-benchmark CI job (isolated services, $GITHUB_RUN_ID)"
+          --out "$RUNNER_TEMP/paired-benchmark"
+      - name: Show the comparison table in the job log
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/paired-benchmark/comparison.md" ]; then
+            cat "$RUNNER_TEMP/paired-benchmark/comparison.md"
+          else
+            echo "no comparison table: the paired check did not reach a real both-driver comparison" >&2
+          fi
+      - name: Preserve paired benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-driver-benchmark
+          path: ${{ runner.temp }}/paired-benchmark
+          if-no-files-found: error
+
   node-unit:
     name: Node unit tests
     runs-on: ubuntu-latest

@@ -335,3 +335,40 @@ func fenceGrants(t *testing.T, d *deployer, token string) map[string]any {
 }
 
 const dsnForTest = "postgresql://u:p@127.0.0.1:55432/loom_bench_clitest?sslmode=disable"
+
+// --- live exit-code contract (review r4559430568, finding 4) -------------------
+
+func liveSample(warmup bool) benchmark.Sample {
+	return benchmark.Sample{Backend: benchmark.BackendPostgres, WorkloadID: "select-filter", Warmup: warmup, Outcome: benchmark.OutcomePassed, Cache: benchmark.CacheWarm, Millis: 1}
+}
+
+func TestClassifyLiveExit(t *testing.T) {
+	cases := []struct {
+		name   string
+		status string
+		sample []benchmark.Sample
+		code   int
+	}{
+		{"passed exits 0", "passed", []benchmark.Sample{liveSample(false)}, 0},
+		{"passed with no samples still 0", "passed", nil, 0},
+		{"failed with measured samples exits 1 (ran and failed)", "failed", []benchmark.Sample{liveSample(false)}, 1},
+		{"blocked with measured samples exits 1", "blocked", []benchmark.Sample{liveSample(false)}, 1},
+		{"failed with zero samples exits 3 (disclosed not_run)", "failed", nil, 3},
+		{"default publication=excluded shape: failed, zero samples", "failed", []benchmark.Sample{}, 3},
+		{"warmup-only samples are not measured evidence", "failed", []benchmark.Sample{liveSample(true), liveSample(true)}, 3},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			code, verdict := classifyLiveExit(c.status, c.sample)
+			if code != c.code {
+				t.Fatalf("classifyLiveExit(%q, %d samples) = %d (%s), want %d", c.status, len(c.sample), code, verdict, c.code)
+			}
+			if c.code == 0 && verdict != "OK" {
+				t.Fatalf("exit 0 must print OK, got %q", verdict)
+			}
+			if c.code == 3 && verdict == "OK" {
+				t.Fatal("a disclosed not_run must never carry the success verdict")
+			}
+		})
+	}
+}

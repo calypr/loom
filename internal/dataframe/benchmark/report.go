@@ -257,13 +257,13 @@ func VerifyReport(report *Report) error {
 		return fmt.Errorf("benchmark report: publication chain claimed to run although ClickHouse is disabled")
 	}
 	if runLegs > 0 {
-		if publicationExcluded {
-			// The publication chain is ClickHouse-backed end to end: its
-			// only publication.Target is ClickHouseBundleStore, and the
-			// workspace seeding every receipt persists only after
-			// materialization. With the chain excluded nothing downstream
-			// measured, so any control value is forged (stolen limits,
-			// borrowed floors, ratio cover).
+		if report.Plan.PublicationZeroEvidence() {
+			// Pure excluded mode: the battery itself was excluded, so
+			// nothing measured and any control value or timing evidence
+			// is forged (stolen limits, borrowed floors, ratio cover).
+			// The timed mode (chain excluded, battery run) belongs to the
+			// else branch below: its evidence is real and must satisfy
+			// the control-presence rules.
 			c := report.Controls
 			if c.StabilityCVLimit != 0 || c.EmptyFloorMillis != 0 || c.SelfRatioArango != 0 ||
 				c.SelfRatioPostgres != 0 || c.RatioPolicy != "" || len(c.UnstableCells) != 0 {

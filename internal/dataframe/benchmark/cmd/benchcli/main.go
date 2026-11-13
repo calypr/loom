@@ -128,7 +128,7 @@ func runLive() {
 	fs.IntVar(&f.emptyFloorIters, "empty-floor-iterations", 5, "iterations for the empty-result floor control")
 	fs.StringVar(&f.arangoCapability, "arango-capability", defaultArangoCapability, "capability cited by the arango not_run legs (planned scope)")
 	fs.StringVar(&f.postgresCapability, "postgres-capability", defaultPostgresCapability, "capability cited by the postgres not_run legs (planned scope)")
-	fs.StringVar(&f.publication, "publication", "excluded", "publication chain: excluded | run. The chain is ClickHouse-backed end to end; run requires --clickhouse-enabled and a CI lane with "+benchmark.ClickHouseCIImage)
+	fs.StringVar(&f.publication, "publication", "excluded", "publication chain: excluded | timed | run. excluded runs nothing downstream of upload (never satisfies a benchmark check); timed runs the full battery with clickhouse.enabled=false and discloses only the chain not_run; run asserts the chain executed and requires --clickhouse-enabled and a CI lane with "+benchmark.ClickHouseCIImage)
 	fs.BoolVar(&f.clickHouseEnabled, "clickhouse-enabled", false, "assert the arms were deployed with ClickHouse ("+benchmark.ClickHouseCIImage+"); required for --publication=run")
 	_ = fs.Parse(os.Args[2:])
 
@@ -206,17 +206,25 @@ func runLive() {
 	}
 	switch f.publication {
 	case "excluded":
-		// Coordinator ruling 2026-11-13: no ClickHouse in the worker
-		// container; the whole chain ships disclosed planned/not_run.
+		// Pure excluded mode: no ClickHouse and no timing either; the
+		// whole downstream battery ships disclosed planned/not_run. A
+		// run like this can never satisfy a benchmark check (exit 3).
 		plan.Publication = &benchmark.PublicationPlan{Run: false, Capability: benchmark.PublicationCapabilityCH}
 		plan.PlannedNotRun = append(plan.PlannedNotRun, benchmark.PublicationDisclosures(plan.Legs, benchmark.PublicationCapabilityCH)...)
+	case "timed":
+		// Paired timing lane: the battery — authoring, preview, timing,
+		// gates, controls — runs for real against both drivers with
+		// clickhouse.enabled=false; only the ClickHouse-backed
+		// publication chain ships disclosed not_run.
+		plan.Publication = &benchmark.PublicationPlan{Run: false, Battery: true, Capability: benchmark.PublicationCapabilityTimed}
+		plan.PlannedNotRun = append(plan.PlannedNotRun, benchmark.PublicationDisclosures(plan.Legs, benchmark.PublicationCapabilityTimed)...)
 	case "run":
 		if !f.clickHouseEnabled {
 			preflight("--publication=run requires --clickhouse-enabled: the chain is ClickHouse-backed end to end (%s)", benchmark.ClickHouseCIImage)
 		}
 		plan.Publication = &benchmark.PublicationPlan{Run: true}
 	default:
-		preflight("unknown --publication %q (want excluded | run)", f.publication)
+		preflight("unknown --publication %q (want excluded | timed | run)", f.publication)
 	}
 	// Live battery law: registry-excluded workloads ride along as
 	// disclosed planned/not_run rows on every ran leg.
@@ -267,8 +275,40 @@ func runLive() {
 		manifest["fenceRequests"] = d.fence.Requests()
 	}
 	writeRunArtifacts(f.out, report, manifest)
-	fmt.Printf("benchcli run: OK run=%s scope=%s status=%s claims=%d out=%s\n",
-		report.Identity.RunID, report.Plan.Scope, report.Status, len(report.Claims), f.out)
+	code, verdict := classifyLiveExit(report.Status, report.Samples)
+	fmt.Printf("benchcli run: %s run=%s scope=%s status=%s claims=%d out=%s\n",
+		verdict, report.Identity.RunID, report.Plan.Scope, report.Status, len(report.Claims), f.out)
+	if code == 0 {
+		return
+	}
+	for _, reason := range report.StatusReasons {
+		fmt.Fprintf(os.Stderr, "benchcli run: status reason: %s\n", reason)
+	}
+	if code == 3 {
+		fmt.Fprintln(os.Stderr, "benchcli run: exit 3 = disclosed not_run: the run captured zero measured timings; it must never be read as a benchmark pass")
+	}
+	os.Exit(code)
+}
+
+// classifyLiveExit implements the documented CLI exit contract for a live
+// run that produced its artifacts (README): exit 0 only when the live
+// legs ran and the report status is passed; exit 1 when the run measured
+// something and failed; exit 3 when nothing was measured at all, so a
+// non-passed zero-timing report (for example the default
+// --publication=excluded path, where every gate arm is blocked) discloses
+// not_run exactly like planned scope instead of wearing the success shape
+// of exit 0 (review r4559430568, finding 4). Warmup samples never count
+// as measured: a run whose only evidence is warmup measured nothing.
+func classifyLiveExit(status string, samples []benchmark.Sample) (int, string) {
+	if status == "passed" {
+		return 0, "OK"
+	}
+	for _, s := range samples {
+		if !s.Warmup {
+			return 1, "FAILED"
+		}
+	}
+	return 3, "DISCLOSED NOT_RUN"
 }
 
 // writeRunArtifacts emits the canonical three-file artifact set. Every

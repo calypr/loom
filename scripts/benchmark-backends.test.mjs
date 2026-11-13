@@ -190,3 +190,169 @@ test('planned artifact with escaped samples fails the check', async () => {
   assert.equal(calls.length, 1, 'a failing disclosure is not verified green');
   assert.ok(lines.some((l) => l.includes(`check ${CHECK_LIVE}: fail`) && l.includes('measurement evidence')));
 });
+
+// --- paired-driver benchmark (operator amendment 2026-11-13) -------------------
+
+import {
+  pairedServices,
+  buildPairedInvocation,
+  classifyPairedReport,
+  renderComparisonTable,
+  PAIRED_MIN_SAMPLES_PER_BACKEND,
+  CHECK_PAIRED,
+} from './benchmark-backends.mjs';
+
+const SHA40 = 'a'.repeat(40);
+
+function pairedReportFixture(overrides = {}) {
+  const samples = [];
+  for (const backend of ['arango', 'postgres']) {
+    for (let i = 0; i < PAIRED_MIN_SAMPLES_PER_BACKEND; i += 1) {
+      samples.push({ backend, workloadId: 'select-filter', round: 1, iteration: i, warmup: false, outcome: 'passed', millis: 10 + i, cache: 'warm' });
+    }
+    samples.push({ backend, workloadId: 'select-filter', round: 0, iteration: 0, warmup: true, outcome: 'passed', millis: 20, cache: 'warm' });
+  }
+  return {
+    status: 'passed',
+    identity: {
+      runId: 'bench-paired-1', preset: 'tiny', sourceCommit: SHA40, datasetDigest: 'd'.repeat(64),
+      arangoVersion: '3.12.4', postgresVersion: 'PostgreSQL 18.0', clickhouseDisabled: true,
+      config: { Warmup: 1, Iterations: 5, Concurrency: 1, Rounds: 1 },
+    },
+    plan: { scope: 'both-arms', legs: [{ backend: 'arango', mode: 'run' }, { backend: 'postgres', mode: 'run' }] },
+    gateReports: [{ workloadId: 'select-filter', claimable: true, arango: { outcome: 'passed' }, postgres: { outcome: 'passed' } }],
+    samples,
+    summaries: [
+      { workloadId: 'select-filter', backend: 'arango', cache: 'warm', summary: { count: 5, failedCount: 0, medianMillis: 12, minMillis: 10, maxMillis: 14 } },
+      { workloadId: 'select-filter', backend: 'postgres', cache: 'warm', summary: { count: 5, failedCount: 0, medianMillis: 22, minMillis: 20, maxMillis: 24 } },
+    ],
+    claims: [],
+    ...overrides,
+  };
+}
+
+test('paired: missing services fail the check, never skip it', () => {
+  const seen = pairedServices({});
+  assert.equal(seen.problems.length, 2);
+  const logs = [];
+  let spawned = false;
+  const failures = run(parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--source-commit', SHA40]), {
+    exec: () => { spawned = true; return { status: 0 }; },
+    log: (line) => logs.push(line),
+    env: {},
+  });
+  assert.equal(failures, 1);
+  assert.equal(spawned, false, 'benchcli must not even start without both services');
+  assert.match(logs.join('\n'), new RegExp(`check ${CHECK_PAIRED}: fail`));
+});
+
+test('paired: arango dsn gets a benchmark-namespaced database', () => {
+  const seen = pairedServices({ LOOM_TEST_ARANGO_URL: 'http://127.0.0.1:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@127.0.0.1:5432/loom_bench_ci?sslmode=disable' });
+  assert.deepEqual(seen.problems, []);
+  assert.match(seen.arangoUrl, /\/loom_bench_ci$/);
+});
+
+test('paired invocation: both arms, timed lane, real iterations', () => {
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--profile', 'tiny', '--iterations', '5', '--warmup', '1', '--rounds', '5', '--source-commit', SHA40]);
+  const inv = buildPairedInvocation(flags, { arangoUrl: 'http://127.0.0.1:8529/loom_bench_ci', postgresDsn: 'postgresql://u:p@h:5432/loom_bench_ci' });
+  const joined = inv.args.join(' ');
+  assert.match(joined, /--scope=both-arms/);
+  assert.match(joined, /--publication=timed/);
+  assert.match(joined, /--iterations=5/);
+  assert.match(joined, /--warmup=1/);
+  assert.match(joined, /--arango-dsn=http:\/\/127\.0\.0\.1:8529\/loom_bench_ci/);
+});
+
+test('paired flags refuse a non-comparison', () => {
+  const base = ['--paired', '--binary', '/bin/loom', '--out', 'out', '--source-commit', SHA40];
+  const without = (flag) => {
+    const i = base.indexOf(flag);
+    return [...base.slice(0, i), ...base.slice(i + 2)];
+  };
+  assert.throws(() => parseArgs(without('--out')), /requires --out/);
+  assert.throws(() => parseArgs(without('--binary')), /requires --binary/);
+  assert.throws(() => parseArgs(without('--source-commit')), /source-commit/);
+  assert.throws(() => parseArgs([...base, '--iterations', '3']), /integer >= 5/);
+  assert.throws(() => parseArgs([...base, '--warmup', '0']), /warmup/);
+  assert.throws(() => parseArgs([...base, '--profile', 'smoke']), /--profile must be one of/);
+});
+
+test('paired classification: only real timing on both drivers passes', () => {
+  assert.equal(classifyPairedReport(pairedReportFixture()).status, 'pass');
+
+  const oneColdArm = pairedReportFixture();
+  oneColdArm.samples = oneColdArm.samples.filter((s) => s.backend !== 'postgres' || s.warmup);
+  assert.equal(classifyPairedReport(oneColdArm).status, 'fail', 'postgres with only warmups is not timed');
+
+  const notRunArm = pairedReportFixture();
+  notRunArm.plan.legs = [{ backend: 'arango', mode: 'run' }, { backend: 'postgres', mode: 'not_run', capability: 'CH-x' }];
+  assert.equal(classifyPairedReport(notRunArm).status, 'fail', 'a not_run arm must fail the check');
+
+  const plannedBoth = pairedReportFixture({ status: 'failed' });
+  plannedBoth.plan.legs = [{ backend: 'arango', mode: 'not_run' }, { backend: 'postgres', mode: 'not_run' }];
+  const plannedVerdict = classifyPairedReport(plannedBoth);
+  assert.equal(plannedVerdict.status, 'fail');
+  assert.match(plannedVerdict.disclosure, /planned or not_run arm is not a benchmark/);
+
+  const failedStatus = pairedReportFixture({ status: 'failed' });
+  assert.equal(classifyPairedReport(failedStatus).status, 'fail', 'correctness failure cannot be read as fast');
+
+  const chClaimed = pairedReportFixture();
+  chClaimed.identity.clickhouseDisabled = false;
+  assert.equal(classifyPairedReport(chClaimed).status, 'fail', 'the timed lane must record ClickHouse as disabled');
+
+  const blockedArm = pairedReportFixture();
+  blockedArm.gateReports = [{ workloadId: 'select-filter', arango: { outcome: 'blocked' }, postgres: { outcome: 'passed' } }];
+  assert.equal(classifyPairedReport(blockedArm).status, 'fail', 'a blocked arm without an exclusion marker is a fail');
+
+  const excludedOk = pairedReportFixture();
+  excludedOk.gateReports = [
+    { workloadId: 'select-filter', arango: { outcome: 'passed' }, postgres: { outcome: 'passed' } },
+    { workloadId: 'derive-age-band', exclusionReason: 'live battery exclusion: unproven recode', arango: { outcome: 'blocked' }, postgres: { outcome: 'blocked' } },
+  ];
+  assert.equal(classifyPairedReport(excludedOk).status, 'pass', 'the two reviewer-accepted exclusions stand');
+});
+
+test('paired table reports medians, ranges, units, versions, and SHA', () => {
+  const table = renderComparisonTable(pairedReportFixture());
+  assert.match(table, /\| select-filter \| arango \| 5 \| 12\.00 \| 10\.00 \| 14\.00 \| 4\.00 \|/);
+  assert.match(table, /\| select-filter \| postgres \| 5 \| 22\.00 \| 20\.00 \| 24\.00 \| 4\.00 \|/);
+  assert.match(table, /milliseconds/);
+  assert.match(table, new RegExp(SHA40));
+  assert.match(table, /3\.12\.4/);
+  assert.match(table, /PostgreSQL 18\.0/);
+  assert.match(table, /no speedup is claimed/i);
+});
+
+test('paired run end-to-end: clean both-arm report passes and writes the table', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'paired-'));
+  const report = pairedReportFixture();
+  const logs = [];
+  const exec = (cmd, args) => {
+    if (args.includes('verify')) return { status: 0 };
+    return { status: 0 };
+  };
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', dir, '--source-commit', SHA40]);
+  await writeFile(join(dir, 'report.json'), JSON.stringify(report));
+  const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci' } });
+  assert.equal(failures, 0, logs.join('\n'));
+  const { readFile } = await import('node:fs/promises');
+  const table = await readFile(join(dir, 'comparison.md'), 'utf8');
+  assert.match(table, /select-filter/);
+});
+
+test('paired run end-to-end: zero-timing report fails the check even with exit 0', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'paired-'));
+  const report = pairedReportFixture();
+  report.samples = [];
+  report.summaries = [];
+  report.claims = [];
+  report.status = 'failed';
+  const exec = () => ({ status: 0 });
+  const logs = [];
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', dir, '--source-commit', SHA40]);
+  await writeFile(join(dir, 'report.json'), JSON.stringify(report));
+  const failures = run(flags, { exec, log: (l) => logs.push(l), env: { LOOM_TEST_ARANGO_URL: 'http://h:8529', LOOM_TEST_POSTGRES_URL: 'postgresql://u:p@h:5432/loom_bench_ci' } });
+  assert.equal(failures, 1);
+  assert.match(logs.join('\n'), /check paired-driver-benchmark: fail/);
+});
