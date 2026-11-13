@@ -1,11 +1,6 @@
 import type { ExplorerBuilderCatalog } from '../../../types';
 import { derivedOccurrences, type DraftTable } from './model';
 
-/**
- * The graph is allowed to inspect the full catalog, but authoring may only
- * use edges that leave the selected authored occurrence. Keeping this rule pure makes
- * it reusable by the canvas, the explicit route controls, and tests.
- */
 export const legalOutgoingEdges = (
   catalog: ExplorerBuilderCatalog,
   table: DraftTable | undefined,

@@ -5,30 +5,6 @@ import { activeOutputState, filterSelectionsFor, isClearedSelection, isSelectedS
 export const facetName = (outputId: string, column: string): string => `loom:${outputId}:${column}`;
 export const chartFacetName = (outputId: string, column: string): string => `loom:${outputId}:chart:${column}`;
 
-/**
- * Missingness contract, established from the published-read side of the backend.
- *
- * Membership. Published rows are ClickHouse `Nullable(T)` columns
- * (`internal/dataframe/published/types.go`, `publication/clickhouse/bundle_store.go`),
- * so an absent source property and an explicit JSON null both land as the single
- * SQL NULL value; no presence marker survives publication. A TERMS facet reports
- * `countIf(`col` IS NULL)` as `missingCount` (`published/aggregate_sql.go`) and
- * `IS_NULL` compiles to `isNull(`col`)` (`published/read.go`). The facet count and
- * `IS_NULL` therefore already select the same row set and the two source states
- * cannot be separated, so exactly one bucket is selectable and it means "no
- * value", never "absent only".
- *
- * Composition. The reader joins every filter clause with `AND`
- * (`published/page.go`, `docs/GRAPHQL_API.md`) and the filter union has no OR
- * group, so this bucket cannot be unioned with populated values on one column.
- * It is mutually exclusive: emitting both would be a contradiction matching no row.
- *
- * Encoding. `DataframeFilterInput.value` is `JSON!`, so the variable validator
- * rejects both `"value": null` ("cannot be null") and an omitted value ("must be
- * defined"); a null here can never reach the server. The reader never binds the
- * `IS_NULL` value to SQL, so a constant placeholder satisfies the input schema
- * while the emitted predicate stays exactly `isNull(`col`)`.
- */
 export const MISSING_VALUE = 'No value (null or missing)';
 export const MISSING_VALUE_DESCRIPTION =
   'Published rows store an absent value and an explicit null identically, so this covers both.';
@@ -37,20 +13,12 @@ const MISSING_VALUE_PLACEHOLDER: Record<string, never> = {};
 
 export const isMissingValue = (value: string): boolean => value === MISSING_VALUE;
 
-/**
- * Authored fixed filters are plain literal strings: a value spelled exactly like the
- * missing bucket label is data, so it keeps EQ/IN and never becomes IS_NULL.
- */
 const filtersForFixedValues = (column: string, values: ReadonlyArray<string>): ReadonlyArray<LoomOutputFilter> => {
   if (values.length === 1) return [{ column, op: 'EQ', value: values[0] }];
   if (values.length > 1) return [{ column, op: 'IN', value: [...values] }];
   return [];
 };
 
-/**
- * Interactive selections carry the missing bucket as a tag rather than a sentinel
- * string, so a populated value equal to the bucket label still serializes as data.
- */
 const filtersForSelection = (column: string, selection: ViewerFieldSelection): ReadonlyArray<LoomOutputFilter> => {
   if (selection.kind === 'missing') return [{ column, op: 'IS_NULL', value: MISSING_VALUE_PLACEHOLDER }];
   return filtersForFixedValues(column, selection.values);

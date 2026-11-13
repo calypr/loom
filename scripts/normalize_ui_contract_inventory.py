@@ -105,13 +105,13 @@ STAGE_CAPABILITY_IDS = {
 }
 
 CONSTRUCTOR_BY_ID = {
-    "builder.filter_rows.scalar_condition": ("ConstructionOperationEditor.buildFilterCandidate", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:396-455"]),
-    "builder.calculate.derive": ("ConstructionOperationEditor.buildDeriveCandidate", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:627-682"]),
-    "builder.reshape.group_field": ("ConstructionReshapeEditor.candidateFor -> groupStepFromForm -> candidateIntentFor", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:873-905", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:984-1034", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1958-1981"]),
+    "builder.filter_rows.scalar_condition": ("ConstructionOperationEditor.buildFilterCandidate", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:389-448"]),
+    "builder.calculate.derive": ("ConstructionOperationEditor.buildDeriveCandidate", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:620-675"]),
+    "builder.reshape.group_field": ("ConstructionReshapeEditor.candidateFor -> groupStepFromForm -> candidateIntentFor", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:868-900", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:979-1029", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1953-1976"]),
     "builder.combine.key_join": ("ConstructionCombineEditor.buildCandidate", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx:246-390"]),
     "builder.combine.append": ("ConstructionCombineEditor.buildCandidate", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx:246-390"]),
     "builder.combine.membership": ("ConstructionCombineEditor.buildCandidate", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx:246-390"]),
-    "builder.related_source_column": ("BuilderWorkspace.buildRelatedSourceCandidate -> constructionLifecycle.proposeCandidateAndWait", ["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1544-1673", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1854-1864"]),
+    "builder.related_source_column": ("BuilderWorkspace.buildRelatedSourceCandidate -> constructionLifecycle.proposeCandidateAndWait", ["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1543-1672", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1853-1863"]),
     "builder.add_columns.related_field": ("RelatedFieldEditor.candidateFor -> onCandidateChange", ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:34-64", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:168-181"]),
 }
 
@@ -153,33 +153,33 @@ def request_contract(
 
 
 API_REQUEST_CONTRACTS = {
-    "/semantic-inventory": request_contract("POST", "browseSemanticInventory", ["snapshotToken", "rowRoot"], ["frameId", "sourceChoiceId", "selectionMode", "outputId", "resourceType", "query", "cursor", "limit", "fieldPresentation"], schema="semanticInventoryBrowseRequestSchema", source=["ui/packages/loom-ui/src/api.ts:1495-1514", "ui/packages/loom-ui/src/types.ts:3561-3582"]),
-    "/construction-choices": request_contract("POST", "searchConstructionChoices", ["snapshotToken", "outputId", "source"], ["occurrenceId", "limit", "cursor"], schema="SearchConstructionChoicesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1555-1563", "ui/packages/loom-ui/src/api.ts:355-363"]),
-    "/construction-choice-proposals": request_contract("POST", "proposeConstructionChoices", ["commandId", "snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "constructionChoices"], ["limit"], schema="constructionChoiceProposalRequestSchema", source=["ui/packages/loom-ui/src/api.ts:1691-1695", "ui/packages/loom-ui/src/types.ts:2664-2675"]),
-    "/commands": request_contract("POST", "applyCommands", ["commandId", "semanticsVersion", "snapshotToken", "expectedDraftVersion", "commands"], ["expectedDraftDigest"], required_query=[], optional_query=["auth_resource_path"], schema="ApplyExplorerBuilderCommandsArgs body projection + ExplorerBuilderCommand[]", source=["ui/packages/loom-ui/src/api.ts:151-158", "ui/packages/loom-ui/src/api.ts:1375-1387", "ui/packages/loom-ui/src/api.ts:1450-1465"], headers=["X-Request-ID"]),
-    "/related-field-choices": request_contract("POST", "searchRelatedFieldChoices", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId"], ["query", "limit", "cursor"], schema="SearchRelatedFieldChoicesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:378-388", "ui/packages/loom-ui/src/api.ts:1576-1586"]),
-    "/construction-proposals": request_contract("POST", "proposeConstruction", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "candidateConstruction"], ["changedStepId", "removeStepIds", "groupSources", "groupSource", "limit", "pivotSources", "filterSources", "deriveSources", "unpivotSources", "expandSources"], required_query=[], optional_query=["auth_resource_path"], schema="constructionProposalRequestSchema", source=["ui/packages/loom-ui/src/api.ts:482-483", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1694-1698", "ui/packages/loom-ui/src/types.ts:2185-2204"]),
-    "/preview": request_contract("POST", "preview", ["receiptId", "outputId"], ["limit"], schema="PreviewExplorerBuilderArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1697-1698"]),
-    "/construction-capabilities": request_contract("POST", "getConstructionCapabilities", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId"], ["groupStepId"], required_query=[], optional_query=["auth_resource_path"], schema="constructionCapabilitiesRequestSchema", source=["ui/packages/loom-ui/src/api.ts:457-460", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1652-1662", "ui/packages/loom-ui/src/types.ts:1937-1945"]),
-    "/table-shape-capabilities": request_contract("POST", "getTableShapeCapabilities", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeCapabilitiesRequestSchema", source=["ui/packages/loom-ui/src/api.ts:427-435", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1621-1627", "ui/packages/loom-ui/src/types.ts:979-985"]),
-    "/table-shape-resolutions": request_contract("POST", "resolveTableShape", ["catalogId", "expectedDraftDigest", "expectedDraftVersion", "kind", "outputId", "snapshotToken"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeResolutionRequestSchema", source=["ui/packages/loom-ui/src/api.ts:443-444", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1640-1644", "ui/packages/loom-ui/src/types.ts:1007-1075"], variants={"kind=PIVOT": ["pivot"], "kind=UNPIVOT": ["unpivot"], "kind=DERIVED": ["derived"]}),
-    "/table-shape-proposals": request_contract("POST", "proposeTableShape", ["catalogId", "derivedResolutionIds", "expectedDraftDigest", "expectedDraftVersion", "mode", "outputId", "snapshotToken"], ["limit", "reshapeResolutionId"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeProposalRequestSchema", source=["ui/packages/loom-ui/src/api.ts:446-447", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1646-1650", "ui/packages/loom-ui/src/types.ts:1250-1261"]),
-    "/column-source": request_contract("POST", "inspectColumnSource", ["snapshotToken", "outputId", "column"], schema="InspectColumnSourceArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1549-1554"]),
-    "/related-expand-choices": request_contract("POST", "searchRelatedExpandChoices", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId", "anchorColumnId", "targetResourceType"], ["limit", "cursor"], schema="SearchRelatedExpandChoicesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1564-1575"]),
-    "/related-expand-contributors": request_contract("POST", "searchRelatedExpandContributors", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId", "routeChoiceId"], ["query", "limit", "cursor"], schema="SearchRelatedExpandContributorsArgs body projection", source=["ui/packages/loom-ui/src/api.ts:390-400", "ui/packages/loom-ui/src/api.ts:1587-1598"]),
-    "/frame-source-options": request_contract("POST", "browseFrameSourceOptions", ["snapshotToken", "outputId"], ["resourceType", "query", "cursor", "limit"], schema="BrowseFrameSourceOptionsArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1540-1548"]),
-    "/interpretation-revisions": request_contract("POST", "createInterpretationRevisionFromColumn", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "column", "libraryId", "explanation"], ["parentRevisionId"], required_query=[], optional_query=["auth_resource_path"], schema="CreateInterpretationRevisionFromColumnArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1766-1779"]),
-    "/interpretation-preview": request_contract("POST", "previewInterpretationCandidate", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "column", "revisionId"], ["limit"], schema="PreviewInterpretationCandidateArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1781-1790"]),
-    "/population-routes": request_contract("POST", "searchPopulationRoutes", ["snapshotToken", "outputId", "selectionRevisionId"], ["limit", "cursor"], schema="SearchPopulationRoutesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:403-410", "ui/packages/loom-ui/src/api.ts:1599-1606"]),
-    "/population-mapping": request_contract("POST", "populationMapping", ["receiptId", "outputId"], ["cursor", "limit"], schema="PopulationMappingArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1699-1700"]),
-    "/row-lineage": request_contract("POST", "rowLineage", ["receiptId", "outputId", "rowId"], ["offset", "limit"], schema="RowLineageArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1710-1717"]),
-    "/construction-category-discoveries": request_contract("POST", "discoverConstructionCategories", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId", "categoryColumnId", "valueColumnId"], ["pivotStepId", "groupKeyIds", "pivotSources", "candidateConstruction"], schema="constructionCategoryDiscoveryRequestSchema", source=["ui/packages/loom-ui/src/api.ts:462-470", "ui/packages/loom-ui/src/api.ts:1663-1678", "ui/packages/loom-ui/src/types.ts:2020-2033"]),
-    "/row-definition-choices": request_contract("GET", "listRowDefinitionChoices", required_query=["outputId", "snapshotToken"], optional_query=[], source=["ui/packages/loom-ui/src/api.ts:412-415", "ui/packages/loom-ui/src/api.ts:1607-1611"]),
-    "/row-definition-proposals": request_contract("POST", "proposeRowDefinition", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "selection"], ["limit"], schema="ProposeRowDefinitionArgs body projection", source=["ui/packages/loom-ui/src/api.ts:417-425", "ui/packages/loom-ui/src/api.ts:1612-1620"]),
-    "/population-member-proposals": request_contract("POST", "proposePopulationMemberRemoval", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "baseSelectionRevisionId", "removedMember"], ["limit"], required_query=[], optional_query=["auth_resource_path"], schema="ProposePopulationMemberRemovalArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1823-1832"]),
-    "/explicit-groups": request_contract("POST", "createExplicitGroupRevision", ["snapshotToken", "idempotencyKey", "groups"], required_query=[], optional_query=["auth_resource_path"], schema="explicitGroupCreateRequestSchema", source=["ui/packages/loom-ui/src/api.ts:488-494", "ui/packages/loom-ui/src/api.ts:1833-1840", "ui/packages/loom-ui/src/types.ts:690-695"]),
-    "/selections": request_contract("POST", "createSelection", ["snapshotToken", "idempotencyKey", "source"], ["exclusions"], required_query=[], optional_query=["auth_resource_path"], schema="CreateSelectionArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1375-1377", "ui/packages/loom-ui/src/api.ts:1806-1812"], headers=["X-Request-ID"]),
-    "/selections/{selectionRevision}": request_contract("GET", "getSelection", required_query=[], optional_query=["cursor", "limit", "auth_resource_path"], source=["ui/packages/loom-ui/src/api.ts:1813-1821"]),
+    "/semantic-inventory": request_contract("POST", "browseSemanticInventory", ["snapshotToken", "rowRoot"], ["frameId", "sourceChoiceId", "selectionMode", "outputId", "resourceType", "query", "cursor", "limit", "fieldPresentation"], schema="semanticInventoryBrowseRequestSchema", source=["ui/packages/loom-ui/src/api.ts:1484-1503", "ui/packages/loom-ui/src/types.ts:3549-3570"]),
+    "/construction-choices": request_contract("POST", "searchConstructionChoices", ["snapshotToken", "outputId", "source"], ["occurrenceId", "limit", "cursor"], schema="SearchConstructionChoicesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1544-1552", "ui/packages/loom-ui/src/api.ts:355-363"]),
+    "/construction-choice-proposals": request_contract("POST", "proposeConstructionChoices", ["commandId", "snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "constructionChoices"], ["limit"], schema="constructionChoiceProposalRequestSchema", source=["ui/packages/loom-ui/src/api.ts:1680-1684", "ui/packages/loom-ui/src/types.ts:2653-2664"]),
+    "/commands": request_contract("POST", "applyCommands", ["commandId", "semanticsVersion", "snapshotToken", "expectedDraftVersion", "commands"], ["expectedDraftDigest"], required_query=[], optional_query=["auth_resource_path"], schema="ApplyExplorerBuilderCommandsArgs body projection + ExplorerBuilderCommand[]", source=["ui/packages/loom-ui/src/api.ts:151-158", "ui/packages/loom-ui/src/api.ts:1364-1376", "ui/packages/loom-ui/src/api.ts:1439-1454"], headers=["X-Request-ID"]),
+    "/related-field-choices": request_contract("POST", "searchRelatedFieldChoices", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId"], ["query", "limit", "cursor"], schema="SearchRelatedFieldChoicesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:378-388", "ui/packages/loom-ui/src/api.ts:1565-1575"]),
+    "/construction-proposals": request_contract("POST", "proposeConstruction", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "candidateConstruction"], ["changedStepId", "removeStepIds", "groupSources", "groupSource", "limit", "pivotSources", "filterSources", "deriveSources", "unpivotSources", "expandSources"], required_query=[], optional_query=["auth_resource_path"], schema="constructionProposalRequestSchema", source=["ui/packages/loom-ui/src/api.ts:482-483", "ui/packages/loom-ui/src/api.ts:1364-1369", "ui/packages/loom-ui/src/api.ts:1683-1687", "ui/packages/loom-ui/src/types.ts:2174-2193"]),
+    "/preview": request_contract("POST", "preview", ["receiptId", "outputId"], ["limit"], schema="PreviewExplorerBuilderArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1686-1687"]),
+    "/construction-capabilities": request_contract("POST", "getConstructionCapabilities", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId"], ["groupStepId"], required_query=[], optional_query=["auth_resource_path"], schema="constructionCapabilitiesRequestSchema", source=["ui/packages/loom-ui/src/api.ts:457-460", "ui/packages/loom-ui/src/api.ts:1364-1369", "ui/packages/loom-ui/src/api.ts:1641-1651", "ui/packages/loom-ui/src/types.ts:1933-1941"]),
+    "/table-shape-capabilities": request_contract("POST", "getTableShapeCapabilities", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeCapabilitiesRequestSchema", source=["ui/packages/loom-ui/src/api.ts:427-435", "ui/packages/loom-ui/src/api.ts:1364-1369", "ui/packages/loom-ui/src/api.ts:1610-1616", "ui/packages/loom-ui/src/types.ts:978-984"]),
+    "/table-shape-resolutions": request_contract("POST", "resolveTableShape", ["catalogId", "expectedDraftDigest", "expectedDraftVersion", "kind", "outputId", "snapshotToken"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeResolutionRequestSchema", source=["ui/packages/loom-ui/src/api.ts:443-444", "ui/packages/loom-ui/src/api.ts:1364-1369", "ui/packages/loom-ui/src/api.ts:1629-1633", "ui/packages/loom-ui/src/types.ts:1006-1074"], variants={"kind=PIVOT": ["pivot"], "kind=UNPIVOT": ["unpivot"], "kind=DERIVED": ["derived"]}),
+    "/table-shape-proposals": request_contract("POST", "proposeTableShape", ["catalogId", "derivedResolutionIds", "expectedDraftDigest", "expectedDraftVersion", "mode", "outputId", "snapshotToken"], ["limit", "reshapeResolutionId"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeProposalRequestSchema", source=["ui/packages/loom-ui/src/api.ts:446-447", "ui/packages/loom-ui/src/api.ts:1364-1369", "ui/packages/loom-ui/src/api.ts:1635-1639", "ui/packages/loom-ui/src/types.ts:1249-1260"]),
+    "/column-source": request_contract("POST", "inspectColumnSource", ["snapshotToken", "outputId", "column"], schema="InspectColumnSourceArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1538-1543"]),
+    "/related-expand-choices": request_contract("POST", "searchRelatedExpandChoices", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId", "anchorColumnId", "targetResourceType"], ["limit", "cursor"], schema="SearchRelatedExpandChoicesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1553-1564"]),
+    "/related-expand-contributors": request_contract("POST", "searchRelatedExpandContributors", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId", "routeChoiceId"], ["query", "limit", "cursor"], schema="SearchRelatedExpandContributorsArgs body projection", source=["ui/packages/loom-ui/src/api.ts:390-400", "ui/packages/loom-ui/src/api.ts:1576-1587"]),
+    "/frame-source-options": request_contract("POST", "browseFrameSourceOptions", ["snapshotToken", "outputId"], ["resourceType", "query", "cursor", "limit"], schema="BrowseFrameSourceOptionsArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1529-1537"]),
+    "/interpretation-revisions": request_contract("POST", "createInterpretationRevisionFromColumn", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "column", "libraryId", "explanation"], ["parentRevisionId"], required_query=[], optional_query=["auth_resource_path"], schema="CreateInterpretationRevisionFromColumnArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1364-1369", "ui/packages/loom-ui/src/api.ts:1755-1768"]),
+    "/interpretation-preview": request_contract("POST", "previewInterpretationCandidate", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "column", "revisionId"], ["limit"], schema="PreviewInterpretationCandidateArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1770-1779"]),
+    "/population-routes": request_contract("POST", "searchPopulationRoutes", ["snapshotToken", "outputId", "selectionRevisionId"], ["limit", "cursor"], schema="SearchPopulationRoutesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:403-410", "ui/packages/loom-ui/src/api.ts:1588-1595"]),
+    "/population-mapping": request_contract("POST", "populationMapping", ["receiptId", "outputId"], ["cursor", "limit"], schema="PopulationMappingArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1688-1689"]),
+    "/row-lineage": request_contract("POST", "rowLineage", ["receiptId", "outputId", "rowId"], ["offset", "limit"], schema="RowLineageArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1699-1706"]),
+    "/construction-category-discoveries": request_contract("POST", "discoverConstructionCategories", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId", "categoryColumnId", "valueColumnId"], ["pivotStepId", "groupKeyIds", "pivotSources", "candidateConstruction"], schema="constructionCategoryDiscoveryRequestSchema", source=["ui/packages/loom-ui/src/api.ts:462-470", "ui/packages/loom-ui/src/api.ts:1652-1667", "ui/packages/loom-ui/src/types.ts:2014-2027"]),
+    "/row-definition-choices": request_contract("GET", "listRowDefinitionChoices", required_query=["outputId", "snapshotToken"], optional_query=[], source=["ui/packages/loom-ui/src/api.ts:412-415", "ui/packages/loom-ui/src/api.ts:1596-1600"]),
+    "/row-definition-proposals": request_contract("POST", "proposeRowDefinition", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "selection"], ["limit"], schema="ProposeRowDefinitionArgs body projection", source=["ui/packages/loom-ui/src/api.ts:417-425", "ui/packages/loom-ui/src/api.ts:1601-1609"]),
+    "/population-member-proposals": request_contract("POST", "proposePopulationMemberRemoval", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "baseSelectionRevisionId", "removedMember"], ["limit"], required_query=[], optional_query=["auth_resource_path"], schema="ProposePopulationMemberRemovalArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1364-1369", "ui/packages/loom-ui/src/api.ts:1812-1821"]),
+    "/explicit-groups": request_contract("POST", "createExplicitGroupRevision", ["snapshotToken", "idempotencyKey", "groups"], required_query=[], optional_query=["auth_resource_path"], schema="explicitGroupCreateRequestSchema", source=["ui/packages/loom-ui/src/api.ts:488-494", "ui/packages/loom-ui/src/api.ts:1822-1829", "ui/packages/loom-ui/src/types.ts:689-694"]),
+    "/selections": request_contract("POST", "createSelection", ["snapshotToken", "idempotencyKey", "source"], ["exclusions"], required_query=[], optional_query=["auth_resource_path"], schema="CreateSelectionArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1364-1366", "ui/packages/loom-ui/src/api.ts:1795-1801"], headers=["X-Request-ID"]),
+    "/selections/{selectionRevision}": request_contract("GET", "getSelection", required_query=[], optional_query=["cursor", "limit", "auth_resource_path"], source=["ui/packages/loom-ui/src/api.ts:1802-1810"]),
 }
 
 
@@ -763,8 +763,8 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                     "constructor": "BuilderWorkspace.excludePopulationMember -> LoomClient.createSelection",
                     "condition": "Coverage report identifies this unmapped ResourceRef; create a new immutable selection revision from the currently attached selection.",
                     "evidence": [
-                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1948-1955",
-                        "ui/packages/loom-ui/src/api.ts:1806-1813",
+                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1947-1954",
+                        "ui/packages/loom-ui/src/api.ts:1795-1802",
                     ],
                 },
                 "routeLookupEndpoint": {
@@ -783,8 +783,8 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                         "applyAllowedWhen": "exact prior attached route found",
                     },
                     "evidence": [
-                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1961-1978",
-                        "ui/packages/loom-ui/src/api.ts:1599-1608",
+                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1960-1977",
+                        "ui/packages/loom-ui/src/api.ts:1588-1597",
                     ],
                 },
                 "applyEndpoint": {
@@ -796,8 +796,8 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                     "constructor": "BuilderWorkspace.excludePopulationMember -> applyCommands([SET_TABLE_POPULATION])",
                     "condition": "Only after routeLookupEndpoint returns the exact previously attached route for the new selection revision.",
                     "evidence": [
-                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1980-1983",
-                        "ui/packages/loom-ui/src/api.ts:1457-1465",
+                        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1979-1982",
+                        "ui/packages/loom-ui/src/api.ts:1446-1454",
                     ],
                 },
             }
@@ -822,7 +822,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                 "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,cursor?:string,limit:100}",
                 "constructor": "BuilderWorkspace.loadCombineCatalogPage -> LoomClient.getConstructionInputs",
                 "condition": "Combine editor is open; source catalog identity matches selected draft",
-                "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1041-1049", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1060-1099", "ui/packages/loom-ui/src/api.ts:1679-1684"],
+                "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1040-1048", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1059-1098", "ui/packages/loom-ui/src/api.ts:1668-1673"],
             })
         flow_specs = []
         base = "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/"
@@ -1015,7 +1015,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                     "type": "GroupAggregate",
                     "dependsOn": ["GROUP capability supported", "selected construction stage"],
                     "cardinality": {"min": 1, "max": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:990", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3336", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3390"],
+                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:985", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3327", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3381"],
                 },
                 {
                     "id": "summary_input_column_id",
@@ -1024,7 +1024,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                     "dynamicProvider": {"provider": "aggregateInputColumnsFor(stage, operation)", "rules": {"COUNT_ROWS": [], "COUNT_NON_NULL": "scalarColumnsFor(stage)", "COUNT_DISTINCT": "scalarColumnsFor(stage)", "SUM": "numericColumnsFor(stage)", "MEAN": "numericColumnsFor(stage)"}},
                     "dependsOn": ["summary_kind", "selected construction stage"],
                     "cardinality": {"min": 0, "max": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:925-935", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3352-3377"],
+                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:920-930", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3343-3368"],
                 },
                 {
                     "id": "summary_output_column_id",
@@ -1033,7 +1033,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                     "dynamicProvider": {"provider": "createOpaqueId('group-column')", "freshPerAggregate": True},
                     "dependsOn": ["Add summary"],
                     "cardinality": {"min": 1, "max": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:947-950"],
+                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-945"],
                 },
                 {
                     "id": "summary_output_name",
@@ -1042,7 +1042,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                     "dependsOn": ["summary operation", "selected input column", "existing output names"],
                     "cardinality": {"min": 1, "max": None},
                     "constraints": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "uniqueCaseInsensitiveWithinOutputs": True, "defaultGenerated": True, "maximumLength": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:938-940", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:947-956", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:918-922", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3380-3388"],
+                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:933-935", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-951", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:913-917", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3371-3379"],
                 },
                 {
                     "id": "summary_output_label",
@@ -1051,7 +1051,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                     "dependsOn": ["summary operation", "selected input column"],
                     "cardinality": {"min": 1, "max": None},
                     "constraints": {"trimmedNonEmpty": True, "maximumLength": None},
-                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:947-956", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:918-922", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3499"],
+                    "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:942-951", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:913-917", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3490"],
                 },
             ])
         constraints = []
@@ -1190,7 +1190,7 @@ def build_inventory(root: Path = ROOT) -> dict:
             "excluded": ["publication/release/publish workflows per user scope"],
         },
         "aliases": ALIASES,
-        "excludedSurfaces": [{"id": "legacy.construction_operations_panel.intentions", "basis": "unmounted", "reason": "ConstructionOperationsPanel has only its definition and barrel export as production references; BuilderWorkspace routes mounted families to specialized editors.", "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/index.ts:1", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationsPanel.tsx:268", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3637"], "proof": {"search": "rg -n 'ConstructionOperationsPanel' ui/packages/loom-ui/src --glob '!**/*.test.*'", "productionMatches": ["constructionOperations/index.ts export", "ConstructionOperationsPanel.tsx definition"], "mountedCallerFound": False}}],
+        "excludedSurfaces": [{"id": "legacy.construction_operations_panel.intentions", "basis": "unmounted", "reason": "ConstructionOperationsPanel has only its definition and barrel export as production references; BuilderWorkspace routes mounted families to specialized editors.", "evidence": ["ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/index.ts:1", "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationsPanel.tsx:268", "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3625"], "proof": {"search": "rg -n 'ConstructionOperationsPanel' ui/packages/loom-ui/src --glob '!**/*.test.*'", "productionMatches": ["constructionOperations/index.ts export", "ConstructionOperationsPanel.tsx definition"], "mountedCallerFound": False}}],
         "sourceCoverage": {
             "method": "source-fingerprint-review-gate plus mounted operation-discriminant extraction; fingerprint drift requires explicit inventory review and is not a completeness proof; verification-only builderContractAdapters are fingerprinted by the capture artifact, not counted as product UI source",
             "watchedFiles": fingerprints,

@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 
-/** Owns the browser lifecycle subscription for an unsaved Builder draft. */
 export const useDirtyBeforeUnload = (dirty: boolean): void => {
   useEffect(() => {
     if (!dirty) return undefined;

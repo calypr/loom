@@ -2123,15 +2123,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockLoomClient.proposeConstruction.mockClear();
   });
 
-  // C04 scope note: the finally-guard's identity clauses (version/digest) are
-  // defense-in-depth behind the owner-identity clause. serverDraft.current
-  // only advances from a settled command response (BuilderWorkspace.tsx:836
-  // and the :696 render sync key), so a third-party commit observed via GET
-  // mid-command never reaches the guard mid-await; the stale-identity skip is
-  // proven at the queue level by the C02 drain-time-identity driver case.
   const resetC04OwnerMocks = () => {
-    // The proposal-opening phase can settle its own commands; the guard legs
-    // below must observe only the owner activity of the command they click.
     mockRelatedExpandOwnerState.owner = null;
     mockRelatedExpandQueryOwner.resume.mockReset();
     mockRelatedExpandQueryOwner.pauseAndDrain.mockReset();
@@ -2151,10 +2143,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(mockRelatedExpandQueryOwner.pauseAndDrain).toHaveBeenCalledOnce());
     expect(mockRelatedExpandQueryOwner.resume).not.toHaveBeenCalled();
 
-    // Replace the route query owner instance (new imperative handle) while
-    // the command await is still open. Same identity fields: only the object
-    // changes, so a guard that compared version/digest alone would wrongly
-    // resume.
     const replacementOwner = {
       draftVersion: 1,
       draftDigest: 'sha256:draft-1',
@@ -2179,8 +2167,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   });
 
   it('resumes an unchanged owner once when the failed command returns before any replacement', async () => {
-    // Positive control for the two skip legs above: with the same owner
-    // instance and untouched identity, the failure path resumes exactly once.
     const { view } = await openPivotPresentationProposal();
     resetC04OwnerMocks();
     let rejectCommand: ((error: unknown) => void) | undefined;
@@ -2380,7 +2366,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         commandId: args.commandId,
         workspace: savedWorkspace,
         draftVersion: nextDraftVersion,
-        // Reapplying the same construction creates a new saved revision with the same content digest.
         draftDigest: 'sha256:draft-2',
         results: [{ type: 'TABLE_CHANGED', outputId: 'specimens', column: 'specimen_identifier' }],
         diagnostics: [],
@@ -3790,7 +3775,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
     reconcile.mockReturnValueOnce(rejectedRequest({ code, message: 'Controlled stale manual compilation.', retryable: code === 'TRANSIENT_FAILURE' }));
-    // Publish reconciles the whole workspace without the automatic preview owner.
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
     if (code === 'TRANSIENT_FAILURE') {
       await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));

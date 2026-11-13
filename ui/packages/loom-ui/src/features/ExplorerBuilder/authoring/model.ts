@@ -14,7 +14,6 @@ export interface DraftTable {
   readonly tabId: string;
   readonly title: string;
   readonly visible?: boolean;
-  /** The V2 authoring document is the editable source of truth. */
   readonly document: ExplorerBuilderDocument;
 }
 
@@ -34,7 +33,6 @@ export interface BuilderAuthoringState {
   readonly project: string;
   readonly explorerId: string;
   readonly catalog: ExplorerBuilderCatalog;
-  /** Canonical server workspace; typed source bindings are intentionally read-only. */
   readonly workspace: ExplorerBuilderWorkspace | null;
   readonly draftVersion: number;
   readonly draftDigest: string;

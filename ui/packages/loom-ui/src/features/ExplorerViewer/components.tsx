@@ -115,9 +115,6 @@ export const facetValues = (facet: LoomFacetResult | undefined, column: string):
 
 const COLLAPSED_FACET_VALUES = 6;
 
-// The bucket and a published term spelled exactly like it both start with the same
-// words, so each gets a distinct accessible name instead of a parenthetical that
-// screen readers announce as part of the value itself.
 const accessibleLabel = (value: string): string => value.replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
 
 const FacetFilter = ({ id, label, description, facet, column, selection, multiple, debounce = false, onChange, state, dispatch }: { readonly id: string; readonly label: string; readonly description?: string; readonly facet?: LoomFacetResult; readonly column: string; readonly selection: ViewerFieldSelection; readonly multiple: boolean; readonly debounce?: boolean; readonly onChange: (selection: ViewerFieldSelection) => void; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction> }) => {
@@ -128,11 +125,7 @@ const FacetFilter = ({ id, label, description, facet, column, selection, multipl
   const current = debounce ? draftSelection : selection;
   const missingSelected = current.kind === 'missing';
   const selected = new Set(current.kind === 'values' ? current.values : []);
-  // A facet term spelled exactly like the missing bucket is real data: it stays
-  // listed and selectable, and only the separately tagged bucket emits IS_NULL.
   const showMissing = (facet?.missingCount ?? 0) > 0 || missingSelected;
-  // Mirrors requestedFacetsFor: a facet the current request never asked for still
-  // needs its own control, even when the response happens to carry the data.
   const requested = expanded || isSelectedSelection(current);
   const orderedOptions = [...facetEntries].sort((left, right) => Number(selected.has(right.value)) - Number(selected.has(left.value)));
   const visibleOptions = expanded ? orderedOptions : orderedOptions.slice(0, COLLAPSED_FACET_VALUES);
@@ -147,8 +140,6 @@ const FacetFilter = ({ id, label, description, facet, column, selection, multipl
     timer.current = window.setTimeout(() => onChange(next), 250);
   };
   const toggleValue = (value: string, checked: boolean) => {
-    // The reader ANDs filter clauses and the filter union has no OR group, so the
-    // missing bucket and populated values on one column cannot be combined.
     const populated = current.kind === 'values' ? current.values : [];
     const next = !checked
       ? populated.filter((candidate) => candidate !== value)
