@@ -18,19 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Durable control for the F-B27 project-binding regression: the all-generations
-// discovery query is a deliberate cross-generation union (the scoped query
-// treats a null @dataset_generation as "row has no generation", not "any"), so
-// DiscoverExistingAuthResourcePaths must not pass dataset_generation as a bind
-// when AllGenerations sets the union AQL (which declares only @project). The
-// undeclared bind made Arango reject every restricted-scope direct write to a
-// project with recorded catalog paths, and authoringWriteDirect masked the
-// storage fault as 403. A generation FILTER on the union query is likewise
-// forbidden: under AllGenerations validation refuses a non-empty generation, a
-// null bind would match only generation-less rows, an empty result would hit
-// the first-generation bootstrap branch of AuthorizeWrite, and the F-B27
-// cross-project publish bypass would re-open.
-
 const genBindTestDatabasePrefix = "loom_catalog_genbind_"
 
 func openGenBindHarness(t *testing.T, budget time.Duration) (context.Context, *storearango.Client) {
@@ -97,9 +84,6 @@ func genBindDiscoveryErrorShape(t *testing.T, err error, label string) {
 	if err == nil {
 		return
 	}
-	// The pre-fix shape: every project-binding lookup died on the undeclared
-	// bind. Any regression that resurrects passing dataset_generation to the
-	// union AQL must fail here rather than resurface as a masked 403 upstream.
 	if strings.Contains(err.Error(), "was not declared in the query") {
 		t.Fatalf("%s: undeclared bind parameter returned from Arango (pre-fix F-B27 regression): %v", label, err)
 	}
@@ -169,14 +153,8 @@ func TestAuthorizeWriteProjectBindingAgainstArangoRecordedCatalogPaths(t *testin
 	emptyProject := "genbind-empty-" + uid
 	alpha, beta := "gen-alpha-"+uid, "gen-beta-"+uid
 
-	// The bound project records its paths in separate generations: only the
-	// cross-generation union can authorize them, which is what keeps the
-	// fix's DROP-the-bind decision (vs declare-and-filter on a null bind)
-	// load-bearing under mutation.
 	insertGenBindCatalogRow(t, ctx, client, "genbind-bound-a", boundProject, &alpha, "grants/recorded")
 	insertGenBindCatalogRow(t, ctx, client, "genbind-bound-b", boundProject, &beta, "grants/recorded-cross-gen")
-	// The F-B27 witness: a path recorded by a DIFFERENT project that the same
-	// principal also holds. Path membership alone used to authorize this.
 	insertGenBindCatalogRow(t, ctx, client, "genbind-other-x", otherProject, &alpha, "grants/foreign")
 
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
@@ -191,25 +169,17 @@ func TestAuthorizeWriteProjectBindingAgainstArangoRecordedCatalogPaths(t *testin
 	}
 	requestCtx := authscope.ContextWithPrincipal(ctx, principal)
 
-	// A restricted path that the target project itself recorded (one per
-	// generation): the union lookup must succeed, not 500/fail-closed-deny.
 	if err := resolver.AuthorizeWrite(requestCtx, principal, boundProject, "grants/recorded"); err != nil {
 		t.Fatalf("AuthorizeWrite recorded path (generation %s): %v", alpha, err)
 	}
 	if err := resolver.AuthorizeWrite(requestCtx, principal, boundProject, "grants/recorded-cross-gen"); err != nil {
 		t.Fatalf("AuthorizeWrite recorded path held only in a different generation (union requirement): %v", err)
 	}
-	// The F-B27 guarantee still holds: a path the caller holds but THIS
-	// project never recorded is refused for the right reason (ErrForbidden),
-	// never an Arango bind fault and never a silent allow.
 	err = resolver.AuthorizeWrite(requestCtx, principal, boundProject, "grants/foreign")
 	genBindDiscoveryErrorShape(t, err, "AuthorizeWrite foreign path")
 	if !errors.Is(err, authscope.ErrForbidden) {
 		t.Fatalf("AuthorizeWrite path recorded only by another project err=%v; want %v (F-B27 project binding)", err, authscope.ErrForbidden)
 	}
-	// The first-generation bootstrap stays available for projects with no
-	// recorded catalog paths at all: the union lookup must return an empty
-	// list (clean allow via the zero-row branch), not a bind error.
 	bootstrapErr := resolver.AuthorizeWrite(requestCtx, principal, emptyProject, "grants/unrecorded")
 	genBindDiscoveryErrorShape(t, bootstrapErr, "AuthorizeWrite bootstrap project")
 	if bootstrapErr != nil {

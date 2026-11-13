@@ -1,10 +1,3 @@
-// Package capability contains compiler-backed capability probes.
-//
-// A probe is deliberately expressed in schema and semantic terms. It does
-// not know about catalog rows, Explorer wire types, or a particular storage
-// adapter. A successful probe is an executable proof: the request passed the
-// generated schema, semantic validation, physical lowering, optimization,
-// and canonical AQL renderer.
 package capability
 
 import (
@@ -24,10 +17,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// Scope is the request provenance carried into every successful proof. The
-// same values are placed in the physical plan and consequently in rendered
-// bind variables; consumers must not treat a query without this provenance as
-// an advertised capability.
 type Scope struct {
 	Project           string
 	DatasetGeneration string
@@ -35,9 +24,6 @@ type Scope struct {
 	AuthScopeMode     authscope.ReadScopeMode
 }
 
-// Traversal describes one authoring-direction relationship. The source,
-// label, and target are all required so an observed edge cannot be silently
-// matched to an ambiguous generated relationship.
 type Traversal struct {
 	FromResourceType string
 	EdgeLabel        string
@@ -46,9 +32,6 @@ type Traversal struct {
 	MatchMode        spec.TraversalMatchMode
 }
 
-// Filter describes an optional candidate filter operation. Values are typed
-// semantic values, not query fragments. When Values is empty, ProbeCandidate
-// supplies a harmless typed sample solely to exercise the compiler path.
 type Filter struct {
 	Operator   spec.FilterOperator
 	Quantifier spec.ArrayQuantifier
@@ -56,30 +39,22 @@ type Filter struct {
 	Values     []spec.FilterValue
 }
 
-// Chart describes an optional candidate chart/aggregate operation.
 type Chart struct {
 	Operation      recipe.AggregateOperation
 	RequiredValues []string
 }
 
-// RootRequest asks whether one concrete generated resource can be a row root.
 type RootRequest struct {
 	Scope
 	ResourceType string
 }
 
-// TraversalRequest asks whether one exact relationship can be lowered and
-// rendered from a concrete root. It proves storage direction as well as the
-// generated logical relationship.
 type TraversalRequest struct {
 	Scope
 	RootResourceType string
 	Traversal
 }
 
-// CandidateRequest asks whether a selector and its requested operation can be
-// compiled at an occurrence. Route is optional for a zero-hop candidate and
-// is a sequence of exact one-hop traversals for a candidate on a related node.
 type CandidateRequest struct {
 	Scope
 	RootResourceType string
@@ -92,8 +67,6 @@ type CandidateRequest struct {
 	Chart            *Chart
 }
 
-// OwnerRecordsRequest asks whether one repeated FHIR owner binding can be
-// preserved as an ordered list of structured records at an occurrence.
 type OwnerRecordsRequest struct {
 	Scope
 	RootResourceType string
@@ -103,8 +76,6 @@ type OwnerRecordsRequest struct {
 	Key              fhirschema.CorrelatedKey
 }
 
-// Options controls the explicitly authorized physical rewrite. The default is
-// the same conservative policy used by normal recipe compilation.
 type Options struct {
 	Policy ir.PhysicalOptimizationPolicy
 }
@@ -116,7 +87,6 @@ func (o Options) normalized() Options {
 	return o
 }
 
-// Rendered is the executable proof and its scope provenance.
 type Rendered struct {
 	Query             string
 	BindVars          map[string]any
@@ -176,7 +146,6 @@ type Result struct {
 	Rendered     Rendered
 }
 
-// ProbeRoot compiles and renders a zero-hop concrete row root.
 func ProbeRoot(ctx context.Context, request RootRequest, options ...Options) (Result, error) {
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
@@ -200,8 +169,6 @@ func ProbeRoot(ctx context.Context, request RootRequest, options ...Options) (Re
 	return Result{Root: &capability, Rendered: rendered}, nil
 }
 
-// ProbeTraversal compiles one exact one-hop route and reports the direction
-// selected by the storage-route proof in the shared lowerer.
 func ProbeTraversal(ctx context.Context, request TraversalRequest, options ...Options) (Result, error) {
 	if strings.TrimSpace(request.Traversal.FromResourceType) == "" {
 		request.Traversal.FromResourceType = request.RootResourceType
@@ -235,8 +202,6 @@ func ProbeTraversal(ctx context.Context, request TraversalRequest, options ...Op
 	return Result{Traversal: &capability, Rendered: rendered}, nil
 }
 
-// ProbeProjection proves the requested projection without probing unrelated
-// filter and chart operations during field discovery.
 func ProbeProjection(ctx context.Context, request CandidateRequest, options ...Options) (Result, error) {
 	prepared, err := prepareCandidate(request)
 	if err != nil {
@@ -259,9 +224,6 @@ func ProbeProjection(ctx context.Context, request CandidateRequest, options ...O
 	return Result{Candidate: &metadata, Rendered: rendered}, nil
 }
 
-// ProbeCandidate compiles a candidate projection, filter, or chart operation.
-// It also probes every operation supported by the shared compiler so the
-// returned metadata can be used directly by a capability builder.
 func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Options) (Result, error) {
 	optionsValue := optionsFor(options)
 	prepared, err := prepareCandidate(request)
@@ -331,8 +293,6 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 	return Result{Candidate: &metadata, Rendered: rendered}, nil
 }
 
-// ProbeOwnerRecords compiles the exact binding and terminology key through
-// semantic lowering, physical validation, optimization, and AQL rendering.
 func ProbeOwnerRecords(ctx context.Context, request OwnerRecordsRequest, options ...Options) (Result, error) {
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err

@@ -1,17 +1,5 @@
 package postgres
 
-// Offline battery for pg-sql-22: the population member-to-output mapping
-// terminals (flat and construction) render onto the trusted storage +
-// membership bindings as fully parameterized, deterministic PostgreSQL with
-// the AQL twin's witness contract (sort-unique member arrays, the null/
-// non-array empty-expansion guard, the (identity, member) de-duplication,
-// the identity-then-member COLLATE "C" total order, and the bound preview
-// limit). Plans are production-compiled through semantic/lower and then
-// carry the compiler's mapping stamp (compiler/population_mapping.go),
-// replicated here for the render-side door; refusals are typed, and the
-// entry==dispatch law is checked cell by cell. The live PG18 acceptance
-// legs (L1-L7, owned namespace verify_sql22v1_*) are in the same file.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -35,24 +23,16 @@ var (
 	sql22TrackedFixtures = map[string]bool{}
 )
 
-// sql22RunDeltaAudit registers this ticket's disjoint verify_sql22v1_*
-// namespace with the package delta audit (main_test.go chain).
 func sql22RunDeltaAudit(inner func() int) int {
 	return runVerifyNamespaceDeltaAudit("verify_sql22v1_", &sql22FixturesMu, sql22TrackedFixtures, inner)
 }
 
-// sql22TrackResource registers one minted verify_sql22v1_* resource with
-// the package delta audit.
 func sql22TrackResource(t *testing.T, name string) {
 	t.Helper()
 	sql22FixturesMu.Lock()
 	defer sql22FixturesMu.Unlock()
 	sql22TrackedFixtures[name] = true
 }
-
-// ---------------------------------------------------------------------------
-// Builders: production-compiled mapping shapes with the compiler's stamp.
-// ---------------------------------------------------------------------------
 
 func map22Bindings() recipe.RuntimeBindings {
 	return recipe.RuntimeBindings{
@@ -104,10 +84,6 @@ func map22SpecimenOutput() recipe.Output {
 	}
 }
 
-// map22StampFlat replicates compiler/population_mapping.go:139-152 on a
-// freshly lowered flat plan: the member-collecting root plus the terminal
-// swap carrying the compiled identity (row-identity fields read through
-// their RETURN projection, or their bind when the field is a constant).
 func map22StampFlat(t *testing.T, plan ir.PhysicalPlan) ir.PhysicalPlan {
 	t.Helper()
 	plan = ir.ClonePhysicalPlan(plan)
@@ -171,9 +147,6 @@ func map22StampFlat(t *testing.T, plan ir.PhysicalPlan) ir.PhysicalPlan {
 	return plan
 }
 
-// map22SummaryOutput is the registered pure composition (the keyed or
-// grand-total summary GROUP) under a population constraint; the keyed
-// variant drives the contributor pool's GROUP BY/join path.
 func map22SummaryOutput(keyed bool) recipe.Output {
 	output := recipe.Output{
 		Name: "construction_summary_mapping", RootResourceType: "Observation", RowGrain: "observation",
@@ -210,8 +183,6 @@ func map22SummaryOutput(keyed bool) recipe.Output {
 	return output
 }
 
-// map22StampConstruction replicates compiler/population_mapping.go:127-137
-// (addConstructionPopulationMembersSourceProjection + the terminal stamp).
 func map22StampConstruction(t *testing.T, plan ir.PhysicalPlan) ir.PhysicalPlan {
 	t.Helper()
 	plan = ir.ClonePhysicalPlan(plan)
@@ -243,8 +214,6 @@ func map22StampConstruction(t *testing.T, plan ir.PhysicalPlan) ir.PhysicalPlan 
 	if !stamped {
 		t.Fatal("construction mapping source has no terminal source RETURN")
 	}
-	// The compiler reads the contributor cardinality from the final typed
-	// column (compiler/population_mapping.go finalConstructionPopulationMappingIdentity).
 	contributorsMany := false
 	contributorFound := false
 	for _, column := range plan.StageSequence.FinalColumns {
@@ -288,11 +257,6 @@ func map22Dump(plan ir.PhysicalPlan) string {
 	return builder.String()
 }
 
-// map22WantRefusal asserts the typed refusal from both entry points with
-// the SAME message (entry==dispatch), and that it is ErrUnsupportedPostgresPlan.
-// Where the registered ir schema gate speaks first (the sql16RequireRefusal
-// convention), the render entry is compared against the composition door
-// entry instead, both carrying the identical ir words.
 func map22WantRefusal(t *testing.T, plan ir.PhysicalPlan, want string) {
 	t.Helper()
 	binding := populationBindingOK(t)
@@ -322,10 +286,6 @@ func map22WantSQL(t *testing.T, sql string, wants ...string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Flat terminal.
-// ---------------------------------------------------------------------------
-
 func TestPopulationMappingFlatWitnessSQLIsExactAndParameterized(t *testing.T) {
 	plan := map22StampFlat(t, map22Compile(t, map22SpecimenOutput()))
 	rendered := map22Render(t, plan)
@@ -337,23 +297,15 @@ func TestPopulationMappingFlatWitnessSQLIsExactAndParameterized(t *testing.T) {
 	}
 	memberTable := `FROM "` + testSchema + `"."selection_members" AS pm`
 	map22WantSQL(t, rendered.SQL,
-		// Witness candidate: GROUP BY identity + sort-unique member array.
 		memberTable,
 		`to_jsonb(ARRAY_AGG(DISTINCT (pm."id" COLLATE "C") ORDER BY (pm."id" COLLATE "C"))) AS "__loom_population_members"`,
-		// The AQL "== null ? []" iterable twin.
 		`CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN pop."__loom_population_members" IS NULL OR jsonb_typeof(pop."__loom_population_members") <> 'array' THEN '[]'::jsonb ELSE pop."__loom_population_members" END) AS w0(member)`,
-		// The two positional witness columns and the default identity array.
 		`SELECT w0.member AS "c0", jsonb_build_array(`,
-		// Total order: window order then the member bytewise.
 		`w0.member COLLATE "C" ASC`,
 	)
-	// Full parameterization: no plan string inlined, no AQL bind syntax.
 	if strings.Contains(rendered.SQL, "@") {
 		t.Fatalf("mapping SQL carries AQL bind syntax:\n%s", rendered.SQL)
 	}
-	// No plan string may be inlined: every quoted literal in the statement
-	// is a structural constant (the empty-array guard, the member column),
-	// never plan data.
 	if strings.Contains(rendered.SQL, "selrev_22") || strings.Contains(rendered.SQL, "fixture_program") {
 		t.Fatalf("mapping SQL inlines plan data:\n%s", rendered.SQL)
 	}
@@ -407,8 +359,6 @@ func TestPopulationMappingFlatExplicitIdentityPreservesCompiledExpression(t *tes
 	if explicit == nil {
 		t.Fatal("compiled explicit identity projection is missing")
 	}
-	// ir keeps the ordered parts beside an explicit identity (the compiler
-	// stamps both from the row identity; the renderer prefers explicit).
 	parts := []ir.PhysicalPopulationMappingIdentityPart{
 		{Name: "project", Expression: ir.PhysicalExpression{
 			Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
@@ -439,8 +389,6 @@ func TestPopulationMappingFlatExplicitIdentityPreservesCompiledExpression(t *tes
 	if want := []string{ir.PhysicalPopulationMappingMemberField, ir.PhysicalPopulationMappingExplicitIdentityField}; !reflect.DeepEqual(rendered.OutputColumns, want) {
 		t.Fatalf("output columns = %#v, want %#v", rendered.OutputColumns, want)
 	}
-	// The compiled expression survives as a payload path read, not a plan
-	// string and not an identity array.
 	map22WantSQL(t, rendered.SQL, `#> $`, `AS "c1"`)
 	if strings.Contains(rendered.SQL, "jsonb_build_array(") {
 		t.Fatalf("explicit identity re-spelled as a parts array:\n%s", rendered.SQL)
@@ -449,10 +397,6 @@ func TestPopulationMappingFlatExplicitIdentityPreservesCompiledExpression(t *tes
 		t.Fatalf("explicit identity leaked a plan string into SQL:\n%s", rendered.SQL)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Construction terminal.
-// ---------------------------------------------------------------------------
 
 func TestPopulationMappingConstructionWitnessSQL(t *testing.T) {
 	for _, keyed := range []bool{false, true} {
@@ -501,15 +445,10 @@ func TestPopulationMappingConstructionPreviewLimitIsBound(t *testing.T) {
 	if !found {
 		t.Fatalf("preview limit bind is not a typed bigint 7: %#v", rendered.Args)
 	}
-	// A non-positive or foreign-typed limit refuses typed.
 	broken := ir.ClonePhysicalPlan(plan)
 	broken.BindVars["preview_limit"] = 0
 	map22WantRefusal(t, broken, "preview limit bind")
 }
-
-// ---------------------------------------------------------------------------
-// Refusal battery (each gate arm; entry==dispatch on every cell).
-// ---------------------------------------------------------------------------
 
 func TestPopulationMappingRefusals(t *testing.T) {
 	flat := func() ir.PhysicalPlan {
@@ -597,8 +536,6 @@ func TestPopulationMappingRefusals(t *testing.T) {
 		map22WantRefusal(t, plan, "omits the compiler-owned member witness projection")
 	})
 	t.Run("construction-foreign-contributor-column", func(t *testing.T) {
-		// The registered ir provenance gate speaks first (its voice is the
-		// composition door's, compared in map22WantRefusal).
 		plan := construction()
 		plan.StageSequence.PopulationMappingReturn.FinalRootContributorColumn = "someone_elses_keys"
 		map22WantRefusal(t, plan, "not compiler-owned provenance")
@@ -628,11 +565,6 @@ func TestPopulationMappingRefusals(t *testing.T) {
 		plan.Operations[0].RootScan.Population = nil
 		map22WantRefusal(t, plan, "membership-driven population root source")
 	})
-	// Slice-door law, hand-assembled plans: the flat surface gate does
-	// not nil-check operation payloads and renderOperations dereferences
-	// Sort/Limit/Filter, so the registered ir schema gate (plan.Validate,
-	// run by both entries like every sibling slice entry) must fail the
-	// nil payload closed — never a nil-pointer panic out of the render.
 	for _, kind := range []struct {
 		name    string
 		opKind  ir.PhysicalOperationKind
@@ -654,37 +586,25 @@ func TestPopulationMappingRefusals(t *testing.T) {
 }
 
 func TestPopulationMappingPlainEntriesKeepTheDoorsShut(t *testing.T) {
-	// The plain spine entry must never render a mapping plan (the dispatch
-	// arm is gated on the mapping posture the plain entry never sets).
 	plan := map22StampFlat(t, map22Compile(t, map22SpecimenOutput()))
 	if _, err := RenderPhysicalPlan(plan, mustBinding(t)); err == nil ||
 		!strings.Contains(err.Error(), ErrUnsupportedPostgresPlan.Error()) {
 		t.Fatalf("plain spine accepted a mapping plan: %v", err)
 	}
-	// The plain population entry must refuse a member-collecting root (D2).
 	if _, err := RenderPopulationRootScan(plan, mustBinding(t), populationBindingOK(t)); err == nil ||
 		!strings.Contains(err.Error(), "pg-sql-22 population terminal") {
 		t.Fatalf("RenderPopulationRootScan accepted a member witness root: %v", err)
 	}
-	// The registered composition door must refuse the mapping terminal.
 	construction := map22StampConstruction(t, map22Compile(t, map22SummaryOutput(true)))
 	if _, err := RenderPhysicalPlan(construction, mustBinding(t)); err == nil ||
 		!strings.Contains(err.Error(), ErrUnsupportedPostgresPlan.Error()) {
 		t.Fatalf("composition door accepted a mapping terminal: %v", err)
 	}
-	// The registered surface voice specifically: the mapping terminal is
-	// unregistered for every non-mapping door (validateStageSequencePlanSurface).
 	if _, err := renderStageSequencePhysicalPlan(construction, mustBinding(t)); err == nil ||
 		!strings.Contains(err.Error(), "population-mapping returns have no PostgreSQL compiled route") {
 		t.Fatalf("composition door surface spoke a different voice: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Live PostgreSQL 18 acceptance (L1-L7), owned namespace verify_sql22v1_*.
-// The evidence run executes with LOOM_TEST_POSTGRES_URL set and asserts
-// zero skips among the mapping legs.
-// ---------------------------------------------------------------------------
 
 const (
 	map22Project    = "sql22-proj"
@@ -775,10 +695,6 @@ func map22Observation(t *testing.T, s *map22Service, logicalID, status string, v
 		})
 }
 
-// map22Rebind re-points a production-compiled plan onto the live fixture's
-// project/generation/selection identity. Every replacement targets exactly
-// one offline constant, so a missing constant fails the cell instead of
-// leaving a stale bind behind.
 func map22Rebind(t *testing.T, plan ir.PhysicalPlan, selectionID string) ir.PhysicalPlan {
 	t.Helper()
 	plan = ir.ClonePhysicalPlan(plan)
@@ -811,8 +727,6 @@ func map22Rebind(t *testing.T, plan ir.PhysicalPlan, selectionID string) ir.Phys
 	return plan
 }
 
-// map22LiveFlatPlan builds the hand-shaped one-hop population plan (the
-// pop18 builder) with the pg-sql-22 witness stamp applied.
 func map22LiveFlatPlan(hops int, selectionID string, authPaths []string, unrestricted, allowed bool) ir.PhysicalPlan {
 	plan := populationPlan(hops)
 	plan.BindVars["project"] = map22Project
@@ -891,9 +805,6 @@ func (s *map22Service) runRows(t *testing.T, rendered command.RenderedPostgresPh
 	return out
 }
 
-// map22Cell renders identity cells in canonical JSON text: pgx decodes
-// jsonb columns into Go composites, which stringifyCell's %v form would
-// print Go-style ([a b]) instead of the JSON the adapter will transport.
 func map22Cell(value any) string {
 	switch value.(type) {
 	case []any, map[string]any:
@@ -915,9 +826,6 @@ func map22JoinRows(rows [][]string) string {
 	return strings.Join(parts, " ; ")
 }
 
-// L1: exact rows and scope, direct population root (no route). Selected
-// O1,O2 witness; unselected O3 and the foreign-project selection never
-// produce witness rows.
 func TestPopulationMappingLiveExactRowsAndScope(t *testing.T) {
 	s := newMap22Service(t)
 	map22Observation(t, s, "O1", "final", 1, map22ObsAuth)
@@ -933,10 +841,6 @@ func TestPopulationMappingLiveExactRowsAndScope(t *testing.T) {
 	}
 }
 
-// L1b + L3-dedup: a one-hop route where P1 reaches members O1 and O2 —
-// through a DUPLICATE edge for O1. The member array must stay
-// sort-unique (ARRAY_AGG DISTINCT); the witness rows are exactly the two
-// (member, identity) pairs in identity-then-member byte order.
 func TestPopulationMappingLiveRouteMembersDedupAndOrder(t *testing.T) {
 	s := newMap22Service(t)
 	map22Observation(t, s, "O1", "final", 1, map22ObsAuth)
@@ -954,7 +858,6 @@ func TestPopulationMappingLiveRouteMembersDedupAndOrder(t *testing.T) {
 			TargetResourceType: "Observation", TargetLogicalID: pair.target, SourcePath: pair.path,
 		})
 	}
-	// P2 routes only to the unselected O3.
 	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: map22Project, DatasetGeneration: map22Generation, AuthResourcePath: map22PatAuth,
 		Label: map22RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P2",
@@ -967,8 +870,6 @@ func TestPopulationMappingLiveRouteMembersDedupAndOrder(t *testing.T) {
 	if got := map22JoinRows(rows); got != want {
 		t.Fatalf("route witness rows = %q, want %q\nSQL: %s", got, want, rendered.SQL)
 	}
-	// The duplicate edge is really there: the raw member aggregation sees
-	// O1 twice, which is what the sort-unique witness array must collapse.
 	raw := s.witness(t, `SELECT count(*) FROM "`+s.schema+`".selection_members pm
 		INNER JOIN "`+s.schema+`".fhir_resource x0 ON x0.project = $1 AND x0.dataset_generation = $2
 		  AND x0.resource_type = 'Observation' AND x0.logical_id = pm.id
@@ -982,8 +883,6 @@ func TestPopulationMappingLiveRouteMembersDedupAndOrder(t *testing.T) {
 	}
 }
 
-// L2: an empty population yields ZERO witness rows — never an
-// empty-aggregate row.
 func TestPopulationMappingLiveEmptyPopulationNoRows(t *testing.T) {
 	s := newMap22Service(t)
 	map22Observation(t, s, "O1", "final", 1, map22ObsAuth)
@@ -993,8 +892,6 @@ func TestPopulationMappingLiveEmptyPopulationNoRows(t *testing.T) {
 	if len(rows) != 0 {
 		t.Fatalf("empty population produced witness rows: %v", map22JoinRows(rows))
 	}
-	// The selection row and its member row really exist: the zero rows
-	// come from the missing resource twin, not from missing fixture data.
 	members := s.witness(t, `SELECT count(*) FROM "`+s.schema+`".selection_members
 		WHERE selection_id = $1 AND project = $2`, "sel22_empty", map22Project)
 	if len(members) != 1 || members[0][0] != "1" {
@@ -1002,9 +899,6 @@ func TestPopulationMappingLiveEmptyPopulationNoRows(t *testing.T) {
 	}
 }
 
-// L3/L4: the construction terminal (keyed summary GROUP) over the
-// population-bounded source, with the preview-limit leg returning the
-// bound prefix in the deterministic order.
 func TestPopulationMappingLiveConstructionAndPreviewLimit(t *testing.T) {
 	s := newMap22Service(t)
 	map22Observation(t, s, "O1", "final", 1, map22ObsAuth)
@@ -1014,16 +908,12 @@ func TestPopulationMappingLiveConstructionAndPreviewLimit(t *testing.T) {
 	plan := map22Rebind(t, map22StampConstruction(t, map22CompileLive(t, map22SummaryOutput(true))), "sel22_obs")
 	rendered := s.render(t, plan)
 	rows := s.runRows(t, rendered)
-	// Both members land in the single "final" group (O3 is unselected and
-	// out of scope); identity is the group's construction identity string,
-	// members are byte-ordered.
 	if len(rows) != 2 || rows[0][0] != "O1" || rows[1][0] != "O2" {
 		t.Fatalf("construction witness rows = %v", map22JoinRows(rows))
 	}
 	if rows[0][1] != rows[1][1] {
 		t.Fatalf("both members must share the one group identity: %v", map22JoinRows(rows))
 	}
-	// L4: the preview limit is a bound parameter returning the ordered prefix.
 	limited := ir.ClonePhysicalPlan(plan)
 	limited.StageSequence.PreviewLimitBindKey = "preview_limit"
 	limited.BindVars["preview_limit"] = 1
@@ -1066,9 +956,6 @@ func map22CompileLive(t *testing.T, output recipe.Output) ir.PhysicalPlan {
 	return compiled.Outputs[0].Plan
 }
 
-// L5: a null identity part keeps the member row a witness row — the row
-// survives with a jsonb null part (typed rejection stays the adapter's
-// law, never the renderer dropping the row).
 func TestPopulationMappingLiveNullIdentityPartSurvives(t *testing.T) {
 	s := newMap22Service(t)
 	map22Observation(t, s, "O1", "final", 1, map22ObsAuth)
@@ -1090,8 +977,6 @@ func TestPopulationMappingLiveNullIdentityPartSurvives(t *testing.T) {
 	}
 }
 
-// L6 + L7: repeat execution is stably ordered; the deny posture (scope
-// false, and an auth set excluding every fixture row) reads zero rows.
 func TestPopulationMappingLiveStableOrderAndDeny(t *testing.T) {
 	s := newMap22Service(t)
 	map22Observation(t, s, "O1", "final", 1, map22ObsAuth)

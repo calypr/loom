@@ -1,49 +1,5 @@
 package postgres
 
-// Real-PostgreSQL 18 acceptance tests for the page stale execution
-// reconciliation sweep (pg-publication-read-pins-reconcile-v1; part of
-// check-3: go test -count=1 ./internal/backends/postgres/internal/publication/).
-//
-// The promise under test is the reconcile.go contract:
-//
-//	A. The stable bounded keyset scan drives the whole sweep: every stale
-//	   execution in the swept states is visited exactly once in
-//	   (updated_at, id) order across fixed pages, and each reclaimed
-//	   execution gets its durable terminal record written literally.
-//	B. Pin arbitration through PostgreSQL: a live reader pin refuses the
-//	   sweep with the exact named publication.ErrExecutionReadPinActive
-//	   (first-error-wins, baseline parity), with the claim never minted, the
-//	   lease released, and the execution byte-identical; a later sweep after
-//	   the reader releases converges.
-//	C. Active release/pointer bindings gate the ClickHouse deletion: a
-//	   pointer that names the execution (scan-time or post-claim) and an
-//	   active-release binding both skip without dropping, the PUBLISHED
-//	   janitor arm exists only with a wired release reader, and the
-//	   in-transaction pointer veto is non-vacuous (a pointer committed
-//	   between the pre-claim read and the claim transaction stops the
-//	   claim).
-//	D. Two-real-connection racing surfaces (distinct pg_backend_pid,
-//	   >=10 rounds each): sweep-vs-publisher on the same execution lease
-//	   converges to exactly one actor per round; the claim transaction
-//	   serializes against a concurrent pointer move witnessed from a second
-//	   backend.
-//	E. Crash injection at each durability seam with post-abort convergence:
-//	   a failure inside the claim transaction leaves ZERO retention state
-//	   (including the anchor) and releases the just-taken bundle lease
-//	   (baseline parity); a failure between the drop phase and the terminal
-//	   write leaves the claim active, the execution pre-sweep, and the drops
-//	   already applied. In the PRODUCTION shape every sweep mints a fresh
-//	   identity, so the next sweep -- even of the same instance -- is
-//	   foreign to both the abandoned lease and claim: it is skipped-leased
-//	   with the record untouched, and converges only after BOTH TTLs lapse
-//	   (arm A2). The immediate refresh (arm A) is the fixed-identity TEST
-//	   SEAM (fixIdentity), not a production recovery path: production
-//	   recovery is expiry-driven.
-//	F. Heartbeat loss stops the deletion: losing the cleanup claim mid-drop
-//	   (owner-conditional renewal refused) cancels the drop context, the
-//	   lost tables stay listed in remaining outputs, and the final error
-//	   joins ErrExecutionReadPinLost.
-
 import (
 	"context"
 	"errors"
@@ -78,7 +34,6 @@ func setReconcileGates(claim func(reconcileClaimAttempt) error, finalize func(re
 	}
 }
 
-// rprReleases is a scripted dataset.ActiveReleaseResolver.
 type rprReleases struct {
 	mu    sync.Mutex
 	bound map[string][]string
@@ -118,28 +73,18 @@ func (f *rprReleases) ReadActiveRelease(_ context.Context, project string) (data
 	return dataset.ActiveRelease{Release: release}, nil
 }
 
-// rprDrops records the physical drop calls the sweep made; the hook is the
-// only ClickHouse-shaped surface in the sweep and must always run outside
-// any PostgreSQL transaction.
 type rprDrops struct {
 	mu       sync.Mutex
 	calls    []string
 	perTable map[string]error
-	// waitFor, when non-nil, is observed by the hook before each drop; the
-	// hook returns its context error when the drop context is canceled
-	// first, mirroring how a real ClickHouse call aborts.
-	waitFor <-chan struct{}
-	hookErr func(table string, ctx context.Context) error
+	waitFor  <-chan struct{}
+	hookErr  func(table string, ctx context.Context) error
 }
 
 func newRPRDrops() *rprDrops {
 	return &rprDrops{perTable: map[string]error{}}
 }
 
-// liveTables models which physical tables exist, shared across every
-// rprDrops instance: a legitimate re-sweep of a FAILED execution may ask to
-// drop an already-dead table (DROP ... IF EXISTS is a no-op), and the
-// witness must not recount it as a deletion.
 var (
 	liveTablesMu sync.Mutex
 	liveTables   = map[string]bool{}
@@ -168,7 +113,7 @@ func (d *rprDrops) hook(ctx context.Context, table string) error {
 	}
 	liveTablesMu.Unlock()
 	if !existed {
-		return nil // DROP IF EXISTS on an already-dead table: no witness
+		return nil
 	}
 	if d.hookErr != nil {
 		if err := d.hookErr(table, ctx); err != nil {
@@ -199,10 +144,6 @@ func (d *rprDrops) snapshot() []string {
 	return append([]string(nil), d.calls...)
 }
 
-// ---------------------------------------------------------------------------
-// Seeding helpers built on the production Registry surface.
-// ---------------------------------------------------------------------------
-
 func rprExecution(id, project, name string, state publication.BundleState, outputs int) publication.BundleExecution {
 	execution := publication.BundleExecution{
 		ID:  id,
@@ -223,8 +164,6 @@ func rprExecution(id, project, name string, state publication.BundleState, outpu
 	return execution
 }
 
-// seedStaleExecution writes an execution through the real fenced
-// SaveExecution path and leaves the bundle lease free.
 func (s *rprService) seedStaleExecution(t *testing.T, execution publication.BundleExecution) {
 	t.Helper()
 	tables := make([]string, 0, len(execution.Outputs))
@@ -252,7 +191,7 @@ func (s *rprService) newReconciler(t *testing.T, releases dataset.ActiveReleaseR
 	}
 	rc.fixIdentity("reconciler-test")
 	rc.heartbeatTTL = 2 * time.Minute
-	rc.renewalEvery = 0 // renewal exercised explicitly by its own test
+	rc.renewalEvery = 0
 	return rc
 }
 
@@ -286,19 +225,12 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("condition never held: %s", what)
 }
 
-// ---------------------------------------------------------------------------
-// A. Full sweep: keyset coverage + literal terminal records.
-// ---------------------------------------------------------------------------
-
 func TestReconcileSweepReclaimsAbandoned(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
 	setReconcileGates(nil, nil)
 	defer setReconcileGates(nil, nil)
 
-	// Seven stale RUNNING executions with two outputs each; page size 3
-	// forces multi-page keyset continuation, including a VALIDATING and a
-	// FAILED state so every swept state is exercised.
 	for i := 0; i < 7; i++ {
 		state := publication.BundleRunning
 		if i == 5 {
@@ -309,7 +241,6 @@ func TestReconcileSweepReclaimsAbandoned(t *testing.T) {
 		}
 		s.seedStaleExecution(t, rprExecution(fmt.Sprintf("exec-sweep-%02d", i), "proj-a", "recipe-sweep", state, 2))
 	}
-	// A fresh (not stale) execution and a QUEUED one must never be touched.
 	fresh := rprExecution("exec-sweep-fresh", "proj-a", "recipe-sweep", publication.BundleRunning, 1)
 	fresh.UpdatedAt = time.Now().UTC().Add(time.Hour)
 	s.seedStaleExecution(t, fresh)
@@ -382,18 +313,6 @@ func TestReconcileSweepReclaimsAbandoned(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// B. Pin arbitration.
-// ---------------------------------------------------------------------------
-
-// TestReconcileDropFailureConvergesIdempotently witnesses the seam the
-// coordinator ruling names: the values-only drop callback runs OUTSIDE any
-// PG transaction, so a drop that fails AFTER the claim transaction has
-// committed must not strand the sweep. The terminal record lands with the
-// un-droppable table in remaining and the claim and lease consumed (no
-// orphan), and the NEXT reconcile converges idempotently: the still-live
-// table is dropped exactly once more and the already-dead table is a
-// no-op re-drop (double-drop safety), ending with empty remaining.
 func TestReconcileDropFailureConvergesIdempotently(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
@@ -419,8 +338,6 @@ func TestReconcileDropFailureConvergesIdempotently(t *testing.T) {
 	if got := strings.Join(failing.snapshot(), ","); got != tbl0+"!error,"+tbl1 {
 		t.Fatalf("sweep 1 drop witnesses = %v, want [%s %s] in page order", failing.snapshot(), tbl0+"!error", tbl1)
 	}
-	// The terminal write landed despite the failed drop: FAILED, with ONLY
-	// the un-droppable table kept in remaining.
 	state, payload := s.executionRow(t, id)
 	if state != string(publication.BundleFailed) {
 		t.Fatalf("state after failed drop = %q, want FAILED", state)
@@ -428,8 +345,6 @@ func TestReconcileDropFailureConvergesIdempotently(t *testing.T) {
 	if !strings.Contains(payload, tbl0) || strings.Contains(payload, tbl1) {
 		t.Fatalf("remaining after failed drop wrong (want %s kept, %s gone): %s", tbl0, tbl1, payload)
 	}
-	// No orphan: the terminal release consumed claim and lease despite the
-	// drop error, and no pin rows exist for the swept execution.
 	if claim := s.claimRow(t, s.w, id); claim != "" {
 		t.Fatalf("failed-drop sweep stranded the cleanup claim: %q", claim)
 	}
@@ -440,10 +355,6 @@ func TestReconcileDropFailureConvergesIdempotently(t *testing.T) {
 		t.Fatalf("failed-drop sweep left pin rows: %v", got)
 	}
 
-	// Convergence run: the next sweep of a Reconciler built the way
-	// production builds one -- NewReconciler, no fixIdentity seam, so a
-	// minted identity foreign to the crashed sweep -- finishes the job
-	// idempotently.
 	rc2, err := NewReconciler(s.regA, s.pinsA, nil)
 	if err != nil {
 		t.Fatalf("new unfixed reconciler: %v", err)
@@ -502,13 +413,11 @@ func TestReconcileRefusedByLivePin(t *testing.T) {
 	if claim := s.claimRow(t, s.w, id); claim != "" {
 		t.Fatalf("cleanup claim was minted despite the pin: %q", claim)
 	}
-	// Execution untouched: same state, same payload bytes.
 	if state, payload := s.executionRow(t, id); state != string(publication.BundleRunning) || !strings.Contains(payload, `"updatedAt":"2026-01-05T06:07:08.0009Z"`) {
 		t.Fatalf("pinned execution changed: state %q payload %s", state, payload)
 	}
 	_ = before
 
-	// Convergence: once the reader releases, the next sweep reclaims.
 	if err := s.pinsA.ReleaseExecutionReadPin(ctx, id, "streaming-reader"); err != nil {
 		t.Fatalf("reader release: %v", err)
 	}
@@ -551,17 +460,12 @@ func TestReconcileForeignClaimRefusesSweep(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// C. Pointer and active-release binding gates.
-// ---------------------------------------------------------------------------
-
 func TestReconcilePointerSkips(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
 	setReconcileGates(nil, nil)
 	defer setReconcileGates(nil, nil)
 
-	// Scan-time pointer: the pointer already names the execution.
 	const id = "exec-pointer-live"
 	execution := rprExecution(id, "proj-a", "recipe-pointer", publication.BundleRunning, 1)
 	s.seedStaleExecution(t, execution)
@@ -591,12 +495,6 @@ func TestReconcileInClaimPointerVeto(t *testing.T) {
 	ctx := s.ctx
 	defer setReconcileGates(nil, nil)
 
-	// The scan-time pointer check and the claim transaction's locked
-	// pointer read are separated by the pre-claim window -- exactly where a
-	// publisher can move the pointer onto the execution under the scan's
-	// nose. A scripted publisher commits the pointer there; the claim
-	// transaction's in-transaction veto must catch it, minting no claim and
-	// dropping nothing.
 	const id = "exec-inclaim"
 	execution := rprExecution(id, "proj-a", "recipe-inclaim", publication.BundleRunning, 1)
 	s.seedStaleExecution(t, execution)
@@ -612,17 +510,12 @@ func TestReconcileInClaimPointerVeto(t *testing.T) {
 		}
 	})
 
-	// Witness 2: with the claim transaction about to lock the pointer row,
-	// a concurrent publisher from a DIFFERENT backend must queue behind it.
 	casDone := make(chan error, 1)
 	casBlocked := make(chan bool, 1)
 	setReconcileGates(func(attempt reconcileClaimAttempt) error {
 		if attempt.ExecutionID != id {
 			return nil
 		}
-		// The in-transaction veto must stop the claim BEFORE any grant:
-		// a granted attempt here means the veto was bypassed and only the
-		// later post-claim gate would have (racy) cover.
 		if attempt.Outcome == reconcileClaimGranted {
 			t.Errorf("claim granted for %s despite the pointer naming it: in-transaction veto bypassed", id)
 		}
@@ -654,10 +547,6 @@ func TestReconcileInClaimPointerVeto(t *testing.T) {
 	}
 	_, _ = casDone, casBlocked
 
-	// Witness: the claim transaction really locks the pointer row. Re-run
-	// the claim on a second abandoned execution whose pointer names
-	// someone else (claim proceeds), and show a concurrent CAS queues
-	// behind the claim decision.
 	const id2 = "exec-inclaim-2"
 	execution2 := rprExecution(id2, "proj-a", "recipe-inclaim-2", publication.BundleRunning, 1)
 	s.seedStaleExecution(t, execution2)
@@ -706,8 +595,6 @@ func TestReconcileJanitorArmAndBindings(t *testing.T) {
 	setReconcileGates(nil, nil)
 	defer setReconcileGates(nil, nil)
 
-	// No release reader: the PUBLISHED janitor arm is never enumerated --
-	// even a fully orphaned PUBLISHED execution survives the sweep.
 	const orphan = "exec-janitor-off"
 	s.seedStaleExecution(t, rprExecution(orphan, "proj-off", "recipe-jan", publication.BundlePublished, 1))
 	drops := newRPRDrops()
@@ -722,8 +609,6 @@ func TestReconcileJanitorArmAndBindings(t *testing.T) {
 		t.Fatalf("orphaned PUBLISHED execution was swept with releases nil: %q", state)
 	}
 
-	// Wired reader: bound execution skips, unbound is reclaimed as
-	// superseded with the literal superseded error.
 	releases := newRPRReleases()
 	const bound = "exec-janitor-bound"
 	const free = "exec-janitor-free"
@@ -760,8 +645,6 @@ func TestReconcileJanitorArmAndBindings(t *testing.T) {
 		t.Fatalf("superseded terminal error missing literal: %s", payload)
 	}
 
-	// Fail-closed: an unrelated release-reader failure vetoes the sweep
-	// instead of deleting under unknown bindings.
 	releases.failWith(errors.New("release store unavailable"))
 	const failExec = "exec-janitor-fail"
 	s.seedStaleExecution(t, rprExecution(failExec, "proj-a", "recipe-jan", publication.BundlePublished, 1))
@@ -774,10 +657,6 @@ func TestReconcileJanitorArmAndBindings(t *testing.T) {
 		t.Fatalf("execution swept despite release-reader failure: %q", state)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Lease discipline.
-// ---------------------------------------------------------------------------
 
 func TestReconcileSkipsForeignLease(t *testing.T) {
 	s := newRPRService(t)
@@ -809,10 +688,6 @@ func TestReconcileSkipsForeignLease(t *testing.T) {
 		t.Fatal("foreign lease was removed by the sweep")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// D. Two-real-connection racing surface: sweep vs publisher.
-// ---------------------------------------------------------------------------
 
 func TestReconcilePublisherRace(t *testing.T) {
 	s := newRPRService(t)
@@ -891,8 +766,6 @@ func TestReconcilePublisherRace(t *testing.T) {
 			t.Fatalf("round %d: neither publisher nor sweeper completed (sweepErr=%v pubErr=%v payload=%s)", round, sweepErr, pubErr, payload)
 		}
 		if reconciled {
-			// The publisher must have been refused (fence lost or CAS
-			// conflict), never silently applied over the FAILED record.
 			if pubErr == nil {
 				t.Fatalf("round %d: publisher reported success while the sweeper won: %v", round, pubErr)
 			}
@@ -903,9 +776,6 @@ func TestReconcilePublisherRace(t *testing.T) {
 				t.Fatalf("round %d: pointer read: %v", round, pointerErr)
 			}
 		} else {
-			// Publisher won: sweep skipped-leased or its later steps found
-			// the row already PUBLISHED and out of the swept states -- the
-			// pointer must name the execution and no drops may have run.
 			if !published {
 				t.Fatalf("round %d: neither outcome: %v / %v", round, sweepErr, pubErr)
 			}
@@ -916,19 +786,11 @@ func TestReconcilePublisherRace(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// E. Crash injection at each durability seam with post-abort convergence.
-// ---------------------------------------------------------------------------
-
 func TestReconcileCrashWindows(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
 	defer setReconcileGates(nil, nil)
 
-	// Seam 1: injected failure inside the open claim transaction (after all
-	// claim statements applied) -- zero retention state survives, including
-	// the minted anchor, while the separately committed bundle lease is
-	// still held. A clean re-sweep converges.
 	{
 		const id = "exec-crash-claim"
 		s.seedStaleExecution(t, rprExecution(id, "proj-a", "recipe-crash", publication.BundleRunning, 1))
@@ -959,8 +821,6 @@ func TestReconcileCrashWindows(t *testing.T) {
 		if state, _ := s.executionRow(t, id); state != string(publication.BundleRunning) {
 			t.Fatalf("execution mutated by the crashed sweep: %q", state)
 		}
-		// Same sweeper converges immediately (same-owner claim refresh),
-		// including over the still-held lease it left behind.
 		drops2 := newRPRDrops()
 		rc2 := s.newReconciler(t, nil)
 		if err := rc2.SweepStale(ctx, time.Now().UTC(), drops2.hook); err != nil {
@@ -974,9 +834,6 @@ func TestReconcileCrashWindows(t *testing.T) {
 		}
 	}
 
-	// Seam 2: injected failure between the drop phase and the terminal
-	// write -- drops already applied stay applied, the claim stays active,
-	// the execution keeps its pre-sweep record, and NOTHING releases.
 	{
 		const id = "exec-crash-finalize"
 		s.seedStaleExecution(t, rprExecution(id, "proj-a", "recipe-crash2", publication.BundleRunning, 1))
@@ -1006,11 +863,6 @@ func TestReconcileCrashWindows(t *testing.T) {
 			t.Fatalf("execution must keep its pre-sweep record: %q", state)
 		}
 
-		// Post-abort convergence A (FIXED-IDENTITY test seam): a sweep
-		// carrying the crashed sweep's pinned identity refreshes the
-		// abandoned claim immediately. Production never pins identities --
-		// the unfixed shape, where recovery depends on expiry, is proven by
-		// convergence A2 below.
 		drops2 := newRPRDrops()
 		rc2 := s.newReconciler(t, nil)
 		if err := rc2.SweepStale(ctx, time.Now().UTC(), drops2.hook); err != nil {
@@ -1020,12 +872,6 @@ func TestReconcileCrashWindows(t *testing.T) {
 			t.Fatalf("fixed-identity refresh convergence state = %q", state)
 		}
 
-		// Post-abort convergence A2 (PRODUCTION SHAPE, unfixed identity):
-		// a crash leaves the lease AND the claim owned by the crashed
-		// sweep's fresh identity; the next sweep of the SAME instance is a
-		// foreign sweeper for both, so it is skipped-leased with the record
-		// untouched, and only forced expiry lets a sweep of the very same
-		// instance converge.
 		const id3 = "exec-crash-finalize-a2"
 		s.seedStaleExecution(t, rprExecution(id3, "proj-a", "recipe-crash-a2", publication.BundleRunning, 1))
 		setReconcileGates(nil, func(reconcileFinalizeAttempt) error { return injected })
@@ -1078,8 +924,6 @@ func TestReconcileCrashWindows(t *testing.T) {
 			t.Fatalf("post-expiry convergence drops = %v, want none (table died in the crashed sweep)", got)
 		}
 
-		// Post-abort convergence B: a FOREIGN sweeper must wait for the
-		// abandoned claim to expire, then converges.
 		const id2 = "exec-crash-finalize-b"
 		s.seedStaleExecution(t, rprExecution(id2, "proj-a", "recipe-crash2", publication.BundleRunning, 1))
 		setReconcileGates(nil, func(reconcileFinalizeAttempt) error { return injected })
@@ -1090,17 +934,12 @@ func TestReconcileCrashWindows(t *testing.T) {
 			t.Fatalf("crash B: %v", err)
 		}
 		setReconcileGates(nil, nil)
-		// The abandoned claim stays live for minutes while the just-taken
-		// bundle lease lapses in 80 ms: after the lease frees, the foreign
-		// sweep reaches the claim guard and must name its refusal.
 		time.Sleep(120 * time.Millisecond)
 		foreign := s.newReconciler(t, nil)
 		foreign.fixIdentity("reconciler-foreign")
 		if err := foreign.SweepStale(ctx, time.Now().UTC(), newRPRDrops().hook); !errors.Is(err, publication.ErrExecutionReadPinActive) {
 			t.Fatalf("foreign sweep over the live abandoned claim = %v, want named refusal", err)
 		}
-		// Force the abandoned claim past expiry rather than sleeping out a
-		// 5-minute TTL; the re-sweep then converges.
 		s.queryRows(t, s.w,
 			"UPDATE "+pgx.Identifier{s.schema, ExecutionCleanupClaimsTable}.Sanitize()+
 				" SET expires_at = $1 WHERE execution_id = $2", rprPast, id2)
@@ -1110,9 +949,6 @@ func TestReconcileCrashWindows(t *testing.T) {
 		if err := foreign2.SweepStale(ctx, time.Now().UTC(), drops4.hook); err != nil {
 			t.Fatalf("foreign post-expiry convergence: %v", err)
 		}
-		// The crashed sweep already deleted the physical table before the
-		// finalize abort, so a correct convergence deletes nothing new --
-		// its proof is the fenced terminal record and the consumed claim.
 		if got := drops4.snapshot(); len(got) != 0 {
 			t.Fatalf("foreign convergence drops = %v, want none (table died in the crashed sweep)", got)
 		}
@@ -1125,10 +961,6 @@ func TestReconcileCrashWindows(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// F. Heartbeat loss stops the physical deletion mid-drop.
-// ---------------------------------------------------------------------------
 
 func TestReconcileHeartbeatLossStopsDrop(t *testing.T) {
 	s := newRPRService(t)
@@ -1150,10 +982,6 @@ func TestReconcileHeartbeatLossStopsDrop(t *testing.T) {
 	go func() {
 		errCh <- rc.SweepStale(ctx, time.Now().UTC(), drops.hook)
 	}()
-	// The claim is granted before any drop call; once it is visible, the
-	// test loses it externally. The renewal tick must notice, cancel the
-	// drop context, and the blocked hook returns context.Canceled -- the
-	// table is never dropped while the claim is lost.
 	waitUntil(t, "cleanup claim granted before the drop completed", func() bool {
 		return s.claimRow(t, s.w, id) != ""
 	})
@@ -1166,8 +994,6 @@ func TestReconcileHeartbeatLossStopsDrop(t *testing.T) {
 	if !errors.Is(err, publication.ErrExecutionReadPinLost) {
 		t.Fatalf("heartbeat-loss sweep error = %v, want errors.Is ErrExecutionReadPinLost", err)
 	}
-	// The lost table stays listed in remaining outputs of the terminal
-	// record, so a retry re-attempts the physical drop.
 	_, payload := s.executionRow(t, id)
 	if !strings.Contains(payload, `"physicalTable":"tbl-`+id+`-0"`) {
 		t.Fatalf("remaining outputs lost the un-dropped table: %s", payload)
@@ -1176,10 +1002,6 @@ func TestReconcileHeartbeatLossStopsDrop(t *testing.T) {
 		t.Fatalf("claim should be gone after the sweep finished its releases: %q", claim)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// First-error-wins propagation (documented stranding parity).
-// ---------------------------------------------------------------------------
 
 func TestReconcileFirstErrorWins(t *testing.T) {
 	s := newRPRService(t)
@@ -1220,12 +1042,6 @@ func eqStatementLists(t *testing.T, label string, want, got []string) {
 	}
 }
 
-// TestReconcileGoldenClaimStatements pins the literal statement set of the
-// claim transaction -- the one transaction that grants the right to delete
-// physical tables -- for the granted path and each refusal path, including
-// the pointer-before-anchor lock order. Sibling audits exist for the publish
-// commit (goldenPublishStatements) and the pin transitions
-// (TestReadPinsGoldenStatements); this closes the third destructive path.
 func TestReconcileGoldenClaimStatements(t *testing.T) {
 	locks := func(s *rprService) (pointer, ensure, anchor, active, read, gc, grant, touch string) {
 		q := func(table string) string { return pgx.Identifier{s.schema, table}.Sanitize() }
@@ -1324,12 +1140,6 @@ func TestReconcileGoldenClaimStatements(t *testing.T) {
 	})
 }
 
-// TestReconcileTerminalReleaseSurvivesSlowDrop proves the terminal record
-// and cleanup-claim release are detached from the pre-claim deadline (the
-// ClickHouse baseline detaches its claim release the same way): a drop
-// phase that consumes the whole call budget must not strand a live claim
-// owned by this sweeper, which would refuse every foreign sweep until the
-// claim expires.
 func TestReconcileTerminalReleaseSurvivesSlowDrop(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
@@ -1340,7 +1150,7 @@ func TestReconcileTerminalReleaseSurvivesSlowDrop(t *testing.T) {
 	rc.callTimeout = 250 * time.Millisecond
 	drops := newRPRDrops()
 	slowDrop := func(ctx context.Context, table string) error {
-		time.Sleep(450 * time.Millisecond) // overruns the pre-claim deadline
+		time.Sleep(450 * time.Millisecond)
 		return drops.hook(ctx, table)
 	}
 	if err := rc.SweepStale(ctx, time.Now().UTC(), slowDrop); err != nil {
@@ -1361,22 +1171,6 @@ func TestReconcileTerminalReleaseSurvivesSlowDrop(t *testing.T) {
 	}
 }
 
-// TestReconcileSweepsAreMutuallyExclusive drives two concurrent sweeps of
-// ONE unfixed Reconciler against one abandoned execution. With the baseline
-// per-sweep identity, the bundle lease excludes the second sweep cleanly;
-// with a shared identity the first finish would strip the lease and claim
-// from the second, whose heartbeat renewal and fenced terminal write then
-// fail and abort that whole sweep.
-// TestReconcileVetoCleanupReleaseBounded witnesses the veto-path cleanup
-// release (releaseClaimAndLease) the way the terminal path is witnessed:
-// the pre-claim budget must be spent, the release must run PAST that
-// budget, and the run must still end with the claim and lease rows empty
-// rather than a blocked sweep or a stranded claim (baseline parity:
-// executionCleanupLease.release bounds this path with
-// bundleCleanupTimeout at bundle_store.go:310). The release stalls inside
-// the readPinGate seam, after the owner-conditional DELETE and before its
-// COMMIT: had the release been bound to cleanupCtx, that commit would land
-// past the deadline and the claim would survive, failing this test.
 func TestReconcileVetoCleanupReleaseBounded(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
@@ -1391,16 +1185,12 @@ func TestReconcileVetoCleanupReleaseBounded(t *testing.T) {
 
 	rc := s.newReconciler(t, releases)
 	rc.callTimeout = 900 * time.Millisecond
-	// Consume most of the pre-claim budget inside the claim transaction,
-	// so the post-claim veto fires with only a sliver of cleanupCtx left.
 	setReconcileGates(func(attempt reconcileClaimAttempt) error {
 		if attempt.ExecutionID == id && attempt.Outcome == reconcileClaimGranted {
 			time.Sleep(650 * time.Millisecond)
 		}
 		return nil
 	}, nil)
-	// The active-release re-read vets the granted claim (skipped-bound);
-	// its cleanup release then stalls 500ms past the pre-claim budget.
 	setReadPinGate(func(attempt readPinAttempt) error {
 		if attempt.Op == "release-cleanup" && attempt.ExecutionID == id {
 			time.Sleep(500 * time.Millisecond)
@@ -1449,10 +1239,10 @@ func TestReconcileSweepsAreMutuallyExclusive(t *testing.T) {
 		t.Fatalf("new reconciler: %v", err)
 	}
 	rc.heartbeatTTL = 30 * time.Second
-	rc.renewalEvery = 20 * time.Millisecond // identity stays unfixed: production shape
+	rc.renewalEvery = 20 * time.Millisecond
 	delayedDrop := func(d *rprDrops) PhysicalDropTable {
 		return func(ctx context.Context, table string) error {
-			time.Sleep(300 * time.Millisecond) // forces the two sweeps to overlap
+			time.Sleep(300 * time.Millisecond)
 			return d.hook(ctx, table)
 		}
 	}
@@ -1491,10 +1281,6 @@ func TestReconcileSweepsAreMutuallyExclusive(t *testing.T) {
 	}
 }
 
-// TestReconcileMintsFreshIdentityPerSweep witnesses the baseline parity at
-// bundle_store.go:1082: two sweeps of one unfixed instance carry different
-// reconciler identities, so a live lease or claim held by one can never be
-// refreshed by the other.
 func TestReconcileMintsFreshIdentityPerSweep(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
@@ -1516,8 +1302,6 @@ func TestReconcileMintsFreshIdentityPerSweep(t *testing.T) {
 	if err := rc.SweepStale(ctx, time.Now().UTC(), newRPRDrops().hook); err != nil {
 		t.Fatalf("sweep 2: %v", err)
 	}
-	// Sweep 2 may legitimately re-sweep the FAILED exec-id-a; the identity
-	// that FIRST claimed it is the one sweep 1 minted.
 	var first, second string
 	for _, a := range attempts {
 		switch a.ExecutionID {
@@ -1537,9 +1321,6 @@ func TestReconcileMintsFreshIdentityPerSweep(t *testing.T) {
 	}
 }
 
-// unsafeDB is a DB implementation whose dynamic type is NOT comparable:
-// interface equality on it panics, so the reconciler constructor must
-// reject it through reflect before ever using ==/!=.
 type unsafeDB struct {
 	inner DB
 	junk  map[string]string
@@ -1608,12 +1389,6 @@ func TestNewReconcilerRejectsUnsafeOrMismatchedBindings(t *testing.T) {
 	}
 }
 
-// TestBundleCatalogDelegatesPinArbitration shows the composition seam that
-// production consumers rely on: the catalog value itself satisfies
-// publication.ExecutionReadPinCatalog (the assertion in
-// internal/dataframe/published/export.go, internal/dataframe/published/
-// read_pins.go, and clickhouse/bundle_store.go), and every one of the six
-// methods reaches the same tables the ReadPins arbiter uses.
 func TestBundleCatalogDelegatesPinArbitration(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
@@ -1665,18 +1440,6 @@ func TestBundleCatalogDelegatesPinArbitration(t *testing.T) {
 	}
 }
 
-// TestZZZeroLeftoverReadPinsFixtures audits the ownership-scoped
-// zero-leftover guarantees for this suite, per the coordinator audit-
-// scoping ruling: every exact verify_rpr_it_* database this suite created
-// is gone (the creation-tracked registry), and pg_database holds zero rows
-// under this suite's registered prefix verify_rpr_* -- deliberately no
-// global pg_database==baseline equality. This test MUST stay the last test
-// declared in these files: Go runs a package's tests in declaration order
-// within each source file, and only this suite's files create
-// verify_rpr_it_* resources. TestMain additionally invokes the same audit
-// after the whole package (registry_test.go) so the scoped checks -- the
-// owned-registry assertions and the verify_rpr_* prefix scan -- still
-// execute under filtered -run invocations.
 func TestZZZeroLeftoverReadPinsFixtures(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		t.Skip("no service configured; nothing could have been created")

@@ -15,14 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// population_test.go pins the closed pg-sql-18 surface: the exact SQL and
-// ordered arguments of the population and cohort root sources (byte-stable,
-// fully parameterized), the typed-refusal battery with alive-assertion
-// controls (every refusal is paired with the minimal accepted variant, so no
-// guard is vacuous), the membership column allowlist pinned literally to the
-// owning explorer migrations, and — service-gated — the real PostgreSQL 18
-// legs in the registered verify_pop18_* namespace.
-
 const (
 	popTestMembersCollection   = "loom_explorer_selection_members"
 	popTestSelectionCollection = "loom_explorer_selections"
@@ -48,10 +40,6 @@ func renderPopulationOK(t *testing.T, plan ir.PhysicalPlan) command.RenderedPost
 	return rendered
 }
 
-// populationPlan builds the exact payload lower/population.go emits for one
-// reverse route hop: Observation is the selected member/source type, Patient
-// the root type, one INBOUND edge step (the flipped storage direction of the
-// forward OUTBOUND route step lower/population.go:75-101 records).
 func populationPlan(hops int) ir.PhysicalPlan {
 	plan := basePlan()
 	scan := plan.Operations[0].RootScan
@@ -120,8 +108,6 @@ func canonicalMemberFilter(memberVariable, path string, right *ir.PhysicalValue)
 	}}
 }
 
-// appendScopeBlock appends the canonical project/generation/auth block for
-// the given variables, exactly as lower/plan_orchestration.go emits it.
 func appendScopeBlock(operations []ir.PhysicalOperation, variables []string, resultVariable string) []ir.PhysicalOperation {
 	projectRight := ir.PhysicalValue{BindKey: "project"}
 	generationRight := ir.PhysicalValue{BindKey: "dataset_generation"}
@@ -154,9 +140,6 @@ func appendScopeBlock(operations []ir.PhysicalOperation, variables []string, res
 	return operations
 }
 
-// cohortPlan builds the exact payload lower/recipe_construction.go:401-412
-// emits: a Patient root bounded by a pinned explicit-group revision whose
-// rows retain exact root identity.
 func cohortPlan() ir.PhysicalPlan {
 	plan := basePlan()
 	plan.Source = ir.PhysicalSource{ResourceType: "Patient"}
@@ -187,10 +170,6 @@ func cohortPlan() ir.PhysicalPlan {
 	return plan
 }
 
-// ---------------------------------------------------------------------------
-// Registry trust and the migration-literal pin
-// ---------------------------------------------------------------------------
-
 func TestMembershipBindingTrust(t *testing.T) {
 	if _, err := NewPostgresPopulationRootBinding(""); !errors.Is(err, ir.ErrUnregisteredPostgresIdentifier) {
 		t.Fatalf("empty schema error = %v, want ErrUnregisteredPostgresIdentifier", err)
@@ -206,8 +185,6 @@ func TestMembershipBindingTrust(t *testing.T) {
 	if _, err := RenderPopulationRootScan(populationPlan(1), mustBinding(t), PostgresPopulationRootBinding{}); !errors.Is(err, ir.ErrUnregisteredPostgresIdentifier) {
 		t.Fatalf("zero membership binding error = %v, want ErrUnregisteredPostgresIdentifier", err)
 	}
-	// A hand-assembled value is the zero value here: the only construction
-	// route is the constructor.
 	binding := populationBindingOK(t)
 	if binding.schema != testSchema {
 		t.Fatalf("constructed binding schema = %q", binding.schema)
@@ -217,10 +194,6 @@ func TestMembershipBindingTrust(t *testing.T) {
 	}
 }
 
-// TestMembershipAllowlistsMatchMigrationsLiterally pins every registry
-// column to the owning explorer migration: the expected list equals the
-// registry, and every expected column is defined in the migration text as a
-// NOT NULL column of its table.
 func TestMembershipAllowlistsMatchMigrationsLiterally(t *testing.T) {
 	cases := []struct {
 		migration string
@@ -267,7 +240,6 @@ func TestMembershipAllowlistsMatchMigrationsLiterally(t *testing.T) {
 			}
 		}
 	}
-	// The canonical collection strings are the exact lowered constants.
 	for name, kind := range canonicalMembershipCollections {
 		switch kind {
 		case membershipSelectionMembers, membershipSelectionRevisions, membershipGroupRevisions, membershipGroupMemberships:
@@ -285,14 +257,8 @@ func sortStrings(values []string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Golden SQL: population root source
-// ---------------------------------------------------------------------------
-
 func goldenString(v string) string { return v }
 
-// argumentText renders an argument value for comparison, decoding JSON
-// payloads back to their literal text.
 func argumentText(value any) string {
 	if raw, ok := value.(json.RawMessage); ok {
 		return string(raw)
@@ -348,8 +314,6 @@ func TestPopulationSingleHopSQLIsExactAndParameterized(t *testing.T) {
 			t.Fatalf("argument %d = %v, want %v", index+1, got, want.value)
 		}
 	}
-	// Determinism: the same plan renders byte-identical SQL and
-	// value-identical arguments.
 	second, err := RenderPopulationRootScan(plan, mustBinding(t), populationBindingOK(t))
 	if err != nil || second.SQL != rendered.SQL || !reflect.DeepEqual(second.Args, rendered.Args) {
 		t.Fatalf("population render is not deterministic: %v", err)
@@ -358,16 +322,11 @@ func TestPopulationSingleHopSQLIsExactAndParameterized(t *testing.T) {
 
 func TestPopulationDirectSourceSQL(t *testing.T) {
 	plan := populationPlan(0)
-	// A zero-hop population root reads members as the rows themselves, so
-	// the root collection is the member type (lower/population.go keeps
-	// RootScan.CollectionBindKey pinned to the population resource type).
 	plan.BindVars["root_collection"] = "Observation"
 	rendered := renderPopulationOK(t, plan)
 	if !strings.Contains(rendered.SQL, `SELECT DISTINCT x0."project", x0."dataset_generation", x0."resource_type", x0."logical_id"`) {
 		t.Fatalf("zero-hop candidate must dedup the source identity:\n%s", rendered.SQL)
 	}
-	// Alive-control counterpart of the route battery: the plan renders and
-	// carries exactly one resource join.
 	if strings.Contains(rendered.SQL, "fhir_edge_occurrence") {
 		t.Fatalf("zero-hop population root must not join the edge relation:\n%s", rendered.SQL)
 	}
@@ -387,7 +346,6 @@ func TestPopulationCanonicalDenyReadsNothing(t *testing.T) {
 			t.Fatalf("canonical deny must close every scoped row chain (%q):\n%s", fragment, rendered.SQL)
 		}
 	}
-	// The deny is shape-fixed, never a parameter.
 	for _, argument := range rendered.Args {
 		if fmt.Sprintf("%v", argument.Value) == "false" {
 			t.Fatalf("deny must never bind a boolean parameter: %#v", rendered.Args)
@@ -404,11 +362,6 @@ func TestPopulationUnrestrictedAddsNoAuthPredicate(t *testing.T) {
 		t.Fatalf("explicit unrestricted mode must drop every auth predicate:\n%s", rendered.SQL)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Refusal battery: every typed refusal has an alive control (the same plan
-// without the mutation renders via TestPopulation*/TestCohort* goldens).
-// ---------------------------------------------------------------------------
 
 func TestMembershipRootRefusals(t *testing.T) {
 	cases := []struct {
@@ -574,15 +527,11 @@ func TestMembershipRootRefusals(t *testing.T) {
 			t.Fatalf("%s: mutation accepted, want typed refusal", tc.name)
 		}
 		if !errors.Is(err, ErrUnsupportedPostgresPlan) && !errors.Is(err, ir.ErrUnregisteredPostgresIdentifier) {
-			// Plan-level ir validation may reject first; the renderer must
-			// still have failed closed. Only the two typed gates qualify.
 			if !strings.Contains(err.Error(), "validate physical plan") {
 				t.Fatalf("%s: error = %v (%T), want a typed gate", tc.name, err, err)
 			}
 		}
 	}
-	// Alive controls: the canonical shapes render, so no refusal above is
-	// vacuous.
 	if _, err := RenderPopulationRootScan(populationPlan(1), mustBinding(t), populationBindingOK(t)); err != nil {
 		t.Fatalf("alive control (population) refused: %v", err)
 	}
@@ -592,22 +541,13 @@ func TestMembershipRootRefusals(t *testing.T) {
 }
 
 func TestPlainSpineKeepsTheBindingGate(t *testing.T) {
-	// The membership entry requires a membership root: a plain spine is a
-	// typed refusal instead of silently rendering.
 	if _, err := RenderPopulationRootScan(basePlan(), mustBinding(t), populationBindingOK(t)); !errors.Is(err, ErrUnsupportedPostgresPlan) {
 		t.Fatalf("plain spine via membership entry error = %v, want ErrUnsupportedPostgresPlan", err)
 	}
-	// The unbound spine entry keeps refusing membership roots (and the seed)
-	// exactly as before pg-sql-18: the fixture's typed-refusal tolerance
-	// must not widen.
 	plan := populationPlan(1)
 	if _, err := RenderPhysicalPlan(plan, mustBinding(t)); !errors.Is(err, ErrUnsupportedPostgresPlan) {
 		t.Fatalf("population without binding error = %v, want ErrUnsupportedPostgresPlan", err)
 	}
-	// Candidate seed stays refused on BOTH entries, at the RENDER gate: the
-	// seed carries a structurally valid uncorrelated subplan (an empty one
-	// would die earlier at plan.Validate, proving nothing about the split
-	// branch), so the refusal under test is renderRootScan's.
 	seeded := basePlan()
 	seeded.BindVars["seed_collection"] = "Observation"
 	seedValue := ir.PhysicalValue{Variable: "seed_scan", Path: []string{"logical_id"}}
@@ -662,8 +602,6 @@ func TestCohortRootSourceSQLIsExactAndParameterized(t *testing.T) {
 	if strings.Contains(rendered.SQL, "@") {
 		t.Fatalf("cohort SQL carries AQL bind syntax:\n%s", rendered.SQL)
 	}
-	// The guard is one InitPlan conjunct, evaluated once (uncorrelated: no
-	// outer reference inside the CASE subquery).
 	if strings.Contains(rendered.SQL, "r0.\"logical_id\") THEN") {
 		t.Fatalf("guard must stay uncorrelated:\n%s", rendered.SQL)
 	}
@@ -690,15 +628,6 @@ func TestCohortDenyAndUnrestrictedScope(t *testing.T) {
 	denied := cohortPlan()
 	denied.BindVars["scope_allowed"] = false
 	rendered := renderPopulationOK(t, denied)
-	// Under the canonical deny the guard clause IS the deny: one atomic
-	// always-false clause "(<guard sublink>) * 0 = 1". No const-FALSE
-	// conjunct may exist anywhere (eval_const_expressions folds the whole
-	// AND tree and prunes the guard InitPlans) and no separate stable-false
-	// conjunct may exist either (cost-sorted hoisting short-circuits the
-	// lazily-fetched guard before it runs) -- deny must never suppress
-	// guard violations, matching AQL, which raises before the deny FILTER
-	// (render/aql/group_rows.go:245-261; pinned live by
-	// TestCohortLiveDenyStillRaisesGuards).
 	if !strings.Contains(rendered.SQL, `ELSE 1 END) * 0 = 1)`) {
 		t.Fatalf("cohort deny must merge into the always-false guard clause:\n%s", rendered.SQL)
 	}
@@ -709,14 +638,11 @@ func TestCohortDenyAndUnrestrictedScope(t *testing.T) {
 		strings.HasSuffix(rendered.SQL, " = 1") || strings.Contains(rendered.SQL, " = 1 ORDER BY") {
 		t.Fatalf("denied cohort must not keep a separate guard-equals-one conjunct:\n%s", rendered.SQL)
 	}
-	// The deny stays shape-fixed: never a bind parameter.
 	for _, argument := range rendered.Args {
 		if fmt.Sprintf("%v", argument.Value) == "false" {
 			t.Fatalf("cohort deny must never bind a boolean parameter: %#v", rendered.Args)
 		}
 	}
-	// The membership relations carry no auth column and never did in Arango
-	// (group_rows.go:252-259): auth lives on source rows only.
 	unrestricted := cohortPlan()
 	unrestricted.BindVars["auth_resource_paths_unrestricted"] = true
 	unrestricted.BindVars["auth_resource_paths"] = []string(nil)

@@ -1,7 +1,3 @@
-// Package publication owns the backend-neutral publication contract for
-// resolved dataframe streams. Targets stage rows and decide how a publication
-// becomes visible; this package owns validation, bounded batching, and the
-// lifecycle around that target.
 package publication
 
 import (
@@ -18,18 +14,9 @@ const (
 	ColumnDiscovered ColumnProvenance = "DISCOVERED"
 )
 
-// LogicalColumn is the backend-independent schema emitted by the compiler.
-// Kind is one of string, code, uuid, date, date-time, integer, decimal,
-// boolean, or object. Object values are rejected by the generic MVP runner
-// unless a target explicitly opts into a serialization policy.
 type LogicalColumn struct {
-	// ID is the stable compiler identity used by constructed-table inputs. It
-	// is persisted with the exact published revision, never inferred from a
-	// mutable display name.
-	ID   string
-	Name string
-	// SemanticPath is the stable FHIR/provenance identity. It is persisted
-	// alongside the physical schema but never used to name ClickHouse columns.
+	ID           string
+	Name         string
 	SemanticPath string
 	Kind         string
 	Repeated     bool
@@ -45,8 +32,6 @@ type OutputSchema struct {
 	SourceRow *SourceRowMetadata
 }
 
-// OutputStream is consumed exactly once. The callback must invoke visit for
-// each row and must stop when visit returns an error.
 type OutputStream struct {
 	Name      string
 	Columns   []LogicalColumn
@@ -57,19 +42,16 @@ type OutputStream struct {
 type PublicationIdentity struct {
 	Name               string
 	TranslationVersion string
-	// OutputName scopes single-output publications. The field is empty for
-	// legacy/full-bundle publications and is used by incremental Explorer
-	// loads so each output can retain its own visibility pointer.
-	OutputName        string
-	Project           string
-	DatasetGeneration string
-	RecipeDigest      string
-	SchemaDigest      string
-	ReceiptID         string
-	ScopeDigest       string
-	EngineVersion     string
-	AuthScopeMode     string
-	AuthResourcePaths []string
+	OutputName         string
+	Project            string
+	DatasetGeneration  string
+	RecipeDigest       string
+	SchemaDigest       string
+	ReceiptID          string
+	ScopeDigest        string
+	EngineVersion      string
+	AuthScopeMode      string
+	AuthResourcePaths  []string
 }
 
 type PublishedOutput struct {
@@ -96,8 +78,6 @@ type Transaction interface {
 	ExistingQualityReports() []QualityReport
 }
 
-// FinalSchemaDigest computes the versioned digest for the schema actually
-// staged. Physical names and discovery provenance are deliberately excluded.
 func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) string {
 	type contract struct {
 		ID           string `json:"id,omitempty"`

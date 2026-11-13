@@ -1,62 +1,5 @@
 package postgres
 
-// population_mapping.go registers the population member-to-output mapping
-// terminals as their own closed plan slice (pg-sql-22): the producer for the
-// separate execution-adapter ticket. Two shapes are admitted, both rooted at
-// a member-collecting population ROOT_SCAN (CollectMembersVariable ==
-// ir.PopulationMappingMembersVariable, the compiler-owned collection stamped
-// by compiler/population_mapping.go):
-//
-//   - Flat: the spine's closed operation surface
-//     [ROOT_SCAN, canonical scope ops, spine filters, SORT?, LIMIT?,
-//     POPULATION_MAPPING_RETURN]. The AQL counterpart is
-//     render/aql/population_mapping.go renderPopulationMappingReturn: the
-//     SORTED_UNIQUE member array of render/aql/render.go:744-749 (rendered
-//     here by population.go's witness posture — the D2 flip: the candidate
-//     subquery's GROUP BY + to_jsonb(ARRAY_AGG(DISTINCT ... ORDER BY ...
-//     COLLATE "C"))) becomes one CROSS JOIN LATERAL
-//     jsonb_array_elements_text expansion carrying the AQL
-//     (x == null ? [] : x) falsy guard, and the witness pair
-//     { [@member]: m, [@identity]: parts } becomes the two positional
-//     columns: the member text and either the identity-parts
-//     jsonb_build_array (the AQL "[p1, p2]" form) or the explicit identity
-//     scalar (the AQL raw-expression form). No empty-aggregate row: a root
-//     with no members renders no lateral row, exactly the AQL
-//     FOR-over-empty (and the executor law that a missing row is not a
-//     valid empty aggregate row).
-//   - Construction: the pg-sql-16 composition CTE chain (the shared
-//     renderStageSequenceCTEChain emitter — single-emitter law) with the
-//     terminal swapped for the twin of render/aql/population_mapping.go
-//     renderConstructionPopulationMappingReturn: the contributor CASE
-//     (null → empty, many → as-is with the array-type guard, scalar →
-//     singleton), the contributor expansion joined to __loom_src on the
-//     materialized "_key" fact, the source's materialized
-//     "__loom_population_member_ids" expansion, and GROUP BY
-//     (identity, member) as the COLLECT de-duplication twin, sorted
-//     identity-then-member under COLLATE "C" with the bound preview limit.
-//
-// The missing/JSON-null/SQL-NULL tri-state follows the AQL readings: a null
-// identity part stays a null-bearing witness row (the executor rejects such
-// witnesses typed — that law stays the adapter's); a null/missing member
-// array renders no witness rows; nothing here turns a missing row into an
-// empty aggregate.
-//
-// Membership-relation trust is population.go's: every membership identifier
-// comes from PostgresPopulationRootBinding through its registry, and every
-// value is a $n parameter (typed string/bigint/double/boolean, nil → SQL
-// NULL — never JSON-null folding, never a plan string in SQL text). Engine,
-// ClickHouse, deferred lets, preview windowing, candidate seeds, cohort
-// roots, UNNEST on the mapping root, and any value or expression outside the
-// registered grammar fail closed with a typed ErrUnsupportedPostgresPlan;
-// there is no fallback to AQL and no AQL-to-SQL conversion.
-//
-// RenderPopulationMappingPlan is the sole binder (the pg-sql-18
-// RenderPopulationRootScan precedent): the plain RenderPhysicalPlan keeps
-// its default-arm refusal for POPULATION_MAPPING_RETURN byte-identical
-// because the dispatch arm is gated on the renderer-owned mapping state
-// that only this entry sets. ValidatePopulationMappingSource is the
-// executor-facing capability gate with entry==dispatch message equality.
-
 import (
 	"fmt"
 	"strconv"
@@ -66,66 +9,28 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// populationMappingMembersColumnAlias names the candidate subquery's
-// member-array output column in the witness posture (renderer-owned
-// constant; the plan never spells it).
 const populationMappingMembersColumnAlias = "__loom_population_members"
 
-// populationMappingContributorColumn is the compiler-owned population root-
-// contributor SET column (lower/recipe_construction.go:21
-// rootContributorSetColumn). The group region emitter materializes it only
-// in the mapping witness posture (group.go); every other caller keeps the
-// registered L-13.6 refusal.
 const populationMappingContributorColumn = "__loom_root_contributor_keys"
 
-// populationMappingRender is the renderer-owned mapping state. It is set
-// ONLY by RenderPopulationMappingPlan; every gate that reads it keeps the
-// merged registered behavior when it is nil.
 type populationMappingRender struct {
-	// witness switches population.go's candidate subquery into the
-	// member-collecting posture (the D2 flip).
-	witness bool
-	// construction marks the composition mapping terminal; terminal
-	// carries the re-read PopulationMappingReturn payload.
-	construction bool
-	terminal     *ir.PhysicalStagePopulationMappingReturn
-	// membersColumnRef is set by the witness candidate emission and read
-	// by the terminals; empty until the witness root has rendered.
+	witness          bool
+	construction     bool
+	terminal         *ir.PhysicalStagePopulationMappingReturn
 	membersColumnRef string
-	// memberOrderTerm records the flat terminal's member ORDER BY term.
-	memberOrderTerm string
+	memberOrderTerm  string
 }
 
-// ValidatePopulationMappingSource is the executor-facing capability gate:
-// a nil error means RenderPopulationMappingPlan accepts the plan with this
-// binding, and every failure is classified as ErrUnsupportedPostgresPlan
-// (or a binding/storage validation error) with the same message the entry
-// itself speaks (entry==dispatch equality).
 func ValidatePopulationMappingSource(plan ir.PhysicalPlan, binding PostgresPopulationRootBinding) error {
 	if err := validatePopulationMappingPlanSurface(plan, binding); err != nil {
 		return err
 	}
-	// Both entries run the registered ir schema gate after the surface
-	// (renderPopulationMappingFlat and renderPopulationMappingConstruction
-	// each run it after loadScope, the same voice as
-	// renderStageSequencePhysicalPlan and renderGraphPhysicalPlan); the
-	// validate entry speaks the identical voice (entry==dispatch). The
-	// surface validators do not nil-check every operation payload, and
-	// renderOperations dereferences Sort/Limit/Filter, so without this
-	// gate a hand-assembled nil-payload plan would validate clean and
-	// then panic instead of failing closed typed.
 	if err := plan.Validate(); err != nil {
 		return fmt.Errorf("validate physical plan: %w", err)
 	}
 	return nil
 }
 
-// RenderPopulationMappingPlan renders one population member-to-output
-// mapping plan — flat or construction — onto the trusted storage binding
-// plus the trusted membership binding. The result is deterministic
-// (byte-identical SQL, value-identical ordered arguments for one plan and
-// bindings), fully parameterized, and free of AQL bind syntax; rejections
-// are typed, yield no SQL, and never fall back to AQL.
 func RenderPopulationMappingPlan(
 	plan ir.PhysicalPlan,
 	storage ir.PostgresStorageBinding,
@@ -143,14 +48,6 @@ func RenderPopulationMappingPlan(
 	return renderPopulationMappingFlat(plan, storage, binding)
 }
 
-// ---------------------------------------------------------------------------
-// The closed surface (entry == dispatch).
-// ---------------------------------------------------------------------------
-
-// validatePopulationMappingPlanSurface is the single total contract behind
-// both entry points. It runs before plan validation can speak with an
-// off-type error (the slice-door law) and re-reads everything the renderers
-// consume; the renderers re-read again as defense in depth.
 func validatePopulationMappingPlanSurface(plan ir.PhysicalPlan, binding PostgresPopulationRootBinding) error {
 	if err := binding.Validate(); err != nil {
 		return err
@@ -203,11 +100,6 @@ func validatePopulationMappingPlanSurface(plan ir.PhysicalPlan, binding Postgres
 	return validatePopulationMappingFlatSurface(plan)
 }
 
-// validatePopulationMappingConstructionSurface closes the composition-only
-// facts the terminal consumes: the source RETURN must carry the compiler's
-// hidden member witness projection (compiler/population_mapping.go adds
-// it), and a declared preview limit must be a positive int bind. The
-// renderers re-check the identical messages as defense in depth.
 func validatePopulationMappingConstructionSurface(plan ir.PhysicalPlan) error {
 	found := false
 	for _, operation := range plan.Operations {
@@ -239,11 +131,6 @@ func validatePopulationMappingConstructionSurface(plan ir.PhysicalPlan) error {
 	return nil
 }
 
-// validatePopulationMappingFlatSurface closes the flat operation list:
-// exactly one terminal POPULATION_MAPPING_RETURN last, no RETURN (the
-// compiler replaces it), no UNNEST/SET (the registered slices keep their
-// own root contracts; a mapping root with an expansion is a named
-// capability gap, never a partial render), and the witness shape.
 func validatePopulationMappingFlatSurface(plan ir.PhysicalPlan) error {
 	sawTerminal := false
 	for index, operation := range plan.Operations {
@@ -265,9 +152,6 @@ func validatePopulationMappingFlatSurface(plan ir.PhysicalPlan) error {
 				return fmt.Errorf("operation %d: %w", index, err)
 			}
 		case ir.PhysicalUnnestOp, ir.PhysicalSetOp:
-			// unnest.go and sets.go bind their owners' roots and never a
-			// membership mapping root: refuse the combination, never
-			// render half of it.
 			return fmt.Errorf("%w: operation %q on a member-collecting mapping root is a named capability gap (unnest.go/sets.go bind their own root contracts); the shape is refused, never partially rendered",
 				ErrUnsupportedPostgresPlan, string(operation.Kind))
 		case ir.PhysicalReturnOp:
@@ -281,9 +165,6 @@ func validatePopulationMappingFlatSurface(plan ir.PhysicalPlan) error {
 	return nil
 }
 
-// validatePopulationMappingReturnShape re-reads the compiler-owned terminal
-// contract (compiler/population_mapping.go stamps exactly this shape; the
-// AQL twin's guard is the "== null ? []" iterable).
 func validatePopulationMappingReturnShape(terminal ir.PhysicalPopulationMappingReturn) error {
 	if terminal.Members.Kind != ir.PhysicalValueExpression ||
 		terminal.Members.Value == nil || terminal.Members.Value.Variable != ir.PopulationMappingMembersVariable ||
@@ -302,10 +183,6 @@ func validatePopulationMappingReturnShape(terminal ir.PhysicalPopulationMappingR
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Entries.
-// ---------------------------------------------------------------------------
-
 func renderPopulationMappingFlat(
 	plan ir.PhysicalPlan,
 	storage ir.PostgresStorageBinding,
@@ -323,10 +200,6 @@ func renderPopulationMappingFlat(
 	if err := renderer.loadScope(plan); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
 	}
-	// The slice-door law: every entry runs the registered ir schema gate
-	// before rendering speaks (renderStageSequencePhysicalPlan and
-	// renderGraphPhysicalPlan do; the surface gate does not nil-check
-	// operation payloads and renderOperations dereferences them).
 	if err := plan.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
@@ -369,14 +242,6 @@ func renderPopulationMappingConstruction(
 	return command.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
 }
 
-// ---------------------------------------------------------------------------
-// The flat terminal (render.go dispatches here under the mapping gate).
-// ---------------------------------------------------------------------------
-
-// renderPopulationMappingTerminal is the dispatch arm of
-// renderOperations (render.go, gated on the mapping state this entry sets).
-// It emits the member-witness lateral and the two positional witness
-// columns; the ORDER BY and statement shape is assemblePopulationMapping.
 func (r *planRenderer) renderPopulationMappingTerminal(plan ir.PhysicalPlan, terminal ir.PhysicalPopulationMappingReturn) error {
 	if r.mapping == nil || !r.mapping.witness {
 		return fmt.Errorf("%w: operation %q is not part of the v1 PostgreSQL render surface",
@@ -387,10 +252,6 @@ func (r *planRenderer) renderPopulationMappingTerminal(plan ir.PhysicalPlan, ter
 			ErrUnsupportedPostgresPlan)
 	}
 	alias := "w0"
-	// The AQL iterable guard (x == null ? [] : x): SQL NULL, JSON null,
-	// and any non-array all collapse to the empty expansion, so a root
-	// with no members produces NO witness row — never an empty-aggregate
-	// row (acceptance: a missing row is not a valid empty aggregate).
 	guard := "CASE WHEN " + r.mapping.membersColumnRef + " IS NULL OR jsonb_typeof(" +
 		r.mapping.membersColumnRef + ") <> 'array' THEN '[]'::jsonb ELSE " + r.mapping.membersColumnRef + " END"
 	lateral := "CROSS JOIN LATERAL jsonb_array_elements_text(" + guard + ") AS " + alias + "(member)"
@@ -402,17 +263,10 @@ func (r *planRenderer) renderPopulationMappingTerminal(plan ir.PhysicalPlan, ter
 	}
 	r.selects = append(r.selects, memberSQL+` AS "c0"`, identitySQL+` AS "c1"`)
 	r.outputColumns = []string{ir.PhysicalPopulationMappingMemberField, identityColumn}
-	// Deterministic page order: the window's registered total order, then
-	// the member under COLLATE "C" — bytewise, matching the witness
-	// array's ARRAY_AGG ... ORDER BY ... COLLATE "C" (SORTED_UNIQUE) order.
 	r.mapping.memberOrderTerm = memberSQL + ` COLLATE "C" ASC`
 	return nil
 }
 
-// assemblePopulationMapping is the flat terminal's statement twin of
-// render.go assemble(): the same FROM/joins/laterals/WHERE assembly with the
-// registered window order plus the member tie-break. It lives here because
-// the mapping terminal, not the spine, owns the witness column contract.
 func (r *planRenderer) assemblePopulationMapping() string {
 	var builder strings.Builder
 	builder.WriteString("SELECT ")
@@ -433,16 +287,6 @@ func (r *planRenderer) assemblePopulationMapping() string {
 	return builder.String()
 }
 
-// ---------------------------------------------------------------------------
-// Identity rendering (flat terminals).
-// ---------------------------------------------------------------------------
-
-// renderMappingIdentityValue renders the witness identity column, returning
-// the SQL plus the compiler-owned output column name. The AQL twin emits
-// "[p1, p2, ...]" for the default parts (jsonb_build_array keeps each null
-// part a jsonb null — the tri-state the executor reads typed) and the raw
-// expression for an explicit identity (the compiled expression is preserved
-// exactly, never re-spelled).
 func (r *planRenderer) renderMappingIdentityValue(plan ir.PhysicalPlan, terminal ir.PhysicalPopulationMappingReturn) (string, string, error) {
 	if terminal.ExplicitIdentity != nil {
 		value, err := r.renderMappingIdentityExpression(plan, *terminal.ExplicitIdentity)
@@ -465,12 +309,6 @@ func (r *planRenderer) renderMappingIdentityValue(plan ir.PhysicalPlan, terminal
 	return "jsonb_build_array(" + strings.Join(parts, ", ") + ")", ir.PhysicalPopulationMappingIdentityPartsField, nil
 }
 
-// renderMappingIdentityExpression renders one identity expression through
-// the registered grammar: a VALUE over a bind (typed $n parameter) or a row
-// (resolveValue, the package's single value resolver), or a scalar selector
-// EXTRACT through the registered selector reading (classifyExtractionProjections
-// + scalarExtractValueExpression, the same contract renderReturn applies).
-// Every other expression kind is a named capability gap, refused fail-closed.
 func (r *planRenderer) renderMappingIdentityExpression(plan ir.PhysicalPlan, expression ir.PhysicalExpression) (string, error) {
 	switch expression.Kind {
 	case ir.PhysicalValueExpression:
@@ -505,10 +343,6 @@ func (r *planRenderer) renderMappingIdentityExpression(plan ir.PhysicalPlan, exp
 	}
 }
 
-// renderMappingValue renders one identity VALUE: a bind becomes one typed
-// $n parameter (string/bigint/double precision/boolean; nil → SQL NULL;
-// never JSON-null folding, never a plan string in SQL text), a row reads
-// through resolveValue.
 func (r *planRenderer) renderMappingValue(plan ir.PhysicalPlan, value ir.PhysicalValue) (string, error) {
 	if value.BindKey != "" {
 		raw, ok := plan.BindVars[value.BindKey]
@@ -520,8 +354,6 @@ func (r *planRenderer) renderMappingValue(plan ir.PhysicalPlan, value ir.Physica
 	return r.resolveValue(value)
 }
 
-// mappingBindParameter is the typed bind-parameter surface of this slice:
-// the closed Go-type band the compiler puts in mapping identity binds.
 func (r *planRenderer) mappingBindParameter(raw any, bindKey string) (string, error) {
 	var parameter command.PostgreSQLParameter
 	var cast string
@@ -549,24 +381,9 @@ func (r *planRenderer) mappingBindParameter(raw any, bindKey string) (string, er
 			ErrUnsupportedPostgresPlan, bindKey, raw)
 	}
 	index := r.addParameter(parameter, "mapping-bind:"+bindKey)
-	// The identity column feeds jsonb_build_array, whose VARIADIC "any"
-	// arguments give the server no parameter type to infer (SQLSTATE
-	// 42P18 live); the registered reading casts each bind to its band.
 	return "$" + strconv.Itoa(index) + cast, nil
 }
 
-// ---------------------------------------------------------------------------
-// The construction terminal: shared CTE chain, mapping terminal.
-// ---------------------------------------------------------------------------
-
-// renderStageSequenceMappingStatement is the composition mapping terminal:
-// the pg-sql-16 CTE chain (the single composition emitter, repointed — the
-// source region carries the witness member column because this renderer is
-// in mapping posture) with the terminal swapped for the AQL
-// renderConstructionPopulationMappingReturn twin: contributors → source
-// rows joined on the materialized "_key" fact → member expansion →
-// GROUP BY (identity, member) de-duplication → identity-then-member
-// COLLATE "C" order → bound preview limit.
 func (r *planRenderer) renderStageSequenceMappingStatement(plan ir.PhysicalPlan) (string, error) {
 	sequence := plan.StageSequence
 	terminal := sequence.PopulationMappingReturn
@@ -606,9 +423,6 @@ func (r *planRenderer) renderStageSequenceMappingStatement(plan ir.PhysicalPlan)
 	}
 
 	contribRef := stageTerminalAlias + `."` + contributors.alias + `"`
-	// The AQL contributor values (render/aql/population_mapping.go:64-69):
-	// many → (x == null ? [] : x) — SQL NULL and any non-array collapse to
-	// the empty expansion; scalar → (x == null ? [] : [x]) — the singleton.
 	var contributorGuard string
 	if terminal.FinalRootContributorsMany {
 		if !contributors.jsonb {
@@ -629,9 +443,6 @@ func (r *planRenderer) renderStageSequenceMappingStatement(plan ir.PhysicalPlan)
 	identityRef := stageTerminalAlias + `."` + identity.alias + `"`
 	identityOrder := identityRef + ` COLLATE "C" ASC`
 	if identity.jsonb {
-		// The AQL SORT over a stored identity object orders the canonical
-		// jsonb text; ::text keeps the witness order deterministic and
-		// total alongside the member tie-break.
 		identityOrder = identityRef + `::text COLLATE "C" ASC`
 	}
 

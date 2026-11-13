@@ -1,14 +1,5 @@
 package compiler_test
 
-// pg-sql-19 compile-level witness (declared deviation S3): the CODED_GROUP
-// slice must survive the full target-bound compile, not just the renderer.
-// A compiled PostgreSQL query is one contract: tagged command, declared
-// column contract, public projection, and fingerprint all originate from
-// the same lowered plan (postgres_target.go). This file pins them for the
-// registered coded-group slice and keeps the AQL target as the control —
-// the shared lowering must not drift for AQL while PostgreSQL registers
-// the stage.
-
 import (
 	"strings"
 	"testing"
@@ -81,8 +72,6 @@ func TestPostgreSQLCodedGroupCompileContract(t *testing.T) {
 		t.Fatalf("CompileRecipeOutput (PostgreSQL): %v", err)
 	}
 
-	// One contract, one tag: the command is PostgreSQL-tagged with no AQL
-	// fallback.
 	if query.Command.Backend() != command.CompiledBackendPostgreSQL {
 		t.Fatalf("command backend = %q, want PostgreSQL", string(query.Command.Backend()))
 	}
@@ -110,7 +99,6 @@ func TestPostgreSQLCodedGroupCompileContract(t *testing.T) {
 		case command.PostgreSQLParameterText:
 			texts++
 		case command.PostgreSQLParameterJSONB:
-			// the auth-path array binds as jsonb, as in every scoped spine
 		default:
 			t.Fatalf("arg %d has unregistered type %q", index, string(parameter.Type))
 		}
@@ -119,8 +107,6 @@ func TestPostgreSQLCodedGroupCompileContract(t *testing.T) {
 		t.Fatalf("text-bound path/key parameters = %d, want at least 8", texts)
 	}
 
-	// Declared column contract vs public projection: the hidden stable
-	// identity ships in the statement but never in the public row.
 	wantColumns := []string{"code_system", "code_version", "code", "source_records", "__loom_row_id"}
 	if strings.Join(query.Columns, ",") != strings.Join(wantColumns, ",") {
 		t.Fatalf("declared columns = %v, want %v", query.Columns, wantColumns)
@@ -130,9 +116,6 @@ func TestPostgreSQLCodedGroupCompileContract(t *testing.T) {
 		t.Fatalf("public columns = %v, want %v", query.PublicColumns, wantPublic)
 	}
 
-	// Fingerprint: deterministic for identical inputs, sensitive to the
-	// rendered surface (the policy changes the statement, so the digest
-	// must move).
 	repeat, err := compiler.CompileRecipeOutput(target, output, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("recompile: %v", err)
@@ -150,11 +133,6 @@ func TestPostgreSQLCodedGroupCompileContract(t *testing.T) {
 	}
 }
 
-// TestPostgreSQLCodedGroupAQLControlFreezesSharedLowering is the AQL
-// control: registering the slice on the PostgreSQL renderer must not drift
-// the AQL path built on the same lowered plan. The pinned literals come
-// from render/aql/construction_coded_group.go (identity TO_STRING member
-// list and the guard tag).
 func TestPostgreSQLCodedGroupAQLControlFreezesSharedLowering(t *testing.T) {
 	output, bindings := codedGroup19CompiledOutput(t, recipe.ConstructionGroupMissingKeyError)
 	query, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), output, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())

@@ -16,19 +16,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture: one isolated database plus one owned schema per test, both named
-// pgstore04_it_* and dropped by that test's cleanups. Mirrors the
-// pg-store-02 fixture with this ticket's namespace.
-// ---------------------------------------------------------------------------
-
 var pgstore04ResourceNamePattern = regexp.MustCompile(`^pgstore04_it_[0-9]+_[0-9a-f]+$`)
 
 type resourceService struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database
-	dsn    string        // isolated database DSN (credentials scrubbed on failure)
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
+	dsn    string
 	schema string
 	scrub  func(any) string
 	fail   func(step string, err error)
@@ -43,7 +37,6 @@ func newResourceService(t *testing.T) *resourceService {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -82,15 +75,12 @@ func newResourceService(t *testing.T) *resourceService {
 		fail("create isolated database", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the database this test created.
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
 			t.Errorf("drop isolated database: %s", scrub(err))
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -113,7 +103,6 @@ func newResourceService(t *testing.T) *resourceService {
 		fail("create owned schema", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the schema this test created.
 		if _, err := iso.Exec(context.WithoutCancel(ctx),
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
 			t.Errorf("drop owned schema: %s", scrub(err))
@@ -123,8 +112,6 @@ func newResourceService(t *testing.T) *resourceService {
 	return &resourceService{ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub, fail: fail}
 }
 
-// openClient opens a readiness-checked pg-store-01 pool against the isolated
-// database and closes it at test end.
 func (s *resourceService) openClient(t *testing.T) *Client {
 	t.Helper()
 	client, err := Open(s.ctx, Config{
@@ -140,8 +127,6 @@ func (s *resourceService) openClient(t *testing.T) *Client {
 	return client
 }
 
-// newRepository binds a ResourceRepository to the owned schema over its own
-// readiness-checked pool.
 func (s *resourceService) newRepository(t *testing.T) *ResourceRepository {
 	t.Helper()
 	repo, err := NewResourceRepository(s.openClient(t), s.schema)
@@ -151,8 +136,6 @@ func (s *resourceService) newRepository(t *testing.T) *ResourceRepository {
 	return repo
 }
 
-// mustMigrateEmbedded applies the full embedded history (ledger bootstrap +
-// 000002_fhir_resource) to the owned schema.
 func (s *resourceService) mustMigrateEmbedded(t *testing.T) MigrateResult {
 	t.Helper()
 	result, err := MigrateSchema(s.ctx, s.openClient(t), s.schema)
@@ -162,7 +145,6 @@ func (s *resourceService) mustMigrateEmbedded(t *testing.T) MigrateResult {
 	return result
 }
 
-// readLedger witnesses the migration ledger through the test's own pool.
 func (s *resourceService) readLedger(t *testing.T) []LedgerRecord {
 	t.Helper()
 	rows, err := s.iso.Query(s.ctx,
@@ -185,8 +167,6 @@ func (s *resourceService) readLedger(t *testing.T) []LedgerRecord {
 	return out
 }
 
-// mustInsert inserts one row and returns its server-assigned storage
-// identity.
 func (s *resourceService) mustInsert(t *testing.T, repo *ResourceRepository, rec source.Resource) int64 {
 	t.Helper()
 	seq, err := repo.InsertResource(s.ctx, rec)
@@ -222,12 +202,6 @@ func (s *resourceService) mustRead(t *testing.T, repo *ResourceRepository,
 	return rows, hasMore
 }
 
-// TestPhysicalResourceRowRefusesOfferedStorageIdentity keeps the
-// server-assigned guard tested at the single boundary all writes cross. The
-// public write surface takes only source.Resource, which carries no storage
-// sequence, so no caller can reach this refusal by construction; the store's
-// physical row still carries the field, and any physical row offered to the
-// write engine with a non-zero sequence is refused before any round trip.
 func TestPhysicalResourceRowRefusesOfferedStorageIdentity(t *testing.T) {
 	base := source.Resource{
 		Project: "proj", DatasetGeneration: "gen", ResourceType: "Patient",
@@ -245,10 +219,6 @@ func TestPhysicalResourceRowRefusesOfferedStorageIdentity(t *testing.T) {
 		t.Errorf("refusal %v does not name the server-assigned contract", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Scope helpers
-// ---------------------------------------------------------------------------
 
 func restrictedScope(project, generation string, paths ...string) source.ResourceScope {
 	restricted := false
@@ -269,8 +239,6 @@ func unrestrictedScope(project, generation string) source.ResourceScope {
 	}
 }
 
-// payloadObject parses a payload that must be a JSON object into per-key
-// raw bytes so tests can assert the literal stored form of individual keys.
 func payloadObject(t *testing.T, payload json.RawMessage) map[string]json.RawMessage {
 	t.Helper()
 	if payload == nil {
@@ -283,10 +251,6 @@ func payloadObject(t *testing.T, payload json.RawMessage) map[string]json.RawMes
 	return obj
 }
 
-// assertPayloadEqual compares payloads structurally, so the comparison does
-// not depend on PostgreSQL's JSONB text canonicalization while still
-// distinguishing a missing key, an explicit null, an empty array, and an
-// empty object (they decode to different shapes).
 func assertPayloadEqual(t *testing.T, got json.RawMessage, want string) {
 	t.Helper()
 	var g, w any
@@ -309,10 +273,6 @@ func assertRowScope(t *testing.T, got ResourceRow, want source.Resource) {
 		t.Fatalf("row scope = %+v, want scope %+v", got, want)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Validation unit tests (no live server: everything fails before Acquire).
-// ---------------------------------------------------------------------------
 
 func TestResourceValidationRejectsInvalidInserts(t *testing.T) {
 	repo, err := NewResourceRepository(stubConnSource{}, "pgstore04_stub")
@@ -357,7 +317,6 @@ func TestResourceScopeAndQueryValidation(t *testing.T) {
 		t.Errorf("NewResourceRepository with invalid schema = %v, want ErrInvalidSchemaName", err)
 	}
 
-	// nil AuthResourcePathsUnrestricted must never read as unrestricted.
 	scope := source.ResourceScope{Project: "proj", AuthResourcePaths: []string{"a"}}
 	if _, err := repo.GetResource(ctx, scope, "Patient", "p-1"); !errors.Is(err, ErrInvalidResourceScope) {
 		t.Errorf("GetResource with nil unrestricted flag = %v, want ErrInvalidResourceScope", err)
@@ -366,20 +325,17 @@ func TestResourceScopeAndQueryValidation(t *testing.T) {
 		t.Errorf("ReadResources with nil unrestricted flag = %v, want ErrInvalidResourceScope", err)
 	}
 
-	// Unrestricted mode must not carry paths.
 	unrestrictedWithPaths := unrestrictedScope("proj", "gen")
 	unrestrictedWithPaths.AuthResourcePaths = []string{"practitioner/pr-1"}
 	if _, err := repo.GetResource(ctx, unrestrictedWithPaths, "Patient", "p-1"); !errors.Is(err, ErrInvalidResourceScope) {
 		t.Errorf("unrestricted scope carrying paths = %v, want ErrInvalidResourceScope", err)
 	}
 
-	// Blank project is rejected.
 	blank := restrictedScope("  ", "gen", "a")
 	if _, _, err := repo.ReadResources(ctx, blank, 0, 10); !errors.Is(err, ErrInvalidResourceScope) {
 		t.Errorf("blank project = %v, want ErrInvalidResourceScope", err)
 	}
 
-	// Page bounds are rejected before touching the server.
 	for _, limit := range []int{0, -1, MaxResourceKeysetLimit + 1} {
 		if _, _, err := repo.ReadResources(ctx, unrestrictedScope("proj", "gen"), 0, limit); !errors.Is(err, ErrInvalidResourceScope) {
 			t.Errorf("limit %d = %v, want ErrInvalidResourceScope", limit, err)
@@ -389,7 +345,6 @@ func TestResourceScopeAndQueryValidation(t *testing.T) {
 		t.Errorf("negative cursor = %v, want ErrInvalidResourceScope", err)
 	}
 
-	// Blank exact-read discriminators are rejected.
 	if _, err := repo.GetResource(ctx, unrestrictedScope("proj", "gen"), " ", "p-1"); !errors.Is(err, ErrInvalidResource) {
 		t.Errorf("blank resource type = %v, want ErrInvalidResource", err)
 	}
@@ -398,15 +353,6 @@ func TestResourceScopeAndQueryValidation(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-// ---------------------------------------------------------------------------
-
-// TestResourceMigrationCreatesTypedResourceTable applies the embedded
-// history to the owned schema twice and witnesses the fhir_resource table
-// against literal expectations: every scope column typed and NOT NULL, the
-// payload nullable jsonb, the storage identity an always-generated bigint,
-// the natural identity a UNIQUE constraint, and the keyset index present.
 func TestResourceMigrationCreatesTypedResourceTable(t *testing.T) {
 	svc := newResourceService(t)
 	first := svc.mustMigrateEmbedded(t)
@@ -416,7 +362,6 @@ func TestResourceMigrationCreatesTypedResourceTable(t *testing.T) {
 	}
 	assertLedgerEquals(t, svc.readLedger(t), mustEmbeddedMigrations(t))
 
-	// The resource migration must be recorded under this exact name.
 	var recordedName string
 	if err := svc.iso.QueryRow(svc.ctx,
 		`SELECT name FROM "`+svc.schema+`".`+LedgerTable+` WHERE version = 2`).Scan(&recordedName); err != nil {
@@ -532,10 +477,6 @@ func TestResourceMigrationCreatesTypedResourceTable(t *testing.T) {
 			`CREATE UNIQUE INDEX fhir_resource_pkey ON ` + svc.schema + `.fhir_resource USING btree (resource_seq)`},
 		{"fhir_resource_scope_seq_ix",
 			`CREATE INDEX fhir_resource_scope_seq_ix ON ` + svc.schema + `.fhir_resource USING btree (project, dataset_generation, auth_resource_path, resource_seq)`},
-		// pg-catalog-05 appends this index in its own migration 000009;
-		// it backs the semantic-inventory keyset page walk and must stay
-		// COLLATE "C" on logical_id to match the Go byte order the page
-		// contract promises.
 		{"fhir_resource_semantic_keyset_ix",
 			`CREATE INDEX fhir_resource_semantic_keyset_ix ON ` + svc.schema + `.fhir_resource USING btree (project, dataset_generation, resource_type, logical_id COLLATE "C")`},
 	}
@@ -553,11 +494,6 @@ func TestResourceMigrationCreatesTypedResourceTable(t *testing.T) {
 	}
 }
 
-// TestResourceInsertAndExactReadPreserveFHIRJSON inserts a resource whose
-// payload exercises the four fidelity cases from the brief (absent key,
-// explicit JSON null, empty array, empty object) and reads it back by the
-// exact natural identity inside its authorization, asserting the literal
-// stored form of every key.
 func TestResourceInsertAndExactReadPreserveFHIRJSON(t *testing.T) {
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
@@ -580,9 +516,6 @@ func TestResourceInsertAndExactReadPreserveFHIRJSON(t *testing.T) {
 	assertRowScope(t, got, want)
 	assertPayloadEqual(t, got.Payload, payload)
 
-	// Literal per-key witnesses: present-but-null stays a present key with
-	// JSON null; the empty array and empty object stay empty containers;
-	// the absent key never appears.
 	obj := payloadObject(t, got.Payload)
 	raw, ok := obj["deceased"]
 	if !ok || string(raw) != "null" {
@@ -604,8 +537,6 @@ func TestResourceInsertAndExactReadPreserveFHIRJSON(t *testing.T) {
 		t.Errorf(`absent key "subject" came back as %q; missing key must stay absent`, raw)
 	}
 
-	// The payload is also stored as real JSONB, not text: jsonb_typeof
-	// witnesses 'object'.
 	var typeof string
 	if err := svc.iso.QueryRow(svc.ctx,
 		`SELECT jsonb_typeof(payload) FROM "`+svc.schema+`".fhir_resource WHERE resource_seq = $1`,
@@ -617,10 +548,6 @@ func TestResourceInsertAndExactReadPreserveFHIRJSON(t *testing.T) {
 	}
 }
 
-// TestResourcePayloadDistinguishesSQLNullJSONNullAndMissingKey proves the
-// three-way storage distinction from the brief: an absent resource object is
-// SQL NULL, an explicit JSON null document is the jsonb value 'null', and a
-// key absent from a document never appears as null.
 func TestResourcePayloadDistinguishesSQLNullJSONNullAndMissingKey(t *testing.T) {
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
@@ -643,7 +570,6 @@ func TestResourcePayloadDistinguishesSQLNullJSONNullAndMissingKey(t *testing.T) 
 		Payload: json.RawMessage(`{"id":"n-3","a":null}`),
 	})
 
-	// SQL-level witnesses with literal expectations.
 	witness := func(seq int64, wantIsNull bool, wantTypeof *string) {
 		t.Helper()
 		var isNull bool
@@ -666,11 +592,10 @@ func TestResourcePayloadDistinguishesSQLNullJSONNullAndMissingKey(t *testing.T) 
 	}
 	nullType := "null"
 	objectType := "object"
-	witness(absentSeq, true, nil)          // SQL NULL: absent resource object
-	witness(jsonNullSeq, false, &nullType) // explicit JSON null document
-	witness(objectSeq, false, &objectType) // document with an explicit null key
+	witness(absentSeq, true, nil)
+	witness(jsonNullSeq, false, &nullType)
+	witness(objectSeq, false, &objectType)
 
-	// Go-level witnesses through the repository.
 	absent := svc.mustGet(t, repo, scope(), "Patient", "n-1")
 	if absent.Payload != nil {
 		t.Errorf("SQL NULL payload read back as %q, want nil", absent.Payload)
@@ -689,10 +614,6 @@ func TestResourcePayloadDistinguishesSQLNullJSONNullAndMissingKey(t *testing.T) 
 	}
 }
 
-// TestResourceDuplicateNaturalIdentityConflict proves the insert-only
-// contract: a duplicate natural identity returns a typed conflict, the
-// earlier payload is never replaced (same storage identity and same
-// payload), and even an identical duplicate insert is refused.
 func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
@@ -706,8 +627,6 @@ func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 		Payload: json.RawMessage(original),
 	})
 
-	// Duplicate natural identity with a different payload — and even a
-	// different auth path — returns the typed conflict.
 	_, err := repo.InsertResource(svc.ctx, source.Resource{
 		Project: "proj-c", DatasetGeneration: "gen-1", ResourceType: "Patient",
 		LogicalID: "dup-1", AuthResourcePath: "practitioner/pr-2",
@@ -728,8 +647,6 @@ func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 		t.Errorf("conflict = %+v, want %+v", conflict, wantConflict)
 	}
 
-	// The earlier row is untouched: same immutable storage identity, same
-	// payload, same auth path. The conflict never replaced it.
 	got := svc.mustGet(t, repo,
 		restrictedScope("proj-c", "gen-1", "practitioner/pr-1"), "Patient", "dup-1")
 	if got.ResourceSeq != originalSeq {
@@ -741,8 +658,6 @@ func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 		t.Errorf("auth path = %q after conflict, want practitioner/pr-1", got.AuthResourcePath)
 	}
 
-	// Insert-only contract: even the identical payload is refused, so no
-	// caller can smuggle a silent upsert.
 	if _, err := repo.InsertResource(svc.ctx, source.Resource{
 		Project: "proj-c", DatasetGeneration: "gen-1", ResourceType: "Patient",
 		LogicalID: "dup-1", AuthResourcePath: "practitioner/pr-1",
@@ -751,7 +666,6 @@ func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 		t.Errorf("identical duplicate insert = %v, want ErrResourceConflict", err)
 	}
 
-	// Exactly one row exists for the natural identity.
 	var count int64
 	if err := svc.iso.QueryRow(svc.ctx,
 		`SELECT count(*) FROM "`+svc.schema+`".fhir_resource
@@ -764,10 +678,6 @@ func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 	}
 }
 
-// TestResourceExactReadBindsScope proves restricted reads bind project,
-// dataset generation, and auth path, and that the unrestricted mode stays
-// explicit. Out-of-scope rows are not found and their existence is not
-// disclosed.
 func TestResourceExactReadBindsScope(t *testing.T) {
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
@@ -785,12 +695,10 @@ func TestResourceExactReadBindsScope(t *testing.T) {
 		svc.mustInsert(t, repo, rec)
 	}
 
-	// Inside scope: the row comes back with its literal payload.
 	got := svc.mustGet(t, repo, restrictedScope("proj-a", "gen-1", "practitioner/pr-1"), "Patient", "p1")
 	assertRowScope(t, got, seed[0])
 	assertPayloadEqual(t, got.Payload, `{"id":"p1"}`)
 
-	// The empty-string auth path is the legacy namespace and binds exactly.
 	got = svc.mustGet(t, repo, restrictedScope("proj-a", "gen-1", ""), "Patient", "p3")
 	assertRowScope(t, got, seed[2])
 	assertPayloadEqual(t, got.Payload, `{"id":"p3"}`)
@@ -819,7 +727,6 @@ func TestResourceExactReadBindsScope(t *testing.T) {
 		}
 	}
 
-	// Unrestricted mode still binds project and generation.
 	got = svc.mustGet(t, repo, unrestrictedScope("proj-a", "gen-1"), "Patient", "p2")
 	assertRowScope(t, got, seed[1])
 	if _, err := repo.GetResource(svc.ctx, unrestrictedScope("proj-a", "gen-1"), "Patient", "p4"); !errors.Is(err, ErrResourceNotFound) {
@@ -829,22 +736,10 @@ func TestResourceExactReadBindsScope(t *testing.T) {
 		t.Errorf("unrestricted read across projects = %v, want ErrResourceNotFound", err)
 	}
 
-	// The other project can read its own row with the same path binding.
 	got = svc.mustGet(t, repo, restrictedScope("proj-b", "gen-1", "practitioner/pr-1"), "Patient", "p5")
 	assertRowScope(t, got, seed[4])
 }
 
-// TestResourceKeysetReadStableOrderNeverCrossesScope pages a restricted
-// scope with decoys from other projects, generations, and paths interleaved
-// by storage identity, and asserts the walk returns exactly the authorized
-// rows in ascending storage order.
-//
-// Seeding is deliberate: the logical ids' lexical order (k1<k2<k3<k4<k5) and
-// the authorized paths' array order both CONTRADICT the insertion/storage
-// order (k3, k1, k5, k2, k4, with pr-1 and pr-2 rows interleaved). So a
-// regression that drops ORDER BY resource_seq (which would let a multi-path
-// ANY scan return rows grouped by path) or orders by logical id instead
-// fails the literal page expectations below.
 func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
@@ -858,17 +753,11 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k5", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k5"}`)},
 	}
 	decoys := []source.Resource{
-		// Other project, other generation, and an unauthorized path,
-		// interleaved so their storage identities land among the
-		// in-scope rows.
 		{Project: "proj-x", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "x1", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"x1"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-2", ResourceType: "Patient", LogicalID: "k6", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k6"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k7", AuthResourcePath: "practitioner/pr-forbidden", Payload: json.RawMessage(`{"id":"k7"}`)},
 		{Project: "proj-x", DatasetGeneration: "gen-2", ResourceType: "Patient", LogicalID: "x2", AuthResourcePath: "practitioner/pr-2", Payload: json.RawMessage(`{"id":"x2"}`)},
 	}
-	// Storage order deliberately contradicts the lexical id order and the
-	// authorized path list order: k3(pr-1), k1(pr-2), k5(pr-1), k2(pr-1),
-	// k4(pr-2), with decoys interleaved.
 	insertOrder := []source.Resource{
 		inScope[2], decoys[0], inScope[0], decoys[1], inScope[4], decoys[2], inScope[1], decoys[3], inScope[3],
 	}
@@ -883,15 +772,10 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 	if len(wantSeqs) != len(inScope) {
 		t.Fatalf("seeded %d in-scope rows, witnessed %d", len(inScope), len(inScope))
 	}
-	// The witnessed storage identities must actually contradict the lexical
-	// id order, or the seeding below has silently become order-compatible.
 	if !(wantSeqs[2] < wantSeqs[0] && wantSeqs[0] < wantSeqs[4] && wantSeqs[4] < wantSeqs[1] && wantSeqs[1] < wantSeqs[3]) {
 		t.Fatalf("seed storage order %+v is not k3<k1<k5<k2<k4; the contradiction this test relies on is gone", wantSeqs)
 	}
 
-	// Page the restricted scope: limit 2 with an explicit path list that
-	// excludes the forbidden decoy path. Literal expected page contents in
-	// storage order.
 	wantPages := [][]string{{"k3", "k1"}, {"k5", "k2"}, {"k4"}}
 	scope := restrictedScope("proj-k", "gen-1", "practitioner/pr-1", "practitioner/pr-2")
 	var walked []ResourceRow
@@ -943,13 +827,9 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 		t.Fatalf("walk returned %d rows, want %d: %+v", len(walked), len(inScope), walked)
 	}
 
-	// Literal expected rows: every in-scope row exactly once, in ascending
-	// storage identity order, with its exact scope and payload.
 	seenID := make(map[string]int, len(walked))
 	for i, rec := range walked {
 		seenID[rec.ResourceType+"/"+rec.LogicalID]++
-		// The row must agree with its own independently witnessed storage
-		// identity, and the walk must be strictly ascending.
 		witness := svc.mustGet(t, repo, restrictedScope("proj-k", "gen-1", "practitioner/pr-1", "practitioner/pr-2"), rec.ResourceType, rec.LogicalID)
 		if rec.ResourceSeq != witness.ResourceSeq {
 			t.Fatalf("walk position %d has storage identity %d, want the witnessed %d for %s/%s",
@@ -979,20 +859,17 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 		}
 	}
 
-	// Past the end: empty page, no more rows.
 	rows, hasMore := svc.mustRead(t, repo, scope, cursor, 2)
 	if len(rows) != 0 || hasMore {
 		t.Errorf("read past the end returned %d rows (hasMore=%t), want empty", len(rows), hasMore)
 	}
 
-	// Restricted with no authorized paths reads nothing, without error.
 	rows, hasMore, err := repo.ReadResources(svc.ctx, restrictedScope("proj-k", "gen-1"), 0, 10)
 	if err != nil || len(rows) != 0 || hasMore {
 		t.Errorf("restricted-empty read = (%d rows, hasMore=%t, err=%v), want empty with no error",
 			len(rows), hasMore, err)
 	}
 
-	// The unrestricted mode still cannot cross project or generation.
 	rows, hasMore = svc.mustRead(t, repo, unrestrictedScope("proj-k", "gen-1"), 0, MaxResourceKeysetLimit)
 	if hasMore {
 		t.Fatalf("unrestricted read reported more rows past a full page")
@@ -1008,15 +885,6 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 	}
 }
 
-// TestResourceKeysetWalkStableUnderInserts proves the stability claim:
-// storage identity is immutable, so rows inserted while a walk is in flight
-// never shift the page boundary — every row that existed before the walk
-// returns exactly once, and new rows land at the end.
-//
-// As in the scope test, logical ids are inserted in an order that
-// contradicts their lexical order (w3, w1, w4, w2, then w6, w5), so an
-// implementation that ordered by logical id instead of resource_seq fails
-// the literal page expectations.
 func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
@@ -1030,7 +898,6 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 			Payload: json.RawMessage(`{"id":"` + id + `"}`),
 		}
 	}
-	// Storage order: w3, w1, w4, w2 (all four land before the walk starts).
 	firstFour := []source.Resource{mk("w3"), mk("w1"), mk("w4"), mk("w2")}
 	for _, rec := range firstFour {
 		svc.mustInsert(t, repo, rec)
@@ -1046,8 +913,6 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	}
 	cursor := page1[1].ResourceSeq
 
-	// Insert while the walk is in flight (higher storage identities), again
-	// contradicting lexical order: w6 then w5.
 	lastTwo := []source.Resource{mk("w6"), mk("w5")}
 	for _, rec := range lastTwo {
 		svc.mustInsert(t, repo, rec)
@@ -1057,8 +922,6 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	if len(page2) != 2 || !hasMore {
 		t.Fatalf("page2 = %d rows (hasMore=%t), want 2 rows more=true", len(page2), hasMore)
 	}
-	// The pre-walk rows w4 and w2 return exactly once; the page boundary
-	// did not shift under the concurrent inserts.
 	if page2[0].LogicalID != "w4" || page2[1].LogicalID != "w2" {
 		t.Fatalf("page2 returned %s,%s, want w4,w2: the page boundary shifted under concurrent inserts",
 			page2[0].LogicalID, page2[1].LogicalID)
@@ -1074,7 +937,6 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 			page3[0].LogicalID, page3[1].LogicalID)
 	}
 
-	// Whole walk: six distinct rows, none skipped or duplicated.
 	seen := map[string]int{}
 	for _, rec := range append(append(append([]ResourceRow(nil), page1...), page2...), page3...) {
 		seen[rec.LogicalID]++
@@ -1089,13 +951,6 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	}
 }
 
-// TestResourceNoLeftovers runs after every other resource test in this file
-// (Go runs a package's tests in source order and each test's cleanups
-// finish before the next test starts). It asserts this ticket's suite left
-// zero owned resources behind: no pgstore04_it_* database on the service and
-// no pgstore04_it_* schema in the service database. A hit here means an
-// earlier run died before its cleanups converged; drop only resources
-// carrying this ticket's unique prefix.
 func TestResourceNoLeftovers(t *testing.T) {
 	raw := testPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

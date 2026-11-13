@@ -1,18 +1,5 @@
 package postgres
 
-// arch-backend-11 witness: the verified-and-skip contract for
-// plan-authored canonical scope operations (scope_ops.go), ratified by the
-// coordinator as the sanctioned fail-closed shape.
-//
-// Two guarantees are pinned here:
-//   - a scope-flavored NEAR-MISS (a plan op one edit away from canonical)
-//     is rejected with ErrInvalidPostgresPlanScope before any parameter is
-//     bound — never silently dropped, never falling through to an AQL
-//     shape or a weaker refusal;
-//   - the skip consumes ONLY verified canonical operations: a legitimate
-//     non-canonical FILTER still renders into the WHERE list, proving the
-//     accept path does not swallow unrelated operations.
-
 import (
 	"encoding/json"
 	"errors"
@@ -70,22 +57,16 @@ func planWithScopeBlock(mutate func(ops []ir.PhysicalOperation)) ir.PhysicalPlan
 
 func TestCanonicalScopeBlockIsVerifiedThenDiscarded(t *testing.T) {
 	rendered := renderOK(t, planWithScopeBlock(nil))
-	// The canonical block is dropped: no LET variable or scope-filter field
-	// survives into the statement as plan text.
 	for _, forbidden := range []string{"root_auth_allowed", "@", "auth_resource_paths ="} {
 		if strings.Contains(rendered.SQL, forbidden) {
 			t.Fatalf("plan-authored scope text %q survived into SQL: %s", forbidden, rendered.SQL)
 		}
 	}
-	// loadScope still emits the scope itself: project/generation/auth
-	// predicates are renderer-owned, not plan-supplied.
 	for _, required := range []string{"project", "dataset_generation", "auth_resource_path", "resource_type"} {
 		if !strings.Contains(rendered.SQL, required) {
 			t.Fatalf("renderer-owned scope predicate %q missing from SQL: %s", required, rendered.SQL)
 		}
 	}
-	// The canonical plan renders identically with and without the block:
-	// verification carries weight, consumption carries none.
 	withBlock, withoutBlock := rendered.SQL, renderOK(t, basePlan()).SQL
 	if withBlock != withoutBlock {
 		t.Fatalf("dropping the canonical block changed the statement:\nwith    %s\nwithout %s", withBlock, withoutBlock)
@@ -135,11 +116,6 @@ func TestCanonicalScopeNearMissesAreScopeDefects(t *testing.T) {
 				ir.PhysicalValue{BindKey: "auth_resource_paths", Path: []string{"extra"}})
 		}},
 	}
-	// earlyReject lists mutations the shared IR plan validator refuses
-	// before the renderer runs — an even stronger fail-closed position.
-	// renderSurface lists mutations that are bona fide non-scope predicate
-	// shapes: they leave the scope path and die on the closed render
-	// surface. Every case must fail closed; none may render.
 	earlyReject := map[string]bool{
 		"scope_allowed equality names an unestablished variable": true,
 		"auth LET reads an unregistered row":                     true,
@@ -173,8 +149,6 @@ func TestCanonicalScopeNearMissesAreScopeDefects(t *testing.T) {
 	}
 }
 
-// A second canonical LET cannot be expressed through the table (the slice
-// would grow), so it is spliced in directly.
 func TestAuthLETDuplicateRegistrationIsRejected(t *testing.T) {
 	plan := planWithScopeBlock(func(ops []ir.PhysicalOperation) {})
 	duplicate := *plan.Operations[3].DerivedLet
@@ -182,19 +156,12 @@ func TestAuthLETDuplicateRegistrationIsRejected(t *testing.T) {
 	operations = append(operations[:5], append([]ir.PhysicalOperation{{Kind: ir.PhysicalDerivedLetOp, DerivedLet: &duplicate}}, operations[5:]...)...)
 	plan.Operations = operations
 	_, err := RenderPhysicalPlan(plan, mustBinding(t))
-	// Rejection may arrive at the IR validator (variable already defined)
-	// or at the accept path (redefines an established auth variable);
-	// either is fail-closed. It must never fall through to the plain
-	// unsupported surface or render.
 	if err == nil || errors.Is(err, ErrUnsupportedPostgresPlan) {
 		t.Fatalf("redefining an established auth variable must fail closed, got %v", err)
 	}
 }
 
 func TestNonCanonicalFilterIsNotConsumedByTheScopeSkip(t *testing.T) {
-	// A legitimate non-scope FILTER rides alongside the canonical block.
-	// If the scope accept path consumed non-canonical operations, this
-	// predicate would vanish from the WHERE list.
 	plan := planWithScopeBlock(nil)
 	plan.BindVars["status_value"] = "final"
 	custom := ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
@@ -206,11 +173,6 @@ func TestNonCanonicalFilterIsNotConsumedByTheScopeSkip(t *testing.T) {
 	operations = append(operations, plan.Operations[1:]...)
 	plan.Operations = operations
 	rendered := renderOK(t, plan)
-	// The predicate survives as a payload-path comparison: the {status}
-	// path and the "final" value both reach the ordered arguments. The
-	// renderer's parameter dedupe shares scope binds, so count strictly:
-	// the canonical block adds no argument beyond the base render, while
-	// this custom filter contributes the path and value pair.
 	var sawPathArg, sawValueArg bool
 	for _, arg := range rendered.Args {
 		text := fmt.Sprintf("%v", arg.Value)

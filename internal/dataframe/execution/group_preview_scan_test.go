@@ -143,11 +143,6 @@ func TestChooseGroupPreviewScanKeepsSequentialFallbackWhenNoCompatibleIndexExist
 }
 
 func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T) {
-	// Each candidate-plan evidence shape below certifies nothing, so the
-	// canonical query must survive. The first three mirror vendor coverage
-	// flag shapes (mixed pair, inverted mixed pair, missing pair) that the
-	// adapter decodes to Unknown coverage; the last two pin the policy
-	// itself: a covering node must name the index and be the only one.
 	for _, test := range []struct {
 		name      string
 		candidate PreviewCollectionScanEvidence
@@ -391,10 +386,6 @@ func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindin
 	return engine, query, stream
 }
 
-// Neutral scan-evidence builders. The collection a builder used to carry is
-// now asserted at the capability call: evidence is already filtered to the
-// queried collection by the adapter that produced it.
-
 func coveringGroupScans(indexName string) PreviewCollectionScanEvidence {
 	return PreviewCollectionScanEvidence{IndexNodes: []PreviewIndexNodeEvidence{
 		{IndexNames: []string{indexName}, Coverage: PreviewIndexCoverageCovering},
@@ -486,10 +477,6 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			},
 		},
 		{
-			// The first four rows mirror vendor coverage flag shapes (true+false,
-			// false+true, missing pair, one-sided pair) that the adapter decodes
-			// to Unknown coverage; unknown-plan/scan-error keep the advisory
-			// failures explicit.
 			name: "covering index",
 			setup: func(engine *Engine) {
 				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
@@ -544,9 +531,6 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			},
 		},
 		{
-			// A broad-scan certification must never be inferred: an
-			// enumeration fact vetoes every decision, and the sequential
-			// fallback needs exactly one certified not-covering node.
 			name: "enumeration with not covering",
 			setup: func(engine *Engine) {
 				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
@@ -973,9 +957,6 @@ func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testin
 		case commandText(t, query.PreviewGroupProjection.ScopeCount):
 			return visit(map[string]any{"count": int64(1024)})
 		case commandText(t, assessmentCommand):
-			// The first 512 rows are low diversity. A later tail can contain a
-			// unique Coding projection for every row; the sample is cost advice,
-			// never the source of the factored query's output values.
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
 		default:
 			t.Fatalf("unexpected query %q", queryText)
@@ -1168,8 +1149,6 @@ func TestPreviewOutputDoesNotRetryOrdinaryQueryAfterFactoredQueryFailure(t *test
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
 		case commandText(t, factoredCommand):
 			factoredCalls++
-			// The production AQL adapter classifies its own driver failures
-			// at the seam; this fake simulates a correctly wired adapter.
 			translated, _ := arangofactory.TranslateQueryError(fmt.Errorf("arango query: %w", wantErr))
 			return translated
 		case commandText(t, query.Command):
@@ -1180,8 +1159,6 @@ func TestPreviewOutputDoesNotRetryOrdinaryQueryAfterFactoredQueryFailure(t *test
 		}
 	}
 	_, err := engine.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "semantic_group_projection", Limit: 600}, func(map[string]any) error { return nil })
-	// Execution consumes the classified Loom error; the vendor cause stays
-	// reachable through the chain exactly as when the server classified it.
 	userErr, isUser := dataframeerrors.AsUserError(err)
 	if !isUser || userErr.Code() != string(dataframeerrors.CodeQueryMemoryLimitExceeded) {
 		t.Fatalf("preview error=%#v, want classified QUERY_MEMORY_LIMIT_EXCEEDED factored-query error", err)

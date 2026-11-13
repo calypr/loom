@@ -454,9 +454,6 @@ func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQuer
 	return source, nil
 }
 
-// validateExplicitGroupSourceMemberships runs inside each append/completion
-// boundary. It checks every relation against the immutable source selection
-// before any group-membership row can be inserted or the revision completed.
 func validateExplicitGroupSourceMemberships(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision, source explorer.SelectionRevision, memberships []explorer.ExplicitGroupMembership) error {
 	if err := header.ValidateSourceSelection(source); err != nil {
 		return err

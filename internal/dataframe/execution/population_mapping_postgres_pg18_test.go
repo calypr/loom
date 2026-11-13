@@ -1,45 +1,5 @@
 package execution_test
 
-// pg-exec-07 live acceptance battery: Engine.PopulationMapping over the
-// merged pg-sql-22 witness terminals (check-2: go test -count=1
-// ./internal/dataframe/execution -run PostgresPopulationMapping under
-// LOOM_TEST_POSTGRES_URL against the isolated PostgreSQL 18 service).
-//
-// Every live leg is production-compiled end to end: an authored
-// recipe.Bundle (with its PopulationConstraint) goes through the real
-// Engine.CompileResolvedBundle on the selected PostgreSQL compile target;
-// membership rides the real ExplorerStore staging lifecycle (Begin, Append,
-// Digest, Complete) in the owned schema; execution streams the
-// parent-tagged witness terminal onto the real server through the
-// production internal/backends/postgres row adapter wrapped by a recorder,
-// so statement counts, ordered typed arguments, the backend tag, and the
-// declared witness column contract are witnessed at the port, never
-// asserted by a mock. The stale-receipt leg drives the real explorer
-// lifecycle Service with the engine-backed PopulationMapping hook in the
-// shape the PostgreSQL runtime wires (internal/server/runtime.go:732-749),
-// refusing with zero hook invocations and a statement-count-0 witness.
-//
-// AQL-parity note on the count literals: the flat and construction
-// PostgreSQL witness terminals (the registered slice in
-// render/postgres/population_mapping.go and population.go) join members to
-// root rows on the UNIQUE (project, dataset_generation, resource_type,
-// logical_id) identity, so each selected member contributes at most one
-// witness row per terminal identity; the engine-level guarantee with a
-// member mapping several witness rows (selected=3, mapped=2, unmapped=1,
-// emittedRows=3 with de-duplication) is pinned by the offline battery,
-// where the port stands in for outputs whose witness fan-out the AQL route
-// arm legitimately produces. Here the live legs pin the honest registered
-// numbers: flat 3/2/1/2, and the keyed-group construction terminal proving
-// engine-side identity de-duplication live (two mapped members, one group
-// row: 3/2/1/1). Shapes outside the registered slice (member-collecting
-// root with an expansion, endpoint-lookup route steps) refuse with the
-// typed capability sentinel at zero statements — a named capability gap of
-// the renderer, witnessed live below.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec07_cs_*
-// and dropped by the test that created them; the TestZZ audit is
-// ownership-scoped to this file's own prefix.
-
 import (
 	"context"
 	"crypto/rand"
@@ -151,24 +111,16 @@ func exec07RandomHex(t *testing.T) string {
 	return hex.EncodeToString(buf)
 }
 
-// ---------------------------------------------------------------------------
-// Service harness: isolated database, owned schema with the store history
-// plus the ledger-free explorer-family DDL, the real ExplorerStore, the
-// PostgreSQL compile target, and the production row adapter.
-// ---------------------------------------------------------------------------
-
 type exec07Service struct {
-	ctx     context.Context
-	iso     *pgxpool.Pool
-	schema  string
-	target  compiler.Target
-	scrub   func(any) string
-	addSec  func(string)
-	fail    func(string, error)
-	adapter dataframeexecution.SourceRows
-	store   *storepg.ExplorerStore
-	// scopeDigest is the engine compile-identity scope digest; the receipt
-	// legs align it with the authorized read scope's policy digest.
+	ctx         context.Context
+	iso         *pgxpool.Pool
+	schema      string
+	target      compiler.Target
+	scrub       func(any) string
+	addSec      func(string)
+	fail        func(string, error)
+	adapter     dataframeexecution.SourceRows
+	store       *storepg.ExplorerStore
 	scopeDigest string
 }
 
@@ -265,11 +217,6 @@ func newExec07Service(t *testing.T) *exec07Service {
 	if _, err := storepg.MigrateSchema(ctx, client, schema); err != nil {
 		fail("migrate owned schema", err)
 	}
-	// The explorer-family membership relations ride beside the store tables,
-	// ledger-free (the coordinator-ruled composition of
-	// internal/dataframe/compiler/render/postgres/population_live_test.go):
-	// the authoritative migration bodies with search_path pinned to the
-	// owned schema, skipping version 1 (the store-history-owned ledger).
 	migrations, err := storepg.OwnerMigrations()
 	if err != nil {
 		fail("load owner migrations", err)
@@ -318,10 +265,6 @@ func newExec07Service(t *testing.T) *exec07Service {
 	return &exec07Service{ctx: ctx, iso: iso, schema: schema, target: target, scrub: scrub, addSec: addSecret, fail: fail, adapter: adapter, store: pgStore, scopeDigest: "exec07-scope"}
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures: production-shaped resources and the real selection lifecycle.
-// ---------------------------------------------------------------------------
-
 func (s *exec07Service) seedObservation(t *testing.T, project, generation, logicalID, status string) {
 	t.Helper()
 	repo, err := storepg.NewResourceRepository(s.iso, s.schema)
@@ -344,10 +287,6 @@ func (s *exec07Service) seedObservation(t *testing.T, project, generation, logic
 	}
 }
 
-// seedSelection drives the real staging lifecycle — Begin, Append, Digest,
-// Complete — and returns the completed header, whose frozen digest and
-// count the receipt's PopulationConstraint must quote exactly (the
-// lifecycle's POPULATION_MAPPING_STALE guard).
 func (s *exec07Service) seedSelection(t *testing.T, memberIDs []string, scopeDigest string) explorer.SelectionRevision {
 	t.Helper()
 	project := projectid.Canonical(exec07Project)
@@ -383,11 +322,6 @@ func (s *exec07Service) seedSelection(t *testing.T, memberIDs []string, scopeDig
 	}
 	return *completed
 }
-
-// ---------------------------------------------------------------------------
-// Bundles. The PopulationConstraint identity fields are filled from the
-// completed selection header so the lifecycle guards pass with real facts.
-// ---------------------------------------------------------------------------
 
 func exec07Population(header explorer.SelectionRevision) *recipe.PopulationConstraint {
 	return &recipe.PopulationConstraint{
@@ -446,12 +380,6 @@ func exec07Bindings(project, generation string) recipe.RuntimeBindings {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Recorder around the production adapter: statement counts, the backend
-// tag, the ordered typed parameters, and the declared witness contract are
-// witnessed here.
-// ---------------------------------------------------------------------------
-
 type exec07Call struct {
 	sql      string
 	args     []command.PostgreSQLParameter
@@ -509,12 +437,6 @@ func (r *exec07Recorder) last() exec07Call {
 	return r.calls[len(r.calls)-1]
 }
 
-// ---------------------------------------------------------------------------
-// Engine wiring: PostgreSQL compile target, the recorder as the single
-// source row port, and the exec04 landmine set armed on every Arango and
-// ClickHouse control.
-// ---------------------------------------------------------------------------
-
 func (s *exec07Service) engine(t *testing.T, recorder dataframeexecution.SourceRows) *dataframeexecution.Engine {
 	t.Helper()
 	config := exec04pvForbidArango()
@@ -537,11 +459,6 @@ func (s *exec07Service) resolve(t *testing.T, engine *dataframeexecution.Engine,
 	}
 	return resolved
 }
-
-// ---------------------------------------------------------------------------
-// Lifecycle wiring for the receipt-bound legs (the shape the PostgreSQL
-// runtime composes at internal/server/runtime.go:732-749).
-// ---------------------------------------------------------------------------
 
 type exec07ExplorerStore struct {
 	explorer.Store
@@ -582,8 +499,6 @@ func (a *exec07Authorized) calls() int {
 	return a.hookCalls
 }
 
-// exec07ScopeDigest reproduces the lifecycle policy digest over a read
-// scope exactly as internal/explorer/lifecycle/policy.go computes it.
 func exec07ScopeDigest(scope authscope.ReadScope) string {
 	paths := append([]string(nil), scope.AuthResourcePaths...)
 	sort.Strings(paths)
@@ -602,9 +517,6 @@ func exec07Snapshot(project, generation, token string, scope authscope.ReadScope
 	}
 }
 
-// exec07Receipt builds a native execution receipt for the bundle, bound to
-// the snapshot identity exactly as the compile path binds it, with the
-// public output contract emitted columns the receipt validation re-reads.
 func exec07Receipt(t *testing.T, snapshot capability.Snapshot, bundle recipe.Bundle, columns []explorer.EmittedColumn, contract json.RawMessage) explorer.CompilationReceipt {
 	t.Helper()
 	receipt := explorer.CompilationReceipt{
@@ -671,8 +583,6 @@ func exec07GroupContract() json.RawMessage {
 	return json.RawMessage(`{"outputs":[{"outputId":"observations","columns":[{"column":"status","label":"Status","logicalType":"string","filterable":true,"chartable":true},{"column":"rows","label":"Rows","logicalType":"integer","filterable":true,"chartable":false}]}]}`)
 }
 
-// exec07LifecycleService wires the real lifecycle Service with the
-// engine-backed PopulationMapping hook in the runtime shape.
 func exec07LifecycleService(t *testing.T, store *storepg.ExplorerStore, authorized *exec07Authorized, engine *dataframeexecution.Engine, receipts ...explorer.CompilationReceipt) *lifecycle.Service {
 	t.Helper()
 	byID := map[string]explorer.CompilationReceipt{}
@@ -736,13 +646,6 @@ func exec07LifecycleRequest(receipt explorer.CompilationReceipt, limit int) life
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live legs.
-// ---------------------------------------------------------------------------
-
-// TestPostgresPopulationMappingLiveFlatExactMembership is the primary
-// acceptance leg: three selected members against two stored resources
-// through the real witness terminal.
 func TestPostgresPopulationMappingLiveFlatExactMembership(t *testing.T) {
 	s := newExec07Service(t)
 	seedProject := projectid.Legacy(exec07Project)
@@ -795,10 +698,6 @@ func TestPostgresPopulationMappingLiveFlatExactMembership(t *testing.T) {
 	t.Fatalf("selection revision identity is not a bound text parameter: %#v", call.args)
 }
 
-// TestPostgresPopulationMappingLiveGroupDedupe witnesses engine-side
-// identity de-duplication against real SQL: two mapped members contribute
-// to one keyed group row, so the two witness rows collapse to one emitted
-// identity.
 func TestPostgresPopulationMappingLiveGroupDedupe(t *testing.T) {
 	s := newExec07Service(t)
 	seedProject := projectid.Legacy(exec07Project)
@@ -832,10 +731,6 @@ func TestPostgresPopulationMappingLiveGroupDedupe(t *testing.T) {
 	}
 }
 
-// TestPostgresPopulationMappingLiveCapAndCancellationAreIncomplete proves
-// the two honest-INTCOMPLETE legs against real streaming: a witness cap and
-// a mid-stream cancellation both report INCOMPLETE with zero counts — never
-// a misleading partial.
 func TestPostgresPopulationMappingLiveCapAndCancellationAreIncomplete(t *testing.T) {
 	s := newExec07Service(t)
 	seedProject := projectid.Legacy(exec07Project)
@@ -851,7 +746,6 @@ func TestPostgresPopulationMappingLiveCapAndCancellationAreIncomplete(t *testing
 		return nil
 	})
 
-	// Cap leg: one witness row allowed, two exist.
 	recorder := &exec07Recorder{adapter: s.adapter}
 	engine := s.engine(t, recorder.port)
 	resolved := s.resolve(t, engine, exec07FlatBundle("exec07-cap", header), exec07Generation)
@@ -866,7 +760,6 @@ func TestPostgresPopulationMappingLiveCapAndCancellationAreIncomplete(t *testing
 		t.Fatalf("cap leg executed %d statements, want the single witness terminal", recorder.count())
 	}
 
-	// Cancellation leg: cancel after the first visited witness row.
 	ctx, cancel := context.WithCancel(s.ctx)
 	t.Cleanup(cancel)
 	recorder = &exec07Recorder{adapter: s.adapter}
@@ -888,11 +781,6 @@ func TestPostgresPopulationMappingLiveCapAndCancellationAreIncomplete(t *testing
 	}
 }
 
-// TestPostgresPopulationMappingLivePortFailureIsHardError keeps the
-// routing/transport honesty boundary against the production adapter stack:
-// a generic port failure (and the composition's unregistered-adapter
-// sentinel) must surface as errors — never INCOMPLETE, and the unregistered
-// adapter case as the typed capability refusal with zero rows visited.
 func TestPostgresPopulationMappingLivePortFailureIsHardError(t *testing.T) {
 	s := newExec07Service(t)
 	seedProject := projectid.Legacy(exec07Project)
@@ -902,7 +790,6 @@ func TestPostgresPopulationMappingLivePortFailureIsHardError(t *testing.T) {
 		return visit("obs-1")
 	})
 
-	// Generic transport failure: hard error, no status exposed.
 	recorder := &exec07Recorder{adapter: s.adapter, failNext: errors.New("connection reset by peer")}
 	engine := s.engine(t, recorder.port)
 	resolved := s.resolve(t, engine, exec07FlatBundle("exec07-fail", header), exec07Generation)
@@ -911,8 +798,6 @@ func TestPostgresPopulationMappingLivePortFailureIsHardError(t *testing.T) {
 		t.Fatalf("generic port failure was not a hard error: result=%#v err=%v", result, s.scrub(err))
 	}
 
-	// Unregistered adapter: the command package's capability-gap sentinel
-	// becomes the typed refusal, with zero rows visited at the port.
 	recorder = &exec07Recorder{adapter: s.adapter}
 	recorder.failNext = fmt.Errorf("postgres rows: %w", command.ErrCompiledCommandBackendNotRegistered)
 	engine = s.engine(t, recorder.port)
@@ -930,7 +815,6 @@ func TestPostgresPopulationMappingLivePortFailureIsHardError(t *testing.T) {
 		t.Fatalf("capability refusal visited %d rows, want zero", visited)
 	}
 
-	// Routing mismatch: hard error, not a capability gap.
 	recorder = &exec07Recorder{adapter: s.adapter}
 	recorder.failNext = fmt.Errorf("dispatch: %w for %q", command.ErrCompiledCommandBackendMismatch, "POSTGRESQL")
 	engine = s.engine(t, recorder.port)
@@ -940,12 +824,6 @@ func TestPostgresPopulationMappingLivePortFailureIsHardError(t *testing.T) {
 	}
 }
 
-// TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution
-// drives the real lifecycle Service with the runtime-shaped engine hook:
-// moving the capability snapshot past the receipt must refuse with the
-// existing typed rejection, zero hook invocations, and a statement-count-0
-// witness at the production adapter, while the fresh control reports exact
-// counts on the same service and recovers after restoration.
 func TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution(t *testing.T) {
 	s := newExec07Service(t)
 	seedProject := projectid.Legacy(exec07Project)
@@ -953,9 +831,6 @@ func TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution(t *test
 	s.seedObservation(t, seedProject, exec07Generation, "obs-2", "final")
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{exec07AuthPath}}
 	fresh := exec07Snapshot(exec07Project, exec07Generation, "token-1", scope)
-	// The header's frozen scope digest must be the authorized read scope's
-	// policy digest: the lifecycle's POPULATION_MAPPING_STALE guard compares
-	// the stored header, the receipt, and the capability snapshot.
 	s.scopeDigest = fresh.Identity.AuthorizationScopeDigest
 	header := s.seedSelection(t, []string{"obs-1", "obs-2", "obs-3"}, fresh.Identity.AuthorizationScopeDigest)
 
@@ -966,7 +841,6 @@ func TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution(t *test
 	authorized := &exec07Authorized{snapshot: fresh, scope: scope}
 	service := exec07LifecycleService(t, s.store, authorized, engine, receipt)
 
-	// Fresh control: the receipt publishes exact counts from live state.
 	report, err := service.PopulationMapping(s.ctx, exec07LifecycleRequest(receipt, 10))
 	if err != nil {
 		t.Fatalf("fresh receipt: %s", s.scrub(err))
@@ -982,7 +856,6 @@ func TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution(t *test
 		t.Fatalf("fresh control witnesses: hooks=%d statements=%d", authorized.calls(), recorder.count())
 	}
 
-	// Stale: the snapshot generation moved on past the receipt.
 	stale := fresh
 	stale.Identity.Generation = "gen-b"
 	authorized.set(stale, scope)
@@ -1000,7 +873,6 @@ func TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution(t *test
 		t.Fatalf("stale receipt executed %d statements, want the statement-count-0 witness at the production adapter", got)
 	}
 
-	// Recovery control: restoring the fresh snapshot proceeds again.
 	authorized.set(fresh, scope)
 	if _, err := service.PopulationMapping(s.ctx, exec07LifecycleRequest(receipt, 10)); err != nil {
 		t.Fatalf("restored fresh receipt: %s", s.scrub(err))
@@ -1010,10 +882,6 @@ func TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution(t *test
 	}
 }
 
-// TestPostgresPopulationMappingLiveNamedGapRefusesAtZeroStatements takes
-// the renderer's named capability gap (an expansion on the
-// member-collecting root) to the real compile target: the typed capability
-// sentinel must arrive with zero statements executed.
 func TestPostgresPopulationMappingLiveNamedGapRefusesAtZeroStatements(t *testing.T) {
 	s := newExec07Service(t)
 	header := s.seedSelection(t, []string{"obs-1"}, "exec07-scope")
@@ -1036,14 +904,10 @@ func TestPostgresPopulationMappingLiveNamedGapRefusesAtZeroStatements(t *testing
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Zero-leftover audit, ownership-scoped to this file's prefix.
-// ---------------------------------------------------------------------------
-
 func TestZZPostgresPopulationMappingZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		return // no service was used; nothing could have been created
+		return
 	}
 	exec07CaptureBaseline(raw)
 	if exec07BaselineErr != nil {

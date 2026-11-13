@@ -17,9 +17,6 @@ const (
 	postQueryTargetKey    = "__loom_postquery_target"
 )
 
-// DynamicDriftError means a runtime key was not part of the dynamic-column
-// schema frozen from the field catalog. It carries schema metadata only, so
-// transport adapters can report the mismatch without exposing row values.
 type DynamicDriftError struct {
 	DynamicName    string
 	Key            string
@@ -53,9 +50,6 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 	if len(checks) == 0 {
 		return nil
 	}
-	// Frozen column types are compiled guarantees, so every present value is
-	// checked whether or not the runtime key metadata enumerates its key: the
-	// metadata may cover only another family.
 	for dynamicName, columns := range checks {
 		for _, column := range columns {
 			if actual, exists := row[column.ColumnName]; exists && !dynamicColumnValueMatches(actual, column) {
@@ -65,8 +59,6 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 	}
 	observed, ok := row["__loom_dynamic_runtime_keys"].(map[string]any)
 	if !ok {
-		// Construction stages may drop the metadata only for families that
-		// explicitly allow unknown keys.
 		for dynamicName, columns := range checks {
 			for _, column := range columns {
 				if !column.AllowUnknownKeys {
@@ -234,20 +226,6 @@ func materializePostQueryValue(value any) (any, error) {
 		}
 		return result, nil
 	case json.RawMessage:
-		// A PostgreSQL json/jsonb column arrives as raw JSON bytes: the
-		// adapter decoded SQL NULL to nil before this point, so a non-nil
-		// RawMessage here is a stored JSON value — including the JSON null
-		// scalar, which decodes to nil exactly as the Arango and ClickHouse
-		// driver paths deliver it (both decode with encoding/json, so they
-		// never produce this shape). Decode and re-enter so marker maps,
-		// ordered argument arrays, and nested markers run the same Go
-		// materialization and dynamic-column checks on PostgreSQL rows as
-		// on every other backend; UUID semantics stay owned by
-		// computeNamedUUID, never by SQL. Decoding is fail-closed: empty or
-		// malformed bytes are a typed materialization error carrying no
-		// value, never a silent nil. Nesting is bounded by encoding/json's
-		// hard 10,000-level decoder limit (deeper input errors), so the
-		// re-entrant walk below is bounded by the decoded value's depth.
 		if len(typed) == 0 || !json.Valid(typed) {
 			return nil, fmt.Errorf("post-query JSONB value is not valid JSON")
 		}

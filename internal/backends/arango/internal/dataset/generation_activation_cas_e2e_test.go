@@ -1,104 +1,5 @@
 package arango
 
-// VERIFICATION-ONLY artifact for FINDINGS.md Round 11 candidate F-B17. It never
-// mutates product code, and it touches no other verification artifact (in this
-// package revision_inflation_e2e_test.go is owned by another worker; the
-// clickhouse package is out of scope). It creates a fully owned ArangoDB
-// database (loom_verify_gac_<uuid>) through the production store.Open path and
-// drops it with an HTTP DELETE in t.Cleanup, logging removal.
-//
-// CLAIM UNDER TEST (F-B17): Store.Activate's AQL is a CAS-less blind patch of
-// the shared active_generation pointer, and the manifest-generation activation
-// path is a check-then-act (TOCTOU) with no revalidation, so a cross-generation
-// activation always wins with err=nil.
-//
-// SOURCE READING (verbatim, pinned at runtime by gacCitations below):
-//
-//	internal/backends/arango/internal/dataset/manifest_lifecycle.go:318-337 activateAQL:
-//	  LET candidate = FIRST(... FILTER manifest.state == @ready_state OR staged
-//	                             FILTER manifest.schemaIdentity == @schema_identity ...)
-//	  LET active = DOCUMENT(@@lifecycle_collection, @active_key)
-//	  FILTER candidate != null / active != null / recordType / project
-//	  UPDATE active WITH { dataset: candidate.dataset, manifestKey: candidate._key }
-//	    IN @@lifecycle_collection
-//	    OPTIONS { ignoreRevs: false, mergeObjects: false }
-//	  RETURN { dataset: NEW.dataset }
-//
-//	  There is NO FILTER on the pointer's current value (no
-//	  `FILTER active.dataset == @candidate.dataset`, no
-//	  `FILTER active.manifestKey != @candidate_key`), NO expected-revision bind
-//	  (the release path's `@expected_revision` has no counterpart here) and NO
-//	  lease. `ignoreRevs: false` cannot supply the missing compare: the patch
-//	  carries no `_rev`, so intra-query optimistic locking has nothing to
-//	  compare (and even when it fires, it only covers the DOCUMENT()->UPDATE
-//	  sliver *inside one statement*, never the read-then-act window in Go).
-//	internal/backends/arango/internal/dataset/manifest_lifecycle.go:198-204 (read-then-act
-//	  idempotency pre-check, a separate HTTP round trip before the write):
-//	  if active, err := s.ResolveActiveManifest(ctx, candidate.Dataset.Project); err == nil {
-//	    if manifestIdentityEqual(active, candidate) {
-//	      return nil
-//	    }
-//	  }
-//
-// The ONLY rejection Activate can return for a live staged candidate is
-// :242-243 ErrActivationConflict, whose message proves it is about the
-// CANDIDATE, never about the pointer having moved: "candidate %s/%s was not a
-// persisted staged manifest with a valid active pointer".
-//
-// THREE WRITERS OF THE SHARED active_generation POINTER (parent-enumerated from
-// source, not parroted: every INSERT/UPDATE against LifecycleCollection):
-//  1. activateAQL UPDATE (manifest_lifecycle.go:334)  <- THIS claim (F-B17), the
-//     manifest-generation activation path driven here.
-//  2. activateReleaseAQL generationPointer patch (release_store.go:170-173) <-
-//     F-B13's already-confirmed lane (CompareAndSwapActivateRelease); NOT driven
-//     here, kept distinct on purpose.
-//  3. composite repository activation (internal/backends/arango/internal/explorer/activation.go:98
-//     via activationUpdateAQL :36-39) — same {dataset, manifestKey} patch, with
-//     no OPTIONS at all (ignoreRevs defaults to true).
-//
-// All three patch the pointer without comparing its previous value.
-//
-// REACHABILITY / LAYER HONESTY. The bulk-load Service
-// (internal/api/bulk/load/service.go) cannot be driven from this package: its
-// activateGeneration needs the dataframe release/execution pipeline plus the
-// load pipeline, and it is a thin caller of the store surface under test. So the
-// bulk-load pattern is replicated at exactly the line the claim names —
-// service.go:206 ReadManifest (resolve candidate) / :210 IsStaged gate / :213
-// Activate — with no active-pointer read between :206 and :213 (the :199-204
-// gate it does perform compares the DATAFRAME execution pointer, not the
-// generation pointer). LEG B is a DETERMINISTIC single-goroutine interleaving of
-// two competing activations, not two racing OS threads: the store holds no lock
-// and no compare, so there is no race to win — the interleaving is exactly what
-// concurrent bulk loads produce, and the deterministic form keeps the evidence
-// reproducible. That this is a simulation of the interleaving (and not a
-// thread-scheduler artifact) is residual uncertainty recorded in the verdict.
-//
-// PRE-STATED EXPECTATIONS (declared BEFORE any Activate call executes):
-//   - LEG A (last-writer-wins / silent flip, cross-generation):
-//     Activate(G1) -> pointer names G1, err=nil.
-//     Activate(G2) -> pointer names G2, err=nil, _rev churns.
-//     Activate(G1) AGAIN (switch back to a previously-active generation) ->
-//     PRE-STATED EXPECT (BUG): err=nil, NO ErrActivationConflict, pointer back
-//     at G1, _rev churned. The pointer follows the last caller with no conflict.
-//   - LEG B (lost update / check-then-act): reader resolves active (sees G1),
-//     reader resolves its candidate manifest (service.go:206), THEN a competing
-//     activation moves the pointer to another generation, THEN the reader calls
-//     Activate (service.go:213). PRE-STATED EXPECT (BUG): err=nil, pointer lands
-//     on the reader's candidate, and the competing activation is silently
-//     discarded — no error, no revalidation of the stale read.
-//   - LEG C (sound leg, control): re-Activate the SAME already-active generation
-//     twice. PRE-STATED EXPECT (SOUND): both calls hit the idempotent no-op
-//     branch (manifest_lifecycle.go:198-204), err=nil, exactly ONE round trip,
-//     NO activateAQL leg, and pointer _rev does NOT churn. Same-generation
-//     re-activation must be observably different from cross-generation flipping.
-//   - VERDICT: CONFIRMED if any cross-generation overwrite is blind (err=nil,
-//     pointer moved, no compare anywhere) => t.Fatalf FAILED-ON-PURPOSE quoting
-//     activateAQL in full and contrasting the release-path CAS shape at
-//     release_store.go:167 (`FILTER currentRevision == @expected_revision OR
-//     alreadyActive`), which is the shape a fix would take. PREVENTED if a
-//     cross-generation Activate is refused => log the refusing guard, PASS.
-//     Anything else => INCONCLUSIVE.
-
 import (
 	"context"
 	"encoding/json"
@@ -119,40 +20,28 @@ import (
 
 const gacDatabasePrefix = "loom_verify_gac_"
 
-// ---------------------------------------------------------------------------
-// citation pinning: the verdict must not silently survive a refactor
-// ---------------------------------------------------------------------------
-
 type gacCitation struct {
 	file string
-	line int // 1-based
+	line int
 	want string
 }
 
 var gacCitations = []gacCitation{
-	// the read-then-act idempotency pre-check (the "check" half of check-then-act)
-	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 198, `if active, err := s.ResolveActiveManifest(ctx, candidate.Dataset.Project); err == nil {`},
-	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 199, `if manifestIdentityEqual(active, candidate) {`},
-	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 200, `return nil`},
-	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 202, `} else if !errors.Is(err, publication.ErrNoActiveGeneration) {`},
-	// the only rejection shape: about the candidate, never about the pointer moving
-	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 243, `return fmt.Errorf("%w: candidate %s/%s was not a persisted staged manifest with a valid active pointer", ErrActivationConflict, candidate.Dataset.Project, candidate.Dataset.Generation)`},
-	// the CAS-less blind patch (the "act" half) — the line that must lack a compare
-	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 334, `UPDATE active WITH { dataset: candidate.dataset, manifestKey: candidate._key } IN @@lifecycle_collection`},
-	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 335, `OPTIONS { ignoreRevs: false, mergeObjects: false }`},
-	// the fix shape that exists elsewhere in the same package (contrast)
-	{"internal/backends/arango/internal/dataset/release_store.go", 223, `FILTER currentRevision == @expected_revision OR alreadyActive`},
-	// bulk-load check-then-act: candidate resolved, only IsStaged rechecked, then Activate
+	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 191, `if active, err := s.ResolveActiveManifest(ctx, candidate.Dataset.Project); err == nil {`},
+	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 192, `if manifestIdentityEqual(active, candidate) {`},
+	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 193, `return nil`},
+	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 195, `} else if !errors.Is(err, publication.ErrNoActiveGeneration) {`},
+	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 236, `return fmt.Errorf("%w: candidate %s/%s was not a persisted staged manifest with a valid active pointer", ErrActivationConflict, candidate.Dataset.Project, candidate.Dataset.Generation)`},
+	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 327, `UPDATE active WITH { dataset: candidate.dataset, manifestKey: candidate._key } IN @@lifecycle_collection`},
+	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 328, `OPTIONS { ignoreRevs: false, mergeObjects: false }`},
+	{"internal/backends/arango/internal/dataset/release_store.go", 197, `FILTER currentRevision == @expected_revision OR alreadyActive`},
 	{"internal/api/bulk/load/service.go", 206, `manifest, err := s.generationActivator.ReadManifest(ctx, ref)`},
 	{"internal/api/bulk/load/service.go", 210, `if !manifest.IsStaged() {`},
 	{"internal/api/bulk/load/service.go", 217, `if err := s.generationActivator.Activate(ctx, manifest); err != nil {`},
-	// third writer of the same pointer document (writer inventory)
-	{"internal/backends/arango/internal/explorer/activation.go", 98, `if err := updateActivationDocument(txCtx, tx, datasetarango.LifecycleCollection, activeKey, map[string]any{"dataset": dataset, "manifestKey": manifestKey}); err != nil {`},
+	{"internal/backends/arango/internal/explorer/activation.go", 94, `if err := updateActivationDocument(txCtx, tx, datasetarango.LifecycleCollection, activeKey, map[string]any{"dataset": dataset, "manifestKey": manifestKey}); err != nil {`},
 	{"internal/backends/arango/internal/explorer/activation.go", 38, `UPDATE d WITH @patch IN @@c`},
 }
 
-// gacActivateAQLMustNotHold: a compare against the pointer's current value (or a
-// revision/lease token) would make this activation a CAS. None may be present.
 var gacActivateAQLMustNotHold = []string{
 	"active.dataset ==",
 	"active.dataset !=",
@@ -166,7 +55,6 @@ var gacActivateAQLMustNotHold = []string{
 	"lease",
 }
 
-// gacActivateAQLMustHold keeps the absence check from passing vacuously.
 var gacActivateAQLMustHold = []string{
 	"UPDATE active WITH { dataset: candidate.dataset, manifestKey: candidate._key } IN @@lifecycle_collection",
 	"OPTIONS { ignoreRevs: false, mergeObjects: false }",
@@ -212,8 +100,6 @@ func gacCheckCitations(t *testing.T) {
 		if citation.line < 1 || citation.line > len(lines) {
 			t.Fatalf("citation drift: %s has %d lines, cited :%d == %q", citation.file, len(lines), citation.line, citation.want)
 		}
-		// Drift-proof: require the exact cited statement verbatim somewhere
-		// in the file; the contract is the text, not the line number.
 		found := false
 		for _, line := range lines {
 			if strings.TrimSpace(line) == strings.TrimSpace(citation.want) {
@@ -227,9 +113,6 @@ func gacCheckCitations(t *testing.T) {
 	}
 }
 
-// gacShippedActivateAQL re-reads the shipped activateAQL const from source so the
-// FAIL message quotes the file a reviewer opens, and proves it equals the const
-// the binary actually compiles.
 func gacShippedActivateAQL(t *testing.T) string {
 	t.Helper()
 	lines := gacReadSource(t, "internal/backends/arango/internal/dataset/manifest_lifecycle.go")
@@ -253,8 +136,6 @@ func gacShippedActivateAQL(t *testing.T) string {
 	return shipped
 }
 
-// gacActivateAQLHasNoCompare is the "no revalidation" half of the verdict,
-// evaluated on the query the binary executes (never on a paraphrase).
 func gacActivateAQLHasNoCompare(t *testing.T) (bool, []string) {
 	t.Helper()
 	missing := make([]string, 0, len(gacActivateAQLMustHold))
@@ -272,10 +153,6 @@ func gacActivateAQLHasNoCompare(t *testing.T) (bool, []string) {
 			present = append(present, forbidden)
 		}
 	}
-	// Scope note, checked rather than asserted in prose: the ONLY
-	// `active.dataset`-style consistency filter in this file lives in readActiveAQL
-	// (:307 `FILTER manifest.dataset == active.dataset`) — the READ path. The WRITE
-	// path has none.
 	source := strings.Join(gacReadSource(t, "internal/backends/arango/internal/dataset/manifest_lifecycle.go"), "\n")
 	if !strings.Contains(source, "FILTER manifest.dataset == active.dataset") {
 		t.Fatalf("readActiveAQL lost its consistency filter; re-audit the read/write asymmetry claim")
@@ -283,13 +160,6 @@ func gacActivateAQLHasNoCompare(t *testing.T) (bool, []string) {
 	return len(present) == 0, present
 }
 
-// ---------------------------------------------------------------------------
-// owned-database harness (skip-clean without LOOM_TEST_ARANGO_URL)
-// ---------------------------------------------------------------------------
-
-// gacRecorder records every AQL statement the production Store issues, so the
-// run can show the read-then-act split into separate round trips and prove the
-// idempotent branch performs no write leg.
 type gacRecorder struct {
 	inner   arangostore.RowQueryer
 	queries []string
@@ -355,10 +225,6 @@ func gacOpen(t *testing.T, budget time.Duration) (context.Context, *arangostore.
 		}
 		t.Logf("GAC_DATABASE_REMOVED=%s", name)
 	})
-	// Only the dataset lifecycle collection is bootstrapped: F-B17 is the
-	// manifest-generation activation path. The dataframe-publication collections
-	// (F-B13's release-CAS lane) and the explorer collections are deliberately
-	// NOT bootstrapped, so this artifact cannot drift into another claim's scope.
 	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
 	}
@@ -370,9 +236,6 @@ func gacOpen(t *testing.T, budget time.Duration) (context.Context, *arangostore.
 	return ctx, client, lifecycle, recorder
 }
 
-// gacLoadStaged creates a LOADING manifest and transitions it to STAGED through
-// the production store, WITHOUT activating: Activate is the subject under test,
-// so the pointer is only ever moved by the calls the legs make deliberately.
 func gacLoadStaged(t *testing.T, ctx context.Context, lifecycle *Store, project, generation, digest string) publication.Manifest {
 	t.Helper()
 	ref, err := publication.NewRef(project, generation)
@@ -405,10 +268,6 @@ func gacLoadStaged(t *testing.T, ctx context.Context, lifecycle *Store, project,
 	return staged
 }
 
-// ---------------------------------------------------------------------------
-// raw pointer observation (full .doc, including _id/_rev)
-// ---------------------------------------------------------------------------
-
 func gacJSON(t *testing.T, value any) string {
 	t.Helper()
 	raw, err := json.Marshal(value)
@@ -418,9 +277,6 @@ func gacJSON(t *testing.T, value any) string {
 	return string(raw)
 }
 
-// gacPointerDoc reads the active_generation pointer document by the very key the
-// production store derives and writes (document_codec.go:161 activeDocumentKey),
-// so the OBSERVED document is provably the one Activate patches.
 func gacPointerDoc(t *testing.T, ctx context.Context, client *arangostore.Client, project string) map[string]any {
 	t.Helper()
 	key := activeDocumentKey(project)
@@ -448,8 +304,6 @@ func gacPointerDoc(t *testing.T, ctx context.Context, client *arangostore.Client
 	return doc
 }
 
-// gacPointerRoleCount is an independent cross-check that the key-read document is
-// the pointer the production readers consult (they select it by recordType).
 func gacPointerRoleCount(t *testing.T, ctx context.Context, client *arangostore.Client, project string) int {
 	t.Helper()
 	count := 0
@@ -481,10 +335,6 @@ func gacPointerLine(doc map[string]any) string {
 		gacField(doc, "_id"), gacField(doc, "_rev"), doc["recordType"], doc["project"], gacPointerGeneration(doc), gacField(doc, "manifestKey"))
 }
 
-// ---------------------------------------------------------------------------
-// the claim
-// ---------------------------------------------------------------------------
-
 type gacFlip struct {
 	label       string
 	candidate   string
@@ -515,7 +365,6 @@ func TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango(t *testing.T
 	const g2 = "gac-fb17-gen-2"
 	const g3 = "gac-fb17-gen-3"
 
-	// --- step 1: three STAGED manifests with distinct digests, no activation yet.
 	staged := map[string]publication.Manifest{}
 	for _, spec := range []struct{ generation, digest string }{
 		{g1, strings.Repeat("a", 64)},
@@ -557,8 +406,6 @@ func TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango(t *testing.T
 		return flip
 	}
 
-	// --- LEG A: last-writer-wins / silent flip across generations.
-	// PRE-STATED (declared now, before any of these three calls execute):
 	t.Log("PRE-STATED EXPECT LEG A.1: Activate(G1) -> err=nil, pointer.dataset.generation == G1 (first real activation).")
 	t.Log("PRE-STATED EXPECT LEG A.2 (BUG): Activate(G2) -> err=nil, NO ErrActivationConflict, pointer.dataset.generation == G2, _rev churns: a cross-generation flip is accepted blindly.")
 	t.Log("PRE-STATED EXPECT LEG A.3 (BUG): Activate(G1) AGAIN after G2 -> err=nil, NO ErrActivationConflict, pointer.dataset.generation == G1 again, _rev churns: last writer wins, silent flip back, no conflict error of any kind.")
@@ -569,15 +416,12 @@ func TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango(t *testing.T
 	a2 := runActivate("A.2 G2 over G1", g2)
 	a3 := runActivate("A.3 G1 again over G2", g1)
 
-	// --- LEG B: lost update / check-then-act (bulk-load pattern at
-	// service.go:206 resolve candidate -> :210 IsStaged -> :213 Activate).
 	t.Log("PRE-STATED EXPECT LEG B (BUG): reader resolves the active generation (observes G1 after LEG A), resolves its candidate G3 manifest (service.go:206) and only rechecks IsStaged (:210); a competing Activate(G2) moves the pointer in between; the reader's Activate(G3) (:213) then returns err=nil, the pointer lands on G3, and the competing G2 activation is silently discarded. No error, no revalidation of the stale read.")
 	readerObserved, readerObserveErr := lifecycle.ResolveActiveManifest(ctx, project)
 	t.Logf("OBSERVED [B.1 reader resolves active]: generation=%q err=%v (this is what the bulk-load caller sees before it picks a candidate)", readerObserved.Dataset.Generation, readerObserveErr)
 	if readerObserveErr != nil || readerObserved.Dataset.Generation != g1 {
 		t.Fatalf("PRECONDITION BROKEN: reader's initial active resolve should observe G1=%s, got %q err=%v", g1, readerObserved.Dataset.Generation, readerObserveErr)
 	}
-	// Candidate resolution exactly as service.go:206 (ReadManifest) + :210 gate.
 	candidateRef, refErr := publication.NewRef(project, g3)
 	if refErr != nil {
 		t.Fatalf("new ref: %v", refErr)
@@ -587,19 +431,15 @@ func TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango(t *testing.T
 		t.Fatalf("PRECONDITION BROKEN: service.go:206-equivalent ReadManifest(G3) failed: %+v err=%v", readerCandidate, candidateErr)
 	}
 	t.Logf("OBSERVED [B.2 reader resolves candidate]: ReadManifest(G3).IsStaged=%v state=%s (the only thing rechecked before :213 is IsStaged)", readerCandidate.IsStaged(), readerCandidate.State)
-	// Interleaved competing activation: the pointer moves after the reader read.
 	competitor := runActivate("B.3 competing Activate(G2)", g2)
 	if competitor.err != nil || gacPointerGeneration(competitor.after) != g2 {
 		t.Fatalf("PRECONDITION BROKEN: interleaved Activate(G2) failed (err=%v) or did not name G2 (pointer=%q)", competitor.err, gacPointerGeneration(competitor.after))
 	}
-	// The reader now activates the candidate chosen from its STALE read.
-	// (readerCandidate is the value ReadManifest returned before the pointer moved.)
 	reader := runActivate("B.4 stale reader Activate(G3)", g3)
-	lost := gacPointerGeneration(competitor.after) // G2, silently discarded
+	lost := gacPointerGeneration(competitor.after)
 	t.Logf("OBSERVED [B.5 lost update]: reader read active=%q at B.1; pointer moved to %q at B.3; reader's Activate(G3) err=%v landed %q => %q activation was overwritten with no error and no revalidation",
 		readerObserved.Dataset.Generation, lost, reader.err, gacPointerGeneration(reader.after), lost)
 
-	// --- LEG C: sound leg, re-Activate the SAME already-active generation twice.
 	t.Log("PRE-STATED EXPECT LEG C (SOUND): with G3 already active, Activate(G3) is the idempotent no-op branch of manifest_lifecycle.go:198-204 (`if active, err := s.ResolveActiveManifest(...); err == nil { if manifestIdentityEqual(active, candidate) { return nil } }`): err=nil, exactly ONE round trip (the pre-check read), ZERO activateAQL write legs, and pointer _rev does NOT churn. Same-generation re-activation must look different from LEG A/B cross-generation flips.")
 	revBefore := gacField(gacPointerDoc(t, ctx, client, project), "_rev")
 	c1 := runActivate("C.1 same generation again", g3)
@@ -613,11 +453,9 @@ func TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango(t *testing.T
 		t.Logf("OBSERVED LEG C (sound control, as pre-stated): same-generation re-activation is the :198-204 no-op branch — err=nil, 1 round trip, 0 write legs, _rev stable at %s across both calls.", revBefore)
 	}
 
-	// Independent cross-check that the key-read pointer is the one readers use.
 	roleMatches := gacPointerRoleCount(t, ctx, client, project)
 	t.Logf("OBSERVED pointer role-read cross-check: %d document(s) match recordType==\"active_generation\" AND project==%s (the selector used by readActiveAQL)", roleMatches, project)
 
-	// --- verdict, entirely from OBSERVED values.
 	crossGeneration := []gacFlip{a2, a3, competitor, reader}
 	blindCount, refused := 0, make([]string, 0, len(crossGeneration))
 	for _, flip := range crossGeneration {

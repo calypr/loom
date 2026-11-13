@@ -161,7 +161,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	previewRowID := string(previewIdentityBytes) // Preview GraphQL marshals row maps; the client later JSON.stringify's the parsed object.
+	previewRowID := string(previewIdentityBytes)
 	for _, rowID := range []string{
 		previewRowID,
 		`{"group_id":"cohort-a","group_revision_id":"grouprev_cell_trace_identity"}`,

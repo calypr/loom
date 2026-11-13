@@ -1,15 +1,5 @@
 package postgres
 
-// Offline contract tests for the pg-sql-21 unit-normalized projection
-// (unit_normalization.go): the registered shape goldens, the closed-surface
-// refusal table (every row built as exactly ONE mutation of the legal
-// baseline — the ALIVE discipline that proves the refusal is the mutation's
-// doing), the pinned-rule registry re-verification victims, the
-// unitAddPassUpper double derivation (big.Float here; the Python decimal
-// derivation is banked in the plan artifact), and the rule-binding
-// determinism gate. Live execution proof lives in
-// unit_normalization_production_test.go.
-
 import (
 	"context"
 	"encoding/json"
@@ -33,10 +23,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
-
-// ---------------------------------------------------------------------------
-// Legal baseline builders.
-// ---------------------------------------------------------------------------
 
 func sql21CentimeterFacts(t *testing.T) (unit.UnitIdentity, unit.UnitDimension, []unit.UnitConversionRule) {
 	t.Helper()
@@ -72,10 +58,6 @@ func sql21Steps(fields ...string) spec.Selector {
 	return spec.Selector{Steps: steps}
 }
 
-// sql21UnitExtract builds the exact shape lower/root_projection.go:320-335
-// emits for a centimeter normalization over Observation.valueQuantity.
-// mutate applies exactly one single-shape mutation to the built extract
-// (used by the refusal table; pass nil for the legal baseline).
 func sql21UnitExtract(t *testing.T, mutate func(*ir.PhysicalExtract)) *ir.PhysicalExtract {
 	t.Helper()
 	target, dimension, rules := sql21CentimeterFacts(t)
@@ -162,10 +144,6 @@ func sql21RenderError(t *testing.T, projection ir.PhysicalProjection) error {
 	return err
 }
 
-// sql21RulesParameters returns EVERY rules-shaped jsonb bind, decoded,
-// in argument order. A rules-shaped bind is a jsonb parameter whose
-// encoded text carries the renderer-minted source_system key; the auth
-// resource-path jsonb bind never matches.
 func sql21RulesParameters(t *testing.T, args []command.PostgreSQLParameter) [][]map[string]any {
 	t.Helper()
 	var all [][]map[string]any
@@ -186,11 +164,6 @@ func sql21RulesParameters(t *testing.T, args []command.PostgreSQLParameter) [][]
 	return all
 }
 
-// sql21RulesParameter decodes the one jsonb rule-set parameter the render
-// must carry, FAILING (not last-wins) unless the rules-shaped match count
-// is exactly one: the renderer mints exactly one shared bind per distinct
-// rule set (addParameter cache key unit_rules plus the canonical marshal),
-// so a second rules-shaped bind is a duplicate-bind regression.
 func sql21RulesParameter(t *testing.T, args []command.PostgreSQLParameter) []map[string]any {
 	t.Helper()
 	all := sql21RulesParameters(t, args)
@@ -200,8 +173,6 @@ func sql21RulesParameter(t *testing.T, args []command.PostgreSQLParameter) []map
 	return all[0]
 }
 
-// sql21RulesBindIndexes returns the $n indexes of every
-// jsonb_array_elements($n::jsonb) rules-lateral reference in the SQL.
 func sql21RulesBindIndexes(t *testing.T, sql string) []string {
 	t.Helper()
 	var indexes []string
@@ -213,12 +184,6 @@ func sql21RulesBindIndexes(t *testing.T, sql string) []string {
 
 var sql21RulesBindPattern = regexp.MustCompile(`jsonb_array_elements\(\$(\d+)::jsonb\)`)
 
-// TestSQL21IdenticalRuleSetsShareOneBind is the enforcing victim for the
-// load-bearing dedup claim (review thread on unit_normalization_test.go):
-// two unit projections over one plan with the SAME pinned rule set must
-// share the single rules bind. Dropping the addParameter cache key would
-// mint two binds and pass the rest of the suite silently — this test dies
-// at either layer: two rules-shaped args, or two distinct $n references.
 func TestSQL21IdenticalRuleSetsShareOneBind(t *testing.T) {
 	first := sql21UnitProjection(t, nil)
 	first.Name = "length_cm"
@@ -249,10 +214,6 @@ func TestSQL21IdenticalRuleSetsShareOneBind(t *testing.T) {
 	}
 }
 
-// TestSQL21DistinctRuleSetsGetSeparateBinds is the over-merge control:
-// two DIFFERENT pinned rule sets in one plan must mint two binds with two
-// distinct indexes (a cache key that ignored the rule-set text would
-// collapse them and execute the wrong conversions).
 func TestSQL21DistinctRuleSetsGetSeparateBinds(t *testing.T) {
 	binding, err := ir.NewPostgresStorageBinding("loom_offline")
 	if err != nil {
@@ -271,10 +232,6 @@ func TestSQL21DistinctRuleSetsGetSeparateBinds(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registered-shape goldens.
-// ---------------------------------------------------------------------------
-
 func TestSQL21UnitProjectionRendersRegisteredShape(t *testing.T) {
 	binding, err := ir.NewPostgresStorageBinding("loom_offline")
 	if err != nil {
@@ -292,26 +249,20 @@ func TestSQL21UnitProjectionRendersRegisteredShape(t *testing.T) {
 		`loom_un_candidate.r ->> 'source_code' = loom_un_identity.code_text`,
 		"UNIT_IDENTITY_UNKNOWN", "UNIT_RULE_AMBIGUOUS",
 		"COALESCE(jsonb_agg(", "ORDER BY loom_un_value.v_ord), '[]'::jsonb)",
-		// Selector documents are read through the package's single
-		// path-binding shape: base #> $n::text[] (null_semantics.go).
 		"#> $", "::text[]",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("SQL missing %q:\n%s", want, sql)
 		}
 	}
-	// The null drop must precede the identity guard in the assembled text
-	// (the offline mirror of the AQL call_test.go:120-123 ordering pin).
 	dropIndex := strings.Index(sql, "loom_un_item.v IS NOT NULL")
 	guardIndex := strings.Index(sql, "UNIT_IDENTITY_UNKNOWN")
 	if dropIndex < 0 || guardIndex < 0 || dropIndex > guardIndex {
 		t.Fatalf("null drop must precede the identity guard:\n%s", sql)
 	}
-	// The display label is never read: no 'unit' property extraction.
 	if strings.Contains(sql, `->> 'unit'`) || strings.Contains(sql, `#>> '{unit}`) {
 		t.Fatalf("display label consulted:\n%s", sql)
 	}
-	// Selector paths travel only as parameters, never as SQL text.
 	for _, leaked := range []string{"valueQuantity", "value", "system", "code"} {
 		if strings.Contains(sql, "'"+leaked+"'") {
 			t.Fatalf("selector segment %q leaked into SQL text:\n%s", leaked, sql)
@@ -329,24 +280,17 @@ func TestSQL21UnitProjectionRendersRegisteredShape(t *testing.T) {
 		rules[1]["source_system"] != "http://unitsofmeasure.org" || rules[1]["source_code"] != "cm" {
 		t.Fatalf("identity rule binding = %#v", rules[1])
 	}
-	// Defense-in-depth arms are assembled into every fragment: the
-	// execution-time tie guard and the IEEE band boundaries.
 	for _, arm := range []string{"COUNT(*) > 1", "UNIT_RULE_AMBIGUOUS", callDoubleMulDivPassUpper[:24], unitAddPassUpper[:24]} {
 		if !strings.Contains(sql, arm) {
 			t.Fatalf("fragment missing registered arm %q", arm)
 		}
 	}
-	// Determinism: rendering the same plan twice yields byte-identical
-	// SQL and Args.
 	second, err := RenderPhysicalPlan(sql21Plan(sql21UnitProjection(t, nil)), binding)
 	if err != nil || second.SQL != rendered.SQL || !reflect.DeepEqual(second.Args, rendered.Args) {
 		t.Fatalf("unit projection render is not deterministic")
 	}
 }
 
-// TestSQL21AffineProjectionRegistersOffset pins that an affine (Cel →
-// [degF]) rule binds its exact scale/offset pair into the one jsonb
-// parameter (the executed arithmetic itself is the live leg).
 func TestSQL21AffineProjectionRegistersOffset(t *testing.T) {
 	target, dimension, rules := sql21FahrenheitFacts(t)
 	valueSelector := sql21Steps("valueQuantity", "value")
@@ -391,8 +335,6 @@ func TestSQL21AffineProjectionRegistersOffset(t *testing.T) {
 	}
 }
 
-// TestSQL21IndexedQuantityRegistersBoundIndex registers the non-negative
-// indexed step: the index crosses as one bound integer, never SQL text.
 func TestSQL21IndexedQuantityRegistersBoundIndex(t *testing.T) {
 	projection := sql21UnitProjection(t, func(x *ir.PhysicalExtract) {
 		index := 2
@@ -418,9 +360,6 @@ func TestSQL21IndexedQuantityRegistersBoundIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}
-	// The registered reading: the mixed key/index path crosses as ONE
-	// bound text[] element list (documentPathStepsFromExpression), the
-	// index carried as its canonical decimal text — never as SQL text.
 	var boundIndexPath bool
 	for _, argument := range rendered.Args {
 		if argument.Type != command.PostgreSQLParameterText {
@@ -439,14 +378,6 @@ func TestSQL21IndexedQuantityRegistersBoundIndex(t *testing.T) {
 	}
 }
 
-// TestSQL21NegativeIndexTailArm registers the pg-sql-16 G1 closure: a
-// negative indexed selector step renders the oracle-pinned tail-index CASE
-// (oracle receipts o1-idx-*.wire, ArangoDB 3.12.4-3: arrays tail-index with
-// out-of-range null, objects read the decimal-text property, falsy/null/
-// missing read null). The step splits the path: prefix and suffix cross as
-// ordinary bound text[] chunks, the step itself is the jsonb_typeof CASE
-// with the index carried as a bound bigint — never SQL text (S7 kills an
-// inverted CASE, L7 executes the oracle classes live).
 func TestSQL21NegativeIndexTailArm(t *testing.T) {
 	projection := sql21UnitProjection(t, func(x *ir.PhysicalExtract) {
 		index := -1
@@ -473,8 +404,6 @@ func TestSQL21NegativeIndexTailArm(t *testing.T) {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}
 	sql := rendered.SQL
-	// The registered CASE, once per selector path, with the tail branch
-	// and the object property branch in their pinned shapes.
 	for _, fragment := range []string{
 		"CASE WHEN jsonb_typeof(",
 		"THEN (CASE WHEN $",
@@ -488,7 +417,6 @@ func TestSQL21NegativeIndexTailArm(t *testing.T) {
 			t.Fatalf("tail-arm SQL lost fragment %q:\n%s", fragment, sql)
 		}
 	}
-	// The index crosses ONLY as a bound bigint, never as SQL text.
 	var boundIndex bool
 	for _, argument := range rendered.Args {
 		if argument.Type == command.PostgreSQLParameterBigint {
@@ -505,10 +433,6 @@ func TestSQL21NegativeIndexTailArm(t *testing.T) {
 		t.Fatalf("negative index leaked into SQL text:\n%s", sql)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Refusal table — every row is exactly ONE mutation of the legal baseline.
-// ---------------------------------------------------------------------------
 
 func TestSQL21RefusalTable(t *testing.T) {
 	for _, caseItem := range []struct {
@@ -617,10 +541,6 @@ func TestSQL21RefusalTable(t *testing.T) {
 			}
 		})
 	}
-	// The same postures refused end-to-end where ir.Validate leaves them
-	// legal, proving the public entry reaches the unit arm (the ALIVE
-	// control pair for the table: the legal baseline renders in
-	// TestSQL21UnitProjectionRendersRegisteredShape).
 	for _, caseItem := range []struct {
 		name    string
 		mutate  func(*ir.PhysicalExtract)
@@ -646,7 +566,6 @@ func TestSQL21RefusalTable(t *testing.T) {
 			}
 		})
 	}
-	// Render-walk refusals: unknown variable and derived-row source.
 	t.Run("unknown source variable", func(t *testing.T) {
 		projection := sql21UnitProjection(t, nil)
 		projection.Expression.Extract.Source.Variable = "elsewhere"
@@ -670,11 +589,6 @@ func TestSQL21RefusalTable(t *testing.T) {
 	})
 }
 
-// sql21ContractError drives the renderer's own closed contract —
-// classification (the exact path classifyExtractionProjections takes) and
-// the render walk — the same direct-contract discipline objects_test.go
-// uses for composite payloads. ir.Validate guards the public entry first
-// and is tested separately (ir/unit_validation_test.go).
 func sql21ContractError(t *testing.T, projection ir.PhysicalProjection, override *rowScope) error {
 	t.Helper()
 	resourceType := "Observation"
@@ -711,9 +625,6 @@ func sql21ContractError(t *testing.T, projection ir.PhysicalProjection, override
 	return nil
 }
 
-// TestSQL21PresenceRefusedOnUnitProjection keeps presence metadata out of
-// the unit arm (the CALL precedent), even though it pairs legitimately
-// with a plain selector.
 func TestSQL21PresenceRefusedOnUnitProjection(t *testing.T) {
 	projection := sql21UnitProjection(t, nil)
 	projection.Presence = &ir.PhysicalProjectionPresence{
@@ -726,8 +637,6 @@ func TestSQL21PresenceRefusedOnUnitProjection(t *testing.T) {
 	}
 }
 
-// TestSQL21ClosedSliceRefusesUnitProjection mirrors the CALL/OBJECT/SLICE
-// spine-only ruling: RenderSelectorExtraction keeps refusing.
 func TestSQL21ClosedSliceRefusesUnitProjection(t *testing.T) {
 	binding, err := ir.NewPostgresStorageBinding("loom_offline")
 	if err != nil {
@@ -742,12 +651,7 @@ func TestSQL21ClosedSliceRefusesUnitProjection(t *testing.T) {
 	}
 }
 
-// TestSQL21OperandPathsKeepLegacyRefusal proves the intercept opened only
-// the registered projection posture: unit-carrying extracts on the CALL
-// operand and distinct_present_one paths keep their byte-identical legacy
-// refusals.
 func TestSQL21OperandPathsKeepLegacyRefusal(t *testing.T) {
-	// distinct_present_one array operand (calls.go:1667 message).
 	unitExtract := sql21UnitExtract(t, nil)
 	call := &ir.PhysicalCall{Name: "distinct_present_one", TargetKind: "DECIMAL", Args: []ir.PhysicalExpression{{
 		Kind:         ir.PhysicalExtractExpression,
@@ -764,8 +668,6 @@ func TestSQL21OperandPathsKeepLegacyRefusal(t *testing.T) {
 		t.Fatalf("distinct_present_one unit refusal drifted: %v", err)
 	}
 
-	// Scalar EXTRACT call operand through the selectors.go:416 gate: the
-	// legacy operand message must stay byte-identical.
 	scalarUnit := sql21UnitExtract(t, nil)
 	scalarUnit.Selector = sql21Steps("valueQuantity", "value")
 	callOperand := &ir.PhysicalCall{Name: "add", Args: []ir.PhysicalExpression{
@@ -785,18 +687,6 @@ func TestSQL21OperandPathsKeepLegacyRefusal(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Constants and binding gates.
-// ---------------------------------------------------------------------------
-
-// TestSQL21UnitAddPassUpperDoubleDerivation is derivation one of the
-// unitAddPassUpper pin (derivation two — Python's decimal module — is
-// banked in the plan artifact per the coordinator condition): DBL_MAX −
-// 2^975, exact in big.Float. It also pins the margin ordering the arms
-// assume: the pass boundary sits strictly below DBL_MAX − 2^974 (one full
-// margin above the executed-vs-tested error budget) and strictly above
-// DBL_MAX − 2^976 (so the band is not vacuously tight), and strictly
-// below the registered overflow tie callDoubleOverflowBound.
 func TestSQL21UnitAddPassUpperDoubleDerivation(t *testing.T) {
 	dblMax := new(big.Float).SetPrec(2048)
 	twoPow971 := new(big.Float).SetPrec(2048).SetInt(new(big.Int).Lsh(big.NewInt(1), 971))
@@ -817,7 +707,6 @@ func TestSQL21UnitAddPassUpperDoubleDerivation(t *testing.T) {
 	if got.Cmp(overBound) >= 0 {
 		t.Fatalf("unitAddPassUpper must sit below the overflow tie")
 	}
-	// DBL_MAX - 2^974 > unitAddPassUpper > DBL_MAX - 2^976 (margin band).
 	higher := new(big.Float).SetPrec(2048).Sub(dblMax, new(big.Float).SetPrec(2048).SetInt(new(big.Int).Lsh(big.NewInt(1), 974)))
 	lower := new(big.Float).SetPrec(2048).Sub(dblMax, new(big.Float).SetPrec(2048).SetInt(new(big.Int).Lsh(big.NewInt(1), 976)))
 	if got.Cmp(higher) >= 0 || got.Cmp(lower) <= 0 {
@@ -826,11 +715,6 @@ func TestSQL21UnitAddPassUpperDoubleDerivation(t *testing.T) {
 }
 
 func TestSQL21SelectorStepValidatorDirect(t *testing.T) {
-	// The renderer-safe segment gate and the empty-selector gate are
-	// exercised on the step validator directly: through classification
-	// the exact-sibling canonical path check answers first (the sibling
-	// names are fixed by the contract), so only the direct call isolates
-	// this boundary.
 	if _, err := unitProjectionSelectorSteps("p", "code",
 		spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity"}, {Field: "c de"}}}); err == nil ||
 		!strings.Contains(err.Error(), "not renderer-safe") {
@@ -867,27 +751,11 @@ func TestSQL21RulesBindingDeterminismAndFinitenessGate(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Delta-scoped fixture audit. runVerifyNamespaceDeltaAudit is the
-// prefix-parameterized runner the coordinator's queue-order condition asks
-// for: it snapshots one LIKE namespace around m.Run(), so a later ticket
-// registers its own namespace by calling it with its own prefix and its own
-// tracked set at zero new runner cost. sql21RunDeltaAudit is this ticket's
-// composition over verify_sql21_ (the unescaped-underscore LIKE, matching
-// the auditNoLeftoverVerifyNamespace discipline in main_test.go; the exact
-// zero-survivor prefix verify_sql21v1_ is audited through the existing
-// parameterized list there).
-// ---------------------------------------------------------------------------
-
 var (
 	sql21FixturesMu      sync.Mutex
 	sql21TrackedFixtures = map[string]bool{}
 )
 
-// runVerifyNamespaceDeltaAudit wraps inner with a before/after census of
-// databases and schemas matching prefix (SQL LIKE, underscores escaped).
-// A tracked name that survives is a hard failure; an untracked name born
-// during the run is noted, not attributed (sibling lane).
 func runVerifyNamespaceDeltaAudit(prefix string, mu *sync.Mutex, tracked map[string]bool, inner func() int) int {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {

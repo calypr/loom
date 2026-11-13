@@ -109,7 +109,7 @@ func TestNumericAggregateLiteralValuesAgainstArango(t *testing.T) {
 				}
 				want := *tc.want
 				if name == "mean_value" {
-					want /= 3 // 2, 0, and 4 contribute; the null is ignored.
+					want /= 3
 				}
 				value, ok := got.(float64)
 				if !ok || math.Abs(value-want) > 1e-9 {

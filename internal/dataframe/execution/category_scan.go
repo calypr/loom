@@ -68,8 +68,6 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 	return CategoryScanResult{}, fmt.Errorf("category scan output %q was not found", request.Output)
 }
 
-// previewRowsPort returns the preview row port, falling back to the
-// canonical row port when no preview override is installed.
 func (e *Engine) previewRowsPort() SourceRows {
 	if e.previewSourceRows != nil {
 		return e.previewSourceRows
@@ -87,14 +85,6 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	if err := ctx.Err(); err != nil {
 		return CategoryScanResult{}, err
 	}
-	// pg-exec-06: exhaustive backend dispatch over the tagged command, keyed
-	// the same way TableShapeExclusionsCompiled dispatches (pg-exec-12). The
-	// PostgreSQL arm never consults the Arango accelerators (category and
-	// preview-covering index specs and the overflow witness are compiler-
-	// guaranteed nil on PostgreSQL; a hand-attached witness or spec cannot
-	// smuggle an Arango callback into a PostgreSQL scan), and the AQL arm
-	// below stays byte-identical to the pre-dispatch executor, including its
-	// contract-free row requests.
 	switch compiled.Command.Backend() {
 	case command.CompiledBackendPostgreSQL:
 		return e.scanCategoriesPostgreSQL(ctx, compiled)
@@ -176,19 +166,6 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	return CategoryScanResult{Values: values, Complete: !overflow, Overflow: overflow, Proof: compiled.Proof}, nil
 }
 
-// scanCategoriesPostgreSQL executes the PostgreSQL arm of a category scan:
-// the single bounded distinct page produced by the registered pg-sql-25
-// terminal. The declared column contract is the rendered positional pair
-// (compiler.CompiledCategoryScanQuery.PresentColumn/ValueColumn), which the
-// PostgreSQL row port requires and aligns to the statement's c0/c1 aliases by
-// index. There is no witness leg: the compiler never attaches one to a
-// PostgreSQL command, the bounded maxValues+1 page owns truncation detection,
-// and a foreign-tagged witness is refused before the port rather than being
-// dispatched at it. Honesty law: a port error, a decode violation, or a
-// cancelled stream is returned as an error with a zero result — the scan is
-// never reported complete, and ConclusiveMissing (an Arango witness outcome
-// that requires PresenceTracked=false) is unreachable on this arm, whose
-// statements always carry the total presence bit.
 func (e *Engine) scanCategoriesPostgreSQL(ctx context.Context, compiled compiler.CompiledCategoryScanQuery) (CategoryScanResult, error) {
 	if compiled.OverflowWitness != nil {
 		return CategoryScanResult{}, fmt.Errorf("category scan: a PostgreSQL command must not carry an overflow witness; the bounded maxValues+1 page owns truncation detection")
@@ -231,17 +208,6 @@ func (e *Engine) scanCategoriesPostgreSQL(ctx context.Context, compiled compiler
 	return CategoryScanResult{Values: values, Complete: !overflow, Overflow: overflow, Proof: compiled.Proof}, nil
 }
 
-// decodePostgreSQLCategoryValue maps one jsonb-decoded value column onto the
-// cross-backend category value contract, following the post-query materializer
-// (postquery.go): the adapter has already delivered SQL NULL as nil, a stored
-// JSON value (including the JSON null scalar) arrives as raw JSON bytes and
-// decodes through encoding/json exactly as the Arango and ClickHouse driver
-// paths deliver it — so a stored JSON null converges to Go nil, numbers are
-// float64, and booleans/strings are Go natives. Decoding is fail-closed: empty
-// or malformed bytes are a typed error carrying no value, never a silent nil.
-// Any other Go type is refused: the PostgreSQL adapter emits jsonb columns
-// only as raw JSON bytes, so a Go native here means a miswired arm, and a
-// miswired arm must not pass natives through unnoticed.
 func decodePostgreSQLCategoryValue(raw any) (any, error) {
 	switch typed := raw.(type) {
 	case nil:

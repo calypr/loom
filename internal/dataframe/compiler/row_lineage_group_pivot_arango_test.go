@@ -41,8 +41,6 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 		{id: "d_explicit_null", patient: "Patient/target", project: project, generation: generation, authPath: "/allowed", status: nil},
 		{id: "e_missing_status", patient: "Patient/target", project: project, generation: generation, authPath: "/allowed"},
 		{id: "other_active", patient: "Patient/other", project: project, generation: generation, authPath: "/allowed", status: &active},
-		// These match the requested Pivot row keys and category, but each violates
-		// one source boundary. They must affect neither preview counts nor lineage.
 		{id: "z_denied", patient: "Patient/target", project: project, generation: generation, authPath: "/denied", status: &active},
 		{id: "z_old_generation", patient: "Patient/target", project: project, generation: "old-generation", authPath: "/allowed", status: &active},
 		{id: "z_foreign_project", patient: "Patient/target", project: foreignProject, generation: generation, authPath: "/allowed", status: &active},
@@ -183,8 +181,6 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 		t.Fatalf("wrong-construction Group/Pivot identity disclosed source rows: %#v", forged)
 	}
 
-	// The unlisted category belongs to another Pivot row and sorts after the
-	// requested contributor page. Full-scope policy validation must still fail.
 	insert([]fixture{{id: "zz_unlisted_other", patient: "Patient/unrelated", project: project, generation: generation, authPath: "/allowed", status: &unlisted}})
 	lineage := compilePage(rowID, 0)
 	err = client.QueryRows(ctx, testAQLText(t, lineage.Command), 32, testAQLBinds(t, lineage.Command), func(map[string]any) error { return nil })

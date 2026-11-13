@@ -12,29 +12,18 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// ConstructionSourceProjectionID names the implicit source projection stage
-// that precedes every authored construction step.
 const ConstructionSourceProjectionID = "source_projection"
 
-// ConstructionCohortGroupStageID identifies the compiler-owned stage inserted
-// at the persisted explicit-group boundary. Authored steps may reference it
-// only as the exact effective predecessor when a cohort is present.
 const ConstructionCohortGroupStageID = "group_rows"
 
 const maxConstructionSteps = 128
 
 type Construction struct {
-	Version int `json:"version"`
-	// SourceColumns is populated by the resolved compiler frontend. It binds
-	// persisted projection-slot IDs to the exact public names emitted by the
-	// source compiler; authoring documents keep their own single source of truth.
+	Version       int                `json:"version"`
 	SourceColumns []StageColumn      `json:"sourceColumns,omitempty"`
 	Steps         []ConstructionStep `json:"steps"`
 }
 
-// ConstructionStep applies one typed operation to the preceding stage and
-// declares that stage's complete output schema. Column IDs are stable across
-// display-name edits; Names are physical output names.
 type ConstructionStep struct {
 	ID        string                 `json:"id"`
 	Inputs    []ConstructionInputRef `json:"inputs"`
@@ -43,8 +32,6 @@ type ConstructionStep struct {
 	RowValues []ConstructionRowValue `json:"rowValues,omitempty"`
 }
 
-// ConstructionRowValue collects distinct source values from rows that
-// contribute to a grouped or pivoted output row.
 type ConstructionRowValue struct {
 	InputColumnID  string                        `json:"inputColumnId,omitempty"`
 	FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
@@ -68,9 +55,6 @@ const (
 	ConstructionWorkspaceOutputInput  ConstructionInputKind = "WORKSPACE_OUTPUT"
 )
 
-// ConstructionInputRef is a closed reference to an input row set. Workspace
-// output references name a sibling in the same immutable bundle; table
-// revision references identify an exact immutable publication.
 type ConstructionInputRef struct {
 	Kind       ConstructionInputKind `json:"kind"`
 	StepID     string                `json:"stepId,omitempty"`
@@ -79,18 +63,12 @@ type ConstructionInputRef struct {
 	OutputID   string                `json:"outputId,omitempty"`
 }
 
-// StageColumn is the logical schema contract for one stage output. Type is an
-// optional authoring hint (or "INFER"); the compiler derives the authoritative
-// type from source and operation semantics.
 type StageColumn struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Label    string `json:"label,omitempty"`
-	Type     string `json:"type,omitempty"`
-	Nullable bool   `json:"nullable,omitempty"`
-	// SourceChild keeps the stable structural provenance for a compiler-
-	// generated child of an INDEXED source slot. It is populated only on the
-	// resolved compiler contract, never persisted as a second authored schema.
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	Label       string               `json:"label,omitempty"`
+	Type        string               `json:"type,omitempty"`
+	Nullable    bool                 `json:"nullable,omitempty"`
 	SourceChild *lineage.SourceChild `json:"sourceChild,omitempty"`
 }
 
@@ -112,8 +90,6 @@ const (
 	ConstructionRelatedFieldOp       ConstructionOperationKind = "RELATED_FIELD"
 )
 
-// ConstructionOperation is a closed tagged union. Its operands refer to
-// stable stage column IDs, never mutable display or physical names.
 type ConstructionOperation struct {
 	Kind               ConstructionOperationKind       `json:"kind"`
 	Pivot              *ConstructionPivot              `json:"pivot,omitempty"`
@@ -178,17 +154,12 @@ const (
 	RelatedEligibilityCountAtLeast = "COUNT_AT_LEAST"
 )
 
-// ConstructionRelatedField projects one scalar field from the exact terminal
-// resource retained by a preceding RELATED_EXPAND stage.
 type ConstructionRelatedField struct {
 	ChoiceID       string                         `json:"choiceId"`
 	Source         ConstructionRelatedFieldSource `json:"source"`
 	OutputColumnID string                         `json:"outputColumnId"`
 }
 
-// ConstructionRelatedPredicate narrows the selected source field. CandidateID
-// is repeated deliberately so a recipe cannot silently apply a predicate to a
-// different source field.
 type ConstructionRelatedPredicate struct {
 	CandidateID string          `json:"candidateId"`
 	Quantifier  ArrayQuantifier `json:"quantifier,omitempty"`
@@ -201,8 +172,6 @@ type ConstructionRelatedRepeatedBoundary struct {
 	MaxItems int    `json:"maxItems"`
 }
 
-// ConstructionRelatedFieldSource identifies an exact scalar leaf. Cardinality
-// is many when the path crosses one or more repeated boundaries.
 type ConstructionRelatedFieldSource struct {
 	CandidateID        string                                `json:"candidateId"`
 	NodeID             string                                `json:"nodeId"`
@@ -275,8 +244,6 @@ type ConstructionUnpivotInput struct {
 	Key      TableScalar `json:"key"`
 }
 
-// ConstructionGroup reduces the preceding row set by zero or more typed
-// columns. An empty GroupKeys slice summarizes the whole table.
 type ConstructionGroup struct {
 	ConstructionID   string                            `json:"constructionId"`
 	MissingKeyPolicy ConstructionGroupMissingKeyPolicy `json:"missingKeyPolicy"`
@@ -284,8 +251,6 @@ type ConstructionGroup struct {
 	Aggregates       []ConstructionGroupAggregate      `json:"aggregates,omitempty"`
 }
 
-// ConstructionCodedGroup groups source rows by a tuple read from the same
-// repeated FHIR Coding object.
 type ConstructionCodedGroup struct {
 	ConstructionID                    string                            `json:"constructionId"`
 	Source                            ConstructionCodedGroupSource      `json:"source"`
@@ -306,8 +271,6 @@ type ConstructionCodedGroupSource struct {
 	Route        []ConstructionRelatedRouteStep `json:"route"`
 }
 
-// ConstructionCodedPivot evaluates selected codes against values owned by the
-// same repeated FHIR item, then emits one row per direct root resource.
 type ConstructionCodedPivot struct {
 	ConstructionID    string                           `json:"constructionId"`
 	Source            ConstructionCodedPivotSource     `json:"source"`
@@ -385,17 +348,12 @@ func (group *ConstructionGroup) UnmarshalJSON(raw []byte) error {
 }
 
 type ConstructionGroupKey struct {
-	InputColumnID  string                        `json:"inputColumnId,omitempty"`
-	OutputColumnID string                        `json:"outputColumnId"`
-	FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
-	// SemanticCategory is the server-resolved coded field family. It is
-	// mutually exclusive with InputColumnID so legacy scalar keys keep their
-	// original wire shape.
+	InputColumnID    string                             `json:"inputColumnId,omitempty"`
+	OutputColumnID   string                             `json:"outputColumnId"`
+	FieldSource      *ConstructionGroupFieldSource      `json:"fieldSource,omitempty"`
 	SemanticCategory *ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
 }
 
-// ConstructionGroupFieldSource binds one source variant to one exact compiler
-// source context. It is private input to Group, not a public stage column.
 type ConstructionGroupFieldSource struct {
 	Kind          string                             `json:"kind"`
 	ChoiceID      string                             `json:"choiceId,omitempty"`
@@ -404,9 +362,6 @@ type ConstructionGroupFieldSource struct {
 	SourceShapeID string                             `json:"sourceShapeId,omitempty"`
 	Input         *ConstructionGroupFieldSourceInput `json:"input,omitempty"`
 
-	// These flattened fields are accepted only for durable local bindings
-	// written before the source sum was introduced. Validation normalizes them
-	// to Input.Kind=CURRENT_STAGE and rejects them alongside Input.
 	SourceRole        string `json:"sourceRole,omitempty"`
 	OccurrenceID      string `json:"occurrenceId,omitempty"`
 	OwnerResourceType string `json:"ownerResourceType,omitempty"`
@@ -426,8 +381,6 @@ func (source *ConstructionGroupFieldSource) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ConstructionGroupFieldSourceInput is a tagged sum. Exactly one payload is
-// present and it must match Kind.
 type ConstructionGroupFieldSourceInput struct {
 	Kind              string                                         `json:"kind"`
 	CurrentStage      *ConstructionGroupCurrentStageFieldSource      `json:"currentStage,omitempty"`
@@ -471,9 +424,6 @@ type ConstructionGroupCurrentStageFieldSource struct {
 }
 
 type ConstructionGroupRelatedOccurrenceFieldSource struct {
-	// RouteID is compiler/capability metadata. It is intentionally omitted from
-	// the durable recipe because the route facts and sourceShapeId already bind
-	// the exact traversal.
 	RouteID            string                              `json:"-"`
 	AnchorOccurrenceID string                              `json:"anchorOccurrenceId"`
 	AnchorNodeID       string                              `json:"anchorNodeId"`
@@ -517,8 +467,6 @@ const (
 	ConstructionGroupCodingEmptyPolicyError   ConstructionGroupCodingEmptyPolicy = "ERROR"
 )
 
-// ConstructionGroupSemanticCategory pins one exact observed coding family.
-// Version is empty only for the versionless family; it is never a wildcard.
 type ConstructionGroupSemanticCategory struct {
 	Kind         string `json:"kind"`
 	BindingID    string `json:"bindingId,omitempty"`
@@ -549,9 +497,6 @@ const (
 	ConstructionGroupMean          ConstructionGroupAggregateOp = "MEAN"
 )
 
-// ConstructionExpand replaces one array-valued stage column with one row per
-// item. OrdinalColumnID is optional; row identity always includes the zero-
-// based item ordinal, including when the ordinal is not exposed publicly.
 type ConstructionExpand struct {
 	ConstructionID  string               `json:"constructionId"`
 	InputColumnID   string               `json:"inputColumnId"`
@@ -564,8 +509,6 @@ func (construction Construction) Validate(sourceFields []Field) error {
 	return construction.validate(sourceFields, nil)
 }
 
-// ValidateWithGroupRows validates construction against the effective stage
-// sequence formed by inserting the pinned cohort after GroupRows.AfterStepID.
 func (construction Construction) ValidateWithGroupRows(sourceFields []Field, groupRows *GroupRows) error {
 	if groupRows == nil {
 		return construction.Validate(sourceFields)
@@ -585,9 +528,6 @@ func (construction Construction) validate(sourceFields []Field, groupRows *Group
 	}
 	sourceColumns := append([]StageColumn(nil), construction.SourceColumns...)
 	if len(sourceColumns) == 0 {
-		// Recipe-only callers can validate simple field projections without a
-		// resolved source schema. Explorer compilation supplies SourceColumns so
-		// aggregate, lookup, and other projection variants retain slot identity.
 		sourceColumns = make([]StageColumn, 0, len(sourceFields))
 		for _, field := range sourceFields {
 			if strings.TrimSpace(field.ColumnID) == "" {
@@ -598,9 +538,6 @@ func (construction Construction) validate(sourceFields []Field, groupRows *Group
 	}
 	allowEmptyCodedPivotSource := len(sourceColumns) == 0 && len(sourceFields) == 0 && len(construction.Steps) > 0 &&
 		construction.Steps[0].Operation.Kind == ConstructionCodedPivotOp
-	// A new rooted output can intentionally start with no user-selected
-	// columns. A direct root RELATED_EXPAND can be its first operation because
-	// the compiler supplies and verifies the hidden source identity.
 	allowEmptyRootRelatedExpandSource := len(construction.Steps) > 0 &&
 		construction.Steps[0].Operation.Kind == ConstructionRelatedExpandOp &&
 		construction.Steps[0].Operation.RelatedExpand != nil && construction.Steps[0].Operation.RelatedExpand.AnchorColumnID == "_key"
@@ -922,10 +859,6 @@ func validateSourceChildLineage(columns []StageColumn) error {
 	return nil
 }
 
-// TerminalCombineStep reports whether this construction is the standalone
-// terminal Combine form. It deliberately excludes source and intermediate
-// stages; those require a materialized engine boundary before ClickHouse can
-// consume their rows.
 func (construction Construction) TerminalCombineStep() (ConstructionStep, bool) {
 	if len(construction.Steps) != 1 || construction.Steps[0].Operation.Kind != ConstructionCombineOp {
 		return ConstructionStep{}, false
@@ -1628,9 +1561,6 @@ func validConstructionLogicalType(value string) bool {
 	}
 }
 
-// IsValidConstructionLogicalType reports whether a construction stage can
-// declare this logical type. Explorer capability choices use the same rule so
-// they cannot advertise a type the persisted recipe validator will reject.
 func IsValidConstructionLogicalType(value string) bool {
 	return validConstructionLogicalType(value)
 }

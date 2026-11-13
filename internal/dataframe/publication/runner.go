@@ -13,8 +13,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// Publish consumes each stream once and keeps at most one bounded batch in
-// memory. A target is not committed until every stream has passed validation.
 func Publish(ctx context.Context, target Target, identity PublicationIdentity, outputs []OutputStream, limits Limits) (Result, error) {
 	if target == nil {
 		return Result{}, fmt.Errorf("publication target is required")
@@ -232,7 +230,6 @@ func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStr
 						row["auth_resource_path"] = ""
 					}
 				}
-				// project_id is Loom-owned metadata; never trust a source row value.
 				row["project_id"] = identity.Project
 				return visit(row)
 			})

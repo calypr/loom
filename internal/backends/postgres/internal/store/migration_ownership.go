@@ -1,31 +1,3 @@
-// Authoritative PostgreSQL migration-history ownership record (arch-backend-05).
-//
-// This file records authority, nothing else. Each production PostgreSQL
-// schema has exactly one history owner: the package that embeds the complete
-// ordered SQL for that schema's ledger and whose MigrateSchema/OwnerMigrations
-// is the only production path that applies it. The runner in migrate.go owns
-// the migration protocol; this file names who owns each history's content.
-//
-// Guarantees this record makes auditable:
-//   - Complete: every runtime-needed production history is listed with every
-//     version/name/checksum it contains. Test-only assembly (os.DirFS over
-//     tests/ or testdata/ fragments) is not a legitimate source of production
-//     DDL; fragments listed here live in their owner package's embed.
-//   - Immutable: entries restate the applied identity of already-released
-//     migrations. A new migration is appended by its owner as a NEW version
-//     and appended here in the same change; editing or removing an existing
-//     entry here, or its SQL bytes, is refused by the runner's ledger checks
-//     and by TestPostgresMigrationOwnershipContract.
-//   - Exclusive: ValidateAssignment rejects, before any DDL or connection
-//     open, assigning two series whose pinned ledgers disagree at any shared
-//     version to one schema. Sharing a database is never treated as
-//     cross-domain atomicity: each domain method remains independently
-//     atomic.
-//
-// This is not a migration engine: it executes nothing, discovers nothing, and
-// imports no owner package. TestPostgresMigrationOwnershipContract (external
-// test package) imports every owner and fails on any drift between this
-// record and the owners' embedded bytes.
 package postgres
 
 import (
@@ -35,58 +7,27 @@ import (
 	"sort"
 )
 
-// Sentinel error for ownership validation failures.
 var (
-	// ErrInvalidAssignment reports a schema-ownership assignment this
-	// record refuses: an unknown series, a schema name the runner would
-	// reject, or two series with conflicting pinned history assigned to
-	// one schema.
 	ErrInvalidAssignment = errors.New("postgres: invalid migration ownership assignment")
 )
 
-// SeriesID names one authoritative migration history (one schema's ledger).
 type SeriesID string
 
-// The six production series. The set is closed for production PostgreSQL
-// state: a new schema role needs a new series registered here together with
-// an owner package that embeds its complete history.
 const (
-	// SeriesSource is the source/graph store ledger owned by
-	// internal/backends/postgres/internal/store (resource, edge, inventory, field profile,
-	// batch ledger, generation manifest).
-	SeriesSource SeriesID = "source"
-	// SeriesExplorerControl is the Explorer control-plane ledger owned by
-	// internal/backends/postgres/internal/explorer (owner, drafts, receipts, revisions,
-	// capabilities, interpretations, selections, explicit groups).
-	SeriesExplorerControl SeriesID = "explorer_control"
-	// SeriesPublicationControl is the publication control-plane ledger
-	// owned by internal/backends/postgres/internal/publication (bundle catalog,
-	// leases, checkpoints, private artifact catalog, read pins).
-	SeriesPublicationControl SeriesID = "publication_control"
-	// SeriesDatasetRelease is the dataset release/generation lane ledger
-	// owned by internal/backends/postgres/internal/dataset (generation manifest, project
-	// releases, active-release pointers).
-	SeriesDatasetRelease SeriesID = "dataset_release"
-	// SeriesRecipeChains is the recipe revision-chain ledger owned by
-	// internal/backends/postgres/internal/recipes.
-	SeriesRecipeChains SeriesID = "recipe_chains"
-	// SeriesRecipeExecRegistries is the persistent recipe registry ledger
-	// owned by internal/backends/postgres/internal/recipeexec.
+	SeriesSource               SeriesID = "source"
+	SeriesExplorerControl      SeriesID = "explorer_control"
+	SeriesPublicationControl   SeriesID = "publication_control"
+	SeriesDatasetRelease       SeriesID = "dataset_release"
+	SeriesRecipeChains         SeriesID = "recipe_chains"
 	SeriesRecipeExecRegistries SeriesID = "recipe_exec_registries"
 )
 
-// HistoryEntry is one applied-or-pending migration's identity: version,
-// name, and the lowercase hex SHA-256 of the exact SQL bytes the ledger
-// recorded (or will record) when it was applied.
 type HistoryEntry struct {
 	Version  int64  `json:"version"`
 	Name     string `json:"name"`
 	Checksum string `json:"checksum"`
 }
 
-// HistoryManifest records one series' authority: its owner package (the
-// only place its SQL bytes live and the only production path that applies
-// them) and the production stores whose tables that history creates.
 type HistoryManifest struct {
 	Series       SeriesID       `json:"series"`
 	OwnerPackage string         `json:"owner_package"`
@@ -94,8 +35,6 @@ type HistoryManifest struct {
 	Entries      []HistoryEntry `json:"entries"`
 }
 
-// manifest is the authoritative record. Keep entries in ascending version
-// order matching the owner package's embed.
 var manifest = []HistoryManifest{
 	{
 		Series:       SeriesSource,
@@ -190,8 +129,6 @@ var manifest = []HistoryManifest{
 	},
 }
 
-// Manifest returns a deep copy of the authoritative ownership record, sorted
-// by series ID so rendering is deterministic.
 func Manifest() []HistoryManifest {
 	out := make([]HistoryManifest, 0, len(manifest))
 	for _, m := range manifest {
@@ -201,7 +138,6 @@ func Manifest() []HistoryManifest {
 	return out
 }
 
-// LookupManifest returns the manifest entry for one series.
 func LookupManifest(series SeriesID) (HistoryManifest, bool) {
 	for _, m := range manifest {
 		if m.Series == series {
@@ -211,8 +147,6 @@ func LookupManifest(series SeriesID) (HistoryManifest, bool) {
 	return HistoryManifest{}, false
 }
 
-// ManifestJSON renders the authoritative record as indented JSON for on-demand
-// reports. The authored contract stays this file; rendered output is disposable.
 func ManifestJSON() ([]byte, error) {
 	return json.MarshalIndent(Manifest(), "", "  ")
 }
@@ -224,13 +158,8 @@ func (m HistoryManifest) clone() HistoryManifest {
 	return out
 }
 
-// Assignment maps each production series to the schema name a deployment
-// assigns it. An absent series is unassigned (the factory supplies defaults).
 type Assignment map[SeriesID]string
 
-// AssignmentConflict describes the first shared version at which two series
-// pinned to one schema disagree: the same version with different names or
-// checksums means one ledger can never validate both histories.
 type AssignmentConflict struct {
 	Schema    string
 	SeriesA   SeriesID
@@ -247,17 +176,8 @@ func (c *AssignmentConflict) Error() string {
 		c.SeriesA, c.SeriesB, c.Schema, c.Version, c.NameA, c.ChecksumA[:12], c.SeriesA, c.NameB, c.ChecksumB[:12], c.SeriesB)
 }
 
-// Unwrap makes every ownership refusal, including a concrete history
-// conflict, detectable with errors.Is(err, ErrInvalidAssignment).
 func (c *AssignmentConflict) Unwrap() error { return ErrInvalidAssignment }
 
-// ValidateAssignment validates explicit schema-ownership before any factory
-// opens a connection or applies DDL. It rejects unknown series, schema names
-// the runner would refuse, and any two distinct series assigned to one schema
-// whose pinned entries disagree at a shared version (different name or
-// checksum). Series that pin a shared version identically (byte-equal
-// immutable SQL) may share a schema; assignment of a single series to
-// multiple schemas is not checked here.
 func ValidateAssignment(assignment Assignment) error {
 	bySchema := map[string][]SeriesID{}
 	for series, schema := range assignment {
@@ -289,13 +209,11 @@ func ValidateAssignment(assignment Assignment) error {
 	return nil
 }
 
-// seriesConflict returns the first pinned-version disagreement between two
-// series, or nil when their ledgers can coexist on one schema.
 func seriesConflict(schema string, a, b SeriesID) *AssignmentConflict {
 	ma, okA := LookupManifest(a)
 	mb, okB := LookupManifest(b)
 	if !okA || !okB {
-		return nil // ValidateAssignment already rejects unknown series.
+		return nil
 	}
 	byVersion := make(map[int64]HistoryEntry, len(ma.Entries))
 	for _, e := range ma.Entries {

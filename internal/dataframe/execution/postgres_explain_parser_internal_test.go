@@ -1,11 +1,5 @@
 package execution
 
-// Parser-direct sanitizer evidence for the EXPLAIN path. These tests need
-// the unexported parser and its resource bounds (depth/node/byte caps), so
-// they live in the internal package; the public-seam equivalent — hostile
-// plan JSON reduced through PostgreSQLExplainPlan — is pinned in
-// explain_postgres_test.go.
-
 import (
 	"encoding/json"
 	"strings"
@@ -46,7 +40,6 @@ func TestPostgresExplainSanitizerClassifiesSequentialScan(t *testing.T) {
 	if len(assessment.IndexScans) != 0 {
 		t.Fatalf("unexpected index evidence: %+v", assessment.IndexScans)
 	}
-	// Zero-scan control: a Limit-only plan classifies nothing.
 	benign, err := sanitizePostgreSQLPlanJSON(json.RawMessage(`[{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0.01,"Plan Rows":1,"Plan Width":4}}]`))
 	if err != nil || len(benign.FullScans) != 0 || len(benign.IndexScans) != 0 {
 		t.Fatalf("zero-scan control: %+v err=%v", benign, err)
@@ -110,25 +103,18 @@ func TestPostgresExplainSanitizerRejectsMalformedPlans(t *testing.T) {
 			}
 		})
 	}
-	// Guard non-vacuity: the benign minimal plan (same shape minus the
-	// defect of each case above) must parse — the refusals are selective.
 	if _, err := sanitizePostgreSQLPlanJSON(json.RawMessage(`[{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`)); err != nil {
 		t.Fatalf("benign minimal plan refused: %v", err)
 	}
-	// Oversized raw payload refusal with a paired just-under control.
 	if _, err := sanitizePostgreSQLPlanJSON(json.RawMessage(strings.Repeat(" ", postgresExplainMaxRawBytes+1))); err == nil {
 		t.Fatal("oversized plan JSON accepted")
 	}
 	if _, err := sanitizePostgreSQLPlanJSON(json.RawMessage(`[` + strings.Repeat(" ", postgresExplainMaxRawBytes-16) + `]`)); err == nil {
-		// The size guard fires first, but the JSON is also invalid — this
-		// control only proves the guard does not reject *empty-ish* inputs.
 		_ = err
 	}
 }
 
 func TestPostgresExplainPlanNodeTypeVocabularyAcceptsRealOperators(t *testing.T) {
-	// Paired control for the node-pattern gate: genuine PostgreSQL operator
-	// names, including camel-case and multi-word forms, parse.
 	for _, nodeType := range []string{"Seq Scan", "Index Scan", "Index Only Scan", "Bitmap Index Scan", "Bitmap Heap Scan", "Hash Join", "Nested Loop", "Merge Join", "WindowAgg", "LockRows", "Tid Range Scan", "Shared Scan", "Limit", "Sort", "Aggregate", "Group Aggregate", "Gather Merge", "Memoize", "Sample Scan"} {
 		raw := json.RawMessage(`[{"Plan":{"Node Type":"` + nodeType + `","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`)
 		assessment, err := sanitizePostgreSQLPlanJSON(raw)
@@ -140,7 +126,3 @@ func TestPostgresExplainPlanNodeTypeVocabularyAcceptsRealOperators(t *testing.T)
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Offline: typed error mapping at this boundary.
-// ---------------------------------------------------------------------------

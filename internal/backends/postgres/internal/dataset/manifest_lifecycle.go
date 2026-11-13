@@ -14,10 +14,6 @@ import (
 
 var _ publication.ActiveResolver = (*Store)(nil)
 
-// CreateManifest persists a new generation manifest in LOADING state. The
-// insert is the compare-and-swap: a second create for the same
-// (project, generation) returns ErrManifestAlreadyExists regardless of
-// content, so a generation identity is never re-pointed at different bytes.
 func (s *Store) CreateManifest(ctx context.Context, manifest publication.Manifest) (publication.Manifest, error) {
 	if err := manifest.Validate(); err != nil {
 		return publication.Manifest{}, fmt.Errorf("create generation manifest: %w", err)
@@ -77,7 +73,6 @@ RETURNING project, generation, state, schema_identity::text`,
 	return created, nil
 }
 
-// ReadManifest returns the persisted manifest for one generation.
 func (s *Store) ReadManifest(ctx context.Context, ref publication.Ref) (publication.Manifest, error) {
 	if err := ref.Validate(); err != nil {
 		return publication.Manifest{}, fmt.Errorf("read generation manifest: %w", err)
@@ -125,11 +120,6 @@ WHERE project = $1 AND generation = $2`,
 	return manifest, nil
 }
 
-// TransitionManifest moves a manifest from its current state to next. The
-// compare-and-swap is the UPDATE predicate: the row must still carry the
-// expected state and the immutable schema identity bytes, so a concurrent
-// transition or an edited identity yields ErrManifestTransitionConflict
-// instead of a blind overwrite.
 func (s *Store) TransitionManifest(ctx context.Context, manifest publication.Manifest, next publication.State) (publication.Manifest, error) {
 	nextManifest, err := manifest.Transition(next)
 	if err != nil {
@@ -190,10 +180,6 @@ RETURNING project, generation, state, schema_identity::text`,
 	return *result, nil
 }
 
-// ResolveActiveManifest returns the manifest the project's active-generation
-// pointer names. A missing pointer row means no active generation; a pointer
-// naming a manifest that is not staged/ready is an inconsistency, never a
-// silent fallback to another generation or backend.
 func (s *Store) ResolveActiveManifest(ctx context.Context, project string) (publication.Manifest, error) {
 	if err := validateProject(project); err != nil {
 		return publication.Manifest{}, fmt.Errorf("resolve active generation: %w", err)
@@ -242,34 +228,6 @@ WHERE p.project = $1`,
 	return manifest, nil
 }
 
-// ActivateGeneration atomically compares-and-swaps the project's
-// active-generation pointer onto candidate.
-//
-// expected is the pointer value the caller believes is current: nil means
-// "there is no active generation yet"; a non-nil Ref names the generation
-// the caller resolved as active. The entire operation runs in one
-// transaction that locks the pointer row, so two concurrent activations
-// presenting the same expected value produce exactly one winner and a typed
-// ErrActivationConflict for the loser -- there is no read-then-act window
-// between consulting the pointer and swapping it.
-//
-// Rules:
-//   - A candidate that is not staged (in-memory validation) is refused with
-//     publication.ErrGenerationNotReady.
-//   - A candidate that is not a persisted manifest, or whose persisted state
-//     or schema identity bytes no longer match the candidate (a stale read),
-//     is refused with ErrActivationConflict. A FAILED or LOADING manifest
-//     can never become active, even if the caller hands over a staged
-//     manifest value read before the row moved.
-//   - Re-activating the exact manifest the pointer already names is
-//     idempotent: err=nil, zero writes. This rule takes precedence over the
-//     expected value: when the pointer already names the validated
-//     candidate, expected is not compared.
-//   - Otherwise a pointer whose current value differs from expected yields
-//     ErrActivationConflict and leaves the pointer untouched.
-//
-// The pointer's previous value is compared, never ignored: this is the CAS
-// shape the Arango generation-activation path (F-B17) lacks.
 func (s *Store) ActivateGeneration(ctx context.Context, candidate publication.Manifest, expected *publication.Ref) error {
 	if !candidate.IsStaged() {
 		if err := candidate.Validate(); err != nil {
@@ -322,9 +280,6 @@ WHERE project = $1`,
 	if err != nil {
 		return fmt.Errorf("activate generation: %w", err)
 	}
-	// The compare-and-swap UPDATE is built only once the pointer's actual
-	// value has been compared against a non-nil expected Ref, so a swap can
-	// never be dispatched with a placeholder expected value.
 	updatePointerSQL := "UPDATE " + s.pointerFQN + `
 SET generation = $2, updated_at = now()
 WHERE project = $1 AND generation = $3`
@@ -341,8 +296,6 @@ ON CONFLICT DO NOTHING`,
 	}
 
 	return s.inTx(ctx, "activate", func(tx pgx.Tx) error {
-		// 1. The candidate must be a persisted staged manifest whose stored
-		//    schema identity bytes still equal the caller's candidate.
 		var (
 			storedState    string
 			storedIdentity string
@@ -363,7 +316,6 @@ ON CONFLICT DO NOTHING`,
 				ErrActivationConflict, project, generation)
 		}
 
-		// 2. Lock the pointer row and compare its current value.
 		var pointerGeneration string
 		pointerErr := queryRowCommand(ctx, tx, lockPointer).Scan(&pointerGeneration)
 		if pointerErr != nil && !errors.Is(pointerErr, pgx.ErrNoRows) {
@@ -373,8 +325,6 @@ ON CONFLICT DO NOTHING`,
 
 		if hasPointer {
 			if pointerGeneration == generation {
-				// Pointer already names the exact validated candidate:
-				// idempotent success with zero writes.
 				return nil
 			}
 			if expected == nil {
@@ -405,7 +355,6 @@ ON CONFLICT DO NOTHING`,
 			return nil
 		}
 
-		// No pointer row: only an expected-nil caller may create one.
 		if expected != nil {
 			return fmt.Errorf("%w: candidate %s/%s expected active generation %s, found no active generation",
 				ErrActivationConflict, project, generation, expected.Generation)
@@ -417,10 +366,6 @@ ON CONFLICT DO NOTHING`,
 		if tag.RowsAffected() == 1 {
 			return nil
 		}
-		// A concurrent activation created the pointer first (read committed
-		// sees it after ON CONFLICT waits out the winner). If it names this
-		// very candidate the requested end state already holds; otherwise
-		// the CAS is lost.
 		var concurrent string
 		rereadErr := queryRowCommand(ctx, tx, readPointer).Scan(&concurrent)
 		if rereadErr != nil {
@@ -437,10 +382,6 @@ ON CONFLICT DO NOTHING`,
 	})
 }
 
-// inTx runs body inside one transaction on a pooled connection and commits
-// only if body returns nil. The commitFault test seam runs immediately
-// before COMMIT so a fault leaves every write of the transaction invisible:
-// neither manifest state nor the active pointer moves.
 func (s *Store) inTx(ctx context.Context, step string, body func(pgx.Tx) error) (err error) {
 	conn, err := s.src.Acquire(ctx)
 	if err != nil {
@@ -474,11 +415,6 @@ func (s *Store) inTx(ctx context.Context, step string, body func(pgx.Tx) error) 
 	return nil
 }
 
-// marshalSchemaIdentity encodes the schema identity document for storage.
-// Encoding is the plain JSON of the domain struct, so the persisted bytes
-// carry the public schema identity fields unchanged; a JSON null inside the
-// document would stay a JSON null and is never promoted to SQL NULL (the
-// column is NOT NULL).
 func marshalSchemaIdentity(schema publication.SchemaSnapshot) (string, error) {
 	encoded, err := json.Marshal(schema)
 	if err != nil {
@@ -487,8 +423,6 @@ func marshalSchemaIdentity(schema publication.SchemaSnapshot) (string, error) {
 	return string(encoded), nil
 }
 
-// manifestFromRow rebuilds a manifest from one stored row. Unknown states or
-// malformed identity documents are store inconsistencies, never coerced.
 func manifestFromRow(project, generation, state, identityDB string) (publication.Manifest, error) {
 	var schema publication.SchemaSnapshot
 	decoder := json.NewDecoder(bytes.NewReader([]byte(identityDB)))

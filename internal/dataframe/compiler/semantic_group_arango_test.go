@@ -37,12 +37,9 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 			"id": "same-source-row", "status": "active",
 			"component": []any{
 				semanticGroupComponent(targetSystem, targetVersion, "shared-code", "Z Shared"),
-				// Same exact tuple, a second representation, and same-row duplicate.
 				semanticGroupComponent(targetSystem, targetVersion, "shared-code", "A Shared"),
 				semanticGroupComponent(targetSystem, targetVersion, "shared-code", "A Shared"),
-				// A different code with the same label must remain a separate group.
 				semanticGroupComponent(targetSystem, targetVersion, "different-code", "A Shared"),
-				// With no nonblank display, the public label falls back to code.
 				semanticGroupComponent(targetSystem, targetVersion, "fallback-code", "  "),
 			},
 		},
@@ -113,8 +110,6 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 			sharedDisplayIDs = append(sharedDisplayIDs, rowID)
 		}
 	}
-	// Two distinct semantic tuples intentionally share the same public label.
-	// Their row identities must still be distinct, so the label cannot own key equality.
 	if len(sharedDisplayIDs) != 2 || sharedDisplayIDs[0] == "" || sharedDisplayIDs[1] == "" || sharedDisplayIDs[0] == sharedDisplayIDs[1] {
 		t.Fatalf("same-display semantic groups have row IDs %#v, want two distinct tuple identities", sharedDisplayIDs)
 	}

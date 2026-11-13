@@ -1,20 +1,5 @@
 package postgres
 
-// PublishAuthoring contract tests for pg-state-publish-authoring-atomic-v1.
-//
-// Every claim is made against a real PostgreSQL 18 with literal rows and
-// direct-SQL witnesses (no mocks, no skips once a service is present):
-// single-transaction commit-boundary visibility through an in-transaction
-// crash seam observed from a second real backend, all-or-nothing crash
-// windows at every commit seam with post-crash convergence, idempotent
-// exact-payload replay proven zero-write by full-row byte identity, the
-// verified-receipt / immutable-revision / release-CAS / activation-guard
-// typed refusals with full cross-lane rollback, two-real-connection races
-// with distinct pg_backend_pid witnesses, byte-frozen golden pins for the
-// statement set, digests, and stored rows with break-one-pin proofs,
-// guard-drop non-vacuity for every claimed guard, and Go-side
-// canonicalization as the single source of truth.
-
 import (
 	"context"
 	"encoding/json"
@@ -33,10 +18,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// clockColumns are the store-computed timestamptz columns of the four
-// publish legs. Cross-run golden comparisons mask exactly these (and the
-// lane defaults) -- every other column of every row must be byte-identical
-// to the clean-run golden, and no mask exists for any other column.
 var (
 	maskRevision = []string{"activated_at"}
 	maskOwner    = []string{"updated_at"}
@@ -45,9 +26,8 @@ var (
 	maskAll      = []string{"activated_at", "updated_at", "created_at", "ready_at", "failed_at"}
 )
 
-// publishWitnessTables are every table a publish authoring commit touches.
 var publishWitnessTables = []struct {
-	table string // fixture-qualified
+	table string
 	mask  []string
 }{
 	{ReceiptsTable, nil},
@@ -59,8 +39,6 @@ var publishWitnessTables = []struct {
 	{"dataset_active_generation", maskPointer},
 }
 
-// snapshotAll renders the deterministic witness string of every publish
-// table in one call.
 func (f *pubAuthFixture) snapshotAll(t *testing.T, maskClock bool) string {
 	t.Helper()
 	var b strings.Builder
@@ -81,10 +59,6 @@ func (f *pubAuthFixture) snapshotAll(t *testing.T, maskClock bool) string {
 	return b.String()
 }
 
-// ---------------------------------------------------------------------------
-// T1: the happy path commits all four legs and returns what was stored.
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringCommitsAllFourLegsAtomically(t *testing.T) {
 	f := newPGPubAuthFixture(t)
 	f.migrate(t)
@@ -96,7 +70,6 @@ func TestPublishAuthoringCommitsAllFourLegsAtomically(t *testing.T) {
 	started := time.Now().UTC().Add(-time.Minute)
 	out := f.publishOK(t, ps, receipt, revision, release, 0)
 
-	// The returned revision is what PostgreSQL persisted.
 	if out.ID != revision.ID || out.Status != explorer.RevisionActive {
 		t.Fatalf("returned revision = %q/%q, want %q/ACTIVE", out.ID, out.Status, revision.ID)
 	}
@@ -114,9 +87,6 @@ func TestPublishAuthoringCommitsAllFourLegsAtomically(t *testing.T) {
 		t.Fatalf("returned diagnostics = %+v, want the activation-cleared empty list", out.Diagnostics)
 	}
 
-	// Independent-connection witnesses: read every leg back through stores
-	// and raw SQL on fresh pools, proving persistence past any single
-	// connection.
 	stored, err := store.GetRevisionForExplorer(f.ctx, project, explorerID, revision.ID)
 	if err != nil {
 		t.Fatalf("read back revision: %v", err)
@@ -144,9 +114,6 @@ func TestPublishAuthoringCommitsAllFourLegsAtomically(t *testing.T) {
 		t.Fatalf("read back receipt: %v", err)
 	}
 
-	// The activation publication document: stored jsonb carries the merge
-	// exactly -- state/revisionId/updatedAt overwritten, executionId and
-	// every other stored key carried over, generation defaulted.
 	var publication map[string]json.RawMessage
 	if err := f.iso.QueryRow(f.ctx, "SELECT publication FROM "+f.ctlTable(RevisionsTable)+" WHERE id = $1",
 		revision.ID).Scan(&publication); err != nil {
@@ -176,8 +143,6 @@ func TestPublishAuthoringCommitsAllFourLegsAtomically(t *testing.T) {
 		t.Fatalf("stored diagnostics = %s, want the activation-cleared [] document", diagKind)
 	}
 
-	// One statement on one fresh connection sees all four legs in a single
-	// snapshot -- the read side of commit-boundary consistency.
 	var (
 		receiptID, revStatus, pubState, activeRevision, pointerRelease string
 		pointerRevision                                                int64
@@ -214,11 +179,6 @@ func sortedJoin(values []string) []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// T2: commit-boundary visibility -- in-transaction observer from a second
-// real backend sees NOTHING until COMMIT, and total rollback on abort.
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringCommitBoundaryVisibility(t *testing.T) {
 	t.Run("stopped-before-commit-hides-every-leg-and-locks-one-transaction", func(t *testing.T) {
 		f, ps, writerPID, observer, observerPID, observerStore, observerStorePID, releaseGate, reached := stopPublishAtPreCommit(t)
@@ -245,8 +205,6 @@ func TestPublishAuthoringCommitBoundaryVisibility(t *testing.T) {
 		requireDistinctBackendsPubAuth(t, writerPID, observerStorePID, "publish writer", "observer store")
 		requireDistinctBackendsPubAuth(t, observerPID, observerStorePID, "observer", "observer store")
 
-		// Store-level witness from a THIRD real backend: the production
-		// scoped read -- not just raw SQL -- sees nothing in flight.
 		if _, err := observerStore.GetCompilationReceiptForExplorer(f.ctx, project, explorerID, receipt.ID); !errors.Is(err, explorer.ErrNotFound) {
 			t.Fatalf("observer store reads the in-flight receipt before COMMIT: %v", err)
 		}
@@ -254,7 +212,6 @@ func TestPublishAuthoringCommitBoundaryVisibility(t *testing.T) {
 			t.Fatalf("observer store reads the in-flight revision before COMMIT: %v", err)
 		}
 
-		// The observer on its own real backend sees none of the four legs.
 		if got := f.countRows(t, f.ctlTable(ReceiptsTable), "project = $1", project); got != 0 {
 			t.Fatalf("observer sees %d receipt rows before COMMIT, want 0", got)
 		}
@@ -273,9 +230,6 @@ func TestPublishAuthoringCommitBoundaryVisibility(t *testing.T) {
 			t.Fatalf("observer sees %d active release pointers before COMMIT, want 0", got)
 		}
 
-		// Single-transaction witness: the writer backend holds row locks on
-		// EVERY table across BOTH schemas at once, including the release and
-		// generation lanes' rows.
 		locks := f.locksHeldBy(t, observer, writerPID)
 		for _, table := range []string{
 			ReceiptsTable, RevisionsTable, OwnerTable,
@@ -288,12 +242,10 @@ func TestPublishAuthoringCommitBoundaryVisibility(t *testing.T) {
 			}
 		}
 
-		// Release the writer to COMMIT.
 		releaseGate <- nil
 		if err := <-done; err != nil {
 			t.Fatalf("PublishAuthoring after commit release: %v", err)
 		}
-		// Post-commit, the observer's single-snapshot sees all four legs.
 		var legs int
 		if err := observer.QueryRow(f.ctx, `
 SELECT (SELECT count(*) FROM `+f.ctlTable(ReceiptsTable)+` WHERE project = $1)
@@ -306,8 +258,6 @@ SELECT (SELECT count(*) FROM `+f.ctlTable(ReceiptsTable)+` WHERE project = $1)
 		if legs != 4 {
 			t.Fatalf("post-commit four-leg count = %d, want 4 (all legs visible together)", legs)
 		}
-		// The same production reads now succeed from the third backend:
-		// visibility flipped atomically with COMMIT.
 		if _, err := observerStore.GetCompilationReceiptForExplorer(f.ctx, project, explorerID, receipt.ID); err != nil {
 			t.Fatalf("observer store cannot read the committed receipt: %v", err)
 		}
@@ -342,13 +292,9 @@ SELECT (SELECT count(*) FROM `+f.ctlTable(ReceiptsTable)+` WHERE project = $1)
 		if !strings.Contains(err.Error(), "injected crash after every write") {
 			t.Fatalf("abort error = %v, want the injected fault surfaced", err)
 		}
-		// All-or-nothing: with every statement already applied inside the
-		// transaction and then aborted, the stored world is byte-identical
-		// to the pre-run snapshot -- full rows, every column, no mask.
 		if post := f.snapshotAll(t, false); post != pre {
 			t.Fatalf("post-abort witness diverged from the pre-run world:\npre:\n%s\npost:\n%s", pre, post)
 		}
-		// Post-crash convergence: a clean retry commits the whole thing.
 		psClean := f.newPublishStore(t)
 		f.publishOK(t, psClean, receipt, revision, release, 0)
 		var legs int
@@ -366,9 +312,6 @@ SELECT (SELECT count(*) FROM `+f.ctlTable(ReceiptsTable)+` WHERE project = $1)
 	})
 }
 
-// stopPublishAtPreCommit builds a fixture with a dedicated-backend publish
-// store whose transaction parks at the pre-commit seam until the test
-// releases it, plus an independent observer backend.
 func stopPublishAtPreCommit(t *testing.T) (
 	*pubAuthFixture, *PublishStore, int32, *pgxpool.Pool, int32, *Store, int32, chan error, chan int32,
 ) {
@@ -394,24 +337,13 @@ func stopPublishAtPreCommit(t *testing.T) (
 	return f, ps, writerPID, observer, observerPID, observerStore, observerStorePID, releaseGate, reached
 }
 
-// ---------------------------------------------------------------------------
-// T3: crash-window injection at EVERY commit seam is all-or-nothing, with
-// post-crash convergence to the clean-run state.
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringCrashWindowAtEverySeam(t *testing.T) {
-	// The second publish of a project (owner already active on the first
-	// revision) walks all seven legs, so every seam is reachable.
 	steps := []string{
 		"receipt-insert", "revision-insert", "release-pointer",
 		"prior-supersede", "candidate-activate", "owner-activate", "pre-commit",
 	}
 	for _, crashStep := range steps {
 		t.Run(crashStep, func(t *testing.T) {
-			// The twins are the same logical world in two independent
-			// databases, so every stored value (content-addressed ids
-			// included) must agree byte-for-byte once the crashed twin
-			// converges.
 			project, explorerID := "proj_pubauth_twin", "exp_twin"
 			fg := newPGPubAuthFixture(t)
 			fg.migrate(t)
@@ -420,25 +352,18 @@ func TestPublishAuthoringCrashWindowAtEverySeam(t *testing.T) {
 			fc.migrate(t)
 			storeC, psC := fc.newStore(t), fc.newPublishStore(t)
 
-			// Phase 1: publish the first revision on both twins (no seam).
 			receipt1, revision1, release1G :=
 				fg.seedPublishedWorld(t, storeG, project, explorerID, "twin1")
 			_, _, release1C := fc.seedPublishedWorld(t, storeC, project, explorerID, "twin1")
 			fg.publishOK(t, psG, receipt1, revision1, release1G, 0)
 			fc.publishOK(t, psC, receipt1, revision1, release1C, 0)
 
-			// Phase 2 inputs: the second revision (a prior to supersede).
-			// Built per-fixture (each saves its own candidate row); the
-			// inputs are identical because every identity is derived from
-			// the shared project/tag.
 			receipt2G, revision2G, release2G :=
 				secondPublishInputsSameExplorer(t, fg, project, explorerID, "twin2")
 			receipt2C, revision2C, release2C :=
 				secondPublishInputsSameExplorer(t, fc, project, explorerID, "twin2")
 			pre := fc.snapshotAll(t, false)
 
-			// Crashed run on the crashed twin: inject at the step under
-			// test.
 			psCrash := fc.newPublishStore(t)
 			recorded := installCrashSeam(psCrash, func(step string, tx pgx.Tx) error {
 				if step == crashStep {
@@ -450,22 +375,14 @@ func TestPublishAuthoringCrashWindowAtEverySeam(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "injected crash at "+crashStep) {
 				t.Fatalf("crash at %s: error = %v, want the injected fault surfaced", crashStep, err)
 			}
-			// Non-vacuous seam: the transaction really walked the legs up
-			// to and including the crashed step, in contract order.
 			want := stepsThrough(steps, crashStep)
 			if strings.Join(*recorded, ",") != strings.Join(want, ",") {
 				t.Fatalf("crash at %s: recorded seam steps = %v, want %v", crashStep, *recorded, want)
 			}
-			// All-or-nothing: the stored world is byte-identical to before
-			// the crashed publish -- full rows, every column, no mask.
 			if post := fc.snapshotAll(t, false); post != pre {
 				t.Fatalf("crash at %s left visible state:\npre:\n%s\npost:\n%s", crashStep, pre, post)
 			}
 
-			// Post-crash convergence: the golden twin runs the same second
-			// publish uninterrupted, and the crashed twin then retries
-			// cleanly; their project-scoped states must agree byte-for-byte
-			// apart from the clock-derived columns.
 			fg.publishOK(t, psG, receipt2G, revision2G, release2G, 1)
 			fc.publishOK(t, fc.newPublishStore(t), receipt2C, revision2C, release2C, 1)
 			golden := fg.snapshotForProject(t, project)
@@ -478,9 +395,6 @@ func TestPublishAuthoringCrashWindowAtEverySeam(t *testing.T) {
 	}
 }
 
-// stepsThrough returns the seam steps a second publish records up to and
-// including crashStep. The second publish always walks all seven legs, so
-// the prefix order is exactly the declared step order.
 func stepsThrough(steps []string, crashStep string) []string {
 	for i, s := range steps {
 		if s == crashStep {
@@ -490,8 +404,6 @@ func stepsThrough(steps []string, crashStep string) []string {
 	panic("unknown crash step " + crashStep)
 }
 
-// snapshotForProject renders the publish tables scoped to one project,
-// clock-masked -- the cross-run golden comparison form.
 func (f *pubAuthFixture) snapshotForProject(t *testing.T, project string) string {
 	t.Helper()
 	specs := []struct {
@@ -511,23 +423,13 @@ func (f *pubAuthFixture) snapshotForProject(t *testing.T, project string) string
 	for _, s := range specs {
 		out := f.snapshotWhere(t, s.table, s.where, s.args, s.mask...)
 		label := strings.NewReplacer(f.ctlSchema, "<ctl>", f.lanesSchema, "<lanes>").Replace(s.table)
-		// Cross-run comparison tolerates only the execution clock: the
-		// activation/supersede timestamps carried inside the stored
-		// publication documents. Every other byte must agree.
 		out = pubauthClockRe.ReplaceAllString(out, `"updatedAt":"<clock>"`)
 		fmt.Fprintf(&b, "%s|%s\x1d\n", label, out)
 	}
 	return b.String()
 }
 
-// pubauthClockRe matches the run-derived updatedAt stamps inside stored
-// publication jsonb (RFC 3339 with nanoseconds, UTC).
 var pubauthClockRe = regexp.MustCompile(`"updatedAt": ?"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z"`)
-
-// ---------------------------------------------------------------------------
-// T4: idempotent replay is zero-write (full-row byte identity), and every
-// replay guard is an exact-payload guard.
-// ---------------------------------------------------------------------------
 
 func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 	f := newPGPubAuthFixture(t)
@@ -540,8 +442,6 @@ func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 	f.publishOK(t, ps, receipt, revision, release, 0)
 	first := f.snapshotAll(t, false)
 
-	// Exact same inputs: converged success, byte-identical rows everywhere
-	// INCLUDING clock columns -- the zero-write proof.
 	out := f.publishOK(t, ps, receipt, revision, release, 0)
 	if out.Status != explorer.RevisionActive || out.ID != revision.ID {
 		t.Fatalf("replay returned %q/%q, want the stored ACTIVE revision", out.ID, out.Status)
@@ -550,15 +450,11 @@ func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 		t.Fatalf("identical replay wrote rows:\nfirst:\n%s\nreplay:\n%s", first, post)
 	}
 
-	// F-B15 precedence: the expected release revision is NOT compared
-	// against a pointer that already names the candidate.
 	f.publishOK(t, ps, receipt, revision, release, 999)
 	if post := f.snapshotAll(t, false); post != first {
 		t.Fatal("already-active replay with a stale expected revision must still be zero-write")
 	}
 
-	// RequestID/CreatedAt are excluded from the receipt content identity
-	// by design: replaying with a new RequestID is still the same content.
 	sameContent := receipt
 	sameContent.RequestID = "req_replay_other"
 	f.publishOK(t, ps, sameContent, revision, release, 0)
@@ -566,9 +462,6 @@ func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 		t.Fatal("digest-equivalent receipt replay (RequestID only) must be zero-write")
 	}
 
-	// Exact-payload guard, revision leg: same id, different frozen content
-	// -> ErrImmutableRevision, stored row byte-identical, everything else
-	// byte-identical (the whole transaction rolled back).
 	mutatedRevision := revision
 	mutatedRevision.IntentDigest = "sha256:mutated"
 	_, err := ps.PublishAuthoring(f.ctx, receipt, mutatedRevision, release, 0)
@@ -580,8 +473,6 @@ func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 		t.Fatal("the refused revision mutation touched the stored world")
 	}
 
-	// Exact-payload guard, release leg: same candidate id, different
-	// content -> typed activation conflict, pointer byte-identical.
 	mutatedRelease := release
 	mutatedRelease.GitCommit = "commit-mutated"
 	_, err = ps.PublishAuthoring(f.ctx, receipt, revision, mutatedRelease, 0)
@@ -593,9 +484,6 @@ func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 		t.Fatal("the refused release mutation touched the stored world")
 	}
 
-	// Cross-tenant revision-id reuse: same id, other project -> different
-	// frozen content -> the same typed refusal (revision ids are globally
-	// unique).
 	_, err = ps.PublishAuthoring(f.ctx,
 		pubauthReceipt(t, "proj_pubauth_other", "exp_replay", "replay_other"),
 		pubauthRevision(revision.ID, "proj_pubauth_other", "exp_replay", "receipt_other", "replay_other"),
@@ -604,13 +492,6 @@ func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 		t.Fatalf("cross-tenant revision reuse error = %v, want explorer.ErrImmutableRevision", err)
 	}
 
-	// Exact-payload guard, receipt leg: same id, different canonical
-	// content -> ErrCorruptReceipt, stored rows byte-identical. The claim
-	// is manual-ID, contract-less -- the one shape the store accepts for
-	// a hand-claimed id (the content-addressed shape makes id reuse
-	// arithmetically impossible) -- so the publish reuse guard is what
-	// refuses. This probe lives on its own project so claiming ids there
-	// cannot perturb the converged world asserted above.
 	reuseProject := "proj_pubauth_reuse"
 	_, _, reuseRelease := f.seedPublishedWorld(t, store, reuseProject, "exp_reuse", "reuse")
 	manualID := "receipt_pubauth_reuse"
@@ -626,7 +507,6 @@ func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 		t.Fatalf("reused receipt id error = %v, want explorer.ErrCorruptReceipt", err)
 	}
 	requireErrContainsPubAuth(t, err, "reused with different content", "reused receipt id")
-	// Parity with the standalone insert on the identical claim.
 	if _, insertErr := store.InsertCompilationReceipt(f.ctx, reuseClaim); insertErr == nil ||
 		!errors.Is(insertErr, explorer.ErrCorruptReceipt) ||
 		!strings.Contains(insertErr.Error(), "reused with different content") {
@@ -637,27 +517,17 @@ func TestPublishAuthoringIdempotentReplayIsZeroWrite(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// T5: the verified receipt leg, tenant-scoped.
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringVerifiedReceiptLeg(t *testing.T) {
 	f := newPGPubAuthFixture(t)
 	f.migrate(t)
 	store := f.newStore(t)
 	ps := f.newPublishStore(t)
 
-	// A corrupt input receipt is refused before the transaction with the
-	// same typed error the standalone insert gives: blank id.
 	if _, err := ps.PublishAuthoring(f.ctx, explorer.CompilationReceipt{ID: "  "},
 		pubauthRevision("rev_x", "p", "e", "r", "x"), pubauthRelease("p", "g", "r"), 0); !errors.Is(err, explorer.ErrCorruptReceipt) {
 		t.Fatalf("blank-id receipt error = %v, want explorer.ErrCorruptReceipt", err)
 	}
 
-	// Tenant isolation: identical receipt content claimed under two
-	// tenants is two independent rows -- identity is
-	// (project, explorer_id, id), so the content-derived id differs with
-	// the tenant and neither tenant's claim touches the other.
 	projectA, projectB := "proj_pubauth_tenantA", "proj_pubauth_tenantB"
 	for _, project := range []string{projectA, projectB} {
 		if _, err := store.Create(f.ctx, pubauthOwner(project, "exp_tenant", explorer.ManagementInteractive)); err != nil {
@@ -684,8 +554,6 @@ func TestPublishAuthoringVerifiedReceiptLeg(t *testing.T) {
 		t.Fatalf("tenant B receipt rows = %d, want 1", got)
 	}
 
-	// Wrong-name probes: each tenant's receipt id read under the other
-	// tenant reports the shared not-found, with no information either way.
 	if _, err := store.GetCompilationReceiptForExplorer(f.ctx, projectA, "exp_tenant", receiptB.ID); !errors.Is(err, explorer.ErrNotFound) {
 		t.Fatalf("cross-tenant receipt read error = %v, want explorer.ErrNotFound", err)
 	}
@@ -694,8 +562,6 @@ func TestPublishAuthoringVerifiedReceiptLeg(t *testing.T) {
 	}
 }
 
-// seedReleaseLaneOnly creates the generation manifest, activates it, and
-// saves the release candidate for a project whose owner already exists.
 func seedReleaseLaneOnly(t *testing.T, f *pubAuthFixture, project, tag string) dataset.ProjectRelease {
 	t.Helper()
 	gen := f.newGenerationStore(t)
@@ -707,7 +573,6 @@ func seedReleaseLaneOnly(t *testing.T, f *pubAuthFixture, project, tag string) d
 	return release
 }
 
-// seedLanesOnly seeds a project WITHOUT the owner row: owner missing.
 func seedLanesOnly(t *testing.T, f *pubAuthFixture, project, explorerID string,
 ) (explorer.CompilationReceipt, explorer.Revision, dataset.ProjectRelease) {
 	t.Helper()
@@ -717,18 +582,11 @@ func seedLanesOnly(t *testing.T, f *pubAuthFixture, project, explorerID string,
 	return receipt, revision, release
 }
 
-// seedLanesOnlyForExistingOwner seeds generation+release for a project
-// whose owner row already exists.
 func seedLanesOnlyForExistingOwner(t *testing.T, f *pubAuthFixture, project, explorerID string,
 ) (explorer.CompilationReceipt, explorer.Revision, dataset.ProjectRelease) {
 	t.Helper()
 	return seedLanesOnly(t, f, project, explorerID)
 }
-
-// ---------------------------------------------------------------------------
-// T6: the immutable revision leg refuses id reuse under mutation, leaving
-// the entire stored world byte-identical.
-// ---------------------------------------------------------------------------
 
 func TestPublishAuthoringImmutableRevisionLeg(t *testing.T) {
 	f := newPGPubAuthFixture(t)
@@ -744,9 +602,6 @@ func TestPublishAuthoringImmutableRevisionLeg(t *testing.T) {
 		"config":     func(r explorer.Revision) explorer.Revision { r.Config = jsonRaw(`{"changed":true}`); return r },
 		"recipeName": func(r explorer.Revision) explorer.Revision { r.Recipe.Name = "mutated"; return r },
 		"emittedColumn": func(r explorer.Revision) explorer.Revision {
-			// Copy the slice before writing: the range closure receives the
-			// revision by value, so in-place element writes would alias
-			// (and silently mutate) the original fixture revision.
 			cols := append([]explorer.EmittedColumn(nil), r.EmittedColumns...)
 			cols[0].EmissionID = "emit_mutated"
 			r.EmittedColumns = cols
@@ -771,18 +626,11 @@ func TestPublishAuthoringImmutableRevisionLeg(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// T7: the release activation CAS, all publish-path refusals, each with
-// cross-lane rollback (the receipt/revision legs vanish with the loss).
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringReleaseCASRefusalsRollBackEverything(t *testing.T) {
-	// Each case gets its own project; the whole published world is seeded
-	// through the owning lanes first, then mutated at the refusal point.
 	cases := []struct {
 		name   string
 		refuse func(t *testing.T, f *pubAuthFixture, project string)
-		wants  []string // substrings of the typed refusal
+		wants  []string
 	}{
 		{
 			name: "candidate-never-persisted",
@@ -817,9 +665,6 @@ func TestPublishAuthoringReleaseCASRefusalsRollBackEverything(t *testing.T) {
 		{
 			name: "pointer-moves",
 			refuse: func(t *testing.T, f *pubAuthFixture, project string) {
-				// The pointer legally moves to a second generation through
-				// the owning lane's CAS; the candidate still names the
-				// first generation.
 				replaced, err := dataset.NewRef(project, "gen_pubauth_01")
 				if err != nil {
 					f.fail("expected ref", err)
@@ -846,8 +691,6 @@ func TestPublishAuthoringReleaseCASRefusalsRollBackEverything(t *testing.T) {
 			for _, want := range tc.wants {
 				requireErrContainsPubAuth(t, err, want, tc.name)
 			}
-			// Cross-lane all-or-nothing: the receipt and revision legs the
-			// SAME transaction wrote are gone, the owner never activated.
 			if got := f.countRows(t, f.ctlTable(ReceiptsTable), "project = $1", project); got != 0 {
 				t.Fatalf("%s: %d receipt rows survived the CAS loss, want 0", tc.name, got)
 			}
@@ -875,9 +718,7 @@ func TestPublishAuthoringReleaseCASRefusalsRollBackEverything(t *testing.T) {
 		ps := f.newPublishStore(t)
 		project, explorerID := "proj_pubauth_stale", "exp_stale"
 		receipt1, revision1, release1 := f.seedPublishedWorld(t, store, project, explorerID, "stale1")
-		f.publishOK(t, ps, receipt1, revision1, release1, 0) // pointer revision 1
-		// A second candidate with a stale expected revision must conflict
-		// entirely: no receipt, no revision, no activation, pointer intact.
+		f.publishOK(t, ps, receipt1, revision1, release1, 0)
 		receipt2, revision2, release2 := secondPublishInputsSameExplorer(t, f, project, explorerID, "stale2")
 		pointerBefore := f.snapshot(t, f.lanesTable("active_project_release"), maskPointer...)
 		_, err := ps.PublishAuthoring(f.ctx, receipt2, revision2, release2, 0)
@@ -891,8 +732,6 @@ func TestPublishAuthoringReleaseCASRefusalsRollBackEverything(t *testing.T) {
 		if got := f.snapshot(t, f.lanesTable("active_project_release"), maskPointer...); got != pointerBefore {
 			t.Fatal("stale expected: the pointer moved for the loser")
 		}
-		// Post-abort convergence: the loser retries with the true expected
-		// revision and fully commits.
 		f.publishOK(t, ps, receipt2, revision2, release2, 1)
 		var ownerActive, pointerRelease string
 		var pointerRevision int64
@@ -906,7 +745,6 @@ func TestPublishAuthoringReleaseCASRefusalsRollBackEverything(t *testing.T) {
 			t.Fatalf("converged = %s/%s@%d, want %s/%s@2", ownerActive, pointerRelease, pointerRevision,
 				revision2.ID, release2.ID)
 		}
-		// And the superseded prior is frozen SUPERSEDED, never resurrected.
 		var priorStatus string
 		if err := f.iso.QueryRow(f.ctx, "SELECT status FROM "+f.ctlTable(RevisionsTable)+" WHERE id = $1",
 			revision1.ID).Scan(&priorStatus); err != nil {
@@ -935,9 +773,6 @@ func TestPublishAuthoringReleaseCASRefusalsRollBackEverything(t *testing.T) {
 	})
 
 	t.Run("f-b13-retained-generation-conflicts-while-another-generation-is-active", func(t *testing.T) {
-		// The cross_generation_publish_e2e baseline shape: a retained G1
-		// candidate cannot publish while G2 owns the active-generation
-		// pointer -- the publish-path current-generation guard.
 		f := newPGPubAuthFixture(t)
 		f.migrate(t)
 		store := f.newStore(t)
@@ -948,8 +783,6 @@ func TestPublishAuthoringReleaseCASRefusalsRollBackEverything(t *testing.T) {
 		}
 		gen := f.newGenerationStore(t)
 		stageAndActivate(t, f, gen, project, "gen_pubauth_01", nil)
-		// G1 release saved while G1 is active; then G2 takes the pointer
-		// through the owning lane's CAS (expected names G1).
 		releaseG1 := pubauthRelease(project, "gen_pubauth_01", "rel_f13_g1")
 		if _, err := f.newReleaseStore(t).SaveRelease(f.ctx, releaseG1); err != nil {
 			f.fail("save G1 candidate", err)
@@ -985,9 +818,6 @@ func secondPublishInputsSameExplorer(t *testing.T, f *pubAuthFixture, project, e
 	return receipt, revision, release
 }
 
-// stageAndActivate creates, stages, and activates one generation through
-// the owning lane's production CAS: expected nil means "no active
-// generation", a pointer names the generation being replaced.
 func stageAndActivate(t *testing.T, f *pubAuthFixture, gen *datasetpostgres.Store, project, generation string, expected *dataset.Ref) {
 	t.Helper()
 	ref, err := dataset.NewRef(project, generation)
@@ -1014,10 +844,6 @@ func stageAndActivate(t *testing.T, f *pubAuthFixture, gen *datasetpostgres.Stor
 	}
 }
 
-// ---------------------------------------------------------------------------
-// T8: the activation guard: owner/mode/candidate status, fail-closed prior.
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 	t.Run("missing-owner-and-mode-mismatch-are-indistinguishable", func(t *testing.T) {
 		f := newPGPubAuthFixture(t)
@@ -1025,14 +851,12 @@ func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 		store := f.newStore(t)
 		ps := f.newPublishStore(t)
 
-		// No owner at all.
 		receipt, revision, release := seedLanesOnly(t, f, "proj_pubauth_noowner", "exp_none")
 		_, err := ps.PublishAuthoring(f.ctx, receipt, revision, release, 0)
 		if !errors.Is(err, explorer.ErrDraftConflict) {
 			t.Fatalf("missing owner: error = %v, want explorer.ErrDraftConflict", err)
 		}
 
-		// Foreign management mode for a non-default Explorer.
 		wrongModeProject := "proj_pubauth_wrongmode"
 		if _, err := store.Create(f.ctx, pubauthOwner(wrongModeProject, "exp_wrong", explorer.ManagementRepository)); err != nil {
 			f.fail("create repository-mode owner", err)
@@ -1046,7 +870,6 @@ func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 			t.Fatalf("guard causes must be indistinguishable: %q vs %q", err, err2)
 		}
 
-		// The "default" Explorer must be REPOSITORY, never INTERACTIVE.
 		defaultProject := "proj_pubauth_default"
 		if _, err := store.Create(f.ctx, pubauthOwner(defaultProject, "default", explorer.ManagementInteractive)); err != nil {
 			f.fail("create interactive default owner", err)
@@ -1057,7 +880,6 @@ func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 			t.Fatalf("default Explorer with INTERACTIVE mode: error = %v, want explorer.ErrDraftConflict", err3)
 		}
 
-		// And the REPOSITORY spelling must then succeed.
 		f.execRaw(t, "UPDATE "+f.ctlTable(OwnerTable)+" SET management_mode = 'REPOSITORY' WHERE project = $1", defaultProject)
 		f.publishOK(t, ps, receipt3, revision3, release3, 0)
 	})
@@ -1071,10 +893,8 @@ func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 		receipt1, revision1, release1 := f.seedPublishedWorld(t, store, project, explorerID, "g2a")
 		f.publishOK(t, ps, receipt1, revision1, release1, 0)
 		receipt2, revision2, release2 := secondPublishInputsSameExplorer(t, f, project, explorerID, "g2b")
-		f.publishOK(t, ps, receipt2, revision2, release2, 1) // rev1 now SUPERSEDED
+		f.publishOK(t, ps, receipt2, revision2, release2, 1)
 
-		// Republish the superseded revision: guard miss (status is neither
-		// READY nor ACTIVE-under-owner), zero writes.
 		before := f.snapshotAll(t, false)
 		_, err := ps.PublishAuthoring(f.ctx, receipt1, revision1, release1, 2)
 		if !errors.Is(err, explorer.ErrDraftConflict) {
@@ -1084,7 +904,6 @@ func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 			t.Fatal("superseded candidate republish touched the stored world")
 		}
 
-		// A FAILED candidate (same id/content) is refused the same way.
 		if _, err := store.FailRevision(f.ctx, revision2.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "X"}}); err != nil {
 			f.fail("fail revision2", err)
 		}
@@ -1107,7 +926,6 @@ func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 		receipt1, revision1, release1 := f.seedPublishedWorld(t, store, project, explorerID, "priorA")
 		f.publishOK(t, ps, receipt1, revision1, release1, 0)
 
-		// Dangling pointer: owner.active_revision_id names nothing.
 		f.execRaw(t, "UPDATE "+f.ctlTable(OwnerTable)+" SET active_revision_id = 'rev_ghost' WHERE project = $1", project)
 		receipt2, revision2, release2 := secondPublishInputsSameExplorer(t, f, project, explorerID, "priorB")
 		before := f.snapshotAll(t, false)
@@ -1119,16 +937,12 @@ func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 		if post := f.snapshotAll(t, false); post != before {
 			t.Fatal("dangling prior refusal touched the stored world")
 		}
-		// Non-vacuity: restoring the pointer to the real ACTIVE revision
-		// lets the same publish succeed -- and its supersede leg freezes
-		// revision1 SUPERSEDED for the next probe.
 		f.execRaw(t, "UPDATE "+f.ctlTable(OwnerTable)+" SET active_revision_id = $2 WHERE project = $1",
 			project, revision1.ID)
 		f.publishOK(t, ps, receipt2, revision2, release2, 1)
 
-		// Prior pointing at a non-ACTIVE revision is refused fail-closed.
 		f.execRaw(t, "UPDATE "+f.ctlTable(OwnerTable)+" SET active_revision_id = $2 WHERE project = $1",
-			project, revision1.ID) // revision1 is SUPERSEDED
+			project, revision1.ID)
 		receipt3, revision3, release3 := secondPublishInputsSameExplorer(t, f, project, explorerID, "priorC")
 		_, err = ps.PublishAuthoring(f.ctx, receipt3, revision3, release3, 2)
 		if !errors.Is(err, explorer.ErrDraftConflict) {
@@ -1136,7 +950,6 @@ func TestPublishAuthoringActivationGuardRefusals(t *testing.T) {
 		}
 		requireErrContainsPubAuth(t, err, "not ACTIVE", "superseded prior")
 
-		// Foreign-scope prior (another Explorer's revision) is refused.
 		otherProject := "proj_pubauth_prior_other"
 		if _, err := store.Create(f.ctx, pubauthOwner(otherProject, "exp_other", explorer.ManagementInteractive)); err != nil {
 			f.fail("create other owner", err)

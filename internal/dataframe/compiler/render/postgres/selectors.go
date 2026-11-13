@@ -1,46 +1,5 @@
 package postgres
 
-// This file registers typed selector extraction as an implemented, closed
-// PostgreSQL operation (pg-sql-03). It is the renderer-facing capability
-// registration point for the operation named by the physical IR's
-// PhysicalExtract: one scoped direct root scan whose RETURN projects typed
-// scope columns, scalar-cardinality FHIR selector values extracted from the
-// agreed JSONB document column (ir.PostgresResourceLogicalTable, migration
-// 000002_fhir_resource.sql), and boolean path-presence sidecars carrying the
-// evidence null/missing-sensitive operations need. The value and presence
-// expressions themselves are defined once in null_semantics.go; this file is
-// shape validation and registration, not a second SQL builder.
-//
-// The accepted selector shape mirrors what lowering emits in production and
-// is re-read, never trusted: PhysicalExpression{Kind: EXTRACT, Cardinality:
-// SCALAR, NullBehavior: registered, Extract: PhysicalExtract{Source:
-// {Variable: <root>, Path: ["payload"]}, ResourceType: <scanned type>,
-// Selector: direct property path}} — the exact construction in
-// internal/dataframe/compiler/lower/root_projection.go
-// (lowerSemanticFieldProjection and physicalProjectionPresence) over the
-// root plan shape in internal/dataframe/compiler/lower/plan_orchestration.go
-// (root_collection bind plus ROOT_SCAN). Anything outside it — array and
-// object cardinality, fallbacks, prepared sets, unit normalization,
-// selector filters, repeated or indexed steps, DISTINCT, conditional-array
-// modes, nested document sources, or a resource type that contradicts the
-// scanned row — is a capability gap: a typed ErrUnsupportedPostgresPlan
-// refusal that yields no SQL. There is no fallback to the AQL renderer and
-// no AQL-to-SQL conversion here.
-//
-// Planner-facing command registration (the compiler's target-aware PostgreSQL compile path)
-// stays fail-closed for PostgreSQL exactly as in pg-sql-01/02: this entry
-// point — not command dispatch — is where the selector-extraction operation
-// is implemented and registered.
-//
-// Statement assembly is inherited unchanged from RenderPhysicalPlan, which
-// validates the plan through ir.Validate first (so selector paths, resource
-// types, and presence proofs are schema-checked before any rendering) and
-// then assembles one deterministic statement. classifyExtractionProjections
-// is the single projection-contract definition: the closed slice applies it
-// before delegation and renderReturn applies it again during assembly, so
-// every entry point enforces the same contract (defense in depth, not two
-// contracts).
-
 import (
 	"fmt"
 	"reflect"
@@ -50,105 +9,36 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// RenderSelectorExtraction renders exactly one scoped direct root scan with
-// typed selector extraction onto the trusted PostgreSQL storage binding.
-//
-// The accepted plan shape is exactly two operations: a leading ROOT_SCAN
-// with a direct scan payload (no population, cohort, or candidate-seed
-// source) followed by a terminal RETURN. Every RETURN projection is exactly
-// one of: a direct typed scope column of the root row (the root-scan form),
-// a scalar-cardinality EXTRACT selector over the root row document with a
-// registered null behavior, or a PresenceOutput sidecar proving the
-// presence of a selector path this RETURN also renders. Selector resource
-// types must agree with the scanned root type — the same identity the
-// canonical lowering proves for the root_collection bind — and every
-// selector path segment is bound as data, never concatenated into SQL text.
-//
-// Plan scope binds are re-read through the canonical mapping in scope.go,
-// never trusted downstream. The result is deterministic: the same plan and
-// binding always yield byte-identical SQL and value-identical ordered
-// arguments. Failures are typed: ErrUnsupportedPostgresPlan for shapes
-// outside this slice, ErrInvalidPostgresPlanScope for missing or
-// contradictory scope binds, and ir.ErrUnregisteredPostgresIdentifier for a
-// binding that did not come from ir.NewPostgresStorageBinding. A rejected
-// plan never produces SQL and never routes to AQL.
 func RenderSelectorExtraction(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := validateSelectorExtractionPlan(plan); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
 	}
-	// The closed shape passed, so RenderPhysicalPlan's own gates (binding
-	// trust, plan validation including schema validation of selector
-	// paths, engine/ClickHouse/stage refusals, scope re-reading,
-	// deterministic assembly) all operate over a plan this slice has
-	// already pinned to one direct root scan with classified projections.
-	// There is no second SQL builder here by design: one statement-shape
-	// authority keeps this registration and the full read spine
-	// byte-identical for the shapes they share.
 	return RenderPhysicalPlan(plan, storage)
 }
 
-// extractionProjectionKind is the classification of one RETURN projection
-// inside the PostgreSQL render surface.
 type extractionProjectionKind uint8
 
 const (
-	// extractionDirectValue is a direct ir.PhysicalValue projection — the
-	// root-scan form (typed columns) and the payload-path form of the
-	// full read spine.
 	extractionDirectValue extractionProjectionKind = iota
-	// extractionValueExpression is a VALUE expression wrapping exactly one
-	// direct value — the full read spine's expression form.
 	extractionValueExpression
-	// extractionSelector is a scalar-cardinality EXTRACT expression over a
-	// row document — the operation this slice registers.
 	extractionSelector
-	// extractionPresenceSidecar is a PresenceOutput projection emitting the
-	// boolean path-presence proof for a selector this RETURN renders.
 	extractionPresenceSidecar
-	// extractionCallExpression is a SCALAR-cardinality PRESERVE_NULL CALL
-	// expression projection — the derived scalar surface calls.go registers
-	// (pg-sql-10) on the full read spine.
 	extractionCallExpression
-	// extractionObject is an OBJECT expression projection — the pg-sql-11
-	// nested-object surface registered in objects.go. Classification is
-	// structural; the closed payload contract (fields, cardinality, null
-	// behaviors, operand kinds, recursion depth) is owned by objects.go.
 	extractionObject
-	// extractionSlice is a SLICE expression projection — the pg-sql-11
-	// bounded-slice surface registered in objects.go. Same ownership:
-	// structural here, closed contract in objects.go.
 	extractionSlice
-	// extractionUnitNormalized is an ARRAY-cardinality EMPTY_ON_NULL
-	// EXTRACT projection carrying the compiler-pinned unit normalization
-	// — the pg-sql-21 unit-conversion surface registered in
-	// unit_normalization.go on the full read spine. The whole contract
-	// (posture, closed selector, pinned-rule registry re-verification)
-	// lives there; this classifier only intercepts the unit-carrying
-	// form before the closed-selector validator, whose legacy unit
-	// refusal stays for the operand paths.
 	extractionUnitNormalized
 )
 
-// classifiedExtractionProjection is one fully checked RETURN projection:
-// the original projection plus the contract facts assembly needs, so
-// rendering never re-derives (or diverges from) what validation decided.
 type classifiedExtractionProjection struct {
-	kind       extractionProjectionKind
-	projection ir.PhysicalProjection
-	// extractionSelector facts.
-	expression *ir.PhysicalExpression
-	path       []string
-	// extractionPresenceSidecar facts.
+	kind         extractionProjectionKind
+	projection   ir.PhysicalProjection
+	expression   *ir.PhysicalExpression
+	path         []string
 	presence     *ir.PhysicalProjectionPresence
 	presencePath []string
-	// extractionUnitNormalized facts (pg-sql-21); the closed contract
-	// that produced them is owned by unit_normalization.go.
-	unit *unitProjectionFacts
+	unit         *unitProjectionFacts
 }
 
-// extractionEvidence identifies one selector value/presence pair: the row
-// variable and the document path. Presence sidecars must agree with a
-// rendered selector in both, so the pairing is provable from the plan alone.
 type extractionEvidence struct {
 	variable string
 	path     string
@@ -158,12 +48,6 @@ func pathEvidenceKey(path []string) string {
 	return strings.Join(path, "\x1f")
 }
 
-// classifyExtractionProjections applies the single projection contract to
-// every RETURN projection in order, resolving row variables through
-// rowType. It refuses hidden projections, unpaired presence sidecars,
-// selector resource-type contradictions, and every shape outside the
-// registered forms with typed ErrUnsupportedPostgresPlan errors that name
-// the boundary they enforce.
 func classifyExtractionProjections(projections []ir.PhysicalProjection,
 	rowType func(variable string) (resourceType string, ok bool)) ([]classifiedExtractionProjection, error) {
 	classified := make([]classifiedExtractionProjection, 0, len(projections))
@@ -192,22 +76,12 @@ func classifyExtractionProjections(projections []ir.PhysicalProjection,
 				return nil, fmt.Errorf("%w: projection %q extracts from variable %q, which does not bind a readable row",
 					ErrUnsupportedPostgresPlan, projection.Name, source.Variable)
 			}
-			// The selector's schema provenance must name the same resource
-			// the scan reads: lowering derives both from one semantic node
-			// (lower/root_projection.go uses node.ResourceType while
-			// lower/plan_orchestration.go binds root_collection to the root
-			// resource type), so a mismatch means the selector was schema
-			// validated against a document this row is not.
 			if c.expression.Extract.ResourceType != resourceType {
 				return nil, fmt.Errorf("%w: projection %q validates selector against resource type %q, but the row is scanned as %q",
 					ErrUnsupportedPostgresPlan, projection.Name, c.expression.Extract.ResourceType, resourceType)
 			}
 			extracted[extractionEvidence{variable: source.Variable, path: pathEvidenceKey(c.path)}] = true
 		case extractionUnitNormalized:
-			// The unit projection reads exactly its source row document;
-			// the selector's schema provenance must name the type that
-			// row is scanned as — the same identity the selector arm
-			// proves (unit_normalization.go re-reads it at render time).
 			resourceType, ok := rowType(c.unit.sourceVariable)
 			if !ok {
 				return nil, fmt.Errorf("%w: projection %q extracts from variable %q, which does not bind a readable row",
@@ -218,11 +92,6 @@ func classifyExtractionProjections(projections []ir.PhysicalProjection,
 					ErrUnsupportedPostgresPlan, projection.Name, c.unit.resourceType, resourceType)
 			}
 		case extractionCallExpression:
-			// Every row variable a CALL operand reads must bind a readable
-			// row, and every EXTRACT operand's schema provenance must name
-			// the type its row is scanned as — the same identities the
-			// selector and value arms prove; the walk is calls.go's so the
-			// operand classes stay defined in one place.
 			if err := forEachCallOperandRowVariable(*projection.Expression,
 				func(variable string, extract *ir.PhysicalExtract) error {
 					resourceType, ok := rowType(variable)
@@ -246,8 +115,6 @@ func classifyExtractionProjections(projections []ir.PhysicalProjection,
 		}
 		classified = append(classified, c)
 	}
-	// Presence sidecars must agree with a rendered selector: the proof
-	// exists to explain a projection result, never on its own.
 	for _, c := range classified {
 		if c.kind != extractionPresenceSidecar {
 			continue
@@ -260,58 +127,27 @@ func classifyExtractionProjections(projections []ir.PhysicalProjection,
 	return classified, nil
 }
 
-// hiddenRootKeyRead is the ONE registered predicate for the hidden
-// single-step root-key Value read posture: no expression, no presence
-// claim, a bound row variable, no bind key, and exactly one path step
-// named id or _key (the materialized root identity's payload twins).
-// Shared (maximum-shared-implementation, coordinator ruling 2026-11-11)
-// between the canonical preview source identity arm below
-// (ir.PreviewSourceResourceIDColumn) and the composition source
-// materializer's route-anchor arm (stage_sequence.go, P4): the two sites
-// gate on name/root-scope respectively, the SHAPE law lives here so the
-// arms cannot drift.
 func hiddenRootKeyRead(projection ir.PhysicalProjection) bool {
 	return projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
 		projection.Value.Variable != "" && projection.Value.BindKey == "" &&
 		len(projection.Value.Path) == 1 && (projection.Value.Path[0] == "id" || projection.Value.Path[0] == "_key")
 }
 
-// hiddenAuthResourcePathRead is the shape law for the capture contract's
-// hidden authorization-path projection: a direct single-segment read of the
-// typed auth_resource_path column from one row variable. resolveValueInRows
-// maps that exact path onto the storage binding's auth_resource_path column
-// (resourceFilterColumns), so the rendered value is the stored scope column,
-// never a payload path and never a bind value.
 func hiddenAuthResourcePathRead(projection ir.PhysicalProjection) bool {
 	return projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
 		projection.Value.Variable != "" && projection.Value.BindKey == "" &&
 		len(projection.Value.Path) == 1 && projection.Value.Path[0] == "auth_resource_path"
 }
 
-// classifyExtractionProjection enforces the structural half of the
-// projection contract (everything checkable without plan context).
 func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedExtractionProjection, error) {
 	if strings.TrimSpace(projection.Name) == "" {
 		return classifiedExtractionProjection{}, fmt.Errorf("%w: projection names are required output metadata (never SQL text) and must be set",
 			ErrUnsupportedPostgresPlan)
 	}
 	if projection.Hidden {
-		// The canonical preview source identity column (compiler/output and
-		// recipe_execution attach it when IncludeSourceIdentity is set) is
-		// the one hidden projection with a registered PostgreSQL rendering:
-		// exactly the root row's logical id, published through the internal
-		// column contract and never as public output.
 		if projection.Name == ir.PreviewSourceResourceIDColumn && hiddenRootKeyRead(projection) {
 			return classifiedExtractionProjection{kind: extractionDirectValue, projection: projection}, nil
 		}
-		// The private workspace artifact capture's row authorization path
-		// (recipe_execution.appendAuthResourcePathProjection attaches it when
-		// the capture bindings set IncludeAuthResourcePath) is the second
-		// registered hidden projection (pg-exec-11): exactly one row variable's
-		// typed auth_resource_path column, published through the internal
-		// column contract and never as public output. Any other hidden shape
-		// -- an expression, a presence proof, a bind value, a multi-segment
-		// path, or a reshape-carried alias -- stays refused.
 		if projection.Name == "auth_resource_path" && hiddenAuthResourcePathRead(projection) {
 			return classifiedExtractionProjection{kind: extractionDirectValue, projection: projection}, nil
 		}
@@ -367,11 +203,6 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 			return classifiedExtractionProjection{kind: extractionValueExpression, projection: projection}, nil
 		case ir.PhysicalExtractExpression:
 			if expression.Extract != nil && expression.Extract.UnitNormalization != nil {
-				// pg-sql-21: the registered unit-normalized projection
-				// (unit_normalization.go owns the whole contract). The
-				// intercept runs before validateSelectorExtraction, whose
-				// legacy unit refusal stays for the CALL/predicate/etc.
-				// operand paths that keep refusing unit payloads.
 				return classifyUnitNormalizedProjection(projection)
 			}
 			path, err := validateSelectorExtraction(projection)
@@ -385,10 +216,6 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 				path:       path,
 			}, nil
 		case ir.PhysicalCallExpression:
-			// The deep shape contract (posture, registered name, arity,
-			// TargetKind matrix) is owned by calls.go — this classifier only
-			// recognizes the kind and hands it through; rendering never
-			// re-derives the classification itself.
 			if err := validateCallProjection(projection); err != nil {
 				return classifiedExtractionProjection{}, err
 			}
@@ -398,11 +225,6 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 				expression: expression,
 			}, nil
 		case ir.PhysicalObjectExpression, ir.PhysicalSliceExpression:
-			// pg-sql-11 composites. Payload presence and presence-metadata
-			// pairing are checked here; the closed structural contract
-			// (cardinality, null behavior, fields/projections, operand
-			// kinds, recursion depth) is re-read once, authoritatively, in
-			// objects.go so classification and rendering cannot diverge.
 			if projection.Presence != nil {
 				return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q carries presence metadata on a %s expression; presence proofs pair with selector extractions only",
 					ErrUnsupportedPostgresPlan, projection.Name, string(expression.Kind))
@@ -439,12 +261,6 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 	return classifiedExtractionProjection{kind: extractionDirectValue, projection: projection}, nil
 }
 
-// validateSelectorExtraction enforces the closed selector payload: the
-// scalar direct-property form this slice registers, rejecting every
-// richer selector shape by name. The selector itself is schema-validated
-// earlier by ir.Validate (validatePhysicalExtract against the generated
-// FHIR schema); this is the renderer-side boundary that keeps the slice
-// closed, including the re-check of the frozen path contract.
 func validateSelectorExtraction(projection ir.PhysicalProjection) ([]string, error) {
 	expression := projection.Expression
 	extract := expression.Extract
@@ -526,11 +342,6 @@ func validateSelectorExtraction(projection ir.PhysicalProjection) ([]string, err
 			ErrUnsupportedPostgresPlan, projection.Name)
 	}
 	if projection.Presence != nil {
-		// Inert executor-side metadata is legal only when it proves the
-		// selector's own source path: the same single-path pairing the
-		// presence sidecar form requires, so a plan can never smuggle a
-		// fallback-shaped or foreign-path presence claim into a value
-		// projection.
 		presence := projection.Presence
 		if presence.Source.Variable != extract.Source.Variable || presence.Source.BindKey != "" ||
 			!reflect.DeepEqual(presence.Source.Path, extract.Source.Path) {
@@ -545,12 +356,6 @@ func validateSelectorExtraction(projection ir.PhysicalProjection) ([]string, err
 	return path, nil
 }
 
-// validateSelectorExtractionPlan enforces the closed plan slice before any
-// rendering work begins. Every refusal is an ErrUnsupportedPostgresPlan so
-// callers classify the whole family as a capability gap, and the root-scan
-// payload checks run first so a malformed plan can never reach a payload
-// dereference downstream — the same ordering discipline
-// validateRootScanOperation applies.
 func validateSelectorExtractionPlan(plan ir.PhysicalPlan) error {
 	if len(plan.Operations) != 2 {
 		return fmt.Errorf(
@@ -612,16 +417,9 @@ func validateSelectorExtractionPlan(plan ir.PhysicalPlan) error {
 			return fmt.Errorf("%w: projection %q uses a CALL expression; derived scalar calls register on the full read spine (RenderPhysicalPlan), not the closed selector-extraction slice",
 				ErrUnsupportedPostgresPlan, c.projection.Name)
 		case extractionUnitNormalized:
-			// pg-sql-21 contract receipt: the unit-normalized projection
-			// is registered on the full read spine (unit_normalization.go
-			// via renderReturn), not in this closed two-operation slice —
-			// the same spine-only ruling as CALL, OBJECT, and SLICE.
 			return fmt.Errorf("%w: projection %q uses a unit-normalized extraction; the selector-extraction slice emits typed scope columns, EXTRACT selector values, and presence sidecars — unit normalization belongs to the read spine registration (unit_normalization.go)",
 				ErrUnsupportedPostgresPlan, c.projection.Name)
 		case extractionObject, extractionSlice:
-			// pg-sql-11 contract receipt: the composite surface is
-			// registered on the full read spine (objects.go), not in this
-			// closed two-operation slice.
 			return fmt.Errorf("%w: projection %q uses a %s expression; the selector-extraction slice emits typed scope columns, EXTRACT selector values, and presence sidecars — composites belong to the read spine registration (objects.go)",
 				ErrUnsupportedPostgresPlan, c.projection.Name, string(c.projection.Expression.Kind))
 		case extractionSelector, extractionPresenceSidecar:

@@ -89,8 +89,6 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 		return client.QueryRows(queryCtx, query, batchSize, bindVars, arangofactory.RowVisitor(visit))
 	}}
 	for _, want := range wants {
-		// Source identities include both tenant scope and the inserted Arango key.
-		// Supplying only the first compiled field loses one of those parts.
 		identity := map[string]any{"project": project, "_key": project + "_" + want.id}
 		if err := ensureStableRowIdentity(identity, compiledOutput.RowIdentity, nil); err != nil {
 			t.Fatalf("build expected row identity for %q: %v", want.id, err)

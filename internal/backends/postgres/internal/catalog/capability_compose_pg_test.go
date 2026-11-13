@@ -1,12 +1,3 @@
-// Composition witnesses for the full catalog Store (defect
-// PG-PG-CAPABILITY-EVIDENCE-COMPOSITION-PANIC). The Explorer capability
-// resolver consumes all three evidence reads from ONE value
-// (catalog.ReadCapabilityEvidence); these tests pin that a Store assembled
-// with NewFullStore answers all three legs from their own repositories with
-// exactly one boundary read per leg, and that a Store missing a leg refuses
-// with the typed ErrStoreLegNotAssembled — never a nil dereference.
-// Counting wrappers delegate to the real repositories unchanged; they never
-// fake results.
 package postgres
 
 import (
@@ -28,8 +19,6 @@ const (
 	ccOtherPath = "/programs/loom/projects/cap-compose-p/foreign"
 )
 
-// ccInventoryWrapper counts every call on the inventory boundary; all reads
-// delegate to the real repository unchanged.
 type ccInventoryWrapper struct {
 	real *storepostgres.InventoryRepository
 
@@ -65,7 +54,6 @@ func (w *ccInventoryWrapper) ReadCountSums(ctx context.Context, scope storepostg
 	return w.real.ReadCountSums(ctx, scope)
 }
 
-// ccProfileWrapper counts every call on the field-profile boundary.
 type ccProfileWrapper struct {
 	real *storepostgres.FieldProfileRepository
 
@@ -101,7 +89,6 @@ func (w *ccProfileWrapper) ListDistinctAuthResourcePaths(ctx context.Context, pr
 	return w.real.ListDistinctAuthResourcePaths(ctx, project)
 }
 
-// ccRelationshipWrapper counts every call on the relationship boundary.
 type ccRelationshipWrapper struct {
 	real *RelationshipEvidenceRepository
 
@@ -123,8 +110,6 @@ func (w *ccProfileWrapper) reset() {
 	w.upsertCalls, w.readRowsCalls, w.readFilteredCalls, w.readCoverageCalls, w.listDistinctCalls = 0, 0, 0, 0, 0
 }
 
-// ccRepos builds one recording wrapper per boundary over the schema's real
-// repositories.
 func ccRepos(t *testing.T, s *fieldProfileService) (*ccInventoryWrapper, *ccProfileWrapper, *ccRelationshipWrapper) {
 	t.Helper()
 	inventory, err := storepostgres.NewInventoryRepository(s.openClient(t), s.schema)
@@ -142,10 +127,6 @@ func ccRepos(t *testing.T, s *fieldProfileService) (*ccInventoryWrapper, *ccProf
 	return &ccInventoryWrapper{real: inventory}, &ccProfileWrapper{real: profiles}, &ccRelationshipWrapper{real: relationships}
 }
 
-// ccSeedGeneration stages one generation through the production write
-// entries: source rows, a published inventory build, field profiles with a
-// coverage marker, and one concrete-typed relationship occurrence. Seeding
-// runs on the un-wrapped repositories so the measured counters stay clean.
 func ccSeedGeneration(t *testing.T, s *fieldProfileService) {
 	t.Helper()
 	invRepo, err := storepostgres.NewInventoryRepository(s.openClient(t), s.schema)
@@ -170,8 +151,6 @@ func ccSeedGeneration(t *testing.T, s *fieldProfileService) {
 	if err != nil {
 		s.fail("seed: inventory store", err)
 	}
-	// The published build must cover every concrete type, or the default
-	// (all-types) discovery read is a typed unavailable build.
 	if _, err := invStore.RebuildResourceInventory(s.ctx, catalog.ResourceInventoryRebuildOptions{
 		Project: ccProject, DatasetGeneration: ccGen, ResourceTypes: fhirschema.ResourceTypes(), BatchSize: 2,
 	}); err != nil {
@@ -185,9 +164,6 @@ func ccSeedGeneration(t *testing.T, s *fieldProfileService) {
 		[]catalog.FieldCatalogDocument{fdDoc(ccProject, ccGen, ccAuthPath, "Patient", "gender", 1, "female")}, 100); err != nil {
 		s.fail("seed: write field profile", err)
 	}
-	// The occurrence mirrors a generated traversal (Condition subject ->
-	// Patient): ProjectRelationshipObservation drops labels that are not
-	// supported generated traversals, and the leg must carry a value.
 	s.exec(t, "INSERT INTO "+pgx.Identifier{s.schema, "fhir_edge_occurrence"}.Sanitize()+
 		" (project, dataset_generation, auth_resource_path, label,"+
 		" source_resource_type, source_logical_id, target_resource_type, target_logical_id,"+
@@ -204,11 +180,6 @@ func ccEvidenceOptions() catalog.CapabilityEvidenceOptions {
 	}
 }
 
-// TestFullStoreCapabilityEvidenceReadsEachLegOnce is the exactly-one-query
-// witness for the composed capability reader: one ReadCapabilityEvidence
-// over the full store drives exactly one boundary read per evidence leg,
-// and each leg's result equals the same read served by the untouched real
-// repositories (delegation, never fabrication).
 func TestFullStoreCapabilityEvidenceReadsEachLegOnce(t *testing.T) {
 	s := newFieldProfileService(t)
 	ccSeedGeneration(t, s)
@@ -217,7 +188,6 @@ func TestFullStoreCapabilityEvidenceReadsEachLegOnce(t *testing.T) {
 	if err != nil {
 		s.fail("new full store", err)
 	}
-	// Truth baseline: the same reads from an unwrapped full store.
 	plainInv, err := storepostgres.NewInventoryRepository(s.openClient(t), s.schema)
 	if err != nil {
 		s.fail("baseline inventory repository", err)
@@ -260,15 +230,6 @@ func TestFullStoreCapabilityEvidenceReadsEachLegOnce(t *testing.T) {
 		t.Fatalf("seeded legs must carry values: rel=%d enr=%d",
 			len(got.Relationships.Values), len(got.FieldEnrichment.Values))
 	}
-	// The published build carries a row per concrete type, so a
-	// non-empty Values list proves nothing on its own (adversarial
-	// finding M3): pin the seeded restricted-scope counts to the rows
-	// actually stored. Deleting the fhir_resource seeding must fail here,
-	// not merely shrink a vacuous length check.
-	// Per-type totals within the restricted scope (the observation shape
-	// carries no auth path on this lane): Observation=1 witnesses that the
-	// foreign-path row o2 is excluded by the scope, and both pins fail if
-	// the fhir_resource seeding disappears.
 	counts := map[string]int64{}
 	for _, v := range got.ResourceInventory.Values {
 		counts[v.ResourceType] += v.DocumentCount
@@ -277,7 +238,6 @@ func TestFullStoreCapabilityEvidenceReadsEachLegOnce(t *testing.T) {
 		t.Fatalf("inventory must reflect the seeded rows: Patient=%d Observation=%d, want 1/1 (o2 lives on the foreign path)",
 			counts["Patient"], counts["Observation"])
 	}
-	// Exactly one read per leg, and no cross-leg boundary traffic.
 	if inventory.readBuildCalls != 1 || inventory.readCountSums != 1 {
 		t.Fatalf("inventory leg boundary calls: readBuild=%d readCountSums=%d, want 1/1", inventory.readBuildCalls, inventory.readCountSums)
 	}
@@ -288,10 +248,6 @@ func TestFullStoreCapabilityEvidenceReadsEachLegOnce(t *testing.T) {
 	if relationships.scanCalls != 1 {
 		t.Fatalf("relationship leg boundary calls: scan=%d, want exactly 1", relationships.scanCalls)
 	}
-	// One filtered read carries the rows; the coverage-marker read only runs
-	// on the zero-rows branch (known-empty vs never-persisted), so a
-	// seeded scope must issue exactly one filtered read and zero coverage
-	// reads.
 	if profiles.readFilteredCalls != 1 || profiles.readCoverageCalls != 0 {
 		t.Fatalf("enrichment leg boundary calls: filtered=%d coverage=%d, want 1/0",
 			profiles.readFilteredCalls, profiles.readCoverageCalls)
@@ -302,11 +258,6 @@ func TestFullStoreCapabilityEvidenceReadsEachLegOnce(t *testing.T) {
 	}
 }
 
-// TestNarrowStoreWrongLegRefusesTypedNeverPanics is the negative control
-// for the never-nil law (PG-PG-CAPABILITY-EVIDENCE-COMPOSITION-PANIC):
-// every method whose repository is absent refuses with typed
-// ErrStoreLegNotAssembled, zero boundary queries, and no panic. Deleting a
-// requireLeg guard must make this test fail on a nil dereference.
 func TestNarrowStoreWrongLegRefusesTypedNeverPanics(t *testing.T) {
 	s := newFieldProfileService(t)
 	inventory, profiles, relationships := ccRepos(t, s)
@@ -450,9 +401,6 @@ func TestNarrowStoreWrongLegRefusesTypedNeverPanics(t *testing.T) {
 			return nil
 		}},
 		{"aliases inherit the guard", func() error {
-			// ReadRelationshipObservations delegates to
-			// DiscoverRelationshipObservations; ReadResourceInventory to
-			// DiscoverResourceInventory. They must refuse too, not panic.
 			if _, err := inventoryOnly.ReadRelationshipObservations(s.ctx, catalog.RelationshipObservationOptions{Project: ccProject, DatasetGeneration: ccGen}); err == nil || !errors.Is(err, ErrStoreLegNotAssembled) {
 				return errors.New("ReadRelationshipObservations: " + errText(err))
 			}
@@ -476,8 +424,6 @@ func TestNarrowStoreWrongLegRefusesTypedNeverPanics(t *testing.T) {
 		}()
 	}
 
-	// Zero boundary queries across every wrong-leg probe: the guard refuses
-	// before any SQL, so counters must still be at their seeded-zero state.
 	inventory.reset()
 	profiles.reset()
 	relationships.reset()
@@ -504,9 +450,6 @@ func errText(err error) string {
 	return err.Error()
 }
 
-// TestNewFullStoreRequiresEveryRepository pins the constructor refusal: a
-// full store is only full when all three boundaries are present; a genuinely
-// unassigned series must stay a nil port at the runtime level.
 func TestNewFullStoreRequiresEveryRepository(t *testing.T) {
 	s := newFieldProfileService(t)
 	inventory, profiles, relationships := ccRepos(t, s)
@@ -526,6 +469,5 @@ func TestNewFullStoreRequiresEveryRepository(t *testing.T) {
 	if full == nil {
 		t.Fatal("full store is nil")
 	}
-	// A constructed full store satisfies the reader contract statically.
 	var _ catalog.CapabilityEvidenceReader = full
 }

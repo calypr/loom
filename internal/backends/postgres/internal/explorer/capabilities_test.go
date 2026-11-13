@@ -1,36 +1,5 @@
 package postgres
 
-// Real PostgreSQL 18 integration for pg-state-immutable-capability-
-// receipts-v1. Everything here runs against the service named by
-// LOOM_TEST_POSTGRES_URL: each test creates one uniquely-named isolated
-// database (pgstate03_it_*) plus one owned schema (pgstate03_it_*) inside it
-// and drops both in its cleanups, so the suite leaves zero leftovers. The
-// fixture history is this package's complete embedded owner history -- the
-// capability DDL (000004_capability_artifacts) is part of that same Explorer
-// control-plane ledger with bytes unchanged from its earlier own-dir
-// fixture; the ledger rows are asserted literally.
-// Expected rows are asserted literally through direct SQL on a witness pool
-// that is a third, physically distinct backend connection, and concurrent
-// put proofs run over two single-connection clients with provably distinct
-// pg_backend_pid values. Immutability is witnessed at the database: every
-// violating direct write must fail with the guard in place and -- guard-
-// drop probe -- the same statement must succeed once the trigger is
-// dropped, proving the guard (not an accident) blocked it.
-//
-// Skip discipline: no test in this file runs green on a skip -- every
-// assertion requires the live service, and a run presented as acceptance
-// evidence fails if any test here skipped. Note the CI wiring honestly: the
-// go-unit lane runs this package WITHOUT LOOM_TEST_POSTGRES_URL, so its
-// PG-gated tests skip green there, and the pg-fixture job
-// (scripts/run-postgres-integration.mjs) does not yet cover
-// ./internal/backends/postgres/internal/explorer; extending it is a shared-infra change held
-// for the coordinator. This suite's acceptance is therefore live PG18 runs
-// (command, full log, and exit status attached to the PR evidence).
-// Concurrency tests run serially (no t.Parallel anywhere). The TestZZ
-// zero-leftover audit is ownership-scoped to pgstate03_it_* only: sibling
-// suites sweep their own prefixes in their own files, and concurrent
-// sibling sweeps must never share a global scan.
-
 import (
 	"bytes"
 	"context"
@@ -64,15 +33,9 @@ const (
 
 var pgstate03ResourceNamePattern = regexp.MustCompile(`^pgstate03_it_[0-9]+_[0-9a-f]+$`)
 
-// capabilityService owns one isolated database and one owned schema inside
-// it, both named pgstate03_it_*, created for exactly one test and removed by
-// that test's cleanups. Three single-connection clients give two real writer
-// backends (storeA over clientA, storeB over clientB) plus a third backend
-// for direct-SQL witnesses. Nothing outside these resources is touched;
-// TestZZNoLeftoverPgstate03Resources audits that none survive.
 type capabilityService struct {
 	ctx     context.Context
-	admin   *pgxpool.Pool // service database
+	admin   *pgxpool.Pool
 	witness *pgstore.Client
 	pidW    int32
 	pidA    int32
@@ -145,8 +108,6 @@ func newCapabilityService(t *testing.T) *capabilityService {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -155,10 +116,6 @@ func newCapabilityService(t *testing.T) *capabilityService {
 	dsn := u.String()
 	secrets = append(secrets, dsn)
 
-	// Each client is capped at one physical connection, and pgstore.Open
-	// pings the server and refuses anything but PostgreSQL 18, so the
-	// witness, writer A, and writer B are provably three distinct PG18
-	// backends.
 	newClient := func(label string) *pgstore.Client {
 		client, err := pgstore.Open(ctx, pgstore.Config{
 			DSN:            dsn,
@@ -245,8 +202,6 @@ func queryRowOn[T any](ctx context.Context, client *pgstore.Client, dest *T, sql
 	return conn.QueryRow(ctx, sql, args...).Scan(dest)
 }
 
-// backendPID asks one client (a single physical connection) to name its
-// server backend.
 func (s *capabilityService) backendPID(t *testing.T, client *pgstore.Client, label string) int32 {
 	t.Helper()
 	var pid int32
@@ -259,11 +214,6 @@ func (s *capabilityService) backendPID(t *testing.T, client *pgstore.Client, lab
 	return pid
 }
 
-// migrate applies this package's complete embedded owner history through
-// the real pg-store-02 runner, and asserts the ledger literally, pinning
-// the capability artifacts migration's byte-frozen checksum. The capability
-// tables live in the SAME Explorer control-plane schema, inside the one
-// ledger: no competing history, no duplicated ledger bootstrap.
 func (s *capabilityService) migrate(t *testing.T) {
 	t.Helper()
 	history, err := OwnerMigrations()
@@ -301,11 +251,6 @@ func (s *capabilityService) migrate(t *testing.T) {
 	s.fixture = fixture
 	s.ledgerAfter = result.Applied
 
-	// The ledger must be the complete owner history, ascending: capability
-	// artifacts sits at version 4 INSIDE the one Explorer control-plane
-	// ledger (coordinator ruling), so the applied rows are exactly the
-	// owner history's own version/name/checksum sequence -- no competing
-	// history, no duplicated ledger bootstrap.
 	want := ownerRecords(history)
 	var maxVersion int64
 	for _, w := range want {
@@ -333,7 +278,6 @@ func (s *capabilityService) migrate(t *testing.T) {
 	}
 }
 
-// ownerRecords maps a migration history to its expected ledger rows.
 func ownerRecords(history []pgstore.Migration) []pgstore.LedgerRecord {
 	records := make([]pgstore.LedgerRecord, 0, len(history))
 	for _, m := range history {
@@ -342,12 +286,7 @@ func ownerRecords(history []pgstore.Migration) []pgstore.LedgerRecord {
 	return records
 }
 
-// tablesCreatedIn extracts the table names created by one migration's SQL,
-// so schema-composition expectations are derived from the applied history
-// instead of hardcoded (future owner migrations cannot break the leak check
-// and cannot be silently tolerated either).
 func tablesCreatedIn(sql string) []string {
-	// Strip -- comments first: prose in migration headers quotes DDL too.
 	var code strings.Builder
 	for _, line := range strings.Split(sql, "\n") {
 		if idx := strings.Index(line, "--"); idx >= 0 {
@@ -364,10 +303,6 @@ func tablesCreatedIn(sql string) []string {
 	}
 	return tables
 }
-
-// ---------------------------------------------------------------------------
-// direct-SQL witnesses (test's own client, never a store connection)
-// ---------------------------------------------------------------------------
 
 func (s *capabilityService) qualified(table string) string {
 	return pgx.Identifier{s.schema, table}.Sanitize()
@@ -411,9 +346,6 @@ func (s *capabilityService) execCount(t *testing.T, sql string, args ...any) int
 	return n
 }
 
-// forEachWitnessText collects single-column text rows through the witness
-// backend, holding the (single-connection) pool only for the query's full
-// lifecycle: the connection is released when the scan completes.
 func (s *capabilityService) forEachWitnessText(t *testing.T, dest *[]string, sql string, args ...any) {
 	t.Helper()
 	conn, err := s.witness.Acquire(s.ctx)
@@ -438,7 +370,6 @@ func (s *capabilityService) forEachWitnessText(t *testing.T, dest *[]string, sql
 	}
 }
 
-// snapshotRow is the literal content of one capability_snapshots row.
 type snapshotRow struct {
 	token       string
 	identity    capability.SnapshotIdentity
@@ -450,9 +381,6 @@ type snapshotRow struct {
 	exists      bool
 }
 
-// witnessSnapshot reads one capability_snapshots row literally through the
-// witness backend: every mirror column, the full stored jsonb text, and the
-// physical ctid (which changes on any UPDATE or re-INSERT).
 func (s *capabilityService) witnessSnapshot(token string) snapshotRow {
 	var w snapshotRow
 	conn, err := s.witness.Acquire(s.ctx)
@@ -497,10 +425,6 @@ func (s *capabilityService) assertSnapshotAbsent(t *testing.T, token string) {
 	}
 }
 
-// assertSnapshotLiteral witnesses the stored row against the exact expected
-// snapshot: identity/status mirrors, and jsonb equality against the
-// canonical full document (so every nested slice, audit array, details map
-// entry, and the token itself is pinned).
 func (s *capabilityService) assertSnapshotLiteral(t *testing.T, want capability.Snapshot) {
 	t.Helper()
 	document, err := capabilitySnapshotDocument(want)
@@ -525,7 +449,6 @@ func (s *capabilityService) assertSnapshotLiteral(t *testing.T, want capability.
 	}
 }
 
-// witnessedReceipt is the literal content of one table_shape_capabilities row.
 type witnessedReceipt struct {
 	id, kind, parentCatalogID string
 	binding                   tableshapecap.Binding
@@ -595,7 +518,6 @@ func (s *capabilityService) assertReceiptLiteral(t *testing.T, id, kind, parentC
 	}
 }
 
-// triggerPresent witnesses the database-level immutability guard by name.
 func (s *capabilityService) triggerPresent(t *testing.T, trigger, table string) bool {
 	t.Helper()
 	var present bool
@@ -613,13 +535,6 @@ func (s *capabilityService) triggerPresent(t *testing.T, trigger, table string) 
 	return present
 }
 
-// guardDropProbe runs a violating statement through the witness backend
-// under three conditions: it must fail with the guard in place (SQLSTATE
-// 45501), it must succeed with the trigger dropped -- proving the guard,
-// not an accident, blocked it (the pg-catalog-04 non-vacuity bar) -- and it
-// must fail again once the trigger is restored. reseed, when non-nil, runs
-// after the successful unguarded write to restore the disposable probe row
-// (needed for repeatable DELETE probes).
 func (s *capabilityService) guardDropProbe(t *testing.T, trigger, table string, reseed func(), stmt string, args ...any) {
 	t.Helper()
 	tableFQN := s.qualified(table)
@@ -659,17 +574,8 @@ func (s *capabilityService) guardDropProbe(t *testing.T, trigger, table string, 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fixtures
-// ---------------------------------------------------------------------------
-
 func ptr[T any](value T) *T { return &value }
 
-// richSnapshot builds a READY snapshot exercising every nested payload
-// family: availability with readiness + observed fields (examples,
-// semantic observations), nodes/edges/candidates with operation slices,
-// aggregate operations, concept candidates, repeated boundaries, audit
-// arrays, and diagnostics with a details map.
 func richSnapshot(project, generation, token string) capability.Snapshot {
 	identity := capability.SnapshotIdentity{
 		Project: project, Generation: generation,
@@ -730,9 +636,6 @@ func richSnapshot(project, generation, token string) capability.Snapshot {
 	snapshot.AuditNodes = []capability.Node{{ID: "audit-node", ResourceType: "Audit", Populated: false}}
 	snapshot.AuditEdges = []capability.Edge{{ID: "audit-edge", FromNodeID: "audit-node", ToNodeID: "node-patient", Label: "audits", SourceResourceType: "Audit", TargetResourceType: "Patient"}}
 	snapshot.AuditCandidates = []capability.Candidate{{ID: "audit-cand", NodeID: "audit-node", ResourceType: "Audit", FieldPath: "agent", Label: "Agent", LogicalType: "string"}}
-	// Availability and audit arrays are part of the canonical payload (the
-	// builder rehashes after setting them), so re-derive the token exactly
-	// as capability.snapshotToken does before handing the snapshot to Put.
 	sum := sha256.Sum256(snapshot.CanonicalPayload())
 	snapshot.Token = "sha256:" + hex.EncodeToString(sum[:])
 	return snapshot
@@ -893,10 +796,6 @@ func testDerived(t *testing.T, catalog tableshapecap.CatalogReceipt, prior strin
 	return resolution
 }
 
-// ---------------------------------------------------------------------------
-// construction contract (no server needed)
-// ---------------------------------------------------------------------------
-
 func TestNewCapabilityStoresRejectNilClientAndUnsafeSchema(t *testing.T) {
 	for _, schema := range []string{"", "Public", "a;drop", "0starts_with_digit", "has space", "tab\tname", strings.Repeat("a", 64)} {
 		if _, err := NewCapabilitySnapshotStore(nil, schema); err == nil {
@@ -906,8 +805,6 @@ func TestNewCapabilityStoresRejectNilClientAndUnsafeSchema(t *testing.T) {
 			t.Fatalf("NewTableShapeCapabilityStore(nil, %q) = nil error, want failure", schema)
 		}
 	}
-	// The schema guard fires before any connection use, and a valid schema
-	// builds a store without touching the database.
 	if _, err := NewCapabilitySnapshotStore(&pgstore.Client{}, "ok_schema"); err != nil {
 		t.Fatalf("NewCapabilitySnapshotStore(valid) = %v, want success", err)
 	}
@@ -916,21 +813,13 @@ func TestNewCapabilityStoresRejectNilClientAndUnsafeSchema(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// schema composition, literal column contract, and guard presence
-// ---------------------------------------------------------------------------
-
 func TestCapabilitySchemaCompositionColumnContractAndGuards(t *testing.T) {
 	s := newCapabilityService(t)
 
-	// Exactly the tables the composed history declares -- derived from the
-	// applied migrations' own DDL, so nothing from the source-store or
-	// publication planes can leak in and future owner migrations compose
-	// without breaking this check.
 	var tables []string
 	s.forEachWitnessText(t, &tables,
 		"SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = $1 ORDER BY tablename", s.schema)
-	declared := map[string]bool{"schema_migrations": true} // the runner's own ledger table
+	declared := map[string]bool{"schema_migrations": true}
 	for _, m := range s.owner {
 		for _, table := range tablesCreatedIn(m.SQL) {
 			declared[table] = true
@@ -1032,8 +921,6 @@ func TestCapabilitySchemaCompositionColumnContractAndGuards(t *testing.T) {
 		}
 	}
 
-	// The database-level immutability guards exist by name, backed by the
-	// shared guard function.
 	if !s.triggerPresent(t, "capability_snapshots_immutable", CapabilitySnapshotsTable) {
 		t.Fatal("capability_snapshots_immutable trigger missing")
 	}
@@ -1063,11 +950,6 @@ func TestCapabilitySchemaCompositionColumnContractAndGuards(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 1 (snapshots): same key/content idempotent; changed content
-// collision; invalid input refused; the stored row never changes.
-// ---------------------------------------------------------------------------
-
 func TestCapabilitySnapshotPutIdempotentAndCollisionRefused(t *testing.T) {
 	s := newCapabilityService(t)
 	snapshot := richSnapshot("pgstate03-snapshots", "generation-1", "alpha")
@@ -1080,8 +962,6 @@ func TestCapabilitySnapshotPutIdempotentAndCollisionRefused(t *testing.T) {
 	s.assertSnapshotLiteral(t, snapshot)
 	before := s.witnessSnapshot(snapshot.Token)
 
-	// Same key, same content: idempotent. The stored row is byte-identical
-	// (same ctid -- no UPDATE ran) and the returned snapshot matches.
 	again, err := s.snapshots.Put(s.ctx, snapshot)
 	if err != nil {
 		s.fail("idempotent re-put", err)
@@ -1095,10 +975,6 @@ func TestCapabilitySnapshotPutIdempotentAndCollisionRefused(t *testing.T) {
 		t.Fatalf("snapshot rows = %d, want exactly 1", n)
 	}
 
-	// Changed content under the same token is the typed collision. The row
-	// is first tampered underneath the store (a path only the guard-drop
-	// probe permits -- see TestCapabilityImmutabilityGuards), then the
-	// honest Put must refuse and change nothing.
 	s.mustWitnessExec(t, `DROP TRIGGER capability_snapshots_immutable ON `+s.qualified(CapabilitySnapshotsTable))
 	s.mustWitnessExec(t, `UPDATE `+s.qualified(CapabilitySnapshotsTable)+
 		` SET payload = jsonb_set(payload, '{status}', '"FAILED"') WHERE token = $1`, snapshot.Token)
@@ -1116,7 +992,6 @@ func TestCapabilitySnapshotPutIdempotentAndCollisionRefused(t *testing.T) {
 		t.Fatalf("refused Put mutated the stored row: tampered=%+v after=%+v", tampered, untouched)
 	}
 
-	// A foreign token and a lying READY flag are refused before storage.
 	lying := snapshot
 	lying.Token = "sha256:" + strings.Repeat("0", 64)
 	if _, err := s.snapshots.Put(s.ctx, lying); !errors.Is(err, capability.ErrInvalidSnapshot) {
@@ -1129,17 +1004,10 @@ func TestCapabilitySnapshotPutIdempotentAndCollisionRefused(t *testing.T) {
 		t.Fatalf("Put of incomplete READY = %v, want capability.ErrInvalidSnapshot", err)
 	}
 
-	// Reads re-validate: the tampered row is never served as if healthy.
 	if _, err := s.snapshots.GetByToken(s.ctx, snapshot.Token); !errors.Is(err, capability.ErrInvalidSnapshot) {
 		t.Fatalf("GetByToken over tampered payload = %v, want capability.ErrInvalidSnapshot", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 2 (snapshots): retrieval is fully identity-scoped; cross-
-// project/generation/scope/digest retrieval is refused with ErrNotFound,
-// and READY wins the best-available ordering.
-// ---------------------------------------------------------------------------
 
 func TestCapabilitySnapshotIdentityRetrievalIsFullyScoped(t *testing.T) {
 	s := newCapabilityService(t)
@@ -1177,13 +1045,10 @@ func TestCapabilitySnapshotIdentityRetrievalIsFullyScoped(t *testing.T) {
 		}
 	}
 
-	// Unknown token: typed miss, no leak.
 	if _, err := s.snapshots.GetByToken(s.ctx, "sha256:"+strings.Repeat("f", 64)); !errors.Is(err, capability.ErrNotFound) {
 		t.Fatalf("GetByToken(unknown) = %v, want capability.ErrNotFound", err)
 	}
 
-	// Best-available ordering: READY wins over BUILDING/FAILED under the
-	// same identity; with only diagnostic rows present, one is returned.
 	building := capability.NewSnapshot(ready.Identity, ready.Policy, capability.StatusBuilding, false, false, nil, nil, nil, nil)
 	if _, err := s.snapshots.Put(s.ctx, building); err != nil {
 		s.fail("put building snapshot", err)
@@ -1207,12 +1072,6 @@ func TestCapabilitySnapshotIdentityRetrievalIsFullyScoped(t *testing.T) {
 	}
 	assertSnapshotEquivalent(t, "GetByIdentity FAILED", got, diagnostic)
 
-	// Shape-digest siblings (AO review finding on 4e85103c): two READY
-	// snapshots that agree on every identity column except shape_digest are
-	// both healthy rows. Each identity query must return exactly the
-	// requested artifact -- never the sibling, and never a corruption error
-	// for a row that is internally consistent. The SQL identity filter and
-	// the post-read mirror check therefore have to agree on shape_digest.
 	sibling := richSnapshot("pgstate03-identity", "generation-1", "beta")
 	sibling.Identity.ShapeDigest = "sha256:shape-beta-sibling"
 	siblingSum := sha256.Sum256(sibling.CanonicalPayload())
@@ -1240,19 +1099,12 @@ func TestCapabilitySnapshotIdentityRetrievalIsFullyScoped(t *testing.T) {
 	}
 	assertSnapshotEquivalent(t, "GetByIdentity shape-digest sibling", got, sibling)
 
-	// An identity that differs from both rows only on shape_digest is a
-	// typed miss, never the sibling and never a corruption error.
 	ghost := sibling.Identity
 	ghost.ShapeDigest = "sha256:shape-beta-ghost"
 	if _, err := s.snapshots.GetByIdentity(s.ctx, ghost); !errors.Is(err, capability.ErrNotFound) {
 		t.Fatalf("GetByIdentity(ghost shape digest) = %v, want capability.ErrNotFound", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 1 (receipts): same key/content idempotent (createdAt excluded,
-// stored original survives); changed content collides and changes nothing.
-// ---------------------------------------------------------------------------
 
 func TestTableShapeCatalogPutIdempotentAndChangedContentCollides(t *testing.T) {
 	s := newCapabilityService(t)
@@ -1269,10 +1121,6 @@ func TestTableShapeCatalogPutIdempotentAndChangedContentCollides(t *testing.T) {
 	s.assertReceiptLiteral(t, catalog.ID, kindCatalog, "", binding, catalog.ContentDigest, catalog.CreatedAt, catalog)
 	before := s.witnessReceipt(catalog.ID)
 
-	// Same key, same content, later createdAt: the identity is the content
-	// (createdAt is excluded from the digest), so the retry is idempotent
-	// and returns the stored row -- original createdAt included -- with the
-	// row physically untouched.
 	retry := catalog
 	retry.CreatedAt = "2027-01-02T03:04:05Z"
 	stored, err := s.receipts.PutCatalog(s.ctx, retry)
@@ -1290,9 +1138,6 @@ func TestTableShapeCatalogPutIdempotentAndChangedContentCollides(t *testing.T) {
 		t.Fatalf("receipt rows = %d, want exactly 1", n)
 	}
 
-	// Changed content under the same ID: tamper a content field (through a
-	// guard-dropped window), then the honest Put must collide and leave the
-	// stored row byte-identical.
 	s.mustWitnessExec(t, `DROP TRIGGER table_shape_capabilities_immutable ON `+s.qualified(TableShapeCapabilitiesTable))
 	s.mustWitnessExec(t, `UPDATE `+s.qualified(TableShapeCapabilitiesTable)+
 		` SET payload = jsonb_set(payload, '{columns,0,label}', '"tampered"') WHERE id = $1`, catalog.ID)
@@ -1310,7 +1155,6 @@ func TestTableShapeCatalogPutIdempotentAndChangedContentCollides(t *testing.T) {
 		t.Fatalf("refused PutCatalog mutated the stored row: tampered=%+v after=%+v", tampered, untouched)
 	}
 
-	// Invalid input is refused before storage.
 	badID := catalog
 	badID.ID = "tsc_" + strings.Repeat("a", 32)
 	if _, err := s.receipts.PutCatalog(s.ctx, badID); !errors.Is(err, tableshapecap.ErrInvalid) {
@@ -1318,13 +1162,6 @@ func TestTableShapeCatalogPutIdempotentAndChangedContentCollides(t *testing.T) {
 	}
 	s.assertReceiptAbsent(t, badID.ID)
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 2 (receipts): every retrieval is bound. Cross-project, cross-
-// Explorer, cross-output, cross-snapshot, cross-generation, cross-draft,
-// cross-parent reads are all refused; an out-of-scope parent never accepts
-// a child insert.
-// ---------------------------------------------------------------------------
 
 func TestTableShapeReadsRefuseCrossProjectOutputSnapshotAndParent(t *testing.T) {
 	s := newCapabilityService(t)
@@ -1342,7 +1179,6 @@ func TestTableShapeReadsRefuseCrossProjectOutputSnapshotAndParent(t *testing.T) 
 		s.fail("put pivot", err)
 	}
 
-	// A second catalog under the same binding exercises cross-parent.
 	otherSavedShape := catalog.SavedShape
 	otherSavedShape.DerivedColumns++
 	otherReceipt, err := tableshapecap.NewCatalogReceipt(binding, clonePublicColumns(catalog.Columns),
@@ -1382,7 +1218,6 @@ func TestTableShapeReadsRefuseCrossProjectOutputSnapshotAndParent(t *testing.T) 
 		}
 	}
 
-	// The lookup path is scoped to its nine request-bound columns.
 	lookup := tableshapecap.CatalogLookup{
 		Project: binding.Project, ExplorerID: binding.ExplorerID, OutputID: binding.OutputID,
 		SnapshotToken: binding.SnapshotToken, AuthorizationScope: binding.AuthorizationScope,
@@ -1415,8 +1250,6 @@ func TestTableShapeReadsRefuseCrossProjectOutputSnapshotAndParent(t *testing.T) 
 		}
 	}
 
-	// Cross-parent retrieval is refused: neither child reads under the
-	// other catalog, and neither ID leaks through.
 	if _, err := s.receipts.GetCategoryScan(s.ctx, binding, otherReceipt.ID, scan.ID); !errors.Is(err, tableshapecap.ErrNotFound) {
 		t.Fatalf("GetCategoryScan under foreign parent = %v, want tableshapecap.ErrNotFound", err)
 	}
@@ -1424,10 +1257,6 @@ func TestTableShapeReadsRefuseCrossProjectOutputSnapshotAndParent(t *testing.T) 
 		t.Fatalf("GetResolution under foreign parent = %v, want tableshapecap.ErrNotFound", err)
 	}
 
-	// A child insert against a foreign but EXISTING parent is refused by
-	// the persisted-parent validation: the scan's choices belong to the
-	// other catalog, so it is invalid against that parent -- and no row
-	// lands.
 	orphanScan, err := tableshapecap.NewCategoryScanReceipt(binding, otherReceipt.ID,
 		scan.CategoryColumnChoiceID, scan.ValueColumnChoiceID, scanValues(t), scan.Proof, "")
 	if err != nil {
@@ -1438,8 +1267,6 @@ func TestTableShapeReadsRefuseCrossProjectOutputSnapshotAndParent(t *testing.T) 
 	}
 	s.assertReceiptAbsent(t, orphanScan.ID)
 
-	// A child insert against a parent that does not exist at all fails on
-	// the parent read: the binding-scoped parent lookup misses.
 	ghostParent := "tsc_" + strings.Repeat("f", 32)
 	ghostScan, err := tableshapecap.NewCategoryScanReceipt(binding, ghostParent,
 		scan.CategoryColumnChoiceID, scan.ValueColumnChoiceID, scanValues(t), scan.Proof, "")
@@ -1467,13 +1294,6 @@ func cloneCatalogChoicesForTest(v tableshapecap.CatalogChoices) tableshapecap.Ca
 	}
 	return out
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 3: nested parent receipts and canonical tokens read back
-// exactly -- the full chain snapshot -> catalog -> category scan -> pivot
-// -> derived(-> derived) round-trips through PostgreSQL byte-for-byte
-// (deep equality of every nested value, including the six scalar arms).
-// ---------------------------------------------------------------------------
 
 func TestNestedParentReceiptsAndCanonicalTokensReadBackExactly(t *testing.T) {
 	s := newCapabilityService(t)
@@ -1516,9 +1336,6 @@ func TestNestedParentReceiptsAndCanonicalTokensReadBackExactly(t *testing.T) {
 	}
 	s.assertReceiptLiteral(t, derivedTwo.ID, kindResolution, catalog.ID, binding, derivedTwo.ContentDigest, derivedTwo.CreatedAt, derivedTwo)
 
-	// Reads come back exact: deep equality on every artifact, the canonical
-	// snapshot token on the mirror column, and the canonical chain IDs
-	// pinned inside the stored documents.
 	gotCatalog, err := s.receipts.GetCatalog(s.ctx, binding, catalog.ID)
 	if err != nil || !reflect.DeepEqual(gotCatalog, catalog) {
 		t.Fatalf("GetCatalog = %+v (%v), want %+v", gotCatalog, err, catalog)
@@ -1534,9 +1351,6 @@ func TestNestedParentReceiptsAndCanonicalTokensReadBackExactly(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(gotPivot, pivot) {
 		t.Fatalf("GetResolution pivot = %+v (%v), want %+v", gotPivot, err, pivot)
 	}
-	// The six scalar arms (empty string, zero integer, decimal, false,
-	// JSON null, missing) round-trip as distinct tagged values inside the
-	// nested frozen categories.
 	for i, want := range scan.Categories {
 		if !reflect.DeepEqual(gotPivot.Pivot.Categories[i].Value, want.Value) {
 			t.Fatalf("pivot category %d = %+v, want %+v", i, gotPivot.Pivot.Categories[i].Value, want.Value)
@@ -1551,8 +1365,6 @@ func TestNestedParentReceiptsAndCanonicalTokensReadBackExactly(t *testing.T) {
 		t.Fatalf("GetResolution derived two = %+v (%v), want %+v", gotDerivedTwo, err, derivedTwo)
 	}
 
-	// Canonical tokens: the binding column carries the exact content token
-	// of the snapshot, and the pivot payload names its scan by canonical ID.
 	if w := s.witnessReceipt(catalog.ID); !strings.Contains(w.payloadText, snapshot.Token) || w.binding.SnapshotToken != snapshot.Token {
 		t.Fatalf("catalog binding lost the canonical snapshot token: %+v", w)
 	}
@@ -1567,12 +1379,6 @@ func TestNestedParentReceiptsAndCanonicalTokensReadBackExactly(t *testing.T) {
 		t.Fatalf("derived nested resolutionId = %q, want %q", v, derivedOne.ID)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Two-real-connection proofs: concurrent same-key puts from two physically
-// distinct backends converge on exactly one immutable row; a stale re-put
-// against a changed-content row is refused with the row byte-identical.
-// ---------------------------------------------------------------------------
 
 func TestConcurrentSameKeyPutsConvergeOnOneImmutableRow(t *testing.T) {
 	s := newCapabilityService(t)
@@ -1619,8 +1425,6 @@ func TestConcurrentSameKeyPutsConvergeOnOneImmutableRow(t *testing.T) {
 		}
 	}
 
-	// Exactly one winner's INSERT exists per artifact: one row each, and
-	// both callers converged on the identical stored content.
 	if n := s.execCount(t, "SELECT count(*) FROM "+s.qualified(TableShapeCapabilitiesTable)); n != 1 {
 		t.Fatalf("catalog rows after race = %d, want exactly 1", n)
 	}
@@ -1630,9 +1434,6 @@ func TestConcurrentSameKeyPutsConvergeOnOneImmutableRow(t *testing.T) {
 	s.assertReceiptLiteral(t, catalog.ID, kindCatalog, "", binding, catalog.ContentDigest, catalog.CreatedAt, catalog)
 	s.assertSnapshotLiteral(t, snapshot)
 
-	// Stale-refusal witness: a re-put of the ORIGINAL content against the
-	// row whose content was changed underneath is refused, and the witness
-	// row is byte-identical across the refusal.
 	w := s.witnessReceipt(catalog.ID)
 	snapshotBefore := s.witnessSnapshot(snapshot.Token)
 	s.mustWitnessExec(t, `DROP TRIGGER table_shape_capabilities_immutable ON `+s.qualified(TableShapeCapabilitiesTable))
@@ -1657,13 +1458,6 @@ func TestConcurrentSameKeyPutsConvergeOnOneImmutableRow(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 4: no update path mutates immutable content -- the database
-// itself refuses UPDATE and DELETE on both artifact tables, and the guards
-// are proven non-vacuous by live guard-drop probes (the violating write must
-// succeed only with the guard removed).
-// ---------------------------------------------------------------------------
-
 func TestCapabilityImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 	s := newCapabilityService(t)
 	binding := testBinding("pgstate03-immutable")
@@ -1676,16 +1470,9 @@ func TestCapabilityImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 		s.fail("put snapshot", err)
 	}
 
-	// The store-written artifacts are the ones whose integrity is asserted.
-	// They are inserted once, never touched by any probe, and re-witnessed
-	// byte-for-byte -- including their physical tuple -- at the end.
 	beforeReceipt := s.witnessReceipt(catalog.ID)
 	beforeSnapshot := s.witnessSnapshot(snapshot.Token)
 
-	// The destructive guard-drop probes run on DEDICATED probe rows, seeded
-	// by direct INSERT (inserts are unguarded). Proving a guard non-vacuous
-	// necessarily lets the violating write through once, so it cannot target
-	// the artifacts whose byte-identity we assert.
 	probeToken := "sha256:" + strings.Repeat("7", 64)
 	seedProbeSnapshot := func() {
 		if err := s.witnessExecErr(`INSERT INTO `+s.qualified(CapabilitySnapshotsTable)+
@@ -1709,12 +1496,6 @@ func TestCapabilityImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 	seedProbeSnapshot()
 	seedProbeReceipt()
 
-	// Direct UPDATE and DELETE from the witness backend -- a session with
-	// the schema owner's own rights -- are refused by the triggers. The
-	// guard-drop probe then proves each refusal was the guard: with the
-	// trigger dropped the very same statement succeeds, and after restore
-	// it is refused again. The DELETE probes reseed their probe row so the
-	// post-restore refusal is exercised against a live tuple.
 	s.guardDropProbe(t, "capability_snapshots_immutable", CapabilitySnapshotsTable, nil,
 		`UPDATE `+s.qualified(CapabilitySnapshotsTable)+` SET status = 'FAILED' WHERE token = $1`, probeToken)
 	s.guardDropProbe(t, "capability_snapshots_immutable", CapabilitySnapshotsTable, seedProbeSnapshot,
@@ -1725,8 +1506,6 @@ func TestCapabilityImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 	s.guardDropProbe(t, "table_shape_capabilities_immutable", TableShapeCapabilitiesTable, seedProbeReceipt,
 		`DELETE FROM `+s.qualified(TableShapeCapabilitiesTable)+` WHERE id = $1`, probeReceiptID)
 
-	// The store-written artifacts were never reachable by any of that: same
-	// bytes, same physical tuple, exactly as the stores first wrote them.
 	afterReceipt := s.witnessReceipt(catalog.ID)
 	if afterReceipt.payloadText != beforeReceipt.payloadText || afterReceipt.ctid != beforeReceipt.ctid {
 		t.Fatalf("catalog row changed across the guard probes: before=%+v after=%+v", beforeReceipt, afterReceipt)
@@ -1736,12 +1515,6 @@ func TestCapabilityImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 		t.Fatalf("snapshot row changed across the guard probes: before=%+v after=%+v", beforeSnapshot, afterSnapshot)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Schema constraint negatives: every column-level rule is refused by the
-// database, and the documented legal shapes insert cleanly (the negatives
-// refuse only what they claim -- non-vacuity on the constraints side).
-// ---------------------------------------------------------------------------
 
 func TestCapabilitySchemaConstraintsRejectInvalidRows(t *testing.T) {
 	s := newCapabilityService(t)
@@ -1768,8 +1541,6 @@ func TestCapabilitySchemaConstraintsRejectInvalidRows(t *testing.T) {
 	tokenD := "sha256:" + strings.Repeat("d", 64)
 	sqlA := `INSERT INTO ` + snapFQN + ` (token, status, complete, truncated, payload) VALUES ($1, $2, $3, $4, $5::jsonb)`
 	argsA := []any{tokenA, "BUILDING", false, false, `{"token":"` + tokenA + `"}`}
-	// Seed the row the duplicate-token negative below collides with through
-	// a plain legal INSERT (inserts are not guarded).
 	if err := s.witnessExecErr(sqlA, argsA...); err != nil {
 		s.fail("seed duplicate-token fixture", err)
 	}
@@ -1781,7 +1552,6 @@ func TestCapabilitySchemaConstraintsRejectInvalidRows(t *testing.T) {
 		'p', 'e', 'o', 'st', 'as', 'sg', 1, 'dd', 'bd', 'bc', 'of', 'cs', 'sha256:` + strings.Repeat("e", 64) + `', '', '{}'::jsonb)`
 
 	cases := []negative{
-		// --- capability_snapshots ---
 		{name: "snapshot token is never SQL NULL", sql: `INSERT INTO ` + snapFQN + ` (token, status, complete, truncated, payload) VALUES (NULL, 'BUILDING', false, false, '{}'::jsonb)`, wantState: "23502"},
 		{name: "snapshot token keeps its content-address shape", sql: `INSERT INTO ` + snapFQN + ` (token, status, complete, truncated, payload) VALUES ('not-a-token', 'BUILDING', false, false, '{}'::jsonb)`, wantState: "23514"},
 		{name: "snapshot status is a closed domain", sql: `INSERT INTO ` + snapFQN + ` (token, status, complete, truncated, payload) VALUES ('sha256:` + strings.Repeat("1", 64) + `', 'WEIRD', false, false, '{}'::jsonb)`, wantState: "23514"},
@@ -1792,7 +1562,6 @@ func TestCapabilitySchemaConstraintsRejectInvalidRows(t *testing.T) {
 		{name: "snapshot payload JSON array is not an object", sql: `INSERT INTO ` + snapFQN + ` (token, status, complete, truncated, payload) VALUES ('sha256:` + strings.Repeat("6", 64) + `', 'BUILDING', false, false, '[]'::jsonb)`, wantState: "23514"},
 		{name: "duplicate tokens are impossible", sql: sqlA, args: argsA, wantState: "23505"},
 
-		// --- table_shape_capabilities ---
 		{name: "receipt kind is a closed domain", sql: strings.Replace(validReceiptSQL, "'CATEGORY_SCAN'", "'BOGUS'", 1), wantState: "23514"},
 		{name: "catalog kind requires the tsc_ prefix", sql: strings.Replace(strings.Replace(validReceiptSQL, "'CATEGORY_SCAN'", "'CATALOG'", 1),
 			"'tsd_"+strings.Repeat("c", 32)+"'", "'tsd_"+strings.Repeat("c", 32)+"'", 1), wantState: "23514"},
@@ -1820,8 +1589,6 @@ func TestCapabilitySchemaConstraintsRejectInvalidRows(t *testing.T) {
 		}
 	}
 
-	// Controls: the documented legal shapes insert cleanly, so every
-	// refusal above was the constraint doing its job and nothing else.
 	if err := s.witnessExecErr(`INSERT INTO `+snapFQN+` (token, status, complete, truncated, payload) VALUES ($1, 'BUILDING', false, true, '{}'::jsonb)`, tokenC); err != nil {
 		t.Errorf("control: legal BUILDING/truncated snapshot insert refused: %s", s.scrub(err))
 	}
@@ -1835,12 +1602,6 @@ func TestCapabilitySchemaConstraintsRejectInvalidRows(t *testing.T) {
 		t.Fatalf("control snapshot rows = %d, want 2", n)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// no-fallback guarantee: an unmigrated schema surfaces the missing relation
-// (SQLSTATE 42P01) on every store method -- never a typed miss, never a
-// fallback.
-// ---------------------------------------------------------------------------
 
 func TestCapabilityStoresFailClosedWithoutTheirTables(t *testing.T) {
 	s := newCapabilityService(t)
@@ -1905,15 +1666,6 @@ func TestCapabilityStoresFailClosedWithoutTheirTables(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// zero leftovers, ownership-scoped: the suite must not leave any
-// pgstate03_it_* resource. This test MUST stay the last test declared in
-// this file. It sweeps ONLY this ticket's prefix: concurrent sibling suites
-// (pgpubrel01_it_*, pgstate01v1_it_*, ...) audit their own prefixes in
-// their own files, and a global scan here would couple unrelated tickets'
-// results to each other.
-// ---------------------------------------------------------------------------
-
 func TestZZNoLeftoverPgstate03Resources(t *testing.T) {
 	raw := testPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -1954,14 +1706,6 @@ func TestZZNoLeftoverPgstate03Resources(t *testing.T) {
 	}
 }
 
-// assertSnapshotEquivalent asserts the returned snapshot is the very
-// content-addressed artifact that was stored: the token still binds the
-// returned canonical payload bytes (sha256 over CanonicalPayload), those
-// bytes equal the want snapshot's canonical payload, and the status triple
-// round-trips. Raw struct equality would assert the fixture's input array
-// order rather than storage fidelity: the domain canonicalises ordering
-// when it builds the payload that the token hashes and the stores persist
-// (exactly like the Arango adapter's stored documents).
 func assertSnapshotEquivalent(t *testing.T, label string, got *capability.Snapshot, want capability.Snapshot) {
 	t.Helper()
 	if got == nil {

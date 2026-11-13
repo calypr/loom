@@ -1,30 +1,5 @@
 package compiler_test
 
-// C-GOLDEN witness for the moved PostgreSQL plan fingerprint.
-//
-// arch-backend-11 moved the PostgreSQL fingerprint computation out of
-// internal/dataframe/execution/engine.go (postgreSQLCommandFingerprint at
-// 648f7c70:internal/dataframe/execution/engine.go lines 961-973) onto the
-// selected compiler target (compiler.postgreSQLPlanFingerprint). The claim
-// is byte-identical digest for identical (statement SQL, ordered typed
-// arguments, declared column contract).
-//
-// Capture method (reproducible): the base function was copied VERBATIM from
-//   git show 648f7c70:internal/dataframe/execution/engine.go | sed -n '961,973p'
-// into a standalone main with the base parameter type
-// (struct{Type PostgreSQLParameterType; Value any}, marshal-identical to
-// command.PostgreSQLParameter) and run against the fingerprint inputs of
-// the canonical fixture plan below:
-//
-//	SQL     = the statement recorded by the digest pin in this test
-//	Args    = {text "P1", text "G1", jsonb ["FHIR/Patient"], text "Patient", text "{gender}"}
-//	Columns = {"id", "name"}
-//
-// Base-captured digest: 25f4a1abcf9192edb94f53e905cd596f32d96cba67548f68d5e1ec619bdb4dc5
-// The same digest is produced today by the selected PostgreSQL target, so
-// the move is proven behavior-preserving; the statement pin below keeps
-// the digest input itself frozen, so the witness cannot silently re-anchor.
-
 import (
 	"encoding/json"
 	"testing"
@@ -47,8 +22,6 @@ const (
 		"ORDER BY r0.\"logical_id\" ASC, r0.\"resource_seq\" ASC"
 )
 
-// archBackend11FingerprintFixture is the canonical root-scan recipe output
-// whose fingerprint inputs were captured against the pre-move base function.
 func archBackend11FingerprintFixture() (lower.CompiledRecipeOutput, recipe.RuntimeBindings) {
 	bindings := recipe.RuntimeBindings{
 		Project: "P1", DatasetGeneration: "G1", OutputNames: []string{"resources"},
@@ -124,8 +97,6 @@ func TestPostgreSQLPlanFingerprintGoldenMatchesBase648f7c70(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostgreSQLParameters: %v", err)
 	}
-	// The digest inputs must be the captured ones; re-anchoring the
-	// fingerprint to any other render would make the golden vacuous.
 	if sql != archBackend11BaseSQL {
 		t.Fatalf("fixture statement drifted from the base capture input:\n got %q\nwant %q", sql, archBackend11BaseSQL)
 	}
@@ -156,8 +127,6 @@ func TestPostgreSQLPlanFingerprintGoldenMatchesBase648f7c70(t *testing.T) {
 	}
 }
 
-// marshalProbe renders a parameter value through encoding/json, matching
-// how the fingerprint digest encodes values.
 func marshalProbe(value any) []byte {
 	encoded, err := json.Marshal(value)
 	if err != nil {

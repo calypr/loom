@@ -1,39 +1,5 @@
 package postgres_test
 
-// Real-PostgreSQL 18 acceptance tests for backend-tagged dispatch (pg-exec-02;
-// check-2: go test ./internal/dataframe/execution -run Postgres under
-// LOOM_TEST_POSTGRES_URL against the isolated PostgreSQL 18 service).
-//
-// Every test drives the production execution.Engine with a parent-tagged
-// command.CompiledCommand through the real internal/backends/postgres/internal/rows
-// adapter onto the real server engine. The AQL QueryRows/PreviewQueryRows
-// adapters and every Arango preview control are armed landmines that fail
-// the test the moment a PostgreSQL-served plan touches them, while the
-// paired AQL controls keep running for AQL plans elsewhere in the package.
-// Witnesses are literal values read back from PostgreSQL 18 itself: exact
-// column names, driver-decoded typed values, canonical jsonb texts, verbatim
-// SQL NULL versus JSON null separation, pg_backend_pid identities, and
-// canonicalized row digests pinned to literals.
-//
-// Non-vacuity discipline: every refusal has a paired control that proceeds;
-// the real adapter refuses an AQL-tagged command with the compiler's exact
-// named mismatch before the driver is touched (a counting Querier proves no
-// statement reached the server), and the same executor happily streams a
-// correctly tagged command.
-//
-// Race surfaces run ten rounds on two real connections whose pg_backend_pid
-// values are witnessed inside the streamed rows and asserted distinct per
-// round; every abort (context cancellation or real-backend termination at
-// the durability seams the dispatch exposes) converges to the
-// byte-identical committed witness on rerun.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec02_* and
-// dropped by the test that created them. The final TestZZ audit is
-// ownership-scoped: it checks each exact name this file created and counts
-// only its own verify_exec02_* prefix, so concurrent sibling workers
-// sweeping their own prefixes neither race this audit nor trip it. An
-// unregistered survivor under the verify_exec02_* prefix is fatal.
-
 import (
 	"context"
 	"crypto/rand"
@@ -75,12 +41,9 @@ const (
 
 var exec02NamePattern = regexp.MustCompile(`^verify_exec02_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every database this file verified into existence is
-// recorded here, and TestZZ asserts each exact name is gone. Ownership
-// begins at verified CREATE.
 var (
 	exec02OwnedMu     sync.Mutex
-	exec02OwnedByName = map[string]string{} // database -> owned schema
+	exec02OwnedByName = map[string]string{}
 )
 
 func exec02Register(db, schema string) {
@@ -99,9 +62,6 @@ func exec02RegistrySnapshot() map[string]string {
 	return out
 }
 
-// Baseline: the verify_exec02_* databases visible before this process
-// created its first fixture. Siblings churn their own prefixes; only this
-// file's prefix is audited, ownership-scoped.
 var (
 	exec02BaselineOnce  sync.Once
 	exec02BaselineNames []string
@@ -157,8 +117,6 @@ type exec02Service struct {
 	lastRace atomic.Int64
 }
 
-// lastRacePID reports the server backend pid witnessed by the most recent
-// raceStream completion (0 when none has run).
 func (s *exec02Service) lastRacePID() int64 { return s.lastRace.Load() }
 
 func newExec02Service(t *testing.T) *exec02Service {
@@ -203,8 +161,6 @@ func newExec02Service(t *testing.T) *exec02Service {
 	}
 	t.Cleanup(admin.Close)
 
-	// PostgreSQL 18 only: the fixture refuses any other server rather than
-	// claiming PG18 parity against a different engine.
 	var versionNum int64
 	var version string
 	if err := admin.QueryRow(ctx,
@@ -295,8 +251,6 @@ func (s *exec02Service) qualifiedTable(name string) string {
 	return `"` + s.schema + `"."` + name + `"`
 }
 
-// exec02ForbidArango arms every AQL/Arango/ClickHouse callback as an error
-// landmine: a PostgreSQL-served plan that touches any of them fails.
 func exec02ForbidArango() execution.Config {
 	return execution.Config{
 		CompileTarget: compiler.ArangoTarget(),
@@ -340,10 +294,6 @@ func exec02ForbidArango() execution.Config {
 	}
 }
 
-// exec02EngineConfig wires a PostgreSQL-selected engine: the selected target
-// compiles and renders, and the one source row port dispatches the tagged
-// command to the real PostgreSQL adapter while refusing any AQL-tagged
-// request outright (there is no fallback to arm).
 func exec02EngineConfig(s *exec02Service) execution.Config {
 	config := exec02ForbidArango()
 	config.CompileTarget = s.target
@@ -357,13 +307,6 @@ func exec02EngineConfig(s *exec02Service) execution.Config {
 	return config
 }
 
-// exec02Resolved builds the request-scoped plan record for the fixture: a
-// direct root scan of the bound fhir_resource placement with typed scope
-// projections, inside the compiler's registered PostgreSQL root-scan slice.
-// The selected PostgreSQL target compiles and renders it; execution streams
-// exactly what the compiler produced. WithBackend keeps a leading column so
-// race/crash tests can read a per-connection witness from the engine-visible
-// rows (the logical_id value carries the pg_backend_pid witness text).
 func exec02Resolved(outputName, project, generation string, withBackend bool) execution.Resolved {
 	columns := []string{"project", "dataset_generation", "resource_type", "logical_id", "auth_resource_path"}
 	schema := []lower.CompiledOutputColumn{
@@ -381,10 +324,6 @@ func exec02Resolved(outputName, project, generation string, withBackend bool) ex
 		})
 	}
 	if withBackend {
-		// The witness arrives as a genuine lowered-form selector extraction
-		// over the payload document (lower/root_projection.go shape), so the
-		// streamed backend column is real production-plan output, not a
-		// hand-written projection the renderer merely tolerates.
 		backend := ir.PhysicalProjection{Name: "backend", Expression: &ir.PhysicalExpression{
 			Kind:         ir.PhysicalExtractExpression,
 			Cardinality:  ir.PhysicalScalarCardinality,
@@ -446,10 +385,6 @@ func exec02Resolved(outputName, project, generation string, withBackend bool) ex
 	}
 }
 
-// exec02Migrate installs the real pg-store-02 resource placement (fhir_resource
-// with its registered typed columns) in the owned schema through the
-// production migration runner, so the selected binding renders against the
-// production relation shape, not a test-only approximation.
 func (s *exec02Service) migrate(t *testing.T) {
 	t.Helper()
 	client, err := storepg.Open(s.ctx, storepg.Config{
@@ -467,12 +402,6 @@ func (s *exec02Service) migrate(t *testing.T) {
 	}
 }
 
-// exec02SeedFixture inserts the golden fixtures through the production
-// resource repository: every streamed witness row is a real stored resource.
-// The logical_id values are the goldens asserted by the streaming tests; the
-// "patient-witness" row carries the per-connection witness text assembled at
-// insert time is not possible, so race tests read pg_backend_pid through the
-// backend column instead (see exec02Resolved).
 func (s *exec02Service) seedFixture(t *testing.T, name string) {
 	t.Helper()
 	if name != "fhir_resource" {
@@ -516,13 +445,6 @@ func (s *exec02Service) countRows(t *testing.T, name string) int64 {
 	return count
 }
 
-// convergePreview reruns a bounded preview until it succeeds, the contract
-// after an abort or a terminated backend: a poisoned pool connection fails
-// at most once and is discarded, and convergence must arrive within a
-// bounded number of attempts. The visitor is rebuilt per attempt so
-// accumulated state resets. A run that never converges fails with the last
-// error; a converged run is still compared against literal goldens by the
-// caller.
 func (s *exec02Service) convergePreview(engine *execution.Engine, resolved execution.Resolved, limit int, newVisitor func() func(map[string]any) error) (execution.PreviewSummary, error) {
 	var summary execution.PreviewSummary
 	var err error
@@ -550,16 +472,6 @@ func exec02DigestRows(rows []map[string]any) string {
 	return string(encoded)
 }
 
-// exec02StableRowIdentity mirrors the engine's stable row identity contract
-// (sha256 over the JSON array of ordered identity field values) so the
-// golden witness pins the exact digest each fixture row must carry.
-// exec02WitnessPID parses the serving backend pid from the backend witness
-// column: the fixture stores "pg_<pid>" as the logical_id of a per-connection
-// witness resource (see exec02SeedConnectionWitness).
-// exec02WitnessSelector parses the fixed witness payload selector once;
-// "gender" is an active-schema scalar slot; the witness payload carries the
-// backend pid in it so the extract is schema-validated like any authored one;
-// a parse failure here is a fixture defect, not a runtime condition.
 func exec02WitnessSelector() spec.Selector {
 	selector, err := spec.ParseSelector("gender")
 	if err != nil {
@@ -571,10 +483,6 @@ func exec02WitnessSelector() spec.Selector {
 func exec02WitnessPID(value any) (int64, bool) {
 	text, ok := value.(string)
 	if !ok {
-		// The backend witness is a genuine jsonb payload extraction, and the
-		// row adapter's contract decodes json/jsonb columns to raw JSON
-		// bytes, so the legitimate wire shape is the quoted JSON string
-		// "pg_<pid>" as a json.RawMessage, not a Go string.
 		var raw []byte
 		switch typed := value.(type) {
 		case json.RawMessage:
@@ -607,8 +515,6 @@ func exec02StableRowIdentity(parts ...any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// exec02AsInt64 decodes a server integer witness column: pgx delivers
-// int4 (pg_backend_pid) as int32 and int8 (id) as int64.
 func exec02AsInt64(v any) (int64, bool) {
 	switch value := v.(type) {
 	case int64:
@@ -620,14 +526,6 @@ func exec02AsInt64(v any) (int64, bool) {
 	}
 }
 
-// exec02GoldenRows pins the exact engine-visible witness for the three
-// P1/gen-a fixture rows as delivered by the real adapter through the engine
-// pipeline: driver-decoded typed values, canonical jsonb text, verbatim SQL
-// NULL versus JSON null separation, and the stable row identity digests.
-// The Stream path carries the stable row identity digest; the PreviewOutput
-// public-row filter drops it, so previews compare the identity-less form.
-// These literals are load-bearing; break-one probes (flipping any single
-// literal) fail the suite.
 func exec02GoldenRows(withIdentity bool) []map[string]any {
 	rows := []map[string]any{
 		{
@@ -645,21 +543,12 @@ func exec02GoldenRows(withIdentity bool) []map[string]any {
 	}
 	if withIdentity {
 		for _, row := range rows {
-			// The compiled RowIdentity field is logical_id, so the engine
-			// digests the JSON array of the logical_id value, not the id.
 			row["__loom_row_id"] = exec02StableRowIdentity(row["logical_id"])
 		}
 	}
 	return rows
 }
 
-// exec02ScopedRowsPublic is the committed witness for the compiler-rendered
-// root-scan stream of the fixture through the selected PostgreSQL target:
-// exactly the three P1/gen-a Patient resources with the full typed scope
-// projection the plan declares. The generic execution window sorts the root
-// by its key, which the PostgreSQL renderer canonically maps from _key to
-// logical_id (with resource_seq as the tiebreaker), so the physical order
-// is logical_id ascending: ada, alan, grace.
 func exec02ScopedRowsPublic() []map[string]any {
 	return []map[string]any{
 		{
@@ -677,12 +566,6 @@ func exec02ScopedRowsPublic() []map[string]any {
 	}
 }
 
-// exec02ScopedRows is the engine-STREAM form of the committed witness: the
-// stream contract always carries the stable row identity digest, computed
-// by ensureStableRowIdentity over the compiled RowIdentity fields — here
-// the single logical_id field — as sha256 of the JSON array of those values.
-// Preview witnesses use exec02ScopedRowsPublic instead, because the public
-// preview row filter drops __loom_row_id.
 func exec02ScopedRows() []map[string]any {
 	rows := exec02ScopedRowsPublic()
 	for _, row := range rows {
@@ -691,10 +574,6 @@ func exec02ScopedRows() []map[string]any {
 	return rows
 }
 
-// TestPostgresEngineExecutesCompiledCommandThroughRealAdapter is the
-// acceptance-1 witness: the PostgreSQL plan streams exact golden rows
-// through the real adapter and engine pipeline with every AQL/Arango control
-// armed as an error, and the ordered typed parameters arrive unchanged.
 func TestPostgresEngineExecutesCompiledCommandThroughRealAdapter(t *testing.T) {
 	s := newExec02Service(t)
 	s.migrate(t)
@@ -736,8 +615,6 @@ func TestPostgresEngineExecutesCompiledCommandThroughRealAdapter(t *testing.T) {
 	}
 }
 
-// TestPostgresEnginePreviewBoundsCompletionOnRealServer pins the completed
-// versus truncated markers for the same bounded preview class on real rows.
 func TestPostgresEnginePreviewBoundsCompletionOnRealServer(t *testing.T) {
 	s := newExec02Service(t)
 	s.migrate(t)
@@ -778,10 +655,6 @@ func TestPostgresEnginePreviewBoundsCompletionOnRealServer(t *testing.T) {
 	}
 }
 
-// TestPostgresEnginePreviewCancellationRealServer proves acceptance 5 on the
-// real server: cancellation stops the stream, the error satisfies
-// errors.Is(context.Canceled), no completed marker is emitted, and the
-// post-abort rerun converges to the byte-identical committed witness.
 func TestPostgresEnginePreviewCancellationRealServer(t *testing.T) {
 	s := newExec02Service(t)
 	s.migrate(t)
@@ -833,29 +706,14 @@ func TestPostgresEnginePreviewCancellationRealServer(t *testing.T) {
 	}
 }
 
-// TestPostgresEngineTwoRealConnectionRaceDistinctBackends runs ten rounds of
-// two concurrent engine streams; each round must run on two distinct real
-// server backends (witnessed inside the streamed rows via
-// pg_backend_pid()), committed witnesses must be byte-identical across
-// every round, and an aborted round must converge to the same witness.
 func TestPostgresEngineTwoRealConnectionRaceDistinctBackends(t *testing.T) {
 	s := newExec02Service(t)
 	s.migrate(t)
 	s.seedFixture(t, "fhir_resource")
-	// The race rounds drive s.raceStream: each side owns one pool
-	// connection, seeds its own witness resource on that connection inside
-	// a transaction, and streams the compiler-rendered withBackend plan
-	// through the same connection — the witnessed backend pid comes from the
-	// served row itself.
 
-	// runSide streams once, witnessing its serving backend. The overlap
-	// hook runs once on the first row while the side still holds its pool
-	// connection, so a round cannot pass unless both queries are genuinely
-	// in flight at the same instant (small fast responses would otherwise
-	// let the sides serialize and reuse one connection and one backend).
 	ctxForRound := func() context.Context {
 		ctx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
-		_ = cancel // context lives for the round's channel receive below
+		_ = cancel
 		return ctx
 	}
 	var stableWitness string
@@ -901,14 +759,11 @@ func TestPostgresEngineTwoRealConnectionRaceDistinctBackends(t *testing.T) {
 		}
 	}
 
-	// Abort one side mid-stream, then require the same committed witness.
 	abortCtx, abortCancel := context.WithCancel(s.ctx)
 	if _, _, err := s.raceStreamAborted(abortCtx, abortCancel); err != nil {
 		t.Fatalf("aborting stream: %v", err)
 	}
 	abortCancel()
-	// Post-abort convergence: a poisoned connection may fail at most once
-	// before the pool discards it; the witness must converge.
 	var backend int64
 	var digest string
 	var runErr error
@@ -933,10 +788,6 @@ func TestPostgresEngineTwoRealConnectionRaceDistinctBackends(t *testing.T) {
 	}
 }
 
-// TestPostgresEngineParameterizedValuesCannotChangeShape proves bound values
-// stay values: an injection-shaped project binding travels through the
-// selected-target compiler as a typed $n parameter, matches nothing, leaves
-// the resource table intact, and the golden witness is unchanged afterwards.
 func TestPostgresEngineParameterizedValuesCannotChangeShape(t *testing.T) {
 	s := newExec02Service(t)
 	s.migrate(t)
@@ -976,10 +827,6 @@ func TestPostgresEngineParameterizedValuesCannotChangeShape(t *testing.T) {
 	}
 }
 
-// exec02RaceStream runs one stream of the withBackend plan and returns the
-// witnessed serving backend plus the digest of the committed rows. The
-// backend witness is the per-connection fixture resource (logical_id
-// "pg_<pid>") that the stream must carry in its backend column.
 func (s *exec02Service) raceStream(ctx context.Context, label string, overlap func()) (int64, string, error) {
 	conn, err := s.iso.Acquire(ctx)
 	if err != nil {
@@ -1035,9 +882,6 @@ func (s *exec02Service) raceStream(ctx context.Context, label string, overlap fu
 			}
 		}
 		delete(row, "backend")
-		// The per-connection witness resource is uncommitted transaction
-		// scaffolding, not fixture data: the committed witness is the three
-		// golden rows, so the scaffold row is excluded from the digest.
 		if logical, _ := row["logical_id"].(string); !strings.HasPrefix(logical, "witness-") {
 			rows = append(rows, row)
 		}
@@ -1065,12 +909,6 @@ func (c *exec02CountingQuerier) Query(ctx context.Context, sql string, args ...a
 	return c.inner.Query(ctx, sql, args...)
 }
 
-// TestPostgresEngineCrossTagRefusedBeforeServer proves the real adapter's
-// row port refuses a wrong-tag command end to end before the server is
-// touched: an engine compiled for the AQL target produces an AQL-tagged
-// command, and routing it into the PostgreSQL adapter's SourceRows must
-// report the compiler's exact mismatch sentinel with zero server queries.
-// The paired correctly tagged control streams on the same counting querier.
 func TestPostgresEngineCrossTagRefusedBeforeServer(t *testing.T) {
 	s := newExec02Service(t)
 	s.migrate(t)
@@ -1105,7 +943,6 @@ func TestPostgresEngineCrossTagRefusedBeforeServer(t *testing.T) {
 		t.Fatalf("refused cross-tag command reached the real server %d time(s)", touched)
 	}
 
-	// Paired control: the same counting querier streams a correct tag.
 	controlEngine, err := execution.New(exec02EngineConfig(s))
 	if err != nil {
 		t.Fatalf("New control: %v", err)
@@ -1119,24 +956,11 @@ func TestPostgresEngineCrossTagRefusedBeforeServer(t *testing.T) {
 	}
 }
 
-// TestPostgresEngineBackendKillConverges injects crashes at three distinct
-// durability seams and requires the committed witness to converge:
-//  1. the real backend serving a compiled engine stream is terminated with
-//     pg_terminate_backend between runs (each side runs on its own
-//     connection via s.raceStream, witnessed inside the served rows);
-//  2. the serving backend of a genuinely in-flight adapter stream is
-//     terminated from inside the visitor — a 500 KB per-row blob plus
-//     per-row pg_sleep keeps the server writing when the kill lands (a
-//     small buffered response would be delivered before any kill could
-//     strike; verified against the real server);
-//  3. a row port that fails after the first visited row must never let the
-//     engine emit a completed marker.
 func TestPostgresEngineBackendKillConverges(t *testing.T) {
 	s := newExec02Service(t)
 	s.migrate(t)
 	s.seedFixture(t, "fhir_resource")
 
-	// Baseline committed witness through the compiled withBackend plan.
 	_, baseline, err := s.raceStream(s.ctx, "kill-baseline", nil)
 	if err != nil {
 		t.Fatalf("baseline stream: %v", err)
@@ -1145,8 +969,6 @@ func TestPostgresEngineBackendKillConverges(t *testing.T) {
 		t.Fatalf("baseline witness differs from committed resources:\n got %s\nwant %s", baseline, want)
 	}
 
-	// Seam 1: terminate a served backend between completed runs; the pool
-	// replaces the connection and a fresh stream must converge.
 	var killed bool
 	if err := s.admin.QueryRow(s.ctx, `SELECT pg_terminate_backend($1)`, s.lastRacePID()).Scan(&killed); err != nil {
 		s.fail("pg_terminate_backend between runs", err)
@@ -1178,10 +1000,6 @@ func TestPostgresEngineBackendKillConverges(t *testing.T) {
 		t.Fatalf("post-kill witness differs from committed golden:\n got %s\nwant %s", got, baseline)
 	}
 
-	// Seam 2: kill a genuinely in-flight adapter stream mid-visit. Heavy
-	// server-side output (500 KB blob + pg_sleep per row) keeps rows two
-	// and three in production while the visitor of row one terminates the
-	// serving backend; the adapter must surface the failure.
 	streamSQL := `SELECT pg_backend_pid() AS backend, logical_id, repeat('x', 500000) AS blob, pg_sleep(0.25) IS NOT NULL AS tick FROM ` + s.qualifiedTable("fhir_resource") + ` WHERE project = $1 AND dataset_generation = $2 ORDER BY resource_seq`
 	compiledCommand, err := command.NewPostgreSQLCommand(streamSQL, []command.PostgreSQLParameter{
 		{Type: command.PostgreSQLParameterText, Value: "P1"},
@@ -1223,8 +1041,6 @@ func TestPostgresEngineBackendKillConverges(t *testing.T) {
 		t.Fatalf("stream survived termination of its live backend; crash was not injected (pid %d)", midPid)
 	}
 
-	// Seam 3: a row port failing mid-visit must never produce a completed
-	// engine marker.
 	faultyConfig := exec02EngineConfig(s)
 	faultyConfig.SourceRows = func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
 		visited := 0
@@ -1253,17 +1069,11 @@ func TestPostgresEngineBackendKillConverges(t *testing.T) {
 		t.Fatalf("failed port run carried a completion marker: %+v", faultySummary)
 	}
 
-	// Final convergence after both crash injections.
 	if got := converge("post-crash"); got != baseline {
 		t.Fatalf("post-crash witness differs from committed golden:\n got %s\nwant %s", got, baseline)
 	}
 }
 
-// TestZZZeroLeftoverExec02PostgresFixtures audits ownership, not global
-// state: every exact name this file created must be gone, and no
-// verify_exec02_* database may survive beyond the baseline captured before
-// this process created anything. Sibling prefixes belong to concurrent
-// workers and are never counted.
 func TestZZZeroLeftoverExec02PostgresFixtures(t *testing.T) {
 	raw := exec02URL(t)
 	exec02CaptureBaseline(raw)
@@ -1316,9 +1126,6 @@ func TestZZZeroLeftoverExec02PostgresFixtures(t *testing.T) {
 	}
 }
 
-// raceStreamAborted streams the withBackend plan on a dedicated connection
-// and cancels the context from the first visited row, proving the abort path
-// reports the context cause while the connection is still in flight.
 func (s *exec02Service) raceStreamAborted(ctx context.Context, cancel context.CancelFunc) (int64, string, error) {
 	conn, err := s.iso.Acquire(ctx)
 	if err != nil {
@@ -1366,8 +1173,6 @@ func (s *exec02Service) raceStreamAborted(ctx context.Context, cancel context.Ca
 	return backend, "", nil
 }
 
-// invalidRecipeRegistry is the external-package copy of the shared test
-// registry: it refuses real recipe loads and yields a fixed default bundle.
 type invalidRecipeRegistry struct{}
 
 func (invalidRecipeRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {

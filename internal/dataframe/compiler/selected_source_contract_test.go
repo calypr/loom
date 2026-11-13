@@ -1,13 +1,5 @@
 package compiler_test
 
-// arch-backend-11 selected-source compiler contract (compiler side).
-//
-// Every compile entry point takes the selected Target and seals it: a
-// missing target is refused before any plan work, and the AQL-only source
-// tool surfaces refuse a PostgreSQL target by name. The command leaf is a
-// closed tagged union whose validators, not its field layout, decide what
-// may exist — the mutation probes below assert that.
-
 import (
 	"encoding/json"
 	"errors"
@@ -109,12 +101,6 @@ func TestSelectedSourceCompilerTargetSeal(t *testing.T) {
 				_, err := compiler.CompileResolvedGraphQuery(target, zeroResolved, 10, policy)
 				return err
 			}},
-			// "population mapping compilation" left this list with
-			// pg-sql-22: the PostgreSQL target compiles it through the
-			// registered mapping entry (compiler/population_mapping.go
-			// compilePopulationMappingPostgreSQL), so it is no longer an
-			// AQL-only surface. The unselected-target refusal for the
-			// entry stays sealed above.
 			{"root-key output paging", func() error {
 				_, err := compiler.CompileRecipeOutputPage(target, zeroOutput, zeroBindings, 50, policy)
 				return err
@@ -156,8 +142,6 @@ func TestSelectedSourceCompilerTargetSeal(t *testing.T) {
 		if _, _, err := aqlQuery.Command.PostgreSQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 			t.Fatalf("the PostgreSQL adapter must refuse an AQL command: %v", err)
 		}
-		// The AQL control keeps the exact rendered AQL shape: the selected
-		// target did not reroute or rewrite the canonical AQL bytes.
 		query, binds, err := aqlQuery.Command.AQLParameters()
 		if err != nil {
 			t.Fatalf("AQL control parameters: %v", err)
@@ -171,8 +155,6 @@ func TestSelectedSourceCompilerTargetSeal(t *testing.T) {
 	})
 }
 
-// TestCompiledCommandLeafMutationProbes exercises the closed union with
-// forged inputs: the validators decide what may exist, not the struct.
 func TestCompiledCommandLeafMutationProbes(t *testing.T) {
 	t.Run("RenderedTextIsRequired", func(t *testing.T) {
 		if _, err := command.NewAQLCommand("   ", map[string]any{"p": "1"}); err == nil {

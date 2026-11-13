@@ -398,7 +398,6 @@ func validateCodedPivotSourceRoot(sourceOperations []PhysicalOperation, bindVars
 			}
 		case PhysicalFilterOp, PhysicalDerivedLetOp, PhysicalExpressionLetOp,
 			PhysicalSetOp, PhysicalSortOp, PhysicalLimitOp:
-			// These source operations preserve root row grain.
 		case PhysicalReturnOp:
 			returns++
 			if operation.Return == nil || index != len(sourceOperations)-1 {
@@ -1804,8 +1803,6 @@ func validatePhysicalStageRelatedCodingKey(
 	return nil
 }
 
-// PhysicalUnnestExactGroupShapeEqual compares compiler-owned shape facts while
-// allowing cloned runtime bindings and operation-local references to differ.
 func PhysicalUnnestExactGroupShapeEqual(left, right PhysicalUnnest) bool {
 	if left.Owner.OccurrenceID != right.Owner.OccurrenceID || left.Owner.ResourceType != right.Owner.ResourceType ||
 		left.Owner.RootVariable != right.Owner.RootVariable || left.Owner.OwnerVariable != right.Owner.OwnerVariable ||

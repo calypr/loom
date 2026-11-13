@@ -110,17 +110,12 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		t.Fatalf("direct scalar Pivot retained its temporary input row object or field reads:\n%s", testAQLText(t, query.Command))
 	}
 
-	// The renderer must not rewrite the validated canonical stage while it
-	// rebinds the clone to direct root projections for this preview query.
 	canonicalPivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
 	if canonicalPivot == nil || len(canonicalPivot.InputProjections) == 0 ||
 		canonicalPivot.InputProjections[0].Value.Variable != compiled.Outputs[0].Plan.StageSequence.Stages[0].InputRowVariable {
 		t.Fatal("streaming render mutated the canonical Pivot input projections")
 	}
 
-	// Construction previews always request source identity. A Pivot has
-	// composite source metadata and must not gain a single root ID, so this
-	// production-shaped ERROR case remains eligible for streaming.
 	identityOutput := streamingMissingCategoryPivotTestOutput()
 	id := recipe.StageColumn{ID: "id_id", Name: "id", Type: "string", Nullable: true}
 	identityOutput.Fields = append([]recipe.Field{{Name: "id", ColumnID: id.ID, Expr: recipe.Expression{Select: "root.id"}}}, identityOutput.Fields...)

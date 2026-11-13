@@ -17,42 +17,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// Repair evidence for F-B16 (Round 11 CONFIRMED, FINDINGS.md): the execution
-// UPDATE and the visibility-pointer UPSERT of Registry.PublishExecution were
-// two AQL legs whose intermediate state was externally observable, so a
-// crash/failure between the legs left an execution PUBLISHED while its
-// pointer was never written ("two-answers" class: the name-latest selector
-// served the orphan while the bulk-load activation gate refused it). The
-// repair commits both legs inside ONE Arango transaction.
-//
-// The promise under test is the production comment on PublishExecution
-// ("atomically commits both the visibility pointer and the PUBLISHED
-// metadata. A failed compare-and-swap leaves both documents intact."):
-//
-//	A. Legacy split control (pre-fix shape: the two legs as two separate
-//	   requests, stopping after leg 1). The intermediate PUBLISHED-without-
-//	   pointer state MUST be observable. This is the before-fail witness AND
-//	   the sensitivity proof: the probe really sees a split when one exists.
-//	B. Repaired path under mid-failure: the publish transaction is aborted
-//	   by the harness AFTER the statement succeeded inside it (models any
-//	   failure after Arango applied writes-to-date). Nothing may remain
-//	   observable: state stays RUNNING, pointer stays absent; and a clean
-//	   retry then lands both halves together. Pre-fix code observable the
-//	   half state here -- proved by arm A executing those same statements.
-//	C. Clean publish lands together; a stale compare-and-swap is refused
-//	   with both documents intact.
-//
-// Opt-in (SKIP-clean without LOOM_TEST_ARANGO_URL):
-//
-//	docker exec loom-dev-qwen-current-loom-api-1 sh -c \
-//	  'cd /workspace && LOOM_TEST_ARANGO_URL=http://arangodb:8529 \
-//	   go test -count=1 -run TestPublishExecutionAtomicity -v ./internal/backends/arango/internal/publication/'
-
 const patDatabasePrefix = "loom_verify_patom_"
 
-// patAbortError is returned by the harness from INSIDE the publish
-// transaction callback after the publish statement already succeeded there;
-// go-driver aborts (rolls back) the transaction when the callback errors.
 var patAbortError = errors.New("injected abort after successful publish statement")
 
 func patOpen(t *testing.T) (*storearango.Client, *pubarango.Registry) {
@@ -103,8 +69,6 @@ func patOpen(t *testing.T) (*storearango.Client, *pubarango.Registry) {
 	return client, registry
 }
 
-// patSeed creates a RUNNING execution with a live lease through production
-// registry entry points only.
 func patSeed(ctx context.Context, t *testing.T, registry *pubarango.Registry, execID, bundleKey, pointerName string) publication.BundleExecution {
 	t.Helper()
 	acquired, err := registry.AcquireBundleLease(ctx, bundleKey, "publisher-a", time.Now().UTC().Add(time.Hour))
@@ -127,8 +91,6 @@ func patSeed(ctx context.Context, t *testing.T, registry *pubarango.Registry, ex
 	return execution
 }
 
-// patObserve reads exactly what outside readers read: GetExecution for the
-// state, GetPointer for the bulk-load activation gate's surface.
 func patObserve(ctx context.Context, t *testing.T, registry *pubarango.Registry, execID, pointerName string) (string, string) {
 	t.Helper()
 	execution, err := registry.GetExecution(ctx, execID)
@@ -146,17 +108,10 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("A_legacy_split_is_observable", func(t *testing.T) {
-		// Pre-fix product shape quoted from bundle_registry.go @ dc9016bc:
-		// execution UPDATE then pointer UPSERT in one non-transactional AQL;
-		// the crash between the legs is modelled by running leg 1 as its own
-		// request and stopping.
 		client, registry := patOpen(t)
 		execution := patSeed(ctx, t, registry, "pat-exec-a", "pat-bundle-a", "pat-project\x00pat-generation\x00pat-recipe-a")
 		doc := patDoc(t, execution, publication.BundlePublished)
 		applied := false
-		// Leg 1 verbatim from the pre-fix statement (@ dc9016bc) minus the
-		// pointer leg; @name/@updatedAt stay parked in LET bindings exactly
-		// as the sibling ppp harness does for the skipped leg.
 		if err := client.QueryRows(ctx, `LET execution = DOCUMENT(@@executions, @executionKey)
 LET lease = DOCUMENT(@@leases, @leaseKey)
 LET pointerNameParam = @name
@@ -229,8 +184,6 @@ RETURN {updated: true}`, 32, map[string]interface{}{
 		if state != string(publication.BundlePublished) || pointerErr != "nil" {
 			t.Fatalf("clean publish must land both halves: state=%q pointerErr=%q", state, pointerErr)
 		}
-		// Stale CAS: pointer already names pat-exec-c; a publish expecting
-		// something else must be refused and change nothing.
 		rival := execution
 		rival.ID = "pat-exec-c2"
 		rival.State = publication.BundleRunning
@@ -271,10 +224,6 @@ func patDoc(t *testing.T, execution publication.BundleExecution, state publicati
 	return doc
 }
 
-// patTxAborter delegates every call to the real client but aborts the first
-// transaction AFTER its callback completed successfully, so the callback's
-// writes (applied inside the transaction) are rolled back -- the exact class
-// of mid-request failure that split the pre-fix publish.
 type patTxAborter struct {
 	*storearango.Client
 	armed bool

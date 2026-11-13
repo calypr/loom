@@ -1,17 +1,5 @@
 package execution
 
-// Offline dispatch tests for arch-backend-11: outputs are compiled once by
-// the selected compiler target, and PostgreSQL-tagged commands execute only
-// through the one source row port with the parent-tagged command, declared
-// column contract, and batch hint forwarded unchanged. AQL plans retain the
-// existing query, resource-limit, and preview behavior, ClickHouse Combine
-// keeps its dedicated callbacks, unsupported engines and cross-tag commands
-// fail before any adapter callback runs, and a canceled PostgreSQL preview
-// stops without a completed marker. Every Arango control here is a spy that
-// records its invocation and names itself in a failure the moment a
-// PostgreSQL stream touches it; every guard has a paired control that must
-// proceed, so a guard that refused (or allowed) everything fails the suite.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -35,8 +23,6 @@ import (
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// dispatchSpies records every backend callback the engine could invoke.
-// Recording is mutex-guarded because preview index prewarm is asynchronous.
 type dispatchSpies struct {
 	mu                sync.Mutex
 	aqlQueries        []string
@@ -121,8 +107,6 @@ func (s *dispatchSpies) arangoEngine() Config {
 	}
 }
 
-// exec02PostgreSQLTarget selects the PostgreSQL compiler target over the
-// canonical loom storage placement for these offline dispatch tests.
 func exec02PostgreSQLTarget(t *testing.T) compiler.Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("loom")
@@ -136,9 +120,6 @@ func exec02PostgreSQLTarget(t *testing.T) compiler.Target {
 	return target
 }
 
-// exec02TestResolved builds the canonical PostgreSQL-renderable output: a
-// single root scan plus a RETURN of one direct scope column (id, from
-// logical_id) and one lowered-form payload selector extraction (name).
 func exec02TestResolved() Resolved {
 	output := lower.CompiledRecipeOutput{
 		Name:             "resources",
@@ -182,10 +163,6 @@ func exec02TestProjections(withSourceID bool) []ir.PhysicalProjection {
 		}},
 	}
 	if withSourceID {
-		// The preview source identity column is added by the compiler
-		// (withPreviewSourceResourceID projects root.id) when
-		// bindings.IncludeSourceIdentity is set; the fixture only signals
-		// the caller's intent here.
 	}
 	return projections
 }
@@ -224,9 +201,6 @@ func exec02TestParameters() []command.PostgreSQLParameter {
 	}
 }
 
-// exec02PostgreSQLCommand is the compiler reference render of the test
-// output: the engine must forward exactly this command, never a
-// hand-assembled one.
 func exec02PostgreSQLCommand(t *testing.T) command.CompiledCommand {
 	t.Helper()
 	resolved := exec02TestResolved()
@@ -265,9 +239,6 @@ func exec02pgPort(spies *dispatchSpies, target *[]postgresCallRecord, rows []map
 	}
 }
 
-// exec02pgEngine selects the PostgreSQL target and installs the row port
-// (and optionally a distinct preview override). Arango controls stay armed
-// as spies, so any PostgreSQL touch of them fails the suite.
 func exec02pgEngine(t *testing.T, spies *dispatchSpies, rows []map[string]any) (*Engine, Config) {
 	t.Helper()
 	config := spies.arangoEngine()
@@ -301,10 +272,6 @@ func exec02AssertUntouchedArango(t *testing.T, spies *dispatchSpies) {
 	}
 }
 
-// Acceptance 1: the selected PostgreSQL target compiles the output once, the
-// plan executes only through the source row port with the parent-tagged
-// command carried unchanged (asserted against the compiler reference
-// render), and never invokes any Arango query/index callback.
 func TestPostgreSQLPlanExecutesOnlyThroughPostgreSQLAdapter(t *testing.T) {
 	spies := &dispatchSpies{}
 	engine, _ := exec02pgEngine(t, spies, exec02Rows())
@@ -357,8 +324,6 @@ func TestPostgreSQLPlanExecutesOnlyThroughPostgreSQLAdapter(t *testing.T) {
 	}
 	exec02AssertUntouchedArango(t, spies)
 
-	// The same plan as a preview keeps every Arango control dark and uses
-	// the preview override (acceptance: preview override).
 	previewSummary, err := engine.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "resources", Limit: 5}, func(map[string]any) error { return nil })
 	if err != nil {
 		t.Fatalf("PreviewOutput: %v", err)
@@ -372,8 +337,6 @@ func TestPostgreSQLPlanExecutesOnlyThroughPostgreSQLAdapter(t *testing.T) {
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// Acceptance 1/2 boundary: a preview limited below the fixture row count is
-// Truncated, never Complete; the Arango preview controls stay dark.
 func TestPostgreSQLPreviewLimitReportsTruncationNotCompletion(t *testing.T) {
 	spies := &dispatchSpies{}
 	config := spies.arangoEngine()
@@ -395,8 +358,6 @@ func TestPostgreSQLPreviewLimitReportsTruncationNotCompletion(t *testing.T) {
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// Acceptance 5: a canceled PostgreSQL preview stops without marking the
-// result complete and without delivering further rows.
 func TestPostgreSQLPreviewCancellationStopsWithoutCompletedMarker(t *testing.T) {
 	spies := &dispatchSpies{}
 	rows := []map[string]any{
@@ -428,9 +389,6 @@ func TestPostgreSQLPreviewCancellationStopsWithoutCompletedMarker(t *testing.T) 
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// A mid-stream PostgreSQL failure is reported as a backend error and the
-// summary never claims completion (no completed marker for an interrupted
-// stream).
 func TestPostgreSQLPreviewBackendFailureNeverMarksComplete(t *testing.T) {
 	spies := &dispatchSpies{}
 	failure := errors.New("postgres rows: query: FATAL simulated")
@@ -446,9 +404,6 @@ func TestPostgreSQLPreviewBackendFailureNeverMarksComplete(t *testing.T) {
 		return failure
 	}
 	config.SourceRows = failingPort
-	// A PostgreSQL preview runs on the selected target's row port: the
-	// preview lane falls back to SourceRows (or the same-backend preview
-	// port when set), never to an AQL adapter.
 	config.PreviewSourceRows = failingPort
 	engine := config.newEngineForTest(t)
 	summary, err := engine.PreviewOutput(context.Background(), exec02TestResolved(), PreviewRequest{Output: "resources", Limit: 10}, func(map[string]any) error { return nil })
@@ -461,8 +416,6 @@ func TestPostgreSQLPreviewBackendFailureNeverMarksComplete(t *testing.T) {
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// Acceptance 4: an unsupported physical engine is rejected before any
-// backend callback runs.
 func TestUnsupportedPhysicalEngineRejectsBeforeAnyCallback(t *testing.T) {
 	for _, engineTag := range []ir.PhysicalEngine{"MONGO", "", " CLICKHOUSE ", "clickhouse", "postgres"} {
 		if engineTag == "" || engineTag == "clickhouse" || engineTag == " CLICKHOUSE " {
@@ -486,15 +439,10 @@ func TestUnsupportedPhysicalEngineRejectsBeforeAnyCallback(t *testing.T) {
 	}
 }
 
-// A plan the compiler refuses to render is a typed failure that propagates
-// without touching any adapter (no silent AQL fallback for a PostgreSQL
-// compile failure).
 func TestPostgreSQLCompileFailurePropagatesWithoutFallback(t *testing.T) {
 	spies := &dispatchSpies{}
 	engine, _ := exec02pgEngine(t, spies, exec02Rows())
 	resolved := exec02TestResolved()
-	// A root scan without the canonical scope binds is refused by the
-	// PostgreSQL renderer before any command exists.
 	resolved.Compiled.Outputs[0].Plan.BindVars = map[string]any{"root_collection": "Patient"}
 	_, _, err := engine.streamForOutput(context.Background(), resolved, "resources", 5)
 	if err == nil {
@@ -506,11 +454,6 @@ func TestPostgreSQLCompileFailurePropagatesWithoutFallback(t *testing.T) {
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// Acceptance 1/4: commands whose tag does not name PostgreSQL are refused
-// by the tagged envelope before the adapter is invoked, with exact named
-// refusals. The engine forwards its parent-tagged command verbatim, so the
-// stream boundary must surface the envelope's refusal rather than any
-// adapter fallback.
 func TestPostgreSQLStreamRefusesCrossTagAndZeroTagCommands(t *testing.T) {
 	crossTag, err := command.NewAQLCommand("FOR d IN resource RETURN d", map[string]any{"project": "P1"})
 	if err != nil {
@@ -528,10 +471,6 @@ func TestPostgreSQLStreamRefusesCrossTagAndZeroTagCommands(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spies := &dispatchSpies{}
-			// The spy port does not inspect the command itself: if the
-			// envelope's tag check were dropped, this port would record and
-			// stream the mismatched command and the zero-call assertion
-			// below would fail.
 			stream := OutputStream{
 				Name: "resources", Columns: []string{"id"},
 				sourceRows: func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
@@ -569,12 +508,6 @@ func TestPostgreSQLStreamRefusesCrossTagAndZeroTagCommands(t *testing.T) {
 	}
 }
 
-// A PostgreSQL-served output cannot carry a ClickHouse combine payload (a
-// plan-shape contradiction, refused before compilation). PostgreSQL-served
-// private workspace artifact capture is a legitimate source (pg-exec-11):
-// the build attaches the compiler-attested artifact scope without touching
-// any port, and materialization still fails closed when the compiled output
-// carries no exact scope evidence -- never by falling back to an AQL stream.
 func TestPostgreSQLSelectionRefusesClickHousePayloadAndBuildsPrivateCapture(t *testing.T) {
 	spies := &dispatchSpies{}
 	engine, _ := exec02pgEngine(t, spies, exec02Rows())
@@ -599,8 +532,6 @@ func TestPostgreSQLSelectionRefusesClickHousePayloadAndBuildsPrivateCapture(t *t
 	if spies.pgRequests != 0 {
 		t.Fatalf("capture build reached the PostgreSQL port")
 	}
-	// Materialization of this evidence-free stream is refused fail-closed
-	// before any artifact exists; the source dispatch names PostgreSQL.
 	catalog := &testArtifactCatalog{items: map[string]chartifact.Manifest{}}
 	clickHouse := &testArtifactClickHouse{columns: map[string][]clickhouse.Column{}, rows: map[string][]map[string]any{}}
 	manager, err := chartifact.New(chartifact.Config{Catalog: catalog, ClickHouse: clickHouse})
@@ -620,9 +551,6 @@ func TestPostgreSQLSelectionRefusesClickHousePayloadAndBuildsPrivateCapture(t *t
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// Acceptance 3: a ClickHouse combine still uses its dedicated ClickHouse
-// callbacks; the source row port is never consulted for a ClickHouse-engine
-// plan.
 func TestClickHouseCombineUnaffectedAndNeverOfferedSourcePort(t *testing.T) {
 	spies := &dispatchSpies{}
 	config := spies.arangoEngine()
@@ -679,10 +607,6 @@ func TestClickHouseCombineUnaffectedAndNeverOfferedSourcePort(t *testing.T) {
 	}
 }
 
-// Acceptance 2 (control): the AQL-selected engine is byte-identical to the
-// pre-change behavior: the AQL port receives AQL-tagged commands for both
-// streams and previews, and a PostgreSQL-tagged command can never sneak
-// into the AQL route (the port's own envelope check would fail).
 func TestAQLPathUnchangedWhenPostgreSQLUnused(t *testing.T) {
 	spies := &dispatchSpies{}
 	config := spies.arangoEngine()
@@ -712,10 +636,6 @@ func TestAQLPathUnchangedWhenPostgreSQLUnused(t *testing.T) {
 	}
 }
 
-// Control for the PostgreSQL-dark assertion: the very same engine shape
-// still drives the Arango preview controls for an AQL Group preview —
-// preparePreviewIndex fires and the AQL preview port is used. Guards are
-// not blanket refusals.
 func TestAQLPreviewStillDrivesArangoControls(t *testing.T) {
 	spies := &dispatchSpies{}
 	config := spies.arangoEngine()
@@ -736,8 +656,6 @@ func TestAQLPreviewStillDrivesArangoControls(t *testing.T) {
 	if len(spies.aqlPreviewQueries) == 0 {
 		t.Fatal("AQL preview stopped using the AQL preview port")
 	}
-	// Group index preparation is scheduled asynchronously after the
-	// preview query; give the prewarm goroutine a bounded window.
 	deadline := time.Now().Add(2 * time.Second)
 	sawPrepare := false
 	for time.Now().Before(deadline) {
@@ -759,9 +677,6 @@ func TestAQLPreviewStillDrivesArangoControls(t *testing.T) {
 	}
 }
 
-// The Group preview optimizer (index listing, EXPLAIN, counts) never
-// evaluates a PostgreSQL-served stream, while the identical AQL-shaped
-// stream still reaches it (non-vacuity control).
 func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 	spies := &dispatchSpies{}
 	reference := exec02PostgreSQLCommand(t)
@@ -832,16 +747,10 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 	}
 }
 
-// The PostgreSQL stream consumes exactly the parent-tagged command and the
-// declared column contract: an AQL-expecting port must refuse it via the
-// envelope, and the correctly dispatching port receives the tagged
-// statement unchanged.
 func TestPostgreSQLStreamConsumesOnlyTaggedCommand(t *testing.T) {
 	spies := &dispatchSpies{}
 	reference := exec02PostgreSQLCommand(t)
 	rows := exec02Rows()
-	// First: a port that expects AQL must be refused by the tagged
-	// envelope before any row is produced.
 	aqlExpectingStream := OutputStream{
 		Name: "resources", Columns: []string{"id", "name"},
 		sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
@@ -858,7 +767,6 @@ func TestPostgreSQLStreamConsumesOnlyTaggedCommand(t *testing.T) {
 		t.Fatalf("AQL-expecting port on a PostgreSQL stream must report the envelope mismatch: %v", err)
 	}
 
-	// Paired control: the dispatching port receives the tagged command.
 	stream := OutputStream{
 		Name: "resources", Columns: []string{"id", "name"},
 		sourceRows:     exec02pgPort(spies, &spies.pgFull, rows),
@@ -881,11 +789,6 @@ func TestPostgreSQLStreamConsumesOnlyTaggedCommand(t *testing.T) {
 	}
 }
 
-// The streamRaw boundary invariant: a PostgreSQL-tagged stream that somehow
-// carries no source row port fails closed with the compiler's named
-// unregistered-backend sentinel instead of falling through to an AQL
-// adapter. Construction normally refuses this configuration first; this
-// test exercises the boundary itself with a hand-built stream.
 func TestPostgreSQLStreamWithoutPortNeverFallsBackToAQL(t *testing.T) {
 	aqlCalls := 0
 	stream := OutputStream{
@@ -894,7 +797,7 @@ func TestPostgreSQLStreamWithoutPortNeverFallsBackToAQL(t *testing.T) {
 		command:        exec02PostgreSQLCommand(t),
 		commandColumns: []string{"id", "name"},
 	}
-	_ = aqlCalls // one port, no AQL fallback exists: nil port must fail closed
+	_ = aqlCalls
 	err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil })
 	if !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
 		t.Fatalf("missing source row port must fail closed with the named sentinel: %v", err)
@@ -904,13 +807,6 @@ func TestPostgreSQLStreamWithoutPortNeverFallsBackToAQL(t *testing.T) {
 	}
 }
 
-// The value-bound artifact identity (query.PlanDiagnostics.Fingerprint, the
-// source behind chartifact.Identity.PlanDigest) of a PostgreSQL-served plan
-// is deterministic over the compiled statement and its rendered scope — and
-// distinguishes every meaningful variation (load-bearing: changing any
-// pinned component must change the digest), including bound values. The
-// public, value-free diagnostic shape is covered separately by
-// TestBackendNeutralDiagnosticsAndPlanIdentity.
 func TestPostgreSQLPlanFingerprintIsStableAndSensitivityProbed(t *testing.T) {
 	compile := func(t *testing.T, resolved Resolved) string {
 		t.Helper()
@@ -927,13 +823,11 @@ func TestPostgreSQLPlanFingerprintIsStableAndSensitivityProbed(t *testing.T) {
 	if base == "" || base != compile(t, exec02TestResolved()) {
 		t.Fatalf("fingerprint must be deterministic and non-empty: %q", base)
 	}
-	// Scope argument change: a different project binds different args.
 	scopeChange := exec02TestResolved()
 	scopeChange.Compiled.Outputs[0].Plan.BindVars["project"] = "P2"
 	if got := compile(t, scopeChange); got == base {
 		t.Fatal("fingerprint did not react to a scope argument change")
 	}
-	// Statement shape change: dropping the selector projection changes SQL.
 	projectionChange := exec02TestResolved()
 	returnReturn := func(resolved *Resolved) *ir.PhysicalReturn {
 		t.Helper()
@@ -951,8 +845,6 @@ func TestPostgreSQLPlanFingerprintIsStableAndSensitivityProbed(t *testing.T) {
 	if got := compile(t, projectionChange); got == base {
 		t.Fatal("fingerprint did not react to a statement shape change")
 	}
-	// Typed argument change: JSON null payload binding stays distinct from
-	// SQL NULL (the extractor's null behavior is part of the plan).
 	nullBehaviorChange := exec02TestResolved()
 	returnReturn(&nullBehaviorChange).Projections[1].Expression.NullBehavior = ir.PhysicalEmptyOnNull
 	if got := compile(t, nullBehaviorChange); got == base {
@@ -960,11 +852,6 @@ func TestPostgreSQLPlanFingerprintIsStableAndSensitivityProbed(t *testing.T) {
 	}
 }
 
-// Review round 2 (public-column leak): when every declared column is marked
-// internal in the compiler-owned output schema, the PostgreSQL selection is
-// refused outright. The public row must never fall back to publishing the
-// declared contract, because row-identity source and auth-path projections
-// are exactly such internal columns.
 func TestPostgreSQLSelectionRefusesAllInternalDeclaredColumns(t *testing.T) {
 	spies := &dispatchSpies{}
 	engine, _ := exec02pgEngine(t, spies, exec02Rows())
@@ -999,10 +886,6 @@ func TestPostgreSQLSelectionRefusesAllInternalDeclaredColumns(t *testing.T) {
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// Review round 2 (source identity): the PostgreSQL-served plan must carry
-// RootResourceType into the compiler.CompiledQuery, or an authorized Builder preview
-// with IncludeSourceIdentity degrades every row's source to UNAVAILABLE in
-// SINGLE mode (which the schema earns via the internal source-id column).
 func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing.T) {
 	spies := &dispatchSpies{}
 	sourceID := ir.PreviewSourceResourceIDColumn
@@ -1056,10 +939,6 @@ func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing
 	}
 }
 
-// The third PostgreSQL preview failure-marker site: the context is
-// cancelled after the row stream exhausted cleanly, so the post-loop
-// context check (not the visitor or the stream error) is what aborts the
-// preview. That path must also strip both completion markers.
 func TestPostgreSQLPreviewPostLoopCancellationNeverMarksComplete(t *testing.T) {
 	spies := &dispatchSpies{}
 	engine, _ := exec02pgEngine(t, spies, []map[string]any{
@@ -1080,10 +959,6 @@ func TestPostgreSQLPreviewPostLoopCancellationNeverMarksComplete(t *testing.T) {
 	}
 }
 
-// The neutral query-memory budget and the AQL root-key page loop are Arango
-// policies: a PostgreSQL stream must never attach either. The paired AQL
-// control proves the checks are real: an AQL stream with the budget set
-// must observe it.
 func TestPostgreSQLStreamCarriesNoArangoOnlyPolicy(t *testing.T) {
 	spies := &dispatchSpies{}
 	reference := exec02PostgreSQLCommand(t)
@@ -1124,8 +999,6 @@ func TestPostgreSQLStreamCarriesNoArangoOnlyPolicy(t *testing.T) {
 		t.Fatalf("forwarded command must be the tagged PostgreSQL statement: %v", err)
 	}
 
-	// Paired AQL control: the same stream shape with an AQL tag must
-	// attach the budget (the checks above are not vacuous).
 	budgetSawAQL := false
 	aqlStream := OutputStream{
 		Name: "resources", Columns: []string{"id"},
@@ -1158,9 +1031,6 @@ func exec02StableRowIdentity(parts ...any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// The PostgreSQL stream row set keeps the stable row identity contract over
-// the output's declared identity fields and the engine-visible public
-// columns only.
 func TestPostgreSQLStreamRowIdentityAndPublicColumns(t *testing.T) {
 	spies := &dispatchSpies{}
 	engine, _ := exec02pgEngine(t, spies, exec02Rows())

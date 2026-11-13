@@ -1,36 +1,5 @@
 package postgres
 
-// Real-PostgreSQL acceptance tests for the bounded, idempotent resource
-// batch writer (pg-ingest-01 store surface; check-2:
-// go test ./internal/backends/postgres/internal/store -run PostgresResourceWriter -count=1).
-//
-// Every test drives the real ResourceWriter against the PostgreSQL 18
-// service named by LOOM_TEST_POSTGRES_URL through readiness-checked pools.
-// Fixtures are literal rows inserted by this file; witnesses are literal
-// values read back by direct SQL: typed columns, canonicalized JSONB
-// payload texts, scope fingerprints, and the ledger marker are pinned to
-// golden literals captured from PostgreSQL 18 itself, not computed by the
-// writer under test. Nothing is mocked: the live claims (writes, replays,
-// races, commit accounting) all run through the real store engine.
-//
-// Non-vacuity discipline: every refusal has a paired control that commits
-// (a guard that always refused would fail its control), and the replay
-// guard is mutation-probed — a tampered ledger digest turns the idempotent
-// no-op into the typed identity conflict, proving the replay path really
-// reads the digest. Atomicity claims run crash-window fault injection at
-// every pre-commit step of the resource path, each followed by a retry
-// that must fully converge. Race surfaces run at least ten rounds each on
-// two real connections with distinct pg_backend_pid values witnessed
-// inside the batch transactions, and every abort converges to a
-// byte-identical witness pinned to a literal.
-//
-// Fixture databases and schemas are uniquely owned as verify_ing01_store_*
-// and dropped by the test that created them. The final TestZZ audit is
-// ownership-scoped: it checks each exact name this file created and counts
-// only its own verify_ing01_store_* prefix against the baseline captured
-// before this process created anything, so concurrent sibling workers
-// sweeping their own prefixes neither race this audit nor trip it.
-
 import (
 	"context"
 	"errors"
@@ -54,12 +23,9 @@ const (
 
 var ing01StoreNamePattern = regexp.MustCompile(`^verify_ing01_store_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every database this file verified into existence is
-// recorded here, and TestZZ asserts each exact name is gone. Ownership
-// begins at verified CREATE, exactly as the per-test cleanup drops them.
 var (
 	ing01OwnedMu     sync.Mutex
-	ing01OwnedByName = map[string]string{} // database -> owned schema
+	ing01OwnedByName = map[string]string{}
 )
 
 func ing01Register(db, schema string) {
@@ -68,9 +34,6 @@ func ing01Register(db, schema string) {
 	ing01OwnedByName[db] = schema
 }
 
-// ing01Baseline is the count of verify_ing01_store_* databases visible
-// before this process created its first fixture. Only this file's tests
-// create that prefix, so TestZZ can assert the count returned to it.
 var (
 	ing01BaselineOnce  sync.Once
 	ing01BaselineCount int64
@@ -100,9 +63,9 @@ func ing01CaptureBaseline(raw string) {
 
 type ing01Service struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database (direct-SQL witnesses)
-	dsn    string        // isolated database DSN (credentials scrubbed on failure)
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
+	dsn    string
 	schema string
 	scrub  func(any) string
 	fail   func(step string, err error)
@@ -121,7 +84,6 @@ func newIngest01Service(t *testing.T) *ing01Service {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -160,15 +122,12 @@ func newIngest01Service(t *testing.T) *ing01Service {
 		fail("create isolated database", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the database this test created.
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
 			t.Errorf("drop isolated database: %s", scrub(err))
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -191,7 +150,6 @@ func newIngest01Service(t *testing.T) *ing01Service {
 		fail("create owned schema", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the schema this test created.
 		if _, err := iso.Exec(context.WithoutCancel(ctx),
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
 			t.Errorf("drop owned schema: %s", scrub(err))
@@ -202,8 +160,6 @@ func newIngest01Service(t *testing.T) *ing01Service {
 	return &ing01Service{ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub, fail: fail}
 }
 
-// migrate applies the full embedded history through the readiness-checked
-// pool, so the resource path runs on the real migrations 000002 and 000008.
 func (s *ing01Service) migrate(t *testing.T) {
 	t.Helper()
 	if _, err := MigrateSchema(s.ctx, s.openClient(t, 4), s.schema); err != nil {
@@ -226,9 +182,6 @@ func (s *ing01Service) openClient(t *testing.T, maxConns int32) *Client {
 	return client
 }
 
-// openAppClient opens a bounded pool whose backends carry app as
-// application_name, so pg_stat_activity can identify a specific pool's
-// connection during a race.
 func (s *ing01Service) openAppClient(t *testing.T, app string, maxConns int32) *Client {
 	t.Helper()
 	u, err := url.Parse(s.dsn)
@@ -285,8 +238,6 @@ func (s *ing01Service) mustInt64(t *testing.T, sql string, args ...any) int64 {
 	return v
 }
 
-// poolBackendPID witnesses the single backend behind a MaxConns=1 pool by
-// dialing it now; every later acquire reuses that same backend.
 func (s *ing01Service) poolBackendPID(t *testing.T, client *Client) int64 {
 	t.Helper()
 	conn, err := client.Acquire(s.ctx)
@@ -301,8 +252,6 @@ func (s *ing01Service) poolBackendPID(t *testing.T, client *Client) int64 {
 	return pid
 }
 
-// waitBackendWaiting polls pg_stat_activity until the backend serving
-// application app is actively blocked on a lock, and returns its pid.
 func (s *ing01Service) waitBackendWaiting(t *testing.T, app string) int64 {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -324,13 +273,6 @@ func (s *ing01Service) waitBackendWaiting(t *testing.T, app string) int64 {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Literal fixtures and golden witnesses. The payload texts and fingerprints
-// below are the exact values PostgreSQL 18 returns — captured from the
-// server and frozen, so JSONB canonicalization or digest drift fails the
-// suite loudly instead of silently re-fingerprinting history.
-// ---------------------------------------------------------------------------
-
 const (
 	ing01Project = "prj-ing01"
 	ing01GenA    = "gen-a"
@@ -339,33 +281,19 @@ const (
 	ing01PayloadB   = `{"resourceType":"Patient","id":"p-1","active":false}`
 	ing01PayloadKey = `{"id":"p-2","resourceType":"Patient"}`
 
-	// Canonical payload texts exactly as PostgreSQL 18 returns them
-	// (JSONB sorts object keys by length, then bytes, and normalizes
-	// separators).
 	ing01PayloadAText   = `{"id": "p-1", "link": [{"code": "X"}], "meta": {"tag": null}, "active": true, "resourceType": "Patient"}`
 	ing01PayloadBText   = `{"id": "p-1", "active": false, "resourceType": "Patient"}`
 	ing01PayloadKeyText = `{"id": "p-2", "resourceType": "Patient"}`
 
-	// Golden digests: lowercase hex SHA-256 of the canonical encoding of
-	// the pinned golden batches (the exact batch identity, scope, and rows
-	// below), captured from BatchWriter's digest.
 	ing01GoldenBatchID = "ing01/golden/0"
 	ing01GoldenDigest  = "511de6c949331c638d82e53430c523d2fb345b63f53f7bf50f32fa4358aa1ff6"
 	ing01LegacyBatchID = "ing01/legacy/0"
 	ing01LegacyDigest  = "587b4e7659240ecf902bab11984a63fddd3a2475b227458867e6354c3790f2df"
 
-	// Scope fingerprints: md5 over "type|logical_id|auth_path|payload::text
-	// (or <SQL-NULL>)" per row, ordered by (resource_type, logical_id,
-	// auth_resource_path) — a plan-independent byte-exact content witness.
 	ing01FingerprintA = "ddf4b412b24330dcfdf5f84759ed764e"
 	ing01FingerprintB = "d74ad9a14d6bb357e2c93cee012b3ac0"
 )
 
-// ing01GoldenRows returns the four-row golden resource set: a nested
-// payload with a present-null key, a payload whose input key order differs
-// from the canonical order, a SQL NULL payload, and a JSON null document.
-// The logical contract carries no storage sequence at all — the storage
-// identity is always server-assigned.
 func ing01GoldenRows(project, generation string) []source.Resource {
 	return []source.Resource{
 		{Project: project, DatasetGeneration: generation, ResourceType: "Patient", LogicalID: "p-1",
@@ -383,10 +311,6 @@ func ing01GoldenBatch(id, project, generation string) ResourceBatch {
 	return ResourceBatch{ID: id, Project: project, DatasetGeneration: generation, Rows: ing01GoldenRows(project, generation)}
 }
 
-// ing01BatchDigest recomputes the canonical engine digest of a resource
-// batch, so per-round race batches are witnessed against the same encoding
-// the ledger stores, while the pinned golden literals guard the encoding
-// itself.
 func ing01BatchDigest(b ResourceBatch) string {
 	return batchDigest(Batch{
 		ID:                b.ID,
@@ -426,9 +350,6 @@ func (s *ing01Service) countIn(t *testing.T, project, generation string) int64 {
 		" WHERE project = $1 AND dataset_generation = $2", project, generation)
 }
 
-// scopeFingerprint is a byte-exact witness over every stored row of one
-// scope: type, logical id, auth path, and the exact JSONB payload text (or
-// the SQL-NULL marker), in stable logical order.
 func (s *ing01Service) scopeFingerprint(t *testing.T, project, generation string) string {
 	t.Helper()
 	var fp string
@@ -443,8 +364,6 @@ func (s *ing01Service) scopeFingerprint(t *testing.T, project, generation string
 	return fp
 }
 
-// requireResourceRow witnesses one stored row's typed columns and exact
-// payload text (or SQL NULL) against literals.
 func (s *ing01Service) requireResourceRow(t *testing.T, project, generation, rtype, lid, authPath string, wantPayloadText *string) {
 	t.Helper()
 	var gotAuth string
@@ -474,8 +393,6 @@ func (s *ing01Service) requireResourceRow(t *testing.T, project, generation, rty
 	}
 }
 
-// requireNothingWritten witnesses that a scope holds no rows and a batch
-// identity holds no ledger marker: the whole-batch rollback contract.
 func (s *ing01Service) requireNothingWritten(t *testing.T, project, generation, batchID string) {
 	t.Helper()
 	if n := s.countIn(t, project, generation); n != 0 {
@@ -485,10 +402,6 @@ func (s *ing01Service) requireNothingWritten(t *testing.T, project, generation, 
 		t.Fatalf("batch_write_ledger holds %q, want no marker", batchID)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Surface contract without a database.
-// ---------------------------------------------------------------------------
 
 func TestPostgresResourceWriterConstructorRejectsInvalidInputs(t *testing.T) {
 	if _, err := NewResourceWriter(nil, "verify_ing01_store_ok"); err == nil {
@@ -507,10 +420,6 @@ func TestPostgresResourceWriterConstructorRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Exact writes, ledger accounting, and the golden literals.
-// ---------------------------------------------------------------------------
-
 func TestPostgresResourceWriterWritesBoundedBatchWithExactColumnsAndLedgerMarker(t *testing.T) {
 	s := newIngest01Service(t)
 	s.migrate(t)
@@ -527,15 +436,10 @@ func TestPostgresResourceWriterWritesBoundedBatchWithExactColumnsAndLedgerMarker
 	if res.Digest != ing01GoldenDigest {
 		t.Fatalf("digest = %s, want the pinned golden %s", res.Digest, ing01GoldenDigest)
 	}
-	// The same batch through the engine's own digest function must produce
-	// the identical pinned literal: the resource surface fingerprints
-	// exactly what the engine commits.
 	if got := ing01BatchDigest(batch); got != ing01GoldenDigest {
 		t.Fatalf("engine digest = %s, want the pinned golden %s", got, ing01GoldenDigest)
 	}
 
-	// Direct-SQL witnesses over literal expected rows: typed columns and
-	// exact canonical JSONB texts, including SQL NULL versus JSON null.
 	s.requireResourceRow(t, ing01Project, ing01GenA, "Patient", "p-1", "/fhir", strPtr(ing01PayloadAText))
 	s.requireResourceRow(t, ing01Project, ing01GenA, "Patient", "p-2", "", strPtr(ing01PayloadKeyText))
 	s.requireResourceRow(t, ing01Project, ing01GenA, "Observation", "obs-9", "/fhir", nil)
@@ -547,15 +451,12 @@ func TestPostgresResourceWriterWritesBoundedBatchWithExactColumnsAndLedgerMarker
 		t.Fatalf("scope fingerprint = %s, want the pinned golden %s", fp, ing01FingerprintA)
 	}
 
-	// Storage identity discipline: resource_seq is server-assigned and
-	// unique across the four rows.
 	seqs := s.mustInt64(t, "SELECT count(DISTINCT resource_seq) FROM "+s.qualified(resourceTableName)+
 		" WHERE project = $1 AND dataset_generation = $2", ing01Project, ing01GenA)
 	if seqs != 4 {
 		t.Fatalf("distinct resource_seq = %d, want 4 server-assigned identities", seqs)
 	}
 
-	// The ledger marker carries the exact commit accounting.
 	w, found := s.witnessLedger(t, batch.ID)
 	if !found {
 		t.Fatal("no ledger marker after commit")
@@ -587,15 +488,10 @@ func TestPostgresResourceWriterLegacyEmptyGenerationNamespaceCommits(t *testing.
 			res.Digest, ing01BatchDigest(batch), ing01LegacyDigest)
 	}
 	s.requireResourceRow(t, ing01Project, "", "Patient", "p-1", "/fhir", strPtr(ing01PayloadAText))
-	// The empty generation is its own namespace: it never merges with gen-a.
 	if n := s.countIn(t, ing01Project, ing01GenA); n != 0 {
 		t.Fatalf("gen-a rows = %d, want 0 — the legacy namespace must not touch gen-a", n)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Idempotent replay, with the non-vacuity mutation probe.
-// ---------------------------------------------------------------------------
 
 func TestPostgresResourceWriterIdenticalReplayIsNoOpAndTamperedDigestRefuses(t *testing.T) {
 	s := newIngest01Service(t)
@@ -610,8 +506,6 @@ func TestPostgresResourceWriterIdenticalReplayIsNoOpAndTamperedDigestRefuses(t *
 	}
 	before := s.scopeFingerprint(t, ing01Project, ing01GenA)
 
-	// Replay of identical committed input: a ledger no-op with the original
-	// accounting, byte-identical results on repeated calls.
 	for attempt := 0; attempt < 3; attempt++ {
 		replay, err := writer.WriteResourceBatch(s.ctx, batch)
 		if err != nil {
@@ -629,9 +523,6 @@ func TestPostgresResourceWriterIdenticalReplayIsNoOpAndTamperedDigestRefuses(t *
 		t.Fatalf("scope fingerprint drifted across replays: %s != %s", fp, before)
 	}
 
-	// Mutation probe (non-vacuity): the replay path really reads the
-	// ledger digest. Tamper it and the same "identical" replay must
-	// become the typed identity conflict instead of a silent no-op.
 	tampered := strings.Repeat("ab", 32)
 	s.exec(t, "UPDATE "+s.qualified(batchLedgerTableName)+" SET digest = $1 WHERE batch_id = $2",
 		tampered, batchID)
@@ -650,11 +541,6 @@ func TestPostgresResourceWriterIdenticalReplayIsNoOpAndTamperedDigestRefuses(t *
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Duplicate natural identity with different payload: typed error, prior
-// row preserved, whole batch rolled back.
-// ---------------------------------------------------------------------------
-
 func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t *testing.T) {
 	s := newIngest01Service(t)
 	s.migrate(t)
@@ -665,9 +551,6 @@ func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t
 	}
 	storedFingerprint := s.scopeFingerprint(t, ing01Project, ing01GenA)
 
-	// A second batch re-offers p-1 under the same natural identity with a
-	// different payload, plus a brand-new row. The whole batch must roll
-	// back with the typed stored-row conflict.
 	rows := append(ing01GoldenRows(ing01Project, ing01GenA), source.Resource{
 		Project: ing01Project, DatasetGeneration: ing01GenA, ResourceType: "Encounter", LogicalID: "enc-1",
 		AuthResourcePath: "/fhir", Payload: []byte(`{"resourceType":"Encounter","id":"enc-1"}`),
@@ -691,8 +574,6 @@ func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t
 		t.Fatalf("conflict identity = %+v, want %s/%s Patient/p-1", conflict, ing01Project, ing01GenA)
 	}
 
-	// The prior payload is preserved byte-identically and the batch's
-	// other rows (the fresh Encounter) wrote nothing.
 	if fp := s.scopeFingerprint(t, ing01Project, ing01GenA); fp != storedFingerprint {
 		t.Fatalf("stored scope drifted after refused batch: %s != %s", fp, storedFingerprint)
 	}
@@ -704,9 +585,6 @@ func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t
 		t.Fatal("refused batch left a ledger marker, want none")
 	}
 
-	// Guard non-vacuity: the same batch with the duplicate payload restored
-	// to the stored content commits its new row (identical duplicates
-	// collapse), proving the guard refuses content drift, not duplicates.
 	rows[0].Payload = []byte(ing01PayloadA)
 	res, err := writer.WriteResourceBatch(s.ctx, ResourceBatch{
 		ID: "ing01/dup/control", Project: ing01Project, DatasetGeneration: ing01GenA, Rows: rows,
@@ -724,7 +602,6 @@ func TestPostgresResourceWriterInBatchDuplicateDifferentPayloadRollsBackWholeBat
 	s.migrate(t)
 	writer := s.newWriter(t)
 
-	// Rows 0 and 2 share the natural identity with different payloads.
 	rows := []source.Resource{
 		{Project: ing01Project, DatasetGeneration: ing01GenA, ResourceType: "Patient", LogicalID: "p-9",
 			AuthResourcePath: "/fhir", Payload: []byte(`{"resourceType":"Patient","id":"p-9","v":1}`)},
@@ -745,8 +622,6 @@ func TestPostgresResourceWriterInBatchDuplicateDifferentPayloadRollsBackWholeBat
 	}
 	s.requireNothingWritten(t, ing01Project, ing01GenA, "ing01/inbatch/bad")
 
-	// Guard non-vacuity: identical in-batch duplicates are legal and
-	// collapse to a single published row.
 	rows[2].Payload = []byte(`{"resourceType":"Patient","id":"p-9","v":1}`)
 	res, err := writer.WriteResourceBatch(s.ctx, ResourceBatch{
 		ID: "ing01/inbatch/control", Project: ing01Project, DatasetGeneration: ing01GenA, Rows: rows,
@@ -775,8 +650,6 @@ func TestPostgresResourceWriterIdenticalRowsAcrossDistinctBatchesAreIdempotent(t
 	if first.Committed != 4 || first.Digest != ing01BatchDigest(batchA) {
 		t.Fatalf("first = %+v, want 4 committed under the engine digest", first)
 	}
-	// A distinct batch identity re-offering the identical rows: row-level
-	// idempotency (not a ledger replay) commits nothing.
 	batchB := ing01GoldenBatch("ing01/cross/b", ing01Project, ing01GenA)
 	second, err := writer.WriteResourceBatch(s.ctx, batchB)
 	if err != nil {
@@ -791,7 +664,6 @@ func TestPostgresResourceWriterIdenticalRowsAcrossDistinctBatchesAreIdempotent(t
 	if n := s.countIn(t, ing01Project, ing01GenA); n != 4 {
 		t.Fatalf("rows after identical second batch = %d, want 4", n)
 	}
-	// Both markers stand with their own exact accounting.
 	if _, found := s.witnessLedger(t, batchA.ID); !found {
 		t.Fatal("first batch marker missing")
 	}
@@ -800,18 +672,10 @@ func TestPostgresResourceWriterIdenticalRowsAcrossDistinctBatchesAreIdempotent(t
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Pre-round-trip refusals: exact named errors with nothing written, and a
-// closed pool proving the refusal happens before a connection is acquired.
-// ---------------------------------------------------------------------------
-
 func TestPostgresResourceWriterRejectsInvalidBatchesBeforeRoundTrip(t *testing.T) {
 	s := newIngest01Service(t)
 	s.migrate(t)
 
-	// A closed pool fails any Acquire, so a validation error that outranks
-	// the connectivity failure proves the refusal happened before any
-	// round trip.
 	closed := s.openClient(t, 1)
 	closed.Close()
 	writer := s.newWriterOn(t, closed)
@@ -856,13 +720,11 @@ func TestPostgresResourceWriterRejectsInvalidBatchesBeforeRoundTrip(t *testing.T
 		if !strings.Contains(err.Error(), tc.contains) {
 			t.Fatalf("%s: err = %v, want it to name %q", tc.name, err, tc.contains)
 		}
-		// Not a connectivity failure: the closed pool was never reached.
 		if errors.Is(err, ErrBatchWrite) {
 			t.Fatalf("%s: refusal reached the engine: %v", tc.name, err)
 		}
 	}
 
-	// Direct-SQL witnesses: none of the refused scopes persisted anything.
 	for _, generation := range []string{"gen-reject", "gen-over", "gen-other"} {
 		s.requireNothingWritten(t, ing01Project, generation, "unused-marker-name")
 	}
@@ -873,8 +735,6 @@ func TestPostgresResourceWriterRejectsInvalidBatchesBeforeRoundTrip(t *testing.T
 		}
 	}
 
-	// Guard non-vacuity: the identical well-formed batch (same rows the
-	// defect cases carried) commits fine through a live pool.
 	live := s.newWriter(t)
 	res, err := live.WriteResourceBatch(s.ctx, ResourceBatch{
 		ID: "ing01/reject/control", Project: ing01Project, DatasetGeneration: "gen-reject", Rows: good,
@@ -886,11 +746,6 @@ func TestPostgresResourceWriterRejectsInvalidBatchesBeforeRoundTrip(t *testing.T
 		t.Fatalf("control = %+v, want 4 committed", res)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Crash-window fault injection: batch/ledger atomicity at every pre-commit
-// step of the resource path, each followed by a converging retry.
-// ---------------------------------------------------------------------------
 
 func TestPostgresResourceWriterCrashWindowAtEveryStepBeforeCommitLeavesNothing(t *testing.T) {
 	s := newIngest01Service(t)
@@ -917,11 +772,8 @@ func TestPostgresResourceWriterCrashWindowAtEveryStepBeforeCommitLeavesNothing(t
 		if !errors.Is(err, ErrBatchWrite) {
 			t.Fatalf("crash at %s: err = %v, want ErrBatchWrite", step, err)
 		}
-		// The batch and its ledger marker are atomic: neither survived.
 		s.requireNothingWritten(t, ing01Project, ing01GenA, batch.ID)
 
-		// Crash-window convergence: the identity was not burned and a
-		// retry after the crash fully commits.
 		retry, err := writer.WriteResourceBatch(s.ctx, batch)
 		if err != nil {
 			s.fail(fmt.Sprintf("retry after crash at %s", step), err)
@@ -936,17 +788,11 @@ func TestPostgresResourceWriterCrashWindowAtEveryStepBeforeCommitLeavesNothing(t
 		if w, found := s.witnessLedger(t, batch.ID); !found || w.resources != 4 || w.digest != wantDigest {
 			t.Fatalf("marker after retry from crash at %s = %+v (found %v), want the golden accounting", step, w, found)
 		}
-		// Clean the scope for the next step's round.
 		s.exec(t, "DELETE FROM "+s.qualified(resourceTableName)+" WHERE project = $1 AND dataset_generation = $2",
 			ing01Project, ing01GenA)
 		s.exec(t, "DELETE FROM "+s.qualified(batchLedgerTableName)+" WHERE batch_id = $1", batch.ID)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Reported counts change only at commit: two real connections, a lock
-// holds the batch open, and the witness sees only the pre-commit state.
-// ---------------------------------------------------------------------------
 
 func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t *testing.T) {
 	s := newIngest01Service(t)
@@ -975,8 +821,6 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 		t.Fatalf("observer and writer share backend %d, want two distinct real PG connections", observerPID)
 	}
 
-	// The observer holds the resource table exclusively: the batch will
-	// block at its first resource-table touch, uncommitted.
 	if _, err := obsConn.Exec(s.ctx, "BEGIN"); err != nil {
 		s.fail("observer begin", err)
 	}
@@ -995,19 +839,12 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 		done <- outcome{res, err}
 	}()
 
-	// The writer backend must be genuinely blocked on the observer's
-	// lock — proof the batch is mid-transaction, not committed yet.
 	blockedPID := s.waitBackendWaiting(t, "ing01-commit-w")
 	if blockedPID != writerPID || blockedPID == observerPID {
 		t.Fatalf("blocked backend pid = %d, want the writer backend %d (observer is %d)",
 			blockedPID, writerPID, observerPID)
 	}
 
-	// Mid-transaction witness from the lock holder itself (a third
-	// connection's SELECT would queue behind the same ACCESS EXCLUSIVE
-	// lock): the scope still holds zero rows — the persisted count has
-	// not moved. The ledger table carries no lock, so it is witnessed
-	// from the independent pool.
 	var midRows int64
 	if err := obsConn.QueryRow(s.ctx, "SELECT count(*) FROM "+s.qualified(resourceTableName)+
 		" WHERE project = $1 AND dataset_generation = $2", ing01Project, ing01GenA).Scan(&midRows); err != nil {
@@ -1020,7 +857,6 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 		t.Fatal("ledger marker visible mid-transaction, want none — marker and rows commit together")
 	}
 
-	// Release the lock: the batch proceeds to commit.
 	if _, err := obsConn.Exec(s.ctx, "COMMIT"); err != nil {
 		s.fail("observer commit", err)
 	}
@@ -1036,8 +872,6 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 	if o.res.Committed != 4 || o.res.Digest != ing01BatchDigest(batch) {
 		t.Fatalf("committed result = %+v, want the golden 4-row commit", o.res)
 	}
-	// Post-commit: the direct-SQL count moved to exactly the reported
-	// number, and only now.
 	if n := s.countIn(t, ing01Project, ing01GenA); n != o.res.Committed {
 		t.Fatalf("rows after commit = %d, want the reported %d", n, o.res.Committed)
 	}
@@ -1046,16 +880,6 @@ func TestPostgresResourceWriterReportedCountsChangeOnlyAtCommitTwoConnections(t 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Two-real-connection races. Every surface: at least ten rounds, distinct
-// pg_backend_pid witnessed inside each batch transaction, byte-identical
-// post-convergence witnesses pinned to literals.
-// ---------------------------------------------------------------------------
-
-// ing01RacePair builds two writers on separate single-connection pools and
-// captures each batch transaction's pg_backend_pid at the begin step —
-// the one step every path, including ledger fast-path replays and lost
-// claim races, is guaranteed to reach.
 type ing01RacePair struct {
 	w1, w2 *ResourceWriter
 	pid1   *int64
@@ -1067,8 +891,6 @@ func (s *ing01Service) newRacePair(t *testing.T) *ing01RacePair {
 	t.Helper()
 	c1 := s.openAppClient(t, fmt.Sprintf("ing01-race-a-%d", time.Now().UnixNano()), 1)
 	c2 := s.openAppClient(t, fmt.Sprintf("ing01-race-b-%d", time.Now().UnixNano()), 1)
-	// Force each single-connection pool to its one backend now, so the
-	// batch transaction is proven to run on the witnessed pid.
 	pidA := s.poolBackendPID(t, c1)
 	pidB := s.poolBackendPID(t, c2)
 	if pidA == pidB || pidA == 0 || pidB == 0 {
@@ -1106,8 +928,6 @@ type ing01RaceOutcome struct {
 	err error
 }
 
-// raceBoth launches one batch on each of the pair's two connections,
-// released simultaneously by a start barrier.
 func (p *ing01RacePair) raceBoth(s *ing01Service, batchA, batchB ResourceBatch) (ing01RaceOutcome, ing01RaceOutcome) {
 	p.mu.Lock()
 	*p.pid1, *p.pid2 = 0, 0
@@ -1121,8 +941,6 @@ func (p *ing01RacePair) raceBoth(s *ing01Service, batchA, batchB ResourceBatch) 
 	return <-ra, <-rb
 }
 
-// requireDistinctBackends witnesses that this round really ran on two
-// distinct PG backends (the probes recorded each batch transaction).
 func (p *ing01RacePair) requireDistinctBackends(t *testing.T, round int) {
 	t.Helper()
 	p.mu.Lock()
@@ -1153,8 +971,6 @@ func TestPostgresResourceWriterConcurrentIdenticalBatchCommitsOnceTwoConnections
 			s.fail(fmt.Sprintf("round %d connection B", round), o2.err)
 		}
 
-		// Exactly one committed fresh, the other replayed the original
-		// accounting; the observable accounting is byte-identical.
 		fresh, replays := 0, 0
 		for _, r := range []ResourceBatchResult{o1.res, o2.res} {
 			if r.Replay {
@@ -1175,7 +991,6 @@ func TestPostgresResourceWriterConcurrentIdenticalBatchCommitsOnceTwoConnections
 			t.Fatalf("round %d results diverged: %+v vs %+v", round, o1.res, o2.res)
 		}
 
-		// Post-convergence witnesses: committed once, marker once.
 		if n := s.countIn(t, ing01Project, generation); n != 4 {
 			t.Fatalf("round %d rows = %d, want exactly 4 (committed once)", round, n)
 		}
@@ -1201,15 +1016,13 @@ func TestPostgresResourceWriterConcurrentIdentityReuseDifferentContentRefusesOne
 
 		contentA := ing01GoldenBatch(batchID, ing01Project, generation)
 		contentB := ing01GoldenBatch(batchID, ing01Project, generation)
-		contentB.Rows[0].Payload = []byte(ing01PayloadB) // same identity, different payload
+		contentB.Rows[0].Payload = []byte(ing01PayloadB)
 		digestA := ing01BatchDigest(contentA)
 		digestB := ing01BatchDigest(contentB)
 
 		o1, o2 := pair.raceBoth(s, contentA, contentB)
 		pair.requireDistinctBackends(t, round)
 
-		// Exactly one side committed; the other got the typed identity
-		// conflict naming the committed digest versus its own.
 		type side struct {
 			outcome        ing01RaceOutcome
 			ownBatch       ResourceBatch
@@ -1257,8 +1070,6 @@ func TestPostgresResourceWriterConcurrentIdentityReuseDifferentContentRefusesOne
 				round, winner.outcome.res, winner.ownDigest)
 		}
 
-		// Post-abort convergence, byte-identical to the pinned witness for
-		// the winner's content: the loser's content is absent everywhere.
 		if fp := s.scopeFingerprint(t, ing01Project, generation); fp != winner.ownFingerprint {
 			t.Fatalf("round %d fingerprint = %s, want the winner's pinned %s", round, fp, winner.ownFingerprint)
 		}
@@ -1275,9 +1086,6 @@ func TestPostgresResourceWriterConcurrentDuplicateIdentityDifferentPayloadConver
 	s.migrate(t)
 	pair := s.newRacePair(t)
 
-	// Two candidate payloads for the same natural identity, one per
-	// connection, under distinct batch identities. Both converged payload
-	// texts are pinned literals.
 	aPayload := `{"resourceType":"Patient","id":"p-dup","race":"a"}`
 	bPayload := `{"resourceType":"Patient","id":"p-dup","race":"b"}`
 	const (
@@ -1291,8 +1099,6 @@ func TestPostgresResourceWriterConcurrentDuplicateIdentityDifferentPayloadConver
 			return source.Resource{Project: ing01Project, DatasetGeneration: generation,
 				ResourceType: "Patient", LogicalID: "p-dup", AuthResourcePath: "/fhir", Payload: []byte(payload)}
 		}
-		// A fresh companion row per batch proves the loser's whole batch
-		// rolled back, not just the conflicting row.
 		companion := func(name string) source.Resource {
 			return source.Resource{Project: ing01Project, DatasetGeneration: generation,
 				ResourceType: "Observation", LogicalID: "obs-" + name, AuthResourcePath: "",
@@ -1306,13 +1112,6 @@ func TestPostgresResourceWriterConcurrentDuplicateIdentityDifferentPayloadConver
 		o1, o2 := pair.raceBoth(s, batchA, batchB)
 		pair.requireDistinctBackends(t, round)
 
-		// Exactly one batch committed (2 rows). The other is refused —
-		// either the stored-row conflict (its guard saw the committed row)
-		// or the exact-accounting divergence (its publish raced the
-		// winner's commit). Both are typed, whole-batch rollbacks. The
-		// ownCompanion is the row that side contributed under a distinct
-		// natural identity, so its fate isolates whole-batch rollback:
-		// the loser's own companion must be gone.
 		type side struct {
 			outcome      ing01RaceOutcome
 			batch        ResourceBatch
@@ -1347,9 +1146,6 @@ func TestPostgresResourceWriterConcurrentDuplicateIdentityDifferentPayloadConver
 				round, o1.res, o1.err, o2.res, o2.err)
 		}
 
-		// Post-abort convergence, byte-identical to the winner's pinned
-		// witness: one stored payload with exactly the winner's text, and
-		// the loser contributed neither its own rows nor its marker.
 		s.requireResourceRow(t, ing01Project, generation, "Patient", "p-dup", "/fhir", strPtr(winner.payloadText))
 		if n := s.countIn(t, ing01Project, generation); n != 2 {
 			t.Fatalf("round %d rows = %d, want exactly 2 — the loser's rows must be rolled back", round, n)
@@ -1368,17 +1164,6 @@ func TestPostgresResourceWriterConcurrentDuplicateIdentityDifferentPayloadConver
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit.
-// ---------------------------------------------------------------------------
-
-// TestZZZeroLeftoverPostgresResourceWriterFixtures is the ownership-scoped
-// zero-leftover audit for this file. It checks, by exact name only, every
-// database (and the schema that lived inside it) this file verified into
-// existence, then asserts the count of verify_ing01_store_* databases has
-// returned to the baseline captured before this process created anything.
-// It never inspects other prefixes, so concurrent sibling workers sweeping
-// their own prefixes neither race this audit nor trip it.
 func TestZZZeroLeftoverPostgresResourceWriterFixtures(t *testing.T) {
 	raw := testPostgresURL(t)
 	ing01OwnedMu.Lock()
@@ -1432,9 +1217,6 @@ func TestZZZeroLeftoverPostgresResourceWriterFixtures(t *testing.T) {
 		}
 	}
 
-	// pg_database baseline: only this file creates the
-	// verify_ing01_store_* prefix, so its count must have returned to the
-	// pre-test baseline.
 	var visible int64
 	if err := admin.QueryRow(ctx,
 		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\\_ing01\\_store\\_%' ESCAPE '\\'").

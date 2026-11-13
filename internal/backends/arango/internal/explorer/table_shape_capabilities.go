@@ -63,8 +63,6 @@ func (r *TableShapeCapabilityRepository) PutCatalog(ctx context.Context, receipt
 	if stored != nil {
 		return *stored, nil
 	}
-	// Insert-ignore can return no row for an already present short key. Resolve
-	// only through the caller's full binding; an out-of-scope key is a collision.
 	got, getErr := r.GetCatalog(ctx, receipt.Binding, receipt.ID)
 	if getErr != nil {
 		return tableshapecap.CatalogReceipt{}, fmt.Errorf("%w: %s", tableshapecap.ErrIdentityClash, receipt.ID)

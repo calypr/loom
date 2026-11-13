@@ -15,20 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// TestPostgresParityFixture is the pg-ir-02 cross-backend parity guard. It
-// pins the boundary the two renderers must never cross:
-//
-//   - The Arango/AQL path is unchanged: the canonical recipe pipeline still
-//     renders through the AQL renderer and dispatches only as an AQL-tagged
-//     command.
-//   - The PostgreSQL path renders only its closed supported surface as
-//     parameterized SQL with no AQL bind syntax, and rejects everything else
-//     with a typed ErrUnsupportedPostgresPlan. It never emits AQL text and
-//     never converts AQL to SQL.
-//   - Compile selection is closed: the zero target is refused, and a
-//     PostgreSQL request compiles only through the PostgreSQL renderer —
-//     unsupported plans fail with a typed ErrUnsupportedPostgresPlan and
-//     never yield an AQL-tagged fallback.
 func TestPostgresParityFixture(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "parity-project", DatasetGeneration: "parity-generation"}
 	bundle := recipe.Bundle{
@@ -78,18 +64,12 @@ func TestPostgresParityFixture(t *testing.T) {
 	})
 
 	t.Run("CompileSelectionStaysFailClosed", func(t *testing.T) {
-		// The zero target is never a hidden default: every compile entry
-		// point refuses it before lowering or rendering, and an invalid
-		// PostgreSQL binding is refused at selection.
 		if _, err := compiler.CompileResolvedRecipePlan(compiler.Target{}, resolved, 7, ir.DefaultPhysicalOptimizationPolicy()); !errors.Is(err, compiler.ErrTargetNotSelected) {
 			t.Fatalf("zero-target compile error = %v, want ErrTargetNotSelected", err)
 		}
 		if _, err := compiler.PostgreSQLTarget(ir.PostgresStorageBinding{}); err == nil {
 			t.Fatal("unbound PostgreSQL target accepted")
 		}
-		// A PostgreSQL compile either produces a PostgreSQL-tagged command
-		// from the real renderer or fails explicitly with the typed
-		// unsupported-plan error; it never produces an AQL-tagged command.
 		storage, err := ir.NewPostgresStorageBinding("pgir02_it_parity")
 		if err != nil {
 			t.Fatalf("NewPostgresStorageBinding: %v", err)
@@ -120,8 +100,6 @@ func TestPostgresParityFixture(t *testing.T) {
 		}
 		pgRendered, pgErr := postgresrender.RenderPhysicalPlan(compiled.PhysicalPlan, storage)
 		if pgErr == nil {
-			// Inside the supported surface: the output must be a clean
-			// parameterized statement that cannot be the AQL text.
 			if strings.Contains(pgRendered.SQL, "@") {
 				t.Fatalf("PostgreSQL SQL carries AQL bind syntax: %s", pgRendered.SQL)
 			}
@@ -130,8 +108,6 @@ func TestPostgresParityFixture(t *testing.T) {
 			}
 			return
 		}
-		// Outside the supported surface: fail closed with the typed
-		// capability error. A generic error would mean no contract.
 		if !errors.Is(pgErr, postgresrender.ErrUnsupportedPostgresPlan) {
 			t.Fatalf("PostgreSQL render error = %v, want ErrUnsupportedPostgresPlan", pgErr)
 		}

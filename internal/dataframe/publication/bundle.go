@@ -16,9 +16,6 @@ import (
 
 type DataframeSelector = dataset.DataframeSelector
 
-// BundleState is the durable lifecycle of a multi-output publication. The
-// physical ClickHouse tables are never reader-visible until the logical
-// pointer and PUBLISHED execution are committed atomically.
 type BundleState string
 
 const (
@@ -28,7 +25,6 @@ const (
 	BundlePublished  BundleState = "PUBLISHED"
 	BundleFailed     BundleState = "FAILED"
 
-	// Compatibility-only stored values. New workflows never write these.
 	BundlePending   BundleState = "PENDING"
 	BundlePreflight BundleState = "PREFLIGHT"
 	BundleLoading   BundleState = "LOADING"
@@ -65,8 +61,6 @@ type BundleIdentity struct {
 	AuthResourcePaths  []string `json:"authResourcePaths,omitempty"`
 }
 
-// Canonical returns an identity with its set-valued authorization paths in a
-// stable order without changing the persisted key shape.
 func (i BundleIdentity) Canonical() BundleIdentity {
 	if i.AuthResourcePaths == nil {
 		return i
@@ -83,20 +77,6 @@ func (i BundleIdentity) Canonical() BundleIdentity {
 	return i
 }
 
-// PointerName is the visibility namespace for a published logical dataset.
-// Project and generation are part of the key so two tenants can publish the
-// same recipe/output name without racing a shared pointer.
-//
-// Repair-5 (F-B21): components are length-prefixed, mirroring the discipline
-// the catalog already uses for identity digests (internal/catalog/helpers.go
-// catalogIdentityDigest) and Key() below. The previous bare "\x00"-join let
-// (Name="a\x00b", TranslationVersion="") and (Name="a", TranslationVersion=
-// "b") fold to one visibility pointer while their Keys stayed distinct, so
-// publishing the second identity silently repointed the first dataset's
-// readers. The encoding is injective without needing input validation: no
-// component content — including embedded NULs or digits/colons — can shift a
-// component boundary, because each component is written as len:content.
-// Blank TranslationVersion/OutputName remain "absent" exactly as shipped.
 func (i BundleIdentity) PointerName() string {
 	parts := []string{i.Project, i.DatasetGeneration, i.Name}
 	if strings.TrimSpace(i.TranslationVersion) != "" {
@@ -146,9 +126,6 @@ type BundleOutputRecord struct {
 	SourceRow        *SourceRowMetadata `json:"sourceRow,omitempty"`
 }
 
-// SourceRowMetadata is persisted only when output rows retain a proven typed
-// source-resource identity. It prevents selection from guessing an ID from a
-// display label or an opaque row number.
 type SourceRowMetadata struct {
 	ResourceType string `json:"resourceType"`
 	IDColumn     string `json:"idColumn"`
@@ -227,8 +204,6 @@ type BundlePointer struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-// BundleCatalog is the durable metadata/pointer boundary. Implementations
-// make pointer updates and lease acquisition atomic in their backing store.
 type BundleCatalog interface {
 	SaveExecution(context.Context, BundleExecution, string) error
 	GetExecution(context.Context, string) (BundleExecution, error)
@@ -242,22 +217,16 @@ type BundleCatalog interface {
 	ReleaseBundleLease(context.Context, string, string) error
 }
 
-// BundleExecutionPageFunc consumes one bounded reconciliation page.
 type BundleExecutionPageFunc func([]BundleExecution) error
 
-// PagedBundleCatalog provides bounded, stable execution scans for repair jobs.
-// Implementations must call visit sequentially and stop when it returns an error.
 type PagedBundleCatalog interface {
 	VisitExecutionPages(context.Context, BundleState, time.Time, int, BundleExecutionPageFunc) error
 }
 
-// ExactExecutionCatalog is consumed by project release verification. It never
-// falls back to latest-by-output or a name-only recipe.
 type ExactExecutionCatalog interface {
 	FindExecutionBySelector(context.Context, string, string, DataframeSelector) (BundleExecution, BundleOutputRecord, error)
 }
 
-// PhaseError preserves operational context without making clients parse text.
 type PhaseError struct {
 	Phase  string
 	Output string
@@ -289,18 +258,11 @@ var ErrBundleNotFound = fmt.Errorf("bundle execution not found")
 var ErrBundlePointerConflict = fmt.Errorf("bundle pointer compare-and-swap conflict")
 var ErrBundleLeaseLost = fmt.Errorf("bundle lease ownership was lost")
 
-// ErrExecutionReadPinLost means a reader no longer owns the retention pin
-// that protects an exact published execution. Readers must cancel their scan
-// rather than continue against a table that cleanup may remove.
 var ErrExecutionReadPinLost = fmt.Errorf("published execution read pin was lost")
 var ErrExecutionReadPinActive = fmt.Errorf("published execution has active readers")
 var ErrSelectionSourceNotAddressable = fmt.Errorf("published output is not addressable to source resources")
 var ErrSelectionSourceIdentityChanged = fmt.Errorf("published selection source identity changed")
 
-// ExecutionReadPinCatalog is additive to BundleCatalog so existing catalog
-// fakes and integrations can migrate without weakening the publication
-// lifecycle. Implementations atomically arbitrate pin acquisition against
-// cleanup claims for the same execution.
 type ExecutionReadPinCatalog interface {
 	AcquireExecutionReadPin(context.Context, string, string, time.Time) (bool, error)
 	RenewExecutionReadPin(context.Context, string, string, time.Time) (bool, error)
@@ -310,9 +272,6 @@ type ExecutionReadPinCatalog interface {
 	ReleaseExecutionCleanup(context.Context, string, string) error
 }
 
-// SourceRowMetadataWriter lets the publication owner persist a proven
-// resource-address mapping before commit. It is optional to preserve the
-// existing publication transaction contract for unrelated outputs.
 type SourceRowMetadataWriter interface {
 	SetSourceRowMetadata(context.Context, string, SourceRowMetadata) error
 }

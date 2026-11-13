@@ -30,9 +30,6 @@ type TableShapeExclusionRefusal struct {
 
 func (e *TableShapeExclusionRefusal) Error() string { return string(e.Code) }
 
-// CompiledTableShapeExclusionQuery is an exact, bounded diagnostic query
-// derived from one finalized output plan. It has no caller-supplied paths or
-// query fragments.
 type CompiledTableShapeExclusionQuery struct {
 	Command              command.CompiledCommand
 	ResourceTypeField    string
@@ -63,7 +60,7 @@ func CompileTableShapeExclusions(target Target, output lower.CompiledRecipeOutpu
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidLimit}
 	}
 
-	_ = policy // Diagnostics execute against the exact canonical plan, before publication optimizations.
+	_ = policy
 	physical, err := withGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
 	if err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("prepare table-shape exclusion plan: %w", err)
@@ -89,9 +86,6 @@ func CompileTableShapeExclusions(target Target, output lower.CompiledRecipeOutpu
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionNoPolicy}
 	}
 
-	// Ordinary Pivot previews omit presence metadata to retain bounded execution.
-	// Diagnostics must recover missing versus explicit null from the exact direct
-	// root projection, rather than HAS on its always-populated projected column.
 	if pivot.CategoryPresence == nil && !pivot.CategoryPresenceFromInput && physical.StageSequence == nil &&
 		len(physical.Operations) > 0 && physical.Operations[0].RootScan != nil {
 		root := physical.Operations[0].RootScan.Variable
@@ -134,12 +128,6 @@ func CompileTableShapeExclusions(target Target, output lower.CompiledRecipeOutpu
 	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("verify table-shape exclusion scope: %w", err)
 	}
-	// The target selects the dialect once and there is no AQL fallback and no
-	// AQL-to-SQL conversion: the Arango target renders through the canonical
-	// AQL renderer (its registered surface, byte-identical to before the
-	// PostgreSQL terminal landed) and the PostgreSQL target renders through
-	// the registered evidence-terminal slice, whose unsupported shapes fail
-	// explicitly with the renderer's typed error.
 	var compiledCommand command.CompiledCommand
 	if target.backend == command.CompiledBackendPostgreSQL {
 		postgresCommand, _, postgresErr := target.renderPostgreSQLFinalPlan(physical)

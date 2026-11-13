@@ -50,8 +50,6 @@ func (s *Store) CreateManifest(ctx context.Context, manifest publication.Manifes
 		return publication.Manifest{}, err
 	}
 	bindVars := lifecycleBindVars(manifest.Dataset.Project)
-	// Arango rejects undeclared bind parameters. The create query derives the
-	// project and active record from the immutable documents themselves.
 	delete(bindVars, "project")
 	delete(bindVars, "active_record_type")
 	bindVars["manifest"] = document
@@ -190,11 +188,6 @@ func (s *Store) Activate(ctx context.Context, candidate publication.Manifest) er
 	if err := s.validate(); err != nil {
 		return err
 	}
-	// Activation is intentionally idempotent. Gecko may retry a publish after
-	// the active-generation pointer was already switched; doing another
-	// compare-and-swap update in that case creates an unnecessary revision race
-	// and can surface PUBLICATION_CONFLICT even though the requested generation
-	// is already active.
 	if active, err := s.ResolveActiveManifest(ctx, candidate.Dataset.Project); err == nil {
 		if manifestIdentityEqual(active, candidate) {
 			return nil

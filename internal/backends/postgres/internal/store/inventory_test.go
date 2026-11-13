@@ -1,12 +1,5 @@
 package postgres
 
-// Real-PostgreSQL tests for the pg-catalog-02 inventory repository
-// (internal/backends/postgres/internal/store/inventory.go). Every fixture database and schema
-// is uniquely owned as pgcat02_it_* and dropped by the test that created it;
-// a final audit fails on any leftover in that namespace. Expected rows are
-// literal values read back through direct SQL, never through the code under
-// test.
-
 import (
 	"context"
 	"errors"
@@ -26,17 +19,14 @@ var pgcat02StoreNamePattern = regexp.MustCompile(`^pgcat02_it_[0-9]+_[0-9a-f]+$`
 
 type inventoryStoreService struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database
-	dsn    string        // isolated database DSN (credentials scrubbed on failure)
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
+	dsn    string
 	schema string
 	scrub  func(any) string
 	fail   func(step string, err error)
 }
 
-// newInventoryStoreService creates one isolated database plus one owned
-// schema (both pgcat02_it_*), applies the full embedded migration history,
-// and registers cleanups plus a zero-leftover audit for the namespace.
 func newInventoryStoreService(t *testing.T) *inventoryStoreService {
 	t.Helper()
 	raw := testPostgresURL(t)
@@ -46,7 +36,6 @@ func newInventoryStoreService(t *testing.T) *inventoryStoreService {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -79,12 +68,6 @@ func newInventoryStoreService(t *testing.T) *inventoryStoreService {
 
 	var dbName, schema string
 
-	// Registered while the admin pool is open, so (LIFO) it runs after every
-	// drop. Ownership-based zero-leftover audit: every resource this test
-	// created (ownership began at verified create, per the canonical fixture
-	// runner) must be gone afterward. The names are pgcat02_it_*-patterned
-	// below; an ownership-scoped audit is what makes this race-free when
-	// another test or package holds live pgcat02_it_* fixtures in parallel.
 	t.Cleanup(func() {
 		var dbCount int
 		if err := admin.QueryRow(context.WithoutCancel(ctx),
@@ -116,8 +99,6 @@ func newInventoryStoreService(t *testing.T) *inventoryStoreService {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -149,8 +130,6 @@ func newInventoryStoreService(t *testing.T) *inventoryStoreService {
 	return &inventoryStoreService{ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub, fail: fail}
 }
 
-// migrate applies the full embedded history (ledger, fhir_resource, and the
-// resource inventory tables) to the owned schema.
 func (s *inventoryStoreService) migrate(t *testing.T) {
 	t.Helper()
 	if _, err := MigrateSchema(s.ctx, s.openClient(t), s.schema); err != nil {
@@ -189,8 +168,6 @@ func (s *inventoryStoreService) exec(t *testing.T, sql string, args ...any) {
 	}
 }
 
-// seedResource inserts one retained source row directly into fhir_resource
-// (literal fixture data, independent of the resource repository code).
 func (s *inventoryStoreService) seedResource(t *testing.T, project, generation, resourceType, logicalID, authPath string) {
 	t.Helper()
 	s.exec(t, "INSERT INTO "+pgx.Identifier{s.schema, resourceTableName}.Sanitize()+
@@ -293,16 +270,13 @@ func TestInventoryScanSourceCountsGroupsAuthPaths(t *testing.T) {
 	s.migrate(t)
 	repo := s.newRepository(t)
 
-	// Literal source fixture: Patient rows p1/p2 under path "a", p3 under
-	// "b", p4 in the legacy unscoped namespace; Observation has one row
-	// under "z"; Encounter does not appear at all.
 	s.seedResource(t, "p", "g", "Patient", "p1", "a")
 	s.seedResource(t, "p", "g", "Patient", "p2", "a")
 	s.seedResource(t, "p", "g", "Patient", "p3", "b")
 	s.seedResource(t, "p", "g", "Patient", "p4", "")
-	s.seedResource(t, "p", "g2", "Patient", "q1", "a") // other generation: isolated
+	s.seedResource(t, "p", "g2", "Patient", "q1", "a")
 	s.seedResource(t, "p", "g", "Observation", "o1", "z")
-	s.seedResource(t, "o", "g", "Patient", "x1", "a") // other project: isolated
+	s.seedResource(t, "o", "g", "Patient", "x1", "a")
 
 	groups, err := repo.ScanSourceCounts(s.ctx, "p", "g", "Patient")
 	if err != nil {
@@ -313,8 +287,6 @@ func TestInventoryScanSourceCountsGroupsAuthPaths(t *testing.T) {
 		t.Fatalf("Patient groups = %v, want %v", groups, want)
 	}
 
-	// A type that exists in the table but not in this scope yields no
-	// groups: the caller turns that into the zero-inclusive count row.
 	groups, err = repo.ScanSourceCounts(s.ctx, "p", "g", "Encounter")
 	if err != nil {
 		t.Fatalf("ScanSourceCounts Encounter: %v", err)
@@ -363,7 +335,6 @@ func TestInventoryInsertCountsIsRepeatStableAndRejectsDivergence(t *testing.T) {
 		}
 	}
 
-	// A repeated build is stable: the identical rows re-insert as a no-op.
 	if err := repo.InsertCounts(s.ctx, counts, 2); err != nil {
 		t.Fatalf("repeat InsertCounts: %v", err)
 	}
@@ -371,8 +342,6 @@ func TestInventoryInsertCountsIsRepeatStableAndRejectsDivergence(t *testing.T) {
 		t.Fatalf("rows after repeat = %d, want 3", len(again))
 	}
 
-	// A row that diverges from the stored content-addressed row is refused
-	// and never replaces it.
 	s.exec(t, "UPDATE "+pgx.Identifier{s.schema, inventoryCountTableName}.Sanitize()+
 		" SET document_count = 99 WHERE count_key = $1", counts[1].Key)
 	err := repo.InsertCounts(s.ctx, counts, 2)
@@ -392,10 +361,6 @@ func TestInventoryInsertCountsIsRepeatStableAndRejectsDivergence(t *testing.T) {
 		t.Fatalf("stored count = %d, want the tampered 99 (insert must never replace)", stored)
 	}
 
-	// Same document_count, forged count_key: the same-value guard must not
-	// silently overwrite the ric_ identity. PostgreSQL omits WHERE-excluded
-	// conflicts from SET and RETURNING; the repository turns that omission
-	// into a typed count_key conflict and the stored key survives.
 	forged := catalog.ResourceInventoryCount{
 		Key: "ric_forged_samecount", RecordType: catalog.ResourceInventoryCountRecordType,
 		BuildID: counts[0].BuildID, Project: counts[0].Project, DatasetGeneration: counts[0].DatasetGeneration,
@@ -419,13 +384,10 @@ func TestInventoryInsertCountsIsRepeatStableAndRejectsDivergence(t *testing.T) {
 		t.Fatalf("stored count key = %q, want the authentic %q (never replaced)", storedKey, counts[0].Key)
 	}
 
-	// A fully identical reinsert is still the proven no-op that returns its
-	// rows (WHERE-matching conflicts appear in RETURNING).
 	if err := repo.InsertCounts(s.ctx, []catalog.ResourceInventoryCount{counts[0]}, 10); err != nil {
 		t.Fatalf("identical single-row reinsert: %v", err)
 	}
 
-	// Argument contracts fail before any round trip.
 	if err := repo.InsertCounts(s.ctx, nil, 2); !errors.Is(err, ErrInvalidInventoryRow) {
 		t.Fatalf("empty insert error = %v, want ErrInvalidInventoryRow", err)
 	}
@@ -449,10 +411,6 @@ func TestInventoryRepositoryRejectsCrossScopeIdentityCollisions(t *testing.T) {
 	s.migrate(t)
 	repo := s.newRepository(t)
 
-	// Count side: the ric_ key is derived from the full identity, so a row
-	// that reuses another scope's count_key is corrupted, not a routine
-	// conflict: the database arbiter is fhir_resource_inventory_count_key_ux
-	// and the insert must fail as a typed conflict.
 	_, counts := mustInventoryBuild(t, "p", "g", []string{"Patient"},
 		[]catalog.ResourceInventoryCount{countFor("p", "g", "a", "Patient", 2)})
 	if err := repo.InsertCounts(s.ctx, counts, 10); err != nil {
@@ -468,9 +426,6 @@ func TestInventoryRepositoryRejectsCrossScopeIdentityCollisions(t *testing.T) {
 		t.Fatalf("cross-scope count_key insert error = %v, want ErrInventoryCountConflict", err)
 	}
 
-	// Marker side: marker_key is derived from (project, dataset_generation),
-	// so one key held by two scopes is a corrupted derivation. The named
-	// fhir_resource_inventory_build_key_ux classification must fire.
 	build1, counts1 := mustInventoryBuild(t, "p", "g", []string{"Patient"},
 		[]catalog.ResourceInventoryCount{countFor("p", "g", "b", "Patient", 1)})
 	if err := repo.PublishBuild(s.ctx, build1); !errors.Is(err, ErrInventoryPublishGuard) {
@@ -493,8 +448,6 @@ func TestInventoryRepositoryRejectsCrossScopeIdentityCollisions(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "collides across scopes") {
 		t.Fatalf("cross-scope marker_key publish error = %v, want corrupted-derivation classification", err)
 	}
-	// The colliding publish left no second marker; the first scope's marker
-	// row is intact.
 	if markers := s.witnessMarkers(t, "p", "g2"); len(markers) != 0 {
 		t.Fatalf("markers for g2 after collision = %+v, want none", markers)
 	}
@@ -515,9 +468,6 @@ func TestInventoryPublishBuildGuardsUncommittedCounts(t *testing.T) {
 		countFor("p", "g", "", "Observation", 0),
 	})
 
-	// The marker may not exist before every row is committed: with one row
-	// committed, publishing fails, names both the row-count gap and the
-	// uncovered type, and leaves no marker behind.
 	if err := repo.InsertCounts(s.ctx, counts[:1], 10); err != nil {
 		t.Fatalf("partial InsertCounts: %v", err)
 	}
@@ -533,8 +483,6 @@ func TestInventoryPublishBuildGuardsUncommittedCounts(t *testing.T) {
 		t.Fatalf("markers after guard failure = %v, want none", markers)
 	}
 
-	// A committed-rows gap alone (every declared type covered) is still
-	// refused.
 	if err := repo.InsertCounts(s.ctx, counts[1:2], 10); err != nil {
 		t.Fatalf("second InsertCounts: %v", err)
 	}
@@ -542,7 +490,6 @@ func TestInventoryPublishBuildGuardsUncommittedCounts(t *testing.T) {
 		t.Fatalf("gap-only publish = %v, want ErrInventoryPublishGuard", err)
 	}
 
-	// Completing the commit lets the same publish succeed.
 	if err := repo.InsertCounts(s.ctx, counts[2:], 10); err != nil {
 		t.Fatalf("final InsertCounts: %v", err)
 	}
@@ -562,7 +509,6 @@ func TestInventoryPublishBuildGuardsUncommittedCounts(t *testing.T) {
 		t.Fatalf("marker = %v, want %v", markers[0], wantMarker)
 	}
 
-	// The repository reads the marker back with the fixed build record type.
 	got, found, err := repo.ReadBuild(s.ctx, "p", "g")
 	if err != nil || !found {
 		t.Fatalf("ReadBuild = %v, %v, err=%v", got, found, err)
@@ -576,7 +522,6 @@ func TestInventoryPublishBuildGuardsUncommittedCounts(t *testing.T) {
 		t.Fatalf("ReadBuild unknown scope = %v, %v, err=%v; want absent", got, found, err)
 	}
 
-	// Republishing the same marker is a replacement no-op, never a second row.
 	if err := repo.PublishBuild(s.ctx, build); err != nil {
 		t.Fatalf("republish: %v", err)
 	}
@@ -584,8 +529,6 @@ func TestInventoryPublishBuildGuardsUncommittedCounts(t *testing.T) {
 		t.Fatalf("markers after republish = %v, want one", markers)
 	}
 
-	// Publishing refuses structurally invalid markers (complete=false is a
-	// reader-side scenario only, never a publish).
 	broken := build
 	broken.Complete = false
 	if err := repo.PublishBuild(s.ctx, broken); !errors.Is(err, ErrInvalidInventoryRow) {
@@ -610,9 +553,6 @@ func TestInventoryReadCountSumsBindsScopeAndBuild(t *testing.T) {
 		t.Fatalf("PublishBuild: %v", err)
 	}
 
-	// Direct-SQL adversary rows: an unmarked abandoned build for the same
-	// scope and an abandoned build for the same build id shape. Readers bind
-	// the marker's build id, so neither may ever contribute.
 	s.exec(t, "INSERT INTO "+pgx.Identifier{s.schema, inventoryCountTableName}.Sanitize()+
 		" (count_key, build_id, project, dataset_generation, resource_type, auth_resource_path, document_count)"+
 		" VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -661,7 +601,6 @@ func TestInventoryReadCountSumsBindsScopeAndBuild(t *testing.T) {
 		t.Fatalf("unrestricted sums = %v, want Patient=3 Observation=0", unrestricted)
 	}
 
-	// No implicit-unrestricted mode, and identity binds are mandatory.
 	if _, err := repo.ReadCountSums(s.ctx, InventoryCountScope{
 		Project: "p", DatasetGeneration: "g", BuildID: build.BuildID, ResourceTypes: []string{"Patient"},
 	}); !errors.Is(err, ErrInvalidInventoryScope) {

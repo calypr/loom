@@ -1,63 +1,5 @@
 package postgres
 
-// Category presence/value scans (pg-sql-25): the PostgreSQL terminal for the
-// existing typed evidence request (compiler.CompileCategoryScanOutput and
-// compiler.CompileCategoryScanStage), dispatched from the compiler boundary
-// exactly as population.go's RenderPopulationRootScan is — an exported entry
-// the compiler calls, not a RenderPhysicalPlan door.
-//
-// Shape of the delivered statement. The inner read is rendered by
-// RenderPhysicalPlan itself over a plan copy narrowed to two projections: the
-// category column's own registered EXTRACT selector, and one PresenceOutput
-// sidecar over the same (row variable, document path) evidence. There is no
-// second SQL builder, no second path emitter, and no second presence emitter
-// here: the selector arm of renderReturn and the presence arm of
-// propertyPresenceExpression (null_semantics.go) produce those two columns, so
-// the category statement can never drift from the read spine it summarizes.
-// The outer relation is the distinct/ordered/bounded layer — the SQL twin of
-// the AQL suffix in compiler/category_scan.go (categoryScanDistinctSuffix):
-//
-//	value  = CASE WHEN present THEN <selector value> END
-//	                          -- AQL: present ? row[column] : null
-//	group  = GROUP BY present, value  -- AQL: COLLECT present, value
-//	order  = present, TYPENAME(value), string bytes (COLLATE "C"), value
-//	                          -- AQL: categoryScanDistinctSuffix; the string
-//	                             bucket is byte-pinned so the page order is
-//	                             cluster-collation-independent, matching
-//	                             AQL's byte comparison (see
-//	                             categoryStringValueKeyExpression)
-//	bound  = LIMIT maxValues+1        -- AQL: LIMIT @__loom_category_limit
-//
-// The three states null_semantics.go defines survive the aggregation because
-// the value column stays jsonb and the presence column stays a total SQL
-// boolean: an absent path contributes the group (false, SQL NULL), a stored
-// JSON null contributes (true, jsonb 'null') under PRESERVE_NULL (SQL NULL
-// under OMIT_NULLS, the behavior table's own readings), and a stored value —
-// including "", false, 0, [] and [null] — contributes (true, itself). GROUP BY
-// collapses duplicate contributors exactly as AQL COLLECT does, and an empty
-// population contributes NO row at all: the statement has no aggregate over
-// the outer relation, so a missing row can never be fabricated as an empty
-// aggregate row.
-//
-// Closed surface. Everything outside this slice is a typed
-// ErrUnsupportedPostgresPlan capability gap, never an AQL fallback and never
-// an AQL-to-SQL translation: a plan with a construction stage sequence
-// (composition, group, coded group, pivot, and graph slices keep their own
-// registered contracts), any operation outside ROOT_SCAN / FILTER /
-// canonical DERIVED_LET / SORT / RETURN (traversals, SET, UNNEST, UNPIVOT,
-// grouped pivots, group rows), a plan-carried LIMIT (a bounded preview page
-// must not be applied before the distinct), or a category column that is not
-// exactly one non-hidden scalar-cardinality DIRECT_SCALAR EXTRACT selector
-// over the root row document. Hidden projections, duplicate names, a name
-// colliding with the presence marker, and a presence claim that disagrees with
-// the selector all refuse.
-//
-// Identifier discipline: the only names interpolated into the outer statement
-// are this file's own renderer-owned CTE/alias names and the positional
-// "c<n>" aliases the spine assembler mints, selected by index after checking
-// the declared column they stand for. Category column names, document paths,
-// the scope binds, and the bound are parameters or never reach SQL text.
-
 import (
 	"fmt"
 	"strconv"
@@ -68,16 +10,9 @@ import (
 )
 
 const (
-	// CategoryScanPresentColumn and CategoryScanValueColumn are the declared
-	// positional output contract of a category statement; the row port aligns
-	// them with OutputColumns by index, and the executor reads exactly these
-	// keys (execution/category_scan.go).
 	CategoryScanPresentColumn = "present"
 	CategoryScanValueColumn   = "value"
 
-	// maxCategoryScanValues mirrors compiler.MaxCategoryScanValues: the
-	// renderer re-checks the bound so no caller can drive an unbounded
-	// DISTINCT scan through this entry point.
 	maxCategoryScanValues = 256
 
 	categorySourceCTE   = "__loom_category_source"
@@ -86,32 +21,14 @@ const (
 	categoryRowAlias    = "__loom_category_row"
 )
 
-// RenderedCategoryScan is the executable PostgreSQL form of one category
-// evidence request: the bounded distinct statement plus its independently
-// bounded overflow confirmation, both with the same ["present","value"]
-// positional contract.
 type RenderedCategoryScan struct {
-	// Values is the ordered category page: at most MaxValues+1 rows, so the
-	// executor detects truncation without a second query.
-	Values command.RenderedPostgresPhysicalPlan
-	// Witness is the unordered bounded confirmation over the same distinct
-	// relation with a wider bound. It carries no ORDER BY: its only contract
-	// is the row count and the presence bits.
-	Witness command.RenderedPostgresPhysicalPlan
-	// PresentColumn and ValueColumn name the positional output columns.
-	PresentColumn string
-	ValueColumn   string
-	// PresenceMarkerColumn names the projection this renderer added for the
-	// presence proof, echoed for compiler diagnostics. It is never public
-	// output: only present/value are declared.
+	Values               command.RenderedPostgresPhysicalPlan
+	Witness              command.RenderedPostgresPhysicalPlan
+	PresentColumn        string
+	ValueColumn          string
 	PresenceMarkerColumn string
 }
 
-// RenderCategoryScan renders one category presence/value scan (and its
-// overflow witness) for a plan the read spine already renders, onto the
-// trusted PostgreSQL storage binding. The result is deterministic: the same
-// plan, binding, column, and bound produce byte-identical SQL and
-// value-identical ordered arguments.
 func RenderCategoryScan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding, columnName, presenceMarkerColumn string, maxValues int) (RenderedCategoryScan, error) {
 	if err := storage.Validate(); err != nil {
 		return RenderedCategoryScan{}, err
@@ -143,9 +60,6 @@ func RenderCategoryScan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding,
 	if err != nil {
 		return RenderedCategoryScan{}, err
 	}
-	// The witness bound is the AQL overflow-witness bound (category scan
-	// stage compilation passes maxValues*4+1), so a confirmation page is
-	// comparable across backends.
 	witness, err := composeCategoryStatement(inner, valueIndex, presenceIndex, maxValues*4+1, false)
 	if err != nil {
 		return RenderedCategoryScan{}, err
@@ -157,10 +71,6 @@ func RenderCategoryScan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding,
 	}, nil
 }
 
-// categoryScanInnerPlan validates the closed category-scan surface and returns
-// the plan copy the spine renders: SORT removed (the outer GROUP BY and ORDER
-// BY own the order, and an inner order cannot survive the distinct), and the
-// terminal RETURN narrowed to the category selector plus its presence sidecar.
 func categoryScanInnerPlan(plan ir.PhysicalPlan, columnName, presenceMarkerColumn string) (ir.PhysicalPlan, error) {
 	if plan.StageSequence != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("%w: category scans over composed construction stages are not registered for PostgreSQL; only the read-spine shape has a rendered category terminal (pg-sql-25)",
@@ -242,10 +152,6 @@ func categoryScanInnerPlan(plan ir.PhysicalPlan, columnName, presenceMarkerColum
 		return ir.PhysicalPlan{}, err
 	}
 
-	// SORT removal is safe for the delivered contract: every ORDER BY key of
-	// the outer statement is also a GROUP BY key, so the page order is total
-	// over the distinct groups and no inner order can survive the collapse.
-	// The clone keeps this file's edits off the caller's plan entirely.
 	out := ir.ClonePhysicalPlan(plan)
 	operations := make([]ir.PhysicalOperation, 0, len(out.Operations))
 	for _, operation := range out.Operations {
@@ -272,13 +178,6 @@ func categoryScanInnerPlan(plan ir.PhysicalPlan, columnName, presenceMarkerColum
 	return out, nil
 }
 
-// categorySelectorEvidence is the closed reading of a category projection:
-// exactly one scalar-cardinality DIRECT_SCALAR EXTRACT selector over the root
-// row document. It re-reads, never trusts, the shape lowering emits
-// (lower/root_projection.go lowerSemanticFieldProjection). The spine's own
-// selector validator (classifyExtractionProjections) runs again during the
-// inner render, so this is the surface gate that keeps the category slice
-// closed, not a second contract.
 func categorySelectorEvidence(projection ir.PhysicalProjection) ([]string, string, error) {
 	if projection.Expression == nil || projection.Expression.Kind != ir.PhysicalExtractExpression ||
 		projection.Expression.Cardinality != ir.PhysicalScalarCardinality || projection.Expression.Extract == nil {
@@ -315,9 +214,6 @@ func categorySelectorEvidence(projection ir.PhysicalProjection) ([]string, strin
 		}
 		path = append(path, step.Field)
 	}
-	// An inline presence claim on the value projection is legal only when it
-	// proves this very path, so a plan cannot carry a foreign presence claim
-	// into a category scan whose sidecar this renderer mints itself.
 	if presence := projection.Presence; presence != nil {
 		if presence.Source.Variable != extract.Source.Variable || presence.Source.BindKey != "" ||
 			len(presence.Source.Path) != 1 || presence.Source.Path[0] != "payload" ||
@@ -329,9 +225,6 @@ func categorySelectorEvidence(projection ir.PhysicalProjection) ([]string, strin
 	return path, extract.Source.Variable, nil
 }
 
-// categoryOutputIndex locates the single positional alias the spine assembler
-// minted for one declared column name. Only the returned index reaches SQL
-// text, as a decimal in a "c<n>" alias this package owns.
 func categoryOutputIndex(declared []string, name string) (int, error) {
 	found := -1
 	for index, candidate := range declared {
@@ -350,10 +243,6 @@ func categoryOutputIndex(declared []string, name string) (int, error) {
 	return found, nil
 }
 
-// composeCategoryStatement wraps the rendered inner read in the distinct,
-// ordered, bounded category layer. ordered selects the category page order;
-// the witness shares every other clause so a confirmation and its page can
-// never disagree about what a (present, value) group is.
 func composeCategoryStatement(inner command.RenderedPostgresPhysicalPlan, valueIndex, presenceIndex, bound int, ordered bool) (command.RenderedPostgresPhysicalPlan, error) {
 	if bound < 1 {
 		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf("%w: category bound %d is not positive", ErrUnsupportedPostgresPlan, bound)
@@ -391,24 +280,8 @@ func innerColumnAlias(index int) string {
 	return "c" + strconv.Itoa(index)
 }
 
-// categoryValueRankExpression is the SQL twin of the AQL category order's
-// middle key: TYPENAME(value) ASC (compiler/category_scan.go
-// categoryScanDistinctSuffix), i.e. the jsonb type names in the same
-// alphabetical order AQL's type names sort in. A SQL NULL value — the ABSENT
-// reading — ranks with AQL's "null" so an absent group and a stored-JSON-null
-// group keep the same relative rank and are separated by the presence key.
 const categoryValueRankExpression = `CASE WHEN "value" IS NULL THEN 2 ELSE CASE COALESCE(jsonb_typeof("value"), 'null')` +
 	` WHEN 'array' THEN 0 WHEN 'boolean' THEN 1 WHEN 'null' THEN 2 WHEN 'number' THEN 3` +
 	` WHEN 'object' THEN 4 WHEN 'string' THEN 5 ELSE 6 END END`
 
-// categoryStringValueKeyExpression is the byte-pin for the ORDER BY's string
-// bucket (the coded_group.go / graph.go COLLATE "C" precedent). Raw
-// "value" ASC compares jsonb strings with varstr_cmp under the database
-// default collation, which is deployment-dependent and diverges from AQL's
-// byte comparison for mixed-case or non-ASCII values. jsonb strings order by
-// their raw UTF-8 bytes here; every non-string value yields SQL NULL in this
-// key, so within the remaining type buckets the trailing "value" ASC stays
-// the tiebreak and is collation-independent for scalars (jsonb numbers
-// compare numerically, booleans by false/true, and SQL NULL ranks last).
-// Array and object buckets keep jsonb's documented structural comparison.
 const categoryStringValueKeyExpression = `CASE WHEN jsonb_typeof("value") = 'string' THEN "value" #>> '{}' END COLLATE "C"`

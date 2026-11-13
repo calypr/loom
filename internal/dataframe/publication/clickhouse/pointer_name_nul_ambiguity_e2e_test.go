@@ -1,49 +1,5 @@
 package clickhouse
 
-// Candidate finding F-B21 e2e: BundleIdentity.PointerName (internal/dataframe/
-// publication/bundle.go:88-97) is a bare "\x00"-join of
-// (Project, DatasetGeneration, Name[, TranslationVersion][, OutputName]) while
-// Key() (bundle.go:99-115) JSON-marshals every field distinctly. Two
-// logically distinct identities
-//
-//	A: Name = "a\x00b", TranslationVersion = ""
-//	B: Name = "a",      TranslationVersion = "b"
-//
-// under one project/generation/share an OutputName fold to the SAME
-// PointerName ("proj\0gen\0a\0b\0out") while their Keys stay distinct. No
-// control-character validation guards publication identity: the shipped
-// control-char gate internal/dataset/validation.go:40-44
-// (validateOpaqueIdentifier) is called ONLY from internal/dataset/ref.go:26,29
-// (dataset project/generation refs) and internal/dataset/schema.go:51
-// (generatedResourceTypes). The catalog layer already length-prefixes for
-// exactly this attack (internal/catalog/helpers.go:50-62 comment).
-//
-// This test drives real Arango + real ClickHouse through production entries
-// (publication.Publish -> ClickHouseBundleStore -> arango.Registry, and the
-// pointer-gated published.Reader). Repair-5 (length-prefix PointerName)
-// converted it to a natural PASS: the STEP-2 identity comparison now reports
-// VERDICT PREVENTED before any store is touched. The full STEP 3-5 hijack
-// choreography with its archived FAILED-ON-PURPOSE F-B21 CONFIRMED message
-// stays wired as the REGRESSION direction: if the PointerName encoding ever
-// folds the two identities again, the test fails with the original red text.
-//
-// Fixture necessity (honest): publication.ValidateOutputs requires a non-blank
-// output name and the physical table suffix is the output name
-// (bundle_store.go:908-910), so BOTH identities share one identical non-blank
-// OutputName ("pnn_out_shared"). OutputName is therefore deliberately kept
-// OUT of the colliding fields: only Name/TranslationVersion vary, and the
-// collision needs only those two because PointerName appends them
-// conditionally and joins with an unescaped "\x00".
-//
-// Opt-in (SKIP-clean without LOOM_TEST_ARANGO_URL + LOOM_CLICKHOUSE_URL, plus
-// the LOOM_CLICKHOUSE_* vars the sibling harnesses use):
-//
-//	docker exec loom-dev-qwen-current-loom-api-1 sh -c \
-//	  'cd /workspace && LOOM_TEST_ARANGO_URL=http://arangodb:8529 \
-//	   LOOM_CLICKHOUSE_URL=http://clickhouse:8123 LOOM_CLICKHOUSE_DATABASE=loom_dev \
-//	   LOOM_CLICKHOUSE_USERNAME=loom_dev LOOM_CLICKHOUSE_PASSWORD=loom_dev_password \
-//	   go test -count=1 -run TestPointerNameNulAmbiguity -v ./internal/dataframe/publication/clickhouse/'
-
 import (
 	"context"
 	"fmt"
@@ -68,10 +24,6 @@ import (
 
 const pnnDatabasePrefix = "loom_verify_pnn_"
 
-// pnnChOwnedPrefix owns this suite's ClickHouse canary marker. Production
-// staging tables are named loom_bundle_<executionID-hex>_<outputName>
-// (bundle_store.go:908-910); the shared output name embeds "pnn", so every
-// artifact this test creates in ClickHouse matches LIKE '%pnn%'.
 const pnnChOwnedPrefix = "ch_pnn"
 
 const (
@@ -81,29 +33,19 @@ const (
 	pnnSchemaDigest   = "sha256:pnn-schema-shared"
 	pnnScopeDigest    = "sha256:pnn-scope-shared"
 	pnnEngineVersion  = "pnn-engine"
-	pnnNameA          = "a\x00b" // embedded NUL: the ambiguous component
-	pnnNameB          = "a"      // with TranslationVersion "b" => same PointerName
+	pnnNameA          = "a\x00b"
+	pnnNameB          = "a"
 	pnnTranslationB   = "b"
 	pnnStreamBaseA    = 101
 	pnnStreamBaseB    = 201
 	pnnStreamRowCount = 3
 )
 
-// ---------------------------------------------------------------------------
-// STEP 0 drift gate: quote the live production sources the claim rests on and
-// fail on drift. Also negative-scans the whole publication package tree for
-// any control-char validator (its presence would PREVENT the finding).
-// ---------------------------------------------------------------------------
-
 var pnnRequiredQuotations = []struct {
 	file    string
 	needles []string
 }{
 	{
-		// Repair-5 re-pin: the pointer encoding must stay length-prefixed.
-		// Removal of these anchors re-opens F-B21 and the STEP-2 identity
-		// comparison below then falls through to the archived CONFIRMED
-		// hijack assertions (the REGRESSION direction).
 		file: "internal/dataframe/publication/bundle.go",
 		needles: []string{
 			`parts := []string{i.Project, i.DatasetGeneration, i.Name}`,
@@ -181,7 +123,6 @@ func pnnQuoteVerifiedSource(t *testing.T) (quotations string, controlCharHits []
 			}
 		}
 	}
-	// Quote the exact control-char block (validation.go:40-44 by assignment).
 	controlNeedles := []string{
 		`for _, r := range value {`,
 		`if unicode.IsControl(r) {`,
@@ -195,8 +136,6 @@ func pnnQuoteVerifiedSource(t *testing.T) (quotations string, controlCharHits []
 			}
 		}
 	}
-	// Negative scan: no control-char/identifier validator anywhere on the
-	// publication path (the shipped gate lives in internal/dataset only).
 	err := filepath.Walk(filepath.Join(root, "internal/dataframe/publication"), func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -233,11 +172,6 @@ func mustReadPnnFile(t *testing.T, root, rel string) []byte {
 	}
 	return data
 }
-
-// ---------------------------------------------------------------------------
-// owned-database + owned-ClickHouse harness (SKIP-clean opt-in), mirroring
-// the sibling pppOpen pattern with pnn-owned identifiers only.
-// ---------------------------------------------------------------------------
 
 type pnnHarness struct {
 	ctx      context.Context
@@ -282,8 +216,6 @@ func pnnOpen(t *testing.T) *pnnHarness {
 	}
 	client := arangoBackend.Client
 	t.Logf("PNN_DATABASE=%s", database)
-	// Registered FIRST so it runs LAST: ClickHouse artifacts must be dropped
-	// before the Arango database disappears (LIFO cleanup order).
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		pnnDropDatabase(t, endpoint, database)
@@ -316,9 +248,6 @@ func pnnOpen(t *testing.T) *pnnHarness {
 		database: database,
 		suffix:   database[len(pnnDatabasePrefix):],
 	}
-	// Registered second: drops every tracked ClickHouse table by exact name
-	// and asserts the '%pnn%' residue gate empty before LIFO proceeds to the
-	// Arango database removal.
 	t.Cleanup(func() {
 		harness.dropAndVerifyClickHouse(t)
 	})
@@ -395,13 +324,6 @@ func pnnDropDatabase(t *testing.T, endpoint, database string) {
 	t.Logf("PNN_DATABASE_REMOVED=%s", database)
 }
 
-// ---------------------------------------------------------------------------
-// identities: the ONLY difference between A and B is the ambiguous field pair
-// (Name, TranslationVersion); every other identity component is identical, so
-// a Key() difference can only come from the per-field JSON marshalling and a
-// PointerName equality can only come from the bare-join ambiguity.
-// ---------------------------------------------------------------------------
-
 type pnnPublication struct {
 	identity publication.PublicationIdentity
 	key      string
@@ -445,14 +367,9 @@ func pnnNewPublication(name, translationVersion, generation string, streamBase i
 	return pnnPublication{identity: identity, key: bundle.Key(), pointer: bundle.PointerName(), outputs: outputs}
 }
 
-// pnnProductionPublish is the same production entry recipe_publication.go uses.
 func pnnProductionPublish(ctx context.Context, store *ClickHouseBundleStore, p pnnPublication) (publication.Result, error) {
 	return publication.Publish(ctx, store, p.identity, p.outputs, publication.Limits{})
 }
-
-// ---------------------------------------------------------------------------
-// direct fact readers
-// ---------------------------------------------------------------------------
 
 func pnnCount(value any) (int64, bool) {
 	switch typed := value.(type) {
@@ -506,9 +423,6 @@ func pnnTableValues(t *testing.T, ch *clickhouse.Client, ctx context.Context, ta
 	return values
 }
 
-// pnnIsValidationRejection reports whether a publish error is the fingerprint
-// of a control-character/identifier validator blocking the NUL name (a
-// PREVENTED verdict), as opposed to an unrelated infrastructure failure.
 func pnnIsValidationRejection(err error) bool {
 	if err == nil {
 		return false
@@ -537,14 +451,7 @@ func pnnVerdictPrevented(t *testing.T, stage string, err error, hits []string) {
 	t.Logf("VERDICT PREVENTED (stage %s):\n%s", stage, witness.String())
 }
 
-// ---------------------------------------------------------------------------
-// the reproduction
-// ---------------------------------------------------------------------------
-
 func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing.T) {
-	// =========================================================================
-	// STEP 0 — drift gate.
-	// =========================================================================
 	quotations, controlCharHits := pnnQuoteVerifiedSource(t)
 	t.Logf("OBSERVED STEP 0 quoted verified source (anchors located live; drift fails the test):\n%s", quotations)
 	if len(controlCharHits) > 0 {
@@ -561,11 +468,6 @@ func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing
 		t.Fatalf("NewBundleStore: %v", err)
 	}
 
-	// =========================================================================
-	// STEP 1/2 — build the colliding identities. OutputName is identical on
-	// both (fixture necessity: the shared non-blank output keeps outputs OUT
-	// of the collision; only Name/TranslationVersion vary).
-	// =========================================================================
 	generation := "pnn-gen-" + h.suffix
 	pubA := pnnNewPublication(pnnNameA, "", generation, pnnStreamBaseA)
 	pubB := pnnNewPublication(pnnNameB, pnnTranslationB, generation, pnnStreamBaseB)
@@ -578,15 +480,11 @@ func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing
 		t.Logf("VERDICT PREVENTED: production BundleIdentity.PointerName() keeps the two identities distinct (A=%q B=%q); the bare-join ambiguity is gone", pubA.pointer, pubB.pointer)
 		return
 	}
-	// Mechanism evidence: equality produced by the PRODUCTION PointerName().
 	t.Logf("OBSERVED STEP 2 mechanism (production BundleIdentity.PointerName, bundle.go:88-97): nameA=%q tvA=%q outA=%q | nameB=%q tvB=%q outB=%q -> PointerName A==B==%q while Key A=%s != Key B=%s",
 		pubA.identity.Name, pubA.identity.TranslationVersion, pubA.identity.OutputName,
 		pubB.identity.Name, pubB.identity.TranslationVersion, pubB.identity.OutputName,
 		pubA.pointer, pubA.key, pubB.key)
 
-	// =========================================================================
-	// STEP 3 — publication A through production publication.Publish.
-	// =========================================================================
 	resultA, errA := pnnProductionPublish(ctx, store, pubA)
 	if errA != nil {
 		if pnnIsValidationRejection(errA) {
@@ -620,9 +518,6 @@ func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing
 	}
 	t.Logf("OBSERVED STEP 3 publish A: execA=%q state=%q pointer names execA; tableA=%q present rows=%v", execA.ID, execA.State, tableA, valuesA)
 
-	// =========================================================================
-	// STEP 4 — publication B: same pointer name, logically distinct identity.
-	// =========================================================================
 	resultB, errB := pnnProductionPublish(ctx, store, pubB)
 	if errB != nil {
 		if pnnIsValidationRejection(errB) {
@@ -644,7 +539,6 @@ func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing
 		t.Fatalf("B precondition: state %q, want PUBLISHED", execB.State)
 	}
 
-	// The hijack: the SAME pointer name now names execB.
 	pointerAfterB, err := h.registry.GetPointer(ctx, pubA.pointer)
 	if err != nil {
 		t.Fatalf("Step 4 GetPointer(%q) after publishing B: %v", pubA.pointer, err)
@@ -660,12 +554,6 @@ func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing
 	t.Logf("OBSERVED STEP 4 publish B: execB=%q; GetPointer(<samePointerName>) executionId=%q flipped-to-B=%v; execA still PUBLISHED=%v (state=%q) but no longer pointer-advertised=%v; tableB=%q rows=%v",
 		execB.ID, pointerAfterB.ExecutionID, flipped, aStillPublished, execANow.State, aNoLongerAdvertised, tableB, valuesB)
 
-	// =========================================================================
-	// STEP 5 — reader cross-check on the production pointer-gated path.
-	// published.Reader.CurrentProjectDatasets gates every serving decision on
-	// GetPointer(execution.PointerName()).ExecutionID == execution.ID
-	// (internal/dataframe/published/current.go:158-164).
-	// =========================================================================
 	reader := &published.Reader{
 		Catalog: h.registry,
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -681,7 +569,6 @@ func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing
 	onlyB := len(datasets) == 1 && datasets[0].PhysicalTable == tableB
 	t.Logf("OBSERVED STEP 5a pointer-gated project reader exposes exactly %v (only-B=%v); PUBLISHED execA (%d rows in %s) is unservable", served, onlyB, len(valuesA), tableA)
 
-	// Selector resolution of A's logical name via the production reader.
 	selectorA := publication.DataframeSelector{Recipe: pnnNameA, TranslationVersion: "", Output: pnnSharedOutput}
 	selectorB := publication.DataframeSelector{Recipe: pnnNameB, TranslationVersion: pnnTranslationB, Output: pnnSharedOutput}
 	matA, errAQuery := reader.CurrentProjectDataset(ctx, pnnProject, selectorA)
@@ -691,14 +578,10 @@ func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing
 	if errBQuery != nil || matB.PhysicalTable != tableB {
 		t.Fatalf("Step 5b broken: reader must resolve the B selector to tableB (table=%q err=%v)", matB.PhysicalTable, errBQuery)
 	}
-	// Registry evidence for the name-latest selector (no pointer filter).
 	selExecB, selOutB, selErr := h.registry.FindExecutionBySelector(ctx, pnnProject, generation, selectorB)
 	_, _, selErrA := h.registry.FindExecutionBySelector(ctx, pnnProject, generation, selectorA)
 	t.Logf("OBSERVED STEP 5c name-latest selector: B-selector->exec %q physical %q err=%v; A-selector rejected by selector.Validate (empty TV) err=%v", selExecB.ID, selOutB.PhysicalTable, selErr, selErrA)
 
-	// The direct harm chain: resolving the shared pointer NAME (the visibility
-	// name the first dataset was advertised under) via production GetPointer
-	// yields B's execution and B's physical table with B's rows.
 	hijackedExec, err := h.registry.GetExecution(ctx, pointerAfterB.ExecutionID)
 	if err != nil {
 		t.Fatalf("Step 5 resolution-chain GetExecution(%q): %v", pointerAfterB.ExecutionID, err)
@@ -715,9 +598,6 @@ func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing
 	t.Logf("OBSERVED STEP 5d resolution chain: GetPointer(<pointerName>).executionId=%q -> physical table %q rows=%v (B's rows=%v served where A's rows=%v were advertised) chainHarm=%v",
 		pointerAfterB.ExecutionID, hijackedTable, hijackedValues, valuesB, valuesA, hijackChainHarm)
 
-	// =========================================================================
-	// VERDICT
-	// =========================================================================
 	if flipped && aStillPublished && aNoLongerAdvertised && onlyB && hijackChainHarm {
 		t.Fatalf("FAILED-ON-PURPOSE F-B21 CONFIRMED: production BundleIdentity.PointerName() (bundle.go:88-97) folded Name=%q/TV=%q and Name=%q/TV=%q to the SAME visibility pointer %q (Keys %s/%s distinct via Key() at :99-115). The shipped publication path carries NO control-char validation on identity components (negative scan clean; the shipped gate internal/dataset/validation.go:40-44 wraps only dataset refs at internal/dataset/ref.go:26,29), so publishing the second identity silently repointed the first dataset's readers: GetPointer flipped execA %q -> execB %q, execA remains state=%q PUBLISHED but the pointer-gated production reader (published/current.go:158-164) serves ONLY %q (B's rows %v where A's rows %v were advertised). Intra-project namespace hijack; contrast the length-prefix defense the catalog already uses (internal/catalog/helpers.go:50-62).",
 			pnnNameA, "", pnnNameB, pnnTranslationB, pubA.pointer, pubA.key[:12], pubB.key[:12], execA.ID, execB.ID, execANow.State, tableB, hijackedValues, valuesA)

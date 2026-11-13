@@ -151,7 +151,6 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	project := "loom_related_source_" + uuid.NewString()
 	generation := "generation-related-source"
 	patientKey := func(id string) string { return project + "_" + id }
-	// Root-grain traces preserve the same canonical project/key identity as Preview.
 	traceRootKey := func(row map[string]any, identityColumn string) string {
 		t.Helper()
 		parts, ok := row[identityColumn].([]any)
@@ -525,7 +524,6 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		existsByPatient[fmt.Sprint(row["patient_id"])] = row
 	}
 	existsStatuses, ok := existsByPatient["p1"]["observation_status"].([]any)
-	// ALL retains distinct source records even when multiple edges reach one record.
 	if !ok || len(existsStatuses) != 2 {
 		t.Fatalf("EXISTS p1 statuses = %#v, want one status per distinct eligible source record", existsByPatient["p1"]["observation_status"])
 	}

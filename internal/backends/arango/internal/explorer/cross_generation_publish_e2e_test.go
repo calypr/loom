@@ -1,51 +1,5 @@
 package arango
 
-// VERIFICATION-ONLY artifact owned by the F-B13 cross-generation publish audit.
-// It never mutates product code. It creates a fully owned ArangoDB database
-// (loom_verify_cgp_<uuid>) through the production store.Open path and drops it
-// with an HTTP DELETE in t.Cleanup, logging removal.
-//
-// F-B13 regression: publishing a retained OLD-generation Explorer receipt
-// after a NEWER generation has been activated must not repoint the project's
-// active_generation to the old generation. An explicit generation activation
-// first selects the rollback target and remains valid.
-// The publish preflight does not compare receipt.SourceGeneration to the active
-// generation pointer. The release CAS now supplies that transactional check.
-//
-//   - internal/explorer/lifecycle/publish.go:33 only checks the receipt's
-//     capability snapshot is self-consistent with receipt.SourceGeneration,
-//     never the active pointer.
-//   - internal/explorer/lifecycle/publish.go:58 validates only that
-//     receipt.SourceGeneration is a staged manifest (ValidateReleaseGeneration
-//     -> ReadManifest(...).IsStaged), never that it is the active generation.
-//   - internal/backends/arango/internal/dataset/release_store.go:153-179 (activateReleaseAQL) is
-//     reached by datasetarango.CompareAndSwapPublishRelease at
-//     internal/backends/arango/internal/explorer/publication.go:57, the exact call the Explorer
-//     publish binding makes. It resolves `manifest` from the RELEASE's own
-//     generation (manifest_key from release.Generation, release_store.go:80)
-//     and patches the shared active_generation pointer only when its project,
-//     generation and manifest key still match the selected manifest.
-//
-// REACHABILITY / LAYER HONESTY. The full lifecycle.Service.Publish and the
-// Explorer capability resolver live in internal/server (compileExplorerReceipt,
-// explorerCapabilityResolver). import "internal/server" would form an import
-// cycle for this package (internal/server already imports internal/explorer/
-// arango), so the compile step and the receipt-authority gate are NOT driven;
-// they are replicated at the level the hypothesis actually needs. Store.
-// PublishAuthoring (publication.go:13) IS reachable in this package, but it
-// requires a production-valid explorer.CompilationReceipt that can only be
-// produced by the internal/server compile stack, and it merely wraps the same
-// datasetarango.CompareAndSwapPublishRelease call at publication.go:57 plus
-// unrelated explorer-revision bookkeeping. So this test drives the real
-// production binding surface that owns the bug: dataset.ReleaseService.Create
-// (the publish-path preflight at release.go:130-229) plus the real
-// datasetarango.CompareAndSwapPublishRelease (the CAS publication.go:57
-// invokes), against real ArangoDB. This is the release-CAS / publish-binding
-// layer, labelled as such in the verdict. The ResolveForExecution vs
-// ResolveForCompilation asymmetry lives in the server file; the equivalent
-// asymmetry that repoints the pointer here is that the binding path resolves
-// the manifest for release.Generation instead of the active generation.
-
 import (
 	"context"
 	"encoding/json"
@@ -70,11 +24,9 @@ import (
 
 const cgpDatabasePrefix = "loom_verify_cgp_"
 
-// cgpCitation pins the load-bearing source lines the verdict relies on. A drift
-// fails the run so a stale conclusion cannot silently survive a refactor.
 type cgpCitation struct {
 	file string
-	line int // 1-based
+	line int
 	want string
 }
 
@@ -83,16 +35,14 @@ var cgpCitations = []cgpCitation{
 	{"internal/explorer/lifecycle/publish.go", 58, `if err := s.config.ValidateReleaseGeneration(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration); err != nil {`},
 	{"internal/explorer/lifecycle/publish.go", 87, `release, expectedReleaseRevision, err := s.config.PrepareRelease(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration, selectorsForBundle(receipt.Bundle))`},
 	{"internal/backends/arango/internal/explorer/publication.go", 57, `if _, err := datasetarango.CompareAndSwapPublishRelease(txCtx, tx, release, expectedReleaseRevision); err != nil {`},
-	{"internal/backends/arango/internal/dataset/release_store.go", 205, `LET generationPointer = DOCUMENT(@@lifecycle_collection, @active_key)`},
-	{"internal/backends/arango/internal/dataset/release_store.go", 219, `  AND generationPointer.dataset.generation == @generation`},
-	{"internal/backends/arango/internal/dataset/release_store.go", 229, `  {document: generationPointer, patch: {dataset: manifest.dataset, manifestKey: manifest._key, releaseId: @release_id, releaseRevision: selectedRevision}}`},
+	{"internal/backends/arango/internal/dataset/release_store.go", 179, `LET generationPointer = DOCUMENT(@@lifecycle_collection, @active_key)`},
+	{"internal/backends/arango/internal/dataset/release_store.go", 193, `  AND generationPointer.dataset.generation == @generation`},
+	{"internal/backends/arango/internal/dataset/release_store.go", 203, `  {document: generationPointer, patch: {dataset: manifest.dataset, manifestKey: manifest._key, releaseId: @release_id, releaseRevision: selectedRevision}}`},
 	{"internal/server/explorer_capability.go", 177, `func (r *explorerCapabilityResolver) ResolveForExecution(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {`},
 	{"internal/server/explorer_capability.go", 208, `func (r *explorerCapabilityResolver) ResolveForCompilation(ctx context.Context, project, token string) (lifecycle.AuthorizedCapability, error) {`},
 	{"internal/server/explorer_capability.go", 218, `if authorized.Snapshot.Identity.Generation != manifest.Dataset.Generation {`},
 }
 
-// cgpAbsentIdentifiers prove the Explorer publish preflight does not substitute
-// its own active-generation lookup for the transactional store guard.
 type cgpAbsentIdentifier struct {
 	file       string
 	identifier string
@@ -154,10 +104,6 @@ func cgpCheckCitations(t *testing.T) {
 	}
 }
 
-// cgpVerifier mirrors the production publicationVerificationStore
-// (internal/server/release_verifier.go:18-34) exactly, over the real ArangoDB
-// publication Registry, so the ReleaseService binding gate consumes a genuine
-// PUBLISHED/queryable execution rather than a hand-made success.
 type cgpVerifier struct {
 	executions dataframepublication.ExactExecutionCatalog
 }
@@ -183,9 +129,6 @@ func (s cgpVerifier) VerifyPublication(ctx context.Context, project, generation 
 
 var _ dataset.PublicationVerifier = cgpVerifier{}
 
-// cgpOpen is the env-gated owned-database harness (skip-clean when
-// LOOM_TEST_ARANGO_URL is unset). It bootstraps only the dataset lifecycle and
-// dataframe-publication collections, which is all the F-B13 binding path needs.
 func cgpOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *datasetarango.Store, *publicationarango.Registry) {
 	t.Helper()
 	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
@@ -241,10 +184,6 @@ func cgpOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client
 	return ctx, client, lifecycle, registry
 }
 
-// cgpLoadAndActivate drives the real dataset lifecycle Store: create a LOADING
-// manifest, transition it to STAGED (graph-loaded), and Activate it so the
-// shared active_generation pointer moves to this generation. Returns the staged
-// manifest. Mirrors the dataset store tests' load/activate surface.
 func cgpLoadAndActivate(t *testing.T, ctx context.Context, lifecycle *datasetarango.Store, project, generation, digest string) dataset.Manifest {
 	t.Helper()
 	ref, err := dataset.NewRef(project, generation)
@@ -278,12 +217,6 @@ func cgpLoadAndActivate(t *testing.T, ctx context.Context, lifecycle *datasetara
 	return staged
 }
 
-// cgpSeedPublished writes one PUBLISHED, queryable execution through the
-// production lease + SaveExecution path and names it via CompareAndSwapPointer,
-// mirroring publication_rows_integration_test.go / dangling_binding_e2e_test.go.
-// recipe/version/output are the selector identity that a generation releases;
-// unique isolates the execution id/key/lease per generation so two generations
-// publishing the SAME selector do not collide on _key.
 func cgpSeedPublished(t *testing.T, ctx context.Context, registry *publicationarango.Registry, project, generation, recipe, version, output, unique string) (dataframepublication.BundleExecution, dataset.DataframeSelector) {
 	t.Helper()
 	id := "cgp-exec-" + unique
@@ -324,9 +257,6 @@ func cgpSeedPublished(t *testing.T, ctx context.Context, registry *publicationar
 	return execution, selector
 }
 
-// cgpActiveGenerationPointer reads the shared active_generation pointer doc
-// directly from the lifecycle collection by role, not by a replicated key, so
-// the OBSERVED pointer cannot be biased by a key-deribration guess.
 func cgpActiveGenerationPointer(t *testing.T, ctx context.Context, client *store.Client, project string) map[string]any {
 	t.Helper()
 	var pointer map[string]any
@@ -367,8 +297,6 @@ func cgpMaterializationDigest(values []published.Materialization) string {
 	return "[" + strings.Join(summaries, " ") + "]"
 }
 
-// TestStaleReceiptPublishDowngradesActiveGenerationAgainstArango is the F-B13
-// finding-assert at the release-CAS / publish-binding layer.
 func TestStaleReceiptPublishDowngradesActiveGenerationAgainstArango(t *testing.T) {
 	ctx, client, lifecycle, registry := cgpOpen(t, 180*time.Second)
 	cgpCheckCitations(t)
@@ -380,28 +308,17 @@ func TestStaleReceiptPublishDowngradesActiveGenerationAgainstArango(t *testing.T
 	const recipe = "fb13-recipe"
 	const output = "out"
 
-	// Step 2: PUBLISHED, queryable execution + pointer for BOTH generations.
-	// Both generations release the same selector identity (recipe/version/output);
-	// only the generation and the execution id/lease differ. The shared selector
-	// lets one ReleaseService.Required set resolve in either generation, exactly
-	// as publication_rows_integration_test.go binds recipe+translationVersion+output.
 	_, selectorG1 := cgpSeedPublished(t, ctx, registry, project, g1, recipe, version, output, "g1")
 	cgpSeedPublished(t, ctx, registry, project, g2, recipe, version, output, "g2")
 	t.Logf("OBSERVED publications: G1 selector=%+v (exec id cgp-exec-g1) G2 selector identical recipe (exec id cgp-exec-g2)", selectorG1)
 
-	// Step 1: two loaded+activated generations G1 then G2 (production lifecycle
-	// store load/activate). Deterministic ordering, single writer.
 	cgpLoadAndActivate(t, ctx, lifecycle, project, g1, strings.Repeat("a", 64))
 	cgpLoadAndActivate(t, ctx, lifecycle, project, g2, strings.Repeat("b", 64))
 
-	// Step 4 (baseline, PRE-STATED): active generation reads == G2.
 	t.Log(`PRE-STATED EXPECT: baseline active generation reads == G2 (activation is last-writer-wins; G2 activated second).`)
 	readerManifest := &published.Reader{Catalog: registry, ActiveManifestResolver: lifecycle}
 	readerRelease := &published.Reader{Catalog: registry, ActiveReleaseResolver: lifecycle}
 
-	// The general release activation is allowed to select a generation. Create
-	// G1 first, then switch to G2 through ReleaseService.Activate to prove the
-	// same CAS remains available for legitimate generation changes.
 	releaseService := dataset.ReleaseService{
 		Manifests: lifecycle, Releases: lifecycle,
 		Verifier: cgpVerifier{executions: registry},
@@ -433,10 +350,6 @@ func TestStaleReceiptPublishDowngradesActiveGenerationAgainstArango(t *testing.T
 		t.Fatalf("BASELINE PRECONDITION BROKEN: discovery must report only G2 generation; manifest=%s release=%s", cgpMaterializationDigest(manifestList), cgpMaterializationDigest(releaseList))
 	}
 
-	// Step 5b: the F-B13 action. Publish the retained G1 receipt post-G2
-	// activation through the same strict current-generation CAS used by the
-	// production Explorer PublishAuthoring transaction. The current release
-	// revision is read dynamically so the revision CAS itself is not stale.
 	current, err := lifecycle.ReadActiveRelease(ctx, project)
 	if err != nil {
 		t.Fatalf("read current active release before G1 publish: %v", err)
@@ -450,10 +363,6 @@ func TestStaleReceiptPublishDowngradesActiveGenerationAgainstArango(t *testing.T
 	}
 	t.Logf("OBSERVED G1 release candidate: id=%s generation=%s bindings=%d (Create preflight REJECTED nothing though G2 is active)", g1Release.ID, g1Release.Generation, len(g1Release.Publications))
 
-	// G1 was an active release before G2 and its immutable candidate is retained.
-	// Publishing that retained candidate must fail the current-generation CAS.
-	// The general ReleaseService activation remains the explicit generation
-	// selection path and must still permit rollback to G1.
 	t.Log("PRE-STATED EXPECT: the retained G1 candidate conflicts on the publish CAS while G2 is active; the general ReleaseService activation can explicitly roll back to G1.")
 
 	casActive, casErr := datasetarango.CompareAndSwapPublishRelease(ctx, client, g1Release, current.Revision)
@@ -469,7 +378,6 @@ func TestStaleReceiptPublishDowngradesActiveGenerationAgainstArango(t *testing.T
 	t.Logf("OBSERVED post-CAS CurrentProjectDatasets manifest-path=%s err=%v", cgpMaterializationDigest(postManifestList), postManifestListErr)
 	t.Logf("OBSERVED post-CAS CurrentProjectDatasets release-path=%s err=%v", cgpMaterializationDigest(postReleaseList), postReleaseListErr)
 
-	// Step 6 verdict, entirely from OBSERVED values.
 	silentlyRepointed := casErr == nil && observedGeneration == g1 && postManifestErr == nil && postManifest.Dataset.Generation == g1 && postActive.Release.Generation == g1
 	prevented := errors.Is(casErr, dataset.ErrReleaseActivationConflict) && observedGeneration == g2 && postManifestErr == nil && postManifest.Dataset.Generation == g2 && postReleaseErr == nil && postActive.Release.Generation == g2
 

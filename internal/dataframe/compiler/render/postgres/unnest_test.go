@@ -22,14 +22,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// Fixtures. The registered slice is ROOT_SCAN, UNNEST+, RETURN. Selectors
-// are schema-legal (ir.Validate schema-checks them): Patient.identifier[]
-// for the single-expansion shape and Observation.component[].code.coding[]
-// for the nested repeated-array shape, mirroring what lower/row_expansion.go
-// emits for recipe row expansions.
-// ---------------------------------------------------------------------------
-
 func arrayExtract(variable, resourceType string, steps ...spec.SelectorStep) ir.PhysicalExpression {
 	return ir.PhysicalExpression{
 		Kind:         ir.PhysicalExtractExpression,
@@ -98,10 +90,6 @@ func expansionProjections() []ir.PhysicalProjection {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registered-shape rendering: INNER, OUTER, nested ancestors, owner route.
-// ---------------------------------------------------------------------------
-
 func TestUnnestInnerRendersCrossJoinLateralWithZeroBasedStableOrdinality(t *testing.T) {
 	rendered := renderOK(t, unnestPlan(expansionProjections()...))
 	sql := rendered.SQL
@@ -113,10 +101,6 @@ func TestUnnestInnerRendersCrossJoinLateralWithZeroBasedStableOrdinality(t *test
 		`(u1.item) AS "c1"`,
 		`(u1.rn - 1) AS "c2"`,
 		`(u1.rn IS NOT NULL) AS "c3"`,
-		// The terminal source form reproduces the AQL iterate ternary plus
-		// the RETURN/FLATTEN wrap: the falsy set (null, false, 0, "") reads
-		// as the empty array, an array passes through, and a truthy scalar
-		// becomes its single item — all with renderer-owned constants.
 		`IS NULL OR jsonb_typeof((r0."payload" #> $5::text[])) = 'null' THEN '[]'::jsonb`,
 		`= 'array' THEN (r0."payload" #> $5::text[])`,
 		`WHEN (r0."payload" #> $5::text[]) = 'false'::jsonb OR (r0."payload" #> $5::text[]) = '0'::jsonb OR (r0."payload" #> $5::text[]) = '""'::jsonb THEN '[]'::jsonb`,
@@ -129,8 +113,6 @@ func TestUnnestInnerRendersCrossJoinLateralWithZeroBasedStableOrdinality(t *test
 	if strings.Contains(sql, "LEFT JOIN") {
 		t.Fatalf("INNER rendered OUTER padding:\n%s", sql)
 	}
-	// No value or selector field is interpolated: "identifier" exists only
-	// as a bound text[] parameter, never as SQL text.
 	if strings.Contains(sql, "identifier") {
 		t.Fatalf("selector field leaked into SQL text: %s", sql)
 	}
@@ -141,7 +123,6 @@ func TestUnnestInnerRendersCrossJoinLateralWithZeroBasedStableOrdinality(t *test
 		t.Fatalf("output columns = %v", rendered.OutputColumns)
 	}
 
-	// The path parameter is the whole selector path, bound once.
 	if len(rendered.Args) != 5 {
 		t.Fatalf("args = %v, want four scope args plus one path", rendered.Args)
 	}
@@ -149,7 +130,6 @@ func TestUnnestInnerRendersCrossJoinLateralWithZeroBasedStableOrdinality(t *test
 		t.Fatalf("path argument = %#v, want text {identifier}", got)
 	}
 
-	// Entry and dispatch agree byte-for-byte.
 	viaEntry, err := RenderUnnest(unnestPlan(expansionProjections()...), mustBinding(t))
 	if err != nil {
 		t.Fatalf("RenderUnnest: %v", err)
@@ -186,16 +166,9 @@ func TestUnnestNestedRepeatedArraysChainExpansionsAndCaptureAncestors(t *testing
 	sql := rendered.SQL
 
 	for _, want := range []string{
-		// With ancestors the AQL reference is the lineage FOR-loop ternary
-		// for every step (terminal included): the falsy set reads as the
-		// empty array, a truthy scalar reaches jsonb_array_elements and
-		// raises, matching AQL's FOR-over-non-array error.
 		`FROM jsonb_array_elements(CASE WHEN (r0."payload" #> $5::text[]) IS NULL OR jsonb_typeof((r0."payload" #> $5::text[])) = 'null' THEN '[]'::jsonb WHEN jsonb_typeof((r0."payload" #> $5::text[])) = 'array' THEN (r0."payload" #> $5::text[]) WHEN (r0."payload" #> $5::text[]) = 'false'::jsonb OR (r0."payload" #> $5::text[]) = '0'::jsonb OR (r0."payload" #> $5::text[]) = '""'::jsonb THEN '[]'::jsonb ELSE (r0."payload" #> $5::text[]) END) WITH ORDINALITY AS u1_e0(value, ord)`,
 		`CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN (u1_e0.value #> $6::text[]) IS NULL OR jsonb_typeof((u1_e0.value #> $6::text[])) = 'null' THEN '[]'::jsonb WHEN jsonb_typeof((u1_e0.value #> $6::text[])) = 'array' THEN (u1_e0.value #> $6::text[]) WHEN (u1_e0.value #> $6::text[]) = 'false'::jsonb OR (u1_e0.value #> $6::text[]) = '0'::jsonb OR (u1_e0.value #> $6::text[]) = '""'::jsonb THEN '[]'::jsonb ELSE (u1_e0.value #> $6::text[]) END) WITH ORDINALITY AS u1_e1(item, ord)`,
-		// The terminal null-item filter reproduces the AQL terminal
-		// FILTER ... != null; ROW_NUMBER then numbers survivors densely.
 		`WHERE jsonb_typeof(u1_e1.item) <> 'null'`,
-		// Row-major carrier position = ROW_NUMBER over the step positions.
 		`SELECT u1_e1.item AS item, u1_e0.value AS ancestor_0, ROW_NUMBER() OVER (ORDER BY u1_e0.ord, u1_e1.ord) AS rn`,
 		`ORDER BY r0."resource_seq" ASC, u1.rn ASC`,
 		`(u1.ancestor_0) AS "c4"`,
@@ -204,7 +177,6 @@ func TestUnnestNestedRepeatedArraysChainExpansionsAndCaptureAncestors(t *testing
 			t.Fatalf("SQL missing %q:\n%s", want, sql)
 		}
 	}
-	// Both paths are parameters, deduplicated by their literals.
 	var pathCount int
 	for _, argument := range rendered.Args {
 		if text, ok := argument.Value.(string); ok && (text == "{component}" || text == "{code,coding}") {
@@ -221,13 +193,6 @@ func TestUnnestNestedRepeatedArraysChainExpansionsAndCaptureAncestors(t *testing
 	}
 }
 
-// TestUnnestDerivedItemPathAndValueExpressionProjectAsBoundPaths pins the
-// two registered projection surfaces that were previously exercised only
-// negatively: the non-empty path branch of resolveDerivedValue (a document
-// path over the derived jsonb item, delegating to
-// documentPathFromExpression — the single path-binding authority for
-// derived bases) and the VALUE-expression projection form accepted by
-// validateUnnestReturn.
 func TestUnnestDerivedItemPathAndValueExpressionProjectAsBoundPaths(t *testing.T) {
 	plan := basePlan()
 	unnest := identifierExpansion(ir.PhysicalUnnestExclude)
@@ -243,9 +208,6 @@ func TestUnnestDerivedItemPathAndValueExpressionProjectAsBoundPaths(t *testing.T
 	sql := rendered.SQL
 
 	for _, want := range []string{
-		// Both derived-item paths render as parameterized #> extractions
-		// over the renderer-owned u1.item, the same discipline stored-row
-		// paths take; the VALUE-expression projection reads identically.
 		`((u1.item #> $6::text[])) AS "c1"`,
 		`((u1.item #> $7::text[])) AS "c2"`,
 	} {
@@ -266,7 +228,6 @@ func TestUnnestDerivedItemPathAndValueExpressionProjectAsBoundPaths(t *testing.T
 			t.Fatalf("path argument %d = %#v, want text %s", 4+index, got, want)
 		}
 	}
-	// Entry and dispatch agree for these projection forms too.
 	viaEntry, err := RenderUnnest(plan, mustBinding(t))
 	if err != nil {
 		t.Fatalf("RenderUnnest: %v", err)
@@ -276,12 +237,6 @@ func TestUnnestDerivedItemPathAndValueExpressionProjectAsBoundPaths(t *testing.T
 	}
 }
 
-// TestUnnestTwoExpansionsAssembleInPlanOrder pins the registered multi-
-// UNNEST slice: two lateral expansions on the same parent row in plan
-// order (u1 then u2), each contributing its rn to the total order after
-// resource_seq, a cartesian product per parent row, distinct renderer-
-// owned aliases throughout, and path parameters deduplicated across
-// expansions and projections.
 func TestUnnestTwoExpansionsAssembleInPlanOrder(t *testing.T) {
 	plan := basePlan()
 	first := identifierExpansion(ir.PhysicalUnnestExclude)
@@ -305,15 +260,10 @@ func TestUnnestTwoExpansionsAssembleInPlanOrder(t *testing.T) {
 	sql := rendered.SQL
 
 	for _, want := range []string{
-		// Plan-order laterals with distinct renderer-owned alias families.
 		`) AS u1 CROSS JOIN LATERAL (SELECT u2_e0.item AS item, ROW_NUMBER() OVER (ORDER BY u2_e0.ord) AS rn FROM jsonb_array_elements(`,
 		`WHERE jsonb_typeof(u1_e0.item) <> 'null'`,
 		`WHERE jsonb_typeof(u2_e0.item) <> 'null'`,
-		// Both rn keys extend the total order in plan order after
-		// resource_seq: the cartesian product per parent row is fully
-		// deterministic.
 		`ORDER BY r0."resource_seq" ASC, u1.rn ASC, u2.rn ASC`,
-		// Derived paths read off their own expansion's item column.
 		`((u1.item #> $7::text[])) AS "c1"`,
 		`((u2.item #> $8::text[])) AS "c2"`,
 		`((u2.item #> $7::text[])) AS "c3"`,
@@ -327,10 +277,6 @@ func TestUnnestTwoExpansionsAssembleInPlanOrder(t *testing.T) {
 			t.Fatalf("selector field or path %q leaked into SQL text: %s", leaked, sql)
 		}
 	}
-	// Expansion paths register first (u1 {identifier}, u2 {telecom}), then
-	// {value} is bound once at $7 and referenced by BOTH the u1 identifier
-	// item and the u2 telecom item/value projections: parameter
-	// deduplication spans expansions, not just a single chain.
 	if len(rendered.Args) != 8 {
 		t.Fatalf("args = %v, want four scope args plus {identifier}, {telecom}, {value}, {system}", rendered.Args)
 	}
@@ -346,11 +292,6 @@ func TestUnnestTwoExpansionsAssembleInPlanOrder(t *testing.T) {
 
 func TestUnnestOwnerRouteRendersTypedIdentityJoinBeforeLaterals(t *testing.T) {
 	plan := basePlan()
-	// The shared traversal contract (traversal.go, mirroring
-	// render/aql/navigation_layout.go:407-409) re-reads the collection bind
-	// and requires the canonical "fhir_edge"; the edge table itself still
-	// comes from the storage registry, so the bind value never reaches SQL
-	// text. The label below is the leak witness for that guarantee.
 	plan.BindVars["edge_collection"] = "fhir_edge"
 	plan.BindVars["edge_label"] = "has-observation"
 	plan.BindVars["target_type"] = "Observation"
@@ -381,13 +322,6 @@ func TestUnnestOwnerRouteRendersTypedIdentityJoinBeforeLaterals(t *testing.T) {
 	rendered := renderOK(t, plan)
 	sql := rendered.SQL
 
-	// The route is the inner edge scan (traversal.go routeInner mode, the
-	// renderTraversalScan FOR-loop parity in render/aql
-	// navigation_render.go renderUnnest): a top-level INNER JOIN edge ×
-	// target that eliminates a parent with zero surviving route
-	// occurrences under BOTH empty policies (pinned live by
-	// TestPG18UnnestOwnerRouteExcludesZeroRouteParents). The route join
-	// must precede the expansion lateral and both precede the total order.
 	routeAt := strings.Index(sql, "INNER JOIN")
 	lateralAt := strings.Index(sql, "JOIN LATERAL")
 	orderAt := strings.LastIndex(sql, "ORDER BY")
@@ -430,10 +364,6 @@ func TestUnnestRenderIsDeterministicAndDoesNotAliasPlanData(t *testing.T) {
 	}
 }
 
-// aqlScopeOperations builds the explicit generic-navigation scope block the
-// AQL renderer requires (the PostgreSQL renderer derives the same canonical
-// scope from binds through scope.go): project, dataset generation, and the
-// AUTH_RESOURCE_PATH_ALLOWED chain.
 func aqlScopeOperations(variable string) []ir.PhysicalOperation {
 	return []ir.PhysicalOperation{
 		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
@@ -456,13 +386,6 @@ func aqlScopeOperations(variable string) []ir.PhysicalOperation {
 }
 
 func TestUnnestCommandDispatchStaysFailClosedForPostgreSQL(t *testing.T) {
-	// Capability discovery stays closed: the registration surface is
-	// RenderUnnest, not command dispatch (pg-sql-01/02/03 discipline).
-	// Under the closed tagged-union leaf, a command exists only when a
-	// constructor validates it: the AQL text registers through
-	// NewAQLCommand, and there is no dispatch-time conversion that could
-	// tag an AQL render as PostgreSQL — an unregistered tag dispatches
-	// nowhere.
 	plan := unnestPlan(expansionProjections()...)
 	unnestOpCopy := plan.Operations[1]
 	unnestOpCopy.Source = ir.PhysicalSource{ResourceType: "Patient", SemanticField: "expand"}
@@ -485,9 +408,6 @@ func TestUnnestCommandDispatchStaysFailClosedForPostgreSQL(t *testing.T) {
 		t.Fatalf("unregistered command dispatch error = %v, want not-registered on the AQL side too", err)
 	}
 
-	// The same registered plan still renders through PostgreSQL, proving
-	// the fail-closed command gate and the registered renderer are
-	// separate surfaces, not an accident of the plan shape.
 	if _, err := RenderUnnest(unnestPlan(expansionProjections()...), mustBinding(t)); err != nil {
 		t.Fatalf("RenderUnnest on the registered shape: %v", err)
 	}
@@ -499,13 +419,6 @@ func TestUnnestZeroValueBindingFailsLikeSiblings(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Fail-closed matrix. Every refusal must be a typed capability gap; nothing
-// outside the registered shape may produce SQL, and no case may fall back.
-// ---------------------------------------------------------------------------
-
-// unnestSurfaceRejectCases is the closed-slice reject matrix, shared by the
-// entry-refusal test and the dispatch full-backstop witness.
 func unnestSurfaceRejectCases() []struct {
 	name   string
 	mutate func(*ir.PhysicalPlan)
@@ -606,7 +519,7 @@ func unnestSurfaceRejectCases() []struct {
 			u.Expression.Extract.Source.Path = []string{"logical_id"}
 		})},
 		{"source is bind", mutate(func(_ *ir.PhysicalPlan, u *ir.PhysicalUnnest) {
-			p := u // keep the mutation local to the extract payload
+			p := u
 			p.Expression.Extract.Source.BindKey = "doc"
 		})},
 		{"source variable not owner", mutate(func(_ *ir.PhysicalPlan, u *ir.PhysicalUnnest) {
@@ -723,14 +636,6 @@ func TestUnnestRejectsSurfaceWithTypedErrors(t *testing.T) {
 	}
 }
 
-// TestUnnestDispatchGateIsFullBackstop is the named witness for the
-// full-backstop claim in the unnest.go header: RenderPhysicalPlan applies
-// validateUnnestPlanSurface as its first plan-facing act for any plan that
-// mentions UNNEST, so the core dispatch entry refuses the same slice
-// shapes with the same typed error and a byte-identical message as
-// RenderUnnest. Without the hoisted application, plan.Validate or scope
-// loading rejects first for shapes it also dislikes, and the dispatch
-// error drifts off the surface contract.
 func TestUnnestDispatchGateIsFullBackstop(t *testing.T) {
 	for _, tc := range unnestSurfaceRejectCases() {
 		plan := unnestPlan(expansionProjections()...)
@@ -746,12 +651,6 @@ func TestUnnestDispatchGateIsFullBackstop(t *testing.T) {
 			}
 		}
 		if !hasUnnest {
-			// The at-least-one-UNNEST requirement is entry-specific:
-			// [ROOT_SCAN, RETURN] without UNNEST is the spine's own read
-			// plan, which RenderPhysicalPlan must keep accepting, so a
-			// dispatch refusal for that shape can only ever come from a
-			// spine gate. The dispatch contract covers plans that mention
-			// UNNEST, which is what this slice registers.
 			continue
 		}
 		_, dispatchErr := RenderPhysicalPlan(plan, mustBinding(t))
@@ -765,8 +664,6 @@ func TestUnnestDispatchGateIsFullBackstop(t *testing.T) {
 	}
 }
 
-// planRouteTraversal attaches the minimal typed-identity route step shared
-// by the route refusal cases.
 func planRouteTraversal(p *ir.PhysicalPlan, u *ir.PhysicalUnnest, direction ir.PhysicalTraversalDirection, strategy ir.PhysicalTraversalStrategy) {
 	p.BindVars["edge_collection"] = "fhir_edge"
 	p.BindVars["edge_label"] = "has-observation"
@@ -788,8 +685,6 @@ func planRouteTraversal(p *ir.PhysicalPlan, u *ir.PhysicalUnnest, direction ir.P
 }
 
 func TestUnnestRejectsOwnerTypeContradictionAgainstScannedRows(t *testing.T) {
-	// Internally consistent (extract type == owner type) but contradicts
-	// the row the scan actually reads: fail closed, never render.
 	plan := unnestPlan(expansionProjections()...)
 	unnest := plan.Operations[1].Unnest
 	unnest.Owner.ResourceType = "Observation"
@@ -798,19 +693,6 @@ func TestUnnestRejectsOwnerTypeContradictionAgainstScannedRows(t *testing.T) {
 		t.Fatalf("owner/row type contradiction error = %v, want ErrUnsupportedPostgresPlan", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-//
-// Every acceptance assertion below runs against a real PostgreSQL 18
-// server: each test owns one uniquely named verify_sql09_* database and
-// one owned schema, applies the pg-store embedded migrations through the
-// real runner, stores literal rows through the merged pg-store
-// repositories, executes the rendered statement with its ordered driver
-// arguments, and compares against literal expected rows plus a hand-written
-// direct-SQL witness. Required cases must not skip; TestZZNoLeftoverSQL09
-// Resources audits that nothing survives.
-// ---------------------------------------------------------------------------
 
 var sql09ResourceNamePattern = regexp.MustCompile(`^verify_sql09_[0-9]+_[0-9a-f]+$`)
 
@@ -824,11 +706,6 @@ type sql09Service struct {
 	fail      func(step string, err error)
 }
 
-// sql09ServiceURL gates the live cases the same way the sibling pgir02
-// suite does so unrelated lanes stay green. Acceptance for this ticket is
-// the run WITH the service set: the acceptance executor must verify zero
-// SKIPs for the TestPG18Unnest* cases; a skipped required case is a
-// failure, never a pass.
 func sql09ServiceURL(t *testing.T) string {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
@@ -938,13 +815,6 @@ func (s *sql09Service) runRendered(t *testing.T, rendered command.RenderedPostgr
 	return s.queryRows(t, rendered.SQL, parameterValues(rendered.Args)...)
 }
 
-// sql09StringifyCell stringifies a driver value for literal comparison.
-// pgx decodes jsonb into Go structures, which print lossily; JSON values
-// therefore round-trip through encoding/json to canonical text. The
-// jsonb 'null' scalar decodes to Go nil like SQL NULL, so any
-// null-versus-null-free claim is witnessed with SQL-level `IS NULL`
-// probes over the rendered statement rather than with driver values (see
-// sql09IsNullProbe).
 func sql09StringifyCell(value any) string {
 	switch typed := value.(type) {
 	case nil:
@@ -991,11 +861,6 @@ func (s *sql09Service) witness(t *testing.T, sql string, args ...any) [][]string
 	return s.queryRows(t, sql, args...)
 }
 
-// sql09IsNullProbe wraps a rendered statement as a subquery and asks the
-// server, not the driver, which output cells are SQL NULL. Because the
-// driver decodes the jsonb 'null' scalar to Go nil like SQL NULL, only
-// this server-side probe can prove that OUTER pad rows carry SQL NULL
-// item/ordinality while every surviving item row carries present values.
 func (s *sql09Service) sql09IsNullProbe(t *testing.T, rendered command.RenderedPostgresPhysicalPlan, columns ...string) [][]string {
 	t.Helper()
 	selects := make([]string, 0, len(columns))
@@ -1014,9 +879,6 @@ func parameterValues(args []command.PostgreSQLParameter) []any {
 	return values
 }
 
-// sql09CanonicalCell canonicalizes a stringified cell so JSON values
-// compare by structure (jsonb text orders and spaces keys its own way)
-// while non-JSON cells such as "<null>" and "true" compare literally.
 func sql09CanonicalCell(cell string) string {
 	var value any
 	if err := json.Unmarshal([]byte(cell), &value); err != nil {
@@ -1059,16 +921,12 @@ func sql09CanonicalObject(t *testing.T, document string) string {
 	return sql09CanonicalCell(string(sql09JSON(t, document)))
 }
 
-// sql09PatientUnnestPlan builds the registered INNER or OUTER plan over the
-// Patient identifier[] expansion.
 func sql09PatientUnnestPlan(policy ir.PhysicalUnnestEmptyPolicy) ir.PhysicalPlan {
 	plan := scopedPlan(sql09Project, sql09Generation, []string{"FHIR/Patient", "FHIR/Observation"}, false)
 	plan.Operations = append(plan.Operations, unnestOp(identifierExpansion(policy)))
 	return withReturn(plan, expansionProjections()...)
 }
 
-// sql09ObservationUnnestPlan builds the registered plan over the nested
-// Observation component[].code.coding[] expansion with ancestor capture.
 func sql09ObservationUnnestPlan(policy ir.PhysicalUnnestEmptyPolicy) ir.PhysicalPlan {
 	plan := scopedPlan(sql09Project, sql09Generation, []string{"FHIR/Patient", "FHIR/Observation"}, false)
 	plan.BindVars["root_collection"] = "Observation"
@@ -1091,10 +949,6 @@ func sql09Binding(t *testing.T, svc *sql09Service) ir.PostgresStorageBinding {
 	return binding
 }
 
-// ---------------------------------------------------------------------------
-// Case 1: INNER over missing / JSON null / [] / [null] / duplicates.
-// ---------------------------------------------------------------------------
-
 func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 	svc := newSQL09Service(t)
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-missing", "FHIR/Patient", sql09JSON(t, `{}`))
@@ -1107,13 +961,8 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 		sql09JSON(t, `{"identifier": [`+dupA+`, `+dupA+`, {"system": "urn:x", "value": "b"}, `+dupA+`]}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-dup-scalars", "FHIR/Patient",
 		sql09JSON(t, `{"identifier": ["a", "a", "b", "a"]}`))
-	// The AQL reference (terminal FILTER ... != null) drops null items and
-	// then numbers survivors, so ["a", null, "b"] must yield ordinality
-	// 0 and 1 — the post-filter dense index, not stored positions 0 and 2.
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-mixed", "FHIR/Patient",
 		sql09JSON(t, `{"identifier": ["a", null, "b"]}`))
-	// AQL ternary parity at the terminal: a stored falsy scalar (0) is the
-	// empty source; a truthy scalar (5) becomes its single item row.
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-falsy-zero", "FHIR/Patient", sql09JSON(t, `{"identifier": 0}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-truthy-scalar", "FHIR/Patient", sql09JSON(t, `{"identifier": 5}`))
 	svc.insertResource(t, "sql09-other-project", sql09Generation, "Patient", "p-scope", "FHIR/Patient",
@@ -1141,9 +990,6 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("INNER rows = %v, want %v", got, want)
 	}
-	// Server-side authority: no emitted item is SQL NULL; the terminal
-	// filter removed stored null items, so an emitted item is always a
-	// present jsonb value.
 	itemNull := svc.sql09IsNullProbe(t, rendered, "c1")
 	if len(itemNull) != len(want) {
 		t.Fatalf("item IS NULL probe = %v, want one boolean per emitted row", itemNull)
@@ -1154,14 +1000,8 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 		}
 	}
 
-	// Witness 1: INNER emits no rows for the empty-source forms — the
-	// missing key, JSON null, [], SQL-NULL payload, and, per the AQL
-	// reference, [null] (its only item is a dropped terminal null) and the
-	// falsy scalar 0 — and none for the out-of-scope row.
 	for _, absent := range []string{"p-missing", "p-null", "p-empty", "p-nopayload", "p-nullitem", "p-falsy-zero", "p-scope"} {
 		for _, row := range got {
-			// Exact logical-id comparison: "p-null" is a proper prefix
-			// of "p-nullitem", so substring matching would false-positive.
 			if row[0] == absent {
 				t.Fatalf("INNER emitted empty/out-of-scope source %q: %v", absent, row)
 			}
@@ -1172,9 +1012,6 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 			t.Fatalf("INNER emitted out-of-scope payload: %v", row)
 		}
 	}
-	// Witness 2: duplicate preservation is real — p-dups stores four
-	// identifier elements with only two distinct values; the expansion
-	// must show all four positions.
 	dupCount := svc.witness(t,
 		`SELECT count(*), count(DISTINCT e ->> 'value') FROM "`+svc.schema+`"."fhir_resource" r,`+
 			` jsonb_array_elements(r.payload -> 'identifier') e`+
@@ -1183,10 +1020,6 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 	if len(dupCount) != 1 || dupCount[0][0] != "4" || dupCount[0][1] != "2" {
 		t.Fatalf("duplicate witness = %v, want 4 elements / 2 distinct values", dupCount)
 	}
-	// Witness 3: [null] really stores a JSON null element that the
-	// expansion drops (the AQL terminal FILTER behavior) — the stored
-	// element's jsonb_typeof is 'null', and the surviving population is
-	// zero; p-mixed likewise survives two items, not three.
 	nullSurvivors := svc.witness(t,
 		`SELECT logical_id, count(e) FILTER (WHERE jsonb_typeof(e) <> 'null') FROM "`+svc.schema+`"."fhir_resource" r,`+
 			` jsonb_array_elements(r.payload -> 'identifier') e`+
@@ -1197,10 +1030,6 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 		nullSurvivors[1][0] != "p-mixed" || nullSurvivors[1][1] != "2" {
 		t.Fatalf("null-survivor witness = %v, want p-nullitem=0 survivors and p-mixed=2", nullSurvivors)
 	}
-	// Witness 4: every source form the AQL reference treats as empty —
-	// missing key, JSON null, [], SQL-NULL payload, [null] (empty after
-	// the terminal null-item filter), and the stored falsy scalar 0 (the
-	// ternary's falsy set) — contributes zero expansion rows.
 	emptyForms := svc.witness(t,
 		`SELECT logical_id, CASE`+
 			` WHEN payload -> 'identifier' IS NULL OR jsonb_typeof(payload -> 'identifier') IN ('null','false') THEN 0`+
@@ -1221,10 +1050,6 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case 2: OUTER emits exactly one null-item row per empty source.
-// ---------------------------------------------------------------------------
-
 func TestPG18UnnestOuterEmitsOneNullItemRowPerEmptySource(t *testing.T) {
 	svc := newSQL09Service(t)
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-missing", "FHIR/Patient", sql09JSON(t, `{}`))
@@ -1239,9 +1064,6 @@ func TestPG18UnnestOuterEmitsOneNullItemRowPerEmptySource(t *testing.T) {
 		sql09JSON(t, `{"identifier": ["a", "a", "b", "a"]}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-mixed", "FHIR/Patient",
 		sql09JSON(t, `{"identifier": ["a", null, "b"]}`))
-	// Per the AQL reference both are empty sources: [null] holds only a
-	// dropped terminal null item, and 0 is a ternary falsy — OUTER pads
-	// each exactly once, like every other empty form.
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-falsy-zero", "FHIR/Patient", sql09JSON(t, `{"identifier": 0}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-truthy-scalar", "FHIR/Patient", sql09JSON(t, `{"identifier": 5}`))
 
@@ -1271,10 +1093,6 @@ func TestPG18UnnestOuterEmitsOneNullItemRowPerEmptySource(t *testing.T) {
 		t.Fatalf("OUTER rows = %v, want %v", got, want)
 	}
 
-	// Witness: the pad rows come from the LEFT JOIN, never from data —
-	// a hand-written AQL-reference pipeline (falsy set to [], truthy
-	// scalar wrapped once, null items dropped) over the same rows yields
-	// exactly the eleven non-pad rows, so the six extra rows are pad.
 	dataRows := svc.witness(t,
 		`SELECT r.logical_id FROM "`+svc.schema+`"."fhir_resource" r,`+
 			` jsonb_array_elements(CASE`+
@@ -1289,9 +1107,6 @@ func TestPG18UnnestOuterEmitsOneNullItemRowPerEmptySource(t *testing.T) {
 	if len(dataRows) != 11 {
 		t.Fatalf("witness item rows = %d rows %v, want the eleven non-pad rows", len(dataRows), dataRows)
 	}
-	// Pad rows: exactly the six empty sources ([null] and falsy 0 among
-	// them), each exactly once. has_item is a total boolean and never
-	// SQL NULL; pad item and ordinality are server-side SQL NULL.
 	nullProbe := svc.sql09IsNullProbe(t, rendered, "c1", "c2", "c3")
 	if len(nullProbe) != len(want) {
 		t.Fatalf("pad probe = %v, want one row per OUTER row", nullProbe)
@@ -1320,10 +1135,6 @@ func TestPG18UnnestOuterEmitsOneNullItemRowPerEmptySource(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case 3: nested repeated arrays — row-major order, ancestry, OUTER pads.
-// ---------------------------------------------------------------------------
-
 func TestPG18UnnestNestedRepeatedArraysPreserveOrderAndAncestry(t *testing.T) {
 	svc := newSQL09Service(t)
 	componentZero := `{"code": {"coding": [{"system": "urn:sys1", "code": "c1"}, {"system": "urn:sys1", "code": "c2"}]}}`
@@ -1333,8 +1144,6 @@ func TestPG18UnnestNestedRepeatedArraysPreserveOrderAndAncestry(t *testing.T) {
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-empty-components", "FHIR/Observation", sql09JSON(t, `{"component": []}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-null-components", "FHIR/Observation", sql09JSON(t, `{"component": null}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-missing", "FHIR/Observation", sql09JSON(t, `{}`))
-	// A stored falsy scalar at a prefix iterate field is AQL-ternary-empty:
-	// zero INNER rows, exactly one OUTER pad, no execution error.
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-falsy-zero", "FHIR/Observation", sql09JSON(t, `{"component": 0}`))
 
 	inner, err := RenderUnnest(sql09ObservationUnnestPlan(ir.PhysicalUnnestExclude), sql09Binding(t, svc))
@@ -1352,8 +1161,6 @@ func TestPG18UnnestNestedRepeatedArraysPreserveOrderAndAncestry(t *testing.T) {
 		t.Fatalf("nested INNER rows = %v, want row-major carrier order %v", got, want)
 	}
 
-	// Witness: the ancestor column carries the exact enclosing component
-	// object, element-for-element from the stored array.
 	stored := svc.witness(t,
 		`SELECT payload -> 'component' -> 0, payload -> 'component' -> 1 FROM "`+svc.schema+`"."fhir_resource"`+
 			` WHERE project=$1 AND dataset_generation=$2 AND logical_id='o-nested'`,
@@ -1372,7 +1179,6 @@ func TestPG18UnnestNestedRepeatedArraysPreserveOrderAndAncestry(t *testing.T) {
 		}
 	}
 
-	// OUTER pads each empty nested source exactly once; INNER drops it.
 	outer, err := RenderUnnest(sql09ObservationUnnestPlan(ir.PhysicalUnnestPreserveParent), sql09Binding(t, svc))
 	if err != nil {
 		t.Fatalf("RenderUnnest OUTER: %v", err)
@@ -1388,9 +1194,6 @@ func TestPG18UnnestNestedRepeatedArraysPreserveOrderAndAncestry(t *testing.T) {
 		}
 	}
 
-	// Witness: the AQL-reference pipeline (falsy set empty, arrays
-	// expanded, no terminal-null filtering needed at the prefix) counts
-	// three carriers, so the four pads are renderer-generated, not data.
 	carriers := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" r,`+
 			` jsonb_array_elements(CASE WHEN r.payload -> 'component' IS NULL`+
@@ -1404,10 +1207,6 @@ func TestPG18UnnestNestedRepeatedArraysPreserveOrderAndAncestry(t *testing.T) {
 	}
 }
 
-// TestPG18UnnestPrefixTruthyScalarRaisesLikeAQL pins the other side of the
-// AQL ternary: a truthy non-array at a prefix iterate field is not silently
-// empty — AQL's FOR-over-non-array raises, and the PostgreSQL expansion must
-// raise through jsonb_array_elements instead of inventing rows.
 func TestPG18UnnestPrefixTruthyScalarRaisesLikeAQL(t *testing.T) {
 	svc := newSQL09Service(t)
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-truthy-prefix", "FHIR/Observation",
@@ -1416,9 +1215,6 @@ func TestPG18UnnestPrefixTruthyScalarRaisesLikeAQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderUnnest OUTER: %v", err)
 	}
-	// pgx surfaces a server-side query error through rows.Err(), not the
-	// Query return; drain and Close so the borrowed connection returns
-	// to the pool either way.
 	rows, err := svc.iso.Query(svc.ctx, outer.SQL, parameterValues(outer.Args)...)
 	if err == nil {
 		for rows.Next() {
@@ -1429,8 +1225,6 @@ func TestPG18UnnestPrefixTruthyScalarRaisesLikeAQL(t *testing.T) {
 	if err == nil {
 		t.Fatalf("truthy scalar prefix expanded without error; AQL parity requires an execution error")
 	}
-	// The falsy sibling must not error: prove the guard by rendering the
-	// same shape with the falsy value and reading zero INNER rows.
 	svc2 := newSQL09Service(t)
 	svc2.insertResource(t, sql09Project, sql09Generation, "Observation", "o-falsy-false", "FHIR/Observation",
 		sql09JSON(t, `{"component": false}`))
@@ -1445,12 +1239,6 @@ func TestPG18UnnestPrefixTruthyScalarRaisesLikeAQL(t *testing.T) {
 	}
 }
 
-// TestPG18UnnestAncestorTerminalTruthyScalarRaisesLikeAQL witnesses the
-// qualified half of the parity contract end to end: with ancestors the
-// terminal step takes the prefix source form, so a stored truthy non-array
-// at the terminal selector reaches jsonb_array_elements and raises at
-// execution — the AQL lineage FOR loop over a non-array — while its falsy
-// sibling reads as the empty source and emits no rows.
 func TestPG18UnnestAncestorTerminalTruthyScalarRaisesLikeAQL(t *testing.T) {
 	svc := newSQL09Service(t)
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-terminal-truthy", "FHIR/Observation",
@@ -1481,11 +1269,6 @@ func TestPG18UnnestAncestorTerminalTruthyScalarRaisesLikeAQL(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case 4: owner route over typed edges keeps parent identity, duplicate
-// edge multiplicity, and per-occurrence expansion order.
-// ---------------------------------------------------------------------------
-
 func TestPG18UnnestOwnerRouteKeepsParentIdentityAndEdgeMultiplicity(t *testing.T) {
 	svc := newSQL09Service(t)
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-route", "FHIR/Patient", sql09JSON(t, `{"gender": "female"}`))
@@ -1504,10 +1287,6 @@ func TestPG18UnnestOwnerRouteKeepsParentIdentityAndEdgeMultiplicity(t *testing.T
 	}
 
 	plan := scopedPlan(sql09Project, sql09Generation, []string{"FHIR/Patient", "FHIR/Observation"}, false)
-	// The shared traversal contract (traversal.go, mirroring
-	// render/aql/navigation_layout.go:407-409) re-reads the collection bind
-	// and requires the canonical "fhir_edge"; the edge table itself comes
-	// from the storage registry, so the bind value never reaches SQL text.
 	plan.BindVars["edge_collection"] = "fhir_edge"
 	plan.BindVars["edge_label"] = "has-observation"
 	plan.BindVars["target_type"] = "Observation"
@@ -1548,9 +1327,6 @@ func TestPG18UnnestOwnerRouteKeepsParentIdentityAndEdgeMultiplicity(t *testing.T
 		t.Fatalf("owner-route rows = %v, want the duplicate occurrence expanded per edge %v", got, want)
 	}
 
-	// Witness: the duplicate edge occurrence is stored as two rows and
-	// the direct join expands each exactly once; parent identity columns
-	// stay attributed to the same patient across all expansions.
 	storedEdges := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence" WHERE project=$1 AND dataset_generation=$2 AND label='has-observation'`,
 		sql09Project, sql09Generation)
@@ -1578,14 +1354,6 @@ func TestPG18UnnestOwnerRouteKeepsParentIdentityAndEdgeMultiplicity(t *testing.T
 	}
 }
 
-// TestPG18UnnestOwnerRouteExcludesZeroRouteParents pins the AQL route
-// semantics the review round restored: renderUnnest renders owner-route
-// steps as the INNER renderTraversalScan FOR loops inside the current loop
-// (render/aql/navigation_render.go), so a stored parent with zero
-// surviving route occurrences emits ZERO rows under BOTH
-// PhysicalUnnestExclude and PhysicalUnnestPreserveParent — the
-// PreserveParent pad row belongs to the expansion (which the route gates),
-// and must not masquerade as an owner-present-empty-source pad row.
 func TestPG18UnnestOwnerRouteExcludesZeroRouteParents(t *testing.T) {
 	svc := newSQL09Service(t)
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-route", "FHIR/Patient", sql09JSON(t, `{"gender": "female"}`))
@@ -1639,7 +1407,6 @@ func TestPG18UnnestOwnerRouteExcludesZeroRouteParents(t *testing.T) {
 		}
 	}
 
-	// p-zero IS stored: exclusion comes from route semantics, not absence.
 	stored := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project=$1 AND dataset_generation=$2 AND logical_id='p-zero'`,
 		sql09Project, sql09Generation)
@@ -1647,17 +1414,6 @@ func TestPG18UnnestOwnerRouteExcludesZeroRouteParents(t *testing.T) {
 		t.Fatalf("p-zero must be stored for the exclusion to be meaningful: %v", stored)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Case 5: scope fences the expansion and hostile selectors stay inert.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Case: derived-item document paths and the VALUE-expression projection
-// project live off the expansion's item column (positive coverage for the
-// resolveDerivedValue path branch and the validateUnnestReturn expression
-// form; scalars prove an absent field is SQL NULL, not a fabricated cell).
-// ---------------------------------------------------------------------------
 
 func TestPG18UnnestDerivedItemPathsAndValueExpressionProjectLive(t *testing.T) {
 	svc := newSQL09Service(t)
@@ -1695,10 +1451,6 @@ func TestPG18UnnestDerivedItemPathsAndValueExpressionProjectLive(t *testing.T) {
 		t.Fatalf("derived-path rows = %v, want %v", got, want)
 	}
 
-	// Server-side authority: scalar items have no system/value to extract,
-	// so those cells are SQL NULL — not the jsonb 'null' scalar, which the
-	// terminal filter excludes from ever being an item — and every dups
-	// cell is a present value.
 	probe := svc.sql09IsNullProbe(t, rendered, "c1", "c2")
 	for index, row := range probe {
 		wantNull := "false"
@@ -1710,8 +1462,6 @@ func TestPG18UnnestDerivedItemPathsAndValueExpressionProjectLive(t *testing.T) {
 		}
 	}
 
-	// Witness: the parameterized #> extractions over u1.item agree with a
-	// direct extraction off the stored elements, position by position.
 	stored := svc.witness(t,
 		`SELECT e ->> 'system', e ->> 'value' FROM "`+svc.schema+`"."fhir_resource" r,`+
 			` jsonb_array_elements(r.payload -> 'identifier') e`+
@@ -1729,11 +1479,6 @@ func TestPG18UnnestDerivedItemPathsAndValueExpressionProjectLive(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case: two registered UNNEST operations assemble in plan order and form
-// the per-parent-row cartesian product with a deterministic total order.
-// ---------------------------------------------------------------------------
-
 func TestPG18UnnestTwoExpansionsFormCartesianProductPerParentRow(t *testing.T) {
 	svc := newSQL09Service(t)
 	telecom := `[{"system": "urn:t", "value": "t1"}, {"system": "urn:t", "value": "t2"}]`
@@ -1741,8 +1486,6 @@ func TestPG18UnnestTwoExpansionsFormCartesianProductPerParentRow(t *testing.T) {
 		sql09JSON(t, `{"identifier": [{"value": "i1"}, {"value": "i2"}], "telecom": `+telecom+`}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-single", "FHIR/Patient",
 		sql09JSON(t, `{"identifier": [{"value": "only"}], "telecom": `+telecom+`}`))
-	// INNER on either expansion drops the parent row when that source is
-	// empty: no identifier, no telecom.
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-noident", "FHIR/Patient",
 		sql09JSON(t, `{"telecom": [{"system": "urn:t", "value": "t1"}]}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-notel", "FHIR/Patient",
@@ -1788,9 +1531,6 @@ func TestPG18UnnestTwoExpansionsFormCartesianProductPerParentRow(t *testing.T) {
 		t.Fatalf("cartesian rows = %v, want %v", got, want)
 	}
 
-	// Witness: a hand-written double-LATERAL nested loop over the stored
-	// payloads reproduces the rendered cell sequence exactly — the 4x1 and
-	// 2x1 products, u1-major then u2-minor per parent row.
 	loop := svc.witness(t,
 		`SELECT r.logical_id, a.value ->> 'value', b.value ->> 'value', b.value ->> 'system',`+
 			` a.ord - 1, b.ord - 1`+
@@ -1804,8 +1544,6 @@ func TestPG18UnnestTwoExpansionsFormCartesianProductPerParentRow(t *testing.T) {
 		t.Fatalf("nested-loop witness = %v, want %v", loop, want)
 	}
 
-	// No emitted cell is SQL NULL: every cartesian cell is a present
-	// scalar, and neither empty-source parent contributes rows.
 	probe := svc.sql09IsNullProbe(t, rendered, "c1", "c2", "c3", "c4", "c5")
 	if len(probe) != len(want) {
 		t.Fatalf("IS NULL probe rows = %d, want %d", len(probe), len(want))
@@ -1827,10 +1565,7 @@ func TestPG18UnnestTwoExpansionsFormCartesianProductPerParentRow(t *testing.T) {
 func TestPG18UnnestScopeFencesExpandedRows(t *testing.T) {
 	svc := newSQL09Service(t)
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-in", "FHIR/Patient", sql09JSON(t, `{"identifier": [{"value": "seen"}]}`))
-	// Same project, unauthorized auth path: AUTH_RESOURCE_PATH_ALLOWED is
-	// part of every expanded row's scope, INNER and OUTER alike.
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-secret", "FHIR/Secret", sql09JSON(t, `{"identifier": [{"value": "leak"}]}`))
-	// Same auth path, other dataset generation.
 	svc.insertResource(t, sql09Project, "gen-2", "Patient", "p-gen2", "FHIR/Patient", sql09JSON(t, `{"identifier": [{"value": "leak2"}]}`))
 
 	for _, policy := range []ir.PhysicalUnnestEmptyPolicy{ir.PhysicalUnnestExclude, ir.PhysicalUnnestPreserveParent} {
@@ -1851,7 +1586,6 @@ func TestPG18UnnestScopeFencesExpandedRows(t *testing.T) {
 	if len(stored) != 1 || stored[0][0] != "2" {
 		t.Fatalf("witness must show both out-of-scope rows are stored: %v", stored)
 	}
-	// The selector field never reaches SQL text (parameterized path).
 	rendered, err := RenderUnnest(sql09PatientUnnestPlan(ir.PhysicalUnnestExclude), sql09Binding(t, svc))
 	if err != nil {
 		t.Fatalf("RenderUnnest: %v", err)
@@ -1860,10 +1594,6 @@ func TestPG18UnnestScopeFencesExpandedRows(t *testing.T) {
 		t.Fatalf("selector path leaked into SQL text: %s", rendered.SQL)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Zero-leftover audit (runs last in file order).
-// ---------------------------------------------------------------------------
 
 func TestZZNoLeftoverSQL09Resources(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))

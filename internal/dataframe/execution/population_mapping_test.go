@@ -178,18 +178,6 @@ func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pg-exec-07: the PostgreSQL dispatch arm, offline.
-//
-// The witness terminal (pg-sql-22) arrives PostgreSQL-tagged; these tests
-// pin the honest statuses of the execution arm: exact membership from
-// declared-column rows, hard errors for foreign witnesses and port
-// failures, typed capability refusals with zero statements executed, and
-// INCOMPLETE (never a misleading partial) for caps and cancellation. The
-// AQL controls above stay untouched; each PG test arms an Arango spy that
-// names itself if a PostgreSQL plan ever touches it.
-// ---------------------------------------------------------------------------
-
 func exec07PostgreSQLTarget(t *testing.T) compiler.Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("loom")
@@ -215,9 +203,6 @@ func exec07MappingCommand(t *testing.T) command.CompiledCommand {
 	return compiled
 }
 
-// exec07Port is the witness row port for these tests. It refuses any
-// non-PostgreSQL tag through PostgreSQLParameters, records the forwarded
-// declared-column contract, and can fail on demand.
 type exec07Port struct {
 	calls        int
 	requests     []RowsRequest
@@ -299,17 +284,6 @@ func TestPostgresPopulationMappingExactMembershipAndDedupe(t *testing.T) {
 	}
 }
 
-// TestPostgresPopulationMappingRawMessagePartsMatchNativeIdentity is the
-// offline witness for the adapter-shape arm of populationIdentityParts,
-// following the pg-exec-12 table_shape_exclusions_test.go precedent of
-// feeding json.RawMessage rows through a fake port. The PostgreSQL adapter
-// decodes the jsonb witness column to json.RawMessage where the AQL adapter
-// delivers a native []any; both rows below carry the same identity parts in
-// the two driver shapes on two different selected members, so the emitted
-// dedupe collapses them into ONE canonical witness identity only if the
-// decoded RawMessage array re-marshals to the identical digest. The
-// cross-backend identity-equality claim of the decoder comment block is
-// witnessed here, offline, on the Arango-only lane.
 func TestPostgresPopulationMappingRawMessagePartsMatchNativeIdentity(t *testing.T) {
 	port := &exec07Port{rows: []map[string]any{
 		{"c0": "member-1", "c1": []any{"obs-a"}},
@@ -323,8 +297,6 @@ func TestPostgresPopulationMappingRawMessagePartsMatchNativeIdentity(t *testing.
 	if result.Status != PopulationMappingComplete || result.SelectedCount != 2 || result.MappedCount != 2 || result.UnmappedCount != 0 || result.EmittedRows != 1 {
 		t.Fatalf("cross-shape identity equality broken: %#v, want two mapped members collapsing to one emitted identity", result)
 	}
-	// A RawMessage-only run reports the same exact counts as its []any
-	// twin, so the success path is witnessed independently of the dedupe.
 	for _, port := range []*exec07Port{
 		{rows: []map[string]any{
 			{"c0": "member-1", "c1": json.RawMessage(`["obs-a"]`)},
@@ -347,13 +319,6 @@ func TestPostgresPopulationMappingRawMessagePartsMatchNativeIdentity(t *testing.
 	}
 }
 
-// TestPostgresPopulationMappingRawMessageViolationsFailClosed pins every
-// fail-closed branch of the adapter-shape arm: empty bytes, malformed
-// JSON, the JSON null scalar (which the adapter delivers as a non-nil
-// RawMessage("null"), never flattened into the SQL NULL nil), JSON object
-// and scalar non-arrays, and the missing-key nil form. Each is refused
-// with the typed invalid-shape error and a zero-value result: never a
-// partial mapping, never INCOMPLETE, never the capability sentinel.
 func TestPostgresPopulationMappingRawMessageViolationsFailClosed(t *testing.T) {
 	for _, violation := range []struct {
 		name string
@@ -368,19 +333,15 @@ func TestPostgresPopulationMappingRawMessageViolationsFailClosed(t *testing.T) {
 		{"explicit nil", map[string]any{"c0": "member-1", "c1": nil}},
 	} {
 		port := &exec07Port{rows: []map[string]any{
-			{"c0": "member-1", "c1": []any{"obs-a"}}, // a sound witness first: refusal must come from the violation, not ordering
+			{"c0": "member-1", "c1": []any{"obs-a"}},
 			violation.row,
-			{"c0": "member-2", "c1": []any{"obs-b"}}, // never visited: no partial mapping past the refusal
+			{"c0": "member-2", "c1": []any{"obs-b"}},
 		}}
 		engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
 		result, err := exec07Query(t, engine, PopulationMappingRequest{}, exec07Members("member-1", "member-2"))
 		if err == nil || !strings.Contains(err.Error(), "invalid row identity shape") {
 			t.Fatalf("%s: violation error = %v, want the typed invalid-shape refusal", violation.name, err)
 		}
-		// The refusal is the decoder's own sentinel, never a wrapped
-		// encoding/json cause: that suffix pins the fail-closed guard
-		// (empty/malformed bytes are refused up front, not laundered
-		// through a decode-error wrap).
 		if want := "population mapping witness has an invalid row identity shape"; !strings.HasSuffix(err.Error(), want) {
 			t.Fatalf("%s: violation error = %v, want it to end in the decoder sentinel %q", violation.name, err, want)
 		}
@@ -470,7 +431,6 @@ func TestPostgresPopulationMappingCapabilityRefusalBeforePortCall(t *testing.T) 
 		Command: exec07MappingCommand(t), MemberColumn: "c0", IdentityPartsColumn: "c1",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}
-	// (a) no row port at all.
 	noPort := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000}
 	result, err := noPort.PopulationMappingCompiled(context.Background(), compiled, PopulationMappingRequest{}, exec07Members("member-1"))
 	if !errors.Is(err, ErrPopulationMappingPostgresUnsupported) {
@@ -479,9 +439,6 @@ func TestPostgresPopulationMappingCapabilityRefusalBeforePortCall(t *testing.T) 
 	if result.Status != "" || result.SelectedCount != 0 || result.MappedCount != 0 {
 		t.Fatalf("capability refusal exposed counts: %#v", result)
 	}
-	// (b) the composition registers no adapter for the command's tag: the
-	// port reports the command package's capability-gap sentinel without
-	// executing a statement.
 	unregistered := &exec07Port{fail: fmt.Errorf("postgres rows: %w", command.ErrCompiledCommandBackendNotRegistered)}
 	engine.sourceRows = unregistered.sourceRows
 	result, err = engine.PopulationMappingCompiled(context.Background(), compiled, PopulationMappingRequest{}, exec07Members("member-1"))
@@ -533,7 +490,7 @@ func TestPostgresPopulationMappingContractRefusesBeforeSQL(t *testing.T) {
 	for _, mutate := range []func(q *compiler.CompiledPopulationMappingQuery){
 		func(q *compiler.CompiledPopulationMappingQuery) { q.MemberColumn = "" },
 		func(q *compiler.CompiledPopulationMappingQuery) { q.IdentityPartsColumn = "" },
-		func(q *compiler.CompiledPopulationMappingQuery) { q.ExplicitIdentityColumn = "c2" }, // both identity columns: renderer contract violated
+		func(q *compiler.CompiledPopulationMappingQuery) { q.ExplicitIdentityColumn = "c2" },
 	} {
 		compiled := base
 		compiled.Command = exec07MappingCommand(t)
@@ -557,12 +514,6 @@ func TestPostgresPopulationMappingUnknownBackendIsHardError(t *testing.T) {
 		t.Fatalf("untagged command error = %v", err)
 	}
 }
-
-// Engine-seam offline legs for pg-exec-07: the selected PostgreSQL compile
-// target turns a population-constrained output into the tagged witness
-// terminal and dispatches it through the one row port; shapes outside the
-// registered mapping slice (render/postgres/population_mapping.go's named
-// capability gaps) refuse with the typed sentinel at zero statements.
 
 func exec07RouteBundle(name string) recipe.Bundle {
 	return recipe.Bundle{
@@ -624,8 +575,6 @@ func TestPostgresPopulationMappingEngineDispatchesFlatWitnessTerminal(t *testing
 		portCalls++
 		requests = append(requests, request)
 		for _, row := range []map[string]any{
-			// The canonical default witness identity is the two compiler-bound
-			// parts [project, root._key] (compiler/population_mapping.go).
 			{ir.PhysicalPopulationMappingMemberField: "obs-1", ir.PhysicalPopulationMappingIdentityPartsField: []any{"project-a", "obs-1"}},
 			{ir.PhysicalPopulationMappingMemberField: "obs-2", ir.PhysicalPopulationMappingIdentityPartsField: []any{"project-a", "obs-2"}},
 		} {
@@ -660,12 +609,6 @@ func TestPostgresPopulationMappingEngineDispatchesFlatWitnessTerminal(t *testing
 }
 
 func TestPostgresPopulationMappingNamedCapabilityGapRefusesAtZeroStatements(t *testing.T) {
-	// Each shape is a named capability gap in the registered PostgreSQL
-	// mapping slice: an expansion or a SET on the member-collecting root
-	// (validatePopulationMappingFlatSurface) and an endpoint-lookup route
-	// step (validateTraversalContract). The engine must refuse with the
-	// typed sentinel at zero statements — never INCOMPLETE, never a
-	// partial render.
 	expansion := exec07FlatBundle("exec07-expand")
 	expansion.Outputs[0].Expand = &recipe.Expansion{From: recipe.Expression{Select: "root.extension[]"}, As: "item"}
 	expansion.Outputs[0].RowGrain = "expanded"

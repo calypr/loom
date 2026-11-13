@@ -1,35 +1,5 @@
 package postgres
 
-// Real-PostgreSQL 18 acceptance tests for interpretation library heads and
-// immutable project revisions with transactional digest and parent CAS
-// (pg-state-interpretation-library-v1; check-2:
-// go test -count=1 ./internal/backends/postgres/internal/explorer/).
-//
-// Every claim is driven against the PostgreSQL 18 service named by
-// LOOM_TEST_POSTGRES_URL through real InterpretationStore methods on real
-// connections; fixtures are literal rows seeded by direct SQL or the store
-// itself, and witnesses are literal rows read back by direct SQL through a
-// physically separate pinned pool. Nothing is mocked. CAS proofs run over
-// two single-connection writer pools plus a third single-connection witness,
-// all with provably distinct pg_backend_pid values re-checked in every race
-// round (>= 10 rounds per surface). Immutability and CAS are witnessed at
-// the database: guard-drop probes prove each 45501 refusal (and each named
-// 23505/23503/23514 refusal for constraint negatives) is enforced by the
-// named database object, not an accident -- the violating statement must
-// succeed with the guard dropped and fail again after restore. The
-// afterRevisionInsert seam only pauses or faults INSIDE the live
-// transaction; the revision INSERT and the head CAS are still executed as
-// real SQL by PostgreSQL.
-//
-// Skip discipline: no test in this file passes green on a skip -- every
-// live assertion requires the service, and a run presented as acceptance
-// evidence fails if any test here skipped. Concurrency tests run serially
-// (no t.Parallel anywhere). Fixture databases and schemas are uniquely
-// owned as pgstate04_it_* and dropped by the test that created them; the
-// final TestZZ audit is ownership-scoped (registry exact names plus a scan
-// limited to this file's own prefix), so sibling workers sweeping their own
-// prefixes run concurrently without interference.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -53,10 +23,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// ---------------------------------------------------------------------------
-// Ownership registry (audit target), fixture namespace, and constants.
-// ---------------------------------------------------------------------------
-
 const (
 	pgstate04FixtureName     = "interpretation_library"
 	pgstate04FixtureChecksum = "5e308b21a3f567b3066c46458606dd361a9c90646db54ee71618902a544a9ba2"
@@ -65,15 +31,9 @@ const (
 	pgstate04ForeignKey      = "23503"
 	pgstate04CheckViolation  = "23514"
 
-	// interpRaceRounds is the >= 10 rounds per race surface required by
-	// this batch's evidence bar.
 	interpRaceRounds = 10
 )
 
-// pgstate04RequireInterpretationMigration asserts the owner history embeds
-// exactly one version-7 interpretation_library migration at the byte-frozen
-// checksum and returns it: the DDL moved in from the earlier state-scoped
-// own-dir fixture with bytes unchanged, and this suite pins that identity.
 func pgstate04RequireInterpretationMigration(t *testing.T, history []pgstore.Migration) pgstore.Migration {
 	t.Helper()
 	var m pgstore.Migration
@@ -98,14 +58,9 @@ func pgstate04RequireInterpretationMigration(t *testing.T, history []pgstore.Mig
 
 var pgstate04NameRe = regexp.MustCompile(`^pgstate04_it_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every resource whose verified creation this file
-// performed is recorded here, and TestZZ asserts each exact name is gone.
-// Ownership begins at verified CREATE, exactly as the per-test cleanups
-// drop them. No global scans: only names this file created and this file's
-// own prefix are ever queried.
 var (
 	pgstate04OwnedMu  sync.Mutex
-	pgstate04OwnedDBs = map[string]string{} // database -> owned schema
+	pgstate04OwnedDBs = map[string]string{}
 )
 
 func pgstate04Register(db, schema string) {
@@ -114,15 +69,9 @@ func pgstate04Register(db, schema string) {
 	pgstate04OwnedDBs[db] = schema
 }
 
-// ---------------------------------------------------------------------------
-// The live service fixture: one owned isolated database plus one owned
-// schema, composed migration history, and three pinned single-connection
-// backends (writer A, writer B, witness).
-// ---------------------------------------------------------------------------
-
 type interpretationService struct {
 	ctx     context.Context
-	admin   *pgxpool.Pool // service database
+	admin   *pgxpool.Pool
 	witness *pgstore.Client
 	schema  string
 	dsn     string
@@ -132,9 +81,6 @@ type interpretationService struct {
 	scrub   func(any) string
 	fail    func(step string, err error)
 
-	// clientA/clientB are the writer pools behind storeA/storeB; each is
-	// capped at one physical connection so the store's acquire-per-
-	// operation path always uses that one backend.
 	clientA *pgstore.Client
 	clientB *pgstore.Client
 
@@ -144,12 +90,6 @@ type interpretationService struct {
 	ledgerAfter []pgstore.LedgerRecord
 }
 
-// newInterpretationService creates one isolated database plus one owned
-// schema (both pgstate04_it_*), migrates this package's complete embedded
-// owner history -- which includes 000007_interpretation_library with bytes
-// unchanged from its earlier own-dir fixture -- through the real pg-store-02
-// runner, asserts the ledger rows literally, and opens three distinct
-// single-connection PG18 backends.
 func newInterpretationService(t *testing.T) *interpretationService {
 	t.Helper()
 	raw := testPostgresURL(t)
@@ -301,8 +241,6 @@ func newInterpretationService(t *testing.T) *interpretationService {
 	return s
 }
 
-// migrateWith applies one migration history to the owned schema through the
-// real runner, recording the applied ledger.
 func (s *interpretationService) migrateWith(t *testing.T, migrations []pgstore.Migration) {
 	t.Helper()
 	runner, err := pgstore.NewMigrationRunner(s.witness, s.schema, migrations)
@@ -333,8 +271,6 @@ func (s *interpretationService) backendPID(t *testing.T, client *pgstore.Client,
 	return pid
 }
 
-// requireRoundBackendsDistinct re-reads the writer pids every race round:
-// >= 10 rounds each must run over two real, distinct PG connections.
 func (s *interpretationService) requireRoundBackendsDistinct(t *testing.T, where string, round int) {
 	t.Helper()
 	a := s.backendPID(t, s.clientA, "writer A")
@@ -347,10 +283,6 @@ func (s *interpretationService) requireRoundBackendsDistinct(t *testing.T, where
 		t.Fatalf("%s round %d: backends not distinct (A=%d B=%d W=%d)", where, round, a, b, s.pidW)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Direct-SQL witnesses (the test's own client, never a store connection).
-// ---------------------------------------------------------------------------
 
 func interpExecOn(ctx context.Context, client *pgstore.Client, sql string, args ...any) error {
 	conn, err := client.Acquire(ctx)
@@ -377,9 +309,6 @@ func (s *interpretationService) witnessExecErr(sql string, args ...any) error {
 	return interpExecOn(s.ctx, s.witness, sql, args...)
 }
 
-// interpWitnessRevision is the physically stored form of one revision row,
-// read with literal SQL. The parent pair is witnessed both as text and as
-// NULL-ness: SQL NULL is the root state and must stay distinct from ”.
 type interpWitnessRevision struct {
 	project        string
 	id             string
@@ -448,7 +377,6 @@ func (s *interpretationService) revisionCount(t *testing.T, project, library str
 	return n
 }
 
-// interpWitnessLibrary is the physically stored form of one library row.
 type interpWitnessLibrary struct {
 	project      string
 	id           string
@@ -509,21 +437,10 @@ func interpQueryRow(ctx context.Context, client *pgstore.Client, sql string, des
 	return conn.QueryRow(ctx, sql, args...).Scan(dest...)
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures: literal, canonicalization-stable revisions.
-// ---------------------------------------------------------------------------
-
-// interpBaseTime is a microsecond-exact literal timestamp: timestamptz
-// storage is exact to microseconds, so every created_at/updated_at witness
-// is exactly checkable.
 var interpBaseTime = time.Date(2026, 3, 4, 5, 6, 7, 123456000, time.UTC)
 
 const interpBaseTimeText = "2026-03-04 05:06:07.123456"
 
-// interpRevision builds a canonical closed-typed revision. The caller
-// controls the identity-bearing scalars (project, library, author,
-// explanation) and the content-bearing rule field path, so same-content and
-// different-content fixtures are explicit.
 func interpRevision(project, library, author, explanation, rulePath string) explorer.InterpretationRevision {
 	return explorer.InterpretationRevision{
 		Project:     project,
@@ -544,8 +461,6 @@ func interpRevision(project, library, author, explanation, rulePath string) expl
 	}
 }
 
-// interpChild derives a child revision of parent carrying its own distinct
-// immutable content (distinct explanation and distinct rule field path).
 func interpChild(parent explorer.InterpretationRevision, explanation, rulePath string) explorer.InterpretationRevision {
 	child := interpRevision(parent.Project, string(parent.LibraryID), parent.Author, explanation, rulePath)
 	parentID := parent.ID
@@ -569,16 +484,6 @@ func idRef(id explorer.InterpretationRevisionID) *explorer.InterpretationRevisio
 	return &id
 }
 
-// ---------------------------------------------------------------------------
-// Offline contract tests: no PostgreSQL service required.
-// ---------------------------------------------------------------------------
-
-// TestInterpretationMigrationFixtureComposition pins the interpretation
-// migration: exactly version 7 interpretation_library inside the owner
-// history (bytes unchanged from its earlier own-dir fixture), composed in
-// ascending order with the rest of the history, rerun-safe (IF NOT EXISTS),
-// carrying the named constraints and 45501 immutability guards the adapter
-// and the live suite reference by name.
 func TestInterpretationMigrationFixtureComposition(t *testing.T) {
 	owner, err := OwnerMigrations()
 	if err != nil {
@@ -586,19 +491,12 @@ func TestInterpretationMigrationFixtureComposition(t *testing.T) {
 	}
 	m := pgstate04RequireInterpretationMigration(t, owner)
 	history := append([]pgstore.Migration(nil), owner...)
-	// Ascending order is the loader's guarantee (LoadMigrations sorts by
-	// version); the owner history embeds interpretation_library at 7
-	// inside one sequence, and the assertion below witnesses that the
-	// invariant the suite relies on holds for the real embed.
 	for i := 1; i < len(history); i++ {
 		if history[i-1].Version >= history[i].Version {
 			t.Fatalf("composed history not strictly ascending: %+v", history)
 		}
 	}
 
-	// Statement-level view: line comments (-- ...) describe the contract and
-	// are not executed, so the destructive-statement scan runs against the
-	// SQL that PostgreSQL actually receives.
 	statements := make([]string, 0)
 	for _, line := range strings.Split(m.SQL, "\n") {
 		if i := strings.Index(line, "--"); i >= 0 {
@@ -631,8 +529,6 @@ func TestInterpretationMigrationFixtureComposition(t *testing.T) {
 			t.Errorf("fixture missing named object %q", required)
 		}
 	}
-	// Every trigger create must be preceded by a DROP TRIGGER IF EXISTS:
-	// the same rerun-safety discipline as the DDL.
 	for _, trigger := range []string{interpretationRevisionImmutableTrigger, interpretationLibraryHeadGuardTrigger} {
 		if !strings.Contains(upper, "DROP TRIGGER IF EXISTS "+strings.ToUpper(trigger)) {
 			t.Errorf("trigger %s lacks a rerun-safe DROP TRIGGER IF EXISTS", trigger)
@@ -640,9 +536,6 @@ func TestInterpretationMigrationFixtureComposition(t *testing.T) {
 	}
 }
 
-// TestInterpretationStatementSQLContract checks the statement shapes without
-// a server: schema qualification, ordered placeholders, the head CAS guard,
-// and the columns the head CAS must never touch.
 func TestInterpretationStatementSQLContract(t *testing.T) {
 	if _, err := NewInterpretationStore(nil, "loom_control"); err == nil {
 		t.Fatal("NewInterpretationStore accepted a nil client")
@@ -705,10 +598,6 @@ func TestInterpretationStatementSQLContract(t *testing.T) {
 	}
 }
 
-// Golden identity literals for the canonical fixture revision below. They
-// are pinned here AND independently recomputed in the test from a handbuilt
-// envelope string, so a silent drift in the derivation fails this test
-// rather than quietly changing stored identities.
 const (
 	interpGoldenProject     = "proj_golden"
 	interpGoldenLibrary     = "library-golden"
@@ -716,25 +605,13 @@ const (
 	interpGoldenExplanation = "reason-a"
 	interpGoldenRulePath    = "status"
 
-	// Golden content digest: sha256 over the canonical content JSON below
-	// (applicability + rules only; project/lineage/authorship/time
-	// excluded). Pinned from an independent hashlib computation and
-	// re-verified against the production derivation in every run.
 	interpGoldenContentDigest = "sha256:4fa584217cf56fef7d9c24fc858455fcf6da3d0fecdca366d75628f780df74cf"
 
-	// Golden revision id: sha256 over the identity envelope JSON below.
 	interpGoldenRevisionID = "interpretation_1a4506e36aa1182d997fb90ffc3539c411e20208844b7ab8dae2862996ad997c"
 )
 
-// interpGoldenCanonicalContentJSON is the handbuilt canonical content of the
-// golden fixture: exactly what explorer.InterpretationRevision.
-// CanonicalContent emits for interpRevision(interpGoldenProject, ...,
-// interpGoldenRulePath) -- applicability and rules, stable rule id kept,
-// priority and contributor omitted, ColumnSource rendered with kind "field".
 const interpGoldenCanonicalContentJSON = `{"applicability":{},"rules":[{"id":"rule-status","match":{"resourceType":"Observation"},"definition":{"source":{"kind":"field","field":{"path":"status","projectionMode":"VALUE"}}}}]}`
 
-// interpGoldenEnvelopeJSON is the handbuilt identity envelope: the map
-// emitted by RevisionIdentityEnvelope serialized with Go's sorted map keys.
 func interpGoldenEnvelopeJSON(contentDigest string) string {
 	return `{"author":"` + interpGoldenAuthor +
 		`","contentDigest":"` + contentDigest +
@@ -748,29 +625,18 @@ func sha256Hex(raw string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// TestInterpretationIdentityGoldenLiterals recomputes the golden content
-// digest and revision id through an INDEPENDENT local path (sha256 over the
-// handbuilt JSON strings above) and requires triple agreement with the
-// pinned literals and the production derivation. Different immutable
-// content must derive a different identity (the collision premise the
-// acceptance bar names).
 func TestInterpretationIdentityGoldenLiterals(t *testing.T) {
 	fixture := interpRevision(interpGoldenProject, interpGoldenLibrary, interpGoldenAuthor, interpGoldenExplanation, interpGoldenRulePath)
 
-	// Independent recomputation #1: content digest = "sha256:" + hex over
-	// the handbuilt canonical content string.
 	independentDigest := "sha256:" + sha256Hex(interpGoldenCanonicalContentJSON)
 	if independentDigest != interpGoldenContentDigest {
 		t.Fatalf("independent content digest recomputation disagrees with the pinned literal:\n got %s\nwant %s", independentDigest, interpGoldenContentDigest)
 	}
-	// Independent recomputation #2: revision id = "interpretation_" + hex
-	// over the handbuilt envelope string with that digest.
 	independentID := "interpretation_" + sha256Hex(interpGoldenEnvelopeJSON(interpGoldenContentDigest))
 	if independentID != interpGoldenRevisionID {
 		t.Fatalf("independent revision id recomputation disagrees with the pinned literal:\n got %s\nwant %s", independentID, interpGoldenRevisionID)
 	}
 
-	// Production agreement: the domain derivation must agree with both.
 	prepared, err := explorer.PrepareInterpretationRevision(fixture)
 	if err != nil {
 		t.Fatalf("PrepareInterpretationRevision = %v", err)
@@ -785,9 +651,6 @@ func TestInterpretationIdentityGoldenLiterals(t *testing.T) {
 		t.Fatalf("prepared golden revision failed validation: %v", err)
 	}
 
-	// Different immutable content must derive a different identity: same
-	// fixture, different explanation (envelope) -- and same fixture with a
-	// different rule path (content).
 	other := fixture
 	other.Explanation = "a different proposal"
 	if otherPrepared, err := explorer.PrepareInterpretationRevision(other); err != nil {
@@ -802,11 +665,6 @@ func TestInterpretationIdentityGoldenLiterals(t *testing.T) {
 		t.Fatal("different rule content produced the same immutable content digest or id")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance: create round trip stores literal rows; head binds the
-// accepted revision; a second backend reads everything back.
-// ---------------------------------------------------------------------------
 
 func TestInterpretationCreateRootRoundTripLiteralRows(t *testing.T) {
 	s := newInterpretationService(t)
@@ -823,9 +681,6 @@ func TestInterpretationCreateRootRoundTripLiteralRows(t *testing.T) {
 		t.Fatalf("created createdAt = %s, want the literal %s", created.CreatedAt, interpBaseTime)
 	}
 
-	// Literal revision row on the witness backend: every mirror scalar, the
-	// root parent pair as SQL NULL, the microsecond-exact timestamp, and a
-	// jsonb object payload binding the identity scalars.
 	w := s.mustWitnessRevision(t, "proj_round", string(prepared.ID))
 	want := interpWitnessRevision{
 		project: "proj_round", id: string(prepared.ID), libraryID: "library-a",
@@ -834,7 +689,7 @@ func TestInterpretationCreateRootRoundTripLiteralRows(t *testing.T) {
 		createdAtText: interpBaseTimeText, payloadKind: "object",
 	}
 	got := w
-	got.payloadText, got.ctid = "", "" // normalized separately below
+	got.payloadText, got.ctid = "", ""
 	want.payloadText, want.ctid = "", ""
 	if got != want {
 		t.Fatalf("literal revision row mismatch:\n got %+v\nwant %+v", got, want)
@@ -852,7 +707,6 @@ func TestInterpretationCreateRootRoundTripLiteralRows(t *testing.T) {
 		}
 	}
 
-	// Literal library row: the head binds exactly the accepted revision.
 	l := s.mustWitnessLibrary(t, "proj_round", "library-a")
 	if l.headRevision != string(prepared.ID) || l.headDigest != string(prepared.ContentDigest) ||
 		l.createdAt != interpBaseTimeText || l.updatedAt != interpBaseTimeText {
@@ -862,8 +716,6 @@ func TestInterpretationCreateRootRoundTripLiteralRows(t *testing.T) {
 		t.Fatalf("library rows = %d, want exactly 1", n)
 	}
 
-	// Read-back through the SECOND writer backend (a different physical
-	// connection): the old revision remains retrievable forever.
 	got2, err := s.storeB.GetInterpretationRevision(s.ctx, "proj_round", prepared.ID)
 	if err != nil {
 		s.fail("get revision on second backend", err)
@@ -877,8 +729,6 @@ func TestInterpretationCreateRootRoundTripLiteralRows(t *testing.T) {
 		t.Fatalf("root revision read back with a parent: %+v", got2)
 	}
 
-	// Child create: parent pair populated as text, head advances, original
-	// root row keeps its exact bytes.
 	child := interpChild(*created, "child-reason", "code")
 	childPrepared, err := explorer.PrepareInterpretationRevision(child)
 	if err != nil {
@@ -912,7 +762,6 @@ func TestInterpretationCreateRootRoundTripLiteralRows(t *testing.T) {
 		t.Fatalf("revision rows = %d, want 2 (root + child, both retained)", n)
 	}
 
-	// List on the other backend shows the advanced head.
 	libraries, err := s.storeA.ListInterpretationLibraries(s.ctx, "proj_round")
 	if err != nil {
 		s.fail("list libraries", err)
@@ -924,11 +773,6 @@ func TestInterpretationCreateRootRoundTripLiteralRows(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 1: same digest retry idempotent; different immutable content
-// rejected.
-// ---------------------------------------------------------------------------
-
 func TestInterpretationSameDigestRetryIsIdempotent(t *testing.T) {
 	s := newInterpretationService(t)
 	fixture := interpRevision("proj_retry", "library-a", "author-a", "reason-a", interpGoldenRulePath)
@@ -936,7 +780,6 @@ func TestInterpretationSameDigestRetryIsIdempotent(t *testing.T) {
 	before := s.mustWitnessRevision(t, "proj_retry", string(first.ID))
 	beforeLib := s.mustWitnessLibrary(t, "proj_retry", "library-a")
 
-	// Retry #1: byte-identical input, same expected parent (root).
 	second, err := s.storeA.CreateInterpretationRevision(s.ctx, fixture, nil)
 	if err != nil {
 		s.fail("same-digest retry", err)
@@ -946,9 +789,6 @@ func TestInterpretationSameDigestRetryIsIdempotent(t *testing.T) {
 		t.Fatalf("retry returned a different revision: %+v vs %+v", second, first)
 	}
 
-	// Retry #2 on the OTHER backend with a different caller timestamp: the
-	// identity envelope excludes time, so the stored row still answers and
-	// the stored createdAt is what comes back.
 	timeShifted := fixture
 	timeShifted.CreatedAt = interpBaseTime.Add(time.Hour)
 	third, err := s.storeB.CreateInterpretationRevision(s.ctx, timeShifted, nil)
@@ -959,8 +799,6 @@ func TestInterpretationSameDigestRetryIsIdempotent(t *testing.T) {
 		t.Fatalf("shifted-time retry did not return the stored row: %+v vs %+v", third, first)
 	}
 
-	// Nothing moved: one revision row, one library row, byte-identical
-	// including the physical tuple.
 	after := s.mustWitnessRevision(t, "proj_retry", string(first.ID))
 	if after != before {
 		t.Fatalf("same-digest retries changed the revision row:\n got %+v\nwant %+v", after, before)
@@ -976,9 +814,6 @@ func TestInterpretationSameDigestRetryIsIdempotent(t *testing.T) {
 		t.Fatalf("library rows = %d, want exactly 1", n)
 	}
 
-	// Different immutable content presented against the SAME head is a
-	// parent conflict, not an overwrite (the Arango adapter's stale-root
-	// classification).
 	stale := interpRevision("proj_retry", "library-a", "author-b", "a different proposal", "code")
 	if _, err := s.storeA.CreateInterpretationRevision(s.ctx, stale, nil); !errors.Is(err, explorer.ErrInterpretationParentConflict) {
 		t.Fatalf("stale root create error = %v, want ErrInterpretationParentConflict", err)
@@ -987,11 +822,6 @@ func TestInterpretationSameDigestRetryIsIdempotent(t *testing.T) {
 		t.Fatalf("refused stale root left %d revisions behind", n)
 	}
 
-	// Different immutable content behind the same identity fails closed
-	// with ErrImmutableInterpretation. Simulated the only way the database
-	// can reach it -- a persisted row whose payload no longer satisfies its
-	// content-addressed identity (see the immutability suite: the trigger is
-	// what makes ordinary writes unable to do this).
 	tampered := interpRevision("proj_tamper_retry", "library-a", "author-a", "reason-a", interpGoldenRulePath)
 	tamperedCreated := createRevision(t, s, s.storeA, tampered, nil)
 	tamperedPrepared, err := explorer.PrepareInterpretationRevision(tampered)
@@ -1013,9 +843,6 @@ func TestInterpretationSameDigestRetryIsIdempotent(t *testing.T) {
 		t.Fatalf("collision refusal rewrote the tampered witness: %s", tamperedWitness.payloadText)
 	}
 
-	// Raw database-level proof: the identity primary key refuses a second
-	// row for the same (project, id) even with an entirely different
-	// payload, naming the constraint.
 	err = s.witnessAcquireExecErr(`INSERT INTO `+s.qualified(InterpretationRevisionsTable)+
 		` (project, id, library_id, parent_revision_id, parent_digest, content_digest, author, explanation, created_at, payload)`+
 		` VALUES ($1, $2, 'library-x', NULL, NULL, 'sha256:`+strings.Repeat("1", 64)+`', 'a', 'b', $3, '{}'::jsonb)`,
@@ -1041,12 +868,6 @@ func requireInterpPgErr(t *testing.T, err error, sqlstate, constraint, step stri
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 2: concurrent child revisions from the same expected head have
-// one winner -- 10 rounds over two real distinct connections, with
-// byte-identical row witnesses and post-abort retry convergence.
-// ---------------------------------------------------------------------------
-
 func TestInterpretationConcurrentChildrenSameHeadOneWinner(t *testing.T) {
 	s := newInterpretationService(t)
 	winsA, winsB := 0, 0
@@ -1054,7 +875,6 @@ func TestInterpretationConcurrentChildrenSameHeadOneWinner(t *testing.T) {
 		s.requireRoundBackendsDistinct(t, "same-head child race", round)
 		project := fmt.Sprintf("proj_race_%d", round)
 
-		// Seed the shared parent on a distinct backend.
 		root := createRevision(t, s, s.storeA, interpRevision(project, "library-a", "author-a", "root", interpGoldenRulePath), nil)
 		childA := interpChild(*root, "child-a", "code")
 		childB := interpChild(*root, "child-b", "value")
@@ -1125,8 +945,6 @@ func TestInterpretationConcurrentChildrenSameHeadOneWinner(t *testing.T) {
 			winsB++
 		}
 
-		// The database state: head advanced exactly once to the winner;
-		// the loser's revision row rolled back with its transaction.
 		l := s.mustWitnessLibrary(t, project, "library-a")
 		if l.headRevision != string(winner.rev.ID) || l.headDigest != string(winner.rev.ContentDigest) {
 			t.Fatalf("round %d: head %+v does not bind the winner %s", round, l, winner.rev.ID)
@@ -1138,8 +956,6 @@ func TestInterpretationConcurrentChildrenSameHeadOneWinner(t *testing.T) {
 			t.Fatalf("round %d: loser %s left a revision row behind", round, loser.who)
 		}
 
-		// Byte-identical winner row witnessed from the witness backend
-		// against the winner's own returned revision.
 		w := s.mustWitnessRevision(t, project, string(winner.rev.ID))
 		if w.project != project || w.id != string(winner.rev.ID) ||
 			w.parentRevision != string(root.ID) || w.parentDigest != string(root.ContentDigest) ||
@@ -1148,9 +964,6 @@ func TestInterpretationConcurrentChildrenSameHeadOneWinner(t *testing.T) {
 			t.Fatalf("round %d: winner row does not match the winner's return: %+v vs %+v", round, w, winner.rev)
 		}
 
-		// Post-abort retry convergence: the loser replaying its exact
-		// input on its own backend now (stale head) is refused again and
-		// persists nothing.
 		if _, err := loser.store.CreateInterpretationRevision(s.ctx, loser.input, idRef(root.ID)); !errors.Is(err, explorer.ErrInterpretationParentConflict) {
 			t.Fatalf("round %d: stale replay error = %v, want ErrInterpretationParentConflict", round, err)
 		}
@@ -1163,10 +976,6 @@ func TestInterpretationConcurrentChildrenSameHeadOneWinner(t *testing.T) {
 	}
 }
 
-// TestInterpretationConcurrentSameContentConverges runs the same-content
-// surface >= 10 rounds: two writers creating the SAME immutable child
-// against the same expected head both return the identical stored revision,
-// exactly one row exists, and the head advanced exactly once.
 func TestInterpretationConcurrentSameContentConverges(t *testing.T) {
 	s := newInterpretationService(t)
 	for round := 1; round <= interpRaceRounds; round++ {
@@ -1228,17 +1037,9 @@ func TestInterpretationConcurrentSameContentConverges(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 2b: the CAS is transactional -- faults and interleavings
-// between the real revision INSERT and the real head CAS leave no
-// half-applied state, and the retry after an abort converges byte-identical
-// to a clean run.
-// ---------------------------------------------------------------------------
-
 func TestInterpretationFaultAfterRevisionInsertRollsBackAndRetryConverges(t *testing.T) {
 	s := newInterpretationService(t)
 
-	// Clean baseline on its own project, captured literally.
 	baselineRoot := createRevision(t, s, s.storeA, interpRevision("proj_fault_base", "library-a", "author-a", "root", interpGoldenRulePath), nil)
 	baselineChild := createRevision(t, s, s.storeA, interpChild(*baselineRoot, "fault-child", "code"), idRef(baselineRoot.ID))
 	baseChildWitness := s.mustWitnessRevision(t, "proj_fault_base", string(baselineChild.ID))
@@ -1250,7 +1051,6 @@ func TestInterpretationFaultAfterRevisionInsertRollsBackAndRetryConverges(t *tes
 	}
 	faultStore.afterRevisionInsert = func(context.Context, pgx.Tx) error { return injected }
 
-	// Root create faults between insert and head CAS.
 	faultProject := "proj_fault_root"
 	faultRootInput := interpRevision(faultProject, "library-a", "author-a", "root", interpGoldenRulePath)
 	faultPrepared, err := explorer.PrepareInterpretationRevision(faultRootInput)
@@ -1267,10 +1067,6 @@ func TestInterpretationFaultAfterRevisionInsertRollsBackAndRetryConverges(t *tes
 		t.Fatal("faulted root create left the library row behind")
 	}
 
-	// Retry after the abort (same input, fault removed) converges: rows
-	// land and are byte-identical to the clean baseline shape (the
-	// baseline's child differs in content, so compare the root against a
-	// second clean create of identical content in a third project).
 	retryStore, err := NewInterpretationStore(s.clientB, s.schema)
 	if err != nil {
 		s.fail("build retry store", err)
@@ -1285,8 +1081,6 @@ func TestInterpretationFaultAfterRevisionInsertRollsBackAndRetryConverges(t *tes
 		t.Fatalf("retry did not establish the head: %+v", l)
 	}
 
-	// Child create faults between insert and head CAS while the head sits
-	// at the root: the child row and any head change must both vanish.
 	faultChild := interpChild(*retried, "fault-child", "code")
 	faultChildPrepared, err := explorer.PrepareInterpretationRevision(faultChild)
 	if err != nil {
@@ -1303,20 +1097,14 @@ func TestInterpretationFaultAfterRevisionInsertRollsBackAndRetryConverges(t *tes
 		t.Fatalf("faulted child create moved the head:\n got %+v\nwant %+v", lStill, l)
 	}
 
-	// Retry converges byte-identical to the clean baseline child: same
-	// content (explanation + rule), same parent digest shape, so the
-	// physical payload and mirrors must match literally.
 	retriedChild := createRevision(t, s, retryStore, interpChild(*retried, "fault-child", "code"), idRef(retried.ID))
 	retryChildWitness := s.mustWitnessRevision(t, faultProject, string(retriedChild.ID))
-	// The baseline child lives under a different project/root identity, so
-	// compare the content-bearing fragments and mirrors, not the id.
 	if !strings.Contains(retryChildWitness.payloadText, `"fault-child"`) ||
 		!strings.Contains(retryChildWitness.payloadText, `"path": "code"`) ||
 		!strings.Contains(baseChildWitness.payloadText, `"path": "code"`) {
 		t.Fatalf("retry child payload diverged from the clean baseline:\n %s\n %s", retryChildWitness.payloadText, baseChildWitness.payloadText)
 	}
 	if retryChildWitness.contentDigest != string(interpChild(*retried, "fault-child", "code").ContentDigest) {
-		// Freshly prepare to compare against the domain derivation.
 		check, err := explorer.PrepareInterpretationRevision(interpChild(*retried, "fault-child", "code"))
 		if err != nil || string(check.ContentDigest) != retryChildWitness.contentDigest {
 			t.Fatalf("retry child content digest %q disagrees with the domain derivation", retryChildWitness.contentDigest)
@@ -1328,12 +1116,6 @@ func TestInterpretationFaultAfterRevisionInsertRollsBackAndRetryConverges(t *tes
 	}
 }
 
-// TestInterpretationHeadCASLoserRollbackAfterCommittedTakeover drives the
-// real interleaving: the loser holds its transaction open after its real
-// revision INSERT, a competing writer commits the same-expected-head child,
-// then the loser's guarded head UPDATE re-evaluates to zero rows. The
-// loser's revision row must vanish and the takeover's state survive
-// byte-identical.
 func TestInterpretationHeadCASLoserRollbackAfterCommittedTakeover(t *testing.T) {
 	s := newInterpretationService(t)
 	project := "proj_takeover"
@@ -1381,8 +1163,6 @@ func TestInterpretationHeadCASLoserRollbackAfterCommittedTakeover(t *testing.T) 
 		t.Fatal("loser writer never reached the post-insert seam")
 	}
 
-	// The takeover commits on the second real backend while the loser's
-	// row is still only inside its uncommitted transaction.
 	takeoverChild := interpChild(*root, "takeover-child", "code")
 	takeover, err := s.storeB.CreateInterpretationRevision(s.ctx, takeoverChild, idRef(root.ID))
 	if err != nil {
@@ -1413,11 +1193,6 @@ func TestInterpretationHeadCASLoserRollbackAfterCommittedTakeover(t *testing.T) 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 3: project scopes hide foreign IDs as not-found; old revisions
-// remain retrievable.
-// ---------------------------------------------------------------------------
-
 func TestInterpretationProjectScopeHidesForeignIDsAndOldRevisionsSurvive(t *testing.T) {
 	s := newInterpretationService(t)
 	rootA := createRevision(t, s, s.storeA, interpRevision("proj_scope_a", "library-a", "author-a", "root-a", interpGoldenRulePath), nil)
@@ -1438,13 +1213,9 @@ func TestInterpretationProjectScopeHidesForeignIDsAndOldRevisionsSurvive(t *test
 		t.Fatalf("foreign ID and missing ID are distinguishable: %q vs %q", err, errMissing)
 	}
 
-	// Same opaque ID cannot cross projects in either direction.
 	if _, err := s.storeA.GetInterpretationRevision(s.ctx, "proj_scope_a", rootB.ID); !errors.Is(err, explorer.ErrNotFound) {
 		t.Fatalf("reverse cross-project read = %v, want ErrNotFound", err)
 	}
-	// Same project, other library: the ID belongs to library-a; asking is
-	// project-scoped so it still resolves -- but a malformed ID is a
-	// different, typed refusal.
 	if _, err := s.storeA.GetInterpretationRevision(s.ctx, "proj_scope_a", explorer.InterpretationRevisionID("bogus id")); !errors.Is(err, explorer.ErrInvalidInterpretationID) {
 		t.Fatalf("malformed id read = %v, want ErrInvalidInterpretationID", err)
 	}
@@ -1457,7 +1228,6 @@ func TestInterpretationProjectScopeHidesForeignIDsAndOldRevisionsSurvive(t *test
 		}
 	}
 
-	// Old revisions remain retrievable forever, independent of the head.
 	for _, want := range []*explorer.InterpretationRevision{rootA, childA1, childA2} {
 		got, err := s.storeB.GetInterpretationRevision(s.ctx, "proj_scope_a", want.ID)
 		if err != nil {
@@ -1475,7 +1245,6 @@ func TestInterpretationProjectScopeHidesForeignIDsAndOldRevisionsSurvive(t *test
 		t.Fatalf("revision rows = %d, want 3 (full immutable chain retained)", n)
 	}
 
-	// Listing is project-scoped and never nil.
 	listedA, err := s.storeA.ListInterpretationLibraries(s.ctx, "proj_scope_a")
 	if err != nil {
 		s.fail("list A", err)
@@ -1491,8 +1260,6 @@ func TestInterpretationProjectScopeHidesForeignIDsAndOldRevisionsSurvive(t *test
 		t.Fatalf("unknown-project list = %#v, want empty non-nil slice", empty)
 	}
 
-	// Ordering is not inferable from timestamps: a child carrying an OLDER
-	// created_at still advances the head (ordering is the parent chain).
 	oldTime := interpBaseTime.Add(-48 * time.Hour)
 	oldChild := interpChild(*childA2, "old-child", "category")
 	oldChild.CreatedAt = oldTime
@@ -1511,11 +1278,6 @@ func TestInterpretationProjectScopeHidesForeignIDsAndOldRevisionsSurvive(t *test
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Database-enforced immutability and head-advance guards, proven
-// non-vacuous by live guard-drop probes.
-// ---------------------------------------------------------------------------
-
 func (s *interpretationService) triggerPresent(t *testing.T, trigger, table string) bool {
 	t.Helper()
 	var present bool
@@ -1533,11 +1295,6 @@ func (s *interpretationService) triggerPresent(t *testing.T, trigger, table stri
 	return present
 }
 
-// interpGuardDropProbe runs a violating statement through the witness
-// backend three ways: refused with the guard in place (SQLSTATE 45501),
-// SUCCESSFUL with the trigger dropped -- proving the guard, not an
-// accident, blocked it -- and refused again after restore. reseed runs
-// after the successful unguarded write to restore the disposable probe row.
 func (s *interpretationService) interpGuardDropProbe(t *testing.T, trigger, table, function string, reseed func(), stmt string, args ...any) {
 	t.Helper()
 	tableFQN := s.qualified(table)
@@ -1588,22 +1345,15 @@ func (s *interpretationService) seedProbeRevision(t *testing.T, project, id, lib
 func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 	s := newInterpretationService(t)
 
-	// Store-written artifacts whose byte identity is asserted at the end:
-	// they are never touched by any probe.
 	artifact := createRevision(t, s, s.storeA, interpRevision("proj_immutable", "library-a", "author-a", "root", interpGoldenRulePath), nil)
 	beforeRevision := s.mustWitnessRevision(t, "proj_immutable", string(artifact.ID))
 	beforeLibrary := s.mustWitnessLibrary(t, "proj_immutable", "library-a")
 
-	// Dedicated probe rows in their own project (inserts are unguarded, so
-	// probes seed through direct INSERT and never target the artifacts).
 	probeProject := "probe_immutable"
 	probeID := "interpretation_" + "1" + strings.Repeat("0", 63)
 	probeDigest := "sha256:" + strings.Repeat("2", 64)
 	s.seedProbeRevision(t, probeProject, probeID, "probe-lib", probeDigest)
 
-	// Revision UPDATE and DELETE are refused by the named trigger; the
-	// guard-drop probe proves the refusal is the trigger: with it dropped
-	// the very same statement succeeds, and after restore it fails again.
 	s.interpGuardDropProbe(t, interpretationRevisionImmutableTrigger, InterpretationRevisionsTable,
 		interpretationRevisionGuardFunction, nil,
 		`UPDATE `+s.qualified(InterpretationRevisionsTable)+` SET content_digest = $2 WHERE project = $1 AND id = $3`,
@@ -1614,7 +1364,6 @@ func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T
 		`DELETE FROM `+s.qualified(InterpretationRevisionsTable)+` WHERE project = $1 AND id = $2`,
 		probeProject, probeID)
 
-	// The library guard: DELETE is refused outright...
 	s.mustWitnessExec(t, `INSERT INTO `+s.qualified(InterpretationLibrariesTable)+
 		` (project, id, head_revision_id, head_digest, created_at, updated_at)`+
 		` VALUES ($1, 'probe-lib', $2, $3, $4, $4)`,
@@ -1629,8 +1378,6 @@ func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T
 		`DELETE FROM `+s.qualified(InterpretationLibrariesTable)+` WHERE project = $1 AND id = $2`,
 		probeProject, "probe-lib")
 
-	// ... identity is stable (no-op identity writes are refused -- the FK
-	// would otherwise be the blocker, a no-op isolates the guard arm) ...
 	for _, stmt := range []string{
 		`UPDATE ` + s.qualified(InterpretationLibrariesTable) + ` SET project = project WHERE project = $1 AND id = $2`,
 		`UPDATE ` + s.qualified(InterpretationLibrariesTable) + ` SET id = id WHERE project = $1 AND id = $2`,
@@ -1640,8 +1387,6 @@ func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T
 			interpretationLibraryGuardFunction, nil, stmt, probeProject, "probe-lib")
 	}
 
-	// ... and a real created_at rewrite is refused (reseed restores the
-	// original instant while the guard is still down) ...
 	s.interpGuardDropProbe(t, interpretationLibraryHeadGuardTrigger, InterpretationLibrariesTable,
 		interpretationLibraryGuardFunction, func() {
 			s.mustWitnessExec(t, `UPDATE `+s.qualified(InterpretationLibrariesTable)+
@@ -1650,8 +1395,6 @@ func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T
 		`UPDATE `+s.qualified(InterpretationLibrariesTable)+
 			` SET created_at = created_at - interval '1 day' WHERE project = $1 AND id = $2`,
 		probeProject, "probe-lib")
-	// The legal advance still works with every guard in place: a real head
-	// move to a distinct same-library revision.
 	probeID2 := "interpretation_" + "2" + strings.Repeat("0", 63)
 	probeDigest2 := "sha256:" + strings.Repeat("4", 64)
 	s.seedProbeRevision(t, probeProject, probeID2, "probe-lib", probeDigest2)
@@ -1660,8 +1403,6 @@ func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T
 		` WHERE project = $1 AND id = $2`,
 		probeProject, "probe-lib", probeID2, probeDigest2)
 
-	// The store-written artifacts were never reachable: same bytes, same
-	// physical tuple, exactly as the store first wrote them.
 	afterRevision := s.mustWitnessRevision(t, "proj_immutable", string(artifact.ID))
 	if afterRevision != beforeRevision {
 		t.Fatalf("guard probes disturbed the stored artifact row:\n got %+v\nwant %+v", afterRevision, beforeRevision)
@@ -1671,9 +1412,6 @@ func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T
 		t.Fatalf("guard probes disturbed the stored library row:\n got %+v\nwant %+v", afterLibrary, beforeLibrary)
 	}
 
-	// Read-side fail-closed: a persisted revision whose payload no longer
-	// satisfies its content address never reads back -- Get fails with the
-	// typed identity mismatch, it is never silently returned.
 	tamperProject := "probe_tamper_read"
 	tamper := createRevision(t, s, s.storeB, interpRevision(tamperProject, "library-a", "author-a", "reason-a", interpGoldenRulePath), nil)
 	s.mustWitnessExec(t, `DROP TRIGGER `+interpretationRevisionImmutableTrigger+` ON `+s.qualified(InterpretationRevisionsTable))
@@ -1687,9 +1425,6 @@ func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T
 		t.Fatalf("Get over tampered row = %v, want ErrInterpretationIdentityMismatch", err)
 	}
 
-	// Mirror tampering is refused on its own: the payload stays intact (so
-	// Validate alone cannot notice), the mirror content_digest lies, and
-	// the read-side payload-versus-mirror proof fails closed.
 	mirrorTamper := createRevision(t, s, s.storeB, interpRevision("probe_tamper_mirror", "library-a", "author-a", "reason-a", interpGoldenRulePath), nil)
 	s.mustWitnessExec(t, `DROP TRIGGER `+interpretationRevisionImmutableTrigger+` ON `+s.qualified(InterpretationRevisionsTable))
 	s.mustWitnessExec(t, `UPDATE `+s.qualified(InterpretationRevisionsTable)+
@@ -1701,19 +1436,10 @@ func TestInterpretationImmutabilityGuardsAreEnforcedAtDatabaseLevel(t *testing.T
 	if _, err := s.storeA.GetInterpretationRevision(s.ctx, "probe_tamper_mirror", mirrorTamper.ID); !errors.Is(err, explorer.ErrInterpretationIdentityMismatch) {
 		t.Fatalf("Get over mirror-tampered row = %v, want ErrInterpretationIdentityMismatch", err)
 	}
-	// Same mirror lie refused on the create path too: the identity exists,
-	// the stored row cannot satisfy its own contract, collision fails
-	// closed rather than returning the lying row.
 	if _, err := s.storeA.CreateInterpretationRevision(s.ctx, interpRevision("probe_tamper_mirror", "library-a", "author-a", "reason-a", interpGoldenRulePath), nil); !errors.Is(err, explorer.ErrImmutableInterpretation) {
 		t.Fatalf("create over mirror-tampered row = %v, want ErrImmutableInterpretation", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Schema constraint negatives: every named rule refuses its violation with
-// the exact named constraint, and the documented legal shapes insert
-// cleanly (the negatives refuse only what they claim).
-// ---------------------------------------------------------------------------
 
 func (s *interpretationService) insertRevisionDirectErr(project, id, library string, parent *string, parentDigest *string, digest, author, explanation string, payload string) error {
 	return s.witnessExecErr(`INSERT INTO `+s.qualified(InterpretationRevisionsTable)+
@@ -1739,8 +1465,6 @@ func TestInterpretationSchemaConstraintsRejectInvalidRows(t *testing.T) {
 	parent := parentID
 	parentDigest := parentDigestValue
 
-	// Legal controls: a root row, a same-library child, and a library whose
-	// head points at its own revision.
 	if err := s.insertRevisionDirectErr(p, parentID, "lib-a", nil, nil, parentDigestValue, "a", "e", "{}"); err != nil {
 		s.fail("legal control parent", err)
 	}
@@ -1750,12 +1474,10 @@ func TestInterpretationSchemaConstraintsRejectInvalidRows(t *testing.T) {
 	if err := s.insertLibraryDirectErr(p, "lib-a", goodID, goodDigest); err != nil {
 		s.fail("legal control library", err)
 	}
-	// A sibling library in the same project whose revision is distinct.
 	if err := s.insertRevisionDirectErr(p, "interpretation_"+strings.Repeat("e", 64), "lib-b", nil, nil, "sha256:"+strings.Repeat("f", 64), "a", "e", "{}"); err != nil {
 		s.fail("legal control sibling library revision", err)
 	}
 
-	// Shape CHECKs.
 	if err := s.insertRevisionDirectErr(p, "interpretation_short", "lib-a", nil, nil, goodDigest, "a", "e", "{}"); true {
 		requireInterpPgErr(t, err, pgstate04CheckViolation, "interpretation_revisions_id_shape", "bad revision id shape")
 	}
@@ -1787,8 +1509,6 @@ func TestInterpretationSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		requireInterpPgErr(t, err, pgstate04CheckViolation, "interpretation_revisions_library_id_shape", "bad library id shape")
 	}
 
-	// Parent FK: nonexistent parent and cross-library parent are both
-	// refused by the SAME named composite foreign key.
 	if err := s.insertRevisionDirectErr(p, "interpretation_"+strings.Repeat("f", 63)+"e", "lib-a",
 		ptr("interpretation_"+strings.Repeat("0", 64)), &parentDigest, goodDigest, "a", "e", "{}"); true {
 		requireInterpPgErr(t, err, pgstate04ForeignKey, interpretationRevisionParentFKConstraint, "parent does not exist")
@@ -1798,9 +1518,6 @@ func TestInterpretationSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		requireInterpPgErr(t, err, pgstate04ForeignKey, interpretationRevisionParentFKConstraint, "parent lives in another library")
 	}
 
-	// Head FK: pointing at a nonexistent revision, or another library's
-	// revision, is refused by the named composite foreign key; the legal
-	// control above proves the refusal is not blanket.
 	if err := s.insertLibraryDirectErr(p, "lib-c", "interpretation_"+strings.Repeat("0", 64), goodDigest); true {
 		requireInterpPgErr(t, err, pgstate04ForeignKey, interpretationLibraryHeadFKConstraint, "head does not exist")
 	}
@@ -1811,7 +1528,6 @@ func TestInterpretationSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		requireInterpPgErr(t, err, pgstate04CheckViolation, "interpretation_libraries_head_digest_shape", "bad head digest shape")
 	}
 
-	// Identity PKs refuse duplicates by name.
 	if err := s.insertRevisionDirectErr(p, goodID, "lib-z", nil, nil, "sha256:"+strings.Repeat("c", 64), "z", "z", "{}"); true {
 		requireInterpPgErr(t, err, pgstate04UniqueViolation, interpretationRevisionPKConstraint, "duplicate revision identity")
 	}
@@ -1819,8 +1535,6 @@ func TestInterpretationSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		requireInterpPgErr(t, err, pgstate04UniqueViolation, interpretationLibraryPKConstraint, "duplicate library identity")
 	}
 
-	// Every rejected statement persisted nothing: counts still match the
-	// legal controls exactly (3 revisions + 1 library in the probe project).
 	if n := s.revisionCount(t, p, "lib-a"); n != 2 {
 		t.Fatalf("probe lib-a revisions = %d, want the 2 legal controls", n)
 	}
@@ -1835,18 +1549,10 @@ func TestInterpretationSchemaConstraintsRejectInvalidRows(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// The CAS classification does not depend on the preflight alone, and no
-// path silently falls back: typed errors everywhere, zero writes on
-// refusal.
-// ---------------------------------------------------------------------------
-
 func TestInterpretationCASRefusalsWriteNothingAndFailClosed(t *testing.T) {
 	s := newInterpretationService(t)
 	root := createRevision(t, s, s.storeA, interpRevision("proj_cas", "library-a", "author-a", "root", interpGoldenRulePath), nil)
 
-	// Claim/head mismatch (expected parent != content parent) is refused
-	// before the database is touched at all: no revision row, no library.
 	mismatchChild := interpChild(*root, "mismatch", "code")
 	if _, err := s.storeA.CreateInterpretationRevision(s.ctx, mismatchChild, nil); !errors.Is(err, explorer.ErrInterpretationParentConflict) {
 		t.Fatalf("claim/content mismatch error = %v, want ErrInterpretationParentConflict", err)
@@ -1861,11 +1567,6 @@ func TestInterpretationCASRefusalsWriteNothingAndFailClosed(t *testing.T) {
 		t.Fatalf("preflight refusals persisted %d libraries", n)
 	}
 
-	// The mismatch preflight is load-bearing, not cosmetic: root-shaped
-	// content (no parent) claiming the CURRENT head of an existing library
-	// must be refused, never treated as a child CAS. Without the preflight
-	// this would advance the head to an orphan and silently fork the
-	// chain.
 	headNow := s.mustWitnessLibrary(t, "proj_cas", "library-a")
 	orphanRoot := interpRevision("proj_cas", "library-a", "author-a", "orphan-fork", "code")
 	if _, err := s.storeA.CreateInterpretationRevision(s.ctx, orphanRoot, idRef(explorer.InterpretationRevisionID(headNow.headRevision))); !errors.Is(err, explorer.ErrInterpretationParentConflict) {
@@ -1878,9 +1579,6 @@ func TestInterpretationCASRefusalsWriteNothingAndFailClosed(t *testing.T) {
 		t.Fatalf("claim/content mismatch persisted a row for the orphan fork: %d revisions in proj_cas", n)
 	}
 
-	// Parent digest drift: the caller claims a parent digest different from
-	// the persisted one. The CAS reads the DATABASE value, so this is a
-	// conflict with zero writes.
 	drift := interpRevision("proj_cas", "library-a", "author-a", "drift-child", "code")
 	fakeParentID := root.ID
 	fakeDigest := explorer.InterpretationContentDigest("sha256:" + strings.Repeat("e", 64))
@@ -1893,8 +1591,6 @@ func TestInterpretationCASRefusalsWriteNothingAndFailClosed(t *testing.T) {
 		t.Fatalf("digest-drift refusal persisted revisions: %d", n)
 	}
 
-	// Stale expected head after the winner committed: conflict, head and
-	// rows untouched, and the correctly-parented create succeeds.
 	child := createRevision(t, s, s.storeB, interpChild(*root, "won", "code"), idRef(root.ID))
 	headBefore := s.mustWitnessLibrary(t, "proj_cas", "library-a")
 	stale := interpChild(*root, "late", "value")
@@ -1911,7 +1607,6 @@ func TestInterpretationCASRefusalsWriteNothingAndFailClosed(t *testing.T) {
 	late := interpChild(*child, "late-but-current", "value")
 	createRevision(t, s, s.storeA, late, idRef(child.ID))
 
-	// Missing parent: conflict, not a created orphan.
 	orphan := interpRevision("proj_cas", "library-a", "author-a", "orphan", "code")
 	missingID := explorer.InterpretationRevisionID("interpretation_" + strings.Repeat("0", 64))
 	missingDigest := explorer.InterpretationContentDigest("sha256:" + strings.Repeat("0", 64))
@@ -1924,7 +1619,6 @@ func TestInterpretationCASRefusalsWriteNothingAndFailClosed(t *testing.T) {
 		t.Fatalf("missing-parent refusal persisted a row: %d revisions", n)
 	}
 
-	// Invalid domain input is typed and refused without writes.
 	badAuthor := interpRevision("proj_cas_bad", "library-a", "  ", "reason", "code")
 	if _, err := s.storeA.CreateInterpretationRevision(s.ctx, badAuthor, nil); err == nil || errors.Is(err, explorer.ErrNotFound) {
 		t.Fatalf("blank author error = %v, want a typed validation error", err)
@@ -1937,11 +1631,6 @@ func TestInterpretationCASRefusalsWriteNothingAndFailClosed(t *testing.T) {
 	}
 }
 
-// TestInterpretationStoresFailClosedWithoutTheirTables proves there is no
-// silent fallback: against a schema migrated only by the owner history
-// (versions 1-3, no interpretation tables), every interpretation method
-// fails with the database's own 42P01 -- never a skip, never an empty
-// success, never an Arango path.
 func TestInterpretationStoresFailClosedWithoutTheirTables(t *testing.T) {
 	s := newInterpretationService(t)
 
@@ -1949,10 +1638,6 @@ func TestInterpretationStoresFailClosedWithoutTheirTables(t *testing.T) {
 	if err != nil {
 		s.fail("owner migrations", err)
 	}
-	// Precondition: the owned schema carries this fixture's version-7
-	// migration (its tables are present). A contains-check, not an
-	// ends-at-7 literal: the open-ended owner history may legally carry
-	// migrations above 7 (000009), which must not break this harness.
 	fixtureApplied := false
 	for _, rec := range s.ledgerAfter {
 		if rec.Version == 7 && rec.Name == pgstate04FixtureName {
@@ -1963,12 +1648,6 @@ func TestInterpretationStoresFailClosedWithoutTheirTables(t *testing.T) {
 		t.Fatalf("precondition: owned schema ledger lacks the version-7 %s fixture: %+v", pgstate04FixtureName, s.ledgerAfter)
 	}
 
-	// Fresh schema inside the same isolated database, migrated by the owner
-	// history MINUS the version-7 interpretation-library migration (a
-	// test-only negative composition -- production never assembles
-	// histories this way; it exists solely to keep the fail-closed-on-
-	// missing-tables guarantee assertable now that the owner embeds 7):
-	// the interpretation tables never arrive there.
 	unmigSchema := s.schema + "_unmig"
 	if err := interpExecOn(s.ctx, s.witness, `CREATE SCHEMA "`+unmigSchema+`"`); err != nil {
 		s.fail("create unmigrated schema", err)
@@ -2013,14 +1692,6 @@ func TestInterpretationStoresFailClosedWithoutTheirTables(t *testing.T) {
 	_, err = store.CreateInterpretationRevision(s.ctx, interpRevision("proj_x", "library-a", "author", "reason", "code"), nil)
 	undefinedTable("CreateInterpretationRevision", err)
 }
-
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit: every database (and the schema that
-// lived inside it) this file verified into existence is checked by exact
-// name, plus a scan limited to this file's own pgstate04_it_* prefix. It
-// performs no global scan, so concurrent sibling workers sweeping their own
-// prefixes neither race this audit nor trip it.
-// ---------------------------------------------------------------------------
 
 func TestZZZeroLeftoverPgStateInterpretationFixtures(t *testing.T) {
 	raw := testPostgresURL(t)
@@ -2075,7 +1746,6 @@ func TestZZZeroLeftoverPgStateInterpretationFixtures(t *testing.T) {
 		}
 	}
 
-	// Prefix-limited to this file's own namespace: never a global scan.
 	var prefixLeftovers int
 	if err := admin.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname LIKE 'pgstate04\_it\_%' ESCAPE '\'`).Scan(&prefixLeftovers); err != nil {
