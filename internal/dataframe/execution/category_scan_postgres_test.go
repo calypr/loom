@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -461,6 +462,102 @@ func TestExec06PGCategoryUsesPreviewPortOverride(t *testing.T) {
 	if preview.counts() != 1 {
 		t.Fatalf("preview port calls = %d, want one", preview.counts())
 	}
+}
+
+func TestExec06PGCategoryPageCollectorDialectParity(t *testing.T) {
+	logicalValues := []dataframeexecution.CategoryValue{
+		{Present: false, Value: nil},
+		{Present: true, Value: false},
+		{Present: true, Value: nil},
+		{Present: true, Value: float64(0)},
+		{Present: true, Value: ""},
+		{Present: true, Value: "female"},
+	}
+	rowsFor := func(t *testing.T, backend command.CompiledBackend, limit int) []map[string]any {
+		t.Helper()
+		rows := make([]map[string]any, 0, limit)
+		for _, value := range logicalValues[:limit] {
+			if backend == command.CompiledBackendPostgreSQL && value.Present {
+				switch typed := value.Value.(type) {
+				case nil:
+					rows = append(rows, map[string]any{"present": true, "value": exec06JSONB(t, "null")})
+				case bool:
+					rows = append(rows, map[string]any{"present": true, "value": exec06JSONB(t, "false")})
+				case float64:
+					rows = append(rows, map[string]any{"present": true, "value": exec06JSONB(t, "0")})
+				case string:
+					raw, err := json.Marshal(typed)
+					if err != nil {
+						t.Fatalf("marshal fixture: %v", err)
+					}
+					rows = append(rows, map[string]any{"present": true, "value": exec06JSONB(t, string(raw))})
+				default:
+					t.Fatalf("fixture value %T not covered", typed)
+				}
+				continue
+			}
+			rows = append(rows, map[string]any{"present": value.Present, "value": value.Value})
+		}
+		return rows
+	}
+	scan := func(t *testing.T, backend command.CompiledBackend, rows []map[string]any, maxValues int) (dataframeexecution.CategoryScanResult, error) {
+		t.Helper()
+		port := &exec06Port{rows: rows}
+		engine := exec06Engine(t, backend, port)
+		result, err := engine.ScanCategoriesCompiled(context.Background(), exec06Compiled(t, backend, maxValues))
+		if port.counts() != 1 || port.calls[0].tag != backend {
+			t.Fatalf("%s port calls = %#v, want one call tagged %s", backend, port.calls, backend)
+		}
+		return result, err
+	}
+	t.Run("same logical page yields identical results across dialects", func(t *testing.T) {
+		aql, aqlErr := scan(t, command.CompiledBackendAQL, rowsFor(t, command.CompiledBackendAQL, len(logicalValues)), 8)
+		pg, pgErr := scan(t, command.CompiledBackendPostgreSQL, rowsFor(t, command.CompiledBackendPostgreSQL, len(logicalValues)), 8)
+		if aqlErr != nil || pgErr != nil {
+			t.Fatalf("aql err = %v, pg err = %v", aqlErr, pgErr)
+		}
+		if !reflect.DeepEqual(aql.Values, logicalValues) || !reflect.DeepEqual(pg.Values, logicalValues) {
+			t.Fatalf("aql values = %#v, pg values = %#v, want %#v", aql.Values, pg.Values, logicalValues)
+		}
+		if !reflect.DeepEqual(aql, pg) {
+			t.Fatalf("dialect results diverge: aql = %#v, pg = %#v", aql, pg)
+		}
+		if !aql.Complete || aql.Overflow || aql.ConclusiveMissing {
+			t.Fatalf("parity page status = Complete:%v Overflow:%v ConclusiveMissing:%v, want complete", aql.Complete, aql.Overflow, aql.ConclusiveMissing)
+		}
+		if aql.Proof.Fingerprint != "exec06-proof" {
+			t.Fatalf("proof not echoed: %#v", aql.Proof)
+		}
+	})
+	t.Run("overflow caps identically at the bound in both dialects", func(t *testing.T) {
+		aql, aqlErr := scan(t, command.CompiledBackendAQL, rowsFor(t, command.CompiledBackendAQL, 3), 2)
+		pg, pgErr := scan(t, command.CompiledBackendPostgreSQL, rowsFor(t, command.CompiledBackendPostgreSQL, 3), 2)
+		if aqlErr != nil || pgErr != nil {
+			t.Fatalf("aql err = %v, pg err = %v", aqlErr, pgErr)
+		}
+		if !reflect.DeepEqual(aql, pg) {
+			t.Fatalf("overflow results diverge: aql = %#v, pg = %#v", aql, pg)
+		}
+		want := logicalValues[:2]
+		if !reflect.DeepEqual(aql.Values, want) || aql.Complete || !aql.Overflow {
+			t.Fatalf("overflow result = %#v, want values %#v with Complete=false Overflow=true", aql, want)
+		}
+	})
+	t.Run("refusal of malformed raw JSON stays PostgreSQL-only", func(t *testing.T) {
+		malformed := rowsFor(t, command.CompiledBackendPostgreSQL, len(logicalValues))
+		malformed[len(malformed)-1]["value"] = json.RawMessage(`{oops`)
+		pgResult, pgErr := scan(t, command.CompiledBackendPostgreSQL, malformed, 8)
+		if pgErr == nil || !strings.Contains(pgErr.Error(), "invalid JSONB value") {
+			t.Fatalf("malformed raw JSON accepted: result %#v, err %v", pgResult, pgErr)
+		}
+		if pgResult.Complete || pgResult.Overflow || pgResult.ConclusiveMissing || len(pgResult.Values) != 0 {
+			t.Fatalf("refused scan must be a zero result, got %#v", pgResult)
+		}
+		aqlResult, aqlErr := scan(t, command.CompiledBackendAQL, rowsFor(t, command.CompiledBackendAQL, len(logicalValues)), 8)
+		if aqlErr != nil || !aqlResult.Complete || !reflect.DeepEqual(aqlResult.Values, logicalValues) {
+			t.Fatalf("AQL twin of the logical page failed: result %#v, err %v", aqlResult, aqlErr)
+		}
+	})
 }
 
 func exec06ConstructionBundle() recipe.Bundle {
