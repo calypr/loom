@@ -158,14 +158,14 @@ func ab10GenFiles(t *testing.T) map[string][]string {
 }
 
 // GraphQL request bodies for the shared cells (same bytes both arms).
-const ab10PatientQueryBody = `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project1 + `","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":10}}`
+const ab10PatientQueryBody = `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project1 + `","rootResourceType":"Patient","rootFields":[{"name":"id","selector":{"valuePath":"id"}},{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":10}}`
 
-const ab10ForeignQueryBody = `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project2 + `","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":10}}`
+const ab10ForeignQueryBody = `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project2 + `","rootResourceType":"Patient","rootFields":[{"name":"id","selector":{"valuePath":"id"}},{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":10}}`
 
-const ab10ObservationQueryBody = `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project1 + `","rootResourceType":"Observation","rootFields":[{"name":"status","selector":{"valuePath":"status"}},{"name":"subject","selector":{"valuePath":"subject.reference"}}]},"limit":10}}`
+const ab10ObservationQueryBody = `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project1 + `","rootResourceType":"Observation","rootFields":[{"name":"id","selector":{"valuePath":"id"}},{"name":"status","selector":{"valuePath":"status"}},{"name":"subject","selector":{"valuePath":"subject.reference"}}]},"limit":10}}`
 
 func ab10PagedQueryBody(limit int) string {
-	return `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project1 + `","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":` + strconv.Itoa(limit) + `}}`
+	return `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project1 + `","rootResourceType":"Patient","rootFields":[{"name":"id","selector":{"valuePath":"id"}},{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":` + strconv.Itoa(limit) + `}}`
 }
 
 // ab10DecodeRows decodes the handler's rows preserving the wire-level
@@ -205,14 +205,25 @@ func ab10DecodeRows(t ab10OracleTester, what, body string) ab10RowBy {
 	by := ab10RowBy{Columns: envelope.Data.RunFhirDataframe.Columns, RowCount: envelope.Data.RunFhirDataframe.RowCount}
 	for _, row := range envelope.Data.RunFhirDataframe.Rows {
 		key := ab10RawText(t, what, row, "_key")
-		by.Rows = append(by.Rows, ab10DecodedRow{Key: key, Values: row})
+		by.Rows = append(by.Rows, ab10DecodedRow{Key: key, ID: ab10RawText(t, what, row, "id"), Values: row})
 	}
-	sort.Slice(by.Rows, func(i, j int) bool { return by.Rows[i].Key < by.Rows[j].Key })
+	// Order by the FHIR logical id: the dataframe _key column is the arm's
+	// row identity (the PostgreSQL lane serves the logical id, the Arango
+	// lane a graph digest), so only the id gives both arms one order.
+	sort.Slice(by.Rows, func(i, j int) bool {
+		if by.Rows[i].ID != by.Rows[j].ID {
+			return by.Rows[i].ID < by.Rows[j].ID
+		}
+		return by.Rows[i].Key < by.Rows[j].Key
+	})
 	return by
 }
 
 type ab10DecodedRow struct {
-	Key    string
+	Key string
+	// ID is the FHIR logical id projected through the id column: the
+	// arm-independent row identity for literal oracles.
+	ID     string
 	Values ab10Row
 }
 
@@ -1413,8 +1424,8 @@ func ab10CheckRowsLiteral(t ab10OracleTester, arm *ab10Arm, what string, body st
 	}
 	for i, expected := range want {
 		row := got.Rows[i]
-		if row.Key != expected.Key {
-			t.Fatalf("%s arm: %s row %d key = %q, want literal %q", arm.name, what, i, row.Key, expected.Key)
+		if row.ID != expected.Key {
+			t.Fatalf("%s arm: %s row %d logical id = %q (_key %q), want literal %q", arm.name, what, i, row.ID, row.Key, expected.Key)
 		}
 		for column, value := range expected.Values {
 			if value == nil {
@@ -1554,7 +1565,7 @@ func ab10CellNullAndMissing(t *testing.T, arm *ab10Arm) {
 		decoded := ab10DecodeRows(t, "null/missing query", body)
 		byKey := map[string]ab10DecodedRow{}
 		for _, row := range decoded.Rows {
-			byKey[row.Key] = row
+			byKey[row.ID] = row
 		}
 		ada, ok := byKey["ab10-patient-ada"]
 		if !ok {
@@ -1680,34 +1691,50 @@ func ab10CellUnrestrictedSeesEverything(t *testing.T, arm *ab10Arm) {
 
 func ab10CellStablePaging(t *testing.T, arm *ab10Arm) {
 	t.Run("stablePagingIsDeterministic", func(t *testing.T) {
-		first := ab10DecodeRows(t, "page one", ab10Graph(t, arm, ab10PagedQueryBody(1)))
+		firstBody := ab10Graph(t, arm, ab10PagedQueryBody(1))
+		first := ab10DecodeRows(t, "page one", firstBody)
 		second := ab10DecodeRows(t, "page two", ab10Graph(t, arm, ab10PagedQueryBody(2)))
 		if len(first.Rows) != 1 || len(second.Rows) != 2 {
 			t.Fatalf("%s arm: limit paging served %d then %d rows, want 1 then 2", arm.name, len(first.Rows), len(second.Rows))
 		}
-		// Deterministic: the same query repeated byte-identically returns
-		// the identical selection, and the larger page is an extension.
-		repeat := ab10DecodeRows(t, "page one repeat", ab10Graph(t, arm, ab10PagedQueryBody(1)))
-		if first.Rows[0].Key != repeat.Rows[0].Key {
-			t.Fatalf("%s arm: paging is nondeterministic: %q then %q", arm.name, first.Rows[0].Key, repeat.Rows[0].Key)
+		// Deterministic: the same query repeated byte-identically returns a
+		// byte-identical wire envelope, row identity included. This is the
+		// arm-independent form: the row identity column is arm-native (the
+		// PostgreSQL lane serves the logical id, the Arango lane a graph
+		// digest), so the guarantee is repeat-stability of whatever the lane
+		// serves, not one lane's spelling of it.
+		repeatBody := ab10Graph(t, arm, ab10PagedQueryBody(1))
+		if firstBody != repeatBody {
+			t.Fatalf("%s arm: paging is nondeterministic: %s then %s", arm.name, firstBody, repeatBody)
 		}
+		// The larger page is an extension: no duplicates, and the smaller
+		// page's row is contained in it.
 		seen := map[string]bool{}
 		for _, row := range second.Rows {
-			if seen[row.Key] {
-				t.Fatalf("%s arm: duplicate key %q across paging", arm.name, row.Key)
+			if seen[row.ID] {
+				t.Fatalf("%s arm: duplicate logical id %q across paging", arm.name, row.ID)
 			}
-			seen[row.Key] = true
+			seen[row.ID] = true
 		}
-		if !seen["ab10-patient-ada"] || !seen["ab10-patient-nogender"] {
-			t.Fatalf("%s arm: first two rows in _key order must be ada and nogender, got %v", arm.name, second.Rows)
+		if !seen[first.Rows[0].ID] {
+			t.Fatalf("%s arm: page of 2 lost the page-of-1 row %q, got %v", arm.name, first.Rows[0].ID, second.Rows)
 		}
-		if first.Rows[0].Key != "ab10-patient-ada" {
-			t.Fatalf("%s arm: first page must lead with the _key minimum", arm.name)
-		}
-		// Terminal page ends cleanly: full limit covers exactly the three.
+		// Terminal page ends cleanly: full limit covers exactly the three
+		// patients, by literal logical id.
 		full := ab10DecodeRows(t, "full page", ab10Graph(t, arm, ab10PagedQueryBody(10)))
 		if len(full.Rows) != 3 {
 			t.Fatalf("%s arm: terminal page served %d rows, want the full 3", arm.name, len(full.Rows))
+		}
+		for _, want := range []string{"ab10-patient-ada", "ab10-patient-nogender", "ab10-patient-nullfield"} {
+			found := false
+			for _, row := range full.Rows {
+				if row.ID == want {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("%s arm: terminal page lost logical id %q", arm.name, want)
+			}
 		}
 	})
 }
@@ -1722,7 +1749,7 @@ func ab10CellGenerationIsolation(t *testing.T, arm *ab10Arm) {
 		// gen-b is STAGED for ab10-p1: its rows never surface.
 		body := ab10Graph(t, arm, ab10PatientQueryBody)
 		for _, row := range ab10DecodeRows(t, "isolation query", body).Rows {
-			if row.Key == "ab10-patient-staged" {
+			if row.ID == "ab10-patient-staged" {
 				t.Fatalf("%s arm: staged generation row %q surfaced while gen-a active", arm.name, row.Key)
 			}
 		}
@@ -1777,7 +1804,7 @@ func ab10CellGenerationIsolation(t *testing.T, arm *ab10Arm) {
 		})
 		// Old active rows are now invisible: gen-a no longer served.
 		for _, row := range ab10DecodeRows(t, "post-activation query", body).Rows {
-			if row.Key == "ab10-patient-ada" {
+			if row.ID == "ab10-patient-ada" {
 				t.Fatalf("%s arm: deactivated generation rows still served", arm.name)
 			}
 		}
