@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/explorer"
@@ -30,8 +29,6 @@ const (
 	interpretationRevisionParentFKConstraint = "interpretation_revisions_parent_same_library_fk"
 	interpretationLibraryPKConstraint        = "interpretation_libraries_identity_pk"
 	interpretationLibraryHeadFKConstraint    = "interpretation_libraries_head_same_library_fk"
-
-	interpretationForeignKey = "23503"
 )
 
 var interpretationRevisionColumns = []string{
@@ -355,9 +352,7 @@ func (s *InterpretationStore) CreateInterpretationRevision(ctx context.Context, 
 		return storedRevision, nil
 	}
 	if insertErr != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(insertErr, &pgErr) && pgErr.Code == interpretationForeignKey &&
-			pgErr.ConstraintName == interpretationRevisionParentFKConstraint {
+		if pgstore.IsForeignKeyConstraintViolation(insertErr, interpretationRevisionParentFKConstraint) {
 			return nil, errors.Join(explorer.ErrInterpretationParentConflict, insertErr)
 		}
 		return nil, fmt.Errorf("postgres explorer store: insert interpretation revision %q/%q: %w",

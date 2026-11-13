@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
+	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -25,7 +25,6 @@ const (
 	explicitGroupMembershipPKConstraint       = "explorer_explicit_group_memberships_pkey"
 	explicitGroupMembershipRevisionFK         = "explorer_explicit_group_memberships_revision_fkey"
 	explicitGroupMembershipGroupFK            = "explorer_explicit_group_memberships_group_fkey"
-	explicitGroupMembershipForeignKeyState    = "23503"
 	explicitGroupRevisionLifecycleValuesCheck = "explorer_explicit_group_revisions_lifecycle_values"
 )
 
@@ -369,14 +368,10 @@ func (s *ExplicitGroupStore) AppendExplicitGroupMemberships(ctx context.Context,
 			continue
 		}
 		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == duplicateKeySQLState &&
-				pgErr.ConstraintName == explicitGroupMembershipPKConstraint {
+			if pgstore.IsUniqueConstraintViolation(err, explicitGroupMembershipPKConstraint) {
 				return nil, errors.Join(explorer.ErrExplicitGroupRevisionConflict, err)
 			}
-			if errors.As(err, &pgErr) && pgErr.Code == explicitGroupMembershipForeignKeyState &&
-				(pgErr.ConstraintName == explicitGroupMembershipGroupFK ||
-					pgErr.ConstraintName == explicitGroupMembershipRevisionFK) {
+			if pgstore.IsForeignKeyConstraintViolation(err, explicitGroupMembershipGroupFK, explicitGroupMembershipRevisionFK) {
 				return nil, errors.Join(explorer.ErrExplicitGroupRevisionConflict, err)
 			}
 			return nil, fmt.Errorf("postgres explorer store: stage explicit-group membership of %q under group %q: %w",

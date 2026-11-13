@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
+	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/explorer"
 )
 
@@ -116,10 +116,7 @@ func (s *Store) streamMemberFacts(ctx context.Context, q selectionQuerier, proje
 }
 
 func isMemberRefConflict(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) &&
-		pgErr.Code == "23505" &&
-		pgErr.ConstraintName == selectionMembersRefConstraint
+	return pgstore.IsUniqueConstraintViolation(err, selectionMembersRefConstraint)
 }
 
 func (s *Store) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []explorer.SelectionMember) ([]explorer.SelectionMember, error) {

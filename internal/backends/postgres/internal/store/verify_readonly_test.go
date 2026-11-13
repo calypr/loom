@@ -17,8 +17,8 @@ func TestVerifyIsReadOnlyAndLockFree(t *testing.T) {
 	allowed := map[string]bool{
 		"Acquire": true, "Release": true, "QueryRow": true, "Query": true, "Scan": true,
 		"readLedger": true, "validateHistory": true, "pending": true,
-		"verifyStatementError": true,
-		"Errorf":               true, "Sprintf": true, "len": true,
+		"verifyStatementError": true, "pgErrorFrom": true,
+		"Errorf": true, "Sprintf": true, "len": true,
 		"Close": true, "Next": true, "Err": true, "append": true, "sort": true,
 		"Slice": true, "As": true, "make": true, "new": true,
 		"int64": true, "int": true, "string": true,

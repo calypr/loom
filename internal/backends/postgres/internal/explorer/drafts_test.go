@@ -665,9 +665,9 @@ func TestDraftCASStaleWriterMapsToConflictWithPreservedDuplicateKeyCause(t *test
 	if !errors.As(resB.err, &pgErr) {
 		t.Fatalf("stale writer lost the PostgreSQL cause: %v (%T)", resB.err, resB.err)
 	}
-	if pgErr.Code != duplicateKeySQLState || pgErr.ConstraintName != historyIdentityConstraint {
+	if pgErr.Code != "23505" || pgErr.ConstraintName != historyIdentityConstraint {
 		t.Fatalf("stale writer cause = %s/%s, want %s/%s (constraint %q)", pgErr.Code, pgErr.ConstraintName,
-			duplicateKeySQLState, "unique_violation", historyIdentityConstraint)
+			"23505", "unique_violation", historyIdentityConstraint)
 	}
 
 	head := f.literalRow(t, "proj_cause", "patients")

@@ -3272,7 +3272,7 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
 		` VALUES ($1, $2, $3, $4, $5, $6)`,
 		string(revision.ID), "verify-grpm-group-ghost", grpmProject, grpmGeneration, grpmResourceType, "r-b")
-	requirePgErrConstraintGRPM(t, err, explicitGroupMembershipForeignKeyState,
+	requirePgErrConstraintGRPM(t, err, "23503",
 		explicitGroupMembershipGroupFK, "undeclared-group membership insert")
 
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+

@@ -1263,6 +1263,13 @@ func TestSelectionMembersSQLAndGoldenContract(t *testing.T) {
 	if isMemberRefConflict(errors.New("plain error")) {
 		t.Fatal("a plain error is not a member conflict")
 	}
+	typedNil := error((*pgconn.PgError)(nil))
+	if isMemberRefConflict(typedNil) {
+		t.Fatal("a typed-nil driver error is not a member conflict")
+	}
+	if isMemberRefConflict(fmt.Errorf("insert: %w", typedNil)) {
+		t.Fatal("a wrapped typed-nil driver error is not a member conflict")
+	}
 }
 
 func readFixtureDDL(t *testing.T) []byte {

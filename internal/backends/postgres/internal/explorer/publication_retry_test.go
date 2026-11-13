@@ -14,7 +14,7 @@ import (
 )
 
 func TestPublishAuthoringIsDeadlockErrorClassification(t *testing.T) {
-	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
+	deadlock := &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}
 	cases := []struct {
 		name string
 		err  error
@@ -28,6 +28,8 @@ func TestPublishAuthoringIsDeadlockErrorClassification(t *testing.T) {
 		{"serialization-adjacent 40001", &pgconn.PgError{Code: "40001"}, false},
 		{"plain error", errors.New("connection reset by peer"), false},
 		{"nil", nil, false},
+		{"typed-nil driver error", error((*pgconn.PgError)(nil)), false},
+		{"wrapped typed-nil driver error", fmt.Errorf("publish leg: %w", error((*pgconn.PgError)(nil))), false},
 	}
 	for _, tc := range cases {
 		if got := isDeadlockError(tc.err); got != tc.want {
@@ -93,7 +95,7 @@ func TestPublishAuthoringDeadlockVictimRetriesOnFreshTransaction(t *testing.T) {
 	project, explorerID, tag := "proj_pubauth_dl_retry", "exp_dl", "dlr"
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	ps := f.newPublishStore(t)
-	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
+	deadlock := &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}
 	transactions := injectFault(t, ps, 1, deadlock)
 
 	out, err := ps.PublishAuthoring(f.ctx, receipt, revision, release, 0)
@@ -122,7 +124,7 @@ func TestPublishAuthoringExhaustedDeadlocksSurfaceErrPublishContention(t *testin
 	project, explorerID, tag := "proj_pubauth_dl_exhaust", "exp_dl", "dlex"
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	ps := f.newPublishStore(t)
-	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
+	deadlock := &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}
 	transactions := injectFault(t, ps, publishTxMaxAttempts+1, deadlock)
 	before := f.snapshotAll(t, false)
 
