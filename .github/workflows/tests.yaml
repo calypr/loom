@@ -364,9 +364,12 @@ jobs:
         # any skip, or a silent rename of a frozen identity fails the gate.
         run: |
           set -o pipefail
+          mkdir -p "$RUNNER_TEMP/backend-conformance"
+          status=0
           timeout 480s go test -json -count=1 -timeout=420s ./internal/server \
             -run '^TestBackendArchitectureConformance$' \
-            | node scripts/lib/check-go-test-events.mjs \
+            > "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || status=$?
+          node scripts/lib/check-go-test-events.mjs \
               TestBackendArchitectureConformance \
               TestBackendArchitectureConformance/arangodb \
               TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars \
@@ -395,7 +398,31 @@ jobs:
               TestBackendArchitectureConformance/postgresql/publicationControlFenceRejectsStaleOwner \
               TestBackendArchitectureConformance/postgresql/cancellationTypedFailureNoFallback \
               TestBackendArchitectureConformance/postgresql/backendUnavailableAndWrongTagNoFallback \
-              TestBackendArchitectureConformance/postgresql/upgradeFromPinnedPreRefactorReopensSafely
+              TestBackendArchitectureConformance/postgresql/upgradeFromPinnedPreRefactorReopensSafely \
+              < "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || status=$?
+          # The gate fails closed on events alone; surface the failing tests'
+          # own output so a red lane is diagnosable from this step's log.
+          node -e '
+            const fs = require("node:fs");
+            const events = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).map(JSON.parse);
+            const outputs = new Map();
+            const failed = [];
+            for (const e of events) {
+              if (e.Test && e.Action === "output") outputs.set(e.Test, [...(outputs.get(e.Test) ?? []), e.Output]);
+              if (e.Action === "fail" && e.Test) failed.push(e.Test);
+            }
+            for (const name of failed) for (const line of outputs.get(name) ?? []) process.stdout.write(line);
+            if (failed.length === 0 && events.some(e => e.Action === "fail")) console.error("package-level failure with no named failing test; see conformance.jsonl artifact");
+          ' "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || true
+          exit $status
+      - name: Preserve conformance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-conformance
+          path: ${{ runner.temp }}/backend-conformance
+          if-no-files-found: warn
+
   node-unit:
     name: Node unit tests
     runs-on: ubuntu-latest
