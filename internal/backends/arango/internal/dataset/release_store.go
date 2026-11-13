@@ -10,6 +10,13 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 )
 
+// casConflictRetryBudget bounds how many times the release CAS re-runs its
+// transaction after an Arango 1200 write-write abort. A racing driver that
+// targets the same release converges through the alreadyActive zero-write
+// no-op on the first retry; the budget only covers repeated collisions with
+// still-in-flight rival transactions.
+const casConflictRetryBudget = 8
+
 func (s *Store) SaveRelease(ctx context.Context, release dataset.ProjectRelease) (dataset.ProjectRelease, error) {
 	document, err := lifecycleDocument(release)
 	if err != nil {
@@ -97,16 +104,36 @@ func compareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQu
 	binds["require_current_generation"] = requireCurrentGeneration
 	binds["staged_state"] = string(dataset.StateStaged)
 	binds["ready_state"] = string(dataset.StateReady)
+	// Arango aborts a racing transaction on the ignoreRevs:false pointer
+	// update with error 1200, including when the racing drivers target the
+	// SAME release: the loser read the pointer before the winner committed,
+	// so its snapshot never sees the alreadyActive no-op that an identical
+	// sequential re-activation takes. The abort means this transaction wrote
+	// nothing, so re-running it is safe: the fresh transaction re-reads the
+	// pointer and either converges through the alreadyActive zero-write
+	// no-op (same candidate) or fails the currentRevision filter and
+	// surfaces the typed conflict (rival candidate). The fence cannot be
+	// bypassed by the retry — every guard is re-evaluated in the new
+	// transaction. The retry budget bounds the race window; exhausting it
+	// falls through to the typed conflict below.
+	const conflictRetries = casConflictRetryBudget
 	var active *dataset.ActiveRelease
-	err = client.QueryRows(ctx, activateReleaseAQL, metadataBatchSize, binds, func(row map[string]any) error {
-		decoded, err := decodeValue[dataset.ActiveRelease](row)
-		if err != nil {
-			return err
+	for attempt := 0; ; attempt++ {
+		active = nil
+		err = client.QueryRows(ctx, activateReleaseAQL, metadataBatchSize, binds, func(row map[string]any) error {
+			decoded, err := decodeValue[dataset.ActiveRelease](row)
+			if err != nil {
+				return err
+			}
+			active = &decoded
+			return nil
+		})
+		if err == nil {
+			break
 		}
-		active = &decoded
-		return nil
-	})
-	if err != nil {
+		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) && attempt < conflictRetries && ctx.Err() == nil {
+			continue
+		}
 		// Concurrent release CAS operations can both observe the same revision
 		// before Arango serializes their pointer writes. Arango reports the loser
 		// as error 1200 (write-write conflict), so preserve the repository's

@@ -303,6 +303,126 @@ jobs:
           path: ${{ runner.temp }}/pg-fixture
           if-no-files-found: warn
 
+  backend-conformance:
+    name: Backend architecture conformance across Arango and PostgreSQL
+    runs-on: ubuntu-latest
+    # arch-backend-10: the primary adjudication lane for the dual-backend
+    # conformance suite. Both arms execute against the actual services;
+    # the named event gate demands run+pass and zero skips for the frozen
+    # twenty-nine-identity CI gate (parent, both arms, thirteen cells per
+    # arm). The Go timeout fires before the step timeout, which leaves the
+    # job time to finish under the ten-minute contract.
+    timeout-minutes: 10
+    services:
+      arangodb:
+        image: arangodb:3.12
+        env:
+          ARANGO_NO_AUTH: '1'
+        ports:
+          - 8529:8529
+        options: >-
+          --health-cmd "wget --quiet --tries=1 --spider http://127.0.0.1:8529/_api/version"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+      postgres18:
+        image: postgres:18
+        env:
+          POSTGRES_DB: loom_test
+          POSTGRES_USER: loom_test
+          POSTGRES_PASSWORD: loom_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U loom_test -d loom_test"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+    env:
+      LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
+      LOOM_TEST_POSTGRES_URL: postgresql://loom_test:loom_ci_test_only@127.0.0.1:5432/loom_test?sslmode=disable
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Verify the offline skip-set capture against the frozen allowlist
+        # Offline by construction: both service endpoints are unset for this
+        # step, so the parent passes and exactly the two arm identities skip,
+        # byte-equal to the pinned capture and the Arango runner allowlist.
+        run: env -u LOOM_TEST_ARANGO_URL -u LOOM_TEST_POSTGRES_URL node scripts/backend-conformance-skipset-verify.mjs
+      - name: Run both conformance arms against the actual services
+        # Zero-skip acceptance semantics shared with the live runners via
+        # check-go-test-events.mjs: a filtered run that selects zero tests,
+        # any skip, or a silent rename of a frozen identity fails the gate.
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/backend-conformance"
+          status=0
+          timeout 480s go test -json -count=1 -timeout=420s ./internal/server \
+            -run '^TestBackendArchitectureConformance$' \
+            > "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || status=$?
+          node scripts/lib/check-go-test-events.mjs \
+              TestBackendArchitectureConformance \
+              TestBackendArchitectureConformance/arangodb \
+              TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars \
+              TestBackendArchitectureConformance/arangodb/repeatedRelatedOccurrenceStaysDistinct \
+              TestBackendArchitectureConformance/arangodb/nullAndMissingSemanticsPreserved \
+              TestBackendArchitectureConformance/arangodb/explicitScopeServesAuthorizedAndExcludesUnauthorized \
+              TestBackendArchitectureConformance/arangodb/restrictedEmptyScopeServesNothing \
+              TestBackendArchitectureConformance/arangodb/unrestrictedSeesEverything \
+              TestBackendArchitectureConformance/arangodb/generationIsolationServesActiveOnly \
+              TestBackendArchitectureConformance/arangodb/stablePagingIsDeterministic \
+              TestBackendArchitectureConformance/arangodb/explorerDraftCASOneWinnerExactPreimage \
+              TestBackendArchitectureConformance/arangodb/publicationControlFenceRejectsStaleOwner \
+              TestBackendArchitectureConformance/arangodb/cancellationTypedFailureNoFallback \
+              TestBackendArchitectureConformance/arangodb/backendUnavailableAndWrongTagNoFallback \
+              TestBackendArchitectureConformance/arangodb/upgradeFromPinnedPreRefactorReopensSafely \
+              TestBackendArchitectureConformance/postgresql \
+              TestBackendArchitectureConformance/postgresql/scalarQueryServesLiteralScalars \
+              TestBackendArchitectureConformance/postgresql/repeatedRelatedOccurrenceStaysDistinct \
+              TestBackendArchitectureConformance/postgresql/nullAndMissingSemanticsPreserved \
+              TestBackendArchitectureConformance/postgresql/explicitScopeServesAuthorizedAndExcludesUnauthorized \
+              TestBackendArchitectureConformance/postgresql/restrictedEmptyScopeServesNothing \
+              TestBackendArchitectureConformance/postgresql/unrestrictedSeesEverything \
+              TestBackendArchitectureConformance/postgresql/generationIsolationServesActiveOnly \
+              TestBackendArchitectureConformance/postgresql/stablePagingIsDeterministic \
+              TestBackendArchitectureConformance/postgresql/explorerDraftCASOneWinnerExactPreimage \
+              TestBackendArchitectureConformance/postgresql/publicationControlFenceRejectsStaleOwner \
+              TestBackendArchitectureConformance/postgresql/cancellationTypedFailureNoFallback \
+              TestBackendArchitectureConformance/postgresql/backendUnavailableAndWrongTagNoFallback \
+              TestBackendArchitectureConformance/postgresql/upgradeFromPinnedPreRefactorReopensSafely \
+              < "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || status=$?
+          # The gate fails closed on events alone; surface the failing tests'
+          # own output so a red lane is diagnosable from this step's log.
+          node -e '
+            const fs = require("node:fs");
+            const events = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).map(JSON.parse);
+            const outputs = new Map();
+            const failed = [];
+            for (const e of events) {
+              if (e.Test && e.Action === "output") outputs.set(e.Test, [...(outputs.get(e.Test) ?? []), e.Output]);
+              if (e.Action === "fail" && e.Test) failed.push(e.Test);
+            }
+            for (const name of failed) for (const line of outputs.get(name) ?? []) process.stdout.write(line);
+            if (failed.length === 0 && events.some(e => e.Action === "fail")) console.error("package-level failure with no named failing test; see conformance.jsonl artifact");
+          ' "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || true
+          exit $status
+      - name: Preserve conformance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-conformance
+          path: ${{ runner.temp }}/backend-conformance
+          if-no-files-found: warn
+
   node-unit:
     name: Node unit tests
     runs-on: ubuntu-latest
