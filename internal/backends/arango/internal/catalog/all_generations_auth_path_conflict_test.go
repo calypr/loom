@@ -22,8 +22,10 @@ import (
 )
 
 type fb27ctlArangoClient struct {
-	queries []string
-	vars    []map[string]any
+	queries        []string
+	vars           []map[string]any
+	existsCalls    int
+	collectionGone bool // simulates a database that has never ingested
 }
 
 func (c *fb27ctlArangoClient) QueryRows(_ context.Context, query string, _ int, vars map[string]any, _ store.RowVisitor) error {
@@ -45,7 +47,8 @@ func (c *fb27ctlArangoClient) ExecuteAQL(context.Context, string, map[string]any
 }
 
 func (c *fb27ctlArangoClient) CollectionExists(context.Context, string) (bool, error) {
-	panic("unused by the auth path discovery controls")
+	c.existsCalls++
+	return !c.collectionGone, nil
 }
 
 func (c *fb27ctlArangoClient) Bootstrap(context.Context, store.BootstrapSpec) error {
@@ -53,8 +56,9 @@ func (c *fb27ctlArangoClient) Bootstrap(context.Context, store.BootstrapSpec) er
 }
 
 // fb27ctlDiscover runs one discovery against a fresh fake client and asserts
-// the guard/query boundary: a rejected request must not reach Arango, an
-// accepted one must issue exactly one query.
+// the guard/query boundary: a rejected request must not reach Arango (no
+// existence probe, no query), an accepted one must issue exactly one
+// existence probe and exactly one query.
 func fb27ctlDiscover(t *testing.T, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	t.Helper()
 	client := &fb27ctlArangoClient{}
@@ -64,10 +68,13 @@ func fb27ctlDiscover(t *testing.T, opts catalog.AuthResourcePathOptions) ([]stri
 	}
 	paths, err := s.DiscoverExistingAuthResourcePaths(context.Background(), opts)
 	if err != nil {
-		if len(client.queries) != 0 {
-			t.Fatalf("VERDICT=UNEXPECTED rejected request reached Arango (%d queries) for %+v: %v", len(client.queries), opts, err)
+		if len(client.queries) != 0 || client.existsCalls != 0 {
+			t.Fatalf("VERDICT=UNEXPECTED rejected request reached Arango (%d probes, %d queries) for %+v: %v", client.existsCalls, len(client.queries), opts, err)
 		}
 		return paths, err
+	}
+	if client.existsCalls != 1 {
+		t.Fatalf("VERDICT=UNEXPECTED accepted request issued %d existence probes for %+v, want 1", client.existsCalls, opts)
 	}
 	if len(client.queries) != 1 {
 		t.Fatalf("VERDICT=UNEXPECTED accepted request issued %d queries for %+v, want 1", len(client.queries), opts)
@@ -117,4 +124,35 @@ func TestFB27SupportedAuthResourcePathOptionShapesStillDiscover(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFB27MissingFieldCatalogIsNoRecordedPaths pins the first-authorized-
+// upload guarantee: on a database that has never ingested, the collection
+// does not exist, discovery answers "no recorded paths" (the posture the
+// authscope F-B27 zero-path bootstrap branch is built for), and no AQL
+// reaches Arango. Surfacing the missing-collection fault instead would
+// 403 every first restricted-scope upload, because the project-binding
+// gate consults discovery before ingest can bootstrap the collection.
+func TestFB27MissingFieldCatalogIsNoRecordedPaths(t *testing.T) {
+	for _, opts := range []catalog.AuthResourcePathOptions{
+		{Project: "projA", DatasetGeneration: "gen-1"},
+		{Project: "projA", AllGenerations: true},
+	} {
+		client := &fb27ctlArangoClient{collectionGone: true}
+		s, err := New(client)
+		if err != nil {
+			t.Fatalf("VERDICT=UNEXPECTED store construction = %v", err)
+		}
+		paths, err := s.DiscoverExistingAuthResourcePaths(context.Background(), opts)
+		if err != nil {
+			t.Fatalf("VERDICT=CONFIRMED missing fhir_field_catalog surfaced as a discovery fault for %+v: %v", opts, err)
+		}
+		if paths == nil || len(paths) != 0 {
+			t.Fatalf("VERDICT=UNEXPECTED missing collection must answer empty non-nil paths, got %#v", paths)
+		}
+		if len(client.queries) != 0 {
+			t.Fatalf("VERDICT=UNEXPECTED missing collection must not query (%d issued) for %+v", len(client.queries), opts)
+		}
+	}
+	t.Logf("VERDICT=REPAIRED a never-ingested database discovers zero paths instead of a storage fault")
 }

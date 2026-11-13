@@ -20,6 +20,22 @@ func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts cata
 	if err := ValidateAuthResourcePathOptions(opts); err != nil {
 		return nil, err
 	}
+	// A database that has never ingested has no field catalog collection at
+	// all. Discovery answers "no recorded paths" there, exactly as the
+	// retained-profile read treats a missing collection as no data: the
+	// alternative is a storage fault on every first authorized write,
+	// because the authscope project-binding gate consults this discovery
+	// BEFORE ingest can bootstrap the collection (its zero-path branch is
+	// built for precisely this first-generation bootstrap), and surfacing
+	// the fault as 403 would deadlock a fresh database against itself.
+	// A collection deleted mid-request still fails the query honestly.
+	exists, err := s.client.CollectionExists(ctx, catalog.FieldCatalogCollection)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return []string{}, nil
+	}
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
@@ -37,7 +53,7 @@ func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts cata
 		query = existingAuthResourcePathsAllGenerationsAQL
 		delete(bindVars, "dataset_generation")
 	}
-	err := s.client.QueryRows(ctx, query, opts.CursorBatch, bindVars, func(row map[string]any) error {
+	err = s.client.QueryRows(ctx, query, opts.CursorBatch, bindVars, func(row map[string]any) error {
 		if value := stringValue(row["auth_resource_path"]); value != "" {
 			result = append(result, value)
 		}
