@@ -151,12 +151,16 @@ func TestPostWindowAggregateReducersRenderAsCorrelatedSublinks(t *testing.T) {
 		"WHEN 'boolean' THEN 1 WHEN 'number' THEN 2 WHEN 'string' THEN 3 WHEN 'array' THEN 4",
 		"ORDER BY",
 		"LIMIT 1",
+		"END COLLATE \"C\"",
 		"EXISTS (SELECT 1 FROM jsonb_array_elements(",
 		"fhir_edge_occurrence",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("aggregate statement is missing %q:\n%s", want, sql)
 		}
+	}
+	if got := strings.Count(sql, `END COLLATE "C"`); got != 4 {
+		t.Fatalf("MIN and MAX must carry exactly the two C-collated text keys each, got %d:\n%s", got, sql)
 	}
 }
 
