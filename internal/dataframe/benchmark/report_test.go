@@ -24,14 +24,6 @@ func validReport(t *testing.T) *Report {
 		ClickHouseDisabled: false,
 		Config:             RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2},
 	}
-	controls := ControlRuns{
-		StabilityCVLimit: StabilityCVLimit, UnstableCells: nil,
-		SelfRatioArango: 1.0, SelfRatioPostgres: 1.0,
-		EmptyFloorMillis: 0.4, RatioPolicy: "ratio-only-both-passed",
-	}
-	// Live battery law: proven workloads carry passing gates and samples;
-	// registry-excluded workloads carry disclosed blocked rows and
-	// disclosure rows, never samples.
 	liveExcluded := LiveBatteryExclusions()
 	var gates []WorkloadGateReport
 	var samples []Sample
@@ -51,9 +43,37 @@ func validReport(t *testing.T) *Report {
 			if backend == BackendPostgres {
 				base = 10.0
 			}
+			// Halves [base, base, base+3%, base+3%]: the honest self-ratio
+			// (worst half-median deviation) is 1.03, inside the 5% band,
+			// and the stable-regime CV is well under the limit. VerifyRe-
+			// port recomputes both controls from these samples, so the
+			// fixture must state what the samples actually show.
 			for i := 0; i < 4; i++ {
-				samples = append(samples, sample(backend, spec.ID, OutcomePassed, base+float64(i), false))
+				offset := 0.0
+				if i >= 2 {
+					offset = base * 0.03
+				}
+				samples = append(samples, sample(backend, spec.ID, OutcomePassed, base+offset, false))
 			}
+		}
+	}
+	// The controls are exactly what the control functions derive from the
+	// samples: the verifier re-derives them (review r4561644049), so an
+	// honest fixture states honest values.
+	controls := ControlRuns{
+		StabilityCVLimit: StabilityCVLimit,
+		UnstableCells:    ControlUnstableCells(samples, StabilityCVLimit),
+		EmptyFloorMillis: 0.4, RatioPolicy: "ratio-only-both-passed",
+	}
+	for _, backend := range []string{BackendArango, BackendPostgres} {
+		value, ok := ControlSelfRatio(samples, backend)
+		if !ok {
+			t.Fatalf("%s self-ratio not computable from fixture samples", backend)
+		}
+		if backend == BackendArango {
+			controls.SelfRatioArango = value
+		} else {
+			controls.SelfRatioPostgres = value
 		}
 	}
 	timingPlan := BothArmsPlan()
@@ -175,7 +195,25 @@ func TestReportForgerySuite(t *testing.T) {
 			// Claims left in place: a claim on a non-claimable workload
 			// must not verify even when the status was honestly flipped.
 		},
-		"self-ratio-forged-high":     func(r *Report) { r.Controls.SelfRatioArango = 3.0 },
+		"self-ratio-forged-high": func(r *Report) { r.Controls.SelfRatioArango = 3.0 },
+		// Review r4561644049: values inside the plausibility band are no
+		// longer accepted on faith; they must recompute from raw samples.
+		"self-ratio-borrowed-perfect": func(r *Report) {
+			// The fixture samples honestly show a 1.03 worst half-median
+			// deviation; the artifact claims the perfect 1.0 instead.
+			// The band check cannot see it (1.0 is in band) — only
+			// recomputation from samples can.
+			r.Controls.SelfRatioArango = 1.0
+		},
+		"unstable-cell-hidden-from-control": func(r *Report) {
+			// Inject a wildly unstable warm cell for the primary timing
+			// on arango; the honest control list (still empty) claims no
+			// unstable cells, so the claim path hides an unstable cell.
+			for i, ms := range []float64{1, 100, 1} {
+				_ = i
+				r.Samples = append(r.Samples, sample(BackendArango, primaryTiming(), OutcomePassed, ms, false))
+			}
+		},
 		"empty-floor-never-run":      func(r *Report) { r.Controls.EmptyFloorMillis = 0 },
 		"stability-limit-never-set":  func(r *Report) { r.Controls.StabilityCVLimit = 0 },
 		"unsupported-list-drifted":   func(r *Report) { r.Unsupported = []string{primaryTiming() + "/postgres"} },

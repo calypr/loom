@@ -82,7 +82,14 @@ func ControlUnstableCells(samples []Sample, limit float64) []string {
 	})
 	var unstable []string
 	for _, c := range cells {
-		sum := Summarize(cellSamples(samples, c.workload, c.backend))
+		// Stability is judged over the claimable (steady) regime only
+		// (review r4561644054): the mandated spawned protocol puts one
+		// legitimately-slow process-cold sample per round into every cell,
+		// and mixing it into the CV would flag stable warm cells unstable
+		// and suppress every claim for them -- the round-2 no-claims
+		// failure returning through the control path. This matches the
+		// docstring and the claimCellPair regime policy.
+		sum := Summarize(passedStable(cellSamples(samples, c.workload, c.backend)))
 		if sum.Count < 3 || sum.CoefficientOfVariation > limit {
 			unstable = append(unstable, c.workload+"/"+c.backend)
 		}

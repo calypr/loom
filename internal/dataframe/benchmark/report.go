@@ -284,12 +284,30 @@ func VerifyReport(report *Report) error {
 				}
 			}
 		} else {
-			// A run that measured anything must show the controls ran.
-			if report.Controls.StabilityCVLimit <= 0 || report.Controls.RatioPolicy == "" {
-				return fmt.Errorf("benchmark report: measurement controls were not run (missing stability limit or ratio policy)")
+			// A run that measured anything must show the controls ran, at
+			// the shipped limit: a report may not smuggle its own ceiling
+			// (review r4561644049), so the limit is pinned to the exported
+			// constant the control functions enforce.
+			if report.Controls.StabilityCVLimit != StabilityCVLimit || report.Controls.RatioPolicy == "" {
+				return fmt.Errorf("benchmark report: measurement controls were not run (stability limit must equal %v or ratio policy missing)", StabilityCVLimit)
 			}
 			if report.Controls.EmptyFloorMillis <= 0 {
 				return fmt.Errorf("benchmark report: empty-result floor control was not run")
+			}
+			// The stability control must be re-derivable from raw samples:
+			// an omitted unstable cell would otherwise let claims rest on
+			// cells the control would have excluded.
+			want := ControlUnstableCells(report.Samples, StabilityCVLimit)
+			sort.Strings(want)
+			got := append([]string(nil), report.Controls.UnstableCells...)
+			sort.Strings(got)
+			if len(got) != len(want) {
+				return fmt.Errorf("benchmark report: unstable cells %v do not match the %v recomputed from raw samples", got, want)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					return fmt.Errorf("benchmark report: unstable cells %v do not match the %v recomputed from raw samples", got, want)
+				}
 			}
 		}
 	} else {
@@ -339,6 +357,16 @@ func VerifyReport(report *Report) error {
 		}
 		if math.Abs(sr.value-1) > 0.05 {
 			return fmt.Errorf("benchmark report: %s self-ratio %v off 1.0 beyond 5%% — environment unfit for ratios", sr.backend, sr.value)
+		}
+		// The value must be re-derivable from the raw samples
+		// (review r4561644049): a crafted artifact can pass the band
+		// above with a borrowed 1.0 while its halves say otherwise.
+		recomputed, ok := ControlSelfRatio(report.Samples, sr.backend)
+		if !ok {
+			return fmt.Errorf("benchmark report: %s self-ratio %v cannot be recomputed from the raw samples (unsplittable cells or no cells): the control is forged", sr.backend, sr.value)
+		}
+		if math.Abs(recomputed-sr.value) > 1e-9 {
+			return fmt.Errorf("benchmark report: %s self-ratio %v does not match the %v recomputed from raw samples", sr.backend, sr.value, recomputed)
 		}
 	}
 	// A not-run leg must be disclosed per workload and honest in the gates:

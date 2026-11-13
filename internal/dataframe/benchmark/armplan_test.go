@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -35,13 +36,6 @@ func validPostgresOnlyReport(t *testing.T) *Report {
 		ClickHouseDisabled: false,
 		Config:             RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2},
 	}
-	controls := ControlRuns{
-		StabilityCVLimit: StabilityCVLimit,
-		// the arango self-ratio cannot exist without the leg: 0 = absent,
-		// never a forged 1.0
-		SelfRatioArango: 0, SelfRatioPostgres: 1.0,
-		EmptyFloorMillis: 0.4, RatioPolicy: "ratio-only-both-passed",
-	}
 	plan := PostgresOnlyPlan(testArangoCapability)
 	plan.Publication = &PublicationPlan{Run: true}
 	plan.PlannedNotRun = PlannedNotRunForBackends([]string{BackendArango})
@@ -57,9 +51,28 @@ func validPostgresOnlyReport(t *testing.T) *Report {
 		}
 		gates = append(gates, postgresOnlyGate(spec.ID, strings.Repeat("c", 64)))
 		samples = append(samples, sample(BackendPostgres, spec.ID, OutcomePassed, 5, true))
+		// Halves [10, 10, 10.3, 10.3]: honest self-ratio 1.03. The
+		// verifier recomputes controls from raw samples (review
+		// r4561644049), so the fixture states what the samples show.
 		for i := 0; i < 4; i++ {
-			samples = append(samples, sample(BackendPostgres, spec.ID, OutcomePassed, 10+float64(i), false))
+			offset := 0.0
+			if i >= 2 {
+				offset = 0.3
+			}
+			samples = append(samples, sample(BackendPostgres, spec.ID, OutcomePassed, 10+offset, false))
 		}
+	}
+	controls := ControlRuns{
+		StabilityCVLimit: StabilityCVLimit,
+		UnstableCells:    ControlUnstableCells(samples, StabilityCVLimit),
+		// the arango self-ratio cannot exist without the leg: 0 = absent,
+		// never a forged 1.0
+		SelfRatioArango: 0, EmptyFloorMillis: 0.4, RatioPolicy: "ratio-only-both-passed",
+	}
+	if value, ok := ControlSelfRatio(samples, BackendPostgres); ok {
+		controls.SelfRatioPostgres = value
+	} else {
+		t.Fatal("postgres self-ratio not computable from fixture samples")
 	}
 	gates = ApplyExcludedWorkloadGateReports(gates, ExcludedWorkloadGateReports(plan.Legs, liveExcluded))
 	AppendWorkloadDisclosures(&plan, liveExcluded)
@@ -184,10 +197,13 @@ func TestPostgresOnlyForgerySuite(t *testing.T) {
 }
 
 func TestRenderMarkdown(t *testing.T) {
-	both := RenderMarkdown(validReport(t))
+	bothReport := validReport(t)
+	selfRatioLine := fmt.Sprintf("arango=%.3f, postgres=%.3f",
+		bothReport.Controls.SelfRatioArango, bothReport.Controls.SelfRatioPostgres)
+	both := RenderMarkdown(bothReport)
 	for _, want := range []string{
 		"Status: passed", "Scope: `both-arms`", "ratio-only-both-passed",
-		"arango/postgres", "Empty-result floor", "1.000",
+		"arango/postgres", "Empty-result floor", selfRatioLine,
 	} {
 		if !strings.Contains(both, want) {
 			t.Fatalf("both-arms markdown missing %q", want)

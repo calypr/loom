@@ -54,3 +54,63 @@ func TestStabilityControlExcludesUnstableCellClaims(t *testing.T) {
 		t.Fatalf("ratio-only-both-passed policy must hold, got %v", claims)
 	}
 }
+
+// TestControlUnstableCells pins the regime discipline of the stability
+// control (review r4561644054): CV is judged over the claimable steady
+// regime only. The mandated spawned protocol (iterations=10, rounds=5)
+// puts one legitimately-slow process-cold sample per round into every
+// cell; mixing it into the CV would flag every spawned cell unstable and
+// suppress all claims -- the round-2 no-claims failure re-entering
+// through the control path.
+func TestControlUnstableCells(t *testing.T) {
+	// Spawned-protocol cell: five rounds of one process-cold outlier plus
+	// four tight warm samples. Warm CV is tiny; the cold outliers must not
+	// inflate it into an unstable verdict.
+	var spawned []Sample
+	for round := 1; round <= 5; round++ {
+		cold := sample(BackendArango, "w", OutcomePassed, 400, false)
+		cold.Cache = CacheProcessCold
+		cold.Round, cold.Iteration = round, 1
+		spawned = append(spawned, cold)
+		for it, ms := range []float64{20, 20.2, 19.8, 20.1} {
+			warm := sample(BackendArango, "w", OutcomePassed, ms, false)
+			warm.Round, warm.Iteration = round, it+2
+			spawned = append(spawned, warm)
+		}
+	}
+	if got := ControlUnstableCells(spawned, StabilityCVLimit); len(got) != 0 {
+		t.Fatalf("cold outliers of the spawned protocol must not flag a stable warm cell unstable: %v", got)
+	}
+	// Control of the control: relabel those same cold outliers as warm
+	// and the cell must be flagged -- CV is really computed, and the
+	// regime filter is what saves the spawned cell above.
+	relabelled := append([]Sample(nil), spawned...)
+	for i := range relabelled {
+		if relabelled[i].Millis == 400 {
+			relabelled[i].Cache = CacheWarm
+		}
+	}
+	if got := ControlUnstableCells(relabelled, StabilityCVLimit); len(got) != 1 || got[0] != "w/"+BackendArango {
+		t.Fatalf("warm-spread outlier must flag the cell unstable, got %v", got)
+	}
+	// Genuinely unstable warm cell is flagged.
+	var wild []Sample
+	for i, ms := range []float64{20, 200, 20, 200} {
+		s := sample(BackendArango, "w", OutcomePassed, ms, false)
+		s.Round, s.Iteration = i/2+1, i%2+1
+		wild = append(wild, s)
+	}
+	if got := ControlUnstableCells(wild, StabilityCVLimit); len(got) != 1 || got[0] != "w/"+BackendArango {
+		t.Fatalf("wildly varying warm cell must be unstable, got %v", got)
+	}
+	// Fewer than three steady samples: never silently trusted.
+	thin := wild[:2]
+	if got := ControlUnstableCells(thin, StabilityCVLimit); len(got) != 1 || got[0] != "w/"+BackendArango {
+		t.Fatalf("two-sample cell cannot demonstrate stability, got %v", got)
+	}
+	// Cold-only cells carry no claims and need no stability verdict.
+	coldOnly := []Sample{spawned[0]}
+	if got := ControlUnstableCells(coldOnly, StabilityCVLimit); len(got) != 0 {
+		t.Fatalf("process-cold-only samples are a different regime, not an unstable cell: %v", got)
+	}
+}
