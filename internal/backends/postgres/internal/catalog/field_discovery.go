@@ -13,7 +13,7 @@ import (
 
 var ErrAllGenerationsWithGeneration = errors.New("AllGenerations conflicts with a selected datasetGeneration")
 
-func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+func (s *FieldProfileAdapter) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 	if err := requireLeg("field-profile", s.profiles != nil, "DiscoverFields"); err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldO
 	return fields, nil
 }
 
-func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+func (s *FieldProfileAdapter) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	if err := requireLeg("field-profile", s.profiles != nil, "DiscoverExistingAuthResourcePaths"); err != nil {
 		return nil, err
 	}

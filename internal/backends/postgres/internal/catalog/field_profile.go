@@ -49,7 +49,7 @@ func (e *FieldProfileWriteError) Unwrap() []error {
 	return []error{ErrFieldProfileWrite, e.Err}
 }
 
-func (s *Store) WriteFieldProfile(ctx context.Context, scope storepostgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, batchSize int) error {
+func (s *FieldProfileAdapter) WriteFieldProfile(ctx context.Context, scope storepostgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, batchSize int) error {
 	if err := requireLeg("field-profile", s.profiles != nil, "WriteFieldProfile"); err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func (s *Store) WriteFieldProfile(ctx context.Context, scope storepostgres.Field
 	return nil
 }
 
-func (s *Store) ReadFieldProfile(ctx context.Context, scope storepostgres.FieldProfileScope) ([]catalog.FieldCatalogDocument, error) {
+func (s *FieldProfileAdapter) ReadFieldProfile(ctx context.Context, scope storepostgres.FieldProfileScope) ([]catalog.FieldCatalogDocument, error) {
 	if err := requireLeg("field-profile", s.profiles != nil, "ReadFieldProfile"); err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (s *Store) ReadFieldProfile(ctx context.Context, scope storepostgres.FieldP
 	return docs, nil
 }
 
-func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
+func (s *FieldProfileAdapter) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: true, Diagnostics: diagnostics}
 	if err := requireLeg("field-profile", s.profiles != nil, "DiscoverFieldEnrichment"); err != nil {

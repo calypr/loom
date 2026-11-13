@@ -135,7 +135,7 @@ func (r *RelationshipEvidenceRepository) ScanRelationshipOccurrences(
 	return out, nil
 }
 
-func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
+func (s *RelationshipAdapter) DiscoverRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Diagnostics: diagnostics}
 	if err := requireLeg("relationship-evidence", s.relationships != nil, "DiscoverRelationshipObservations"); err != nil {
@@ -216,7 +216,7 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 	return result, nil
 }
 
-func (s *Store) ReadRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
+func (s *RelationshipAdapter) ReadRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
 	return s.DiscoverRelationshipObservations(ctx, opts)
 }
 

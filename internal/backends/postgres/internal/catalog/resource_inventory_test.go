@@ -364,7 +364,7 @@ func inventoryReadOptions(project, generation string, unrestricted bool, paths [
 func TestResourceInventoryRebuildGroupsSourceRowsAndPublishesMarkerLast(t *testing.T) {
 	s := newCatalogInventoryService(t)
 	faulted := &faultedInventory{InventoryRepository: s.realRepository(t)}
-	adapter, err := New(faulted)
+	adapter, err := NewInventoryAdapter(faulted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestResourceInventoryRebuildGroupsSourceRowsAndPublishesMarkerLast(t *testi
 func TestResourceInventoryCountWriteFailureKeepsPriorReadAndExposesTypedErrors(t *testing.T) {
 	s := newCatalogInventoryService(t)
 	faulted := &faultedInventory{InventoryRepository: s.realRepository(t)}
-	adapter, err := New(faulted)
+	adapter, err := NewInventoryAdapter(faulted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestResourceInventoryCountWriteFailureKeepsPriorReadAndExposesTypedErrors(t
 func TestResourceInventoryMarkerPublishFailureKeepsPriorMarkerReadable(t *testing.T) {
 	s := newCatalogInventoryService(t)
 	faulted := &faultedInventory{InventoryRepository: s.realRepository(t)}
-	adapter, err := New(faulted)
+	adapter, err := NewInventoryAdapter(faulted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +565,7 @@ func TestResourceInventoryMarkerPublishFailureKeepsPriorMarkerReadable(t *testin
 func TestResourceInventoryRepeatedBuildIsStableAndIsolatesOtherScopes(t *testing.T) {
 	s := newCatalogInventoryService(t)
 	faulted := &faultedInventory{InventoryRepository: s.realRepository(t)}
-	adapter, err := New(faulted)
+	adapter, err := NewInventoryAdapter(faulted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -623,7 +623,7 @@ func TestResourceInventoryRepeatedBuildIsStableAndIsolatesOtherScopes(t *testing
 func TestResourceInventoryReadSumsOnlyAuthorizedPaths(t *testing.T) {
 	s := newCatalogInventoryService(t)
 	faulted := &faultedInventory{InventoryRepository: s.realRepository(t)}
-	adapter, err := New(faulted)
+	adapter, err := NewInventoryAdapter(faulted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -678,7 +678,7 @@ func TestResourceInventoryReadSumsOnlyAuthorizedPaths(t *testing.T) {
 func TestResourceInventoryRestrictedEmptyScopeReturnsNoRows(t *testing.T) {
 	s := newCatalogInventoryService(t)
 	faulted := &faultedInventory{InventoryRepository: s.realRepository(t)}
-	adapter, err := New(faulted)
+	adapter, err := NewInventoryAdapter(faulted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +703,7 @@ func TestResourceInventoryRestrictedEmptyScopeReturnsNoRows(t *testing.T) {
 func TestResourceInventoryStaleMarkerIsUnavailable(t *testing.T) {
 	s := newCatalogInventoryService(t)
 	faulted := &faultedInventory{InventoryRepository: s.realRepository(t)}
-	adapter, err := New(faulted)
+	adapter, err := NewInventoryAdapter(faulted)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -147,7 +147,7 @@ func ccSeedGeneration(t *testing.T, s *fieldProfileService) {
 			" VALUES ($1, $2, $3, $4, $5)",
 			ccProject, ccGen, row.rtype, row.id, row.authPath)
 	}
-	invStore, err := New(invRepo)
+	invStore, err := NewInventoryAdapter(invRepo)
 	if err != nil {
 		s.fail("seed: inventory store", err)
 	}
@@ -156,7 +156,7 @@ func ccSeedGeneration(t *testing.T, s *fieldProfileService) {
 	}); err != nil {
 		s.fail("seed: rebuild inventory", err)
 	}
-	profStore, err := NewFieldProfileStore(profRepo)
+	profStore, err := NewFieldProfileAdapter(profRepo)
 	if err != nil {
 		s.fail("seed: profile store", err)
 	}
@@ -258,21 +258,22 @@ func TestFullStoreCapabilityEvidenceReadsEachLegOnce(t *testing.T) {
 	}
 }
 
-func TestNarrowStoreWrongLegRefusesTypedNeverPanics(t *testing.T) {
+func TestNarrowAdaptersAnswerTheirLegAndNeverTouchForeignLegs(t *testing.T) {
 	s := newFieldProfileService(t)
+	ccSeedGeneration(t, s)
 	inventory, profiles, relationships := ccRepos(t, s)
 
-	inventoryOnly, err := New(inventory.real)
+	inventoryOnly, err := NewInventoryAdapter(inventory)
 	if err != nil {
-		s.fail("inventory-only store", err)
+		s.fail("inventory-only adapter", err)
 	}
-	profileOnly, err := NewFieldProfileStore(profiles.real)
+	profileOnly, err := NewFieldProfileAdapter(profiles)
 	if err != nil {
-		s.fail("profile-only store", err)
+		s.fail("profile-only adapter", err)
 	}
-	relationshipOnly, err := NewRelationshipEvidenceStore(relationships.real)
+	relationshipOnly, err := NewRelationshipAdapter(relationships)
 	if err != nil {
-		s.fail("relationship-only store", err)
+		s.fail("relationship-only adapter", err)
 	}
 
 	type probe struct {
@@ -282,140 +283,102 @@ func TestNarrowStoreWrongLegRefusesTypedNeverPanics(t *testing.T) {
 	unrestricted := catalog.ExplicitAuthResourcePathsUnrestricted(false)
 
 	probes := []probe{
-		{"inventory-only: relationships", func() error {
-			res, err := inventoryOnly.DiscoverRelationshipObservations(s.ctx, catalog.RelationshipObservationOptions{
+		{"inventory-only: discover inventory", func() error {
+			res, err := inventoryOnly.DiscoverResourceInventory(s.ctx, catalog.ResourceInventoryOptions{
 				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
-			if err == nil {
-				return errors.New("expected typed refusal")
-			}
-			if res.Available || res.Status != catalog.EvidenceUnavailable || len(res.Values) != 0 {
-				return errors.New("relationship refusal must be typed unavailable with no values")
-			}
-			if !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("refusal must wrap ErrStoreLegNotAssembled, got " + err.Error())
-			}
-			return nil
-		}},
-		{"inventory-only: enrichment", func() error {
-			res, err := inventoryOnly.DiscoverFieldEnrichment(s.ctx, catalog.FieldEnrichmentOptions{
-				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
-			if err == nil {
-				return errors.New("expected typed refusal")
-			}
-			if res.Available || res.Status != catalog.EvidenceUnavailable || len(res.Values) != 0 {
-				return errors.New("enrichment refusal must be typed unavailable with no values")
-			}
-			if !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("refusal must wrap ErrStoreLegNotAssembled, got " + err.Error())
-			}
-			return nil
-		}},
-		{"inventory-only: profiles family", func() error {
-			if _, err := inventoryOnly.DiscoverFields(s.ctx, catalog.PopulatedFieldOptions{Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted}); !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("DiscoverFields: " + errText(err))
-			}
-			if _, err := inventoryOnly.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{Project: ccProject, AllGenerations: true}); !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("DiscoverExistingAuthResourcePaths: " + errText(err))
-			}
-			if err := inventoryOnly.WriteFieldProfile(s.ctx, fdScope(ccProject, ccGen, ccAuthPath, "Patient"), nil, 100); !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("WriteFieldProfile: " + errText(err))
-			}
-			if _, err := inventoryOnly.ReadFieldProfile(s.ctx, fdScope(ccProject, ccGen, ccAuthPath, "Patient")); !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("ReadFieldProfile: " + errText(err))
-			}
-			return nil
-		}},
-		{"profile-only: inventory", func() error {
-			res, err := profileOnly.DiscoverResourceInventory(s.ctx, catalog.ResourceInventoryOptions{
-				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
-			if err == nil {
-				return errors.New("expected typed refusal")
-			}
-			if res.Available || res.Status != catalog.EvidenceUnavailable || len(res.Values) != 0 {
-				return errors.New("inventory refusal must be typed unavailable with no values")
-			}
-			if !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("refusal must wrap ErrStoreLegNotAssembled, got " + err.Error())
-			}
-			return nil
-		}},
-		{"profile-only: relationships", func() error {
-			res, err := profileOnly.DiscoverRelationshipObservations(s.ctx, catalog.RelationshipObservationOptions{
-				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
-			if err == nil {
-				return errors.New("expected typed refusal")
-			}
-			if res.Available || res.Status != catalog.EvidenceUnavailable || len(res.Values) != 0 {
-				return errors.New("relationship refusal must be typed unavailable with no values")
-			}
-			if !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("refusal must wrap ErrStoreLegNotAssembled, got " + err.Error())
-			}
-			return nil
-		}},
-		{"profile-only: rebuild", func() error {
-			_, err := profileOnly.RebuildResourceInventory(s.ctx, catalog.ResourceInventoryRebuildOptions{
-				Project: ccProject, DatasetGeneration: ccGen, ResourceTypes: []string{"Patient"}, BatchSize: 2})
-			if !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("RebuildResourceInventory: " + errText(err))
-			}
-			return nil
-		}},
-		{"relationship-only: inventory+profiles", func() error {
-			if _, err := relationshipOnly.DiscoverResourceInventory(s.ctx, catalog.ResourceInventoryOptions{
-				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted}); err == nil || !errors.Is(err, ErrStoreLegNotAssembled) {
+			if err != nil {
 				return errors.New("DiscoverResourceInventory: " + errText(err))
 			}
-			if _, err := relationshipOnly.DiscoverFieldEnrichment(s.ctx, catalog.FieldEnrichmentOptions{
-				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted}); err == nil || !errors.Is(err, ErrStoreLegNotAssembled) {
+			if !res.Available || res.Status != catalog.EvidenceAvailable || len(res.Values) == 0 {
+				return errors.New("inventory adapter must answer the seeded generation with available complete evidence")
+			}
+			return nil
+		}},
+		{"inventory-only: read alias", func() error {
+			res, err := inventoryOnly.ReadResourceInventory(s.ctx, catalog.ResourceInventoryOptions{
+				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
+			if err != nil {
+				return errors.New("ReadResourceInventory: " + errText(err))
+			}
+			if !res.Available || len(res.Values) == 0 {
+				return errors.New("ReadResourceInventory alias must answer the seeded generation")
+			}
+			return nil
+		}},
+		{"profile-only: enrichment", func() error {
+			res, err := profileOnly.DiscoverFieldEnrichment(s.ctx, catalog.FieldEnrichmentOptions{
+				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
+			if err != nil {
 				return errors.New("DiscoverFieldEnrichment: " + errText(err))
 			}
-			if _, err := relationshipOnly.DiscoverFields(s.ctx, catalog.PopulatedFieldOptions{Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted}); !errors.Is(err, ErrStoreLegNotAssembled) {
+			if !res.Available || len(res.Values) == 0 {
+				return errors.New("profile adapter must answer enrichment for the seeded scope")
+			}
+			return nil
+		}},
+		{"profile-only: field discovery", func() error {
+			fields, err := profileOnly.DiscoverFields(s.ctx, catalog.PopulatedFieldOptions{
+				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
+			if err != nil {
 				return errors.New("DiscoverFields: " + errText(err))
 			}
-			return nil
-		}},
-		{"profile-only: relationships alias", func() error {
-			if _, err := profileOnly.ReadRelationshipObservations(s.ctx, catalog.RelationshipObservationOptions{Project: ccProject, DatasetGeneration: ccGen}); err == nil || !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("profileOnly.ReadRelationshipObservations: " + errText(err))
+			if len(fields) == 0 {
+				return errors.New("DiscoverFields must answer the seeded scope")
 			}
 			return nil
 		}},
-		{"relationship-only: full profile+inventory surface", func() error {
-			if _, err := relationshipOnly.RebuildResourceInventory(s.ctx, catalog.ResourceInventoryRebuildOptions{
-				Project: ccProject, DatasetGeneration: ccGen, ResourceTypes: []string{"Patient"}, BatchSize: 2}); !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("relationshipOnly.RebuildResourceInventory: " + errText(err))
+		{"profile-only: auth path listing", func() error {
+			paths, err := profileOnly.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{Project: ccProject, AllGenerations: true})
+			if err != nil {
+				return errors.New("DiscoverExistingAuthResourcePaths: " + errText(err))
 			}
-			if _, err := relationshipOnly.ReadResourceInventory(s.ctx, catalog.ResourceInventoryOptions{Project: ccProject, DatasetGeneration: ccGen}); err == nil || !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("relationshipOnly.ReadResourceInventory: " + errText(err))
-			}
-			if _, err := relationshipOnly.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{Project: ccProject, AllGenerations: true}); !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("relationshipOnly.DiscoverExistingAuthResourcePaths: " + errText(err))
-			}
-			if err := relationshipOnly.WriteFieldProfile(s.ctx, fdScope(ccProject, ccGen, ccAuthPath, "Patient"), nil, 100); !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("relationshipOnly.WriteFieldProfile: " + errText(err))
-			}
-			if _, err := relationshipOnly.ReadFieldProfile(s.ctx, fdScope(ccProject, ccGen, ccAuthPath, "Patient")); !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("relationshipOnly.ReadFieldProfile: " + errText(err))
+			if len(paths) != 1 || paths[0] != ccAuthPath {
+				return errors.New("DiscoverExistingAuthResourcePaths must list only the seeded auth path")
 			}
 			return nil
 		}},
-		{"aliases inherit the guard", func() error {
-			if _, err := inventoryOnly.ReadRelationshipObservations(s.ctx, catalog.RelationshipObservationOptions{Project: ccProject, DatasetGeneration: ccGen}); err == nil || !errors.Is(err, ErrStoreLegNotAssembled) {
+		{"profile-only: read profile", func() error {
+			docs, err := profileOnly.ReadFieldProfile(s.ctx, fdScope(ccProject, ccGen, ccAuthPath, "Patient"))
+			if err != nil {
+				return errors.New("ReadFieldProfile: " + errText(err))
+			}
+			if len(docs) == 0 {
+				return errors.New("ReadFieldProfile must answer the seeded scope")
+			}
+			return nil
+		}},
+		{"relationship-only: discover", func() error {
+			res, err := relationshipOnly.DiscoverRelationshipObservations(s.ctx, catalog.RelationshipObservationOptions{
+				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
+			if err != nil {
+				return errors.New("DiscoverRelationshipObservations: " + errText(err))
+			}
+			if !res.Available || len(res.Values) == 0 {
+				return errors.New("relationship adapter must answer the seeded generation")
+			}
+			return nil
+		}},
+		{"relationship-only: read alias", func() error {
+			res, err := relationshipOnly.ReadRelationshipObservations(s.ctx, catalog.RelationshipObservationOptions{
+				Project: ccProject, DatasetGeneration: ccGen, AuthResourcePaths: []string{ccAuthPath}, AuthResourcePathsUnrestricted: unrestricted})
+			if err != nil {
 				return errors.New("ReadRelationshipObservations: " + errText(err))
 			}
-			if _, err := profileOnly.ReadResourceInventory(s.ctx, catalog.ResourceInventoryOptions{Project: ccProject, DatasetGeneration: ccGen}); err == nil || !errors.Is(err, ErrStoreLegNotAssembled) {
-				return errors.New("ReadResourceInventory: " + errText(err))
+			if !res.Available || len(res.Values) == 0 {
+				return errors.New("ReadRelationshipObservations alias must answer the seeded generation")
 			}
 			return nil
 		}},
 	}
 
+	inventory.reset()
+	profiles.reset()
+	relationships.reset()
 	for _, p := range probes {
 		func() {
 			defer func() {
 				if rec := recover(); rec != nil {
-					t.Fatalf("%s: panic instead of typed refusal: %v", p.name, rec)
+					t.Fatalf("%s: panic on an assembled adapter leg: %v", p.name, rec)
 				}
 			}()
 			if err := p.call(); err != nil {
@@ -423,23 +386,24 @@ func TestNarrowStoreWrongLegRefusesTypedNeverPanics(t *testing.T) {
 			}
 		}()
 	}
-
-	inventory.reset()
-	profiles.reset()
-	relationships.reset()
-	for _, p := range probes {
-		if err := p.call(); err != nil {
-			t.Fatalf("%s (replay): %v", p.name, err)
-		}
+	if inventory.readBuildCalls != 2 || inventory.readCountSums != 2 {
+		t.Fatalf("inventory adapter boundary calls: readBuild=%d readCountSums=%d, want 2/2",
+			inventory.readBuildCalls, inventory.readCountSums)
 	}
-	if inventory.scanSourceCalls+inventory.insertCountsCalls+inventory.publishBuildCalls+inventory.readBuildCalls+inventory.readCountSums != 0 {
-		t.Fatalf("wrong-leg probes issued inventory queries: %+v", *inventory)
+	if inventory.scanSourceCalls != 0 || inventory.insertCountsCalls != 0 || inventory.publishBuildCalls != 0 {
+		t.Fatalf("inventory reads must not touch write calls: scan=%d insert=%d publish=%d",
+			inventory.scanSourceCalls, inventory.insertCountsCalls, inventory.publishBuildCalls)
 	}
-	if profiles.upsertCalls+profiles.readRowsCalls+profiles.readFilteredCalls+profiles.readCoverageCalls+profiles.listDistinctCalls != 0 {
-		t.Fatalf("wrong-leg probes issued profile queries: %+v", *profiles)
+	if profiles.upsertCalls != 0 || profiles.readCoverageCalls != 0 {
+		t.Fatalf("profile reads must not upsert or fall back to coverage: upsert=%d coverage=%d",
+			profiles.upsertCalls, profiles.readCoverageCalls)
 	}
-	if relationships.scanCalls != 0 {
-		t.Fatalf("wrong-leg probes issued relationship queries: %d", relationships.scanCalls)
+	if profiles.readFilteredCalls != 3 || profiles.readRowsCalls != 1 || profiles.listDistinctCalls != 1 {
+		t.Fatalf("profile adapter boundary calls: filtered=%d rows=%d distinct=%d, want 3/1/1",
+			profiles.readFilteredCalls, profiles.readRowsCalls, profiles.listDistinctCalls)
+	}
+	if relationships.scanCalls != 2 {
+		t.Fatalf("relationship adapter boundary calls: scan=%d, want exactly 2", relationships.scanCalls)
 	}
 }
 

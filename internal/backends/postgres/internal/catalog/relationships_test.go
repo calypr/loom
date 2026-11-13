@@ -27,17 +27,17 @@ func (s *stubRelationshipStore) ScanRelationshipOccurrences(_ context.Context, s
 	return s.groups, nil
 }
 
-func stubStore(t *testing.T, stub *stubRelationshipStore) *Store {
+func stubStore(t *testing.T, stub *stubRelationshipStore) *RelationshipAdapter {
 	t.Helper()
-	store, err := NewRelationshipEvidenceStore(stub)
+	store, err := NewRelationshipAdapter(stub)
 	if err != nil {
-		t.Fatalf("NewRelationshipEvidenceStore: %v", err)
+		t.Fatalf("NewRelationshipAdapter: %v", err)
 	}
 	return store
 }
 
 func TestRelationshipEvidenceStoreRequiresBoundary(t *testing.T) {
-	if _, err := NewRelationshipEvidenceStore(nil); err == nil {
+	if _, err := NewRelationshipAdapter(nil); err == nil {
 		t.Fatal("nil relationship store accepted")
 	}
 	if _, err := NewRelationshipEvidenceRepository(nil, "rel_it"); err == nil {
