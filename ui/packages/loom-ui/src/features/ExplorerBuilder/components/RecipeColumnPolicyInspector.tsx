@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ExplorerBuilderCandidate, ExplorerBuilderColumn } from '../../../types';
-import { rowValuePolicyLabel } from './rowRecipeExpression';
+import { rowValuePolicyLabel } from './rowRecipeProjection';
 
 type FieldSource = Extract<ExplorerBuilderColumn['source'], { kind: 'field' }>;
 type ProjectionMode = NonNullable<FieldSource['field']['projectionMode']>;

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AuthoringNetworkResponse, ConstructionStep, ExplorerBuilderCatalog } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { RowRecipeExpression, type RowRecipeExpressionProps } from './RowRecipeExpression';
-import { columnPolicy, operationExpression, rowConnectionTerms } from './rowRecipeExpression';
+import { columnPolicy, operationExpression, rowConnectionTerms } from './rowRecipeProjection';
 
 afterEach(cleanup);
 const catalog = { nodes: [

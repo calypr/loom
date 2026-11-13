@@ -3,7 +3,7 @@ import type { AuthoringNetworkResponse, ExplorerBuilderCatalog } from '../../../
 import type { DraftTable } from '../authoring/model';
 import { constructionRowMeaning } from '../constructionWorkspace/constructionHistory';
 import { legalOutgoingEdges } from '../authoring/routeActions';
-import { columnPolicy, expressionColumnLabels, operationExpression, rowConnectionTerms, sourceRowExpression } from './rowRecipeExpression';
+import { columnPolicy, expressionColumnLabels, operationExpression, rowConnectionTerms, sourceRowExpression } from './rowRecipeProjection';
 
 export interface RowRecipeExpressionProps {
   /** The complete saved document or validated candidate document, selected by the shared owner. */
