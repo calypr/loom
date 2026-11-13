@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { AuthoringNetworkResponse, ConstructionStageDescriptor } from '../../../types';
 import type { DraftTable } from '../authoring/model';
-import { rowValuePolicyLabel } from './rowRecipeExpression';
+import { rowValuePolicyLabel } from './rowRecipeProjection';
 import { traversalScopeModel, type NavigatorSourceStep, type ScopedOperation } from './traversalScopeNavigator';
 
 /** View metadata for real authored fields; fieldId comes from the typed source-plan descriptor. */
