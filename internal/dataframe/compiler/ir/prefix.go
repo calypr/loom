@@ -5,14 +5,6 @@ import (
 	"fmt"
 )
 
-// PhysicalTraversalPrefix is the canonical, target-type-independent portion
-// of one optional generic traversal set. It describes exactly the work that a
-// future optimizer may materialize once for compatible siblings; it is not a
-// renderer instruction and has no runtime effect by itself.
-//
-// NodeVariable and EdgeVariable are deliberately canonical names. Local
-// variables from the source set live on PhysicalTraversalSubset, which makes
-// alpha-equivalent prefixes compare without relying on lowering counters.
 type PhysicalTraversalPrefix struct {
 	SourceVariable           string
 	Direction                PhysicalTraversalDirection
@@ -25,14 +17,9 @@ type PhysicalTraversalPrefix struct {
 	AuthUnrestrictedBindKey  string
 	ScopeAllowedBindKey      string
 	ScopeOperationCount      int
-	// UnnestScopeIdentity identifies the active cardinality-changing scope at
-	// the point where this set is materialized. It is intentionally derived
-	// from canonical PhysicalUnnest operations rather than renderer variable
-	// names. Prefixes on opposite sides of an unnest barrier must never share,
-	// even when they read the same root variable.
-	UnnestScopeIdentity string
-	NodeVariable        string
-	EdgeVariable        string
+	UnnestScopeIdentity      string
+	NodeVariable             string
+	EdgeVariable             string
 }
 
 const (
@@ -40,10 +27,6 @@ const (
 	physicalTraversalPrefixEdgeVariable = "__loom_prefix_edge"
 )
 
-// PhysicalTraversalSubset contains the target-type specialization and work
-// after the mandatory traversal scope. Its local variables are retained so a
-// later rewrite can perform explicit alpha-renaming instead of guessing from
-// AQL strings.
 type PhysicalTraversalSubset struct {
 	TargetTypeBindKey  string
 	TargetVariable     string
@@ -51,9 +34,6 @@ type PhysicalTraversalSubset struct {
 	ConsumerOperations []PhysicalOperation
 }
 
-// PhysicalTraversalPrefixDecomposition is the only B1 output consumed by a
-// future sharing rewrite. PrefixKey is stable across generated local variable
-// and target-type bind names, but differs for any scoped physical behavior.
 type PhysicalTraversalPrefixDecomposition struct {
 	Prefix           PhysicalTraversalPrefix
 	PrefixOperations []PhysicalOperation
@@ -75,9 +55,6 @@ const (
 	PhysicalPrefixInvalidTarget        PhysicalTraversalPrefixRejectionReason = "INVALID_TARGET_SUBSET"
 )
 
-// PhysicalTraversalPrefixError makes rejection intentional and inspectable.
-// Optimizers must retain this reason in diagnostics rather than treating an
-// ineligible set as an accidental non-match.
 type PhysicalTraversalPrefixError struct {
 	Reason PhysicalTraversalPrefixRejectionReason
 	Detail string
@@ -94,10 +71,6 @@ func rejectPhysicalTraversalPrefix(reason PhysicalTraversalPrefixRejectionReason
 	return &PhysicalTraversalPrefixError{Reason: reason, Detail: fmt.Sprintf(format, args...)}
 }
 
-// DecomposePhysicalTraversalPrefixAt is the position-aware form used by the
-// optimizer and diagnostics. The operation index is required because an
-// unnest changes row cardinality for all operations that follow it while the
-// source variable may remain the same root binding.
 func DecomposePhysicalTraversalPrefixAt(plan PhysicalPlan, set PhysicalSet, setIndex int) (PhysicalTraversalPrefixDecomposition, error) {
 	return decomposePhysicalTraversalPrefix(plan, set, setIndex)
 }
@@ -130,9 +103,6 @@ func decomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet, setInd
 		return PhysicalTraversalPrefixDecomposition{}, rejectPhysicalTraversalPrefix(PhysicalPrefixInvalidRoute, "%v", err)
 	}
 
-	// The prefix is exactly TRAVERSAL followed by edge/node project,
-	// generation, and auth scope. Consumer predicates start only after this
-	// block, so they cannot accidentally broaden the shared neighbor set.
 	scope := set.Subplan.Operations[1:7]
 	scopeVariable, err := validateGenericNavigationScopeBlock(scope, traversal.TargetVariable, traversal.EdgeVariable, traversal.TargetVariable)
 	if err != nil {
@@ -185,11 +155,6 @@ func decomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet, setInd
 	}, nil
 }
 
-// physicalUnnestScopeIdentityAt returns a deterministic identity for every
-// active top-level unnest before operationIndex. A set after an unnest still
-// reads the original root binding, so source-variable equality alone is not a
-// sufficient sharing key. The expression and join mode are part of the key so
-// a rewrite cannot cross a different cardinality/null-preservation contract.
 func physicalUnnestScopeIdentityAt(plan PhysicalPlan, operationIndex int) (string, error) {
 	if operationIndex < 0 {
 		return "", nil

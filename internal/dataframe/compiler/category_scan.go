@@ -59,9 +59,6 @@ func CategoryScanRefusalCodeOf(err error) (CategoryScanRefusalCode, bool) {
 	return refusal.Code, true
 }
 
-// CategoryScanProof binds a scan to the exact finalized output contract and
-// executable query. It is immutable compiler output, suitable for inclusion
-// in a later signed receipt without reconstructing either plan or schema.
 type CategoryScanProof struct {
 	Version                    int
 	Output                     string
@@ -80,16 +77,10 @@ type CategoryScanProof struct {
 	Fingerprint                string
 }
 
-// CategoryOverflowWitness is the bounded confirmation query for a category
-// scan overflow claim. Command is a parent-tagged AQL command; the witness is
-// executed only through the AQL row-stream adapter.
 type CategoryOverflowWitness struct {
 	Command command.CompiledCommand
 }
 
-// CompiledCategoryScanQuery is a bounded distinct-value scan. Command is the
-// single parent-tagged executable; loose rendered text and named binds are
-// never carried as execution fields.
 type CompiledCategoryScanQuery struct {
 	Command              command.CompiledCommand
 	PresentColumn        string
@@ -116,10 +107,6 @@ func CompileCategoryScanOutput(target Target, output lower.CompiledRecipeOutput,
 	return compileCategoryScan(output, output.OutputSchema, column, lower.CompiledOutputColumn{}, "", "", "", maxValues, policy)
 }
 
-// CompileCategoryScanStageWithPolicy compiles the exact prefix ending at a
-// compiler-owned construction stage and binds the proof to the selected
-// category and value columns. The value column is not read by the scan, but is
-// included in the proof so a result cannot be reused for another pivot pair.
 func CompileCategoryScanStage(target Target, output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	if err := target.validate(); err != nil {
 		return CompiledCategoryScanQuery{}, err
@@ -231,10 +218,6 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 			categoryScanPreservesSourceCategories(physical, stageID, categoryColumnID, column) ||
 			(stageID == "" && categoryScanDirectRootSource(physical, column))
 		if sourceProjectionEquivalent {
-			// The proof remains bound to the requested terminal stage, while the
-			// category query uses the cheaper source projection after proving that
-			// every row in the stage prefix still represents a source parent and
-			// carries this exact root category unchanged.
 			physical.StageSequence = nil
 			physical = narrowSourceCategoryScanProjection(physical, column.Name)
 		} else {
@@ -325,8 +308,6 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		}
 	}
 	if categoryIndex != nil && len(categoryIndex.StoredValues) != 0 {
-		// The category index is also the direct-root Pivot index for this path;
-		// do not schedule the older field-only source prewarm alongside it.
 		previewCoveringIndex = nil
 	}
 
@@ -376,19 +357,6 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	}, nil
 }
 
-// compilePostgreSQLCategoryScan compiles one category evidence request for
-// the selected PostgreSQL target. It shares every semantic decision the AQL
-// path makes before rendering — the same column refusals and limit bound from
-// the callers, the same plan selection through categoryScanPhysicalPlan, the
-// same source-preserving proof that lets a stage scan read the cheaper source
-// projection, and the same deterministic execution window — and then hands the
-// plan to the registered PostgreSQL category terminal
-// (render/postgres.RenderCategoryScan). Nothing here translates AQL text:
-// unsupported plans fail with the renderer's typed gap and never fall back.
-//
-// The Arango-only accelerators (category and preview-covering index specs,
-// the related-scan and indexed-root query forms) never attach to a PostgreSQL
-// command, the same law compilePostgreSQLRecipeOutput applies.
 func compilePostgreSQLCategoryScan(target Target, output lower.CompiledRecipeOutput, schema []lower.CompiledOutputColumn, column, valueColumn lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	if maxValues < 1 || maxValues > MaxCategoryScanValues {
 		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanInvalidLimit, Column: column.Name}
@@ -407,9 +375,6 @@ func compilePostgreSQLCategoryScan(target Target, output lower.CompiledRecipeOut
 				"category scan of construction stage %q needs a composed stage-sequence read, which has no registered PostgreSQL category terminal: %w",
 				stageID, postgresrender.ErrUnsupportedPostgresPlan)
 		}
-		// The proof stays bound to the requested terminal stage while the scan
-		// reads the source projection, exactly as the AQL path does after the
-		// same shared proof.
 		physical.StageSequence = nil
 		physical = narrowSourceCategoryScanProjection(physical, column.Name)
 	}
@@ -439,10 +404,7 @@ func compilePostgreSQLCategoryScan(target Target, output lower.CompiledRecipeOut
 		Cardinality: column.Cardinality, MaxValues: maxValues,
 		OutputSchemaDigest: schemaDigest, PlanFingerprint: diagnostics.Fingerprint,
 		QueryFingerprint: postgreSQLPlanFingerprint(rendered.Values.SQL, rendered.Values.Args, rendered.Values.OutputColumns),
-		// The PostgreSQL category statement always carries the total presence
-		// bit beside its value, so presence is tracked on every shape this
-		// registers.
-		PresenceTracked: true,
+		PresenceTracked:  true,
 	}
 	if stageID != "" {
 		proof.Version = 2
@@ -455,26 +417,12 @@ func compilePostgreSQLCategoryScan(target Target, output lower.CompiledRecipeOut
 		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan proof: %w", err)
 	}
 	return CompiledCategoryScanQuery{
-		Command: compiledCommand,
-		// The positional contract the row port aligns by index, and the keys
-		// the executor reads (execution/category_scan.go).
+		Command:       compiledCommand,
 		PresentColumn: rendered.PresentColumn, ValueColumn: rendered.ValueColumn,
 		Proof: proof, Diagnostics: diagnostics,
-		// OverflowWitness and the Arango index specs stay nil. The AQL path
-		// attaches a witness only for a composed stage-sequence scan, the one
-		// shape this terminal refuses, and the bounded page already detects
-		// truncation through its maxValues+1 bound; attaching a witness here
-		// would change the typed outcome the AQL path produces for the same
-		// request. The registered terminal still renders the witness
-		// statement (render/postgres.RenderedCategoryScan.Witness) for the
-		// separate execution-adapter ticket to consume.
 	}, nil
 }
 
-// categoryScanPreservesSourceCategories proves that complete distinct values
-// at a construction stage equal the values on its source parents. It only
-// accepts a direct scalar source projection and a contiguous prefix made of
-// parent-preserving RELATED_EXPAND and row-preserving RELATED_FIELD stages.
 func categoryScanPreservesSourceCategories(plan ir.PhysicalPlan, stageID, categoryColumnID string, category lower.CompiledOutputColumn) bool {
 	sequence := plan.StageSequence
 	if sequence == nil || stageID == "" || stageID == sequence.SourceStageID || sequence.FinalStageID != stageID ||
@@ -646,8 +594,6 @@ func categoryScanRootProjectionSource(plan ir.PhysicalPlan) (*ir.PhysicalRootSca
 				correlatedVariables[set.Prepared.Variable] = struct{}{}
 			}
 		default:
-			// Top-level traversals and unnests change row grain; only nested
-			// correlated sets are safe before a direct root projection.
 			return nil, nil, false
 		}
 	}

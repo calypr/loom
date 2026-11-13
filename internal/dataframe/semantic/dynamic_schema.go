@@ -1,5 +1,3 @@
-// Package plan contains immutable, backend-neutral plans produced after
-// recipe validation and scoped schema discovery.
 package semantic
 
 import (
@@ -36,9 +34,6 @@ type FrozenSchema struct {
 	Digest  string   `json:"digest"`
 }
 
-// Freeze converts discovery candidates into a deterministic bounded schema.
-// It does not perform discovery itself; callers provide candidates obtained
-// through the same scoped physical plan used for execution.
 func Freeze(spec DynamicSpec, candidates []Candidate) (FrozenSchema, error) {
 	if strings.TrimSpace(spec.Name) == "" {
 		return FrozenSchema{}, fmt.Errorf("dynamic column name is required")

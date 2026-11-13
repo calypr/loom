@@ -26,18 +26,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-// Every acceptance assertion below runs against a real server: each test
-// creates one uniquely owned pgrecip01v1_it_* database and one owned schema
-// inside it, applies this package's embedded migrations through the real
-// pg-store-02 runner, and asserts literal rows. Concurrency is exercised by
-// real concurrent transactions -- goroutines on the pool and independent
-// pgx sessions that hold locks across commit points -- never by mocks.
-// The fence proofs watch pg_stat_activity to establish that a racing writer
-// genuinely waits on the recipe-row lock instead of merely finishing fast.
-// ---------------------------------------------------------------------------
-
 var pgrecip01v1NameRe = regexp.MustCompile(`^pgrecip01v1_it_[0-9]+_[0-9a-f]+$`)
 
 func testPostgresURL(t *testing.T) string {
@@ -58,17 +46,7 @@ func randomHex(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
-// createdDatabases records every isolated database name this test binary
-// ever created. The zero-leftover audits count exactly these names: the
-// pgrecip01v1_it_* namespace is shared with the sibling recipe/postgres
-// test binary, and pg_database is cluster-wide, so counting the whole
-// prefix would race live fixtures of the other binary whenever go test
-// runs packages in parallel (the default). Auditing the names this binary
-// owns is precise and parallel-safe; the service-database schema check
-// stays namespace-wide because neither binary ever creates a schema in the
-// service database, so it cannot see the other binary's isolated-database
-// schemas.
-var createdDatabases sync.Map // database name -> struct{}{}
+var createdDatabases sync.Map
 
 func snapshotCreatedDatabases() []string {
 	var names []string
@@ -82,8 +60,8 @@ func snapshotCreatedDatabases() []string {
 
 type registryFixture struct {
 	ctx      context.Context
-	admin    *pgxpool.Pool // shared service database
-	iso      *pgxpool.Pool // isolated database
+	admin    *pgxpool.Pool
+	iso      *pgxpool.Pool
 	dbName   string
 	schema   string
 	dsn      string
@@ -92,12 +70,6 @@ type registryFixture struct {
 	fail     func(step string, err error)
 }
 
-// newRegistryFixture creates one isolated database (pgrecip01v1_it_*) plus
-// one owned schema (pgrecip01v1_it_*) inside it, applies the exec-registry
-// history through the real runner, and registers LIFO cleanups: drop schema,
-// close iso pool, drop database, then the zero-leftover audit scoped to this
-// namespace, then close the admin pool, then cancel the context. Only
-// resources this fixture created are ever dropped.
 func newRegistryFixture(t *testing.T) *registryFixture {
 	t.Helper()
 	raw := testPostgresURL(t)
@@ -107,9 +79,6 @@ func newRegistryFixture(t *testing.T) *registryFixture {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string that could appear in a failure
-	// message: the raw service URL, the userinfo, the bare password, and the
-	// rewritten isolated-database DSN appended below.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -181,8 +150,6 @@ func newRegistryFixture(t *testing.T) *registryFixture {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -275,9 +242,6 @@ func (f *registryFixture) mustPgErrorCode(t *testing.T, step, query string, args
 	return pgErr.Code
 }
 
-// waitLockedFor blocks until a backend is actively waiting on a Lock-class
-// event whose query matches one of the given LIKE patterns, failing the test
-// if the raced operation completes first or the deadline passes.
 func (f *registryFixture) waitLockedFor(t *testing.T, done <-chan struct{}, patterns ...string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
@@ -310,10 +274,6 @@ func (f *registryFixture) waitLockedFor(t *testing.T, done <-chan struct{}, patt
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Domain fixtures.
-// ---------------------------------------------------------------------------
-
 func canonicalEntry(t *testing.T, name, translationVersion, rowGrain string) exec.Entry {
 	t.Helper()
 	bundle := recipe.Bundle{
@@ -337,10 +297,6 @@ func canonicalEntry(t *testing.T, name, translationVersion, rowGrain string) exe
 	return exec.Entry{Bundle: canonical, Digest: digest}
 }
 
-// ---------------------------------------------------------------------------
-// Registration round trip and literal rows.
-// ---------------------------------------------------------------------------
-
 func TestExecSaveLoadRoundTripAndLiteralRows(t *testing.T) {
 	f := newRegistryFixture(t)
 	first := canonicalEntry(t, "files", "1", "document_reference")
@@ -356,9 +312,6 @@ func TestExecSaveLoadRoundTripAndLiteralRows(t *testing.T) {
 		}
 	}
 
-	// Literal rows: identity columns, digest, and payload equality against
-	// the exact bytes the adapter marshals (jsonb equality normalizes only
-	// formatting; members and values must all match).
 	if n := f.count(t, "SELECT count(*) FROM "+f.recipesTable()); n != 2 {
 		t.Fatalf("registration rows = %d, want 2", n)
 	}
@@ -372,8 +325,6 @@ func TestExecSaveLoadRoundTripAndLiteralRows(t *testing.T) {
 		}
 	}
 
-	// LoadRecipe returns the current registration: highest version in exact
-	// byte order.
 	loaded, err := f.registry.LoadRecipe(f.ctx, "files")
 	f.fail("load current", err)
 	if loaded.Digest != second.Digest {
@@ -383,9 +334,6 @@ func TestExecSaveLoadRoundTripAndLiteralRows(t *testing.T) {
 
 func TestExecLoadRecipeCurrentUsesExactByteOrder(t *testing.T) {
 	f := newRegistryFixture(t)
-	// Versions 1, 2, and 10: byte order ranks "2" > "10" > "1", which is
-	// exactly Arango's byte-order SORT and provably not the numeric- or
-	// locale-aware order a default-collation index would give.
 	digests := map[string]string{}
 	for _, version := range []string{"1", "2", "10"} {
 		entry := canonicalEntry(t, "files", version, "document_reference")
@@ -513,10 +461,6 @@ func TestExecConcurrentIdenticalFirstSaveIsIdempotent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Replacement: allowed before use, immutable after, typed when absent.
-// ---------------------------------------------------------------------------
-
 func TestExecReplaceBeforeUseSwapsContentAndKeepsCreatedAt(t *testing.T) {
 	f := newRegistryFixture(t)
 	original := canonicalEntry(t, "files", "1", "document_reference")
@@ -525,7 +469,6 @@ func TestExecReplaceBeforeUseSwapsContentAndKeepsCreatedAt(t *testing.T) {
 	beforeCreated := f.mustText(t, "SELECT created_at::text FROM "+f.recipesTable()+
 		" WHERE recipe_name = $1 AND translation_version = $2", "files", "1")
 
-	// Leave the microsecond clock behind so the stamp move is provable.
 	time.Sleep(2 * time.Millisecond)
 	f.fail("replace", f.registry.ReplaceRecipeVersion(f.ctx, replacement))
 
@@ -548,7 +491,6 @@ func TestExecReplaceBeforeUseSwapsContentAndKeepsCreatedAt(t *testing.T) {
 
 func TestExecReplaceMissingVersionReportsNotFound(t *testing.T) {
 	f := newRegistryFixture(t)
-	// Documented sharpening of the Arango adapter: absent is not used.
 	err := f.registry.ReplaceRecipeVersion(f.ctx, canonicalEntry(t, "files", "1", "document_reference"))
 	if !errors.Is(err, exec.ErrRecipeNotFound) {
 		t.Fatalf("replace on absent version err = %v, want ErrRecipeNotFound", err)
@@ -592,7 +534,6 @@ func TestExecOccurrenceIdentityIsIdempotentAndOwnersCorrelate(t *testing.T) {
 	f.fail("save other recipe", f.registry.SaveRecipe(f.ctx, canonicalEntry(t, "other", "1", "document_reference")))
 
 	f.fail("record o1", f.registry.RecordRecipeExecutionOccurrence(f.ctx, "files", "1", "o1", "worker-a"))
-	// Re-recording the same occurrence identity converges on the same row.
 	f.fail("re-record o1", f.registry.RecordRecipeExecutionOccurrence(f.ctx, "files", "1", "o1", "worker-a"))
 	f.fail("record o2", f.registry.RecordRecipeExecutionOccurrence(f.ctx, "files", "1", "o2", "worker-a"))
 	f.fail("record o3", f.registry.RecordRecipeExecutionOccurrence(f.ctx, "files", "1", "o3", "worker-b"))
@@ -600,8 +541,6 @@ func TestExecOccurrenceIdentityIsIdempotentAndOwnersCorrelate(t *testing.T) {
 	if n := f.count(t, "SELECT count(*) FROM "+f.occurrencesTable()); n != 3 {
 		t.Fatalf("occurrence rows = %d, want 3 (o1 recorded once)", n)
 	}
-	// Repeated-owner correlation: owner_sequence is the per-(version, owner)
-	// ordinal, strictly increasing in recording order.
 	type seq struct {
 		id  string
 		seq int64
@@ -615,7 +554,6 @@ func TestExecOccurrenceIdentityIsIdempotentAndOwnersCorrelate(t *testing.T) {
 		}
 	}
 
-	// Usage is exact scope equality, never a name-only or version-only guess.
 	for _, probe := range []struct {
 		name, version string
 		want          bool
@@ -631,7 +569,6 @@ func TestExecOccurrenceIdentityIsIdempotentAndOwnersCorrelate(t *testing.T) {
 		}
 	}
 
-	// Occurrences for a never-registered version are a wiring fault.
 	if err := f.registry.RecordRecipeExecutionOccurrence(f.ctx, "ghost", "1", "o1", "worker-a"); !errors.Is(err, exec.ErrRecipeNotFound) {
 		t.Fatalf("orphan occurrence err = %v, want ErrRecipeNotFound", err)
 	}
@@ -639,10 +576,6 @@ func TestExecOccurrenceIdentityIsIdempotentAndOwnersCorrelate(t *testing.T) {
 		t.Fatal("blank occurrence id accepted")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Domain-level acceptance through exec.PersistentRegistry.
-// ---------------------------------------------------------------------------
 
 func TestExecPersistentRegistryIdempotentRetryAndImmutableAfterUse(t *testing.T) {
 	f := newRegistryFixture(t)
@@ -670,8 +603,6 @@ func TestExecPersistentRegistryIdempotentRetryAndImmutableAfterUse(t *testing.T)
 		t.Fatalf("rows after exact retry = %d, want 1", n)
 	}
 
-	// Same name+version, changed content, before any durable execution:
-	// replaceable, exactly the Arango contract.
 	changed := bundleWithGrain("changed")
 	replaced, err := registry.RegisterVersion(f.ctx, changed)
 	f.fail("register changed", err)
@@ -679,7 +610,6 @@ func TestExecPersistentRegistryIdempotentRetryAndImmutableAfterUse(t *testing.T)
 		t.Fatal("pre-use replacement did not change the digest")
 	}
 
-	// A first durable execution makes the version immutable.
 	f.fail("use it", f.registry.RecordRecipeExecutionOccurrence(f.ctx, "files", "1", "exec-9", "worker-x"))
 	third := bundleWithGrain("after-use")
 	if _, err := registry.RegisterVersion(f.ctx, third); !errors.Is(err, exec.ErrRecipeVersionImmutable) {
@@ -688,8 +618,6 @@ func TestExecPersistentRegistryIdempotentRetryAndImmutableAfterUse(t *testing.T)
 	if got := f.storedDigest(t, "files", "1"); got != replaced.Digest {
 		t.Fatalf("post-use attempt mutated the version: %s != %s", got, replaced.Digest)
 	}
-	// The exact-content retry still succeeds after use: immutability pins
-	// the stored content, it does not punish re-registration of that content.
 	again, err := registry.RegisterVersion(f.ctx, bundleWithGrain("changed"))
 	f.fail("exact retry after use", err)
 	if again.Digest != replaced.Digest {
@@ -697,16 +625,6 @@ func TestExecPersistentRegistryIdempotentRetryAndImmutableAfterUse(t *testing.T)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Fences: first use versus replacement, proved with committing lock-holders.
-// ---------------------------------------------------------------------------
-
-// TestExecReplaceFencedAgainstCommittingFirstUse is the direct fence proof:
-// an independent session begins a first-use recording (row lock + occurrence
-// INSERT, uncommitted), and while that transaction is in flight
-// ReplaceRecipeVersion blocks on the row lock. When the use commits, the
-// replace must observe it and fail immutable -- it can never check-then-act
-// its way past a use that committed mid-flight.
 func TestExecReplaceFencedAgainstCommittingFirstUse(t *testing.T) {
 	f := newRegistryFixture(t)
 	original := canonicalEntry(t, "files", "1", "document_reference")
@@ -720,8 +638,6 @@ func TestExecReplaceFencedAgainstCommittingFirstUse(t *testing.T) {
 	f.fail("begin first-use transaction", err)
 	defer func() { _ = txConnA.Rollback(f.ctx) }()
 
-	// The registry's own locking discipline, run in a real competing
-	// session: lock the recipe row, then insert the occurrence, uncommitted.
 	if _, err := txConnA.Exec(f.ctx, "SELECT true FROM "+f.recipesTable()+
 		" WHERE recipe_name = $1 AND translation_version = $2 FOR UPDATE", "files", "1"); err != nil {
 		f.fail("first-use row lock", err)
@@ -758,10 +674,6 @@ func TestExecReplaceFencedAgainstCommittingFirstUse(t *testing.T) {
 	}
 }
 
-// TestExecRecordFencedBehindCommittingReplace is the symmetric proof: the
-// occurrence recorder takes the same row lock, so it blocks behind an
-// in-flight replacement and lands after it. The resulting order -- replace
-// committed, then first use -- is the allowed one, and both writes survive.
 func TestExecRecordFencedBehindCommittingReplace(t *testing.T) {
 	f := newRegistryFixture(t)
 	original := canonicalEntry(t, "files", "1", "document_reference")
@@ -839,13 +751,10 @@ func TestExecConcurrentReplaceVersusOccurrenceNeverBothWinWrong(t *testing.T) {
 		}
 		switch {
 		case replaceErr == nil:
-			// The replace committed first; the use then landed on the
-			// replaced version -- the allowed ordering.
 			if got := f.storedDigest(t, name, "1"); got != replacement.Digest {
 				t.Fatalf("iteration %d: successful replace stored %s, want %s", iteration, got, replacement.Digest)
 			}
 		case errors.Is(replaceErr, exec.ErrRecipeVersionImmutable):
-			// The use committed first and the replace correctly refused.
 			if got := f.storedDigest(t, name, "1"); got != original.Digest {
 				t.Fatalf("iteration %d: immutable replace still moved the digest", iteration)
 			}
@@ -854,10 +763,6 @@ func TestExecConcurrentReplaceVersusOccurrenceNeverBothWinWrong(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Guards, migrations, constraints, persistence.
-// ---------------------------------------------------------------------------
 
 func TestExecNewGuards(t *testing.T) {
 	f := newRegistryFixture(t)
@@ -930,8 +835,6 @@ func TestExecMigrateSchemaHistoryLedgerAndRerun(t *testing.T) {
 	entry := canonicalEntry(t, "files", "1", "document_reference")
 	f.fail("save before rerun", f.registry.SaveRecipe(f.ctx, entry))
 
-	// The production entry point on the readiness-checked pg-store-01 pool
-	// re-applies the applied history as a provable no-op; state survives.
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
 		DSN:            f.dsn,
 		MaxConns:       4,
@@ -956,7 +859,6 @@ func TestExecSchemaConstraintsAndNULRejection(t *testing.T) {
 	f := newRegistryFixture(t)
 	valid := canonicalEntry(t, "files", "1", "document_reference")
 
-	// Garbage digests and empty scopes die at the database boundary.
 	if code := f.mustPgErrorCode(t, "garbage digest",
 		"INSERT INTO "+f.recipesTable()+
 			" (recipe_name, translation_version, digest, payload, created_at, updated_at)"+
@@ -975,7 +877,6 @@ func TestExecSchemaConstraintsAndNULRejection(t *testing.T) {
 			" VALUES ('p', '1', $1, '5'::jsonb, now(), now())", valid.Digest); code != "23514" {
 		t.Fatalf("scalar payload sqlstate = %s, want 23514", code)
 	}
-	// NUL bytes cannot masquerade as text scope values.
 	_, err := f.iso.Exec(f.ctx, "INSERT INTO "+f.recipesTable()+
 		" (recipe_name, translation_version, digest, payload, created_at, updated_at)"+
 		" VALUES ($1, '1', $2, '{}'::jsonb, now(), now())", "bad\x00name", valid.Digest)
@@ -1017,8 +918,6 @@ func TestExecStatePersistsBeyondOneConnection(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if err := auditZeroLeftovers(); err != nil {
@@ -1031,11 +930,8 @@ func TestMain(m *testing.M) {
 func auditZeroLeftovers() error {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		// No service was used; nothing can have been created.
 		return nil
 	}
-	// Scrub credential-bearing fragments before any audit error reaches
-	// stderr; the fixtures scrub the same strings on failure paths.
 	auditScrub := func(format string, args ...any) string {
 		message := fmt.Sprintf(format, args...)
 		secrets := []string{raw}
@@ -1059,10 +955,6 @@ func auditZeroLeftovers() error {
 		return errors.New(auditScrub("connect: %v", err))
 	}
 	defer admin.Close()
-	// Audit the exact databases this binary created; the shared
-	// pgrecip01v1_it_* prefix belongs to two binaries under parallel
-	// go test, so a cluster-wide prefix count would race live sibling
-	// fixtures. See createdDatabases.
 	names := snapshotCreatedDatabases()
 	var databases int
 	if err := admin.QueryRow(ctx,
@@ -1072,9 +964,6 @@ func auditZeroLeftovers() error {
 	if databases != 0 {
 		return errors.New(auditScrub("%d databases created by this binary still exist: %v", databases, names))
 	}
-	// Neither binary creates schemas in the service database (owned schemas
-	// live inside each isolated database and die with it), so a service-db
-	// namespace scan is race-free and catches accidental service-db writes.
 	var schemas int
 	if err := admin.QueryRow(ctx,
 		"SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'pgrecip01v1_it_%'").Scan(&schemas); err != nil {

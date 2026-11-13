@@ -1,9 +1,5 @@
 package execution
 
-// Shared PostgreSQL-target fixtures for engine-level tests: a scalar
-// root-scan physical plan inside the renderer's registered root-scan slice
-// plus the storage binding it renders against.
-
 import (
 	"testing"
 

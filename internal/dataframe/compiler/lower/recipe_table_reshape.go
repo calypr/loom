@@ -146,10 +146,6 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		MissingCellPolicy: string(pivot.MissingCellPolicy), UnlistedCategoryPolicy: string(pivot.UnlistedCategoryPolicy),
 	}
 	if !categoryNeedsPresence {
-		// The row's property presence is consumed by sentinel category matching
-		// only for authored NULL/MISSING keys. Keep the root-stage proof available
-		// to a category-discovery prefix, but avoid attaching it to ordinary
-		// string/value Pivot inputs where it would disable bounded preview planning.
 		for index := range physical.InputProjections {
 			if physical.InputProjections[index].Name == pivot.CategoryColumn {
 				physical.InputProjections[index].Presence = nil
@@ -230,17 +226,6 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		column.Internal = false
 		column.Identity = false
 		column.Discovered = false
-		// Every category cloned from the shared value input must carry a
-		// distinct compiled column ID: the receipt compiled output schema
-		// rejects duplicate IDs, which failed every multi-category table-shape
-		// pivot proposal. The first category keeps the historical clone
-		// identity byte-for-byte because single-category pivot receipts saved
-		// with that identity are revalidated against fresh compiles at
-		// publication; receipts with two or more categories could never have
-		// persisted pre-fix (validation failed), so clearing the identity on
-		// later categories introduces no saved-artifact drift. A pivot-produced
-		// aggregate has no source producer of its own, matching the unpivot
-		// key/value outputs and the compiler-owned row identity.
 		if index > 0 {
 			column.ID = ""
 			column.SourceChild = nil
@@ -379,12 +364,6 @@ func requireTableScalarColumn(name string, schema map[string]CompiledOutputColum
 	return column, nil
 }
 
-// TableReshapeScalarKind is the authoritative melt/reshape value-column gate:
-// it maps a logical column kind to its physical table scalar class and refuses
-// every kind the reshape lowerers cannot compile. Explorer source channels
-// (for example the UNPIVOT signed-input lane) admit kinds through this single
-// decision so an advertised channel can never drift from what the compiler
-// actually melts.
 func TableReshapeScalarKind(kind string) (string, bool) {
 	switch expression.ValueKind(strings.ToLower(strings.TrimSpace(kind))) {
 	case expression.KindString, expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:

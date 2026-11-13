@@ -1,37 +1,3 @@
-// Package postgres implements the PostgreSQL-side publication bundle
-// catalog (pg-publication-bundle-catalog-v1): execution/output metadata,
-// quality/state metadata, the exact logical pointer registry, and fenced
-// bundle leases for the PostgreSQL control plane.
-//
-// PostgreSQL 18 is an alternative to Arango for the source graph/catalog and
-// control persistence; Arango remains supported and ClickHouse remains the
-// publication row store. This registry persists metadata and logical
-// pointers only -- it never reads, writes, or migrates ClickHouse data rows,
-// and it never falls back to another backend on its own: every failure is
-// returned for the caller to surface.
-//
-// Guarantees, mirroring internal/backends/arango/internal/publication:
-//   - The domain key and pointer-name semantics are the untouched
-//     publication.BundleIdentity functions; the registry stores what the
-//     domain computes and adds no name-only fallback of its own.
-//   - Exact lookup filters on explicit project, dataset generation, recipe,
-//     translation version, and output -- all four scope components must
-//     match, and no name-only "latest" path exists.
-//   - Legacy payloads canonicalize on read (publication.BundleExecution.
-//     CanonicalizeLegacy) without rewriting the stored row; historical
-//     records stay byte-identical.
-//   - Pointer updates are an atomic compare-and-swap and PublishExecution
-//     commits the execution state and the visibility pointer in one
-//     PostgreSQL transaction, so no observer sees a PUBLISHED execution the
-//     pointer does not yet name. Leases are fenced: SaveExecution and
-//     PublishExecution require the current unexpired owner.
-//   - Missing, JSON-null, and SQL-NULL stay distinct: timestamptz columns
-//     are SQL NULL exactly when the Go pointer is nil, and the payload
-//     preserves the original JSON null-versus-absent shape.
-//
-// The schema is created by this package's embedded publication control-plane
-// history (see migrate.go), applied through the pg-store-02 runner; this
-// package contains no DDL.
 package postgres
 
 import (
@@ -51,30 +17,19 @@ import (
 )
 
 const (
-	// BundleExecutionsTable stores execution identity, output schemas,
-	// quality/state metadata, and the exact selector payload.
 	BundleExecutionsTable = "publication_bundle_executions"
-	// BundlePointersTable stores the exact logical pointer registry.
-	BundlePointersTable = "publication_bundle_pointers"
-	// BundleLeasesTable stores fenced bundle leases.
-	BundleLeasesTable = "publication_bundle_leases"
+	BundlePointersTable   = "publication_bundle_pointers"
+	BundleLeasesTable     = "publication_bundle_leases"
 )
 
-// schemaNamePattern matches the migration runner's own schema rule so a
-// registry can only ever address a safe lowercase identifier schema.
 var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
-// ErrInvalidSchema reports a schema name that is not a safe lowercase
-// identifier; the registry refuses to build rather than interpolate it.
 var ErrInvalidSchema = errors.New("publication postgres: invalid schema name")
 
-// execer is the statement surface shared by pgxpool pools and transactions.
 type execer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-// DB is the pool surface the registry needs. *pgxpool.Pool satisfies it; the
-// registry owns no connection beyond what a call acquires.
 type DB interface {
 	execer
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
@@ -82,9 +37,6 @@ type DB interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// Registry is the PostgreSQL BundleCatalog. All statements use ordered $n
-// parameters and schema-qualified table names; nothing user-supplied is
-// interpolated into SQL.
 type Registry struct {
 	db         DB
 	executions string
@@ -98,10 +50,6 @@ var (
 	_ publication.PagedBundleCatalog    = (*Registry)(nil)
 )
 
-// New binds a registry to one schema of a PostgreSQL 18 database served by
-// pool. The schema must already contain the publication bundle catalog
-// tables (this package's embedded history, applied via MigrateSchema); New
-// never runs DDL.
 func New(pool DB, schema string) (*Registry, error) {
 	if pool == nil {
 		return nil, errors.New("publication postgres: nil pool")
@@ -117,20 +65,11 @@ func New(pool DB, schema string) (*Registry, error) {
 	}, nil
 }
 
-// pointerKey is the hex SHA-256 of the logical pointer name -- the same
-// digest discipline the Arango registry uses -- so a PointerName carrying
-// embedded NUL bytes (legal for the length-prefixed domain encoding) can key
-// a text primary key. The exact name still round-trips losslessly through
-// the bytea column.
 func pointerKey(name string) string {
 	sum := sha256.Sum256([]byte(name))
 	return hex.EncodeToString(sum[:])
 }
 
-// executionStates expands a canonical state query to the compatibility-only
-// stored values, exactly as the Arango registry does, so legacy rows remain
-// visible without ever being rewritten. The result is plain strings so pgx
-// binds it as text[] for state = ANY($n).
 func executionStates(state publication.BundleState) []string {
 	states := []string{string(state.Canonical())}
 	switch state.Canonical() {
@@ -144,11 +83,6 @@ func executionStates(state publication.BundleState) []string {
 	return states
 }
 
-// executionParams are the ordered $1..$12 bind values for a full row write:
-// identity scope, scan columns, nullable stamps (SQL NULL exactly when the
-// Go pointer is nil), and the marshaled payload. The execution is stored
-// exactly as given -- legacy states and missing fields included -- because
-// canonicalization belongs to reads, not writes.
 func executionParams(execution publication.BundleExecution) ([]any, error) {
 	payload, err := json.Marshal(execution)
 	if err != nil {
@@ -158,9 +92,6 @@ func executionParams(execution publication.BundleExecution) ([]any, error) {
 		execution.ID, execution.Key, execution.Project, execution.DatasetGeneration,
 		execution.Name, execution.TranslationVersion, execution.State,
 		execution.CreatedAt, execution.UpdatedAt, execution.ReadyAt, execution.PublishedAt,
-		// The payload binds as text with an unspecified parameter OID so
-		// PostgreSQL infers jsonb from the column context; []byte would be
-		// typed bytea and rejected.
 		string(payload),
 	}, nil
 }
@@ -168,9 +99,6 @@ func executionParams(execution publication.BundleExecution) ([]any, error) {
 const executionColumnList = "id, execution_key, project, dataset_generation, recipe_name, " +
 	"translation_version, state, created_at, updated_at, ready_at, published_at, payload"
 
-// scanExecution decodes one payload-bearing row into a BundleExecution. The
-// payload is authoritative, so nanosecond timestamps and the JSON
-// null-versus-absent shape survive a save/read round trip untouched.
 func scanExecution(row pgx.Row) (publication.BundleExecution, error) {
 	var payload []byte
 	if err := row.Scan(&payload); err != nil {
@@ -183,12 +111,6 @@ func scanExecution(row pgx.Row) (publication.BundleExecution, error) {
 	return execution, nil
 }
 
-// SaveExecution checkpoints execution metadata under the lease fence on the
-// execution's key: the write is applied in one transaction only while
-// fenceOwner holds an unexpired lease, so a checkpoint from a worker that
-// lost ownership fails with ErrBundleLeaseLost instead of clobbering the
-// new owner's record. An empty ID, key, or owner is a lost fence, matching
-// the Arango registry.
 func (r *Registry) SaveExecution(ctx context.Context, execution publication.BundleExecution, fenceOwner string) error {
 	if execution.ID == "" || execution.Key == "" || fenceOwner == "" {
 		return publication.ErrBundleLeaseLost
@@ -236,8 +158,6 @@ func (r *Registry) SaveExecution(ctx context.Context, execution publication.Bund
 	return nil
 }
 
-// GetExecution loads one execution by id. Legacy shapes are canonicalized on
-// the returned copy only; the stored row is never rewritten.
 func (r *Registry) GetExecution(ctx context.Context, id string) (publication.BundleExecution, error) {
 	execution, err := scanExecution(r.db.QueryRow(ctx,
 		"SELECT payload FROM "+r.executions+" WHERE id = $1", id))
@@ -250,9 +170,6 @@ func (r *Registry) GetExecution(ctx context.Context, id string) (publication.Bun
 	return execution.CanonicalizeLegacy(), nil
 }
 
-// FindExecutionByKey returns the newest-created execution sharing an
-// identity key. The id tie-break makes the answer deterministic when
-// created_at ties, where the Arango query's sort was unspecified.
 func (r *Registry) FindExecutionByKey(ctx context.Context, key string) (publication.BundleExecution, error) {
 	execution, err := scanExecution(r.db.QueryRow(ctx,
 		"SELECT payload FROM "+r.executions+
@@ -266,10 +183,6 @@ func (r *Registry) FindExecutionByKey(ctx context.Context, key string) (publicat
 	return execution.CanonicalizeLegacy(), nil
 }
 
-// scanExecutionRows reads one bounded (state, updated_at, id)-ordered slice.
-// A positive limit applies the keyset continuation after (afterUpdatedAt,
-// afterID); a zero limit is the unbounded scan. It returns the canonicalized
-// page plus the raw scan columns of its last row for continuation.
 func (r *Registry) scanExecutionRows(ctx context.Context, state publication.BundleState, before time.Time, afterUpdatedAt time.Time, afterID string, limit int) ([]publication.BundleExecution, time.Time, string, error) {
 	query := "SELECT payload, updated_at, id FROM " + r.executions +
 		" WHERE state = ANY($1) AND updated_at < $2"
@@ -307,18 +220,11 @@ func (r *Registry) scanExecutionRows(ctx context.Context, state publication.Bund
 	return out, lastAt, lastID, nil
 }
 
-// ListExecutions returns every execution in the requested state
-// (compatibility-only stored values included) updated strictly before
-// before, ordered stably by (updated_at, id). An empty result is a non-nil
-// empty slice, matching the Arango registry.
 func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
 	out, _, _, err := r.scanExecutionRows(ctx, state, before, time.Time{}, "", 0)
 	return out, err
 }
 
-// VisitExecutionPages walks a state scan in stable (updated_at, id) keyset
-// pages, calling visit sequentially and stopping on its first error, with
-// the same contract and continuation discipline as the Arango registry.
 func (r *Registry) VisitExecutionPages(ctx context.Context, state publication.BundleState, before time.Time, pageSize int, visit publication.BundleExecutionPageFunc) error {
 	if pageSize <= 0 {
 		return fmt.Errorf("execution page size must be positive")
@@ -349,17 +255,8 @@ func (r *Registry) VisitExecutionPages(ctx context.Context, state publication.Bu
 	}
 }
 
-// publishedSelectorStates are the states an exact lookup may return, the
-// same published/ready pair the Arango exact query accepts. Plain strings
-// bind as text[] for state = ANY($n).
 var publishedSelectorStates = []string{string(publication.BundlePublished), string(publication.BundleReady)}
 
-// FindExecutionBySelector is the exact release-verification lookup. All
-// four scope components (project, generation, recipe, translation version)
-// are required equality filters and the output must exist among the
-// execution's outputs; there is no name-only latest fallback. Among equal
-// matches the Arango tie order (published, ready, updated) is preserved,
-// with a deterministic id tie-break.
 func (r *Registry) FindExecutionBySelector(ctx context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
 	if err := selector.Validate(); err != nil {
 		return publication.BundleExecution{}, publication.BundleOutputRecord{}, err
@@ -389,8 +286,6 @@ func (r *Registry) FindExecutionBySelector(ctx context.Context, project, generat
 	return publication.BundleExecution{}, publication.BundleOutputRecord{}, publication.ErrBundleNotFound
 }
 
-// GetPointer reads one logical pointer. The pointer name round-trips
-// byte-exact through its bytea column, including embedded NUL bytes.
 func (r *Registry) GetPointer(ctx context.Context, name string) (publication.BundlePointer, error) {
 	var (
 		nameBytes   []byte
@@ -409,15 +304,6 @@ func (r *Registry) GetPointer(ctx context.Context, name string) (publication.Bun
 	return publication.BundlePointer{Name: string(nameBytes), ExecutionID: executionID, UpdatedAt: updatedAt}, nil
 }
 
-// compareAndSwapPointer moves a pointer to next only while the current row
-// still names expected, or when the row is absent and the insert wins. The
-// ON CONFLICT guard is re-evaluated against the newest committed row, so
-// racing publishers converge to exactly one winner. The conflict clause
-// references the target by its unqualified name, as PostgreSQL requires, and
-// the exact name binds as bytea so NUL-bearing PointerNames survive, which
-// both text and jsonb would reject. It also returns the exact SQL text
-// executed so the publish witness in publish.go can record what actually
-// ran.
 func compareAndSwapPointer(ctx context.Context, e execer, qualifiedPointers, name, expected, next string, updatedAt time.Time) (bool, string, error) {
 	sql := "INSERT INTO " + qualifiedPointers + " (pointer_key, name_bytes, execution_id, updated_at)" +
 		" VALUES ($1, $2, $3, $4)" +
@@ -430,9 +316,6 @@ func compareAndSwapPointer(ctx context.Context, e execer, qualifiedPointers, nam
 	return tag.RowsAffected() == 1, sql, nil
 }
 
-// CompareAndSwapPointer is the visibility update: it succeeds only when the
-// pointer is absent or still names expected; otherwise it reports
-// ErrBundlePointerConflict with the row untouched.
 func (r *Registry) CompareAndSwapPointer(ctx context.Context, name, expected, next string) error {
 	swapped, _, err := compareAndSwapPointer(ctx, r.db, r.pointers, name, expected, next, time.Now().UTC())
 	if err != nil {
@@ -444,10 +327,6 @@ func (r *Registry) CompareAndSwapPointer(ctx context.Context, name, expected, ne
 	return nil
 }
 
-// AcquireBundleLease claims a lease key when it is free, expired, or already
-// held by owner. Every grant bumps epoch, correlating repeated ownership of
-// one key (including a same-owner reclaim after expiry). The conflict clause
-// references the target by its unqualified name, as PostgreSQL requires.
 func (r *Registry) AcquireBundleLease(ctx context.Context, key, owner string, expires time.Time) (bool, error) {
 	now := time.Now().UTC()
 	tag, err := r.db.Exec(ctx,
@@ -463,10 +342,6 @@ func (r *Registry) AcquireBundleLease(ctx context.Context, key, owner string, ex
 	return tag.RowsAffected() == 1, nil
 }
 
-// RenewBundleLease extends the lease only for its current owner. Matching
-// the Arango registry, renewal does not re-check expiry: an owner whose
-// renewal raced the clock keeps its fence, while a different owner can
-// never renew.
 func (r *Registry) RenewBundleLease(ctx context.Context, key, owner string, expires time.Time) (bool, error) {
 	tag, err := r.db.Exec(ctx,
 		"UPDATE "+r.leases+" SET expires_at = $3 WHERE key = $1 AND owner_id = $2",
@@ -477,8 +352,6 @@ func (r *Registry) RenewBundleLease(ctx context.Context, key, owner string, expi
 	return tag.RowsAffected() == 1, nil
 }
 
-// ReleaseBundleLease removes the lease only for its current owner; a
-// non-owner release is a no-op that leaves the fence intact.
 func (r *Registry) ReleaseBundleLease(ctx context.Context, key, owner string) error {
 	if _, err := r.db.Exec(ctx,
 		"DELETE FROM "+r.leases+" WHERE key = $1 AND owner_id = $2", key, owner); err != nil {

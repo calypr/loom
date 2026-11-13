@@ -21,17 +21,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-15 melt slice tests. Offline: the closed surface, golden SQL and
-// ordered arguments, refusals, parameter discipline, and the W3 window
-// contract. Live (service-gated by LOOM_TEST_POSTGRES_URL, owned namespace
-// verify_sql15_*): the eight ratified sentinels with their alive-assertion
-// controls — independent literal expected row multisets distinguishing
-// absent, explicit JSON null, and ordinary values, policy behavior, the
-// typed raise, authored key order, expanded-row windowing, preserved
-// columns and the stable melt identity, and the scope controls.
-// ---------------------------------------------------------------------------
-
 const (
 	unp15Project    = "sql15-proj"
 	unp15Foreign    = "sql15-proj-x"
@@ -40,22 +29,15 @@ const (
 	unp15SecretAuth = "FHIR/Secret"
 )
 
-// unp15Fixture is one registered melt plan in canonical form: a direct root
-// scan, one melt of the two authored scalar inputs a→"first" and b→"second"
-// with a preserved logical_id column, identity from the input-row logical id
-// plus the project bind, and the optional stable-identity window. Every
-// fixture plan is structurally valid: ir.Validate must pass (vacuous
-// fixtures are killed at the plan surface, not by skipping).
 type unp15Fixture struct {
 	KeyType   string
 	ValueType string
 	Keys      []any
-	Columns   []string // selected input columns, authored order
+	Columns   []string
 	Policy    string
 	Window    bool
 	Limit     int
-	// Mutate adjusts the canonical plan after assembly (surface tests).
-	Mutate func(plan *ir.PhysicalPlan)
+	Mutate    func(plan *ir.PhysicalPlan)
 }
 
 func (f unp15Fixture) with(fallback unp15Fixture) unp15Fixture {
@@ -85,7 +67,6 @@ var unp15Canonical = unp15Fixture{
 	Policy:    "PRESERVE",
 }
 
-// unp15Plan assembles the canonical registered melt plan.
 func unp15Plan(t *testing.T, fixture unp15Fixture) ir.PhysicalPlan {
 	t.Helper()
 	fixture = fixture.with(unp15Canonical)
@@ -202,8 +183,6 @@ func unp15Seed(t *testing.T, svc *pgir02Service, project, logicalID string, payl
 	svc.insertResource(t, svc.schema, project, unp15Generation, "Patient", logicalID, unp15Auth, payload)
 }
 
-// unp15Rows renders and executes the canonical melt, returning stringified
-// rows keyed by position (c0..).
 func unp15Rows(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) [][]string {
 	t.Helper()
 	rendered := unp15Render(t, plan, unp15Binding(t, svc))
@@ -229,10 +208,6 @@ func unp15ExpectMultiset(t *testing.T, got [][]string, want []string) {
 	}
 }
 
-// unp15ExecError runs the rendered statement to completion and returns the
-// first execution error. pgx surfaces query errors only at Next(), so a
-// bare Query call would both miss a raise and leave the pinned connection
-// undrained (pool.Close then blocks forever): every raise check here drains.
 func unp15ExecError(svc *pgir02Service, rendered command.RenderedPostgresPhysicalPlan) error {
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {
@@ -248,9 +223,6 @@ func unp15ExecError(svc *pgir02Service, rendered command.RenderedPostgresPhysica
 	return rows.Err()
 }
 
-// unp15ExecConnError drains the rendered statement on a dedicated
-// connection, so session state (the barrier GUC) is set and read by the
-// executing session itself. Same drain discipline as unp15ExecError.
 func unp15ExecConnError(t *testing.T, svc *pgir02Service, conn *pgxpool.Conn, rendered command.RenderedPostgresPhysicalPlan) error {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
@@ -267,11 +239,6 @@ func unp15ExecConnError(t *testing.T, svc *pgir02Service, conn *pgxpool.Conn, re
 	return rows.Err()
 }
 
-// unp15StateProbe executes the rendered statement as a subquery and returns
-// (measure, amount, state) with state ∈ {SQL_NULL, JSON_NULL, VALUE} for the
-// amount column — the driver-decode collapse of SQL NULL and jsonb 'null'
-// (selectors_test.go precedent) means only an in-statement probe observes
-// the tri-state the melt preserves.
 func unp15StateProbe(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan, amountColumn string) [][3]string {
 	t.Helper()
 	rendered := unp15Render(t, plan, unp15Binding(t, svc))
@@ -311,10 +278,6 @@ func unp15StateProbe(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan, amo
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Offline: golden SQL and ordered arguments for the canonical plan.
-// ---------------------------------------------------------------------------
-
 func TestUnpivot15GoldenStatement(t *testing.T) {
 	plan := unp15Plan(t, unp15Fixture{})
 	if err := plan.Validate(); err != nil {
@@ -329,13 +292,6 @@ func TestUnpivot15GoldenStatement(t *testing.T) {
 	if strings.Contains(first.SQL, "@") {
 		t.Fatalf("melt SQL carries AQL bind syntax: %s", first.SQL)
 	}
-	// Golden captured from the renderer and hand-verified against the AQL
-	// emitter contract (render/aql/table_reshape.go:502-620): authored-order
-	// VALUES slots (key jsonb, payload extraction, ordinal), scope conjuncts
-	// first, the typeof witness CASE, then the melt-order tail. The live
-	// S6 witness additionally pins the identity text against hand-written
-	// direct SQL, so the emitter is never cross-verified only against
-	// itself.
 	wantSQL := `SELECT (x1.slot_key) AS "c0", (x1.slot_value) AS "c1", (r0."logical_id") AS "c2", ` +
 		`('[' || '[' || to_jsonb($9::text) || ',' || COALESCE(to_jsonb(r0."logical_id"), 'null'::jsonb)::text || ']' || ',' || ` +
 		`'[' || to_jsonb($10::text) || ',' || to_jsonb($11::text)::text || ']' || ',' || ` +
@@ -382,28 +338,12 @@ func unp15OfflineBinding(t *testing.T) ir.PostgresStorageBinding {
 	return binding
 }
 
-// ---------------------------------------------------------------------------
-// Offline: closed-surface refusals. Every mutation must be refused by BOTH
-// entry points with the same typed capability error (the full-backstop
-// witness, unnest.go's TestUnnestDispatchGateIsFullBackstop precedent).
-// ---------------------------------------------------------------------------
-
 func TestUnpivot15SurfaceRefusalsAreFullBackstop(t *testing.T) {
 	cases := []struct {
-		name    string
-		fixture unp15Fixture
-		needle  string
-		// rawValidate marks mutations that break whole-plan IR validity
-		// (unknown bind keys): both entries then honestly reject with the
-		// shared plan.Validate error, not a capability error. Non-renderable
-		// on both entries stays required, and the messages stay equal
-		// because RenderUnpivot delegates to RenderPhysicalPlan.
+		name        string
+		fixture     unp15Fixture
+		needle      string
 		rawValidate bool
-		// siblingGate marks a coexisting op whose own registered slice owns
-		// the plan first: core dispatch hoists validateUnnestPlanSurface
-		// ahead of the melt gate (unnest.go's contract, not edited here),
-		// so message equality only holds when the melt gate is dispatch's
-		// first refusal. Both entries must still reject, typed.
 		siblingGate bool
 	}{
 		{"missing-payload", unp15Fixture{Mutate: func(plan *ir.PhysicalPlan) { plan.Operations[1].Unpivot = nil }}, "payload is missing", false, false},
@@ -485,13 +425,6 @@ func TestUnpivot15SurfaceRefusalsAreFullBackstop(t *testing.T) {
 		{"population-root", unp15Fixture{Mutate: func(plan *ir.PhysicalPlan) {
 			plan.Operations[0].RootScan.Population = &ir.PhysicalPopulationRootSource{}
 		}}, "population, cohort, and candidate-seed roots", false, false},
-		// Reviewer finding (PR #121 r4529533013): ir validates preserved
-		// OutputColumn only against the key/value outputs and each other
-		// (ir/physical_table_shape.go:397), so a rename onto the hidden
-		// melt identity name is IR-legal; the melt must refuse it rather
-		// than silently overwrite the preserved expression with the
-		// identity (the taken check cannot fire — the identity is assigned
-		// after the preserved loop).
 		{"preserved-rowid-collision", unp15Fixture{Mutate: func(plan *ir.PhysicalPlan) {
 			melt := plan.Operations[1].Unpivot
 			melt.PreservedOutputs[0].OutputColumn = unpivotRowIDColumn
@@ -532,7 +465,6 @@ func TestUnpivot15SurfaceRefusalsAreFullBackstop(t *testing.T) {
 	}
 }
 
-// needle helper: alternation-aware substring check.
 func regexNeedle(haystack, needle string) bool {
 	for _, alternative := range strings.Split(needle, "|") {
 		if strings.Contains(haystack, alternative) {
@@ -552,8 +484,6 @@ func TestUnpivot15GoldenWindowAndPolicyClauses(t *testing.T) {
 		t.Fatalf("windowed statement carries no ORDER BY:\n%s", windowed.SQL)
 	}
 	order := windowed.SQL[orderIndex+len(marker):]
-	// The identity sort term is renderer-composed; pin its tail and the
-	// witness ordinals that prove the W3 windowOrder contract.
 	if !strings.Contains(order, ") ASC, r0.\"resource_seq\" ASC, x1.slot_ord ASC LIMIT $13") {
 		t.Fatalf("windowed ORDER BY/LIMIT = %q, want identity then resource_seq then slot_ord then LIMIT $13", order)
 	}
@@ -571,14 +501,6 @@ func TestUnpivot15GoldenWindowAndPolicyClauses(t *testing.T) {
 	}
 }
 
-// TestUnpivot15ValueKindCompatibilityMirrorsIR pins the renderer-side
-// re-read of the closed INTEGER/DECIMAL widening to the ir rule
-// (ir/physical_table_shape.go:563-565: same-kind plus DECIMAL from
-// INTEGER only). Reviewer finding (PR #121 r4529533025): the extra
-// INTEGER-from-DECIMAL arm made the re-read looser than the gate it
-// claims to mirror — dead only because plan.Validate rejects first — and
-// the typeof witness (jsonb_typeof only) cannot separate 1 from 1.5 if
-// ir ever widens.
 func TestUnpivot15ValueKindCompatibilityMirrorsIR(t *testing.T) {
 	for _, testCase := range []struct {
 		output, input string
@@ -588,7 +510,7 @@ func TestUnpivot15ValueKindCompatibilityMirrorsIR(t *testing.T) {
 		{"INTEGER", "INTEGER", true},
 		{"DECIMAL", "DECIMAL", true},
 		{"BOOLEAN", "BOOLEAN", true},
-		{"DECIMAL", "INTEGER", true}, // the one closed widening ir allows
+		{"DECIMAL", "INTEGER", true},
 		{"INTEGER", "DECIMAL", false},
 		{"STRING", "INTEGER", false},
 		{"INTEGER", "STRING", false},
@@ -610,7 +532,7 @@ func TestUnpivot15KeyKindEncodingsAndBounds(t *testing.T) {
 	for _, testCase := range []struct {
 		name string
 		fix  unp15Fixture
-		want string // JSON spelling expected as one of the JSONB args
+		want string
 	}{
 		{"string", kindFixture("STRING", "first", "second"), `"first"`},
 		{"integer", kindFixture("INTEGER", int64(7), int64(8)), "7"},
@@ -679,9 +601,6 @@ func TestUnpivot15HostilePlanDataStaysParameterized(t *testing.T) {
 }
 
 func TestUnpivot15SpinePathUntouched(t *testing.T) {
-	// A plain spine plan (no melt) still renders through the untouched
-	// renderReturn/classification path: the melt routing is inert when
-	// unpivotOutputs stayed nil.
 	plan := scopedPlan(unp15Project, unp15Generation, []string{unp15Auth}, false)
 	plan.Operations = append(plan.Operations, ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
 		{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
@@ -695,10 +614,6 @@ func TestUnpivot15SpinePathUntouched(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live: PostgreSQL 18 sentinels S1-S8 (service-gated, owned verify_sql15_*).
-// ---------------------------------------------------------------------------
-
 func unp15LiveService(t *testing.T) *pgir02Service {
 	t.Helper()
 	svc := newOwnedService(t, 0, "verify_sql15")
@@ -706,20 +621,12 @@ func unp15LiveService(t *testing.T) *pgir02Service {
 	return svc
 }
 
-// unp15CanonicalPayloads seeds the discriminating stored states across
-// four source rows: p1 stores a="alpha", b="beta"; p2 stores a absent, b
-// as explicit JSON null; p3 carries an ordinary value with b absent; and
-// p4 stores the JSON STRING "null" in both columns — the sentinel that
-// separates the fourth stored state (a value whose text is "null") from
-// the explicit JSON null: it must survive DROP and read as VALUE, because
-// jsonb equality separates '"null"' from 'null'.
 func unp15SeedMeltStates(t *testing.T, svc *pgir02Service) {
 	t.Helper()
 	unp15Seed(t, svc, unp15Project, "p1", json.RawMessage(`{"a": "alpha", "b": "beta"}`))
 	unp15Seed(t, svc, unp15Project, "p2", json.RawMessage(`{"b": null}`))
 	unp15Seed(t, svc, unp15Project, "p3", json.RawMessage(`{"a": "gamma"}`))
 	unp15Seed(t, svc, unp15Project, "p4", json.RawMessage(`{"a": "null", "b": "null"}`))
-	// Non-vacuity: every stored state is really stored, byte-exact.
 	for _, state := range []struct{ id, payload string }{
 		{"p1", `{"a": "alpha", "b": "beta"}`},
 		{"p2", `{"b": null}`},
@@ -735,28 +642,20 @@ func unp15SeedMeltStates(t *testing.T, svc *pgir02Service) {
 	}
 }
 
-// S1+S2: policy matrix. PRESERVE emits every (row, slot) pair with the
-// tri-state observable through probes; DROP removes exactly the null-state
-// slots — both absent and explicit JSON null — matching the AQL object-read
-// collapse of table_reshape.go:539-541.
 func TestUnpivot15LiveNullPolicyMatrix(t *testing.T) {
 	svc := unp15LiveService(t)
 	unp15SeedMeltStates(t, svc)
 
 	preserved := unp15StateProbe(t, svc, unp15Plan(t, unp15Fixture{Policy: "PRESERVE"}), "amount")
-	// The probe reads the rendered columns with ::text, so jsonb fidelity
-	// is visible in the literals: string keys/values keep their JSON
-	// quotes and the explicit JSON null renders as the text "null" — the
-	// state column, not the text, is the tri-state assertion.
 	wantPreserved := [][3]string{
-		{`"first"`, "SQL_NULL", "<null>"},  // p2.a absent
-		{`"first"`, "VALUE", `"alpha"`},    // p1.a
-		{`"first"`, "VALUE", `"gamma"`},    // p3.a
-		{`"first"`, "VALUE", `"null"`},     // p4.a — stored STRING "null", a VALUE
-		{`"second"`, "SQL_NULL", "<null>"}, // p3.b absent
-		{`"second"`, "JSON_NULL", "null"},  // p2.b explicit JSON null
-		{`"second"`, "VALUE", `"beta"`},    // p1.b
-		{`"second"`, "VALUE", `"null"`},    // p4.b — stored STRING "null", a VALUE
+		{`"first"`, "SQL_NULL", "<null>"},
+		{`"first"`, "VALUE", `"alpha"`},
+		{`"first"`, "VALUE", `"gamma"`},
+		{`"first"`, "VALUE", `"null"`},
+		{`"second"`, "SQL_NULL", "<null>"},
+		{`"second"`, "JSON_NULL", "null"},
+		{`"second"`, "VALUE", `"beta"`},
+		{`"second"`, "VALUE", `"null"`},
 	}
 	sortProbes := func(rows [][3]string) {
 		sort.Slice(rows, func(i, j int) bool { return rows[i][0]+rows[i][2]+rows[i][1] < rows[j][0]+rows[j][2]+rows[j][1] })
@@ -767,12 +666,6 @@ func TestUnpivot15LiveNullPolicyMatrix(t *testing.T) {
 		t.Fatalf("PRESERVE probe multiset = %v, want %v", preserved, wantPreserved)
 	}
 
-	// Both null states — absent (SQL_NULL) and explicit JSON null — are
-	// dropped; the five ordinary values survive, and the stored STRING
-	// "null" values survive with them: 8 melt slots minus p2.a (absent),
-	// p2.b (JSON null), and p3.b (absent). The DROP conjunct compares
-	// jsonb equality (slot_value <> 'null'::jsonb), which cannot confuse
-	// the string "null" with JSON null.
 	dropped := unp15StateProbe(t, svc, unp15Plan(t, unp15Fixture{Policy: "DROP"}), "amount")
 	if len(dropped) != 5 {
 		t.Fatalf("DROP rows = %v, want the 5 non-null slots (string \"null\" included)", dropped)
@@ -784,10 +677,6 @@ func TestUnpivot15LiveNullPolicyMatrix(t *testing.T) {
 	}
 }
 
-// S3: the value-type witness raises the canonical tag as a query error,
-// plan-time safety proven by the EXPLAIN pair (plain EXPLAIN plans; EXPLAIN
-// (ANALYZE) executes and raises), the population.go sabotage-proof pattern
-// applied to the per-row CASE.
 func TestUnpivot15LiveValueTypeRaise(t *testing.T) {
 	svc := unp15LiveService(t)
 	unp15Seed(t, svc, unp15Project, "ok1", json.RawMessage(`{"a": "alpha", "b": "beta"}`))
@@ -797,12 +686,9 @@ func TestUnpivot15LiveValueTypeRaise(t *testing.T) {
 	for index, parameter := range rendered.Args {
 		args[index] = parameter.Value
 	}
-	// Plain EXPLAIN: plans fine — no plan-time fold of the guarded cast.
 	if _, err := svc.iso.Exec(svc.ctx, "EXPLAIN "+rendered.SQL, args...); err != nil {
 		t.Fatalf("plain EXPLAIN must plan without executing the witness: %v", err)
 	}
-	// Execution raises the canonical tag under DROP, where an ordinary row
-	// also flows: conjunct order cannot hide the violation.
 	_, err := svc.iso.Exec(svc.ctx, "EXPLAIN (ANALYZE, TIMING OFF, SUMMARY OFF) "+rendered.SQL, args...)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "22P02" || !strings.Contains(pgErr.Message, unpivotValueTypeTag) {
@@ -813,13 +699,6 @@ func TestUnpivot15LiveValueTypeRaise(t *testing.T) {
 	if execErr == nil {
 		t.Fatal("wrong-typed slot executed instead of raising")
 	}
-	// Independent reproduction of the fold-control claim (the population.go
-	// L-class sabotage pattern): with the barrier GUC set to a session-
-	// unique value on the executing connection, the raise must name the
-	// injected value in the 22P02 message. A plan-time fold of the CAST
-	// operand — the sabotage this barrier exists to catch — would name
-	// only the tag, never the injected value, because the folded operand
-	// could not observe a per-session GUC set after planning.
 	conn, err := svc.iso.Acquire(svc.ctx)
 	if err != nil {
 		svc.fail("acquire barrier connection", err)
@@ -836,7 +715,6 @@ func TestUnpivot15LiveValueTypeRaise(t *testing.T) {
 		t.Fatalf("barrier raise = %v, want 22P02 naming %s and the injected barrier %q", drainErr, unpivotValueTypeTag, barrier)
 	}
 	t.Logf("fold-control raise with injected barrier: %s %s", barrierErr.Code, barrierErr.Message)
-	// Alive control: the same statement over only well-typed rows renders.
 	unp15Seed(t, svc, unp15Foreign, "bad-other", json.RawMessage(`{"a": 42}`))
 	svc.witness(t, `DELETE FROM "`+svc.schema+`".fhir_resource WHERE logical_id = 'bad1'`)
 	rows := svc.runRendered(t, rendered)
@@ -845,18 +723,11 @@ func TestUnpivot15LiveValueTypeRaise(t *testing.T) {
 	}
 }
 
-// S4: declared key typing and authored input order. INTEGER keys render as
-// JSON numbers; the identity tail carries the first-input key kind and the
-// slot keys in authored order; swapping authored order swaps the slot
-// ordinals' key pairing.
 func TestUnpivot15LiveKeyTypingAndAuthoredOrder(t *testing.T) {
 	svc := unp15LiveService(t)
 	unp15Seed(t, svc, unp15Project, "p1", json.RawMessage(`{"a": "alpha", "b": "beta"}`))
 	fixture := unp15Fixture{KeyType: "INTEGER", ValueType: "STRING", Keys: []any{int64(101), int64(202)}, Window: true}
 	rows := unp15Rows(t, svc, unp15Plan(t, fixture))
-	// The declared key type reaches the identity: an INTEGER slot key is a
-	// JSON number, and TO_STRING (table_reshape.go:543-559) renders numbers
-	// unquoted, so the identity carries ["INTEGER",101], not ["INTEGER","101"].
 	want := []string{
 		`101|alpha|p1|[["__loom_row_id","p1"],["project","sql15-proj"],["cfg-15","TABLE_UNPIVOT"],["INTEGER",101]]`,
 		`202|beta|p1|[["__loom_row_id","p1"],["project","sql15-proj"],["cfg-15","TABLE_UNPIVOT"],["INTEGER",202]]`,
@@ -875,10 +746,6 @@ func TestUnpivot15LiveKeyTypingAndAuthoredOrder(t *testing.T) {
 	}
 }
 
-// S5: the window bounds MELTED rows, not source rows: 1 source row melts to
-// 2 slots; LIMIT 1 returns 1 of the 2 melted rows while the control without
-// LIMIT returns both. The control delta is the alive proof that the Limit
-// node sits above the VALUES expansion, not below it.
 func TestUnpivot15LiveWindowBoundsMeltedRows(t *testing.T) {
 	svc := unp15LiveService(t)
 	unp15Seed(t, svc, unp15Project, "p1", json.RawMessage(`{"a": "alpha", "b": "beta"}`))
@@ -890,10 +757,6 @@ func TestUnpivot15LiveWindowBoundsMeltedRows(t *testing.T) {
 	if len(bounded) != 1 {
 		t.Fatalf("bounded window rows = %v, want exactly 1", bounded)
 	}
-	// Alive proof the LIMIT sits above the expansion: with 1 source row and
-	// 2 slots, a source-row window would still return 2 rows (both slots of
-	// the same source), while the melted window returns 1. The identity
-	// order is stable across executions: run twice, compare exactly.
 	repeat := unp15Rows(t, svc, unp15Plan(t, unp15Fixture{Window: true, Limit: 1}))
 	if !reflect.DeepEqual(bounded, repeat) {
 		t.Fatalf("bounded window is not deterministic across executions:\n%v\n%v", bounded, repeat)
@@ -903,11 +766,6 @@ func TestUnpivot15LiveWindowBoundsMeltedRows(t *testing.T) {
 	for index, parameter := range rendered.Args {
 		args[index] = parameter.Value
 	}
-	// The witness stringifies the JSON plan into its Go-map rendering, so
-	// the nodes appear as "Node Type:Limit"/"Node Type:Values Scan" in
-	// pre-order serialization: the Limit token preceding the Values Scan
-	// token is the above-the-expansion proof (a below-limit expansion
-	// would serialize the Values Scan first).
 	planRows := svc.witness(t, "EXPLAIN (ANALYZE, FORMAT JSON) "+rendered.SQL, args...)
 	if len(planRows) == 0 {
 		t.Fatalf("EXPLAIN ANALYZE returned no plan rows:\n%s", planRows)
@@ -919,8 +777,6 @@ func TestUnpivot15LiveWindowBoundsMeltedRows(t *testing.T) {
 	}
 }
 
-// S6: preserved columns (with a rename), stable identity match across
-// executions, and the preserved logical id riding every slot.
 func TestUnpivot15LivePreservedAndIdentityStability(t *testing.T) {
 	svc := unp15LiveService(t)
 	unp15Seed(t, svc, unp15Project, "p1", json.RawMessage(`{"a": "alpha", "b": "beta"}`))
@@ -936,8 +792,6 @@ func TestUnpivot15LivePreservedAndIdentityStability(t *testing.T) {
 	if !reflect.DeepEqual(rows, again) {
 		t.Fatalf("stable row identity drifted:\n%v\n%v", rows, again)
 	}
-	// Witness the identity against a hand-written direct-SQL expectation of
-	// the AQL TO_STRING shape (independent literals, ASCII-bound contract).
 	probe := svc.witness(t,
 		`SELECT ('[' || '[' || '"__loom_row_id"' || ',' || '"p1"' || ']' || ',' || '[' || '"project"' || ',' || '"sql15-proj"' || ']' || ',' || `+
 			`'[' || '"cfg-15"' || ',' || '"TABLE_UNPIVOT"' || ']' || ',' || '[' || '"STRING"' || ',' || '"first"' || ']' || ']')::text`)
@@ -955,8 +809,6 @@ func TestUnpivot15LivePreservedAndIdentityStability(t *testing.T) {
 	}
 }
 
-// S7: scope stays load-bearing through the expansion: the unauthorized auth
-// path reads zero rows while the authorized control returns rows.
 func TestUnpivot15LiveScopeControls(t *testing.T) {
 	svc := unp15LiveService(t)
 	unp15Seed(t, svc, unp15Project, "p1", json.RawMessage(`{"a": "alpha", "b": "beta"}`))
@@ -965,11 +817,9 @@ func TestUnpivot15LiveScopeControls(t *testing.T) {
 	if rows := svc.runRendered(t, unp15Render(t, plan, unp15Binding(t, svc))); len(rows) != 0 {
 		t.Fatalf("unauthorized auth path returned %v, want zero rows", rows)
 	}
-	// Alive control through the melt: authorized path returns both slots.
 	if rows := unp15Rows(t, svc, unp15Plan(t, unp15Fixture{})); len(rows) != 2 {
 		t.Fatalf("authorized control rows = %v, want 2", rows)
 	}
-	// Canonical deny: zero rows even with the authorized path.
 	denied := unp15Plan(t, unp15Fixture{})
 	denied.BindVars["scope_allowed"] = false
 	if rows := svc.runRendered(t, unp15Render(t, denied, unp15Binding(t, svc))); len(rows) != 0 {
@@ -977,8 +827,6 @@ func TestUnpivot15LiveScopeControls(t *testing.T) {
 	}
 }
 
-// S8: parameterized determinism live at the driver: same statement, same
-// args, same ordered rows, and the ordered arguments pin exactly.
 func TestUnpivot15LiveArgumentsPinned(t *testing.T) {
 	svc := unp15LiveService(t)
 	unp15Seed(t, svc, unp15Project, "p1", json.RawMessage(`{"a": "alpha", "b": "beta"}`))
@@ -994,13 +842,6 @@ func TestUnpivot15LiveArgumentsPinned(t *testing.T) {
 		t.Fatalf("deterministic first row = %v, want the authored-first slot", rows)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Live fixture hygiene: delta-scoped zero-survivor audit for verify_sql15_*
-// (traversal_test.go trvRunDeltaAudit precedent), composed into TestMain by
-// main_test.go. Tracked survivors fail the run; untracked late-born names
-// are reported without framing a sibling lane.
-// ---------------------------------------------------------------------------
 
 var (
 	unpFixturesMu      sync.Mutex

@@ -7,18 +7,12 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// WorkspaceArtifact is one exact compiler-resolved same-bundle output capture.
-// ExpectedIdentity is derived from the source OutputStream and compiler schema,
-// not from manifest values supplied by the caller.
 type WorkspaceArtifact struct {
 	OutputID         string
 	ExpectedIdentity ir.ClickHouseArtifactIdentity
 	Artifact         ir.ResolvedClickHousePrivateArtifact
 }
 
-// RenderWorkspaceClickHouseCombine resolves a terminal workspace Combine in
-// authored input order. Private captures are keyed by stable output ID;
-// published tables are supplied only for the exact published refs in plan.
 func RenderWorkspaceClickHouseCombine(
 	plan ir.PhysicalClickHouseCombine,
 	workspace []WorkspaceArtifact,
@@ -149,8 +143,6 @@ func validateWorkspaceResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs [
 		}
 		scopeMode := input.ScopeMode
 		if scopeMode == "" && ref.WorkspaceOutputID == "" {
-			// Older pinned TABLE_REVISION records predate explicit artifact
-			// scope modes and always retained row-level authorization paths.
 			scopeMode = ir.ClickHouseArtifactScopeRows
 		}
 		switch scopeMode {

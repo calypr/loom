@@ -24,14 +24,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-// Every acceptance assertion below runs against a real server: the tests
-// create one uniquely owned pgpubcat01_it_* database and one owned schema
-// per test, apply the catalog migration through the real pg-store-02 runner,
-// and assert literal expected rows. A skipped required case is a failure for
-// this ticket's acceptance, so the check is run with the service configured;
-// the gate exists only to keep unrelated CI lanes green.
-
 var pgpubcat01ResourceNamePattern = regexp.MustCompile(`^pgpubcat01_it_[0-9]+_[0-9a-f]+$`)
 
 func testPostgresURL(t *testing.T) string {
@@ -51,14 +43,10 @@ func randomHex() string {
 	return hex.EncodeToString(buf)
 }
 
-// catalogService owns one isolated database and one owned schema inside it,
-// both named pgpubcat01_it_*, plus the migrated publication bundle catalog
-// and a registry bound to that schema. Nothing outside these two resources
-// is touched; TestMain audits that none survive.
 type catalogService struct {
 	ctx      context.Context
-	admin    *pgxpool.Pool // service database
-	iso      *pgxpool.Pool // isolated database
+	admin    *pgxpool.Pool
+	iso      *pgxpool.Pool
 	schema   string
 	registry *Registry
 	scrub    func(any) string
@@ -74,7 +62,6 @@ func newCatalogService(t *testing.T) *catalogService {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -119,8 +106,6 @@ func newCatalogService(t *testing.T) *catalogService {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -159,16 +144,6 @@ func newCatalogService(t *testing.T) *catalogService {
 	return s
 }
 
-// migrate applies this suite's slice of the authoritative publication
-// control-plane history -- the ledger bootstrap plus
-// 000004_publication_bundle_catalog.sql, both owned by this package's
-// embed (migrate.go) -- through the real pg-store-02 runner, and asserts the
-// ledger literally records both rows. The suite filters the owner history to
-// the versions its catalog audit owns: sibling publication tickets add their
-// own migrations (000006_* and onward) and those tables belong to the lease
-// and retention audits, not to this catalog's metadata-only audit, so the
-// catalog test history stays exactly {1 ledger, 4 publication_bundle_catalog}
-// regardless of how the owner history grows.
 func (s *catalogService) migrate(t *testing.T) {
 	t.Helper()
 	history := mustOwnerHistorySubset(t, 1, 4)
@@ -199,11 +174,6 @@ func (s *catalogService) migrate(t *testing.T) {
 	}
 }
 
-// mustOwnerHistorySubset returns the authoritative owner history (the single
-// production source of this schema series' DDL) filtered to the given
-// versions, with every filtered-out entry validated away rather than
-// silently ignored: the owner must pin exactly one migration per requested
-// version and the result must be ascending.
 func mustOwnerHistorySubset(t *testing.T, versions ...int64) []storepostgres.Migration {
 	t.Helper()
 	owner, err := OwnerMigrations()
@@ -232,7 +202,6 @@ func mustOwnerHistorySubset(t *testing.T, versions ...int64) []storepostgres.Mig
 	return out
 }
 
-// mustExec runs a statement and fails the test on error.
 func (s *catalogService) mustExec(t *testing.T, sql string, args ...any) {
 	t.Helper()
 	if _, err := s.iso.Exec(s.ctx, sql, args...); err != nil {
@@ -240,7 +209,6 @@ func (s *catalogService) mustExec(t *testing.T, sql string, args ...any) {
 	}
 }
 
-// execCount runs a count query and returns the value.
 func (s *catalogService) execCount(t *testing.T, sql string, args ...any) int {
 	t.Helper()
 	var n int
@@ -250,8 +218,6 @@ func (s *catalogService) execCount(t *testing.T, sql string, args ...any) int {
 	return n
 }
 
-// witnessText runs a single-text-value query, returning ok=false only for
-// zero rows.
 func (s *catalogService) witnessText(t *testing.T, sql string, args ...any) (string, bool) {
 	t.Helper()
 	var value string
@@ -265,7 +231,6 @@ func (s *catalogService) witnessText(t *testing.T, sql string, args ...any) (str
 	return value, true
 }
 
-// mustWitnessText fails when the query returns zero rows.
 func (s *catalogService) mustWitnessText(t *testing.T, sql string, args ...any) string {
 	t.Helper()
 	value, ok := s.witnessText(t, sql, args...)
@@ -275,7 +240,6 @@ func (s *catalogService) mustWitnessText(t *testing.T, sql string, args ...any) 
 	return value
 }
 
-// mustWitnessBool fails when the query returns zero rows.
 func (s *catalogService) mustWitnessBool(t *testing.T, sql string, args ...any) bool {
 	t.Helper()
 	var value bool
@@ -286,7 +250,6 @@ func (s *catalogService) mustWitnessBool(t *testing.T, sql string, args ...any) 
 	return value
 }
 
-// mustWitnessInt64 fails when the query returns zero rows.
 func (s *catalogService) mustWitnessInt64(t *testing.T, sql string, args ...any) int64 {
 	t.Helper()
 	var value int64
@@ -301,7 +264,6 @@ func (s *catalogService) qualified(table string) string {
 	return pgx.Identifier{s.schema, table}.Sanitize()
 }
 
-// acquireLease claims a lease or dies.
 func (s *catalogService) acquireLease(t *testing.T, key, owner string, expires time.Time) {
 	t.Helper()
 	claimed, err := s.registry.AcquireBundleLease(s.ctx, key, owner, expires)
@@ -310,7 +272,6 @@ func (s *catalogService) acquireLease(t *testing.T, key, owner string, expires t
 	}
 }
 
-// saveExecution saves under a fence or dies.
 func (s *catalogService) saveExecution(t *testing.T, execution publication.BundleExecution, fenceOwner string) {
 	t.Helper()
 	if err := s.registry.SaveExecution(s.ctx, execution, fenceOwner); err != nil {
@@ -318,8 +279,6 @@ func (s *catalogService) saveExecution(t *testing.T, execution publication.Bundl
 	}
 }
 
-// baseExecution builds a fully populated execution for the standard scope
-// project=alpha generation=gen-1 recipe=panel translation=v1.
 func baseExecution(id, key string, state publication.BundleState, stamps executionStamps) publication.BundleExecution {
 	createdAt := stamps.created
 	updatedAt := stamps.updated
@@ -405,10 +364,6 @@ var (
 	pubTime     = baseTime.Add(2 * time.Minute)
 )
 
-// ---------------------------------------------------------------------------
-// Construction contract (no server needed).
-// ---------------------------------------------------------------------------
-
 func TestNewRejectsNilPoolAndUnsafeSchemas(t *testing.T) {
 	if _, err := New(nil, "ok_schema"); err == nil {
 		t.Fatal("New(nil pool) = nil error, want rejection")
@@ -449,10 +404,6 @@ func TestPointerKeyDigestDiscipline(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Metadata-only schema (ClickHouse remains the publication data plane).
-// ---------------------------------------------------------------------------
-
 func TestCatalogSchemaHoldsMetadataOnly(t *testing.T) {
 	s := newCatalogService(t)
 	rows, err := s.iso.Query(s.ctx,
@@ -483,10 +434,6 @@ func TestCatalogSchemaHoldsMetadataOnly(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Save/read fidelity and columns.
-// ---------------------------------------------------------------------------
-
 func TestSaveExecutionRoundTripAndLiteralColumns(t *testing.T) {
 	s := newCatalogService(t)
 	s.acquireLease(t, "bundle-key", "publisher-a", time.Now().UTC().Add(time.Minute))
@@ -497,14 +444,12 @@ func TestSaveExecutionRoundTripAndLiteralColumns(t *testing.T) {
 	if err != nil {
 		s.fail("get execution", err)
 	}
-	// Payload fidelity: the decoded execution must re-marshal byte-identically.
 	wantJSON := mustMarshal(t, execution)
 	gotJSON := mustMarshal(t, got)
 	if wantJSON != gotJSON {
 		t.Fatalf("round-tripped execution differs:\n got %s\nwant %s", gotJSON, wantJSON)
 	}
 
-	// Literal scope columns, ordered SQL parameters written by the registry.
 	var (
 		gotKey, gotProject, gotGeneration, gotRecipe, gotTV, gotState string
 		gotCreated, gotUpdated                                        time.Time
@@ -531,7 +476,6 @@ func TestSaveExecutionRoundTripAndLiteralColumns(t *testing.T) {
 		t.Fatalf("stored nullable stamps = ready %v published %v, want ready %v published NULL",
 			gotReady, gotPublished, readyTime)
 	}
-	// The payload stores the execution as given; the state column matches it.
 	if payloadState := s.mustWitnessText(t,
 		"SELECT payload->>'state' FROM "+s.qualified(BundleExecutionsTable)+" WHERE id = $1", "exec-full"); payloadState != "RUNNING" {
 		t.Fatalf("payload state = %q, want RUNNING", payloadState)
@@ -547,15 +491,10 @@ func mustMarshal(t *testing.T, v any) string {
 	return string(data)
 }
 
-// ---------------------------------------------------------------------------
-// Lease fencing.
-// ---------------------------------------------------------------------------
-
 func TestSaveExecutionRequiresActiveFence(t *testing.T) {
 	s := newCatalogService(t)
 	execution := baseExecution("exec-fence", "bundle-key", publication.BundleRunning, stamps(createdTime, updatedTime, time.Time{}, time.Time{}))
 
-	// Empty identity, key, or fence owner are lost fences, no server query.
 	noID := execution
 	noID.ID = ""
 	noKey := execution
@@ -568,7 +507,6 @@ func TestSaveExecutionRequiresActiveFence(t *testing.T) {
 	if err := s.registry.SaveExecution(s.ctx, execution, ""); !errors.Is(err, publication.ErrBundleLeaseLost) {
 		t.Fatalf("SaveExecution(empty owner) = %v, want ErrBundleLeaseLost", err)
 	}
-	// No lease at all: the write is refused and nothing is stored.
 	if err := s.registry.SaveExecution(s.ctx, execution, "publisher-a"); !errors.Is(err, publication.ErrBundleLeaseLost) {
 		t.Fatalf("SaveExecution(without lease) = %v, want ErrBundleLeaseLost", err)
 	}
@@ -576,15 +514,10 @@ func TestSaveExecutionRequiresActiveFence(t *testing.T) {
 		t.Fatalf("executions stored after refused saves = %d, want 0", n)
 	}
 
-	// A live lease saves; after the owner's own lease expires and another
-	// owner takes over, the old owner's checkpoint is refused and the new
-	// owner's record survives untouched.
 	s.acquireLease(t, "bundle-key", "publisher-a", time.Now().UTC().Add(time.Minute))
 	s.saveExecution(t, execution, "publisher-a")
 	newer := execution
 	newer.Error = "owned by publisher-b"
-	// The same owner legally re-claims with a past expiry: the fence is now
-	// expired, so publisher-b can take over.
 	s.acquireLease(t, "bundle-key", "publisher-a", time.Now().UTC().Add(-time.Second))
 	s.acquireLease(t, "bundle-key", "publisher-b", time.Now().UTC().Add(time.Hour))
 	if err := s.registry.SaveExecution(s.ctx, newer, "publisher-a"); !errors.Is(err, publication.ErrBundleLeaseLost) {
@@ -619,7 +552,6 @@ func TestLeaseLifecycleAndRepeatedOwnerCorrelation(t *testing.T) {
 		t.Fatalf("after first acquire: epoch=%d owner=%q, want 1 owner-a", epoch(), owner())
 	}
 
-	// A live lease refuses a different owner and a foreign renew/release.
 	claimed, err = s.registry.AcquireBundleLease(s.ctx, "bundle-l", "owner-b", time.Now().UTC().Add(time.Hour))
 	if err != nil || claimed {
 		t.Fatalf("acquire held lease = %v, %v; want false, nil", claimed, err)
@@ -637,7 +569,6 @@ func TestLeaseLifecycleAndRepeatedOwnerCorrelation(t *testing.T) {
 		t.Fatalf("owner renew = %v, %v; want true, nil", renewed, err)
 	}
 
-	// The owner releases cleanly.
 	if err := s.registry.ReleaseBundleLease(s.ctx, "bundle-l", "owner-a"); err != nil {
 		s.fail("owner release", err)
 	}
@@ -645,9 +576,6 @@ func TestLeaseLifecycleAndRepeatedOwnerCorrelation(t *testing.T) {
 		t.Fatalf("lease rows after owner release = %d, want 0", n)
 	}
 
-	// Expired leases are claimable by anyone, and a same-owner reclaim of an
-	// expired lease is allowed; each grant bumps epoch so witnesses can
-	// correlate the sequence of ownership grants on one key.
 	s.acquireLease(t, "bundle-l", "owner-a", time.Now().UTC().Add(time.Hour))
 	if epoch() != 1 {
 		t.Fatalf("re-grant after release epoch = %d, want 1", epoch())
@@ -665,10 +593,6 @@ func TestLeaseLifecycleAndRepeatedOwnerCorrelation(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Pointers: exact CAS, NUL-safe names, collision behavior.
-// ---------------------------------------------------------------------------
-
 func TestPointerCompareAndSwapLiteralRows(t *testing.T) {
 	s := newCatalogService(t)
 	name := "5:alpha8:gen-15:panel2:v1"
@@ -685,7 +609,6 @@ func TestPointerCompareAndSwapLiteralRows(t *testing.T) {
 		t.Fatalf("pointer = %+v, want name %q exec-1", pointer, name)
 	}
 
-	// A stale expected value conflicts and leaves the literal row untouched.
 	if err := s.registry.CompareAndSwapPointer(s.ctx, name, "exec-stale", "exec-2"); !errors.Is(err, publication.ErrBundlePointerConflict) {
 		t.Fatalf("stale CAS = %v, want ErrBundlePointerConflict", err)
 	}
@@ -694,7 +617,6 @@ func TestPointerCompareAndSwapLiteralRows(t *testing.T) {
 		t.Fatalf("execution_id after stale CAS = %q, want exec-1", got)
 	}
 
-	// The current owner's expected value wins.
 	if err := s.registry.CompareAndSwapPointer(s.ctx, name, "exec-1", "exec-2"); err != nil {
 		s.fail("owner CAS", err)
 	}
@@ -710,9 +632,6 @@ func TestPointerCompareAndSwapLiteralRows(t *testing.T) {
 func TestPointerNamesWithNULRoundTripAndNoCollisionFold(t *testing.T) {
 	s := newCatalogService(t)
 
-	// The Repair-5 class: identities whose bare-join names would fold still
-	// have distinct PointerName() values, distinct keys, and independent
-	// pointers. Domain results must be unchanged by the PG backend.
 	foldA := publication.BundleIdentity{Project: "p", DatasetGeneration: "g", Name: "a\x00b"}
 	foldB := publication.BundleIdentity{Project: "p", DatasetGeneration: "g", Name: "a", TranslationVersion: "b"}
 	if foldA.PointerName() == foldB.PointerName() {
@@ -738,8 +657,6 @@ func TestPointerNamesWithNULRoundTripAndNoCollisionFold(t *testing.T) {
 		t.Fatalf("stored name_bytes = %s, want %s", raw, hex.EncodeToString([]byte(nulName)))
 	}
 
-	// Both folded pointers coexist as distinct rows pointing at distinct
-	// executions -- publishing the second never repoints the first.
 	if err := s.registry.CompareAndSwapPointer(s.ctx, foldA.PointerName(), "", "exec-a"); err != nil {
 		s.fail("fold A CAS", err)
 	}
@@ -758,10 +675,6 @@ func TestPointerNamesWithNULRoundTripAndNoCollisionFold(t *testing.T) {
 		t.Fatalf("pointer rows = %d, want 3", n)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Atomic publish under the lease fence.
-// ---------------------------------------------------------------------------
 
 func TestPublishExecutionCommitsPointerAndStateAtomically(t *testing.T) {
 	s := newCatalogService(t)
@@ -799,13 +712,9 @@ func TestPublishExecutionRollsBackEverythingOnConflict(t *testing.T) {
 	s := newCatalogService(t)
 	name := "5:alpha8:gen-15:panel2:v1"
 
-	// Expired fence: conflict, and neither the pointer nor the execution
-	// moves. The registry never falls back to an unfenced write.
 	expired := baseExecution("exec-exp", "bundle-exp", publication.BundleRunning, stamps(createdTime, updatedTime, readyTime, time.Time{}))
 	s.acquireLease(t, "bundle-exp", "publisher-a", time.Now().UTC().Add(time.Hour))
 	s.saveExecution(t, expired, "publisher-a")
-	// Same owner re-claims with a past expiry: the grant is legal, the fence
-	// is now expired for writers.
 	s.acquireLease(t, "bundle-exp", "publisher-a", time.Now().UTC().Add(-time.Second))
 	published := expired
 	published.OwnerID = "publisher-a"
@@ -821,7 +730,6 @@ func TestPublishExecutionRollsBackEverythingOnConflict(t *testing.T) {
 		t.Fatalf("execution state after refused publish = %q, want RUNNING (rolled back)", state)
 	}
 
-	// Foreign owner cannot publish.
 	foreign := baseExecution("exec-foreign", "bundle-foreign", publication.BundleRunning, stamps(createdTime, updatedTime, readyTime, time.Time{}))
 	s.acquireLease(t, "bundle-foreign", "publisher-a", time.Now().UTC().Add(time.Hour))
 	s.saveExecution(t, foreign, "publisher-a")
@@ -831,7 +739,6 @@ func TestPublishExecutionRollsBackEverythingOnConflict(t *testing.T) {
 		t.Fatalf("publish by non-owner = %v, want ErrBundlePointerConflict", err)
 	}
 
-	// Missing execution row: conflict, pointer untouched.
 	missing := foreignPublished
 	missing.OwnerID = "publisher-a"
 	missing.ID = "exec-never-saved"
@@ -842,8 +749,6 @@ func TestPublishExecutionRollsBackEverythingOnConflict(t *testing.T) {
 		t.Fatalf("pointer rows after refused publishes = %d, want 0", n)
 	}
 
-	// A correct publish first succeeds; then publishing with a stale expected
-	// value conflicts and the pointer keeps naming the winner.
 	ok := foreign
 	ok.OwnerID = "publisher-a"
 	ok.State = publication.BundlePublished
@@ -926,10 +831,6 @@ func TestPublishExecutionConcurrentCASOneWinner(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Exact lookup: project+generation+selector scope, no name-only fallback.
-// ---------------------------------------------------------------------------
-
 func TestExactLookupIsFullyScoped(t *testing.T) {
 	s := newCatalogService(t)
 	selector := publication.DataframeSelector{Recipe: "panel", TranslationVersion: "v1", Output: "out-a"}
@@ -954,8 +855,6 @@ func TestExactLookupIsFullyScoped(t *testing.T) {
 		s.saveExecution(t, execution, "publisher-a")
 	}
 
-	// Exact hit resolves to the newest published_at match with literal
-	// output metadata.
 	execution, output, err := s.registry.FindExecutionBySelector(s.ctx, "alpha", "gen-1", selector)
 	if err != nil {
 		s.fail("exact lookup", err)
@@ -975,10 +874,6 @@ func TestExactLookupIsFullyScoped(t *testing.T) {
 		t.Fatalf("exact output =\n %s\nwant\n %s", gotJSON, wantJSON)
 	}
 
-	// Positive exact-scope resolution: each sibling row is found only under
-	// its own full scope. A name-only latest fallback would answer the
-	// beta/generation-2/v2 queries with the newest "panel"/"out-a" row
-	// (exec-exact-new); the registry must not.
 	type hit struct {
 		project    string
 		generation string
@@ -1000,10 +895,6 @@ func TestExactLookupIsFullyScoped(t *testing.T) {
 		}
 	}
 
-	// Every scope component is required: with any component changed to a
-	// value no row carries, the lookup misses even though name+output still
-	// match somewhere in the collection. This is the no-name-only-latest-
-	// fallback acceptance.
 	type miss struct {
 		name       string
 		project    string
@@ -1024,8 +915,6 @@ func TestExactLookupIsFullyScoped(t *testing.T) {
 		}
 	}
 
-	// The non-published twin carries the newest stamps but is invisible: a
-	// name-only latest fallback over all states would answer with it.
 	runSelector := publication.DataframeSelector{Recipe: "panel", TranslationVersion: "v1", Output: "out-run"}
 	if _, _, err := s.registry.FindExecutionBySelector(s.ctx, "alpha", "gen-1", runSelector); !errors.Is(err, publication.ErrBundleNotFound) {
 		t.Fatalf("running twin visible before publish: %v", err)
@@ -1046,7 +935,6 @@ func TestExactLookupIsFullyScoped(t *testing.T) {
 		execution.ID != "exec-exact-run" || output.RowCount != 42 || output.PhysicalTable != "phys_alpha_out_run" {
 		t.Fatalf("run twin after publish = %q/%+v, %v; want exec-exact-run with out-run metadata", execution.ID, output, err)
 	}
-	// The out-a scope still resolves to the newest published match.
 	if execution, _, err := s.registry.FindExecutionBySelector(s.ctx, "alpha", "gen-1", selector); err != nil || execution.ID != "exec-exact-new" {
 		t.Fatalf("newest after run twin published = %q, %v; want exec-exact-new", execution.ID, err)
 	}
@@ -1056,8 +944,6 @@ func TestExactLookupOrdersNullStampsDeterministically(t *testing.T) {
 	s := newCatalogService(t)
 	selector := publication.DataframeSelector{Recipe: "panel", TranslationVersion: "v1", Output: "out-a"}
 
-	// Both rows lack published_at (SQL NULL): ordering falls to ready_at,
-	// then updated_at, then id. Literal expected row: exec-null-late.
 	first := baseExecution("exec-null-early", "bundle-null-1", publication.BundlePublished, stamps(createdTime, updatedTime, time.Time{}, time.Time{}))
 	second := baseExecution("exec-null-late", "bundle-null-2", publication.BundlePublished, stamps(createdTime, updatedTime.Add(time.Minute), time.Time{}, time.Time{}))
 	for _, execution := range []publication.BundleExecution{first, second} {
@@ -1087,10 +973,6 @@ func TestExactLookupRejectsInvalidSelector(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Legacy payload canonicalization on read, never on write.
-// ---------------------------------------------------------------------------
-
 const legacyQueuedPayload = `{"id":"legacy-queued","key":"legacy-key","name":"legacy-recipe","translationVersion":"v9","project":"p","datasetGeneration":"g","state":"PENDING","outputs":[{"name":"out","physicalTable":"phys_legacy","state":"LOADING","rowCount":3}],"createdAt":"2026-11-09T10:00:00Z","updatedAt":"2026-11-09T10:05:00Z","readyAt":"2026-11-09T10:06:00Z"}`
 
 const legacyReadyPayload = `{"id":"legacy-ready","key":"legacy-key","name":"legacy-recipe","translationVersion":"v9","project":"p","datasetGeneration":"g","state":"READY","outputs":[{"name":"out","physicalTable":"phys_legacy","state":"READY","rowCount":3}],"createdAt":"2026-11-09T10:01:00Z","updatedAt":"2026-11-09T10:07:00Z","readyAt":"2026-11-09T10:08:00Z"}`
@@ -1115,9 +997,6 @@ func TestLegacyCanonicalizationOnReadDoesNotMutateHistory(t *testing.T) {
 	insertLegacyRow(t, s, "legacy-queued", "legacy-key", "legacy-recipe", "v9", "PENDING", legacyQueuedPayload, legacyCreated, legacyUpdatedQueued, &legacyReadyQueued)
 	insertLegacyRow(t, s, "legacy-ready", "legacy-key", "legacy-recipe", "v9", "READY", legacyReadyPayload, legacyCreated.Add(time.Minute), legacyUpdatedReady, &legacyReadyReady)
 
-	// GetExecution canonicalizes the queued legacy row: PENDING→QUEUED,
-	// LOADING→RUNNING, output selector derived from the identity, and no
-	// invented timestamps.
 	queued, err := s.registry.GetExecution(s.ctx, "legacy-queued")
 	if err != nil {
 		s.fail("get legacy queued", err)
@@ -1133,8 +1012,6 @@ func TestLegacyCanonicalizationOnReadDoesNotMutateHistory(t *testing.T) {
 		t.Fatalf("legacy queued invented stamps: verified=%v published=%v, want nil", queued.Outputs[0].VerifiedAt, queued.PublishedAt)
 	}
 
-	// The READY compat row backfills publishedAt/verifiedAt from readyAt on
-	// the returned copy.
 	readyExec, err := s.registry.GetExecution(s.ctx, "legacy-ready")
 	if err != nil {
 		s.fail("get legacy ready", err)
@@ -1146,7 +1023,6 @@ func TestLegacyCanonicalizationOnReadDoesNotMutateHistory(t *testing.T) {
 		t.Fatalf("legacy ready verifiedAt = %v, want %s", readyExec.Outputs[0].VerifiedAt, legacyReadyReady)
 	}
 
-	// Compat states remain reachable through the synonym expansions.
 	list, err := s.registry.ListExecutions(s.ctx, publication.BundleQueued, baseTime)
 	if err != nil {
 		s.fail("list queued", err)
@@ -1158,8 +1034,6 @@ func TestLegacyCanonicalizationOnReadDoesNotMutateHistory(t *testing.T) {
 		s.fail("list by compat state", err)
 	}
 
-	// FindExecutionByKey sees both legacy rows and returns the newest
-	// created_at among the shared key.
 	byKey, err := s.registry.FindExecutionByKey(s.ctx, "legacy-key")
 	if err != nil {
 		s.fail("find by key", err)
@@ -1168,13 +1042,11 @@ func TestLegacyCanonicalizationOnReadDoesNotMutateHistory(t *testing.T) {
 		t.Fatalf("FindExecutionByKey = %q, want legacy-ready (newer created_at)", byKey.ID)
 	}
 
-	// The exact lookup finds the compat READY row on full scope equality.
 	if execution, _, err := s.registry.FindExecutionBySelector(s.ctx, "p", "g",
 		publication.DataframeSelector{Recipe: "legacy-recipe", TranslationVersion: "v9", Output: "out"}); err != nil || execution.ID != "legacy-ready" {
 		t.Fatalf("legacy exact lookup = %q, %v; want legacy-ready", execution.ID, err)
 	}
 
-	// Paging sees the compat PENDING row through the QUEUED expansion.
 	visited := []string{}
 	if err := s.registry.VisitExecutionPages(s.ctx, publication.BundleQueued, baseTime, 10, func(page []publication.BundleExecution) error {
 		for _, execution := range page {
@@ -1188,12 +1060,6 @@ func TestLegacyCanonicalizationOnReadDoesNotMutateHistory(t *testing.T) {
 		t.Fatalf("visited queued executions = %#v, want [legacy-queued] via the PENDING synonym", visited)
 	}
 
-	// The decisive acceptance check: after every read path above, neither
-	// historical payload changed value. jsonb normalizes lexical JSON form
-	// (whitespace/key order) on storage, so the guarantee is asserted as
-	// jsonb equality against the inserted literal plus the specific fields
-	// canonicalization must not have written: the legacy state is untouched,
-	// and no verifiedAt/publishedAt was backfilled into the stored row.
 	for id, wantPayload := range map[string]string{"legacy-queued": legacyQueuedPayload, "legacy-ready": legacyReadyPayload} {
 		if !s.mustWitnessBool(t,
 			"SELECT payload = $2::jsonb FROM "+s.qualified(BundleExecutionsTable)+" WHERE id = $1",
@@ -1208,44 +1074,30 @@ func TestLegacyCanonicalizationOnReadDoesNotMutateHistory(t *testing.T) {
 			s.qualified(BundleExecutionsTable)+" WHERE id = $1", "legacy-queued") {
 		t.Fatal("read canonicalization fabricated publishedAt/verifiedAt into the stored legacy row")
 	}
-	// The legacy state columns are also untouched, not "helpfully"
-	// canonicalized into the row.
 	if state := s.mustWitnessText(t,
 		"SELECT state FROM "+s.qualified(BundleExecutionsTable)+" WHERE id = $1", "legacy-queued"); state != "PENDING" {
 		t.Fatalf("legacy state column = %q, want stored PENDING", state)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Missing vs JSON-null vs SQL-NULL.
-// ---------------------------------------------------------------------------
-
 func TestMissingJSONNullAndSQLNullStayDistinct(t *testing.T) {
 	s := newCatalogService(t)
 
-	// Saved row with nil stamps: the columns are SQL NULL and the payload
-	// omits the fields entirely (missing).
 	saved := baseExecution("exec-nulls", "bundle-nulls", publication.BundleRunning, stamps(createdTime, updatedTime, time.Time{}, time.Time{}))
 	saved.Outputs = nil
 	s.acquireLease(t, "bundle-nulls", "publisher-a", time.Now().UTC().Add(time.Hour))
 	s.saveExecution(t, saved, "publisher-a")
 	if s.mustWitnessBool(t,
 		"SELECT ready_at IS NULL AND published_at IS NULL FROM "+s.qualified(BundleExecutionsTable)+" WHERE id = $1", "exec-nulls") {
-		// expected
 	} else {
 		t.Fatal("nil stamps must land as SQL NULL columns")
 	}
 	if s.mustWitnessBool(t,
 		"SELECT NOT (payload ? 'readyAt') AND NOT (payload ? 'publishedAt') FROM "+s.qualified(BundleExecutionsTable)+" WHERE id = $1", "exec-nulls") {
-		// expected
 	} else {
 		t.Fatal(`saved payload must omit absent stamp fields (no "readyAt":null)`)
 	}
 
-	// A historical row with explicit JSON null keeps that distinction: the
-	// field is present ('?' true), jsonb_typeof is 'null', the columns are
-	// still SQL NULL, and the read decodes nil pointers -- three distinct
-	// representations preserved across the store boundary.
 	jsonNullPayload := `{"id":"legacy-jsonnull","key":"legacy-jsonnull","name":"legacy-recipe","translationVersion":"v9","project":"p","datasetGeneration":"g","state":"QUEUED","outputs":[],"createdAt":"2026-11-09T10:00:00Z","updatedAt":"2026-11-09T10:05:00Z","readyAt":null,"publishedAt":null}`
 	insertLegacyRow(t, s, "legacy-jsonnull", "legacy-jsonnull", "legacy-recipe", "v9", "QUEUED", jsonNullPayload,
 		time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC), time.Date(2026, 11, 9, 10, 5, 0, 0, time.UTC), nil)
@@ -1254,7 +1106,6 @@ func TestMissingJSONNullAndSQLNullStayDistinct(t *testing.T) {
 			" AND jsonb_typeof(payload->'readyAt') = 'null' AND jsonb_typeof(payload->'publishedAt') = 'null'"+
 			" AND (payload ? 'readyAt') AND (payload ? 'publishedAt') FROM "+
 			s.qualified(BundleExecutionsTable)+" WHERE id = $1", "legacy-jsonnull") {
-		// expected
 	} else {
 		t.Fatal(`explicit JSON null must survive as JSON null with SQL NULL columns`)
 	}
@@ -1273,10 +1124,6 @@ func TestMissingJSONNullAndSQLNullStayDistinct(t *testing.T) {
 		t.Fatalf("JSON null payload mutated value:\n got %s\nwant %s", got, jsonNullPayload)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Unsupported inputs fail explicitly; no silent fallback.
-// ---------------------------------------------------------------------------
 
 func TestNULInTextScopeColumnsFailsExplicitly(t *testing.T) {
 	s := newCatalogService(t)
@@ -1310,10 +1157,6 @@ func TestReadsAndWritesOnMissingRowsReportNotFound(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Scans and stable paging.
-// ---------------------------------------------------------------------------
-
 func TestListExecutionsEmptyIsNonNilSlice(t *testing.T) {
 	s := newCatalogService(t)
 	list, err := s.registry.ListExecutions(s.ctx, publication.BundlePublished, time.Now().UTC().Add(time.Hour))
@@ -1327,8 +1170,6 @@ func TestListExecutionsEmptyIsNonNilSlice(t *testing.T) {
 
 func TestVisitExecutionPagesStableContinuationAndGuards(t *testing.T) {
 	s := newCatalogService(t)
-	// Five RUNNING rows whose ids sort opposite to updated_at so ordering is
-	// proven by the scan columns, not insertion order.
 	type row struct {
 		id      string
 		updated time.Time
@@ -1368,8 +1209,6 @@ func TestVisitExecutionPagesStableContinuationAndGuards(t *testing.T) {
 		t.Fatalf("pages = %#v, want %#v", pages, wantPages)
 	}
 
-	// The before cutoff is exclusive and honored across pages: the earliest
-	// update sits exactly at the cutoff and is excluded, so nothing visits.
 	count := 0
 	if err := s.registry.VisitExecutionPages(s.ctx, publication.BundleRunning, rows[0].updated, 2, func(page []publication.BundleExecution) error {
 		count += len(page)
@@ -1381,7 +1220,6 @@ func TestVisitExecutionPagesStableContinuationAndGuards(t *testing.T) {
 		t.Fatalf("rows before cutoff = %d, want 0 (all updates are later)", count)
 	}
 
-	// A failing visitor stops the walk immediately without further queries.
 	visits := 0
 	stopErr := errors.New("stop the sweep")
 	if err := s.registry.VisitExecutionPages(s.ctx, publication.BundleRunning, before, 2, func(page []publication.BundleExecution) error {
@@ -1402,29 +1240,16 @@ func TestVisitExecutionPagesStableContinuationAndGuards(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Zero-leftover audit: no pgpubcat01_it_* database or schema may survive.
-// ---------------------------------------------------------------------------
-
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if err := auditZeroLeftovers(); err != nil {
 		fmt.Fprintf(os.Stderr, "zero-leftover audit failed: %v\n", err)
 		code = 1
 	}
-	// The publish-atomicity suite (publish_atomicity_test.go) owns the
-	// verify_pubvis_it_* resources; auditing here keeps the required
-	// zero-leftover and pg_database==baseline checks alive under the
-	// filtered -run of the ticket's check-2.
 	if err := auditPublishVisibilityLeftovers(); err != nil {
 		fmt.Fprintf(os.Stderr, "publish-visibility zero-leftover audit failed: %v\n", err)
 		code = 1
 	}
-	// The read-pins/reconcile suite (read_pins_test.go, reconcile_test.go)
-	// owns the verify_rpr_it_* resources; auditing here keeps its required
-	// ownership-scoped zero-leftover checks (creation-tracked names plus a
-	// zero row count under the registered verify_rpr_* prefix) alive under
-	// filtered -run invocations of the ticket's checks.
 	if err := auditReadPinsLeftovers(); err != nil {
 		fmt.Fprintf(os.Stderr, "read-pins zero-leftover audit failed: %v\n", err)
 		code = 1
@@ -1435,7 +1260,6 @@ func TestMain(m *testing.M) {
 func auditZeroLeftovers() error {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		// No service was used; nothing can have been created.
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

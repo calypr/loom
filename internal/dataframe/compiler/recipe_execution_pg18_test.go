@@ -23,17 +23,6 @@ import (
 	"regexp"
 )
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration for the ClickHouse prefix seam (service-gated
-// by LOOM_TEST_POSTGRES_URL). The PostgreSQL-tagged prefix command is executed
-// against a real pg-store schema and the result rows are compared to literal
-// expected rows plus a direct-SQL witness, including the exact declared
-// schema and the row identity column the terminal Combine consumes. A
-// skipped required case is a failure for this ticket's acceptance; the gate
-// exists only to keep unrelated CI lanes green. The TestMain census asserts
-// nothing under verify_ir03v1_* survives the run.
-// ---------------------------------------------------------------------------
-
 const ir03NamespacePrefix = "verify_ir03v1"
 
 var ir03ResourceNamePattern = regexp.MustCompile(`^verify_ir03v1_it_[0-9]+_[0-9a-f]+$`)
@@ -244,20 +233,12 @@ func ir03StringifyCell(value any) string {
 	}
 }
 
-// TestCompileClickHousePrefixPostgreSQLExecutesExactRows proves the
-// PostgreSQL arm of the prefix seam runs against the real source store and
-// returns exactly the rows the same construction plan selects on the source
-// backend, with the exact declared schema and a distinct row identity per
-// row. The command executed is the tagged CompiledCommand the seam returns:
-// nothing is re-rendered for execution.
 func TestCompileClickHousePrefixPostgreSQLExecutesExactRows(t *testing.T) {
 	service := newIR03Service(t)
 	bindings := prefixTestBindings(authscope.ReadScopeUnrestricted)
 	service.insertPatient(t, bindings.Project, bindings.DatasetGeneration, "patient-1", "/programs/p1", map[string]any{"gender": "male"})
 	service.insertPatient(t, bindings.Project, bindings.DatasetGeneration, "patient-2", "/programs/p1", map[string]any{"gender": "male"})
 	service.insertPatient(t, bindings.Project, bindings.DatasetGeneration, "patient-3", "/programs/p1", map[string]any{"gender": "female"})
-	// A row from another project must never appear: the prefix carries the
-	// exact project and generation guards into its SQL.
 	service.insertPatient(t, "other-project", bindings.DatasetGeneration, "patient-9", "/programs/p1", map[string]any{"gender": "male"})
 
 	composite := prefixTestCompositeWithCombine(t, prefixTestFilterOnlyOutput(), ir.PhysicalPrefixSourcePostgreSQL, bindings, func(stageID string) ir.PhysicalClickHouseCombine {
@@ -280,9 +261,6 @@ func TestCompileClickHousePrefixPostgreSQLExecutesExactRows(t *testing.T) {
 		args[index] = parameter.Value
 	}
 	declared, rows := service.runCommand(t, sqlText, args)
-	// The PostgreSQL renderer positions its result set behind stable cN
-	// aliases; the seam's OutputColumns is the ordered logical contract the
-	// terminal Combine consumes. Position i of every row is OutputColumns[i].
 	if len(declared) != len(compiledPrefix.OutputColumns) {
 		t.Fatalf("statement declares %d columns, seam reports %v", len(declared), compiledPrefix.OutputColumns)
 	}

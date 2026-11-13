@@ -13,9 +13,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// legacyRepositoryConfig contains only the fields needed to recover the
-// canonical default Explorer owner. Immutable generated state already lives in
-// the referenced revision and is deliberately not decoded or copied here.
 type legacyRepositoryConfig struct {
 	Project          string          `json:"project"`
 	Workspace        json.RawMessage `json:"workspace"`
@@ -24,9 +21,6 @@ type legacyRepositoryConfig struct {
 	UpdatedAt        time.Time       `json:"updatedAt"`
 }
 
-// MigrateLegacyRepositoryConfigs is an idempotent startup migration. It
-// recovers only missing repository owners and never overwrites a current owner
-// or deletes the legacy source document.
 func (s *Store) MigrateLegacyRepositoryConfigs(ctx context.Context) error {
 	legacy := []legacyRepositoryConfig{}
 	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.activeRevisionId != null AND d.activeRevisionId != "" RETURN d`, 1000, map[string]any{"@c": LegacyRepositoryConfigsCollection}, func(row map[string]any) error {

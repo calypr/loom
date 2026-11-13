@@ -1,13 +1,5 @@
 package execution
 
-// arch-backend-01 source boundary contract: the only execution boundary this
-// package speaks is the typed command.CompiledCommand. These contract tests
-// pin (1) the adapter seam refuses mismatched, zero-tagged, and unregistered
-// command tags before any adapter callback runs, (2) adapter registration
-// fields on Config are named typed executor types, and (3) the pre-migration
-// loose row-adapter shape (context, query string, batch size, bind map,
-// visitor) cannot reappear in this package's non-test sources.
-
 import (
 	"context"
 	"errors"
@@ -25,12 +17,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// With the compiler producing the tagged command for the selected target,
-// the mismatch guarantee at this boundary is that a PostgreSQL-selected
-// engine whose row port serves only AQL refuses the compiled PostgreSQL
-// command with the typed mismatch before any adapter activity is recorded:
-// the port performs exhaustive tag dispatch before touching a driver, so
-// the probe port records nothing for a refused command.
 func TestSourceCommandBoundaryContractRefusesMismatchedTagBeforeAdapter(t *testing.T) {
 	v := &verifyArch01Trace{}
 	config := verifyArch01Config(v)
@@ -40,8 +26,6 @@ func TestSourceCommandBoundaryContractRefusesMismatchedTagBeforeAdapter(t *testi
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	// Run drives every compiled stream through the one row port; the
-	// refused command must surface as the typed mismatch from there.
 	_, streamErr := engine.Run(context.Background(), verifyArch01PostgreSQLResolved("resources", []string{"id"}))
 	if !errors.Is(streamErr, command.ErrCompiledCommandBackendMismatch) {
 		t.Fatalf("PostgreSQL command on the AQL-only port: err = %v, want %v", streamErr, command.ErrCompiledCommandBackendMismatch)
@@ -55,10 +39,6 @@ func TestSourceCommandBoundaryContractRefusesMismatchedTagBeforeAdapter(t *testi
 
 func TestSourceCommandBoundaryContractZeroTaggedCommandFailsClosed(t *testing.T) {
 	v := &verifyArch01Trace{}
-	// The constructors in the command leaf make a zero tag unconstructible;
-	// the exhaustive dispatch guard below pins that a stream carrying one
-	// (forged through the struct, as a regression canary) is refused before
-	// any adapter callback runs.
 	stream := OutputStream{Name: "resources", command: command.CompiledCommand{}, sourceRows: func(context.Context, RowsRequest, RowVisitor) error {
 		v.add(&v.aqlFull, "zero-tag adapter ran")
 		return nil
@@ -76,13 +56,9 @@ func TestSourceCommandBoundaryContractZeroTaggedCommandFailsClosed(t *testing.T)
 
 func TestSourceCommandBoundaryContractPostgreSQLNeverFallsBackToAQL(t *testing.T) {
 	v := &verifyArch01Trace{}
-	// Construction requires the one source row port: an engine without it is
-	// refused outright, so there is no half-wired state to fall back from.
 	if _, err := New(Config{CompileTarget: compiler.ArangoTarget(), Registry: invalidRecipeRegistry{}}); err == nil || !strings.Contains(err.Error(), "source row port is required") {
 		t.Fatalf("engine without a source row port must be refused at construction: %v", err)
 	}
-	// The stream-level seam must also fail closed instead of falling back:
-	// a PostgreSQL-tagged command with no executor never reaches any adapter.
 	compiledCommand := verifyArch01Command(t)
 	stream := OutputStream{Name: "resources", command: compiledCommand}
 	if streamErr := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); !errors.Is(streamErr, command.ErrCompiledCommandBackendNotRegistered) {
@@ -136,8 +112,6 @@ func TestSourceCommandBoundaryContractAQLExecutorReceivesTypedCommand(t *testing
 	if len(aqlFull) != 1 || !strings.Contains(aqlFull[0], "RETURN") {
 		t.Fatalf("AQL executor did not receive the compiled command text: %v", aqlFull)
 	}
-	// The boundary itself must hand the adapter a tagged command: capture it
-	// directly rather than a derived string.
 	captured := command.CompiledCommand{}
 	captureEngine, err := New(Config{CompileTarget: compiler.ArangoTarget(),
 		Registry:    invalidRecipeRegistry{},
@@ -173,9 +147,6 @@ func TestSourceCommandBoundaryContractAQLExecutorReceivesTypedCommand(t *testing
 	}
 }
 
-// TestSourceCommandBoundaryContractConfigAdaptersAreNamedTypes pins that the
-// Config executor fields keep using the closed named executor types, so a
-// loose inline row-adapter signature can never return as a Config field.
 func TestSourceCommandBoundaryContractConfigAdaptersAreNamedTypes(t *testing.T) {
 	fields := parseStructFieldTypes(t, "Config")
 	allowed := map[string]bool{
@@ -204,9 +175,6 @@ var namedExecutorTypes = map[string]bool{
 	"ClickHouseQueryRows": true,
 }
 
-// TestSourceCommandBoundaryContractNoLooseRowAdapterSignatures rejects the
-// pre-migration executor shape — (context.Context, string, int,
-// map[string]any, visitor) — anywhere in this package's non-test sources.
 func TestSourceCommandBoundaryContractNoLooseRowAdapterSignatures(t *testing.T) {
 	fset := token.NewFileSet()
 	packages, err := parser.ParseDir(fset, ".", func(info fs.FileInfo) bool {
@@ -355,12 +323,6 @@ func isQualifiedIdent(expr ast.Expr, pkg, name string) bool {
 	return identName(selector.X) == pkg && selector.Sel.Name == name
 }
 
-// TestSourceCommandBoundaryContractPostgreSQLServedQueryCarriesDocumentedTag
-// gives the round-1 fix real bite: the PG-served compiler.CompiledQuery handed back by
-// the serving seam must carry the PostgreSQL tag and payload its field
-// documentation promises (compiler.CompiledQuery.Command), not a zero tag a
-// later change could misderive into AQL control-path checks. Deleting the
-// seam's Command assignment must fail THIS test.
 func TestSourceCommandBoundaryContractPostgreSQLServedQueryCarriesDocumentedTag(t *testing.T) {
 	config := verifyArch01Config(&verifyArch01Trace{})
 	config.CompileTarget = verifyArch01PostgreSQLTarget(t)
@@ -384,9 +346,6 @@ func TestSourceCommandBoundaryContractPostgreSQLServedQueryCarriesDocumentedTag(
 	if err != nil {
 		t.Fatalf("served query command must dispatch as PostgreSQL: %v", err)
 	}
-	// The served payload must be the compiler-rendered PostgreSQL statement
-	// for the same plan: an independent re-render of the identical output
-	// through the same selected target must agree exactly.
 	target := verifyArch01PostgreSQLTarget(t)
 	reference, err := compiler.CompileRecipeOutput(target, verifyArch01PostgreSQLResolved("resources", []string{"id"}).Compiled.Outputs[0],
 		verifyArch01PostgreSQLResolved("resources", []string{"id"}).Semantic.SemanticPlan.Bindings, 5, ir.DefaultPhysicalOptimizationPolicy())

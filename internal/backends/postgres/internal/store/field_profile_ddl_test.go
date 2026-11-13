@@ -1,32 +1,5 @@
 package postgres
 
-// DDL and encoding-contract tests for migration 000007_field_profile.sql
-// (pg-catalog-01, coordinator conditions 2 and 3).
-//
-//   - Double-apply idempotency against live PG18: the full embedded history
-//     is applied, migration 000007's SQL is then re-executed directly on the
-//     already-migrated schema, and the runner re-applied; the schema
-//     fingerprint, the ledger, and the MigrateResult must be unchanged.
-//   - Negative tests proving every CHECK and both primary keys of
-//     fhir_field_profile and fhir_field_profile_coverage fail on violation,
-//     asserted by SQLSTATE and constraint name, with the table row counts
-//     witnessed unchanged afterwards.
-//   - Non-vacuous three-state encoding witnesses: NULL vs '{}' vs populated
-//     for each text[] column and NULL vs '[]' vs populated for each jsonb
-//     column are inserted as all three encodings, witnessed distinct in the
-//     database, and read back through the real repository. Each witness is
-//     re-run against a hand-collapsed variant (collapsed encoder writing
-//     '{}' / '[]' for a logically missing value, collapsed decoder
-//     normalizing len 0 to nil) and the witness must fail there -- a
-//     collapsed implementation cannot pass this test.
-//   - The coverage marker is what separates a never-profiled scope from a
-//     known-empty one at identical zero profile rows; the distinguishing
-//     witness must fail when the marker row is removed.
-//
-// Everything runs against the LOOM_TEST_POSTGRES_URL service inside the
-// shared pgstore02_it_* isolated-database harness owned per test; identities
-// carry the pgcat01-ddl marker. The URL is never printed.
-
 import (
 	"encoding/json"
 	"errors"
@@ -50,9 +23,6 @@ func fpDDLText(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// fpDDLProfileDefaults is one valid field-profile row as raw SQL literals,
-// column by column. Tests override single columns to build violations and
-// encoding fixtures, so each case isolates exactly one column.
 var fpDDLProfileDefaults = map[string]string{
 	"project":                  fpDDLText(fpDDLProject),
 	"dataset_generation":       fpDDLText(fpDDLGen),
@@ -82,8 +52,6 @@ var fpDDLProfileDefaults = map[string]string{
 	"semantic_observations":    "NULL",
 }
 
-// fpDDLProfileColumns mirrors fieldProfileColumns; the INSERT column order
-// and the VALUES order both derive from it.
 var fpDDLProfileColumns = []string{
 	"project", "dataset_generation", "auth_resource_path", "resource_type", "path",
 	"profile_key", "record_type", "kind", "doc_count", "max_items", "sample_count",
@@ -93,8 +61,6 @@ var fpDDLProfileColumns = []string{
 	"extension_values", "semantic_observations",
 }
 
-// fpDDLProfileStmt renders a raw INSERT for one field-profile row with the
-// given columns overridden from the valid base.
 func fpDDLProfileStmt(svc *migrationService, overrides map[string]string) string {
 	cols := make([]string, 0, len(fpDDLProfileColumns))
 	vals := make([]string, 0, len(fpDDLProfileColumns))
@@ -129,9 +95,6 @@ func fpDDLCount(t *testing.T, svc *migrationService, table string) int64 {
 	return n
 }
 
-// fpDDLExpectViolation runs a raw statement that must be refused by
-// PostgreSQL with the exact SQLSTATE and constraint name, then witnesses the
-// owning table still holds wantRows rows (a refused insert leaves nothing).
 func fpDDLExpectViolation(t *testing.T, svc *migrationService, table, stmt string, wantCode, wantConstraint string, wantRows int64) {
 	t.Helper()
 	_, err := svc.iso.Exec(svc.ctx, stmt)
@@ -144,12 +107,6 @@ func fpDDLExpectViolation(t *testing.T, svc *migrationService, table, stmt strin
 	}
 	accepted := []string{wantConstraint}
 	if wantConstraint == "<either-record-constraint>" {
-		// A row with an unknown record_type violates record_shape and
-		// record_type_known together -- every row passing record_shape
-		// already has a known record_type, so the known-type CHECK can only
-		// ever be reported alongside record_shape. PostgreSQL reports one
-		// of the two; the fingerprint witnesses that both constraints
-		// exist with their definitions.
 		accepted = []string{"fhir_field_profile_record_shape", "fhir_field_profile_record_type_known"}
 	}
 	if pgErr.Code != wantCode || !slices.Contains(accepted, pgErr.ConstraintName) {
@@ -186,9 +143,6 @@ type fpDDLSchemaFingerprint struct {
 	Indexes     []string
 }
 
-// fpDDLSchemaFingerprint captures the full observable schema of the two
-// field-profile tables: every column definition, every constraint
-// (normalized definition text), and every index definition.
 func fpDDLCollectFingerprint(t *testing.T, svc *migrationService) fpDDLSchemaFingerprint {
 	t.Helper()
 	fp := fpDDLSchemaFingerprint{}
@@ -235,10 +189,6 @@ func fpDDLStringColumn(t *testing.T, svc *migrationService, query string, arg an
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Condition 2: double-apply idempotency (runner contract) on live PG18.
-// ---------------------------------------------------------------------------
-
 func TestFieldProfileDDLDoubleApplyIsIdempotent(t *testing.T) {
 	svc := newMigrationService(t)
 	embedded := mustEmbeddedMigrations(t)
@@ -253,8 +203,6 @@ func TestFieldProfileDDLDoubleApplyIsIdempotent(t *testing.T) {
 	}
 	before := fpDDLCollectFingerprint(t, svc)
 
-	// Re-execute migration 000007's exact SQL twice directly against the
-	// already-migrated schema: the DDL must converge, not error.
 	m := fpDDLFindMigration(t, embedded, 7)
 	if m.Name != "field_profile" {
 		t.Fatalf("embedded version 7 is %q, want field_profile", m.Name)
@@ -290,10 +238,6 @@ func TestFieldProfileDDLDoubleApplyIsIdempotent(t *testing.T) {
 		t.Fatalf("ledger records version 7 %d times, want exactly once", sevens)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Condition 2: negative tests -- every CHECK and PK must fail on violation.
-// ---------------------------------------------------------------------------
 
 func TestFieldProfileDDLChecksRejectViolations(t *testing.T) {
 	svc := newMigrationService(t)
@@ -372,13 +316,7 @@ func TestFieldProfileDDLChecksRejectViolations(t *testing.T) {
 		})
 	}
 
-	// Controls proving the violations above were the only thing refused: the
-	// documented legal shapes insert cleanly.
 	t.Run("control_legal_shapes", func(t *testing.T) {
-		// Catalog witness: every constraint the negative cases target exists
-		// on the migrated schema by name (an entailed CHECK such as
-		// record_type_known can share a violation report with record_shape,
-		// so name existence is witnessed here rather than per-insert).
 		rows, err := svc.iso.Query(svc.ctx,
 			`SELECT conname FROM pg_constraint
 			  WHERE connamespace = $1::regnamespace
@@ -439,20 +377,12 @@ func fpDDLCoverageStmt(svc *migrationService, overrides map[string]string) strin
 		svc.schema, strings.Join(cols, ", "), strings.Join(vals, ", "))
 }
 
-// ---------------------------------------------------------------------------
-// Condition 3: non-vacuous NULL vs '{}' vs populated for text[] columns.
-// ---------------------------------------------------------------------------
-
-// fpDDLTextArrayWitness asserts the three raw encodings of one text[] column
-// are stored as three distinct database states, each matching exactly one
-// predicate. It returns an error instead of failing, so the mutation probe
-// can re-run it on a collapsed row and require failure.
 func fpDDLTextArrayWitness(t *testing.T, svc *migrationService, column string, paths [3]string) error {
 	t.Helper()
 	want := [3][3]bool{
-		{true, false, false}, // SQL NULL
-		{false, true, false}, // '{}'
-		{false, false, true}, // ARRAY['a','b']
+		{true, false, false},
+		{false, true, false},
+		{false, false, true},
 	}
 	for i, path := range paths {
 		var isNull, isEmpty, isPopulated bool
@@ -497,9 +427,6 @@ func TestFieldProfileTextArrayEncodingsDistinguishThreeStates(t *testing.T) {
 				t.Fatalf("real storage failed the three-state witness: %v", err)
 			}
 
-			// Repository read-back honors the documented contract: the
-			// profiler's summary slices are nil-or-populated, so both NULL
-			// and '{}' decode to nil while the populated array survives.
 			unrestricted := true
 			docs, err := repo.ReadFieldProfileRowsFiltered(svc.ctx, FieldProfileFilter{
 				Project: fpDDLProject, DatasetGeneration: fpDDLGen,
@@ -528,8 +455,6 @@ func TestFieldProfileTextArrayEncodingsDistinguishThreeStates(t *testing.T) {
 				t.Errorf("populated %s decoded to %#v, want [a b]", column, got)
 			}
 
-			// Write side through the real repository: a nil Go slice must
-			// land as SQL NULL, never '{}'.
 			writeScope := FieldProfileScope{Project: fpDDLProject, DatasetGeneration: fpDDLGen, ResourceType: fpDDLType}
 			doc := fpDDLBaseDoc(column + "/enc/write-nil")
 			if err := repo.UpsertFieldProfileBatch(svc.ctx, writeScope, []catalog.FieldCatalogDocument{doc},
@@ -547,8 +472,6 @@ func TestFieldProfileTextArrayEncodingsDistinguishThreeStates(t *testing.T) {
 				t.Errorf("repository wrote a nil %s as non-NULL; the collapse of NULL into '{}' would make never-set and seeded-empty indistinguishable", column)
 			}
 
-			// Mutation probe: a collapsed encoder that wrote '{}' for the
-			// logically-missing value must fail the same witness.
 			fpDDLExec(t, svc, fpDDLProfileStmt(svc, map[string]string{
 				"path": fpDDLText(column + "/enc/collapsed"), column: "NULL",
 			}))
@@ -584,18 +507,11 @@ func fpDDLBaseDoc(path string) catalog.FieldCatalogDocument {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Condition 3: non-vacuous NULL vs '[]' vs populated for jsonb columns.
-// ---------------------------------------------------------------------------
-
 const (
 	fpDDLExtensionPopulated = `[{"url":"http://loom.test/ext/a","source_path":"extension","value_path":"valueString","value_type":"string","url_path":null}]`
 	fpDDLSemanticPopulated  = `[{"schema_version":2,"source":{"canonical":"http://loom.test/cs","type":"coding","path":"code"},"key":{"system":"http://loom.test/cs","code":"C1","display":"One"},"value":{"selector":"code","type":"code","fallback_selectors":null},"completeness":"complete","population":5,"examples_truncated":false}]`
 )
 
-// fpDDLJSONBWitness asserts the three raw encodings of one jsonb column are
-// stored as three distinct database states. Error-returning so the mutation
-// probe can require failure on a collapsed row.
 func fpDDLJSONBWitness(t *testing.T, svc *migrationService, column string, paths [3]string) error {
 	t.Helper()
 	want := [3][3]bool{
@@ -650,10 +566,6 @@ func TestFieldProfileJSONBEncodingsDistinguishThreeStates(t *testing.T) {
 				t.Fatalf("real storage failed the three-state witness: %v", err)
 			}
 
-			// Repository read-back: SQL NULL is the missing (nil) Go slice,
-			// '[]' is an empty-but-non-nil slice, a populated array decodes
-			// to its content. This is the distinction a collapsed decoder
-			// would destroy.
 			unrestricted := true
 			docs, err := repo.ReadFieldProfileRowsFiltered(svc.ctx, FieldProfileFilter{
 				Project: fpDDLProject, DatasetGeneration: fpDDLGen,
@@ -694,9 +606,6 @@ func TestFieldProfileJSONBEncodingsDistinguishThreeStates(t *testing.T) {
 				}
 			}
 
-			// Write side through the real repository: Go nil lands as SQL
-			// NULL, empty-but-non-nil lands as '[]', populated lands as a
-			// populated array -- all three distinct.
 			writeScope := FieldProfileScope{Project: fpDDLProject, DatasetGeneration: fpDDLGen, ResourceType: fpDDLType}
 			nilDoc := fpDDLBaseDoc(column + "/json/write-nil")
 			emptyDoc := fpDDLBaseDoc(column + "/json/write-empty")
@@ -723,8 +632,6 @@ func TestFieldProfileJSONBEncodingsDistinguishThreeStates(t *testing.T) {
 				t.Fatalf("repository encodings failed the three-state witness: %v", err)
 			}
 
-			// Mutation probe A (encode side): a collapsed encoder that wrote
-			// '[]' for the logically-missing value must fail the witness.
 			fpDDLExec(t, svc, fpDDLProfileStmt(svc, map[string]string{
 				"path": fpDDLText(column + "/json/collapsed"), column: "NULL",
 			}))
@@ -737,11 +644,6 @@ func TestFieldProfileJSONBEncodingsDistinguishThreeStates(t *testing.T) {
 				t.Fatal("three-state witness accepted a collapsed '[]' row; the witness is vacuous")
 			}
 
-			// Mutation probe B (decode side): against the very same stored
-			// '[]' row, the real decode yields empty-but-non-nil while a
-			// collapsed decoder that normalizes len 0 to nil destroys the
-			// distinction -- proving the read-back assertion above fails on
-			// a collapsed implementation.
 			var raw json.RawMessage
 			if err := svc.iso.QueryRow(svc.ctx, fmt.Sprintf(
 				`SELECT %s FROM "%s".fhir_field_profile WHERE path=$1`, column, svc.schema), column+"/json/empty").Scan(&raw); err != nil {
@@ -794,10 +696,6 @@ func fpDDLJSONBIsNil(column string, doc catalog.FieldCatalogDocument) bool {
 	return doc.SemanticObservations == nil
 }
 
-// ---------------------------------------------------------------------------
-// Condition 3: the coverage marker separates never-profiled from known-empty.
-// ---------------------------------------------------------------------------
-
 func TestFieldProfileCoverageMarkerDistinguishesNeverProfiledFromKnownEmpty(t *testing.T) {
 	svc := newMigrationService(t)
 	if _, err := MigrateSchema(svc.ctx, svc.openClient(t), svc.schema); err != nil {
@@ -811,8 +709,6 @@ func TestFieldProfileCoverageMarkerDistinguishesNeverProfiledFromKnownEmpty(t *t
 	neverScope := FieldProfileScope{Project: fpDDLProject, DatasetGeneration: fpDDLGen, AuthResourcePath: "cov/never", ResourceType: fpDDLType}
 	emptyScope := FieldProfileScope{Project: fpDDLProject, DatasetGeneration: fpDDLGen, AuthResourcePath: "cov/known-empty", ResourceType: fpDDLType}
 
-	// known-empty: the profiler emitted zero documents for a clean empty
-	// population; the batch wrote no profile rows but committed the marker.
 	complete := true
 	if err := repo.UpsertFieldProfileBatch(svc.ctx, emptyScope, nil,
 		FieldProfileCoverage{FieldProfileScope: emptyScope, EnrichmentComplete: &complete, EnrichmentTruncated: false}, 0); err != nil {
@@ -866,9 +762,6 @@ func TestFieldProfileCoverageMarkerDistinguishesNeverProfiledFromKnownEmpty(t *t
 		t.Fatalf("coverage marker witness failed: %v", err)
 	}
 
-	// Mutation probe: with the marker row removed, the two scopes collapse
-	// into the same zero-row, zero-marker state and the witness must fail --
-	// proving the distinction rides on the marker, not on incidental rows.
 	if _, err := svc.iso.Exec(svc.ctx, fmt.Sprintf(
 		`DELETE FROM "%s".fhir_field_profile_coverage WHERE auth_resource_path = 'cov/known-empty'`,
 		svc.schema)); err != nil {

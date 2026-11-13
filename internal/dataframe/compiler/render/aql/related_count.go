@@ -8,9 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// renderRelatedEligibilityCountRows reverses one exact EXISTS route for
-// terminal count and category scans. Every scope predicate is matched against
-// the canonical typed plan before this renderer relocates it.
 func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions) (RenderedPhysicalPlan, bool, error) {
 	if stage, sourceProjection, rootVariable, ok := terminalRelatedEligibilityCategoryScanOnly(plan, sequence, options); ok {
 		return renderRelatedEligibilityCategoryScan(plan, sequence, options, stage, sourceProjection, rootVariable)
@@ -55,10 +52,6 @@ func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.Physic
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, true, nil
 }
 
-// relatedEligibilityCategoryScanOverflowSentinel is one above the compiler's
-// maximum category scan size (currently 256). Reaching it proves overflow;
-// returning fewer rows is complete, and returning this many cannot be
-// mistaken for a complete category set.
 const relatedEligibilityCategoryScanOverflowSentinel = 257
 
 type relatedEligibilityReverseFrontier struct {
@@ -68,9 +61,6 @@ type relatedEligibilityReverseFrontier struct {
 	traversals []ir.PhysicalTraversal
 }
 
-// buildRelatedEligibilityReverseFrontier is shared by COUNT_ROWS and the
-// category terminal. It only moves an EXISTS filter whose correlated subplan
-// passes the same exact endpoint-route and scope proof used by Count.
 func buildRelatedEligibilityReverseFrontier(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage, internalPrefix, terminalCollectionPrefix string) (relatedEligibilityReverseFrontier, bool, error) {
 	if stage.Filter == nil || stage.Filter.Expression == nil || stage.Filter.Expression.Kind != ir.PhysicalExistsPredicate || stage.Filter.Expression.Exists == nil {
 		return relatedEligibilityReverseFrontier{}, false, nil
@@ -265,8 +255,6 @@ func matchesCategoryScanSourceOperations(operations []ir.PhysicalOperation, root
 				return false
 			}
 		default:
-			// Any later filter, sort, limit, or row-changing operation could
-			// affect category membership or its completeness.
 			return false
 		}
 	}
@@ -371,10 +359,6 @@ func renderRelatedEligibilityCategoryScan(plan ir.PhysicalPlan, sequence *ir.Phy
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, true, nil
 }
 
-// RenderRelatedEligibilityCategoryOverflowWitness samples qualifying source
-// rows from the same exact route used by the full category scan. The caller
-// may conclude overflow when the sample contains more distinct categories
-// than the supported limit.
 func RenderRelatedEligibilityCategoryOverflowWitness(plan ir.PhysicalPlan, columnName, markerColumn string, sampleSize int) (RenderedPhysicalPlan, bool, error) {
 	if sampleSize < 1 {
 		return RenderedPhysicalPlan{}, false, fmt.Errorf("category overflow sample size must be positive")
@@ -509,7 +493,7 @@ func relatedCountRoute(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage,
 	for position < len(subplan.Operations) {
 		operation := subplan.Operations[position]
 		if operation.Kind != ir.PhysicalTraversalOp || operation.Traversal == nil {
-			return nil, false // Reject contributor predicates and any other extra subplan work.
+			return nil, false
 		}
 		traversal := *operation.Traversal
 		sourceType, sourceOK := plan.BindVars[traversal.SourceTypeBindKey].(string)

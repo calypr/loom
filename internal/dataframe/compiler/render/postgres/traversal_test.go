@@ -1,28 +1,5 @@
 package postgres
 
-// pg-sql-06: depth-one typed edge-occurrence traversals in the PostgreSQL
-// renderer. This file is the acceptance surface for traversal.go: the
-// OPTIONAL parent-preserving LEFT JOIN LATERAL child join and the REQUIRED
-// match EXISTS semi-join.
-//
-// Offline: golden statement and argument literals for both registered
-// shapes (including the two traversal pins relocated from render_test.go,
-// semantically identical modulo the lateral SQL shape), the closed refusal
-// matrix for every shape outside the registered slice, the main-sequence
-// guards that keep OPTIONAL child rows out of FILTER and SORT, and
-// determinism/inertness probes.
-//
-// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 through the pgir02_it_*
-// harness in render_pg18_test.go): OPTIONAL multiplicity with parent-row
-// preservation across every defect class (duplicate occurrences, dangling
-// edges mixed with resolved ones, all-dangling parents, edge-free parents,
-// wrong-label decoys), REQUIRED match exclusion including dangling and
-// wrong-label witnesses, a REQUIRED match with a typed payload selector
-// filter, and INBOUND matrices for both modes — each compared to literal
-// rows plus a hand-written direct-SQL witness. TestMain audits, delta-
-// scoped to fixtures created during this run and tracked by the tests
-// themselves, that nothing under the pgir02_it_* prefix survives.
-
 import (
 	"context"
 	"encoding/json"
@@ -41,8 +18,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// pgstoreEdgeRow builds one stored Patient→Specimen has-* occurrence for
-// the live fixtures, authenticated on the Patient path (the anchored side).
 func pgstoreEdgeRow(project, generation, label, patient, specimen, path string) control.EdgeOccurrenceRow {
 	return control.EdgeOccurrenceRow{
 		Project: project, DatasetGeneration: generation, AuthResourcePath: "FHIR/Patient",
@@ -52,14 +27,6 @@ func pgstoreEdgeRow(project, generation, label, patient, specimen, path string) 
 	}
 }
 
-// trvInsertDanglingSourceEdge writes one edge row whose source resource is
-// deliberately not stored. The schema carries no source FK (migration
-// 000004): an unstored source is a legitimate storage state (a source
-// removed after publication), and excluding such rows at query time is
-// exactly what the traversal's INNER JOIN pair must prove. The repository's
-// insert gate models publication-time discipline and refuses the state, so
-// the fixture writes the literal row through the service pool, mirroring
-// the repository's own column list.
 func trvInsertDanglingSourceEdge(t *testing.T, svc *pgir02Service, label, sourceType, sourceID, targetType, targetID, authPath, path string) {
 	t.Helper()
 	_, err := svc.iso.Exec(svc.ctx,
@@ -74,14 +41,6 @@ func trvInsertDanglingSourceEdge(t *testing.T, svc *pgir02Service, label, source
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Offline: OPTIONAL traversal — LEFT JOIN LATERAL golden statements.
-// ---------------------------------------------------------------------------
-
-// trvTraversalPlan builds the registered OPTIONAL plan shape: one scoped
-// root scan, one depth-one typed traversal, one positional return over the
-// parent and child logical ids. Bind keys follow the shared lowering
-// contract (edge_collection bound to fhir_edge, edge_label, target_type).
 func trvTraversalPlan(direction ir.PhysicalTraversalDirection, edgeTargetTypeField, label, targetType string) ir.PhysicalPlan {
 	plan := basePlan()
 	plan.BindVars["edge_collection"] = "fhir_edge"
@@ -103,13 +62,6 @@ func trvTraversalPlan(direction ir.PhysicalTraversalDirection, edgeTargetTypeFie
 	return plan
 }
 
-// TestRenderOutboundTraversalSQLIsExact is the relocated pg-ir-02 golden,
-// re-pinned for the lateral shape: the reached target and the renderer-owned
-// edge witness live inside LEFT JOIN LATERAL (edge INNER JOIN target) ON
-// TRUE, so a parent with zero surviving occurrences is preserved rather than
-// inner-join excluded (render/aql navigation_render.go renderTraversalSet).
-// The assertions are identical to the pre-lateral pin modulo the join shape:
-// full statement literal, six ordered arguments, and plan-data inertness.
 func TestRenderOutboundTraversalSQLIsExact(t *testing.T) {
 	plan := trvTraversalPlan(ir.PhysicalOutbound, "to_type", "has-specimen", "Specimen")
 	rendered := renderOK(t, plan)
@@ -159,8 +111,6 @@ func TestRenderOutboundTraversalSQLIsExact(t *testing.T) {
 		string(raw) != `["FHIR/Patient","FHIR/Observation"]` {
 		t.Fatalf("auth argument = %#v", rendered.Args[2].Value)
 	}
-	// The plan's own Arango metadata never reaches SQL text: the edge
-	// "collection" bind value and plan variable names are not SQL text.
 	for _, leaked := range []string{"fhir_edge\"", "\"edge\"", "\"target\"", "\"root\""} {
 		if strings.Contains(rendered.SQL, leaked) {
 			t.Fatalf("plan data %q leaked into SQL: %s", leaked, rendered.SQL)
@@ -168,12 +118,6 @@ func TestRenderOutboundTraversalSQLIsExact(t *testing.T) {
 	}
 }
 
-// TestRenderInboundTraversalBindsReverseEndpointColumns is the relocated
-// pg-ir-02 pin, re-pinned for the lateral shape. INBOUND anchors the stored
-// source side's opposite: the anchored endpoint is target_* and the reached
-// endpoint is source_*. Inside the child subquery the reached resource row
-// is x1 (r1 names the lateral relation itself); the semantic content of the
-// pre-lateral pins is unchanged.
 func TestRenderInboundTraversalBindsReverseEndpointColumns(t *testing.T) {
 	plan := trvTraversalPlan(ir.PhysicalInbound, "from_type", "has-specimen", "Observation")
 	rendered := renderOK(t, plan)
@@ -194,9 +138,6 @@ func TestRenderInboundTraversalBindsReverseEndpointColumns(t *testing.T) {
 	}
 }
 
-// TestRenderTraversalOrderByUsesEdgeWitness proves the deterministic row
-// order over expanded occurrences: root resource_seq then each lateral's
-// renderer-owned edge_seq, with distinct aliases per traversal.
 func TestRenderTraversalOrderByUsesEdgeWitness(t *testing.T) {
 	plan := basePlan()
 	plan.BindVars["edge_collection"] = "fhir_edge"
@@ -237,10 +178,6 @@ func TestRenderTraversalOrderByUsesEdgeWitness(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Offline: REQUIRED match — the pre-window EXISTS semi-join.
-// ---------------------------------------------------------------------------
-
 func trvRequiredSubplan(operations ...ir.PhysicalOperation) ir.PhysicalSubplan {
 	return ir.PhysicalSubplan{
 		Captures:   []string{"root"},
@@ -264,11 +201,6 @@ func trvSubplanTraversal(sourceVariable, targetVariable, labelKey, targetTypeKey
 	}}
 }
 
-// trvPayloadMatchPredicate builds the canonical REQUIRED-match selector
-// filter lower/required_match.go:131-137 emits: an ARRAY-cardinality,
-// EMPTY_ON_NULL EXTRACT over the row's ["payload"] document with a
-// validated value kind. The value bind is "status_value" for the tests
-// here; EXISTS/MISSING carry no right value.
 func trvPayloadMatchPredicate(variable, resourceType, operator string, valueKind spec.FilterValueKind, steps ...string) *ir.PhysicalPredicateExpression {
 	selectorSteps := make([]spec.SelectorStep, 0, len(steps))
 	for _, field := range steps {
@@ -294,10 +226,6 @@ func trvPayloadMatchPredicate(variable, resourceType, operator string, valueKind
 	return &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: predicate}
 }
 
-// trvRequiredPlan builds the REQUIRED match plan shape lower/required_match
-// .go emits for a REQUIRED semantic route: the root scan plus a FILTER whose
-// expression is one EXISTS predicate over a bounded correlated subplan
-// anchored on the root row, with the canonical constant-1 return.
 func trvRequiredPlan(subplan ir.PhysicalSubplan) ir.PhysicalPlan {
 	plan := basePlan()
 	plan.BindVars["edge_collection"] = "fhir_edge"
@@ -316,13 +244,6 @@ func trvRequiredPlan(subplan ir.PhysicalSubplan) ir.PhysicalPlan {
 	return plan
 }
 
-// TestRenderRequiredMatchExistsIsExactSemiJoin pins the REQUIRED match
-// rendering: WHERE EXISTS (SELECT 1 FROM edge INNER JOIN target …), the
-// root semi-join form the AQL pipeline runs pre-window
-// (lower/required_match.go:12-15). The no-match parent is excluded (no
-// LEFT JOIN, no lateral), the EXISTS is total so no COALESCE guard appears,
-// and the LIMIT 1 witness limit the AQL LENGTH(FOR … LIMIT 1) form needs is
-// unnecessary and absent. Scope arguments dedupe with the root scan.
 func TestRenderRequiredMatchExistsIsExactSemiJoin(t *testing.T) {
 	subplan := trvRequiredSubplan(trvSubplanTraversal("root", "child", "edge_label", "target_type"))
 	rendered := renderOK(t, trvRequiredPlan(subplan))
@@ -356,15 +277,11 @@ func TestRenderRequiredMatchExistsIsExactSemiJoin(t *testing.T) {
 	if strings.Contains(rendered.SQL, "COALESCE") {
 		t.Fatalf("EXISTS is total and needs no null guard: %s", rendered.SQL)
 	}
-	// Pre-window position: the semi-join filters root rows, so it lands in
-	// WHERE ahead of the deterministic ordering, never after it.
 	if strings.Index(rendered.SQL, "EXISTS") > strings.Index(rendered.SQL, "ORDER BY") {
 		t.Fatalf("required match must precede the ordering window: %s", rendered.SQL)
 	}
 }
 
-// TestRenderRequiredMatchInboundCorrelatesReversed pins that an INBOUND
-// subplan step anchors the stored target side and correlates through it.
 func TestRenderRequiredMatchInboundCorrelatesReversed(t *testing.T) {
 	step := trvSubplanTraversal("root", "child", "edge_label", "target_type")
 	step.Traversal.Direction = ir.PhysicalInbound
@@ -382,11 +299,6 @@ func TestRenderRequiredMatchInboundCorrelatesReversed(t *testing.T) {
 	}
 }
 
-// TestRenderRequiredMatchTypedSubplanFilters registers the closed
-// subplan-local filter forms: the selector-EXTRACT payload comparison
-// lower/required_match.go emits (rendered through the package's single
-// extraction authority, agreeing expression-for-expression with pg-sql-03
-// projections) and a typed column IN over the reached row.
 func TestRenderRequiredMatchTypedSubplanFilters(t *testing.T) {
 	t.Run("payload selector comparison", func(t *testing.T) {
 		plan := trvRequiredPlan(trvRequiredSubplan(
@@ -397,13 +309,6 @@ func TestRenderRequiredMatchTypedSubplanFilters(t *testing.T) {
 		))
 		plan.BindVars["status_value"] = "final"
 		rendered := renderOK(t, plan)
-		// The value list mirrors the AQL selector FOR loop exactly
-		// (render/aql/predicates.go renderSelectorPredicate + the value-list
-		// normalization of renderSelectorArrayFromSource): missing/JSON-null
-		// yields [], and a present non-null value yields the single-element
-		// list — the value whole, arrays included (the non-iterated
-		// terminal never unpacks: selectors.go:343, selector.go:48-50). ANY
-		// is the default quantifier (predicates.go:256-258).
 		document := `(x1."payload" #> $7::text[])`
 		values := "(CASE WHEN " + document + " IS NULL OR jsonb_typeof(" + document + ") = 'null' THEN '[]'::jsonb" +
 			" ELSE jsonb_build_array(" + document + ") END)"
@@ -444,9 +349,6 @@ func TestRenderRequiredMatchTypedSubplanFilters(t *testing.T) {
 	})
 }
 
-// TestRenderRequiredMatchChainedSteps registers multi-step matching: step
-// k+1 anchors on step k's reached row, every step joins its own edge and
-// target with full canonical scope, and all parameters dedupe globally.
 func TestRenderRequiredMatchChainedSteps(t *testing.T) {
 	plan := trvRequiredPlan(ir.PhysicalSubplan{
 		Captures: []string{"root"},
@@ -485,10 +387,6 @@ func TestRenderRequiredMatchChainedSteps(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Offline: the main-sequence guards over OPTIONAL rows (ticket §4).
-// ---------------------------------------------------------------------------
-
 func trvOptionalWithFilter(filter ir.PhysicalFilter) ir.PhysicalPlan {
 	plan := trvTraversalPlan(ir.PhysicalOutbound, "to_type", "has-specimen", "Specimen")
 	returnOp := plan.Operations[len(plan.Operations)-1]
@@ -496,12 +394,6 @@ func trvOptionalWithFilter(filter ir.PhysicalFilter) ir.PhysicalPlan {
 	return plan
 }
 
-// TestMainSequenceRejectsOptionalRowReferences enforces the OPTIONAL
-// boundary: a WHERE conjunct over null-extended child rows would re-add the
-// inner-join exclusion the AQL LET-set never applies, so no FILTER leaf at
-// any depth of a NOT/ALL composition may read an OPTIONAL traversal row.
-// Required matching must use the typed EXISTS form, which stays accepted
-// (it renders over INNER joins where WHERE placement is exact).
 func TestMainSequenceRejectsOptionalRowReferences(t *testing.T) {
 	optional := func(variable string) ir.PhysicalValue {
 		return ir.PhysicalValue{Variable: variable, Path: []string{"logical_id"}}
@@ -555,8 +447,6 @@ func TestMainSequenceRejectsOptionalRowReferences(t *testing.T) {
 		})
 	}
 
-	// Positive control: the same NOT-composed shape over the root row is
-	// untouched by the guard (pre-existing FILTER surface unchanged).
 	plan := trvOptionalWithFilter(ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{
 		Kind:     ir.PhysicalNotPredicate,
 		Children: []ir.PhysicalPredicateExpression{comparison("root")},
@@ -568,7 +458,6 @@ func TestMainSequenceRejectsOptionalRowReferences(t *testing.T) {
 	}
 }
 
-// SORT guard: ordering an expanded child row is not registered.
 func TestMainSequenceRejectsSortOnOptionalRow(t *testing.T) {
 	plan := trvTraversalPlan(ir.PhysicalOutbound, "to_type", "has-specimen", "Specimen")
 	returnOp := plan.Operations[len(plan.Operations)-1]
@@ -578,7 +467,6 @@ func TestMainSequenceRejectsSortOnOptionalRow(t *testing.T) {
 	}, returnOp)
 	trvWantRefusal(t, plan, "OPTIONAL traversal LEFT JOIN LATERAL")
 
-	// Root-row sorting still renders (pre-existing surface unchanged).
 	plan.Operations[2].Sort = &ir.PhysicalSort{Keys: []ir.PhysicalValue{{Variable: "root", Path: []string{"logical_id"}}}}
 	rendered := renderOK(t, plan)
 	if !strings.Contains(rendered.SQL, `ORDER BY r0."logical_id" ASC, r0."resource_seq" ASC, r1."edge_seq" ASC`) {
@@ -586,9 +474,6 @@ func TestMainSequenceRejectsSortOnOptionalRow(t *testing.T) {
 	}
 }
 
-// The typed EXISTS form stays accepted after an OPTIONAL traversal: the
-// required match is a root-level semi-join and its own contract is enforced
-// by renderRequiredMatchExists, so the FILTER guard does not walk into it.
 func TestRequiredMatchAcceptedAlongsideOptionalTraversal(t *testing.T) {
 	plan := trvTraversalPlan(ir.PhysicalOutbound, "to_type", "has-specimen", "Specimen")
 	subplan := trvRequiredSubplan(trvSubplanTraversal("root", "child", "edge_label", "target_type"))
@@ -606,10 +491,6 @@ func TestRequiredMatchAcceptedAlongsideOptionalTraversal(t *testing.T) {
 		t.Fatalf("combined OPTIONAL+REQUIRED plan missing a shape: %s", rendered.SQL)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Offline: the closed refusal matrix (ticket §4, one row per refusal).
-// ---------------------------------------------------------------------------
 
 func trvWantRefusal(t *testing.T, plan ir.PhysicalPlan, wantIn string) {
 	t.Helper()
@@ -630,7 +511,6 @@ func TestTraversalRefusalMatrix(t *testing.T) {
 		plan.Operations[1] = ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp, Traversal: &tr}
 		return plan
 	}
-	// badSubplan applies an edit to the canonical REQUIRED plan.
 	badSubplan := func(edit func(*ir.PhysicalSubplan)) ir.PhysicalPlan {
 		subplan := trvRequiredSubplan(trvSubplanTraversal("root", "child", "edge_label", "target_type"))
 		edit(&subplan)
@@ -642,18 +522,11 @@ func TestTraversalRefusalMatrix(t *testing.T) {
 		return trvRequiredPlan(trvRequiredSubplan(step))
 	}
 
-	// rowsClosedByRenderer: every row is an ErrUnsupportedPostgresPlan
-	// refusal from traversal.go with no SQL. RenderPhysicalPlan first runs
-	// ir-plan validation (see the ir-gate rows below), so these plans are
-	// IR-valid by construction.
 	cases := []struct {
 		name   string
 		plan   ir.PhysicalPlan
 		wantIn string
 	}{
-		// Contract: direction, strategy, discriminator, binds. The ir gate
-		// accepts Arango-legal directions (including ANY) and native-or-""
-		// strategies; the PostgreSQL contract is the renderer's to close.
 		{"any direction", mutate(trvTraversalPlan(ir.PhysicalOutbound, "to_type", "l", "Specimen"),
 			func(tr *ir.PhysicalTraversal) { tr.Direction = ir.PhysicalAny }),
 			"ANY-direction traversal has no proven PostgreSQL contract"},
@@ -688,7 +561,6 @@ func TestTraversalRefusalMatrix(t *testing.T) {
 			return plan
 		}(), "traversal source type bind does not match the current row resource type"},
 
-		// EXISTS subplan contract (renderer-closed rows).
 		{"exists return reads a row", badSubplan(func(sp *ir.PhysicalSubplan) {
 			sp.Return.Value = &ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}
 		}), "canonical scalar VALUE expression"},
@@ -766,17 +638,12 @@ func TestTraversalRefusalMatrix(t *testing.T) {
 			))
 			plan.BindVars["edge_label_2"] = "has-observation"
 			plan.BindVars["target_type_2"] = "Observation"
-			// Step 2 must chain through step 1's reached row; anchoring on
-			// the root instead fabricates a second independent hop.
 			plan.Operations[1].Filter.Expression.Exists.Operations[1].Traversal.SourceVariable = "root"
 			return plan
 		}(), "must anchor on"},
 		{"exists anchored on optional row", func() ir.PhysicalPlan {
 			plan := trvTraversalPlan(ir.PhysicalOutbound, "to_type", "has-specimen", "Specimen")
 			sub := trvRequiredSubplan(trvSubplanTraversal("target", "deep", "edge_label", "target_type"))
-			// lower/required_match.go always captures the root row; a
-			// NULL-extensible OPTIONAL row as the correlation anchor would
-			// let subplan FILTERs compare absent rows.
 			sub.Captures = []string{"target"}
 			plan.BindVars["required_match_result"] = 1
 			filterOp := ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{
@@ -787,10 +654,6 @@ func TestTraversalRefusalMatrix(t *testing.T) {
 		}(), "cannot anchor a correlation"},
 	}
 
-	// Rows the ir-plan gate closes ahead of the renderer
-	// (physical_validation.go). These are equally closed typed rejections
-	// that yield no SQL; the renderer-layer equivalents are pinned against
-	// the unexported entry points in the probe tests below.
 	irCases := []struct {
 		name   string
 		plan   ir.PhysicalPlan
@@ -889,10 +752,6 @@ func TestTraversalRefusalMatrix(t *testing.T) {
 	}
 }
 
-// trvWantClosedRejection asserts the same closed-surface properties as
-// trvWantRefusal (typed non-nil error naming the boundary, zero SQL, zero
-// arguments) for rows where the closing layer is the ir-plan gate rather
-// than the renderer.
 func trvWantClosedRejection(t *testing.T, plan ir.PhysicalPlan, wantIn string) {
 	t.Helper()
 	rendered, err := RenderPhysicalPlan(plan, mustBinding(t))
@@ -903,16 +762,6 @@ func trvWantClosedRejection(t *testing.T, plan ir.PhysicalPlan, wantIn string) {
 		t.Fatalf("rejection produced SQL or args: %s %#v", rendered.SQL, rendered.Args)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Offline: the REQUIRED-match selector filter — renderer-layer surface.
-//
-// RenderPhysicalPlan runs ir-plan validation before the renderer, so a
-// malformed selector can be closed at either layer; both are closed
-// surfaces. These probes drive renderSelectorMatchFragment directly so
-// every renderer-layer refusal and every registered form is pinned
-// independently of the plan gate.
-// ---------------------------------------------------------------------------
 
 func trvSelectorProbe(t *testing.T, edit func(*ir.PhysicalExtract, *ir.PhysicalExpression, *ir.PhysicalPredicate)) (string, error) {
 	t.Helper()
@@ -973,7 +822,6 @@ func trvSelectorRefusal(t *testing.T, name string, edit func(*ir.PhysicalExtract
 
 func TestRequiredMatchSelectorFilterRefusals(t *testing.T) {
 	indexZero := 0
-	// Selector-shape refusals (defense-in-depth beside the ir plan gate).
 	trvSelectorRefusal(t, "wrong expression kind", func(_ *ir.PhysicalExtract, e *ir.PhysicalExpression, _ *ir.PhysicalPredicate) {
 		e.Kind = ir.PhysicalCallExpression
 	}, "must be an EXTRACT selector expression")
@@ -1042,14 +890,9 @@ func TestRequiredMatchSelectorFilterRefusals(t *testing.T) {
 		x.ResourceType = "Observation"
 	}, "but the row is joined as")
 
-	// Operator and value refusals.
 	trvSelectorRefusal(t, "contains_text gap", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 		p.Operator = "CONTAINS_TEXT"
 	}, "CONTAINS_TEXT")
-	// DATE/DATE_TIME are registered through the shared selector match
-	// (predicates.go selectorMatchExpression): equality compares the jsonb
-	// item, ordered comparisons take the temporal timestamptz form. They
-	// are covered as registered forms below, not as gaps.
 	trvSelectorRefusal(t, "unknown operator", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 		p.Operator = "REGEX"
 	}, "not part of the v1 PostgreSQL surface")
@@ -1083,10 +926,6 @@ func TestRequiredMatchSelectorFilterRefusals(t *testing.T) {
 }
 
 func TestRequiredMatchSelectorFilterRegisteredForms(t *testing.T) {
-	// The probe's parameter counter starts empty: path binds $1, value $2.
-	// The registered direct-step terminal never unpacks a stored array
-	// (render/aql/selectors.go:343, extractFinalExpr default at
-	// render/aql/selector.go:48-50): the value list is 0..1 items.
 	const valuesPin = `(CASE WHEN (x1."payload" #> $1::text[]) IS NULL OR jsonb_typeof((x1."payload" #> $1::text[])) = 'null' THEN '[]'::jsonb ELSE jsonb_build_array((x1."payload" #> $1::text[])) END)`
 	cases := []struct {
 		name string
@@ -1146,8 +985,6 @@ func TestRequiredMatchSelectorFilterRegisteredForms(t *testing.T) {
 	}
 }
 
-// TestTraversalRenderingIsDeterministicAndPlanDataInert renders the same
-// plan twice and pushes hostile plan data through every bind position.
 func TestTraversalRenderingIsDeterministicAndPlanDataInert(t *testing.T) {
 	plan := trvTraversalPlan(ir.PhysicalOutbound, "to_type", `x'; DROP TABLE fhir_resource; --`, `"injected";$3`)
 	first := renderOK(t, plan)
@@ -1171,19 +1008,6 @@ func TestTraversalRenderingIsDeterministicAndPlanDataInert(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live: PostgreSQL 18 behavior — OPTIONAL parent preservation.
-// ---------------------------------------------------------------------------
-
-// trvRunDeltaAudit wraps m.Run with this ticket's fixture-hygiene audit,
-// delta-scoped to this run (ticket condition C3): it snapshots pgir02_it_*
-// databases and schemas before the run, and after the run fails only on
-// fixtures this run's own tests created and tracked (so concurrent sibling
-// lanes can neither frame this run nor hide leaks from it). Resources born
-// during the run but untracked are reported to stderr without failing,
-// because they may belong to a sibling still mid-run. Nothing is ever
-// deleted here. The package TestMain (main_test.go) composes this with the
-// package-wide zero-leftover audits.
 func trvRunDeltaAudit(m *testing.M) int {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
@@ -1225,8 +1049,6 @@ var (
 	trvTrackedFixtures = map[string]bool{}
 )
 
-// trvTrackFixtures records the database and schema one live test owns, so
-// the TestMain delta audit can attribute survivors to this run exactly.
 func trvTrackFixtures(t *testing.T, svc *pgir02Service) {
 	t.Helper()
 	var database string
@@ -1293,12 +1115,6 @@ func trvLiveTraversalPlan(rootType string, direction ir.PhysicalTraversalDirecti
 	)
 }
 
-// TestPG18OptionalTraversalPreservesParentRows exercises every OPTIONAL
-// defect class against the live server: duplicate occurrences must survive
-// (no multiplicity collapse), resolved-plus-dangling parents keep only the
-// resolved rows, and parents with only-dangling, no, or wrong-label edges
-// collapse to exactly one row with NULL child columns — never an
-// inner-join-style exclusion.
 func TestPG18OptionalTraversalPreservesParentRows(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	trvTrackFixtures(t, svc)
@@ -1310,18 +1126,12 @@ func TestPG18OptionalTraversalPreservesParentRows(t *testing.T) {
 	edge := func(label, source, target, path string) {
 		svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, label, source, target, path))
 	}
-	// pa: two occurrences of st-1, one st-2, plus a dangling ghost — three
-	// surviving rows and the ghost must leave no row of its own.
 	edge("has-specimen", "pa", "st-1", "specimen[0]")
 	edge("has-specimen", "pa", "st-1", "specimen[1]")
 	edge("has-specimen", "pa", "st-2", "contained[0].specimen")
 	edge("has-specimen", "pa", "st-ghost", "specimen[9]")
-	// pb: one resolved occurrence.
 	edge("has-specimen", "pb", "st-2", "specimen[0]")
-	// pc: only a dangling occurrence — exactly one NULL-extended row.
 	edge("has-specimen", "pc", "st-ghost", "specimen[0]")
-	// pd: no edges at all — exactly one NULL-extended row.
-	// pe: only a wrong-label occurrence — excluded by label, one NULL row.
 	edge("other-label", "pe", "st-1", "specimen[0]")
 
 	plan := trvLiveTraversalPlan("Patient", ir.PhysicalOutbound, "to_type", "has-specimen", "Specimen",
@@ -1363,10 +1173,6 @@ func TestPG18OptionalTraversalPreservesParentRows(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live: PostgreSQL 18 behavior — REQUIRED match exclusion.
-// ---------------------------------------------------------------------------
-
 func trvLiveRequiredPlan(rootType, label, targetType string, paths []string, direction ir.PhysicalTraversalDirection, edgeTargetTypeField string, subplanFilter *ir.PhysicalPredicateExpression) ir.PhysicalPlan {
 	plan := scopedPlan(itProject, itGeneration, paths, false)
 	plan.BindVars["root_collection"] = rootType
@@ -1391,11 +1197,6 @@ func trvLiveRequiredPlan(rootType, label, targetType string, paths []string, dir
 		ir.PhysicalProjection{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}})
 }
 
-// TestPG18RequiredMatchExcludesUnmatchedParents proves the REQUIRED
-// exclusion side the OPTIONAL join never performs: a parent matches only
-// through a stored occurrence whose target row exists under the right type
-// and label. Wrong-label and dangling witnesses are proven stored first, so
-// their exclusion is the join's doing, not missing data.
 func TestPG18RequiredMatchExcludesUnmatchedParents(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	trvTrackFixtures(t, svc)
@@ -1419,8 +1220,6 @@ func TestPG18RequiredMatchExcludesUnmatchedParents(t *testing.T) {
 		t.Fatalf("REQUIRED rows = %v, want %v", got, want)
 	}
 
-	// Witnesses: the excluded parents' occurrences are stored; only the
-	// join excludes them.
 	stored := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence" WHERE project=$1 AND dataset_generation=$2 AND label='wrong-label' AND source_logical_id='p-c'`,
 		itProject, itGeneration)
@@ -1434,8 +1233,6 @@ func TestPG18RequiredMatchExcludesUnmatchedParents(t *testing.T) {
 		t.Fatalf("dangling witness occurrence must be stored: %v", ghost)
 	}
 
-	// Combined OPTIONAL + REQUIRED: the semi-join filters parents; the
-	// lateral still expands every surviving occurrence of kept parents.
 	optionalPlan := trvLiveTraversalPlan("Patient", ir.PhysicalOutbound, "to_type", "has-specimen", "Specimen",
 		[]string{"FHIR/Patient", "FHIR/Specimen"})
 	subplan := trvRequiredSubplan(trvSubplanTraversal("root", "child", "edge_label", "target_type"))
@@ -1457,12 +1254,6 @@ func TestPG18RequiredMatchExcludesUnmatchedParents(t *testing.T) {
 	}
 }
 
-// TestPG18RequiredMatchWithTypedPayloadFilter runs the REQUIRED match with
-// the subplan-local typed payload selector filter (status EQUALS final) and
-// proves the filter prunes inside the semi-join only: a patient whose only
-// specimen is preliminary is excluded, a patient with both survives, and in
-// the combined OPTIONAL+REQUIRED plan the lateral still expands every
-// occurrence (the match is at parent level, not row level).
 func TestPG18RequiredMatchWithTypedPayloadFilter(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	trvTrackFixtures(t, svc)
@@ -1472,11 +1263,6 @@ func TestPG18RequiredMatchWithTypedPayloadFilter(t *testing.T) {
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-f", "FHIR/Specimen", map[string]any{"status": "final"})
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-p", "FHIR/Specimen", map[string]any{"status": "prelim"})
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-m", "FHIR/Specimen", nil)
-	// A stored ARRAY at the selector terminal is ONE value (the whole
-	// array), never unpacked by the non-iterated terminal
-	// (render/aql/selectors.go:343, selector.go:48-50): ["final"] EQUALS
-	// "final" must not match, so p-e is excluded. An implementation that
-	// unpacked stored arrays would wrongly include p-e here.
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-a", "FHIR/Specimen", map[string]any{"status": []any{"final"}})
 	svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, "has-specimen", "p-a", "st-f", "specimen[0]"))
 	svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, "has-specimen", "p-b", "st-p", "specimen[0]"))
@@ -1498,7 +1284,6 @@ func TestPG18RequiredMatchWithTypedPayloadFilter(t *testing.T) {
 		t.Fatalf("typed payload REQUIRED rows = %v, want %v", got, want)
 	}
 
-	// Direct-SQL witness over the same stored state.
 	witness := svc.witness(t,
 		`SELECT r0.logical_id FROM "`+svc.schema+`"."fhir_resource" r0`+
 			` WHERE r0.project=$1 AND r0.dataset_generation=$2 AND r0.resource_type='Patient' AND r0.auth_resource_path='FHIR/Patient'`+
@@ -1515,15 +1300,6 @@ func TestPG18RequiredMatchWithTypedPayloadFilter(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live: PostgreSQL 18 behavior — INBOUND matrices.
-// ---------------------------------------------------------------------------
-
-// TestPG18InboundTraversalOptionalAndRequired runs both modes on the
-// stored-source side: INBOUND OPTIONAL from a Specimen reaches the
-// Observations that reference it (with parent preservation for unreferenced
-// and dangling-only specimens), and INBOUND REQUIRED keeps only specimens
-// that carry at least one resolved, correctly labeled incoming occurrence.
 func TestPG18InboundTraversalOptionalAndRequired(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	trvTrackFixtures(t, svc)
@@ -1544,11 +1320,7 @@ func TestPG18InboundTraversalOptionalAndRequired(t *testing.T) {
 	inbound("focus", "o-1", "st-1", "focus[0]")
 	inbound("focus", "o-2", "st-1", "focus[0]")
 	inbound("focus", "o-3", "st-2", "focus[0]")
-	// st-4's only incoming occurrence names a source that was never
-	// stored: the reached-side INNER JOIN must exclude it, leaving st-4
-	// parent-preserved with a NULL child.
 	trvInsertDanglingSourceEdge(t, svc, "focus", "Observation", "o-ghost", "Specimen", "st-4", "FHIR/Observation", "focus[0]")
-	// st-3: no incoming edges. A wrong-label decoy on st-3 proves exclusion.
 	inbound("other", "o-1", "st-3", "focus[1]")
 
 	paths := []string{"FHIR/Specimen", "FHIR/Observation"}

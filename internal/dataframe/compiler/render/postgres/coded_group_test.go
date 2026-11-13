@@ -1,18 +1,5 @@
 package postgres
 
-// pg-sql-19: the coded Group tuple over repeated FHIR Coding values.
-// Offline: the registered slice renders the lowered inline CODED_GROUP plan
-// (real recipe → semantic → lower, so the tested input is the production
-// lowered shape), and the refusal register pins every typed refusal of the
-// closed surface with its message verbatim, each paired with the healthy
-// base render as the alive control. Live: exact tuple-multiset acceptance
-// against literal expected rows on PostgreSQL 18 under the owned
-// coded19_it_* namespace (registered with the TestMain delta audit), the
-// MissingKeyPolicy GROUP/EXCLUDE/ERROR matrix including the zero-group
-// guard cell and its sabotage controls, whitespace/Unicode/byte-order pins,
-// and the alive controls (direct-SQL witnesses + insert-then-recount
-// mutation probes) so a vacuously-empty grouping can never pass.
-
 import (
 	"context"
 	"encoding/json"
@@ -35,10 +22,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-// ---------------------------------------------------------------------------
-// Lowered-plan fixtures (the production shape: recipe → semantic → lower).
-// ---------------------------------------------------------------------------
 
 const (
 	coded19CodingPath = "component[].code.coding[]"
@@ -98,10 +81,6 @@ func coded19LoweredPlan(t *testing.T, policy recipe.ConstructionGroupMissingKeyP
 	return ir.ClonePhysicalPlan(compiled.Outputs[0].Plan)
 }
 
-// coded19Identity builds the expected stable identity string independently
-// of the renderer: the JSON-compact array spelling of the AQL TO_STRING
-// member list (construction_coded_group.go:127-129). Each string member is
-// JSON-quoted; a nil key member spells null unquoted.
 func coded19Identity(t *testing.T, system, version, code *string) string {
 	t.Helper()
 	member := func(value *string) string {
@@ -152,10 +131,6 @@ func coded19Rows(t *testing.T, rows [][]string) []coded19Row {
 
 func coded19Text(value string) *string { return &value }
 
-// ---------------------------------------------------------------------------
-// Offline: the registered slice over the lowered plan.
-// ---------------------------------------------------------------------------
-
 func TestCodedGroupRenderedSliceContract(t *testing.T) {
 	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
 	rendered := renderOK(t, plan)
@@ -163,13 +138,7 @@ func TestCodedGroupRenderedSliceContract(t *testing.T) {
 
 	for _, want := range []string{
 		`WITH cg_src AS (`,
-		// Expansion shape (AQL parity, construction_coded_group.go:54-75):
-		// ONE LEFT JOIN LATERAL wraps the CROSS JOIN LATERAL chain, so the
-		// zero-item rule fires once per root, not once per emptied branch.
 		`LEFT JOIN LATERAL (SELECT cgx2.elem FROM jsonb_array_elements(CASE WHEN jsonb_typeof(`,
-		// Expansion regression pin: the first expansion must reach the
-		// first repeated segment by NAME through the payload (AQL
-		// attribute step per segment), never unnest the payload root.
 		`jsonb_typeof(s.cg_payload #> $`,
 		`AS cgx1(elem) CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(`,
 		`) AS cgx2(elem)) AS cgexp(elem) ON true`,
@@ -182,29 +151,20 @@ func TestCodedGroupRenderedSliceContract(t *testing.T) {
 			t.Fatalf("statement is missing %q:\n%s", want, sql)
 		}
 	}
-	// One wrapping LEFT JOIN only: per-level LEFT JOINs would materialize
-	// a NULL candidate per emptied branch (the mixed-branch parity bug).
 	if got := strings.Count(sql, "LEFT JOIN LATERAL"); got != 1 {
 		t.Fatalf("wrapping LEFT JOIN LATERAL count = %d, want exactly 1:\n%s", got, sql)
 	}
-	// Group policy keeps every candidate: no WHERE on the dedup step.
 	if strings.Contains(sql, " WHERE c.cg_valid") {
 		t.Fatalf("GROUP policy must not filter candidates:\n%s", sql)
 	}
-	// AQL bind syntax never crosses into PostgreSQL text.
 	if strings.Contains(sql, "@") {
 		t.Fatalf("statement carries AQL bind syntax:\n%s", sql)
 	}
-	// No plan data in statement text: only registry columns, renderer-owned
-	// CTE aliases, and $n parameters.
 	for _, leaked := range []string{"proj-a", "gen-1", "FHIR/Observation", "Observation", "component", "coding", "group_codes", coded19CodingPath, "CONSTRUCTION_CODED_GROUP_MISSING_KEY"} {
 		if strings.Contains(sql, leaked) {
 			t.Fatalf("value %q leaked into statement text:\n%s", leaked, sql)
 		}
 	}
-	// Path segments and key names bind as text parameters, in extraction
-	// order: the single #> per run of scalar segments carries {code}, and
-	// the two guarded array expansions read component first.
 	if !strings.Contains(sql, `#> $`) {
 		t.Fatalf("payload paths must bind through #> text[] parameters:\n%s", sql)
 	}
@@ -215,15 +175,11 @@ func TestCodedGroupRenderedSliceContract(t *testing.T) {
 		t.Fatalf(`identity COLLATE "C" terms = %d, want 1:\n%s`, got, sql)
 	}
 
-	// The declared column contract matches the lowered FinalColumns order
-	// (three keys, the root count, and the hidden stable identity).
 	want := []string{"code_system", "code_version", "code", "source_records", "__loom_row_id"}
 	if !reflect.DeepEqual(rendered.OutputColumns, want) {
 		t.Fatalf("output columns = %#v, want %#v", rendered.OutputColumns, want)
 	}
 
-	// Determinism: same plan, byte-identical statement and value-identical
-	// arguments.
 	second, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
 	if err != nil || second.SQL != rendered.SQL || !reflect.DeepEqual(second.Args, rendered.Args) {
 		t.Fatalf("coded-group render is not deterministic: %v", err)
@@ -244,8 +200,6 @@ func TestCodedGroupPoliciesRender(t *testing.T) {
 		t.Fatalf("EXCLUDE policy must not carry the ERROR guard:\n%s", exclude.SQL)
 	}
 
-	// ERROR renders the ASSERT counterpart at the candidate position over
-	// the constant-folding barrier, with the tag carried verbatim.
 	errorPlan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, "proj-a", "gen-1")
 	errorRendered := renderOK(t, errorPlan)
 	for _, want := range []string{
@@ -264,10 +218,6 @@ const coded19MissingKeyTagSQLProbe = "CASE WHEN c.cg_valid THEN 1"
 func TestCodedGroupIdentityOrderAndBound(t *testing.T) {
 	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
 	rendered := renderOK(t, plan)
-	// The AQL terminal re-sort orders the final rows by the stable identity
-	// alone (stage_sequence.go:399-403/:446-448): exactly one ORDER BY in
-	// the final statement, on the identity concatenation, with the preview
-	// LIMIT bound after it.
 	orderIndex := strings.LastIndex(rendered.SQL, " ORDER BY ")
 	if orderIndex < 0 {
 		t.Fatalf("final statement has no ORDER BY:\n%s", rendered.SQL)
@@ -280,8 +230,6 @@ func TestCodedGroupIdentityOrderAndBound(t *testing.T) {
 		t.Fatalf("the unobservable AQL stage-internal sort must not be re-rendered:\n%s", final)
 	}
 
-	// With a preview limit bound, the bound LIMIT follows the identity
-	// COLLATE "C" order (D6: the AQL terminal LIMIT position).
 	limited := ir.ClonePhysicalPlan(plan)
 	limited.StageSequence.PreviewLimitBindKey = "limit"
 	limited.BindVars["limit"] = 25
@@ -296,9 +244,6 @@ func TestCodedGroupIdentityOrderAndBound(t *testing.T) {
 
 func TestCodedGroupWindowedSourceRegion(t *testing.T) {
 	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
-	// The W1 source window renders through the untouched spine window arms:
-	// a SORT before the RETURN becomes part of cg_src, and its ORDER BY
-	// witnesses stay inside cg_src — never the final identity order.
 	sorted := ir.ClonePhysicalPlan(plan)
 	last := len(sorted.Operations) - 1
 	sorted.Operations = append(sorted.Operations[:last],
@@ -318,10 +263,6 @@ func TestCodedGroupWindowedSourceRegion(t *testing.T) {
 }
 
 func TestCodedGroupSingleSegmentKeepsFlatLateral(t *testing.T) {
-	// A single repeated segment keeps the flat LEFT JOIN LATERAL form
-	// (its zero-row behavior already equals the wrapped chain, and the
-	// merged golden stays byte-identical); only two or more repeated
-	// segments mint the CROSS JOIN LATERAL chain.
 	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
 	coded := plan.StageSequence.Stages[0].CodedGroup
 	coded.PathSegments = []ir.PhysicalCodedGroupPathSegment{{Name: "coding", Repeated: true}}
@@ -341,15 +282,9 @@ func TestCodedGroupSingleSegmentKeepsFlatLateral(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Offline: the refusal register — every message pinned verbatim, each with
-// the healthy base render as the alive control.
-// ---------------------------------------------------------------------------
-
 func TestCodedGroupRefusalRegister(t *testing.T) {
 	base := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
 
-	// Alive control: the base plan renders.
 	if _, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(base), mustBinding(t)); err != nil {
 		t.Fatalf("alive control (base plan) must render: %v", err)
 	}
@@ -428,21 +363,12 @@ func TestCodedGroupRefusalRegister(t *testing.T) {
 		{
 			name: "row_value_projections_without_row_values",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				// Projections present without the RowValues list: the
-				// unmatched-projection half of the door contract.
 				coded := plan.StageSequence.Stages[0].CodedGroup
 				coded.RowValueProjections = []ir.PhysicalProjection{{Name: "resource_id", Hidden: true, Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}}}
 			},
 			pin: "addresses no row value input column",
 		},
 		{
-			// Registered named divergence L-19.4 (coordinator F-3
-			// ruling): lowering EMITs SET in the source region (probe:
-			// logs/pg19-f3-set-reachability.log) and AQL renders it
-			// inline; no PostgreSQL configuration can render the
-			// lowering-emitted child-set subplan, so the door refuses
-			// fail-closed. The producer-channel pin is
-			// TestCodedGroupIRSetAliveControl.
 			name: "source_region_set_pg_sql_16_gap",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				last := len(plan.Operations) - 1
@@ -597,13 +523,6 @@ func TestCodedGroupRefusalRegister(t *testing.T) {
 			pin: "preview source windowing and the terminal Pivot window require Pivot terminals",
 		},
 		{
-			// Review finding r4532120565: the PLAN-level flag
-			// (ir/physical_types.go:27) must be refused HERE, not by the
-			// spine gate at render.go:237 — the hook dispatches coded-group
-			// plans before it, so this door is the only place the check
-			// can fire (the twin graph door keeps the same check at
-			// graph.go:228-231). plan.Validate covers it only under
-			// whole-relation evidence (ir/whole_relation_scope_evidence.go:159).
 			name: "plan_level_preview_source_window_refused",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				plan.PreviewSourceWindowByRootID = true
@@ -640,9 +559,6 @@ func TestCodedGroupRefusalRegister(t *testing.T) {
 			testCase.mutate(t, &plan)
 			var err error
 			if testCase.door {
-				// Defense-in-depth shape: the entry dispatch never routes
-				// this plan to the door (it mentions no CODED_GROUP kind),
-				// so the door's own gate is exercised directly.
 				_, err = renderCodedGroupPhysicalPlan(plan, mustBinding(t))
 			} else {
 				_, err = RenderPhysicalPlan(plan, mustBinding(t))
@@ -657,9 +573,6 @@ func TestCodedGroupRefusalRegister(t *testing.T) {
 	}
 }
 
-// TestCodedGroupEntryDispatchEquality pins the graph.go door property: the
-// RenderPhysicalPlan hook and the direct door enforce one contract with
-// one message.
 func TestCodedGroupEntryDispatchEquality(t *testing.T) {
 	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, "proj-a", "gen-1")
 	fromEntry, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
@@ -671,7 +584,6 @@ func TestCodedGroupEntryDispatchEquality(t *testing.T) {
 		t.Fatalf("entry and direct door diverge: %v", err)
 	}
 
-	// A refused shape refuses identically through both doors.
 	broken := ir.ClonePhysicalPlan(plan)
 	broken.StageSequence.Stages[0].CodedGroup.SourceRowsUnique = false
 	entryErr := errorOf(RenderPhysicalPlan(broken, mustBinding(t)))
@@ -683,35 +595,8 @@ func TestCodedGroupEntryDispatchEquality(t *testing.T) {
 
 func errorOf(_ any, err error) error { return err }
 
-// ---------------------------------------------------------------------------
-// D2 registered divergence L-19.2 — RowValues in CODED_GROUP.
-//
-// Registered named divergence (coordinator ruling 2026-11-10):
-// accepted-at-recipe-level/PG-typed-refused, enabling ticket pg-sql-13;
-// operator-config entry counted as non-user surface per coordinator ruling
-// 2026-11-10. Evidence: artifacts/loom-experiment-144/logs/
-// pg19-reachability.log (recipe.Parse accepts rowValues, lowering ACCEPTs
-// and EMITs, AQL renders) and the two authoring-path blocks
-// (authoringv2/construction_validation.go:1694 four-output law +
-// :1755-1769 declared-output IDs; recipe/construction.go:1023-1028 step
-// output membership). The renderer's fail-closed arm is load-bearing:
-// TestCodedGroupIRRowValuesAliveControl assembles the ir-accepted shape
-// directly (bypassing recipe validation, the raw-document/privilege
-// channel), and the arm-removal sabotage (logs/pg19-arm-removal-red.log)
-// shows that without the arm the plan renders a PARTIAL statement.
-// ---------------------------------------------------------------------------
-
-// coded19ManyRowValuesRefusalPin is the refusal of the ONE remaining
-// coded-group row-values shape: the many-cardinality (local-array
-// expansion) input, whose shared pool emitter renders from g_rows — the
-// named wave-2 gap of the pg-sql-13 Q4 arm.
 const coded19ManyRowValuesRefusalPin = "coded-group many-cardinality (local-array-expansion) row values are a wave-2 pg-sql-13 gap"
 
-// coded19AttachIRRowValues attaches a rowValues list the ir validator
-// ACCEPTS (the ACCEPT+EMIT channel the probe banked), built to the exact
-// contract physical_stage_validation.go:2346-2396 demands: the hidden
-// clone of the resolved source projection, the exact-variable output
-// projection, and the ONE-policy output column.
 func coded19AttachIRRowValues(t *testing.T, plan *ir.PhysicalPlan) {
 	t.Helper()
 	coded19AttachIRRowValuesPolicy(t, plan, "ONE", false)
@@ -750,14 +635,6 @@ func coded19AttachIRRowValuesPolicy(t *testing.T, plan *ir.PhysicalPlan, policy 
 	plan.StageSequence.FinalColumns = append(plan.StageSequence.FinalColumns, column)
 }
 
-// TestCodedGroupIRRowValuesAliveControl is the pg-sql-13 (Q4) registration
-// proof: the producer-accepted ACCEPT+EMIT shape (probe-banked while the
-// arm was a refusal — logs/pg19-arm-removal-red.log showed a PARTIAL
-// statement then) now renders THROUGH THE SHARED GROUP EMITTER. The cell
-// pins the carry chain (cg_src → cg_candidates → cg_tuples → cg_grouped),
-// the shared ONE fragment byte-identical (parameter indices normalized —
-// a hand-copied emitter in coded_group.go drifts here), and the six
-// positional outputs.
 func TestCodedGroupIRRowValuesAliveControl(t *testing.T) {
 	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
 	coded19AttachIRRowValues(t, &plan)
@@ -796,10 +673,6 @@ func TestCodedGroupIRRowValuesAliveControl(t *testing.T) {
 	}
 }
 
-// TestCodedGroupRowValuesSharedEmitterLaw is the Q4 sabotage gate: the
-// coded-group arm may only reach ALL/ONE through the shared group emitter
-// calls; an inlined copy in coded_group.go (a second emitter) fails here
-// even if it renders the same bytes today.
 func TestCodedGroupRowValuesSharedEmitterLaw(t *testing.T) {
 	source, err := os.ReadFile("coded_group.go")
 	if err != nil {
@@ -826,11 +699,6 @@ func TestCodedGroupRowValuesSharedEmitterLaw(t *testing.T) {
 	}
 }
 
-// TestCodedGroupIRRowValuesLiveZeroSideEffects keeps the D2 condition-3
-// live proof on the shape that remains refused after the Q4 arm: the
-// many-cardinality (wave-2) input. The refusal happens BEFORE any SQL is
-// produced, so it touches the PostgreSQL service not at all — no tables,
-// no rows, no statement text.
 func TestCodedGroupIRRowValuesLiveZeroSideEffects(t *testing.T) {
 	svc := newCoded19Service(t)
 	coded19TrackFixtures(t, svc)
@@ -850,19 +718,11 @@ func TestCodedGroupIRRowValuesLiveZeroSideEffects(t *testing.T) {
 	if after := coded19Inventory(t, svc); after != before {
 		t.Fatalf("the refused many row-values plan changed service state:\n before %q\n after  %q", before, after)
 	}
-	// Alive control: the schema is live and readable — the inventory
-	// equality above is a real zero-delta, not a query silently returning
-	// nothing.
 	if rows := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project = $1`, coded19Project); rows[0][0] != "1" {
 		t.Fatalf("alive witness: %v, want the single inserted row", rows)
 	}
 }
 
-// TestCodedGroupRowValuesLiveRender runs the registered arm against the
-// PostgreSQL service: the tuple pool is the DISTINCT contributing roots,
-// ALL reads the JSON array of their ids, ONE reads the single distinct id
-// and raises the canonical multi-value tag through the barrier once a
-// second contributing root joins the tuple.
 func TestCodedGroupRowValuesLiveRender(t *testing.T) {
 	svc := newCoded19Service(t)
 	coded19TrackFixtures(t, svc)
@@ -877,7 +737,6 @@ func TestCodedGroupRowValuesLiveRender(t *testing.T) {
 		t.Fatalf("registered row-values arm must render: %v", err)
 	}
 	rows := svc.runRendered(t, oneRendered)
-	// Columns: system, version, code, count, identity, row_value_1.
 	if len(rows) != 1 || rows[0][0] != "sys-rv" || rows[0][2] != "kept" || rows[0][3] != "1" || rows[0][5] != "rv-a" {
 		t.Fatalf("ONE over one contributing root: %v", rows)
 	}
@@ -889,7 +748,6 @@ func TestCodedGroupRowValuesLiveRender(t *testing.T) {
 		t.Fatalf("registered row-values arm must render (ALL): %v", err)
 	}
 
-	// A second root joins the tuple: ALL grows, ONE raises.
 	secondPayload := codingPayload(coding("sys-rv", "", "kept"))
 	secondPayload["id"] = "rv-b"
 	coded19Insert(t, svc, "rvw-b", coded19Project, coded19Generation, "FHIR/Observation", secondPayload)
@@ -899,17 +757,12 @@ func TestCodedGroupRowValuesLiveRender(t *testing.T) {
 	}
 	group13ExpectRaise(t, svc, oneRendered, groupRowValueMultipleTag)
 
-	// Alive control: removing the second root returns ONE to the single
-	// distinct reading (the raise is data-driven, not constant).
 	svc.witness(t, `DELETE FROM "`+svc.schema+`"."fhir_resource" WHERE logical_id = 'rvw-b'`)
 	if again := svc.runRendered(t, oneRendered); len(again) != 1 || again[0][5] != "rv-a" {
 		t.Fatalf("ONE after removing the second root: %v", again)
 	}
 }
 
-// coded19Inventory snapshots the owned database's structural and row
-// state as one comparable string: catalog tables, their row counts, and
-// the resource-table digest.
 func coded19Inventory(t *testing.T, svc *pgir02Service) string {
 	t.Helper()
 	tables := svc.witness(t,
@@ -920,43 +773,8 @@ func coded19Inventory(t *testing.T, svc *pgir02Service) string {
 	return strings.Join([]string{fmt.Sprint(tables), fmt.Sprint(resourceRows)}, "|")
 }
 
-// ---------------------------------------------------------------------------
-// Registered named divergence L-19.4 (coordinator F-3 ruling 2026-11-11,
-// "PROBE FIRST, no silent divergence either direction"): SET in the
-// coded-group source region. The forced probe (real
-// recipe.Parse→semantic→lower, logs/pg19-f3-set-reachability.log,
-// disposable legs archived at artifacts/loom-experiment-144/probes/)
-// shows lowering EMITs the shape (setOps=1) and AQL renders it inline
-// (AQL control err=nil), but NO PostgreSQL configuration renders the
-// lowering-emitted child-set subplan. Gate chain on this head
-// (verifier-145 corrected via sabotage runs at 85e6b47b): the door's
-// L-19.4 arm is the SOLE load-bearing gate — renderCodedGroupStatement
-// has no PhysicalSetOp dispatch arm (the spine renderSet is not wired
-// into the coded-group path), so sabotaging the arm with SET left
-// whitelist-acceptable makes OPTIONAL RENDER with the SET silently
-// dropped, SQL byte-for-byte the SET-less base, and REQUIRED refuses at
-// its required-match FILTER at traversal.go:415, not sets.go:236. The
-// traversal.go:141 ENDPOINT_LOOKUP gate and the argument-integrity
-// guard fired only in the pre-fold probe legs (SET still dispatched to
-// renderSet then, logs/pg19-f3-set-reachability.log) and remain
-// evidence that wiring the dispatch would not render the shape either:
-// the default policy stamps ENDPOINT_LOOKUP on every registered route,
-// and the endpoint-rule dev-disabled variant emits an unreferenced
-// placeholder. So the baseline SET whitelist
-// (lower/recipe_construction_coded_group.go:176-179) is refused
-// fail-closed at this door naming pg-sql-16 as the enabling ticket —
-// never partially rendered, zero SQL, zero side effects. Corroboration:
-// the merged sets.go:82-95 finding "No current lowering output reaches
-// the hop-only renderer". The arm-removal sabotage RED is banked at
-// logs/pg19-set-arm-removal-red.log.
-// ---------------------------------------------------------------------------
-
-// coded19SetRefusalMessage is the cell-verbatim L-19.4 refusal.
 const coded19SetRefusalMessage = "postgres renderer: unsupported physical plan: coded-group source-region SET is a pg-sql-16 capability gap (no PostgreSQL contract for lowering-emitted child-set subplans; probe-attested L-19.4) and is refused, never partially rendered"
 
-// coded19SetInSourceRegionPlan replays the banked F-3 probe through the
-// real producer channel: a recipe document whose only child traversal
-// feeds the CODED_GROUP source, lowering a SET into the source region.
 func coded19SetInSourceRegionPlan(t *testing.T, required bool) ir.PhysicalPlan {
 	t.Helper()
 	match := ""
@@ -1010,13 +828,6 @@ func coded19SetInSourceRegionPlan(t *testing.T, required bool) ir.PhysicalPlan {
 	return ir.ClonePhysicalPlan(lowered)
 }
 
-// TestCodedGroupIRSetAliveControl is the L-19.4 load-bearing assertion:
-// the producer channel ACCEPTs and EMITs the shape (plan.Validate
-// passes, the default policy stamps the child-set traversal
-// ENDPOINT_LOOKUP — the exact probe finding), so the ONLY thing standing
-// between it and a rendered statement is this renderer's fail-closed
-// arm. Removing the arm must turn the register cell and this test RED —
-// evidence banked at logs/pg19-set-arm-removal-red.log.
 func TestCodedGroupIRSetAliveControl(t *testing.T) {
 	for _, required := range []bool{false, true} {
 		plan := coded19SetInSourceRegionPlan(t, required)
@@ -1055,10 +866,6 @@ func TestCodedGroupIRSetAliveControl(t *testing.T) {
 	}
 }
 
-// TestCodedGroupIRSetLiveZeroSideEffects is the live proof on the owned
-// coded19_it_* namespace: the refusal happens BEFORE any SQL is
-// produced, so a refused SET-in-source-region plan touches the
-// PostgreSQL service not at all.
 func TestCodedGroupIRSetLiveZeroSideEffects(t *testing.T) {
 	svc := newCoded19Service(t)
 	coded19TrackFixtures(t, svc)
@@ -1082,10 +889,6 @@ func TestCodedGroupIRSetLiveZeroSideEffects(t *testing.T) {
 	}
 }
 
-// TestCodedGroupTrimSetStructuralLaw enforces the single-trim-set law: the
-// trim characters exist as ONE Go constant in the package, every btrim call
-// binds it as a parameter, and no other package file hard-codes a trim
-// literal. The named victim: a second, drifted trim set.
 func TestCodedGroupTrimSetStructuralLaw(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -1117,18 +920,9 @@ func TestCodedGroupTrimSetStructuralLaw(t *testing.T) {
 			for _, line := range strings.Split(text, "\n") {
 				trimmed := strings.TrimSpace(line)
 				if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "*") {
-					continue // documentation may name the constant
+					continue
 				}
 				if strings.Contains(line, "btrim(") {
-					// calls.go is the registered pg-sql-10 decimal-tier
-					// holder: its btrim binds its OWN single-source trim
-					// set (callDecimalTrimCharacters, derived from
-					// callDecimalWhitespace) under the separate F-5 law,
-					// pinned by TestCallsWhitespaceSingleSource — a
-					// different contract from this gate's trim set, and
-					// graded before this law existed. The constant-use
-					// check below still forbids calls.go from touching
-					// the coded-group trim set.
 					if name != "calls.go" {
 						t.Fatalf("%s introduces a btrim call outside the registered coded-group gate file: %s", name, trimmed)
 					}
@@ -1138,12 +932,6 @@ func TestCodedGroupTrimSetStructuralLaw(t *testing.T) {
 				}
 			}
 		}
-		// Every btrim call in the gate file must close its trim argument
-		// through the single constant: the rendered argument is built as
-		// ", " + dollar(trimChars) + "::text)". Scan only real code lines.
-		// Gate-file-scoped per this comment: non-gate holders of btrim
-		// are governed by their own registered single-source laws (the
-		// first leg above already rejects any unregistered one).
 		if name != "coded_group.go" {
 			continue
 		}
@@ -1166,18 +954,11 @@ func TestCodedGroupTrimSetStructuralLaw(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live: owned namespace, delta audit, and the acceptance matrices.
-// ---------------------------------------------------------------------------
-
 func newCoded19Service(t *testing.T) *pgir02Service {
 	t.Helper()
 	return newOwnedService(t, 0, "coded19_it")
 }
 
-// coded19RenderSvc renders through the entry door against the test's owned
-// schema: the live acceptance must execute the very statement the entry
-// dispatch produces, only bound to the isolated database.
 func coded19RenderSvc(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
 	t.Helper()
 	rendered, err := RenderPhysicalPlan(plan, bindingFor(t, svc.schema))
@@ -1228,12 +1009,6 @@ func coded19SnapshotOwnedResources(ctx context.Context, raw string) ([]string, e
 	return names, rows.Err()
 }
 
-// coded19RunDeltaAudit wraps the composed audit chain (pg-sql-19 is the
-// 6th, outermost hook) with a delta-scoped audit over the disjoint
-// coded19_it_* namespace: every resource born during this run and still
-// surviving at the end must have been tracked by a live test here, and
-// none may survive at all. The pre-snapshot also proves the namespace
-// started empty.
 func coded19RunDeltaAudit(inner func() int) int {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
@@ -1331,22 +1106,15 @@ func TestCodedGroupLiveExactTupleMultiset(t *testing.T) {
 	coded19Insert(t, svc, "obs-invalid", coded19Project, coded19Generation, "FHIR/Observation", codingPayload(
 		coding(" ", "", "shared"), coding("", "", "shared"), coding("system-a", "", ""),
 	))
-	// Non-array coding (object where the array belongs) and the [null]
-	// item: both must read as zero items plus the AQL [null] candidate.
 	svc.insertResource(t, svc.schema, coded19Project, coded19Generation, "Observation", "obs-nonarray", "FHIR/Observation",
 		map[string]any{"component": []any{map[string]any{"code": map[string]any{"coding": coding("system-x", "", "y")}}}})
 	svc.insertResource(t, svc.schema, coded19Project, coded19Generation, "Observation", "obs-nullitem", "FHIR/Observation",
 		map[string]any{"component": []any{map[string]any{"code": map[string]any{"coding": []any{nil}}}}})
 
-	// Scope witnesses (alive: they exist in the store, must never group).
 	coded19Insert(t, svc, "obs-denied", coded19Project, coded19Generation, "FHIR/Hidden", codingPayload(coding("system-a", "", "denied")))
 	coded19Insert(t, svc, "obs-oldgen", coded19Project, "p19-old-gen", "FHIR/Observation", codingPayload(coding("system-a", "", "oldgen")))
 	coded19Insert(t, svc, "obs-foreign", "p19-foreign", coded19Generation, "FHIR/Observation", codingPayload(coding("system-a", "", "foreign")))
 
-	// Pre-snapshot witness: the acceptance rows were really inserted.
-	// Eight rows carry project p19-proj (six acceptance roots plus the
-	// denied-path and old-generation witnesses; only the foreign-project
-	// row leaves the project).
 	if rows := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project = $1`, coded19Project); rows[0][0] != "8" {
 		t.Fatalf("scope witness: p19-proj row count = %v, want 8", rows)
 	}
@@ -1360,9 +1128,6 @@ func TestCodedGroupLiveExactTupleMultiset(t *testing.T) {
 	}
 	rows := coded19Rows(t, svc.runRendered(t, rendered))
 
-	// The literal expected multiset: exact tuples and contributing-root
-	// counts. The duplicate identical coding inside obs-a contributes ONE
-	// to (system-a,null,shared), which obs-b also feeds: count 2.
 	type want struct {
 		system, version, code *string
 		count                 string
@@ -1373,11 +1138,6 @@ func TestCodedGroupLiveExactTupleMultiset(t *testing.T) {
 		{coded19Text("system-a"), nil, coded19Text("only-a"), "1"},
 		{coded19Text("system-a"), coded19Text("v1"), coded19Text("shared"), "1"},
 		{coded19Text("system-a"), coded19Text(" v1 "), coded19Text("shared"), "1"},
-		// Four roots contribute the missing tuple: coding-less, non-array
-		// coding, the [null] item, and the blank-system coding. The
-		// blank-code and empty-string codings on obs-invalid do NOT: that
-		// root's valid "shared" coding already owns its tuple, and the
-		// stage counts roots that contribute NO tuple at all.
 		{nil, nil, nil, "4"},
 	}
 	if len(rows) != len(expected) {
@@ -1409,8 +1169,6 @@ func TestCodedGroupLiveExactTupleMultiset(t *testing.T) {
 		}
 	}
 
-	// The final order is the identity string, COLLATE "C" bytes: compare
-	// against the Go-side byte order of independently-built identities.
 	identities := make([]string, len(rows))
 	for index, row := range rows {
 		identities[index] = row.identity
@@ -1431,13 +1189,11 @@ func TestCodedGroupLiveExactTupleMultiset(t *testing.T) {
 		seen[identity] = true
 	}
 
-	// Determinism across executions: identical identities.
 	repeated := coded19Rows(t, svc.runRendered(t, rendered))
 	if !reflect.DeepEqual(rows, repeated) {
 		t.Fatalf("grouping changed between executions:\n%v\n%v", rows, repeated)
 	}
 
-	// EXCLUDE: the missing tuple disappears; every other tuple survives.
 	excludeRendered := coded19RenderSvc(t, svc, coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyExclude, coded19Project, coded19Generation))
 	excluded := coded19Rows(t, svc.runRendered(t, excludeRendered))
 	if len(excluded) != len(expected)-1 {
@@ -1449,9 +1205,6 @@ func TestCodedGroupLiveExactTupleMultiset(t *testing.T) {
 		}
 	}
 
-	// ERROR: the invalid candidates raise the canonical tag through the
-	// guard barrier — even though the grouped result is non-empty, so the
-	// raise is candidate-positioned, not result-positioned.
 	errorRendered := coded19RenderSvc(t, svc, coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, coded19Project, coded19Generation))
 	if err := coded19ExecErr(svc, errorRendered); err == nil {
 		t.Fatalf("ERROR policy must raise on the invalid candidates")
@@ -1461,9 +1214,6 @@ func TestCodedGroupLiveExactTupleMultiset(t *testing.T) {
 		t.Fatalf("ERROR guard must raise through the barrier cast (22P02): %v", svc.scrub(err))
 	}
 
-	// Alive control / mutation probe: a newly inserted root carrying the
-	// same coding lifts the (system-a,null,shared) count 2 -> 3 and adds
-	// one missing-tuple contributor, proving the grouping reads live rows.
 	coded19Insert(t, svc, "obs-c", coded19Project, coded19Generation, "FHIR/Observation", codingPayload(coding("system-a", "", "shared")))
 	mutated := coded19Rows(t, svc.runRendered(t, rendered))
 	for _, row := range mutated {
@@ -1489,9 +1239,6 @@ func coded19QueryArgs(rendered command.RenderedPostgresPhysicalPlan) []any {
 	return args
 }
 
-// coded19ExecErr executes a rendered statement for its error only, always
-// closing the rows (an unclosed portal would pin a pooled connection and
-// hang the owned-database DROP in cleanup).
 func coded19ExecErr(svc *pgir02Service, rendered command.RenderedPostgresPhysicalPlan) error {
 	rows, err := svc.iso.Query(svc.ctx, rendered.SQL, coded19QueryArgs(rendered)...)
 	if err != nil {
@@ -1508,37 +1255,27 @@ func TestCodedGroupLiveErrorPolicyBarrierMatrix(t *testing.T) {
 	svc := newCoded19Service(t)
 	coded19TrackFixtures(t, svc)
 
-	// Partition 1 (zero-group live cell + both sabotage controls): every
-	// candidate invalid — coding-less roots and blank-key codings only.
 	const allInvalidProject = "p19-all-invalid"
 	coded19Insert(t, svc, "inv-1", allInvalidProject, coded19Generation, "FHIR/Observation", codingPayload(coding("", "", "shared")))
 	coded19Insert(t, svc, "inv-2", allInvalidProject, coded19Generation, "FHIR/Observation", nil)
 
-	// EXCLUDE over the partition: zero rows, no raise.
 	exclude := coded19RenderSvc(t, svc, coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyExclude, allInvalidProject, coded19Generation))
 	if rows := svc.runRendered(t, exclude); len(rows) != 0 {
 		t.Fatalf("EXCLUDE over all-invalid data must group nothing: %v", rows)
 	}
-	// Sabotage control A (the fixture is not vacuous): GROUP over the same
-	// data yields the (null,null,null) tuple with both roots counted.
 	grouped := coded19Rows(t, svc.runRendered(t, coded19RenderSvc(t, svc, coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, allInvalidProject, coded19Generation))))
 	if len(grouped) != 1 || grouped[0].count != "2" || grouped[0].system != nil {
 		t.Fatalf("GROUP sabotage control: %v, want one missing tuple with count 2", grouped)
 	}
-	// Sabotage control B (the barrier fires): ERROR over the same
-	// zero-group result raises.
 	errorRendered := coded19RenderSvc(t, svc, coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, allInvalidProject, coded19Generation))
 	if err := coded19ExecErr(svc, errorRendered); err == nil ||
 		!strings.Contains(svc.scrub(err), codedGroupMissingKeyTag) {
 		t.Fatalf("ERROR must raise at zero grouped rows: %v", svc.scrub(fmt.Sprint(err)))
 	}
-	// Zero-source control: ERROR with no in-scope roots never raises in
-	// either backend (no candidate rows exist).
 	empty := coded19RenderSvc(t, svc, coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, "p19-no-rows", coded19Generation))
 	if rows := svc.runRendered(t, empty); len(rows) != 0 {
 		t.Fatalf("zero-source ERROR must return zero rows: %v", rows)
 	}
-	// Healthy control: ERROR over all-valid data renders its tuples.
 	const healthyProject = "p19-healthy"
 	coded19Insert(t, svc, "ok-1", healthyProject, coded19Generation, "FHIR/Observation", codingPayload(coding("sys-h", "", "c1")))
 	healthy := coded19Rows(t, svc.runRendered(t, coded19RenderSvc(t, svc, coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, healthyProject, coded19Generation))))
@@ -1546,8 +1283,6 @@ func TestCodedGroupLiveErrorPolicyBarrierMatrix(t *testing.T) {
 		t.Fatalf("healthy ERROR control: %v", healthy)
 	}
 
-	// The guard qual survives planning (no constant-fold pruning): the
-	// EXPLAIN plan text carries the tag and the barrier GUC read.
 	planRows, err := svc.iso.Query(svc.ctx, "EXPLAIN (FORMAT JSON) "+errorRendered.SQL, coded19QueryArgs(errorRendered)...)
 	if err != nil {
 		svc.fail("explain ERROR statement", err)
@@ -1574,11 +1309,6 @@ func TestCodedGroupLiveWhitespaceUnicodeAndByteOrder(t *testing.T) {
 	coded19TrackFixtures(t, svc)
 	const project = "p19-ws"
 
-	// Space-only trim boundary pins (the space-only law of
-	// codedGroupTrimCharacters): tab/newline/Unicode-space padded values
-	// stay VALID and are emitted untrimmed; a space-only padded system is
-	// invalid; the string "null" is a code, distinct from the missing
-	// tuple's unquoted null spelling.
 	coded19Insert(t, svc, "ws-1", project, coded19Generation, "FHIR/Observation", codingPayload(
 		coding("sys-w", "", "\tT"), coding("sys-w", "", "\nN"), coding("sys-w", "", " U"),
 	))
@@ -1588,8 +1318,6 @@ func TestCodedGroupLiveWhitespaceUnicodeAndByteOrder(t *testing.T) {
 	coded19Insert(t, svc, "ws-3", project, coded19Generation, "FHIR/Observation", codingPayload(
 		coding("sys-w", "", "null"),
 	))
-	// Registered divergence D-19a cells: PostgreSQL COLLATE "C" orders the
-	// identity text by raw UTF-8 bytes.
 	coded19Insert(t, svc, "ws-4", project, coded19Generation, "FHIR/Observation", codingPayload(
 		coding("sys-u", "", "é"), coding("sys-u", "", "Ω"), coding("sys-u", "", "日本"), coding("sys-u", "", "a"),
 	))
@@ -1611,10 +1339,6 @@ func TestCodedGroupLiveWhitespaceUnicodeAndByteOrder(t *testing.T) {
 			t.Fatalf("tuple %#v count = %q, want 1; all rows: %v", want, counts[want], rows)
 		}
 	}
-	// The space-blank system is invalid and shares the missing tuple with
-	// nothing else here: ws-2's tab-system coding is valid, so ws-2
-	// contributes NO missing tuple… except the blank one: exactly one
-	// missing-tuple contributor.
 	if counts[tuple{"<nil>", "<nil>", "<nil>"}] != "1" {
 		t.Fatalf("missing tuple must carry exactly the blank-system coding's root: %v", rows)
 	}
@@ -1622,9 +1346,6 @@ func TestCodedGroupLiveWhitespaceUnicodeAndByteOrder(t *testing.T) {
 		t.Fatalf("space-blank system must not survive validity: %v", rows)
 	}
 
-	// D-19a: exact byte order over the non-ASCII codes. The expected order
-	// is Go string byte order over the independently-built identities —
-	// which is what COLLATE "C" must reproduce.
 	identities := make([]string, 0, len(rows))
 	for _, row := range rows {
 		identities = append(identities, row.identity)
@@ -1645,17 +1366,6 @@ func TestCodedGroupLiveWhitespaceUnicodeAndByteOrder(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Production-compiled acceptance (batch law, verifier duty 5 / the 143
-// Option-A saga): the golden, dedup, and tie-break acceptance legs must
-// run on plans produced by the real production entries — the recipe
-// document is parsed by recipe.Parse (the server registration entry,
-// server/server.go:442) and lowered by the real semantic/lower chain —
-// never on hand-assembled IR.
-// ---------------------------------------------------------------------------
-
-// coded19ProductionDocument is a literal recipe document (not a struct
-// literal re-encoded): the exact bytes a caller would register.
 const coded19ProductionDocument = `{
  "recipeSchemaVersion": 1,
  "name": "coded_group_rows",
@@ -1735,10 +1445,6 @@ func coded19ProductionCompiledPlan(t *testing.T, policy recipe.ConstructionGroup
 	return ir.ClonePhysicalPlan(compiled.Outputs[0].Plan)
 }
 
-// TestCodedGroupProductionCompiledEqualsStructFixture pins that every
-// leg driven by the struct-built lowered plan is byte-identical to the
-// plan the production document entry produces: the register-wide legs
-// are production-compiled, not a hand-assembled approximation.
 func TestCodedGroupProductionCompiledEqualsStructFixture(t *testing.T) {
 	for _, policy := range []recipe.ConstructionGroupMissingKeyPolicy{
 		recipe.ConstructionGroupMissingKeyGroup,
@@ -1753,26 +1459,18 @@ func TestCodedGroupProductionCompiledEqualsStructFixture(t *testing.T) {
 	}
 }
 
-// TestCodedGroupLiveProductionCompiledGoldenDedupTieBreak runs the three
-// named legs live on the production-compiled plan only: the golden exact
-// tuple multiset, the per-root dedup (duplicate identical coding counts
-// once per contributing root), and the tie-break (identity-text COLLATE
-// "C" final order) — the ticket's own acceptance fixture.
 func TestCodedGroupLiveProductionCompiledGoldenDedupTieBreak(t *testing.T) {
 	svc := newCoded19Service(t)
 	coded19TrackFixtures(t, svc)
 	const project = "p19-prod"
 
-	// The ticket acceptance fixture: two systems sharing a code, one
-	// versioned and one versionless coding, a duplicate identical coding
-	// inside one record, a missing tuple, and two source records.
 	coded19Insert(t, svc, "prod-a", project, coded19Generation, "FHIR/Observation", codingPayload(
 		coding("sys-one", "", "shared"),
-		coding("sys-one", "", "shared"), // duplicate identical coding
-		coding("sys-two", "", "shared"), // second system, same code
+		coding("sys-one", "", "shared"),
+		coding("sys-two", "", "shared"),
 	))
 	coded19Insert(t, svc, "prod-b", project, coded19Generation, "FHIR/Observation", codingPayload(
-		coding("sys-one", "v1", "shared"), // versioned sibling
+		coding("sys-one", "v1", "shared"),
 	))
 	coded19Insert(t, svc, "prod-missing", project, coded19Generation, "FHIR/Observation", nil)
 
@@ -1780,7 +1478,6 @@ func TestCodedGroupLiveProductionCompiledGoldenDedupTieBreak(t *testing.T) {
 	rendered := coded19RenderSvc(t, svc, plan)
 	rows := coded19Rows(t, svc.runRendered(t, rendered))
 
-	// Golden leg: the literal expected multiset.
 	type want struct {
 		system, version, code string
 		count                 string
@@ -1806,14 +1503,9 @@ func TestCodedGroupLiveProductionCompiledGoldenDedupTieBreak(t *testing.T) {
 			t.Fatalf("production-compiled golden row %q count = %q, want %q", key, got, want.count)
 		}
 	}
-	// Dedup leg: the duplicate identical coding on prod-a contributed
-	// exactly one contributing root to (sys-one,null,shared): count 1,
-	// not 2 — and the two-system share kept sys-two as its own tuple.
 	if seen["sys-one|<nil>|shared"] != "1" {
 		t.Fatalf("dedup leg: duplicate identical coding counted %q roots, want 1", seen["sys-one|<nil>|shared"])
 	}
-	// Tie-break leg: final rows are the identity string in COLLATE "C"
-	// byte order, built independently of the renderer.
 	identities := make([]string, len(rows))
 	for index, row := range rows {
 		identities[index] = row.identity
@@ -1826,22 +1518,11 @@ func TestCodedGroupLiveProductionCompiledGoldenDedupTieBreak(t *testing.T) {
 	if !reflect.DeepEqual(identities, sorted) {
 		t.Fatalf("production-compiled tie-break order violated:\n got %v\nwant %v", identities, sorted)
 	}
-	// Determinism across executions on the production-compiled plan.
 	if repeat := coded19Rows(t, svc.runRendered(t, rendered)); !reflect.DeepEqual(rows, repeat) {
 		t.Fatalf("production-compiled grouping changed between executions:\n%v\n%v", rows, repeat)
 	}
 }
 
-// TestCodedGroupLiveMultiComponentBranchPruning pins the AQL nested-FOR
-// branch-pruning parity for the production two-repeat path
-// (component[].code.coding[]): a root whose first component carries
-// codings while a second component's code.coding is absent, an empty
-// array, or non-array must contribute NO invalid NULL candidate — under
-// GROUP no extra (null,null,null) tuple, under ERROR no raise (AQL
-// raises nothing on such a query). Only a root whose WHOLE nested
-// expansion is empty substitutes the single [null] candidate
-// (construction_coded_group.go:54-75). A per-level LEFT JOIN chain
-// fails both cells; this is the review-finding regression cell.
 func TestCodedGroupLiveMultiComponentBranchPruning(t *testing.T) {
 	svc := newCoded19Service(t)
 	coded19TrackFixtures(t, svc)
@@ -1864,16 +1545,11 @@ func TestCodedGroupLiveMultiComponentBranchPruning(t *testing.T) {
 		twoComponents(component(kept), component(nil)))
 	coded19Insert(t, svc, "br-nonarray-second", project, coded19Generation, "FHIR/Observation",
 		twoComponents(component(kept), component(coding("sys-br", "", "ghost"))))
-	// Order-mirrored branch: the EMPTY component comes first.
 	coded19Insert(t, svc, "br-empty-first", project, coded19Generation, "FHIR/Observation",
 		twoComponents(component([]any{}), component(kept)))
-	// Whole-expansion-empty root: exactly one [null] candidate.
 	coded19Insert(t, svc, "br-zero", allEmptyProject, coded19Generation, "FHIR/Observation",
 		twoComponents(component([]any{}), component(nil)))
 
-	// GROUP over the mixed-branch project: exactly the one tuple, count 4
-	// contributing roots, and NO (null,null,null) row — the emptied
-	// branches pruned with their outer rows, contributing nothing.
 	grouped := coded19Rows(t, svc.runRendered(t, coded19RenderSvc(t, svc,
 		coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, project, coded19Generation))))
 	if len(grouped) != 1 || deref(grouped[0].system) != "sys-br" || grouped[0].version != nil ||
@@ -1881,17 +1557,11 @@ func TestCodedGroupLiveMultiComponentBranchPruning(t *testing.T) {
 		t.Fatalf("mixed-branch GROUP multiset = %v, want ONLY the (sys-br,null,kept) tuple with count 4 and no null tuple", grouped)
 	}
 
-	// ERROR over the same data: AQL raises nothing here, so neither may
-	// PostgreSQL (the per-level bug raised CONSTRUCTION_CODED_GROUP_
-	// MISSING_KEY from the spurious NULL candidates).
 	if err := coded19ExecErr(svc, coded19RenderSvc(t, svc,
 		coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, project, coded19Generation))); err != nil {
 		t.Fatalf("ERROR must stay silent when every root has at least one item: %v", svc.scrub(err))
 	}
 
-	// The zero-item rule still fires exactly once per root: the wholly
-	// empty expansion contributes the missing tuple (count 1) and the
-	// ERROR ASSERT raises on it.
 	zero := coded19Rows(t, svc.runRendered(t, coded19RenderSvc(t, svc,
 		coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, allEmptyProject, coded19Generation))))
 	if len(zero) != 1 || zero[0].system != nil || zero[0].version != nil || zero[0].code != nil || zero[0].count != "1" {
@@ -1903,9 +1573,6 @@ func TestCodedGroupLiveMultiComponentBranchPruning(t *testing.T) {
 		t.Fatalf("ERROR must raise on the wholly-empty expansion candidate: %v", svc.scrub(fmt.Sprint(err)))
 	}
 
-	// Alive controls: the branch roots exist, and a newly inserted
-	// coding-less root lifts the missing tuple — the GROUP cell's null-
-	// tuple ABSENCE above is pruning, not a query that sees no rows.
 	if rows := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project = $1`, project); rows[0][0] != "4" {
 		t.Fatalf("branch witness: %v, want 4 roots", rows)
 	}
@@ -1926,8 +1593,6 @@ func TestCodedGroupLiveWindowedSource(t *testing.T) {
 		_ = index
 		coded19Insert(t, svc, id, project, coded19Generation, "FHIR/Observation", codingPayload(coding("sys-window", "", "shared")))
 	}
-	// Alive control: the store really holds four roots; the grouping under
-	// a two-row source window must see two, deterministically.
 	if rows := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project = $1`, project); rows[0][0] != "4" {
 		t.Fatalf("window witness: %v, want 4 rows", rows)
 	}

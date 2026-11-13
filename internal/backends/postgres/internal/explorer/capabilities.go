@@ -1,40 +1,5 @@
 package postgres
 
-// Capability persistence for the Explorer control plane.
-//
-// This file adds the two immutable artifact stores of the pg-state tickets
-// that depend on the owner foundation:
-//
-//   - CapabilitySnapshotStore persists complete canonical capability
-//     snapshots under their content token, mirroring
-//     internal/backends/arango/internal/explorer/capability_snapshot_store.go: insert-ignore,
-//     never an UPDATE, so a retry of the same token is idempotent and a
-//     payload that no longer matches its token is a typed collision.
-//   - TableShapeCapabilityStore persists catalog, category-scan, and
-//     resolution receipts create-once and fully bound to their request
-//     identity, mirroring internal/backends/arango/internal/explorer/
-//     table_shape_capabilities.go: an opaque ID is never trusted without
-//     the caller's current project/Explorer/output/snapshot/source
-//     binding, and same-ID content drift is the typed identity clash.
-//
-// DDL lives in 000004_capability_artifacts.sql, now part of this package's
-// embedded Explorer control-plane history (see explorers.go), applied through
-// the shared pg-store-02 runner on top of OwnerMigrations() inside the
-// Explorer control-plane schema; this file contains no DDL. That migration
-// enforces immutability at the database itself (BEFORE UPDATE OR DELETE
-// triggers, SQLSTATE 45501): the stores below never issue UPDATE or DELETE
-// against these tables, and the database guarantees no other session can
-// either.
-//
-// The jsonb payload is authoritative for reads -- exact snapshot documents
-// and receipt objects round-trip untouched -- while the typed scan columns
-// mirror the payload for retrieval scopes and constraints. Every read
-// re-validates the decoded artifact and checks it against its own mirror
-// columns, surfacing ErrStoreInconsistency rather than serving or coercing
-// a row that disagrees with itself. There is no silent fallback: every
-// failure is returned for the caller to surface, and no Arango path is
-// wired in here.
-
 import (
 	"context"
 	"encoding/json"
@@ -50,10 +15,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/tableshapecap"
 )
 
-// capabilityConn is the QueryRow surface both *pgxpool.Conn (held by a
-// public method for the duration of one operation) and *pgxpool.Pool
-// satisfy, so every helper that reads or writes runs on exactly one
-// connection acquired by its public entry point.
 type capabilityConn interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
@@ -61,39 +22,18 @@ type capabilityConn interface {
 var _ capabilityConn = (*pgxpool.Conn)(nil)
 
 const (
-	// CapabilitySnapshotsTable holds one row per canonical capability
-	// snapshot, created by the 000004 capability-artifacts fixture inside
-	// the store's schema.
-	CapabilitySnapshotsTable = "capability_snapshots"
-	// TableShapeCapabilitiesTable holds one row per catalog, category-scan,
-	// or resolution receipt, created by the same fixture.
+	CapabilitySnapshotsTable    = "capability_snapshots"
 	TableShapeCapabilitiesTable = "table_shape_capabilities"
 )
 
-// Receipt kinds stored in table_shape_capabilities.kind, matching the
-// Arango adapter's discriminator.
 const (
 	kindCatalog      = "CATALOG"
 	kindCategoryScan = "CATEGORY_SCAN"
 	kindResolution   = "RESOLUTION"
 )
 
-// ErrStoreInconsistency reports a stored artifact that disagrees with its
-// own mirror columns or with the identity it is filed under -- a corrupted
-// row, never a caller error. It is deliberately distinct from the typed
-// not-found and collision sentinels so corruption is never concealed as a
-// miss or accepted as an idempotent retry.
 var ErrStoreInconsistency = errors.New("postgres explorer store: capability artifact stored inconsistently")
 
-// ---------------------------------------------------------------------------
-// capability snapshots
-// ---------------------------------------------------------------------------
-
-// snapshotColumns is the single source of truth for column order: the INSERT
-// column list, the RETURNING/SELECT list, and the Create argument order all
-// derive from it, so ordered SQL parameters ($1..$N) match the Go argument
-// slice by construction. payload is last; the identity columns mirror
-// capability.SnapshotIdentity exactly.
 var snapshotColumns = []string{
 	"token", "project", "generation", "authorization_scope_digest", "cache_version",
 	"schema_digest", "resource_inventory_digest", "relationship_digest", "field_digest",
@@ -101,23 +41,15 @@ var snapshotColumns = []string{
 	"projection_policy_version", "status", "complete", "truncated", "payload",
 }
 
-// CapabilitySnapshotStore implements capability.Repository on PostgreSQL 18.
-// Put is content-addressed and insert-only; GetByToken and GetByIdentity
-// decode the stored canonical payload and re-run the repository invariants.
 type CapabilitySnapshotStore struct {
 	client   *pgstore.Client
-	insert   string // INSERT ... ON CONFLICT (token) DO NOTHING RETURNING payload
-	getToken string // SELECT payload ... WHERE token = $1
-	getIdent string // SELECT payload ... WHERE all 13 identity columns (incl. shape_digest) AND status IN (...) ORDER BY READY-first, token
+	insert   string
+	getToken string
+	getIdent string
 }
 
 var _ capability.Repository = (*CapabilitySnapshotStore)(nil)
 
-// NewCapabilitySnapshotStore builds the snapshot store for one Explorer
-// control-plane schema behind client. It opens no connection and runs no
-// DDL; the schema must already be migrated by this package's history
-// (OwnerMigrations, which now includes 000004_capability_artifacts), and a
-// missing table is surfaced as SQLSTATE 42P01, never a fallback.
 func NewCapabilitySnapshotStore(client *pgstore.Client, schema string) (*CapabilitySnapshotStore, error) {
 	if client == nil {
 		return nil, errors.New("postgres explorer store: capability snapshot client is required")
@@ -145,9 +77,6 @@ func NewCapabilitySnapshotStore(client *pgstore.Client, schema string) (*Capabil
 	}, nil
 }
 
-// capabilitySnapshotDocument returns the exact canonical snapshot payload
-// with Token added back, matching the Arango adapter's document shape so
-// the stored jsonb is the canonical *full* snapshot.
 func capabilitySnapshotDocument(snapshot capability.Snapshot) ([]byte, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(snapshot.CanonicalPayload(), &doc); err != nil {
@@ -161,9 +90,6 @@ func capabilitySnapshotDocument(snapshot capability.Snapshot) ([]byte, error) {
 	return raw, nil
 }
 
-// snapshotArgs maps a snapshot and its canonical document to snapshotColumns
-// order. The payload binds as text so PostgreSQL infers jsonb from the
-// column context.
 func snapshotArgs(snapshot capability.Snapshot, document []byte) []any {
 	id := snapshot.Identity
 	return []any{
@@ -177,9 +103,6 @@ func snapshotArgs(snapshot capability.Snapshot, document []byte) []any {
 	}
 }
 
-// decodeSnapshot decodes one stored payload and re-applies the repository
-// invariants, exactly as the Arango adapter re-validates every document it
-// reads back.
 func decodeSnapshot(raw []byte) (capability.Snapshot, error) {
 	var value capability.Snapshot
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -191,10 +114,6 @@ func decodeSnapshot(raw []byte) (capability.Snapshot, error) {
 	return value, nil
 }
 
-// Put validates, inserts, and returns the stored snapshot. A same-token
-// retry is idempotent: the existing row is returned untouched. A stored
-// payload whose canonical content no longer matches the token is reported
-// as capability.ErrTokenCollision -- never an overwrite.
 func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.Snapshot) (*capability.Snapshot, error) {
 	if err := capability.ValidateSnapshot(snapshot); err != nil {
 		return nil, err
@@ -212,13 +131,6 @@ func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.S
 	var stored []byte
 	err = conn.QueryRow(ctx, s.insert, snapshotArgs(snapshot, document)...).Scan(&stored)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// ON CONFLICT DO NOTHING returned no row: the token already
-		// exists. Resolve through the token exactly as the Arango
-		// insert-ignore path does -- compare the stored token and the
-		// canonical payload bytes FIRST, and only validate a row that was
-		// accepted as the same content. A payload that no longer matches
-		// its token is the typed collision, never an overwrite and never
-		// misclassified as generic invalid input.
 		existing, getErr := s.getByTokenRaw(ctx, conn, snapshot.Token)
 		if getErr != nil {
 			return nil, getErr
@@ -242,8 +154,6 @@ func (s *CapabilitySnapshotStore) Put(ctx context.Context, snapshot capability.S
 	return &value, nil
 }
 
-// GetByToken returns the stored snapshot for one token after re-validating
-// it; unknown tokens return capability.ErrNotFound.
 func (s *CapabilitySnapshotStore) GetByToken(ctx context.Context, token string) (*capability.Snapshot, error) {
 	conn, err := s.client.Acquire(ctx)
 	if err != nil {
@@ -264,10 +174,6 @@ func (s *CapabilitySnapshotStore) getByToken(ctx context.Context, conn capabilit
 	return &value, nil
 }
 
-// getByTokenRaw decodes the stored row WITHOUT pre-validating it: the Put
-// conflict path must be able to distinguish "same content" from "payload
-// no longer matches its token" exactly as the Arango adapter does, which
-// requires inspecting an unvalidated row.
 func (s *CapabilitySnapshotStore) getByTokenRaw(ctx context.Context, conn capabilityConn, token string) (capability.Snapshot, error) {
 	var raw []byte
 	err := conn.QueryRow(ctx, s.getToken, token).Scan(&raw)
@@ -287,17 +193,6 @@ func (s *CapabilitySnapshotStore) getByTokenRaw(ctx context.Context, conn capabi
 	return value, nil
 }
 
-// GetByIdentity returns the best available snapshot for one exact identity:
-// READY first, then BUILDING/FAILED, ordered by token. The SQL filter
-// covers all thirteen identity columns, including shape_digest: the
-// Arango AQL filter omits shape_digest, but keeping filter and post-read
-// mirror check aligned means a sibling row differing only on shape_digest
-// is a typed capability.ErrNotFound miss here rather than a misleading
-// corruption error, and a returned row's mirror columns are guaranteed to
-// equal the requested identity -- so a payload that still disagrees is a
-// genuine mirror/payload inconsistency. Misses (including every
-// cross-project/generation/scope/digest retrieval) return
-// capability.ErrNotFound with no information leak.
 func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity capability.SnapshotIdentity) (*capability.Snapshot, error) {
 	conn, err := s.client.Acquire(ctx)
 	if err != nil {
@@ -328,12 +223,6 @@ func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity ca
 	return &value, nil
 }
 
-// ---------------------------------------------------------------------------
-// table-shape capability receipts
-// ---------------------------------------------------------------------------
-
-// receiptColumns is the single source of truth for the receipt column
-// order, exactly as for the snapshot store.
 var receiptColumns = []string{
 	"id", "kind", "parent_catalog_id", "project", "explorer_id", "output_id", "snapshot_token",
 	"authorization_scope", "source_generation", "draft_version", "draft_digest",
@@ -341,25 +230,17 @@ var receiptColumns = []string{
 	"compiler_schema_digest", "content_digest", "created_at", "payload",
 }
 
-// TableShapeCapabilityStore implements tableshapecap.Repository on
-// PostgreSQL 18. Every Put is create-once; every Get filters on the full
-// binding in SQL and re-validates the decoded receipt against it, so an
-// opaque ID read under a foreign project/Explorer/output/snapshot/source
-// binding is a miss, never a hit.
 type TableShapeCapabilityStore struct {
 	client     *pgstore.Client
-	insert     string // INSERT ... ON CONFLICT (id) DO NOTHING RETURNING payload
-	catalog    string // SELECT <cols> ... WHERE id, kind, 12 binding columns
-	scanRow    string // SELECT <cols> ... WHERE id, kind, parent_catalog_id, 12 binding columns
-	resolution string // same shape as scanRow, kind RESOLUTION
-	lookup     string // SELECT <cols> ... WHERE id, kind CATALOG, 9 lookup columns
+	insert     string
+	catalog    string
+	scanRow    string
+	resolution string
+	lookup     string
 }
 
 var _ tableshapecap.Repository = (*TableShapeCapabilityStore)(nil)
 
-// NewTableShapeCapabilityStore builds the receipt store for one Explorer
-// control-plane schema behind client, with the same fail-closed contract as
-// NewCapabilitySnapshotStore.
 func NewTableShapeCapabilityStore(client *pgstore.Client, schema string) (*TableShapeCapabilityStore, error) {
 	if client == nil {
 		return nil, errors.New("postgres explorer store: table-shape capability client is required")
@@ -385,8 +266,6 @@ func NewTableShapeCapabilityStore(client *pgstore.Client, schema string) (*Table
 	}, nil
 }
 
-// bindingColumnFilterFrom renders the 12 fully bound binding-column
-// predicates starting at placeholder position start ($3..$14 or $4..$15).
 func bindingColumnFilterFrom(start int) string {
 	columns := []string{
 		"project", "explorer_id", "output_id", "snapshot_token", "authorization_scope",
@@ -400,8 +279,6 @@ func bindingColumnFilterFrom(start int) string {
 	return " " + strings.Join(parts, " ")
 }
 
-// lookupColumnFilterFrom renders the 9 request-bound predicates of
-// CatalogLookup starting at placeholder position start.
 func lookupColumnFilterFrom(start int) string {
 	columns := []string{
 		"project", "explorer_id", "output_id", "snapshot_token", "authorization_scope",
@@ -414,12 +291,6 @@ func lookupColumnFilterFrom(start int) string {
 	return " " + strings.Join(parts, " ")
 }
 
-// bindingArgs maps a Binding to its mirror column values in binding
-// declaration order (the tail of receiptColumns' binding block).
-// Documented bound: DraftVersion is a CAS counter bounded far below
-// math.MaxInt64; the int64 cast is exact for every reachable value, and a
-// hand-forged value above math.MaxInt64 would surface as a wrapped
-// draft_version >= 1 CHECK refusal, never an overflowed match.
 func bindingArgs(binding tableshapecap.Binding) []any {
 	return []any{
 		binding.Project, binding.ExplorerID, binding.OutputID, binding.SnapshotToken,
@@ -429,8 +300,6 @@ func bindingArgs(binding tableshapecap.Binding) []any {
 	}
 }
 
-// receiptArgs builds the ordered $1..$18 INSERT parameters: identity, kind,
-// parent, the full binding mirrors, digests, and the marshaled payload.
 func receiptArgs(id, kind, parentCatalogID string, binding tableshapecap.Binding, contentDigest, createdAt string, payload []byte) []any {
 	args := make([]any, 0, len(receiptColumns))
 	args = append(args, id, kind, parentCatalogID)
@@ -439,7 +308,6 @@ func receiptArgs(id, kind, parentCatalogID string, binding tableshapecap.Binding
 	return args
 }
 
-// receiptRow is one raw row as PostgreSQL stored it.
 type receiptRow struct {
 	id, kind, parentCatalogID string
 	binding                   tableshapecap.Binding
@@ -468,9 +336,6 @@ func scanReceiptRow(row rowScanner) (receiptRow, error) {
 	return stored, nil
 }
 
-// readCatalogRow loads one catalog row by ID under the caller's full
-// binding. The kind and every binding column participate in the SQL filter;
-// the decoded payload must additionally agree with the mirrors.
 func (s *TableShapeCapabilityStore) readCatalogRow(ctx context.Context, conn capabilityConn, binding tableshapecap.Binding, id string) (receiptRow, tableshapecap.CatalogReceipt, error) {
 	args := append([]any{id, kindCatalog}, bindingArgs(binding)...)
 	stored, err := scanReceiptRow(conn.QueryRow(ctx, s.catalog, args...))
@@ -492,9 +357,6 @@ func (s *TableShapeCapabilityStore) readCatalogRow(ctx context.Context, conn cap
 	return stored, receipt, nil
 }
 
-// GetCatalog returns the catalog receipt for one ID under the caller's
-// complete binding; anything else -- foreign binding, wrong kind under the
-// ID, or absence -- is tableshapecap.ErrNotFound.
 func (s *TableShapeCapabilityStore) GetCatalog(ctx context.Context, binding tableshapecap.Binding, id string) (tableshapecap.CatalogReceipt, error) {
 	if err := binding.Validate(); err != nil {
 		return tableshapecap.CatalogReceipt{}, err
@@ -508,10 +370,6 @@ func (s *TableShapeCapabilityStore) GetCatalog(ctx context.Context, binding tabl
 	return receipt, err
 }
 
-// GetCatalogForLookup scopes retrieval to the request identity known before
-// loading the persisted base receipt, exactly like the Arango adapter's
-// lookup path: the nine lookup columns filter in SQL and the loaded
-// binding must still satisfy lookup.Matches.
 func (s *TableShapeCapabilityStore) GetCatalogForLookup(ctx context.Context, lookup tableshapecap.CatalogLookup, id string) (tableshapecap.CatalogReceipt, error) {
 	if err := lookup.Validate(); err != nil {
 		return tableshapecap.CatalogReceipt{}, err
@@ -543,9 +401,6 @@ func (s *TableShapeCapabilityStore) GetCatalogForLookup(ctx context.Context, loo
 	return receipt, nil
 }
 
-// lookupArgs maps the nine request-bound CatalogLookup columns to
-// placeholders. The DraftVersion int64 cast obeys the documented bound
-// stated on bindingArgs.
 func lookupArgs(lookup tableshapecap.CatalogLookup) []any {
 	return []any{
 		lookup.Project, lookup.ExplorerID, lookup.OutputID, lookup.SnapshotToken,
@@ -554,11 +409,6 @@ func lookupArgs(lookup tableshapecap.CatalogLookup) []any {
 	}
 }
 
-// PutCatalog inserts the catalog exactly once. Same ID and same canonical
-// content is idempotent and returns the stored receipt untouched (the
-// original createdAt survives a retry that carries a new one); same ID with
-// different content -- or a foreign binding under the ID -- is the typed
-// tableshapecap.ErrIdentityClash with the stored row unchanged.
 func (s *TableShapeCapabilityStore) PutCatalog(ctx context.Context, receipt tableshapecap.CatalogReceipt) (tableshapecap.CatalogReceipt, error) {
 	if err := receipt.Validate(); err != nil {
 		return tableshapecap.CatalogReceipt{}, err
@@ -577,10 +427,6 @@ func (s *TableShapeCapabilityStore) PutCatalog(ctx context.Context, receipt tabl
 	if len(storedPayload) > 0 {
 		return tableshapecap.DecodeStrict[tableshapecap.CatalogReceipt](storedPayload)
 	}
-	// The ID already existed. Resolve only through the caller's full
-	// binding; an out-of-scope or wrong-kind ID, or a row whose payload no
-	// longer validates as this receipt, is a collision -- never an
-	// overwrite.
 	_, existing, getErr := s.readCatalogRow(ctx, conn, receipt.Binding, receipt.ID)
 	if getErr != nil {
 		if errors.Is(getErr, tableshapecap.ErrNotFound) || errors.Is(getErr, ErrStoreInconsistency) {
@@ -594,9 +440,6 @@ func (s *TableShapeCapabilityStore) PutCatalog(ctx context.Context, receipt tabl
 	return existing, nil
 }
 
-// insertReceipt runs the shared create-once INSERT. A returned payload of
-// zero length means the ON CONFLICT DO NOTHING path (the ID already
-// existed); the caller resolves it.
 func (s *TableShapeCapabilityStore) insertReceipt(ctx context.Context, conn capabilityConn, id, kind, parentCatalogID string, binding tableshapecap.Binding, contentDigest, createdAt string, receipt any) ([]byte, error) {
 	payload, err := json.Marshal(receipt)
 	if err != nil {
@@ -613,9 +456,6 @@ func (s *TableShapeCapabilityStore) insertReceipt(ctx context.Context, conn capa
 	return stored, nil
 }
 
-// sameCatalog, sameCategoryScan, and sameResolution mirror the Arango
-// guards exactly: identical ID, content digest, and canonical content, or
-// the typed identity clash.
 func sameCatalog(existing, want tableshapecap.CatalogReceipt) error {
 	left, err := existing.CanonicalContent()
 	if err != nil {
@@ -661,12 +501,6 @@ func sameResolution(existing, want tableshapecap.ResolutionReceipt) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// category-scan receipts
-// ---------------------------------------------------------------------------
-
-// readScanRow loads one category-scan row by ID and parent under the
-// caller's full binding and re-validates it against its mirrors.
 func (s *TableShapeCapabilityStore) readScanRow(ctx context.Context, conn capabilityConn, binding tableshapecap.Binding, parentCatalogID, id string) (receiptRow, tableshapecap.CategoryScanReceipt, error) {
 	args := append([]any{id, kindCategoryScan, parentCatalogID}, bindingArgs(binding)...)
 	stored, err := scanReceiptRow(conn.QueryRow(ctx, s.scanRow, args...))
@@ -689,9 +523,6 @@ func (s *TableShapeCapabilityStore) readScanRow(ctx context.Context, conn capabi
 	return stored, receipt, nil
 }
 
-// GetCategoryScan returns the scan receipt under the caller's complete
-// binding and parent, then revalidates it against the persisted parent
-// catalog -- an opaque scan ID never reads outside its parent or binding.
 func (s *TableShapeCapabilityStore) GetCategoryScan(ctx context.Context, binding tableshapecap.Binding, parentCatalogID, id string) (tableshapecap.CategoryScanReceipt, error) {
 	if err := binding.Validate(); err != nil {
 		return tableshapecap.CategoryScanReceipt{}, err
@@ -720,10 +551,6 @@ func (s *TableShapeCapabilityStore) getCategoryScan(ctx context.Context, conn ca
 	return receipt, err
 }
 
-// PutCategoryScan validates the scan against the persisted parent catalog
-// before inserting it create-once, mirroring the Arango repository: an
-// invalid parent relationship never reaches storage, and the create-once
-// conflict rules match PutCatalog.
 func (s *TableShapeCapabilityStore) PutCategoryScan(ctx context.Context, receipt tableshapecap.CategoryScanReceipt) (tableshapecap.CategoryScanReceipt, error) {
 	if err := receipt.Validate(); err != nil {
 		return tableshapecap.CategoryScanReceipt{}, err
@@ -762,12 +589,6 @@ func (s *TableShapeCapabilityStore) PutCategoryScan(ctx context.Context, receipt
 	return existing, nil
 }
 
-// ---------------------------------------------------------------------------
-// resolution receipts
-// ---------------------------------------------------------------------------
-
-// readResolutionRow loads one resolution row by ID and parent under the
-// caller's full binding and re-validates it against its mirrors.
 func (s *TableShapeCapabilityStore) readResolutionRow(ctx context.Context, conn capabilityConn, binding tableshapecap.Binding, parentCatalogID, id string) (receiptRow, tableshapecap.ResolutionReceipt, error) {
 	args := append([]any{id, kindResolution, parentCatalogID}, bindingArgs(binding)...)
 	stored, err := scanReceiptRow(conn.QueryRow(ctx, s.resolution, args...))
@@ -790,9 +611,6 @@ func (s *TableShapeCapabilityStore) readResolutionRow(ctx context.Context, conn 
 	return stored, receipt, nil
 }
 
-// GetResolution returns the resolution receipt under the caller's complete
-// binding and parent after revalidating it against the persisted parent
-// catalog, its dependency chain, and (for pivots) its category-scan receipt.
 func (s *TableShapeCapabilityStore) GetResolution(ctx context.Context, binding tableshapecap.Binding, parentCatalogID, id string) (tableshapecap.ResolutionReceipt, error) {
 	if err := binding.Validate(); err != nil {
 		return tableshapecap.ResolutionReceipt{}, err
@@ -817,8 +635,6 @@ func (s *TableShapeCapabilityStore) getResolution(ctx context.Context, conn capa
 	return receipt, err
 }
 
-// validateResolutionGraph re-checks a loaded resolution against everything
-// it references, mirroring the Arango repository's read-side validation.
 func (s *TableShapeCapabilityStore) validateResolutionGraph(ctx context.Context, conn capabilityConn, binding tableshapecap.Binding, parentCatalogID string, resolution tableshapecap.ResolutionReceipt) error {
 	_, parent, err := s.readCatalogRow(ctx, conn, binding, parentCatalogID)
 	if err != nil {
@@ -843,9 +659,6 @@ func (s *TableShapeCapabilityStore) validateResolutionGraph(ctx context.Context,
 	return nil
 }
 
-// resolutionDependencies walks the persisted dependency chain of a derived
-// resolution (pivot ancestry and RESOLUTION_OUTPUT operands), mirroring the
-// Arango adapter's visitor: a cycle or a missing dependency is refused.
 func (s *TableShapeCapabilityStore) resolutionDependencies(ctx context.Context, conn capabilityConn, binding tableshapecap.Binding, parentCatalogID string, current tableshapecap.ResolutionReceipt) ([]tableshapecap.ResolutionReceipt, error) {
 	state := map[string]uint8{current.ID: 1}
 	ordered := make([]tableshapecap.ResolutionReceipt, 0)
@@ -907,8 +720,6 @@ func (s *TableShapeCapabilityStore) resolutionDependencies(ctx context.Context, 
 	return ordered, nil
 }
 
-// PutResolution validates the resolution against its persisted parent,
-// dependency chain, and category scan before inserting it create-once.
 func (s *TableShapeCapabilityStore) PutResolution(ctx context.Context, receipt tableshapecap.ResolutionReceipt) (tableshapecap.ResolutionReceipt, error) {
 	if err := receipt.Validate(); err != nil {
 		return tableshapecap.ResolutionReceipt{}, err

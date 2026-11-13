@@ -23,19 +23,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-// Every acceptance assertion below runs against a real server: each test
-// creates one uniquely owned pgir02_it_* database and one owned schema,
-// applies the pg-store embedded migrations through the real pg-store-02
-// runner, stores literal rows through the merged pg-store-04/05
-// repositories, executes the rendered statement with its ordered driver
-// arguments, and compares against literal expected rows plus a hand-written
-// direct-SQL witness. A skipped required case is a failure for this ticket's
-// acceptance; the gate exists only to keep unrelated CI lanes green.
-// TestZZNoLeftoverPgIR02Resources audits that nothing survives.
-// ---------------------------------------------------------------------------
-
 var pgir02ResourceNamePattern = regexp.MustCompile(`^pgir02_it_[0-9]+_[0-9a-f]+$`)
 
 func testPostgresURL(t *testing.T) string {
@@ -58,8 +45,8 @@ func randomHex(t *testing.T) string {
 
 type pgir02Service struct {
 	ctx          context.Context
-	admin        *pgxpool.Pool // service database
-	iso          *pgxpool.Pool // isolated database
+	admin        *pgxpool.Pool
+	iso          *pgxpool.Pool
 	client       *control.Client
 	schema       string
 	extraSchemas []string
@@ -74,10 +61,6 @@ func newPGIR02Service(t *testing.T, extraSchemaCount int) *pgir02Service {
 	return newOwnedService(t, extraSchemaCount, "pgir02_it")
 }
 
-// newOwnedService creates one uniquely owned isolated database plus owned
-// schemas under the given resource prefix. Each later ticket registers its
-// own prefix so concurrent actors never audit or collide with one another's
-// resources (pg-sql-05 uses verify_sql05_*).
 func newOwnedService(t *testing.T, extraSchemaCount int, prefix string) *pgir02Service {
 	t.Helper()
 	raw := testPostgresURL(t)
@@ -88,7 +71,6 @@ func newOwnedService(t *testing.T, extraSchemaCount int, prefix string) *pgir02S
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -133,8 +115,6 @@ func newOwnedService(t *testing.T, extraSchemaCount int, prefix string) *pgir02S
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -251,10 +231,6 @@ func (s *pgir02Service) insertEdge(t *testing.T, rec control.EdgeOccurrenceRow) 
 	return seq
 }
 
-// runRendered executes the rendered statement through pgx with its ordered
-// driver arguments and returns stringified positional rows. Only text-y
-// columns (logical ids, JSON scalars) are selected by these tests, so
-// stringify comparison is exact.
 func (s *pgir02Service) runRendered(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) [][]string {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
@@ -318,9 +294,6 @@ func stringifyCell(value any) string {
 	case []byte:
 		return string(typed)
 	case pgtype.Numeric:
-		// The struct's %v form ({5 0 false finite true}) is unreadable
-		// and uncomparable; MarshalText gives the canonical numeric text
-		// (pg-sql-13 group_test.go numeric key/reducer cells).
 		if !typed.Valid {
 			return "<null>"
 		}
@@ -374,10 +347,6 @@ func bindingFor(t *testing.T, schema string) ir.PostgresStorageBinding {
 	return binding
 }
 
-// ---------------------------------------------------------------------------
-// Case 1: scoped read with filter, sort, limit — literal rows and witness.
-// ---------------------------------------------------------------------------
-
 func TestPG18ScopedResourceReadMatchesLiteralRowsAndDirectSQLWitness(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-final", "FHIR/Patient", map[string]any{"status": "final", "score": 3})
@@ -409,7 +378,6 @@ func TestPG18ScopedResourceReadMatchesLiteralRowsAndDirectSQLWitness(t *testing.
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}
-	// No data in the statement text.
 	for _, data := range []string{"final", itProject, itGeneration, "FHIR/Patient", "p-final"} {
 		if strings.Contains(rendered.SQL, data) {
 			t.Fatalf("value %q leaked into rendered SQL: %s", data, rendered.SQL)
@@ -424,8 +392,6 @@ func TestPG18ScopedResourceReadMatchesLiteralRowsAndDirectSQLWitness(t *testing.
 		t.Fatalf("rendered rows = %v, want %v", got, want)
 	}
 
-	// Direct-SQL witness: an independently hand-written statement with the
-	// literals inline must yield the identical rows.
 	witness := svc.witness(t,
 		`SELECT logical_id, auth_resource_path FROM "`+svc.schema+`"."fhir_resource"`+
 			` WHERE project = 'pgir02-proj' AND dataset_generation = 'gen-1'`+
@@ -437,11 +403,6 @@ func TestPG18ScopedResourceReadMatchesLiteralRowsAndDirectSQLWitness(t *testing.
 		t.Fatalf("witness rows = %v, want %v", witness, want)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Case 2: restricted-empty auth reads nothing while the witness proves the
-// rows exist (absence is authorization, never an empty store).
-// ---------------------------------------------------------------------------
 
 func TestPG18RestrictedEmptyAuthReadsNothingWitnessShowsRows(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
@@ -467,10 +428,6 @@ func TestPG18RestrictedEmptyAuthReadsNothingWitnessShowsRows(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case 3: explicit unrestricted mode sees every authorized-path state.
-// ---------------------------------------------------------------------------
-
 func TestPG18ExplicitUnrestrictedSeesAllPaths(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-1", "FHIR/Patient", nil)
@@ -493,11 +450,6 @@ func TestPG18ExplicitUnrestrictedSeesAllPaths(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case 4: edge traversal — repeated-owner multiplicity preserved, unresolved
-// targets excluded, scope and direction bound exactly.
-// ---------------------------------------------------------------------------
-
 func TestPG18EdgeTraversalPreservesMultiplicityAndExcludesUnresolvedTargets(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "sp-1", "FHIR/Patient", nil)
@@ -519,7 +471,6 @@ func TestPG18EdgeTraversalPreservesMultiplicityAndExcludesUnresolvedTargets(t *t
 		Label: "has-specimen", SourceResourceType: "Patient", SourceLogicalID: "sp-1",
 		TargetResourceType: "Specimen", TargetLogicalID: "st-2", SourcePath: "contained[0].specimen", SourceOrdinal: 0,
 	})
-	// Unresolved target: the reference is stored, but no Specimen row exists.
 	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: itProject, DatasetGeneration: itGeneration, AuthResourcePath: "FHIR/Patient",
 		Label: "has-specimen", SourceResourceType: "Patient", SourceLogicalID: "sp-1",
@@ -558,7 +509,6 @@ func TestPG18EdgeTraversalPreservesMultiplicityAndExcludesUnresolvedTargets(t *t
 		t.Fatalf("traversal rows = %v, want repeated-owner multiplicity %v", got, want)
 	}
 
-	// Direct-SQL witness: unresolved targets are stored but never join.
 	stored := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence" WHERE project=$1 AND dataset_generation=$2 AND target_logical_id='st-ghost'`,
 		itProject, itGeneration)
@@ -586,19 +536,12 @@ func TestPG18InboundTraversalBindsReverseIdentity(t *testing.T) {
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-1", "FHIR/Specimen", nil)
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Observation", "o-1", "FHIR/Observation", nil)
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Observation", "o-2", "FHIR/Observation", nil)
-	// Forward storage shape (child _from -> parent _to analog): the specimen
-	// is the stored source; the dataframe route is INBOUND from specimen...
-	// Here: observations reference the specimen; INBOUND from Observation
-	// reaches... use a root Observation reaching the Specimen through the
-	// stored source side.
 	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: itProject, DatasetGeneration: itGeneration, AuthResourcePath: "FHIR/Observation",
 		Label: "focus-specimen", SourceResourceType: "Observation", SourceLogicalID: "o-1",
 		TargetResourceType: "Specimen", TargetLogicalID: "st-1", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
 
-	// INBOUND from the Specimen side: anchored endpoint is target_*, reached
-	// endpoint is source_* (an Observation).
 	plan := ir.PhysicalPlan{
 		Version: 1,
 		Engine:  ir.PhysicalEngineAQL,
@@ -644,10 +587,6 @@ func TestPG18InboundTraversalBindsReverseIdentity(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case 5: hostile filter values are inert data.
-// ---------------------------------------------------------------------------
-
 func TestPG18HostileFilterValuesAreInert(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	hostile := `x'; DROP TABLE fhir_resource; --`
@@ -675,7 +614,6 @@ func TestPG18HostileFilterValuesAreInert(t *testing.T) {
 	if !reflect.DeepEqual(got, [][]string{{"p-hostile"}}) {
 		t.Fatalf("hostile equality rows = %v, want the stored hostile row only", got)
 	}
-	// The tables survived the hostile value.
 	for _, table := range []string{"fhir_resource", "fhir_edge_occurrence"} {
 		survived := svc.witness(t, `SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`, svc.schema, table)
 		if len(survived) != 1 || survived[0][0] != "1" {
@@ -698,16 +636,10 @@ func TestPG18HostileFilterValuesAreInert(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case 6: the storage binding selects the owned schema only.
-// ---------------------------------------------------------------------------
-
 func TestPG18BindingSelectsOwnedSchemaOnly(t *testing.T) {
 	svc := newPGIR02Service(t, 1)
 	other := svc.extraSchemas[0]
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-in-owned", "FHIR/Patient", nil)
-	// The same logical row placed in the shadow schema must be invisible to
-	// a statement built for the owned schema.
 	shadowRepo, err := control.NewResourceRepository(svc.client, other)
 	if err != nil {
 		t.Fatalf("shadow repository: %v", err)
@@ -732,8 +664,6 @@ func TestPG18BindingSelectsOwnedSchemaOnly(t *testing.T) {
 	if !reflect.DeepEqual(got, [][]string{{"p-in-owned"}}) {
 		t.Fatalf("rows = %v, want only the owned-schema row", got)
 	}
-	// Witness: the shadow row exists in the other schema, so the miss is
-	// schema selection, not missing data.
 	shadow := svc.witness(t,
 		`SELECT logical_id FROM "`+other+`"."fhir_resource" WHERE project=$1 AND dataset_generation=$2`,
 		itProject, itGeneration)
@@ -742,10 +672,6 @@ func TestPG18BindingSelectsOwnedSchemaOnly(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Case 7: predicate-parity repairs executed on real PG18.
-// ---------------------------------------------------------------------------
-
 func TestPG18PredicateParityRepairs(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-active", "FHIR/Patient", map[string]any{"status": "active"})
@@ -753,9 +679,6 @@ func TestPG18PredicateParityRepairs(t *testing.T) {
 
 	logicalID := ir.PhysicalProjection{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}}
 
-	// NOT over a payload equality must keep the row missing the compared
-	// key: AQL evaluates the missing-key comparison as false, so NOT is
-	// true; an unguarded SQL NOT (NULL) would silently drop it.
 	notPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
 	notPlan.BindVars["status_value"] = "active"
 	notPlan.Operations = append(notPlan.Operations,
@@ -785,8 +708,6 @@ func TestPG18PredicateParityRepairs(t *testing.T) {
 		t.Fatalf("missing-key witness = %v", witness)
 	}
 
-	// An empty IN list binds an empty array: the statement executes and
-	// selects nobody, matching the AQL x IN [] reading.
 	inPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
 	inPlan.BindVars["in_values"] = []string{}
 	inPlan.Operations = append(inPlan.Operations,
@@ -804,8 +725,6 @@ func TestPG18PredicateParityRepairs(t *testing.T) {
 		t.Fatalf("empty IN rows = %v, want none", got)
 	}
 
-	// Column EXISTS/MISSING are null tests over NOT NULL storage columns:
-	// EXISTS keeps every row and MISSING keeps none.
 	existsPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
 	existsPlan.Operations = append(existsPlan.Operations,
 		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
@@ -836,7 +755,6 @@ func TestPG18PredicateParityRepairs(t *testing.T) {
 		t.Fatalf("column MISSING rows = %v, want none", got)
 	}
 
-	// NOT_EQUALS over a typed column executes two-valued.
 	neqPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
 	neqPlan.BindVars["id_value"] = "p-active"
 	neqPlan.Operations = append(neqPlan.Operations,
@@ -854,11 +772,6 @@ func TestPG18PredicateParityRepairs(t *testing.T) {
 		t.Fatalf("column NOT_EQUALS rows = %v, want the other row", got)
 	}
 
-	// Ordering comparisons against the JSON null literal must follow the
-	// AQL order, where null sorts below every value: LTE is the
-	// null-or-missing test, GT is the presence test; LT/GTE are constant in
-	// AQL and must fail closed with a typed error rather than render a
-	// wrong or parameter-stranding plan.
 	for _, tc := range []struct {
 		operator string
 		want     [][]string
@@ -911,15 +824,9 @@ func TestPG18PredicateParityRepairs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Zero-leftover audit (runs last: this file sorts before render_test.go and
-// no unit test creates owned resources).
-// ---------------------------------------------------------------------------
-
 func TestZZNoLeftoverPgIR02Resources(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		// No service was used; nothing can have been created.
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

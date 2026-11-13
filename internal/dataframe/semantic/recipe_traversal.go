@@ -8,12 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// qualifyTraversalLocals makes the traversal node's local selectors explicit
-// before expression checking. Recipe selectors are intentionally concise
-// ("status", "type[].coding[].display") while the semantic AST needs a
-// lexical alias to distinguish them from parent/root references. Existing
-// aliases remain untouched so a recipe can deliberately read a visible parent
-// binding.
 func qualifyTraversalLocals(input recipe.Traversal, alias string, visible map[string]scopeBinding) recipe.Traversal {
 	copy := input
 	copy.Fields = append([]recipe.Field(nil), input.Fields...)
@@ -113,10 +107,6 @@ func qualifyRecipeSelector(input, alias string, visible map[string]scopeBinding)
 	return alias + "." + strings.TrimPrefix(strings.TrimSpace(path), ".") + suffix
 }
 
-// NormalizeRecipeMatchMode applies the persisted recipe default and returns
-// the canonical semantic relationship mode. Empty and case-insensitive values
-// remain OPTIONAL for version-1 recipe compatibility; unknown values fail
-// before traversal lowering.
 func NormalizeRecipeMatchMode(mode recipe.TraversalMatchMode) (spec.TraversalMatchMode, error) {
 	if !mode.Valid() {
 		return "", fmt.Errorf("unsupported traversal match mode %q", mode)
@@ -130,8 +120,3 @@ func NormalizeRecipeMatchMode(mode recipe.TraversalMatchMode) (spec.TraversalMat
 		return "", fmt.Errorf("unsupported traversal match mode %q", mode)
 	}
 }
-
-// LowerRecipeTraversalFilters performs the closed semantic portion of one
-// traversal. The caller attaches the returned filters to the child
-// SemanticNode, preserving the optional/required boundary for the common
-// physical lowering path.

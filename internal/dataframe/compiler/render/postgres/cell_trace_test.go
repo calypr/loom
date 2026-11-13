@@ -1,14 +1,5 @@
 package postgres
 
-// Offline + live battery for the pg-sql-24 typed cell-value evidence
-// terminal (cell_trace.go). The plans are production-lowered population
-// plans with the evidence terminal attached in exactly the compiler's
-// minting posture (compiler/cell_trace.go prepareCellTracePhysicalPlan) —
-// the render package may not import the compiler (cycle), so these helpers
-// are the contract mirror; the compiler-side PostgreSQL cell-trace tests
-// (compiler/cell_trace_test.go) keep the real mint honest, mirroring the
-// pg-sql-23 dual-track law.
-
 import (
 	"context"
 	"encoding/json"
@@ -30,10 +21,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-// ---------------------------------------------------------------------------
-// Fixtures: the two registered arms, lowered through the real pipeline.
-// ---------------------------------------------------------------------------
 
 func sql24ArmBOutput() recipe.Output {
 	return recipe.Output{
@@ -79,10 +66,6 @@ func sql24Lower(t *testing.T, output recipe.Output) lower.CompiledRecipeOutput {
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan: %v", err)
 	}
-	// The registered-surface policy (stage_sequence_production_test.go:435):
-	// the endpoint-lookup planner label has no PostgreSQL storage
-	// counterpart on the spine, so the arm A fixture lowers the native
-	// typed-identity join, as compileWithRegisteredSurfacePolicy does.
 	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy().
 		WithRule(ir.PhysicalOptimizationRuleEndpointTraversal, false))
 	if err != nil {
@@ -97,12 +80,6 @@ func sql24Lower(t *testing.T, output recipe.Output) lower.CompiledRecipeOutput {
 	return lower.CompiledRecipeOutput{}
 }
 
-// ---------------------------------------------------------------------------
-// The mint mirror: prepareCellTracePhysicalPlan posture, contract-for-
-// contract (compiler/cell_trace.go:99-135, population_mapping.go:346-395,
-// cell_trace.go:799-831). The compiler battery exercises the real mint.
-// ---------------------------------------------------------------------------
-
 func sql24MirrorProjectionExpression(projection ir.PhysicalProjection) (ir.PhysicalExpression, error) {
 	if projection.Expression != nil {
 		return ir.ClonePhysicalExpression(*projection.Expression), nil
@@ -113,10 +90,6 @@ func sql24MirrorProjectionExpression(projection ir.PhysicalProjection) (ir.Physi
 	return ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: projection.Value.Variable, BindKey: projection.Value.BindKey, Path: append([]string(nil), projection.Value.Path...)}}, nil
 }
 
-// sql24ApplyGenericWindow replicates the shared mint's first step
-// (compiler/cell_trace.go withGenericPhysicalExecutionWindow(physical, 0),
-// physical_optimization.go:145-218): the root SORT over root._key inserted
-// at the scope window end, no LIMIT (limit=0).
 func sql24ApplyGenericWindow(t *testing.T, plan ir.PhysicalPlan) ir.PhysicalPlan {
 	t.Helper()
 	root := plan.Operations[0].RootScan.Variable
@@ -227,12 +200,6 @@ func sql24ArmBPlan(t *testing.T, column string, offset, limit int) ir.PhysicalPl
 	return sql24AttachTrace(t, output, column, offset, limit)
 }
 
-// sql24ArmBIdentityPlan lowers an arm B output that AUTHORS an Identity, so
-// the real lowering projects __loom_row_id into the final RETURN
-// (lower/recipe_expression_lowering.go appendRecipeIdentity) and the mirror
-// derives the explicit identity beside the ordered parts exactly as the
-// real mint does — the both spelling reaches the renderer through the
-// production chain, not a hand-attachment.
 func sql24ArmBIdentityPlan(t *testing.T, column string, offset, limit int) ir.PhysicalPlan {
 	t.Helper()
 	output := sql24ArmBOutput()
@@ -274,10 +241,6 @@ func sql24Render(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgresPhy
 	return rendered
 }
 
-// ---------------------------------------------------------------------------
-// Offline: the six-column contract on both arms.
-// ---------------------------------------------------------------------------
-
 func sql24WantColumns(identityColumn string) []string {
 	return []string{
 		ir.PhysicalCellTraceValueField, ir.PhysicalCellTraceContributionsField, identityColumn,
@@ -318,14 +281,6 @@ func TestCellTracePostgresRootExtractContract(t *testing.T) {
 			t.Fatalf("arm B statement missing %q:\n%s", fragment, sql)
 		}
 	}
-	// The AQL twin page is `LIMIT @cell_trace_offset, @fetch` over the
-	// one-item relation then SLICE(page, 0, @limit)
-	// (render/aql/cell_trace.go:552): an offset >= 1 skips the sole
-	// candidate, so the record publishes only when the sealed offset bind
-	// is zero — while the offset-free LIMIT-2 candidate reading still
-	// answers the status. There are no OFFSET/LIMIT page clauses: D-24b
-	// collapses the page to its provable bounds, the gate is the bind
-	// comparison itself.
 	gate := regexp.MustCompile(`AND \$(\d+) = 0 THEN jsonb_build_array\(`).FindStringSubmatch(sql)
 	if gate == nil {
 		t.Fatalf("arm B must gate the record on the sealed offset bind:\n%s", sql)
@@ -349,15 +304,6 @@ func TestCellTracePostgresRootExtractContract(t *testing.T) {
 	sql24ContractCells(t, rendered)
 }
 
-// The mint law (compiler/population_mapping.go finalPopulationMappingIdentity)
-// mints the ordered identity parts from RowIdentity.Fields and attaches an
-// explicit row identity only beside them; the shared pick law
-// (compiler/cell_trace.go cellTraceQuery) then names the explicit column in
-// the compiled contract. The patient fixtures mint the parts spelling only,
-// so this cell pins the other side — the only explicit spelling the IR
-// validator can admit: a terminal carrying ExplicitIdentity beside its
-// parts, publishing __loom_trace_explicit_identity in both the select list
-// and OutputColumns with the parts spelling absent from the statement.
 func TestCellTracePostgresExplicitIdentityContract(t *testing.T) {
 	plan := sql24ArmBPlan(t, "gender", 0, 5)
 	terminal := sql24Terminal(t, plan)
@@ -381,10 +327,6 @@ func TestCellTracePostgresExplicitIdentityContract(t *testing.T) {
 	sql24ContractCells(t, rendered)
 }
 
-// The parts-less spelling is not a state the IR validator admits
-// (ir/physical_validation.go:1531-1532 refuses it for the preview too); the
-// surface seal names it typed, before plan validation can speak with an
-// off-type voice, exactly as every other unregistered terminal state does.
 func TestCellTracePostgresRefusesIdentityWithoutParts(t *testing.T) {
 	plan := sql24ArmBPlan(t, "gender", 0, 5)
 	terminal := sql24Terminal(t, plan)
@@ -394,10 +336,6 @@ func TestCellTracePostgresRefusesIdentityWithoutParts(t *testing.T) {
 	sql24Refuse(t, plan, "no ordered identity parts")
 }
 
-// The dual-track side of the hand-attached cell above: the both spelling
-// produced through the real lowering chain (authored Identity → lowering
-// projects __loom_row_id → mirror derives the explicit identity beside the
-// parts), so a mint-to-renderer drift fails here rather than silently.
 func TestCellTracePostgresAuthoredIdentityContract(t *testing.T) {
 	rendered := sql24Render(t, sql24ArmBIdentityPlan(t, "gender", 0, 5))
 	want := sql24WantColumns(ir.PhysicalCellTraceExplicitIdentityField)
@@ -446,9 +384,6 @@ func TestCellTracePostgresReducedSetContract(t *testing.T) {
 			t.Fatalf("arm A statement missing %q:\n%s", fragment, sql)
 		}
 	}
-	// The registered page binds are positional bigints in registration
-	// order — offset, fetch-limit (the page cap), then limit (the published
-	// slice): plan data never crosses anywhere but a parameter.
 	if got := fmt.Sprint(rendered.Args[9].Value, rendered.Args[10].Value, rendered.Args[11].Value); got != "5 11 10" {
 		t.Fatalf("page bind args = %s, want \"5 11 10\": %v", got, rendered.Args)
 	}
@@ -457,9 +392,6 @@ func TestCellTracePostgresReducedSetContract(t *testing.T) {
 	}
 }
 
-// The reduced-set contributor page must be the byte-twin of the spine's own
-// reduction reading: the item relation, slot, and total order the preview's
-// reduced column used appear verbatim in the contributor page.
 func TestCellTracePostgresReducedSetIsSpineTwin(t *testing.T) {
 	plan := sql24ArmAPlan(t, true, 0, 3)
 	rendered := sql24Render(t, plan)
@@ -479,8 +411,6 @@ func TestCellTracePostgresReducedSetIsSpineTwin(t *testing.T) {
 	}
 }
 
-// Entry==dispatch: the RenderPhysicalPlan door and a direct door call render
-// identical SQL and args for both registered arms.
 func TestCellTracePostgresEntryEqualsDispatch(t *testing.T) {
 	for _, plan := range []ir.PhysicalPlan{sql24ArmBPlan(t, "gender", 2, 5), sql24ArmAPlan(t, false, 5, 10)} {
 		throughEntry := sql24Render(t, ir.ClonePhysicalPlan(plan))
@@ -494,10 +424,6 @@ func TestCellTracePostgresEntryEqualsDispatch(t *testing.T) {
 	}
 }
 
-// Head placement (coordinator ruling 2026-11-12): a plan that carries the
-// cell-trace terminal AND an unregistered path/graph operation is refused
-// fail-closed by this slice with the typed unsupported-plan error — it must
-// never fall through to the graph door or silently drop the trace columns.
 func TestCellTracePostgresHeadDoorClaimsEveryTerminalBearingPlan(t *testing.T) {
 	plan := sql24ArmBPlan(t, "gender", 0, 5)
 	last := len(plan.Operations) - 1
@@ -511,11 +437,6 @@ func TestCellTracePostgresHeadDoorClaimsEveryTerminalBearingPlan(t *testing.T) {
 		t.Fatalf("refusal must be the typed unsupported-plan error: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Offline: the refusal register. Every shape outside the two arms refuses
-// with a named typed error before any rendering can speak.
-// ---------------------------------------------------------------------------
 
 func sql24Refuse(t *testing.T, plan ir.PhysicalPlan, want string) {
 	t.Helper()
@@ -548,12 +469,6 @@ func TestCellTracePostgresSurfaceRefusals(t *testing.T) {
 	omission.Operations[len(omission.Operations)-1].CellTraceReturn.OmissionCode = "TABLE_SHAPE_OMITTED_ROW"
 	sql24Refuse(t, omission, "mints no omission code")
 
-	// The mint mints the ordered parts first and the explicit row identity
-	// only beside them, so the parts are the mandatory half: a terminal
-	// without parts is refused by name (its explicit-only counterpart is
-	// pinned by TestCellTracePostgresRefusesIdentityWithoutParts, and the
-	// both spelling — the only explicit spelling the IR validator admits —
-	// is the positive coverage in TestCellTracePostgresExplicitIdentityContract).
 	neither := ir.ClonePhysicalPlan(base)
 	neither.Operations[len(neither.Operations)-1].CellTraceReturn.IdentityParts = nil
 	sql24Refuse(t, neither, "no ordered identity parts")
@@ -629,11 +544,6 @@ func TestCellTracePostgresSurfaceRefusals(t *testing.T) {
 	sql24Refuse(t, terminalNotLast, "final operation")
 }
 
-// The door's claim test must not reach any plan that predates it: every
-// plan without the terminal op renders byte-identically to the doors that
-// claimed it before this slice existed (the graph plan below is claimed by
-// the graph door exactly as before — a successful render with zero cell
-// trace columns is the observable).
 func TestCellTracePostgresDoorClaimsNothingElse(t *testing.T) {
 	if cellTraceTerminalMentions(sql24ArmBPlan(t, "gender", 0, 5)) != true {
 		t.Fatal("a terminal-carrying inline plan must be claimed")
@@ -652,12 +562,6 @@ func TestCellTracePostgresDoorClaimsNothingElse(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Live: owned verify_sql24v1_* fixtures. Zero-skip law: with
-// LOOM_TEST_POSTGRES_URL set, every live cell must run or fail — never
-// skip. Without the URL the whole group is inert (the sibling pattern).
-// ---------------------------------------------------------------------------
 
 var (
 	sql24FixturesMu      sync.Mutex
@@ -700,11 +604,6 @@ func sql24SnapshotOwnedResources(ctx context.Context, raw string) ([]string, err
 	return names, rows.Err()
 }
 
-// sql24RunDeltaAudit wraps the composed audit chain with a delta-scoped
-// audit over the disjoint verify_sql24v1_* namespace (the group13/pivot14/
-// sql16/sql23 pattern): every resource born during the run and tracked by
-// a live test here must not survive the run, and the namespace starts
-// empty.
 func sql24RunDeltaAudit(inner func() int) int {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
@@ -774,10 +673,6 @@ func sql24Edge(t *testing.T, svc *pgir02Service, conditionID, patientID, sourceP
 	})
 }
 
-// sql24RunPage executes the compiled contributor page and returns the six
-// contract columns as published text (the sql23RunPage cast: the runner
-// wraps the compiled statement unchanged and casts the contract columns to
-// text, so the cell the driver reports is the JSON PostgreSQL published).
 type sql24PageRow struct {
 	value, contributions, identity, status, hasMore, omission string
 }
@@ -788,9 +683,6 @@ func sql24RunPage(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) []sql2
 	if len(rendered.OutputColumns) != 6 {
 		t.Fatalf("contract columns = %v, want the six registered names", rendered.OutputColumns)
 	}
-	// The identity column is whichever spelling the compiled contract
-	// names — identity parts or the explicit row identity — so live cells
-	// cover both spellings through the same cast.
 	identityColumn := rendered.OutputColumns[2]
 	if identityColumn != ir.PhysicalCellTraceIdentityPartsField && identityColumn != ir.PhysicalCellTraceExplicitIdentityField {
 		t.Fatalf("third contract column = %q, want an identity spelling", identityColumn)
@@ -828,10 +720,6 @@ func sql24RunPage(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) []sql2
 	return out
 }
 
-// sql24RunTextColumns executes a rendered statement with every column cast
-// to text, so the cells the driver reports are exactly the values
-// PostgreSQL published (the sql23RunPage cast law, applied to previews so
-// trace cells and preview cells are compared same-to-same).
 func sql24RunTextColumns(t *testing.T, svc *pgir02Service, rendered command.RenderedPostgresPhysicalPlan, columns int) [][]string {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
@@ -893,9 +781,6 @@ func sql24RowBylogicalID(t *testing.T, rows []sql24PageRow, logicalID string) sq
 	return sql24PageRow{}
 }
 
-// TestCellTracePostgresLiveRootExtract pins arm B end to end: the traced
-// row is its own contributor, the three status states read as published,
-// hasMore is the constant false, and a foreign-scope patient never appears.
 func TestCellTracePostgresLiveRootExtract(t *testing.T) {
 	svc := newSQL24Service(t)
 	sql24TrackFixtures(t, svc)
@@ -932,14 +817,6 @@ func TestCellTracePostgresLiveRootExtract(t *testing.T) {
 	}
 }
 
-// TestCellTracePostgresLiveRootExtractOffsetGate runs the sealed-offset
-// gate against the server: the bigint offset parameter compared to 0
-// inside the flat-SELECT CASE must type-check (next to the statement ORDER
-// BY and window LIMIT), and the AQL-twin law must hold live — offset >= 1
-// over the one-item relation skips the sole candidate, so contributors
-// publish empty while the offset-free candidateCount still reads VALUE and
-// hasMore stays false. The offset-0 twin on the same fixture proves the
-// gate is not merely always-empty.
 func TestCellTracePostgresLiveRootExtractOffsetGate(t *testing.T) {
 	svc := newSQL24Service(t)
 	sql24TrackFixtures(t, svc)
@@ -962,11 +839,6 @@ func TestCellTracePostgresLiveRootExtractOffsetGate(t *testing.T) {
 	}
 }
 
-// TestCellTracePostgresLiveAuthoredIdentityPage runs the minted explicit
-// identity through the server: the explicit select member and its
-// renderCellTraceExpression arm execute, and sql24RunPage's contract-named
-// cast follows the published column (the identity-parts spelling never
-// crosses the driver for an authored-Identity output).
 func TestCellTracePostgresLiveAuthoredIdentityPage(t *testing.T) {
 	svc := newSQL24Service(t)
 	sql24TrackFixtures(t, svc)
@@ -989,9 +861,6 @@ func TestCellTracePostgresLiveAuthoredIdentityPage(t *testing.T) {
 	}
 }
 
-// TestCellTracePostgresLivePreviewRoundTrip is the L1 law: the traced
-// value equals the value the preview published for the same row, taken OUT
-// of the executed preview, never re-derived.
 func TestCellTracePostgresLivePreviewRoundTrip(t *testing.T) {
 	svc := newSQL24Service(t)
 	sql24TrackFixtures(t, svc)
@@ -1004,8 +873,6 @@ func TestCellTracePostgresLivePreviewRoundTrip(t *testing.T) {
 	if len(previewRows) != 2 {
 		t.Fatalf("preview must publish both scoped patients: %v", previewRows)
 	}
-	// The spine publishes [_key, patient_id, gender]; the identity sidecar
-	// keys the map and the projection-order last column is gender.
 	previewGender := map[string]string{}
 	for _, row := range previewRows {
 		previewGender[row[0]] = row[len(row)-1]
@@ -1027,10 +894,6 @@ func TestCellTracePostgresLivePreviewRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCellTracePostgresLiveReducedSetPages pins arm A: contributor
-// membership is the preview's own reduced column, the page window bounds
-// what is published while hasMore bounds the lookahead, and FIRST ties the
-// compiler cannot order read AMBIGUOUS.
 func TestCellTracePostgresLiveReducedSetPages(t *testing.T) {
 	svc := newSQL24Service(t)
 	sql24TrackFixtures(t, svc)
@@ -1041,12 +904,6 @@ func TestCellTracePostgresLiveReducedSetPages(t *testing.T) {
 		sql24Edge(t, svc, condition, "p-1", "subject")
 	}
 
-	// L1 anchor: the spine does not register the RETURN preview of this
-	// shape (presence-on-direct-value), so the membership authority is the
-	// registered reduced-column reading the trace itself embeds — the
-	// __loom_trace_value of the ALL-mode arm, rendered through the spine's
-	// OWN setReductionSublink text — and the contributor page must agree
-	// with it item for item and order for order.
 	all := sql24RunPage(t, svc, sql24ArmAPlan(t, true, 0, 5))
 	row := sql24RowBylogicalID(t, all, "p-1")
 	var reduced []string
@@ -1073,10 +930,6 @@ func TestCellTracePostgresLiveReducedSetPages(t *testing.T) {
 		t.Fatalf("p-none (no conditions) = %+v", empty)
 	}
 
-	// FIRST over three candidates: the published value is the first item,
-	// the page carries its own cap, and the compiler-unorderable tie reads
-	// AMBIGUOUS while the preview still published a value (D-24a: the trace
-	// agrees with THIS backend's normalization).
 	first := sql24RunPage(t, svc, sql24ArmAPlan(t, false, 0, 2))
 	row = sql24RowBylogicalID(t, first, "p-1")
 	if row.status != "AMBIGUOUS" {
@@ -1092,8 +945,6 @@ func TestCellTracePostgresLiveReducedSetPages(t *testing.T) {
 		t.Fatalf("three candidates with limit 2 must report hasMore: %+v", row)
 	}
 
-	// The window moves the page but not the status: offset 2, limit 2
-	// publishes only the third item and no more pages.
 	last := sql24RunPage(t, svc, sql24ArmAPlan(t, true, 2, 2))
 	row = sql24RowBylogicalID(t, last, "p-1")
 	if got := sql24ContributorMembers(t, row.contributions); len(got) != 1 || got[0] != members[2] {
@@ -1104,9 +955,6 @@ func TestCellTracePostgresLiveReducedSetPages(t *testing.T) {
 	}
 }
 
-// TestCellTracePostgresLiveScopeSabotage proves the page binds to THIS
-// backend: a same-scope row born in a scratch schema the binding does not
-// name must not join the contributor stream, and a real new edge must.
 func TestCellTracePostgresLiveScopeSabotage(t *testing.T) {
 	svc := newSQL24Service(t)
 	sql24TrackFixtures(t, svc)
@@ -1119,8 +967,6 @@ func TestCellTracePostgresLiveScopeSabotage(t *testing.T) {
 		t.Fatalf("baseline contributor = %v", got)
 	}
 
-	// Scratch sabotage inside this service's own databases: the binding's
-	// schema never names it, so the trace must not see it.
 	scratch := fmt.Sprintf("verify_sql24v1_scratch_%d", time.Now().UnixNano())
 	if _, err := svc.iso.Exec(svc.ctx, `CREATE SCHEMA "`+scratch+`"`); err != nil {
 		svc.fail("create scratch schema", err)
@@ -1142,7 +988,6 @@ func TestCellTracePostgresLiveScopeSabotage(t *testing.T) {
 		t.Fatalf("scratch-schema shadow leaked into the contributor page: %v", got)
 	}
 
-	// Liveness: a real edge in the bound schema must change the page.
 	sql24Insert(t, svc, "Condition", "c-2", map[string]any{"id": "c-2"})
 	sql24Edge(t, svc, "c-2", "p-1", "subject")
 	grown := sql24RunPage(t, svc, sql24ArmAPlan(t, true, 0, 5))

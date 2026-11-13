@@ -1,36 +1,5 @@
 package postgres
 
-// pg-exec-03 rows-side acceptance battery: the PostgreSQL execution row
-// adapter retains post-query marker maps, ordered arguments, JSONB values,
-// and the SQL-NULL / JSON-null distinction exactly as the shared Loom
-// materializer upstream expects (internal/dataframe/execution/postquery.go).
-// The adapter's own decoding contract is exercised HERE, in the package
-// whose code it tests (coordinator ruling on the ticket path substitution:
-// the adapter moved from internal/dataframe/postgres/rows.go to this
-// package at arch-backend-06 #125). Execution-side materialization legs
-// live in internal/dataframe/execution instead.
-//
-// Live legs drive the real Executor against the PostgreSQL 18 service
-// named by LOOM_TEST_POSTGRES_URL through real tagged commands and literal
-// inserted rows; witnesses are literal values read back by direct SQL
-// (server-canonical jsonb text) compared to what the visitor received.
-// Offline legs drive the same Executor through the package's scripted
-// querier to pin the driver-buffer discipline for marker documents.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec03v1rw_*
-// — this file's OWN prefix, distinct from the execution-side battery's
-// verify_exec03v1_* (PR #129 review): go test runs the two packages as
-// concurrent test binaries, so one shared prefix would let each TestZZ
-// census sweep the sibling's live fixtures and report false survivors.
-// This follows the one-prefix-per-file precedent of the sibling batteries
-// (verify_exec04_pv_, verify_exec04_pg_, verify_exec04_srv_,
-// verify_exec05_; see the header note in
-// internal/backends/postgres/engine_postgres_pg18_test.go on tolerating
-// concurrent sibling workers via own-prefix-only reads). Names are
-// dropped by the test that created them; the TestZZ audit is
-// ownership-scoped, reads only this prefix, and cleanup drops only the
-// exact minted names.
-
 import (
 	"context"
 	"crypto/rand"
@@ -178,8 +147,6 @@ func newExec03rwService(t *testing.T) *exec03rwService {
 	if err := admin.QueryRow(ctx, "SELECT current_setting('server_version_num')::int8, current_setting('server_version')").Scan(&versionNum, &version); err != nil {
 		fail("read server version", err)
 	}
-	// Mirror internal/backends/postgres/internal/store.CheckServerVersion
-	// (18 only) without importing the store into this package's tests.
 	if versionNum/10000 != 18 {
 		t.Fatalf("test service is not PostgreSQL 18: %s", version)
 	}
@@ -235,16 +202,11 @@ func newExec03rwService(t *testing.T) *exec03rwService {
 	return &exec03rwService{ctx: ctx, admin: admin, iso: iso, schema: schema, scrub: scrub, fail: fail}
 }
 
-// Marker documents: the same Loom post-query marker shapes the execution
-// materializer consumes (byte-identical to the constants in
-// internal/dataframe/execution/engine_postgres_postquery_pg18_test.go).
 const (
 	exec03rwUUID5Wire = `{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":["6ba7b810-9dad-11d1-80b4-00c04fd430c8","www.widgets.com"]}`
 	exec03rwUUID3Wire = `{"__loom_exact_uuid_operation":"uuid3","__loom_exact_uuid_args":["6ba7b810-9dad-11d1-80b4-00c04fd430c8","www.widgets.com"]}`
 )
 
-// streamViaAdapter runs one tagged statement through the production
-// Executor over the caller-owned pool and returns the visited rows.
 func (s *exec03rwService) streamViaAdapter(t *testing.T, sql string, args []command.PostgreSQLParameter, columns []string) []map[string]any {
 	t.Helper()
 	tagged, err := command.NewPostgreSQLCommand(sql, args)
@@ -266,12 +228,6 @@ func (s *exec03rwService) streamViaAdapter(t *testing.T, sql string, args []comm
 	return rows
 }
 
-// TestExec03RowsMarkerJSONBPreservedVerbatim pins that the adapter hands
-// the visitor the server-canonical marker document bytes for a jsonb
-// column (and the extracted sub-object for a path projection), including
-// the ordered argument array of a marker, so the upstream materializer
-// sees the exact marker map and ordered args. The witness is the server's
-// own canonicalized jsonb text read by direct SQL.
 func TestExec03RowsMarkerJSONBPreservedVerbatim(t *testing.T) {
 	s := newExec03rwService(t)
 	ctx := s.ctx
@@ -301,8 +257,6 @@ func TestExec03RowsMarkerJSONBPreservedVerbatim(t *testing.T) {
 	if len(rows) != 4 {
 		t.Fatalf("visited %d rows, want 4", len(rows))
 	}
-	// Server-canonical witnesses read by direct SQL (jsonb canonicalizes
-	// key order; the adapter must match it byte-for-byte).
 	for _, want := range []struct {
 		id     int64
 		column string
@@ -313,11 +267,8 @@ func TestExec03RowsMarkerJSONBPreservedVerbatim(t *testing.T) {
 		}
 		got, ok := rows[want.id-1]["payload"].(json.RawMessage)
 		if !ok {
-			// Rows are keyed by the declared contract: id and payload.
 			t.Fatalf("row %d payload column has Go type %T, want json.RawMessage", want.id, rows[want.id-1]["payload"])
 		}
-		// Compare the extracted path within the visited document against
-		// the server canonical text.
 		var visited any
 		if err := json.Unmarshal(got, &visited); err != nil {
 			t.Fatalf("visited payload is not valid JSON: %v", err)
@@ -331,9 +282,6 @@ func TestExec03RowsMarkerJSONBPreservedVerbatim(t *testing.T) {
 			t.Fatalf("encode visited column: %v", err)
 		}
 		if string(encoded) != canonical {
-			// json.Marshal re-canonicalizes numbers/escapes; a mismatch
-			// must be structural, so re-encode the server text through
-			// the same codec before comparing.
 			var serverValue any
 			if err := json.Unmarshal([]byte(canonical), &serverValue); err != nil {
 				t.Fatalf("server canonical not decodable: %v", err)
@@ -344,10 +292,6 @@ func TestExec03RowsMarkerJSONBPreservedVerbatim(t *testing.T) {
 			}
 		}
 	}
-	// Ordered arguments survive decoding: the only difference between rows
-	// 2 and 3 is argument order, and the visited bytes must preserve it
-	// (the server canonicalizes jsonb, so the check is structural over the
-	// visited bytes, not a raw-substring match).
 	if string(rows[1]["payload"].(json.RawMessage)) == string(rows[2]["payload"].(json.RawMessage)) {
 		t.Fatal("ordered marker arguments collapsed: [a,b] and [b,a] visited identically")
 	}
@@ -366,12 +310,6 @@ func TestExec03RowsMarkerJSONBPreservedVerbatim(t *testing.T) {
 	}
 }
 
-// TestExec03RowsThreeStateAroundMarkers pins the adapter's three-state
-// contract specifically around marker documents: a SQL NULL jsonb column
-// visits as untyped nil, a stored JSON null visits as the non-nil bytes
-// json.RawMessage("null"), and the two never collapse into each other.
-// (The execution-side convergence to nil is the materializer's public
-// contract, pinned in internal/dataframe/execution.)
 func TestExec03RowsThreeStateAroundMarkers(t *testing.T) {
 	s := newExec03rwService(t)
 	ctx := s.ctx
@@ -382,7 +320,7 @@ func TestExec03RowsThreeStateAroundMarkers(t *testing.T) {
 		id      int64
 		payload any
 	}{
-		{1, nil}, // SQL NULL
+		{1, nil},
 		{2, "null"},
 		{3, exec03rwUUID5Wire},
 	} {
@@ -410,10 +348,6 @@ func TestExec03RowsThreeStateAroundMarkers(t *testing.T) {
 	if marker, ok := rows[2]["payload"].(json.RawMessage); !ok || !strings.Contains(string(marker), "__loom_exact_uuid_operation") {
 		t.Fatalf("marker column visited as %#v", rows[2]["payload"])
 	}
-	// Direct-SQL control: the server really stores these three states
-	// distinctly (type is null only for the SQL NULL row).
-	// COALESCE keeps the SQL-NULL row scannable: jsonb_typeof of a SQL
-	// NULL column is itself SQL NULL.
 	var sqlNullState, jsonNullState string
 	if err := s.iso.QueryRow(ctx, `SELECT COALESCE(jsonb_typeof(payload), '<sql-null>') FROM "`+s.schema+`".exec03rw_states WHERE id = 1`).Scan(&sqlNullState); err != nil {
 		s.fail("read sql-null typeof", err)
@@ -426,11 +360,6 @@ func TestExec03RowsThreeStateAroundMarkers(t *testing.T) {
 	}
 }
 
-// TestExec03RowsMalformedMarkerRefusedServerSide pins that malformed
-// marker JSON cannot enter a jsonb column at all (SQLSTATE 22P02 at
-// INSERT): the materializer's invalid-JSON refusal upstream is
-// defense-in-depth, unreachable from a live PostgreSQL server. The
-// well-formed marker is the paired control that proceeds.
 func TestExec03RowsMalformedMarkerRefusedServerSide(t *testing.T) {
 	s := newExec03rwService(t)
 	ctx := s.ctx
@@ -446,7 +375,6 @@ func TestExec03RowsMalformedMarkerRefusedServerSide(t *testing.T) {
 	if !errors.As(err, &pgErr) || pgErr.SQLState() != "22P02" {
 		s.fail("malformed marker insert must be 22P02", err)
 	}
-	// ALIVE control: the well-formed marker inserts and streams.
 	if _, err := s.iso.Exec(ctx, `INSERT INTO "`+s.schema+`".exec03rw_malformed (id, payload) VALUES ($1, $2::jsonb)`,
 		int64(2), exec03rwUUID5Wire); err != nil {
 		s.fail("well-formed marker control", err)
@@ -460,13 +388,6 @@ func TestExec03RowsMalformedMarkerRefusedServerSide(t *testing.T) {
 	}
 }
 
-// TestExec03RowsDeepNestedMarkerPassthrough pins that a deeply nested
-// marker document (200 levels of legitimate object nesting around the
-// marker — well inside the server's jsonb input bound, which accepted
-// depth 200 in the probe that pinned this fixture) passes through the
-// adapter byte-identically as ONE json.RawMessage: the adapter performs
-// no JSON decoding, so depth bounds are owned by the materializer's
-// encoding/json decoder, not the row path.
 func TestExec03RowsDeepNestedMarkerPassthrough(t *testing.T) {
 	s := newExec03rwService(t)
 	ctx := s.ctx
@@ -489,8 +410,6 @@ func TestExec03RowsDeepNestedMarkerPassthrough(t *testing.T) {
 	if !ok {
 		t.Fatalf("deep payload visited as %T, want a single json.RawMessage", rows[0]["payload"])
 	}
-	// The marker survives at full depth: count the nesting in the visited
-	// bytes and require the marker inside, so a truncating adapter dies.
 	if got := strings.Count(string(raw), `{"a":`); got != depth+1 {
 		t.Fatalf("visited document carries %d nesting levels, want %d", got, depth+1)
 	}
@@ -499,11 +418,6 @@ func TestExec03RowsDeepNestedMarkerPassthrough(t *testing.T) {
 	}
 }
 
-// TestExec03RowsVisitedMarkerDoesNotAliasDriverBuffer is offline (scripted
-// querier, no service): the adapter copies the jsonb bytes, so a retained
-// visited RawMessage is immune to reuse of the driver-owned buffer — the
-// precondition for the upstream materializer safely evaluating a marker
-// after the driver has advanced the cursor.
 func TestExec03RowsVisitedMarkerDoesNotAliasDriverBuffer(t *testing.T) {
 	marker := []byte(exec03rwUUID5Wire)
 	rows := &scriptedRows{
@@ -532,8 +446,6 @@ func TestExec03RowsVisitedMarkerDoesNotAliasDriverBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SourceRows: %v", err)
 	}
-	// Corrupt the driver-owned source buffer after the visit; the retained
-	// visited bytes must be unchanged.
 	for i := range marker {
 		marker[i] = 'X'
 	}
@@ -542,14 +454,6 @@ func TestExec03RowsVisitedMarkerDoesNotAliasDriverBuffer(t *testing.T) {
 	}
 }
 
-// TestZZExec03RowsZeroLeftoverFixtures is the ownership-scoped audit for
-// this file: every exact name this process created must be gone, and no
-// unregistered survivor may remain under this file's own prefix. The
-// LIKE read is own-prefix only; nothing here drops by pattern. The
-// baseline capture is repeated here (idempotent via sync.Once) so
-// running this audit alone with -run still compares against the
-// pre-existing databases instead of an empty baseline, which would flag
-// any healthy concurrent run as survivors.
 func TestZZExec03RowsZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {

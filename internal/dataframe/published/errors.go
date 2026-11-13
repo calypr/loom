@@ -7,9 +7,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// backendCallError classifies errors returned by ClickHouse/catalog calls.
-// Typed request errors and cancellation remain intact; an untyped dependency
-// failure is retryable and keeps its private cause for server-side logging.
 func backendCallError(err error) error {
 	if err == nil {
 		return nil

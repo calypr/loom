@@ -1,13 +1,5 @@
 package postgres
 
-// Read-only proof for MigrationRunner.Verify (pg-runtime-health-readiness,
-// coordinator condition 1): the readiness probe is shared with live traffic,
-// so its read-only, lock-free shape is a pin, not a claim. This offline
-// witness reads the actual source of Verify and its callees and forbids any
-// write, transaction, DDL, or advisory-lock surface. The byte-identity half
-// (ledger rows, checksums, schema contents unchanged across Verify) runs
-// live in internal/server's verify-read-only leg.
-
 import (
 	"go/ast"
 	"go/parser"
@@ -16,12 +8,6 @@ import (
 	"testing"
 )
 
-// TestVerifyIsReadOnlyAndLockFree pins the method-call surface of Verify,
-// readLedger, validateHistory, and pending to an allowlist whose every
-// member is a read: QueryRow/Scan on a pooled connection, pure validation
-// over already-fetched records, and pool Acquire/Release. Anything that
-// could mutate — Exec, Begin, Prepare-with-DDL, pg_advisory_* — fails the
-// witness by name, and SQL literals must be SELECT/to_regnamespace only.
 func TestVerifyIsReadOnlyAndLockFree(t *testing.T) {
 	set := token.NewFileSet()
 	parsed, err := parser.ParseFile(set, "migrate.go", nil, 0)
@@ -31,13 +17,8 @@ func TestVerifyIsReadOnlyAndLockFree(t *testing.T) {
 	allowed := map[string]bool{
 		"Acquire": true, "Release": true, "QueryRow": true, "Query": true, "Scan": true,
 		"readLedger": true, "validateHistory": true, "pending": true,
-		// verifyStatementError is the fault classifier: errors.As plus
-		// ConnectError construction, no I/O (asserted by its own tests).
 		"verifyStatementError": true,
 		"Errorf":               true, "Sprintf": true, "len": true,
-		// Close here is the read-rows cursor cleanup only; pool teardown
-		// lives outside these callees, and Hijack (the discard path) stays
-		// forbidden below.
 		"Close": true, "Next": true, "Err": true, "append": true, "sort": true,
 		"Slice": true, "As": true, "make": true, "new": true,
 		"int64": true, "int": true, "string": true,

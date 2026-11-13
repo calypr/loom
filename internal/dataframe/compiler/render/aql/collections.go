@@ -67,9 +67,6 @@ func (r *physicalPlanRenderer) renderObject(expression ir.PhysicalExpression) (s
 )`, strings.Join(items, ", ")), nil
 }
 
-// renderSlice emits a correlated, bounded array projection. Sort and the
-// _key tie-break are rendered inside the subquery so representative values
-// are deterministic even when traversal order changes.
 func (r *physicalPlanRenderer) renderSlice(expression ir.PhysicalExpression) (string, error) {
 	slice := expression.Slice
 	if slice == nil {
@@ -167,10 +164,6 @@ func slicePreparedVariable(slice *ir.PhysicalSlice) string {
 	return ""
 }
 
-// renderPivot emits a bounded sparse object keyed by the requested catalog
-// columns. Values from all matching resources are combined per key and reduced
-// deterministically to the first sorted value while keeping selectors and
-// column values typed.
 func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (string, error) {
 	pivot := expression.Pivot
 	if pivot == nil {
@@ -208,12 +201,6 @@ func (r *physicalPlanRenderer) renderPivot(expression ir.PhysicalExpression) (st
 			return "", fmt.Errorf("pivot item source: %w", sourceErr)
 		}
 		itemExpression = r.newInternalVariable("pivot_item_value")
-		// A selector ending in an iterated array is represented by the
-		// selector renderer as one subquery row containing that array.  Pivot
-		// item sources need the repeated elements themselves so key/value
-		// selectors run against each component/backbone item, not against the
-		// wrapper array.  Flatten exactly that one selector-result layer;
-		// deeper nesting remains owned by the selector's own iteration steps.
 		itemLoop += fmt.Sprintf("\n      FOR %s IN FLATTEN(%s)", itemExpression, itemValues)
 	}
 	previousPreparedItem := r.preparedItem
@@ -337,10 +324,6 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 		codeClause = ""
 		pairKey = "FIRST(@" + columnsBindKey + ")"
 	}
-	// Reduce repeated Coding aliases within each owner before the outer
-	// reduction. Distinct owners remain separate, so ALL retains multiplicity
-	// across components while duplicate Coding entries cannot duplicate a
-	// component's value.
 	pairs := fmt.Sprintf(`FOR %s IN %s
   LET __correlation_owner_pairs = (
     FOR %s IN %s
@@ -388,9 +371,6 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 )`, pairs, value), nil
 }
 
-// renderPivotSelector evaluates a selector against either the resource
-// document or a correlated repeated item. Keeping the item scope explicit
-// prevents keys and values from different repeated elements being paired.
 func (r *physicalPlanRenderer) renderPivotSelector(resourceItem, item string, prepared *ir.PhysicalPreparedReference, selector spec.Selector, itemScoped bool) (string, error) {
 	if prepared != nil {
 		return item + "." + prepared.Field, nil
@@ -402,10 +382,6 @@ func (r *physicalPlanRenderer) renderPivotSelector(resourceItem, item string, pr
 	return r.renderSelectorArrayFromSource(source, selector, false, false)
 }
 
-// renderAggregate emits reductions over either a correlated PhysicalSet or a
-// singleton root document. The source is kept typed in the IR; this method is
-// the only place that decides the AQL collection expression (`set` versus
-// `[root]`).
 func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression) (string, error) {
 	aggregate := expression.Aggregate
 	if aggregate == nil {
@@ -499,8 +475,6 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 	return "", fmt.Errorf("unsupported aggregate operation %q", aggregate.Operation)
 }
 
-// renderAggregateItems is the single predicate/source lowering used by both
-// normal aggregate values and targeted cell traces.
 func (r *physicalPlanRenderer) renderAggregateItems(aggregate *ir.PhysicalAggregate) (string, bool, error) {
 	source, err := r.renderValue(aggregate.Source)
 	if err != nil {
@@ -651,9 +625,6 @@ func aggregatePreparedVariable(aggregate *ir.PhysicalAggregate) string {
 	if aggregate.ContributorWindow != nil {
 		return ""
 	}
-	// Prepared child sets contain raw selector columns. Unit normalization
-	// needs the original value and its sibling system/code selectors for each
-	// contributing item, so it must stay at item grain until the reducer.
 	if aggregate.Value != nil && aggregate.Value.Extract != nil && aggregate.Value.Extract.UnitNormalization != nil {
 		return ""
 	}
@@ -701,9 +672,6 @@ func (r *physicalPlanRenderer) renderAggregateItemValue(expression ir.PhysicalEx
 	return value, nil
 }
 
-// renderExtensionCorrelatedPivot keeps each nested extension URL check in the
-// loop that owns the next extension object. A leaf URL can therefore never
-// match a value beneath a different ancestor URL.
 func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.PhysicalCorrelation, columnsBindKey string, stringify, flattenSingle bool, projectionMode string) (string, error) {
 	if columnsBindKey == "" {
 		return "", fmt.Errorf("extension pivot columns bind is required")
@@ -761,9 +729,6 @@ func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.Phy
 	if err != nil {
 		return "", err
 	}
-	// Aggregate every matched terminal extension before applying the declared
-	// reduction. Emitting one object per owner would make MERGE overwrite
-	// repeated matches and would silently turn VALUE multiplicity into FIRST.
 	aggregation := fmt.Sprintf("FOR __extension_result IN [1]\n  LET __extension_pairs = (\n    %s\n  )\n  LET __correlation_flat_values = FLATTEN(__extension_pairs[*].values)\n  LET __correlation_unsupported_values = FLATTEN(__extension_pairs[*].unsupported)\n  FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0\n  RETURN ", pairs)
 	if flattenSingle {
 		return "FIRST(\n  " + aggregation + value + "\n)", nil
@@ -771,10 +736,6 @@ func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.Phy
 	return "MERGE(\n  " + aggregation + "{ [FIRST(@" + columnsBindKey + ")]: " + value + " }\n)", nil
 }
 
-// renderCorrelatedReduction is shared by Coding and Extension correlations so
-// every projection mode has one explicit multiplicity and invalid-choice
-// contract. ALL/DISTINCT preserve arrays; VALUE reports multiplicity; FIRST is
-// deterministic but intentionally lossy.
 func renderCorrelatedReduction(projectionMode string, stringify bool, primitive string) (string, error) {
 	mode := strings.ToUpper(strings.TrimSpace(projectionMode))
 	if mode == "" {

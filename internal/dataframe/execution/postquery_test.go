@@ -63,8 +63,6 @@ func TestMaterializePostQueryValidatesEveryPresentColumnWhenRuntimeKeysCoverAnot
 			"tags":  {ColumnName: "identifier_tags", ValueType: "string", Many: true},
 		},
 	}
-	// Runtime key metadata enumerates only family A; family B columns are still
-	// present in the row and must satisfy their frozen types.
 	newRow := func(dynamicValues map[string]any) map[string]any {
 		row := map[string]any{
 			"category_stage":              "stage-a",
@@ -91,7 +89,6 @@ func TestMaterializePostQueryValidatesEveryPresentColumnWhenRuntimeKeysCoverAnot
 	if _, err := materializePostQueryRowWithChecks(valid, checks); err != nil {
 		t.Fatalf("valid row across both families rejected: %v", err)
 	}
-	// An unselected family B column stays valid because only present values bind.
 	if _, err := materializePostQueryRowWithChecks(newRow(map[string]any{"identifier_count": 7}), checks); err != nil {
 		t.Fatalf("valid row with a missing unselected column rejected: %v", err)
 	}
@@ -264,22 +261,6 @@ func TestMaterializePostQueryStripsDynamicMetadata(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pg-exec-03: PostgreSQL JSONB row values through the shared materializer.
-//
-// The PostgreSQL row adapter decodes every json/jsonb column to
-// json.RawMessage (internal/backends/postgres/internal/rows/rows.go) so SQL
-// NULL stays distinct from the JSON null scalar at the adapter boundary.
-// These legs pin that the shared materializer runs the identical Loom
-// post-query and named-UUID contract on that shape. Arango and ClickHouse
-// never produce json.RawMessage: both decode with encoding/json
-// (go-driver/v2@v2.3.1 arangodb/cursor_impl.go:123;
-// internal/store/clickhouse/client.go QueryRowsArgsVisit) — module-source
-// probes banked in the ticket plan — so the legs below are behavior
-// additions for PostgreSQL rows only, and the equivalence cells here and in
-// engine_postgres_postquery_pg18_test.go prove cross-target sameness.
-// ---------------------------------------------------------------------------
-
 const (
 	exec03DNSNamespace  = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 	exec03UUID5Wire     = `{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":["6ba7b810-9dad-11d1-80b4-00c04fd430c8","www.widgets.com"]}`
@@ -313,8 +294,6 @@ func TestMaterializePostQueryJSONBMarkerComputesNamedUUID(t *testing.T) {
 			}
 		})
 	}
-	// Malformed marker shape inside valid JSON keeps the existing typed
-	// refusal: args must be an ordered array.
 	if _, err := materializePostQueryValue(json.RawMessage(`{"__loom_exact_uuid_operation":"uuid5","__loom_exact_uuid_args":"nope"}`)); err == nil || !strings.Contains(err.Error(), "malformed") {
 		t.Fatalf("non-array exact-UUID args accepted: %v", err)
 	}
@@ -324,10 +303,6 @@ func TestMaterializePostQueryJSONBMarkerComputesNamedUUID(t *testing.T) {
 }
 
 func TestMaterializePostQueryPGShapeMatchesDriverDecodedShape(t *testing.T) {
-	// One logical row delivered in the two wire shapes. The Arango/CH shape
-	// is produced by the very primitive those drivers use (json.Unmarshal
-	// into any); the PostgreSQL shape carries each column as the
-	// json.RawMessage the adapter hands the visitor.
 	pgRow := map[string]any{
 		"marker": json.RawMessage(exec03UUID5Wire),
 		"nested": json.RawMessage(`{"inner":` + exec03UUID3Wire + `}`),
@@ -363,30 +338,12 @@ func TestMaterializePostQueryPGShapeMatchesDriverDecodedShape(t *testing.T) {
 	if !reflect.DeepEqual(pgResult, want) {
 		t.Fatalf("materialized PG row = %v, want %v", pgResult, want)
 	}
-	// Discriminating control: without materialization the PG shape is raw
-	// bytes, not the driver shape — so the DeepEqual above really catches a
-	// missing unwrap (mutant M1 victim).
 	if reflect.DeepEqual(map[string]any(pgRow), driverRow) {
 		t.Fatal("discriminating control broken: unmaterialized RawMessage row equals the decoded driver row")
 	}
 }
 
-// TestMaterializePostQueryCrossTargetJSONNullEquivalence is the ratified
-// cross-target cell: the same JSON-null payload materializes to the
-// identical public value on the PostgreSQL row shape (json.RawMessage per
-// column, exactly what internal/backends/postgres/internal/rows/rows.go
-// decodeColumn hands the visitor), the Arango row shape (driver cursor
-// decodes documents with encoding/json — go-driver/v2 cursor_impl.go:123,
-// module-source probe banked in the plan), and the ClickHouse row shape
-// (client decodes a row by json.Unmarshal of toJSONString(tuple(..)) —
-// internal/store/clickhouse/client.go QueryRowsArgsVisit, probe banked).
-// The live PostgreSQL end-to-end leg against the real server — production
-// adapter plus production PreviewOutput — is
-// TestPostgresPostQueryCrossTargetJSONNullConvergence in
-// engine_postgres_postquery_pg18_test.go and asserts the same witnesses.
 func TestMaterializePostQueryCrossTargetJSONNullEquivalence(t *testing.T) {
-	// Shared column wires: one JSON null, one string, one number, one array
-	// containing a null, one boolean.
 	const (
 		genderWire = `null`
 		codeWire   = `"C50.9"`
@@ -405,9 +362,6 @@ func TestMaterializePostQueryCrossTargetJSONNullEquivalence(t *testing.T) {
 		name string
 		row  map[string]any
 	}
-	// PostgreSQL: adapter hands the visitor one map whose jsonb columns are
-	// json.RawMessage and whose SQL-NULL columns are nil (three-state at
-	// the adapter; gender exercises the JSON-null scalar).
 	postgresLeg := map[string]any{
 		"gender": json.RawMessage(genderWire),
 		"code":   json.RawMessage(codeWire),
@@ -415,8 +369,6 @@ func TestMaterializePostQueryCrossTargetJSONNullEquivalence(t *testing.T) {
 		"tags":   json.RawMessage(tagsWire),
 		"flag":   json.RawMessage(flagWire),
 	}
-	// Arango: the driver decodes the document with encoding/json
-	// (cursor_impl.go:123); each projected column is that decode's value.
 	arangoLeg := map[string]any{}
 	for column, wire := range map[string]string{"gender": genderWire, "code": codeWire, "count": countWire, "tags": tagsWire, "flag": flagWire} {
 		var value any
@@ -425,9 +377,6 @@ func TestMaterializePostQueryCrossTargetJSONNullEquivalence(t *testing.T) {
 		}
 		arangoLeg[column] = value
 	}
-	// ClickHouse: the client decodes one row by json.Unmarshal of the
-	// toJSONString(tuple(columns)) text the server returns
-	// (QueryRowsArgsVisit); positional values are assigned to columns.
 	var clickHouseValues []any
 	if err := json.Unmarshal([]byte(`[`+genderWire+","+codeWire+","+countWire+","+tagsWire+","+flagWire+`]`), &clickHouseValues); err != nil {
 		t.Fatalf("clickhouse-shape decode: %v", err)
@@ -450,8 +399,6 @@ func TestMaterializePostQueryCrossTargetJSONNullEquivalence(t *testing.T) {
 		if !reflect.DeepEqual(row, wantPublic) {
 			t.Fatalf("%s leg public row = %v, want %v", entry.name, row, wantPublic)
 		}
-		// Go type identity per column, not JSON-text equality: RawMessage
-		// would marshal identically and hide here.
 		if value, ok := row["gender"]; !ok || value != nil {
 			t.Fatalf("%s leg: JSON-null column public value is %#v (Go %T), want untyped nil", entry.name, value, value)
 		}
@@ -467,11 +414,6 @@ func TestMaterializePostQueryCrossTargetJSONNullEquivalence(t *testing.T) {
 			t.Fatalf("cross-target convergence broken: %s %v != %s %v", pair[0], results[pair[0]], pair[1], results[pair[1]])
 		}
 	}
-	// ALIVE controls. (a) A non-null payload on the same harness must
-	// converge to the string, so the cell cannot pass by collapsing every
-	// column to nil. (b) The unmaterialized PostgreSQL RawMessage("null")
-	// must NOT equal the driver nil: the cell is sensitive to a dropped
-	// unwrap (mutant M3 victim).
 	aliveWires := map[string]string{"gender": `"female"`, "code": `"C50.9"`, "count": countWire, "tags": tagsWire, "flag": flagWire}
 	for _, entry := range legs {
 		row := map[string]any{}
@@ -530,8 +472,6 @@ func TestMaterializePostQueryJSONBNullsScalarsAndBytes(t *testing.T) {
 			t.Fatalf("scalar %s materialized to %#v (err %v), want %#v", tc.wire, got, err, tc.want)
 		}
 	}
-	// bytea columns stay opaque bytes: valid-JSON text inside a []byte is
-	// NOT unwrapped (mutant M4 victim).
 	opaque := []byte(`"C50"`)
 	got, err = materializePostQueryValue(opaque)
 	if err != nil {
@@ -540,7 +480,6 @@ func TestMaterializePostQueryJSONBNullsScalarsAndBytes(t *testing.T) {
 	if bytes, ok := got.([]byte); !ok || string(bytes) != `"C50"` {
 		t.Fatalf("bytea value materialized to %#v (Go %T), want unchanged []byte", got, got)
 	}
-	// A typed-nil RawMessage is fail-closed: typed error, no silent nil.
 	got, err = materializePostQueryValue(json.RawMessage(nil))
 	if err == nil || got != nil {
 		t.Fatalf("typed-nil RawMessage materialized to %#v (err %v), want refusal", got, err)
@@ -548,9 +487,6 @@ func TestMaterializePostQueryJSONBNullsScalarsAndBytes(t *testing.T) {
 }
 
 func TestMaterializePostQueryJSONBMalformedFailsClosed(t *testing.T) {
-	// Every malformed payload must be a typed refusal carrying no value:
-	// no panic (a panic fails this test) and never a silent nil value with
-	// a nil error.
 	for _, wire := range []string{"", " ", "{", "[1,", `"unterminated`, `{"a":1}}`, `nope`, `{"a":}`, `1x`, `{"__loom_exact_uuid_operation":`} {
 		got, err := materializePostQueryValue(json.RawMessage(wire))
 		if err == nil {
@@ -563,18 +499,12 @@ func TestMaterializePostQueryJSONBMalformedFailsClosed(t *testing.T) {
 			t.Fatalf("row with malformed JSONB column %q published", wire)
 		}
 	}
-	// ALIVE control: the well-formed sibling of every table entry
-	// materializes on the same code path.
 	if _, err := materializePostQueryValue(json.RawMessage(`{"a":1}`)); err != nil {
 		t.Fatalf("alive control rejected: %v", err)
 	}
 }
 
 func TestMaterializePostQueryJSONBDeepNestingBounds(t *testing.T) {
-	// The unwrap decodes through encoding/json, whose decoder enforces a
-	// hard 10,000-level nesting bound, and the re-entrant walk is bounded
-	// by the decoded value's depth. Pin the exact boundary: 10,000 levels
-	// materialize, 10,001 are a typed refusal (no panic, no silent nil).
 	deep := func(levels int) string {
 		return strings.Repeat("[", levels) + "1" + strings.Repeat("]", levels)
 	}
@@ -583,7 +513,6 @@ func TestMaterializePostQueryJSONBDeepNestingBounds(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%d-level nesting refused: %v", levels, err)
 		}
-		// Walk to the leaf to prove full depth materialized.
 		value := got
 		for depth := 0; depth < levels; depth++ {
 			items, ok := value.([]any)
@@ -605,8 +534,6 @@ func TestMaterializePostQueryJSONBDeepNestingBounds(t *testing.T) {
 			t.Fatalf("%d-level nesting refused but leaked a value", levels)
 		}
 	}
-	// A marker buried inside legitimate nesting materializes recursively
-	// (acceptance 5 at depth).
 	wire := `{"a":{"b":[{"col":` + exec03UUID5Wire + `}]}}`
 	got, err := materializePostQueryValue(json.RawMessage(wire))
 	if err != nil {
@@ -628,8 +555,6 @@ func TestMaterializePostQueryJSONBDeepNestingBounds(t *testing.T) {
 	if !ok || item["col"] != exec03UUID5Literal {
 		t.Fatalf("nested marker value = %#v, want %s", items[0], exec03UUID5Literal)
 	}
-	// Hand-built rows can also carry a RawMessage inside a decoded array;
-	// the array arm re-enters the JSONB case.
 	got, err = materializePostQueryValue([]any{json.RawMessage(exec03UUID5Wire), "x"})
 	if err != nil {
 		t.Fatalf("RawMessage inside array: %v", err)
@@ -649,7 +574,6 @@ func TestMaterializePostQueryJSONBDynamicMetadataAndChecks(t *testing.T) {
 		},
 	}
 	metadataWire := `{"code":["a"],"identifier_keys":["count","tags"]}`
-	// The conforming PG-shaped row passes and publishes decoded Go values.
 	row, err := materializePostQueryRowWithChecks(map[string]any{
 		"code_a":                      json.RawMessage(`"value"`),
 		"identifier_count":            json.RawMessage(`7`),
@@ -665,7 +589,6 @@ func TestMaterializePostQueryJSONBDynamicMetadataAndChecks(t *testing.T) {
 	if _, ok := row["__loom_dynamic_runtime_keys"]; ok {
 		t.Fatal("JSONB dynamic metadata leaked into the public row")
 	}
-	// Key drift carried as JSONB metadata fails before publishing.
 	if _, err := materializePostQueryRowWithChecks(map[string]any{
 		"code_a":                      json.RawMessage(`"value"`),
 		"__loom_dynamic_runtime_keys": json.RawMessage(`{"code":["a","unexpected"]}`),
@@ -677,8 +600,6 @@ func TestMaterializePostQueryJSONBDynamicMetadataAndChecks(t *testing.T) {
 			t.Fatalf("JSONB key drift error = %v, want DynamicDriftError for unexpected", err)
 		}
 	}
-	// Type drift carried as JSONB values fails before publishing; the
-	// conforming sibling above is the alive control on the same checks.
 	for name, row := range map[string]map[string]any{
 		"string column with number":     {"code_a": json.RawMessage(`42`), "__loom_dynamic_runtime_keys": json.RawMessage(metadataWire)},
 		"integer column with fraction":  {"identifier_count": json.RawMessage(`7.5`), "__loom_dynamic_runtime_keys": json.RawMessage(metadataWire)},
@@ -689,15 +610,12 @@ func TestMaterializePostQueryJSONBDynamicMetadataAndChecks(t *testing.T) {
 			t.Fatalf("%s accepted", name)
 		}
 	}
-	// Malformed JSONB metadata is refused, not treated as absent.
 	if _, err := materializePostQueryRowWithChecks(map[string]any{
 		"code_a":                      json.RawMessage(`"value"`),
 		"__loom_dynamic_runtime_keys": json.RawMessage(`{"code":"a"}`),
 	}, checks); err == nil {
 		t.Fatal("malformed JSONB metadata accepted as absent")
 	}
-	// Missing metadata with a non-AllowUnknownKeys family still refuses
-	// (PG shape reaches the same guard as the driver shape).
 	if _, err := materializePostQueryRowWithChecks(map[string]any{"code_a": json.RawMessage(`"value"`)}, checks); err == nil {
 		t.Fatal("missing metadata accepted for a strict family")
 	}

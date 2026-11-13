@@ -314,7 +314,6 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		fmt.Sprintf("      FILTER member.groupId == %s.groupId", definition),
 		fmt.Sprintf("      LET %s = FIRST(FOR resource IN @@%s", source, rows.ResourceCollectionBindKey),
 		fmt.Sprintf("        FILTER resource.id == member.ref.id AND resource.project == @%s AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType", rows.ResourceProjectBindKey),
-		// Prefer a physical resource that survived the prefix when logical IDs repeat.
 		fmt.Sprintf("        SORT (resource._key IN %s) DESC, resource._key ASC", contributors),
 		"        RETURN resource)",
 		fmt.Sprintf("      FILTER %s", cohortMemberInputPredicate(source, contributors, cohort.PreserveMissingMembers)),

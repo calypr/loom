@@ -485,10 +485,6 @@ func compilePopulationMappingOutput(t *testing.T, output recipe.Output) lower.Co
 	return compiled.Outputs[0]
 }
 
-// ---------------------------------------------------------------------------
-// pg-sql-22: the PostgreSQL dispatch arm.
-// ---------------------------------------------------------------------------
-
 func populationMappingPostgreSQLTarget(t *testing.T) Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("loom")
@@ -552,12 +548,9 @@ func TestCompilePopulationMappingPostgreSQLDefaultIdentityWitnesses(t *testing.T
 	if len(args) == 0 {
 		t.Fatal("mapping statement is not parameterized")
 	}
-	// Every value stays a $n placeholder: no quoted plan string leaks in.
 	if strings.Contains(sql, "fixture_program") {
 		t.Fatalf("mapping SQL inlines bind values:\n%s", sql)
 	}
-	// The AQL control proves the dialect-neutral proof metadata is shared:
-	// same output, both targets, identical metadata contract.
 	aqlQuery, err := CompilePopulationMappingOutput(ArangoTarget(), compiledOutput, bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("aql population mapping control: %v", err)
@@ -572,8 +565,6 @@ func TestCompilePopulationMappingPostgreSQLDefaultIdentityWitnesses(t *testing.T
 	if postgresQuery.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || postgresQuery.ExplicitIdentityColumn != "" {
 		t.Fatalf("default mapping identity columns = (%q, %q)", postgresQuery.IdentityPartsColumn, postgresQuery.ExplicitIdentityColumn)
 	}
-	// Determinism: one plan and bindings render byte-identical SQL and
-	// value-identical ordered arguments.
 	second, err := CompilePopulationMappingOutput(populationMappingPostgreSQLTarget(t), compiledOutput, bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("second postgresql compile: %v", err)
@@ -598,18 +589,11 @@ func TestCompilePopulationMappingPostgreSQLExplicitIdentity(t *testing.T) {
 	if compiled.IdentityPartsColumn != "" || compiled.ExplicitIdentityColumn != ir.PhysicalPopulationMappingExplicitIdentityField {
 		t.Fatalf("explicit mapping identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
 	}
-	// The compiled explicit identity expression is preserved through the
-	// registered selector reading, not re-spelled as a parts array.
 	if !strings.Contains(sql, "#>") {
 		t.Fatalf("explicit identity did not render through the registered payload path:\n%s", sql)
 	}
 }
 
-// populationMappingSummaryOutput is a pure registered composition (the
-// summary GROUP) under a population constraint; the keyed variant drives
-// the contributor pool's GROUP BY/join path. RELATED_* stages stay outside
-// the registered composition surface (their own slice), so they are not
-// used here.
 func populationMappingSummaryOutput(keyed bool) recipe.Output {
 	output := constructionSummaryOutput()
 	if keyed {
@@ -637,11 +621,6 @@ func TestCompilePopulationMappingPostgreSQLConstructionTerminal(t *testing.T) {
 				t.Fatalf("postgresql construction mapping compile: %v", err)
 			}
 			sql, _ := populationMappingPostgreSQLSQL(t, postgresQuery)
-			// The contributor set is a renderer-owned pool relation joined
-			// to the group aggregate, and the terminal expands it into the
-			// source rows on the materialized "_key" text, then the member
-			// array, then de-duplicates on (identity, member). The plan-
-			// internal contributor column name never reaches SQL text.
 			for _, want := range []string{
 				"WITH ",
 				`"loom"."selection_members"`,

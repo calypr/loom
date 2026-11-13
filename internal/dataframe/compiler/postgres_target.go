@@ -8,15 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// compilePostgreSQLRecipeOutput renders one finalized recipe output through
-// the target-bound PostgreSQL renderer and packages it as a CompiledQuery.
-// It is the single authority for PostgreSQL-tagged source commands: the
-// command, its declared column contract, the public projection, and the
-// plan fingerprint all originate here, from the same supported IR the AQL
-// target consumes. Unsupported plans fail explicitly with the renderer's
-// typed error; there is no AQL fallback, no AQL-to-SQL conversion, and the
-// AQL-only preview accelerators (covering indexes, group scans, projection
-// factoring) are never attached to a PostgreSQL command.
 func compilePostgreSQLRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, physical ir.PhysicalPlan, includePreviewSourceID bool) (CompiledQuery, error) {
 	tagged, rendered, err := target.renderPostgreSQLFinalPlan(physical)
 	if err != nil {

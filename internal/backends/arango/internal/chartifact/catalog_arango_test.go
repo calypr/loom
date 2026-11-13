@@ -15,9 +15,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// This opt-in test exercises Arango's conditional document writes. It uses
-// unique keys in the dedicated private manifest collection and never truncates
-// or drops that collection.
 func TestCatalogLeaseArbitrationAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
@@ -108,9 +105,6 @@ func TestCatalogLeaseArbitrationAgainstArango(t *testing.T) {
 		t.Fatalf("same-state cleanup retry did not make artifact reclaimable: %v", err)
 	}
 
-	// Concurrent claimers race on the same expired manifest. The AQL update
-	// predicate must permit one owner at most; the loser may observe no row or
-	// an Arango write conflict, but must never also own the manifest.
 	type claimResult struct {
 		manifest chartifact.Manifest
 		ok       bool
@@ -137,7 +131,6 @@ func TestCatalogLeaseArbitrationAgainstArango(t *testing.T) {
 	for result := range results {
 		if result.err != nil {
 			if shared.IsArangoErrorWithErrorNum(result.err, shared.ErrArangoConflict) {
-				// A stale revision is a valid losing outcome for the conditional write.
 				continue
 			}
 			t.Fatalf("cleanup claim failed outside expected revision conflict: %v", result.err)
@@ -276,8 +269,6 @@ func TestCatalogRenewalAndExpiredCleanupClaimHaveOneWinnerAgainstArango(t *testi
 			}
 		}
 
-		// A cleanup-owner removal racing a reclaim must either remove the row
-		// before transfer or lose the revision/owner check after transfer.
 		deleteRaceNow := time.Now().UTC()
 		manifest.State = chartifact.StateCleanupPending
 		manifest.LeaseOwner = writer

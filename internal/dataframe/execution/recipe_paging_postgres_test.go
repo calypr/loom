@@ -1,37 +1,5 @@
 package execution
 
-// pg-exec-05 live acceptance battery: bounded PostgreSQL root-page command
-// sequences against a real PostgreSQL 18 (check-2: go test
-// ./internal/dataframe/execution -run PostgresRootPaging under
-// LOOM_TEST_POSTGRES_URL against the isolated PostgreSQL 18 service).
-//
-// Every test drives the production streamRaw PostgreSQL root-page branch onto
-// the real server through the production internal/dataframe/postgres row
-// adapter and the production migrations/repositories: the owned schema is
-// installed by storepg.MigrateSchema and seeded with ResourceRepository and
-// EdgeRepository, so every key step and row step runs against the real
-// fhir_resource/fhir_edge_occurrence relation shapes. The key and row
-// statements are parent-shaped commands frozen by the canonical
-// command.NewPostgreSQLCommand constructor through the single test funnel
-// newExec05PageCommand: the production compiler still refuses root-key output
-// paging for PostgreSQL (recipe_paging.go rejects it with the typed
-// unsupported-plan sentinel — pinned offline in
-// TestPostgreSQLRootPageProductionNeverAttaches), so no production producer of
-// PostgreSQLRootPageSteps exists yet; a parent-compiler ticket will supply one
-// and these tests pin the execution contract it will compile into.
-//
-// Witnesses are literal values read back from PostgreSQL 18 itself: exact
-// per-page row multisets, literal cursor progression, literal jsonb key-page
-// arguments, adapter-decoded int64 edge_seq witnesses, and EXPLAIN (FORMAT
-// JSON) plan shapes proving key-set boundedness (LIMIT node + index access,
-// no sequential scans on the bounded relation). Non-vacuity discipline: every
-// refusal has a paired control that proceeds on the same fixture; the
-// termination arms count statements at the port, never by timing.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec05_* and
-// dropped by the test that created them; the TestZZ audit is
-// ownership-scoped to this file's own prefix.
-
 import (
 	"context"
 	"crypto/rand"
@@ -141,15 +109,8 @@ type exec05LiveService struct {
 	fail     func(step string, err error)
 }
 
-// exec05NewRowsSource is installed once by the external test file
-// recipe_paging_postgres_adapter_test.go. The production row adapter package
-// imports this package, so only the external test package may import it; the
-// live battery still runs every page step through the real adapter.
 var exec05NewRowsSource func(iso *pgxpool.Pool) (SourceRows, error)
 
-// Exec05InstallRowsAdapterFactory is test-only (it lives in a _test.go file)
-// and installs the production internal/dataframe/postgres row source used by
-// the live root-page battery.
 func Exec05InstallRowsAdapterFactory(f func(iso *pgxpool.Pool) (SourceRows, error)) {
 	exec05NewRowsSource = f
 }
@@ -296,8 +257,6 @@ func (s *exec05LiveService) qualifiedTable(name string) string {
 	return `"` + s.schema + `"."` + name + `"`
 }
 
-// exec05Migrate installs the real pg-store-02/pg-store-05 placements in the
-// owned schema through the production migration runner.
 func (s *exec05LiveService) migrate(t *testing.T) {
 	t.Helper()
 	client, err := storepg.OpenPool(s.ctx, storepg.ClientConfig{
@@ -355,12 +314,6 @@ func (s *exec05LiveService) insertEdge(t *testing.T, sourceID, targetID string, 
 	}
 }
 
-// seedAcceptanceFixture stores the five-root acceptance fixture through the
-// production repositories: p0001..p0005 with the child expansion
-// p0001→{c0001,c0002}, p0002→{c0002} (the repeated child of two owners),
-// p0003→{c0003}, p0004→{} (a root with no output rows that still consumes a
-// page slot), p0005→{c0004,c0005}, plus scope intruders that the bound
-// project/generation/auth parameters must never surface.
 func (s *exec05LiveService) seedAcceptanceFixture(t *testing.T) {
 	t.Helper()
 	s.migrate(t)
@@ -389,9 +342,6 @@ func (s *exec05LiveService) seedAcceptanceFixture(t *testing.T) {
 	}
 }
 
-// seedPlannerFixture stores the boundedness fixture: 200 roots with three
-// edges each through the production repositories, then ANALYZE so the
-// PostgreSQL planner decides from real statistics.
 func (s *exec05LiveService) seedPlannerFixture(t *testing.T) {
 	t.Helper()
 	s.migrate(t)
@@ -415,12 +365,6 @@ func (s *exec05LiveService) seedPlannerFixture(t *testing.T) {
 	}
 }
 
-// exec05KeySQLTemplate is the parent-shaped key-discovery statement: a scoped
-// keyset page over the production fhir_resource relation, ordered by the root
-// continuation identity and bounded by a parameterized LIMIT. Parameter
-// positions: $1 project, $2 dataset generation, $3 root resource type,
-// $4 auth resource path, $5 cursor (text, engine-bound), $6 page size
-// (bigint, engine-bound).
 func (s *exec05LiveService) keySQLTemplate() string {
 	return "SELECT r.logical_id AS root_key FROM " + s.qualifiedTable("fhir_resource") +
 		" r WHERE r.project = $1 AND r.dataset_generation = $2 AND r.resource_type = $3" +
@@ -428,14 +372,6 @@ func (s *exec05LiveService) keySQLTemplate() string {
 		" ORDER BY r.logical_id ASC LIMIT $6"
 }
 
-// exec05RowsSQLTemplate is the parent-shaped row statement: the complete
-// expansion output for exactly the requested key page. The key page arrives
-// as one jsonb array parameter (the registered command parameter types carry
-// no array type), and the ORDER BY is the pg-sql-12 final-row window shape:
-// root identity, then the storage occurrence witness, then the child
-// identity. Parameter positions: $1 project, $2 dataset generation,
-// $3 root resource type, $4 auth path, $5 key page (jsonb, engine-bound),
-// $6 child resource type, $7 edge label.
 func (s *exec05LiveService) rowsSQLTemplate() string {
 	return "SELECT r.logical_id AS root_key, e.edge_seq AS child_seq, c.logical_id AS child_id" +
 		" FROM " + s.qualifiedTable("fhir_resource") + " r" +
@@ -476,8 +412,6 @@ func (s *exec05LiveService) rowsArgs() []command.PostgreSQLParameter {
 	}
 }
 
-// newExec05LiveSteps freezes the parent-shaped page pair through the single
-// canonical test funnel newExec05PageCommand (ratified condition R2-i).
 func (s *exec05LiveService) newExec05LiveSteps(t *testing.T, pageSize int) *PostgreSQLRootPageSteps {
 	t.Helper()
 	return &PostgreSQLRootPageSteps{
@@ -499,9 +433,6 @@ type exec05LiveCall struct {
 	columns []string
 }
 
-// exec05LivePort instruments the production row adapter: it records every
-// request through the single port and can rewrite, duplicate, or add rows
-// during visitation for live negative controls.
 type exec05LivePort struct {
 	s         *exec05LiveService
 	calls     []exec05LiveCall
@@ -593,16 +524,12 @@ func TestPostgresRootPagingMultisetAcrossPages(t *testing.T) {
 	s := newExec05LiveService(t)
 	s.seedAcceptanceFixture(t)
 
-	// Server truth, read independently of the engine loop: the same scoped
-	// expansion without any key-page filter.
 	adminRows := exec05AdminExpansion(t, s)
 	want := []string{"p0001/1/c0001", "p0001/2/c0002", "p0002/3/c0002", "p0003/4/c0003", "p0005/5/c0004", "p0005/6/c0005"}
 	if fmt.Sprint(adminRows) != fmt.Sprint(want) {
 		t.Fatalf("server-side expansion = %v, want the literal golden %v", adminRows, want)
 	}
 
-	// The merged single-statement production route, compiled by the parent
-	// PostgreSQL target for the same scope, must see exactly the five roots.
 	engine := s.engine(t, func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
 		return s.executor(ctx, request, visit)
 	})
@@ -633,9 +560,6 @@ func TestPostgresRootPagingMultisetAcrossPages(t *testing.T) {
 	if fmt.Sprint(visited) != fmt.Sprint(want) {
 		t.Fatalf("paged visitation = %v, want the exact multiset once each across pages: %v", visited, want)
 	}
-	// Per-page containment and disjointness: every row of a page belongs to
-	// one of that page's requested root keys, and no root's rows appear in
-	// two pages (each independent row exactly once across all pages).
 	keyPages := exec05RecordedKeyPages(port)
 	if len(pageBoundaries) != len(keyPages) {
 		t.Fatalf("page boundaries %v do not line up with %d row steps", pageBoundaries, len(keyPages))
@@ -667,7 +591,6 @@ func TestPostgresRootPagingMultisetAcrossPages(t *testing.T) {
 	if keys != 3 || rows != 3 {
 		t.Fatalf("port calls keys=%d rows=%d, want 3/3", keys, rows)
 	}
-	// Literal cursors and literal jsonb key pages witnessed at the port.
 	var cursors []string
 	for _, call := range port.calls {
 		if call.kind == "keys" {
@@ -684,7 +607,6 @@ func TestPostgresRootPagingMultisetAcrossPages(t *testing.T) {
 	if fmt.Sprint(keyPages) != fmt.Sprint(wantPages) {
 		t.Fatalf("key pages = %v, want %v", keyPages, wantPages)
 	}
-	// Intruders never surface and every row's root is inside its page.
 	for _, tuple := range visited {
 		if strings.HasPrefix(tuple, "p09") {
 			t.Fatalf("scope intruder surfaced in paged output: %v", tuple)
@@ -692,8 +614,6 @@ func TestPostgresRootPagingMultisetAcrossPages(t *testing.T) {
 	}
 }
 
-// exec05AdminExpansion reads the complete scoped expansion directly from the
-// server, ordered exactly like the parent row statement.
 func exec05AdminExpansion(t *testing.T, s *exec05LiveService) []string {
 	t.Helper()
 	query := "SELECT r.logical_id, e.edge_seq, c.logical_id FROM " + s.qualifiedTable("fhir_resource") + " r" +
@@ -706,8 +626,6 @@ func exec05AdminExpansion(t *testing.T, s *exec05LiveService) []string {
 		" AND c.resource_type = $6 AND c.logical_id = e.target_logical_id" +
 		" AND c.auth_resource_path = $4" +
 		" WHERE r.project = $1 AND r.dataset_generation = $2 AND r.resource_type = $3 AND r.auth_resource_path = $4" +
-		// The unbound key-page slot stays typed so the server still sees all
-		// seven parameter positions with the same shapes as the row statement.
 		" AND $5::jsonb IS NULL" +
 		" ORDER BY r.logical_id ASC, e.edge_seq ASC, c.logical_id ASC"
 	rows, err := s.iso.Query(s.ctx, query, exec05Project, exec05Generation, exec05RootType, exec05AuthPath, nil, exec05ChildType, exec05EdgeLabel)
@@ -815,9 +733,6 @@ func TestPostgresRootPagingResultContractSabotage(t *testing.T) {
 		s := newExec05LiveService(t)
 		s.seedAcceptanceFixture(t)
 		port := &exec05LivePort{s: s}
-		// Duplicate a discovered root key through the extra-rows seam on the
-		// first key step: the engine must refuse the non-strictly-ordered
-		// continuation identity with the typed result-contract sentinel.
 		port.extraRows = func(kind string, callIndex int) []map[string]any {
 			if kind == "keys" && callIndex == 1 {
 				return []map[string]any{{exec05RootKeyCol: "p0001"}}
@@ -850,12 +765,6 @@ func TestPostgresRootPagingResultContractSabotage(t *testing.T) {
 		s := newExec05LiveService(t)
 		s.seedAcceptanceFixture(t)
 		port := &exec05LivePort{s: s}
-		// The second key step is overall call 3 (key, row, key). Rewriting
-		// its first served key back to the previous page tail models a
-		// parent key statement compiled with a non-strict cursor filter
-		// (>= where > was intended): the page stays strictly ordered
-		// internally, so only re-verifying cursor advance from the decoded
-		// rows can catch the overlap.
 		port.visitHook = func(kind string, row map[string]any, callIndex int) (map[string]any, error) {
 			if kind == "keys" && callIndex == 3 && row[exec05RootKeyCol] == "p0003" {
 				return map[string]any{exec05RootKeyCol: "p0002"}, nil
@@ -915,10 +824,6 @@ func exec05BoundArgs(args []command.PostgreSQLParameter) []any {
 	return bound
 }
 
-// exec05ExplainAnalyzedRuns runs EXPLAIN (ANALYZE, FORMAT JSON) and returns
-// the top-level Actual Rows: a server-measured witness that the statement
-// touched only the requested page, independent of which physical plan shape
-// the planner chose.
 func exec05ExplainAnalyzedRuns(t *testing.T, s *exec05LiveService, sql string, args []command.PostgreSQLParameter) int64 {
 	t.Helper()
 	rows, err := s.iso.Query(s.ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+sql, exec05BoundArgs(args)...)
@@ -1007,19 +912,12 @@ func TestPostgresRootPagingExplainBoundedness(t *testing.T) {
 		t.Fatalf("key step returned %d rows under LIMIT 2: the page is not server-side bounded", keyRows)
 	}
 
-	// The row step is bounded by its page: on the planner fixture every root
-	// carries exactly three edges, so a two-key page must touch six expansion
-	// rows server-side, not the 600-row full scope. This witness is
-	// planner-shape independent (small relations may legitimately hash join
-	// and sequential-scan).
 	rowsArgs := s.rowsArgs()
 	rowsArgs[4] = command.PostgreSQLParameter{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["p0100","p0101"]`)}
 	if rowRows := exec05ExplainAnalyzedRuns(t, s, s.rowsSQLTemplate(), rowsArgs); rowRows != 6 {
 		t.Fatalf("row step touched %d expansion rows for a two-key page, want exactly 6 (full scope would be 600)", rowRows)
 	}
 
-	// The bounded walk itself: 200 roots at page size 100 converge in 2 full
-	// pages plus one empty key page, every key step server-side bounded.
 	port := &exec05LivePort{s: s}
 	stream := exec05LiveStream(t, s, s.newExec05LiveSteps(t, 100), port.port)
 	visited := 0
@@ -1109,9 +1007,6 @@ func TestPostgresRootPagingWholeInputBypass(t *testing.T) {
 	})
 }
 
-// s.engine wires a PostgreSQL-selected production engine whose single row
-// port is supplied by the caller (Arango callbacks stay refused: this is a
-// PostgreSQL-selected composition with no fallback to arm).
 func (s *exec05LiveService) engine(t *testing.T, sourceRows SourceRows) *Engine {
 	t.Helper()
 	config := Config{
@@ -1142,9 +1037,6 @@ func exec05LiveBindVars() map[string]any {
 	}
 }
 
-// exec05LiveResolved is the root-scan output inside the registered
-// PostgreSQL root-scan slice: five typed scope columns, row identity over
-// logical_id, compiled by the selected PostgreSQL target.
 func exec05LiveResolved() Resolved {
 	columns := []string{"project", "dataset_generation", "resource_type", "logical_id", "auth_resource_path"}
 	schema := make([]lower.CompiledOutputColumn, 0, len(columns))

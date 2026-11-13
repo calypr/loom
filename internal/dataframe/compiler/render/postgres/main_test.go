@@ -11,85 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestMain runs this ticket's zero-leftover audit after m.Run(), so file
-// order is irrelevant. An audit placed as a test function is vacuous for
-// resources created by tests defined AFTER it in the same file and by
-// every test in files that sort later (Go runs tests in source order
-// within a file and files in name order) — the ordering trap this replaces.
-//
-// The LIKE patterns deliberately keep the unescaped underscore: the
-// wildcard usefully also covers the verifier's verify_sql05v_* namespace;
-// escaping it would narrow the audit out from under that leg.
-//
-// pg-sql-06's delta-scoped fixture audit (traversal_test.go
-// trvRunDeltaAudit) wraps m.Run here; it snapshots the disjoint
-// pgir02_it_* namespace around the run, so both audits see the full
-// package run state. pg-sql-08's disjoint sets08_it_* namespace audit
-// (sets_live_test.go sets08RunDeltaAudit) wraps that, so each ticket owns
-// exactly its own prefix (sets_live_test.go). pg-sql-15's delta-scoped
-// audit (unpivot_test.go unpRunDeltaAudit) wraps that pair around the run
-// over its own disjoint verify_sql15_* namespace, and pg-sql-20's
-// delta-scoped audit (graph_test.go graph20RunDeltaAudit) wraps that trio
-// around the run over its own disjoint verify_sql20_* namespace, composing
-// four independent delta audits. pg-sql-11's delta-scoped audit
-// (objects_test.go obj11RunDeltaAudit) wraps that quartet around the run
-// over its own disjoint obj11_it_* namespace — and asserts the namespace
-// starts empty, since this ticket owns the prefix alone (ruling D5).
-// pg-sql-19's delta-scoped audit (coded_group_test.go
-// coded19RunDeltaAudit) wraps the whole chain around the run over its own
-// disjoint coded19_it_* namespace. pg-sql-21's delta-scoped audit
-// (unit_normalization_test.go sql21RunDeltaAudit) wraps that chain around
-// the run over its own disjoint verify_sql21_ namespace, composing seven
-// independent delta audits; its runner is prefix-parameterized
-// (runVerifyNamespaceDeltaAudit) so a later ticket registers a namespace
-// without a new runner. pg-sql-13's delta-scoped audit (group_test.go
-// group13RunDeltaAudit) wraps the whole chain around the run over its own
-// disjoint verify_sql13v1_* namespace — pg-sql-13's hook keeps its landed
-// position directly over sql21. pg-sql-14's delta-scoped audit
-// (pivot_test.go pivot14RunDeltaAudit) wraps the whole chain around the
-// run over its own disjoint verify_sql14v1_* namespace — pg-sql-14's hook
-// is the 9th (merge order
-// sets08→unp→graph20→obj11→coded19→sql21→group13→pivot14). pg-sql-16's
-// delta-scoped audit (stage_sequence_test.go sql16RunDeltaAudit) wraps the
-// whole chain around the run over its own disjoint verify_sql16v1_*
-// namespace. pg-sql-25's delta-scoped audit (category_scan_test.go
-// sql25RunDeltaAudit) wraps that chain over its own disjoint
-// verify_sql25v1_* namespace — the 11th — and pg-sql-26's
-// (table_shape_exclusions_live_test.go excl26RunDeltaAudit) wraps that
-// pair over its own disjoint verify_sql26v1_* namespace — the 12th — and
-// pg-sql-23's (row_lineage_test.go sql23RunDeltaAudit) wraps that trio
-// over its own disjoint verify_sql23v1_* namespace — the 13th — and
-// pg-sql-24's (cell_trace_test.go sql24RunDeltaAudit) wraps that quartet
-// over its own disjoint verify_sql24v1_* namespace — the 14th, outermost
-// (merge order
-// sets08→unp→graph20→obj11→coded19→sql21→group13→pivot14→sql16→sql25→sql26→sql23→sql24),
-// so a conflict here is a seam in the wrapping text only: every hook
-// keeps its own namespace and none audits another's.
-// The verify_* prefixes are audited through one parameterized helper:
-// verify_sql05_ (pg-sql-05) and verify_sql10v7_ (calls_live_test.go,
-// pg-sql-10 round-7 namespace; the verify_sql10_ audit is kept because
-// the unescaped LIKE would flag any regression to the round-6 prefix),
-// verify_sql21v1_ (pg-sql-21, unit_normalization_production_test.go),
-// verify_sql13v1_ (group_test.go, pg-sql-13), verify_sql14v1_
-// (pivot_test.go, pg-sql-14), verify_sql16v1_ (stage_sequence_test.go,
-// pg-sql-16), verify_sql25v1_ (category_scan_test.go, pg-sql-25),
-// verify_sql26v1_ (table_shape_exclusions_live_test.go, pg-sql-26),
-// verify_sql23v1_ (row_lineage_test.go, pg-sql-23), verify_sql22v1_
-// (population_mapping_test.go, pg-sql-22), and verify_sql24v1_
-// (cell_trace_test.go, pg-sql-24).
-// pg-sql-22's delta-scoped audit (population_mapping_test.go
-// sql22RunDeltaAudit) wraps the whole chain around the run over its own
-// disjoint verify_sql22v1_* namespace — the 14th hook — and pg-sql-24's
-// (cell_trace_test.go sql24RunDeltaAudit) wraps that chain over its own
-// disjoint verify_sql24v1_* namespace — the 15th hook, outermost (merge
-// order
-// sets08→unp→graph20→obj11→coded19→sql21→group13→pivot14→sql16→sql25→sql26→sql23→sql22→sql24).
 func TestMain(m *testing.M) {
-	// pg-sql-24's delta-scoped audit (cell_trace_test.go
-	// sql24RunDeltaAudit) wraps the whole chain around the run over its
-	// own disjoint verify_sql24v1_* namespace, outermost above pg-sql-22's
-	// sql22RunDeltaAudit (nesting order is seam-only — each hook snapshots
-	// only its own namespace).
 	code := sql24RunDeltaAudit(func() int {
 		return sql22RunDeltaAudit(func() int {
 			return sql23RunDeltaAudit(func() int {
@@ -124,12 +46,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// auditNoLeftoverVerifyNamespace asserts that no database or schema under
-// the given ticket prefix survives the whole-package run.
 func auditNoLeftoverVerifyNamespace(prefix string) error {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		// No service was used; nothing can have been created.
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

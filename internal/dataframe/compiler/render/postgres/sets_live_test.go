@@ -15,14 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-08 live acceptance. Owned namespace: sets08_it_* (databases and
-// schemas), registered with the TestMain delta audit below, so concurrent
-// sibling lanes never audit or collide with one another's resources. No
-// test here prints or embeds the service URL; failures flow through
-// svc.scrub.
-// ---------------------------------------------------------------------------
-
 func newSets08Service(t *testing.T) *pgir02Service {
 	t.Helper()
 	return newOwnedService(t, 0, "sets08_it")
@@ -33,8 +25,6 @@ var (
 	sets08TrackedFixtures = map[string]bool{}
 )
 
-// sets08TrackFixtures records the database and schema one live test owns,
-// so the TestMain delta audit can attribute survivors to this run exactly.
 func sets08TrackFixtures(t *testing.T, svc *pgir02Service) {
 	t.Helper()
 	var database string
@@ -71,10 +61,6 @@ func sets08SnapshotOwnedResources(ctx context.Context, raw string) ([]string, er
 	return names, rows.Err()
 }
 
-// sets08RunDeltaAudit wraps the pg-sql-06 audit (which wraps m.Run) with a
-// delta-scoped audit over the disjoint sets08_it_* namespace: every
-// resource born during this run and still surviving at the end must have
-// been tracked by a live test here, and none may survive at all.
 func sets08RunDeltaAudit(m *testing.M) int {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
@@ -108,8 +94,6 @@ func sets08RunDeltaAudit(m *testing.M) int {
 		}
 		fmt.Fprintf(os.Stderr, "pg-sql-08 delta audit: note — %q was born during this run but is not owned by it (sibling lane?)\n", name)
 	}
-	// Zero-survivor rule for the owned namespace: cleanup must have
-	// dropped everything the run created.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	survivors, err := sets08SnapshotOwnedResources(ctx, raw)
@@ -122,13 +106,6 @@ func sets08RunDeltaAudit(m *testing.M) int {
 	}
 	return code
 }
-
-// ---------------------------------------------------------------------------
-// Live reductions: FIRST/ALL/DISTINCT over correlated child items,
-// executed on real PostgreSQL 18 with literal expected rows, a hand-written
-// direct-SQL witness, and alive controls (edge-table counts and a mutation
-// probe) so a vacuously-empty reduction can never pass.
-// ---------------------------------------------------------------------------
 
 const (
 	setsProj      = "proj-a"
@@ -155,7 +132,6 @@ func setsInsertRouteEdge(t *testing.T, svc *pgir02Service, from, to, sourcePath 
 	})
 }
 
-// jsonMin normalizes PostgreSQL's jsonb text spelling for comparison.
 func jsonMin(value string) string {
 	return strings.ReplaceAll(value, " ", "")
 }
@@ -164,14 +140,6 @@ func TestSetLiveReductionsMatchLiteralRowsAndWitness(t *testing.T) {
 	svc := newSets08Service(t)
 	sets08TrackFixtures(t, svc)
 
-	// p-1: two stored edges to obs-final (UNIQUE parity: one item) plus
-	// obs-prelim. p-2: children whose slots are JSON-null and absent
-	// (zero-value parent inside a present one). p-3: zero children.
-	// p-4: two different children carrying the SAME value — the D1
-	// identity-aware DISTINCT sentinel (value-level SORTED_UNIQUE would
-	// collapse them; identity-aware keeping survives both).
-	// obs-blocked: reachable only through a DENIED auth path (E4 leg:
-	// deny-never-narrowed).
 	setsInsertPatient(t, svc, "p-1")
 	setsInsertPatient(t, svc, "p-2")
 	setsInsertPatient(t, svc, "p-3")
@@ -206,13 +174,9 @@ func TestSetLiveReductionsMatchLiteralRowsAndWitness(t *testing.T) {
 	}
 	got := svc.runRendered(t, rendered)
 
-	// E2 (parent-grain invariance): one row per patient, zero-child
-	// parent included — the set never changes the outer row count.
 	if len(got) != 4 {
 		t.Fatalf("parent grain broken: %v", got)
 	}
-	// pgx decodes jsonb cells into native Go values (string scalars, []any
-	// arrays), so the stringified expected rows carry the decoded form.
 	want := [][]string{
 		{"p-1", `final`, `[final prelim]`, `[final prelim]`},
 		{"p-2", "<null>", `[]`, `[]`},
@@ -229,11 +193,6 @@ func TestSetLiveReductionsMatchLiteralRowsAndWitness(t *testing.T) {
 		}
 	}
 
-	// E1 (per-row execution): the two parents with children received their
-	// OWN sets ("final"/"prelim" vs two "dup"s); a hoisted InitPlan cannot
-	// correlate both. The heterogeneous parents above are the witness.
-
-	// Direct-SQL witness: literals inline, computed independently.
 	witness := svc.witness(t,
 		`SELECT 'p-1'::text, '"final"'::jsonb, '["final","prelim"]'::jsonb, '["final","prelim"]'::jsonb`+
 			` UNION ALL SELECT 'p-2', NULL, '[]'::jsonb, '[]'::jsonb`+
@@ -250,9 +209,6 @@ func TestSetLiveReductionsMatchLiteralRowsAndWitness(t *testing.T) {
 		}
 	}
 
-	// Alive control (stored-fact witness): the duplicate edge to obs-final
-	// really is stored (two occurrences, one item — UNIQUE parity), and
-	// the denied-path child really exists but never appears.
 	counts := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence"`+
 			` WHERE project=$1 AND dataset_generation=$2 AND source_logical_id='p-1' AND target_logical_id='obs-final'`,
@@ -275,8 +231,6 @@ func TestSetLiveReductionsMatchLiteralRowsAndWitness(t *testing.T) {
 		}
 	}
 
-	// Alive control (mutation probe): the aggregates read live rows — move
-	// obs-prelim out of the picture and p-1's ALL shrinks accordingly.
 	if _, err := svc.iso.Exec(svc.ctx,
 		`UPDATE "`+svc.schema+`"."fhir_resource" SET payload = '{"status":"withdrawn"}'::jsonb`+
 			` WHERE project=$1 AND dataset_generation=$2 AND logical_id='obs-prelim'`,
@@ -295,7 +249,7 @@ func TestSetLiveRelatedExistsAndNegationAreSemiJoins(t *testing.T) {
 
 	setsInsertPatient(t, svc, "p-has")
 	setsInsertPatient(t, svc, "p-none")
-	setsInsertPatient(t, svc, "p-denied") // only a denied-path child
+	setsInsertPatient(t, svc, "p-denied")
 	setsInsertObservation(t, svc, "obs-live", "FHIR/Observation", map[string]any{"status": "final"})
 	setsInsertObservation(t, svc, "obs-hidden", "FHIR/Blocked", map[string]any{"status": "final"})
 	setsInsertRouteEdge(t, svc, "p-has", "obs-live", "observation[0]")
@@ -309,14 +263,10 @@ func TestSetLiveRelatedExistsAndNegationAreSemiJoins(t *testing.T) {
 	if len(negative) != 2 {
 		t.Fatalf("NOT(EXISTS) must keep the non-matching parents (p-none and p-denied): %v", negative)
 	}
-	// Storage order (resource_seq) is p-has, p-none, p-denied, so the two
-	// surviving parents come back as p-none then p-denied.
 	if negative[0][0] != "p-none" || negative[1][0] != "p-denied" {
 		t.Fatalf("NOT(EXISTS) rows = %v, want p-none then p-denied", negative)
 	}
 
-	// Alive controls: both parents, observations, and both occurrences are
-	// stored — the exclusions are auth and existence, never an empty store.
 	stored := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence" WHERE project=$1 AND dataset_generation=$2`,
 		setsProj, setsGen)
@@ -340,13 +290,6 @@ func mustRender(t *testing.T, plan ir.PhysicalPlan, schema string) command.Rende
 	return rendered
 }
 
-// TestSetLiveRelatedExistsChainedRouteSemiJoin witnesses the multi-hop
-// assembly on real rows: a Patient reaches a Specimen only through the
-// Observation hop, so the chained EXISTS keeps exactly the parent whose
-// second hop also resolves, and the negation keeps the parent whose route
-// dead-ends. The chained path has no production lowering output yet (see
-// the sets.go header), so the live witness here is what keeps the
-// second-hop assembly from shipping as provably-refused-only.
 func TestSetLiveRelatedExistsChainedRouteSemiJoin(t *testing.T) {
 	svc := newSets08Service(t)
 	sets08TrackFixtures(t, svc)
@@ -354,8 +297,6 @@ func TestSetLiveRelatedExistsChainedRouteSemiJoin(t *testing.T) {
 	setsInsertPatient(t, svc, "p-chain")
 	setsInsertPatient(t, svc, "p-deadend")
 	svc.insertResource(t, svc.schema, setsProj, setsGen, "Observation", "obs-mid", "FHIR/Observation", nil)
-	// The dead-end parent routes through its own mid Observation with no
-	// outgoing second hop: sharing one mid would make both chains resolve.
 	svc.insertResource(t, svc.schema, setsProj, setsGen, "Observation", "obs-alt", "FHIR/Observation", nil)
 	svc.insertResource(t, svc.schema, setsProj, setsGen, "Specimen", "spec-1", "FHIR/Specimen", nil)
 	setsInsertRouteEdge(t, svc, "p-chain", "obs-mid", "observation[0]")
@@ -366,8 +307,6 @@ func TestSetLiveRelatedExistsChainedRouteSemiJoin(t *testing.T) {
 		TargetResourceType: "Specimen", TargetLogicalID: "spec-1", SourcePath: "specimen[0]", SourceOrdinal: 0,
 	})
 
-	// The chained route reaches Specimen, so the auth list must include it
-	// for the second hop's structural scope to admit the target row.
 	plan := setsRelatedExistsTwoHopPlan()
 	plan.BindVars["auth_resource_paths"] = []string{"FHIR/Patient", "FHIR/Observation", "FHIR/Specimen"}
 	positive := svc.runRendered(t, mustRender(t, plan, svc.schema))
@@ -375,8 +314,6 @@ func TestSetLiveRelatedExistsChainedRouteSemiJoin(t *testing.T) {
 		t.Fatalf("chained EXISTS must keep only the parent whose second hop resolves: %v", positive)
 	}
 
-	// Alive control: the shared first hop really exists for the excluded
-	// parent, so its exclusion is the second hop, never a missing route.
 	firstHop := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence"`+
 			` WHERE project=$1 AND dataset_generation=$2 AND label=$3 AND source_logical_id='p-deadend'`,

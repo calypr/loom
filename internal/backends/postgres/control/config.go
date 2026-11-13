@@ -9,11 +9,6 @@ import (
 	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 )
 
-// Series names one authoritative PostgreSQL migration history the factory
-// assigns to a schema. The six values must stay exactly equal to the
-// arch-backend-05 manifest (internal/backends/postgres/internal/store/migration_ownership.go);
-// the ownership contract test asserts set equality against the manifest, so
-// drift here fails the build's named test.
 type Series string
 
 const (
@@ -25,7 +20,6 @@ const (
 	SeriesRecipeExecRegistries Series = "recipe_exec_registries"
 )
 
-// AllSeries lists every series the factory can assign, in manifest order.
 func AllSeries() []Series {
 	return []Series{
 		SeriesSource,
@@ -37,77 +31,31 @@ func AllSeries() []Series {
 	}
 }
 
-// SeriesSchemas maps each assigned series to the schema name a deployment
-// gives it. An absent series is unassigned; the factory supplies defaults
-// only where the composition explicitly permits them.
 type SeriesSchemas map[Series]string
 
-// SetupPolicy is the approved schema setup policy, required explicitly so no
-// deployment silently creates or silently skips DDL.
 type SetupPolicy string
 
 const (
-	// SetupMigrate applies each assigned series' owner migrations into its
-	// assigned schema (idempotent, advisory-locked through the store);
-	// series without an assignment are skipped. Schemas are caller-owned:
-	// the migrate runner refuses an assigned-but-absent schema with the
-	// named invalid-schema error and never creates one, so the caller must
-	// create the schema itself before Open under this policy.
 	SetupMigrate SetupPolicy = "migrate"
-	// SetupNone performs no schema setup at all: the caller has arranged
-	// (or does not need) schema state, matching the historical bare-pool
-	// open. Schema-name assignment validation and control-plane assembly
-	// still run; only the migrate/verify pass is skipped.
-	SetupNone SetupPolicy = "none"
+	SetupNone    SetupPolicy = "none"
 )
 
-// ApplicationNamePrefix tags every connection this backend's pool opens so
-// operators and contract tests can witness exactly which connections a
-// runtime owns (mirrors the loom-ing03-<nonce> convention proven by
-// pg-ingest-03). The empty Config.ApplicationName selects a generated
-// loom-pg-<nonce> name at Open.
 const ApplicationNamePrefix = "loom-pg-"
 
-// applicationNamePattern is a libpq-safe identifier: no whitespace, quotes,
-// or separators that could smuggle additional connection parameters.
 var applicationNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
-// assignedSchemaNamePattern is the one legal shape for an assigned schema
-// identifier; callers get ErrInvalidSchemaName naming the offending name.
 var assignedSchemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
-// Config is the fully explicit factory configuration. Pool bounds and DSN
-// shape are validated by the store's authoritative Config.Validate (no
-// second policy); the factory adds the connection-tag policy, the explicit
-// setup policy, and the series-assignment gate delegated to the store's
-// ValidateAssignment before any pool exists.
 type Config struct {
-	// DSN is the PostgreSQL connection string (URL or keyword/value form).
-	DSN string
-	// MaxConns bounds the pooled connections. Must be >= 1.
-	MaxConns int32
-	// MinConns is the number of idle connections kept warm. Must satisfy
-	// 0 <= MinConns <= MaxConns.
-	MinConns int32
-	// AcquireTimeout bounds waiting for a free connection. Must be positive.
-	AcquireTimeout time.Duration
-	// ApplicationName tags this runtime's backends in pg_stat_activity.
-	// Empty selects a generated loom-pg-<nonce> name at Open; a set name
-	// must carry the loom-pg- prefix and libpq-safe characters.
+	DSN             string
+	MaxConns        int32
+	MinConns        int32
+	AcquireTimeout  time.Duration
 	ApplicationName string
-	// Schemas assigns each migration series to a schema name.
-	Schemas SeriesSchemas
-	// Setup is the approved schema setup policy; the zero value is refused.
-	Setup SetupPolicy
+	Schemas         SeriesSchemas
+	Setup           SetupPolicy
 }
 
-// Validate checks everything reachable without a network connection or the
-// driver: pool bounds via the store authority, the connection-tag policy,
-// the explicit setup policy, and the series assignment via the store's
-// authoritative ValidateAssignment (unknown series, runner-refused schema
-// names, and shared-schema ledger conflicts all fail here, before any pool).
-// Driver-level DSN parse failures surface at Open with ErrInvalidConfig in
-// the chain.
 func (c Config) Validate() error {
 	storeCfg := pgstore.Config{
 		DSN:            c.DSN,
@@ -137,10 +85,6 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(schema) == "" {
 			return fmt.Errorf("%w: series %q is assigned a blank schema name", ErrSeriesAssignment, series)
 		}
-		// The identifier shape is checked before the ownership law runs, so
-		// a malformed schema name keeps its precise ErrInvalidSchemaName
-		// classification instead of surfacing wrapped in the assignment
-		// error. Same pattern the store's own boundary enforces.
 		if !assignedSchemaNamePattern.MatchString(schema) {
 			return fmt.Errorf("%w: series %q schema %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, series, schema)
 		}

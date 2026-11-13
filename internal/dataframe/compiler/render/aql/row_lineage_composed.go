@@ -7,9 +7,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// renderComposedRelatedRowLineage replays the exact compiler-decoded identity
-// through the canonical construction stages. It carries one scalar witness per
-// authored RELATED_EXPAND stage, never a route or contributor frontier.
 func (r *physicalPlanRenderer) renderComposedRelatedRowLineage(
 	sourceQuery string,
 	stages []ir.PhysicalConstructionStage,
@@ -63,8 +60,6 @@ func (r *physicalPlanRenderer) renderComposedRelatedRowLineage(
 	lines := []string{
 		"LET " + states + " = (",
 		"  FOR " + rootSource + " IN (\n" + indentQuery(sourceQuery, "    ") + "\n  )",
-		// The compiler also places this same key at the indexed root scan before
-		// projection. This equality keeps the private replay fail-closed.
 		"  FILTER " + rootSource + "[@" + rootKeyColumnBind + "] == @" + trace.RootKeyBindKey,
 		"  RETURN {row: " + rootSource + ", root: {resourceType: @" + rootTypeBind + ", resourceId: " + rootSource + "[@" + rootIDColumnBind + "], occurrenceKey: " + rootSource + "[@" + rootKeyColumnBind + "]}}",
 		")",
@@ -216,9 +211,6 @@ func (r *physicalPlanRenderer) renderComposedRelatedLineageStage(
 		return "", nil, fmt.Errorf("related stage is missing identity variables")
 	}
 
-	// The exact terminal predicate follows the complete authorized route. The
-	// bounded subplan returns at most one terminal witness, even for duplicate
-	// edge paths to the same canonical target.
 	subplan := related.RelatedRecords
 	subplan.Sort, subplan.Unique, subplan.DistinctBy = nil, false, nil
 	if match.RelatedRowKind == "RELATED" {

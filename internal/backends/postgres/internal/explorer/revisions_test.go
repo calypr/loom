@@ -1,17 +1,5 @@
 package postgres
 
-// Immutable Explorer revision tests for
-// pg-state-receipt-revision-immutable-v1.
-//
-// Literal rows and direct-SQL witnesses against a real PostgreSQL 18, no
-// mocks: insert-once with canonical content-digest collision (idempotent
-// replay / typed ErrImmutableRevision), tenant-scoped reads, lifecycle CAS
-// with expected-status tokens (stale-token and double-transition refusals
-// with byte-identical row witnesses), the DB-enforced frozen-column and
-// monotone-state-machine guards proven non-vacuously by live DROP-TRIGGER /
-// restore probes, and two-real-connection race proofs with distinct
-// pg_backend_pid witnesses. TestZZNoLeftoverPGState02Resources runs last.
-
 import (
 	"context"
 	"encoding/json"
@@ -33,10 +21,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// ---------------------------------------------------------------------------
-// Fixtures.
-// ---------------------------------------------------------------------------
-
 const (
 	revisionProject  = "proj_revisions"
 	revisionExplorer = "exp_revisions"
@@ -57,9 +41,6 @@ func pgstate02RevisionBundle(name string) recipe.Bundle {
 	}
 }
 
-// pgstate02Revision builds a READY revision with every frozen field
-// populated: typed digests, the three json.RawMessage tri-state payloads,
-// materialization mappings, emitted columns, and dataset metadata.
 func pgstate02Revision(id, name string) explorer.Revision {
 	return explorer.Revision{
 		ID:                   id,
@@ -148,8 +129,6 @@ func requireRevisionEqual(t *testing.T, want, got explorer.Revision, where strin
 	}
 }
 
-// revisionArgsFor encodes a revision for direct-SQL statements exactly the
-// way the Store does, so raw probes exercise identical shapes.
 func pgstate02RevisionArgs(revision explorer.Revision) ([]any, string, error) {
 	digest, err := revisionContentDigest(revision)
 	if err != nil {
@@ -246,10 +225,6 @@ func (f *pgState02Fixture) revisionCount(t *testing.T, project string) int {
 	return n
 }
 
-// ---------------------------------------------------------------------------
-// Unit tests: no PostgreSQL service required.
-// ---------------------------------------------------------------------------
-
 func TestPostgresRevisionSQLContract(t *testing.T) {
 	statements := newRevisionStatements("loom_control")
 	if !strings.Contains(statements.insert, "ON CONFLICT (id) DO NOTHING") {
@@ -306,7 +281,6 @@ func TestPostgresRevisionContentDigestBoundaries(t *testing.T) {
 		return digest
 	}
 
-	// Lifecycle/mutable fields are excluded from the frozen identity.
 	lifecycle := base
 	lifecycle.Status = explorer.RevisionActive
 	lifecycle.Diagnostics = pgstate02Diagnostic("LATE")
@@ -316,7 +290,6 @@ func TestPostgresRevisionContentDigestBoundaries(t *testing.T) {
 		t.Fatal("mutable lifecycle fields leaked into the frozen content digest")
 	}
 
-	// Every frozen dimension moves the digest.
 	for name, mutate := range map[string]func(*explorer.Revision){
 		"config":              func(r *explorer.Revision) { r.Config = json.RawMessage(cfgBeta) },
 		"authoringBundle":     func(r *explorer.Revision) { r.AuthoringBundle = json.RawMessage(cfgAlpha) },
@@ -347,16 +320,6 @@ func TestPostgresRevisionContentDigestBoundaries(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionTriStateArangoParityReplay drives both digest parity
-// boundaries through the full store path on live PostgreSQL:
-//   - an explicit JSON-null raw payload stored in the row refuses a
-//     missing-payload replay with ErrImmutableRevision, witnessed
-//     unchanged by direct SQL (the class the Arango adapter refuses,
-//     where reflect.DeepEqual separates a decoded nil from null bytes);
-//   - the byte-exact null replay, a nil-vs-empty quality-report replay
-//     (publication.CloneQualityReports collapses them), and an
-//     empty-RawMessage replay of a stored missing payload all return the
-//     first stored row idempotently, matching Arango.
 func TestPostgresRevisionTriStateArangoParityReplay(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -417,17 +380,6 @@ func TestPostgresRevisionFailTokenAndIDValidation(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration.
-// ---------------------------------------------------------------------------
-
-// TestPostgresRevisionInsertGetLiteralRows proves the revision table stores
-// one insert-once row: RETURNING equals the input, direct SQL witnesses
-// every typed column, the jsonb typeof kinds, the microsecond-exact
-// created_at, the jsonb-normalized config text, and the content_digest that
-// equals the Go-computed canonical digest of the frozen column set. Fresh
-// pools read back through GetRevision and the tenant-scoped
-// GetRevisionForExplorer; other scopes see ErrNotFound.
 func TestPostgresRevisionInsertGetLiteralRows(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -518,9 +470,6 @@ func TestPostgresRevisionInsertGetLiteralRows(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionIdempotentSameContent: same ID + same frozen content
-// (mutable lifecycle fields differ) replays idempotently -- the stored row
-// is returned unchanged, byte-identical by full-row witness.
 func TestPostgresRevisionIdempotentSameContent(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -552,10 +501,6 @@ func TestPostgresRevisionIdempotentSameContent(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionSameIDDifferentContentRefused: same ID + different
-// frozen content is the typed ErrImmutableRevision refusal with the stored
-// row byte-identical; the same frozen content under a different ID is a
-// second legitimate row (the Arango adapter's per-key insert-once parity).
 func TestPostgresRevisionSameIDDifferentContentRefused(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -577,10 +522,6 @@ func TestPostgresRevisionSameIDDifferentContentRefused(t *testing.T) {
 		t.Fatalf("refused reuse mutated the stored row:\n before %s\n after  %s", before, after)
 	}
 
-	// The same recipe content under a different ID is a second legitimate
-	// row: identity is the row PK, and each row's content_digest covers its
-	// own identity-bearing frozen set (Arango adapter parity: per-key
-	// insert-once, not global content addressing).
 	sibling := first
 	sibling.ID = "rev_collision_sibling"
 	stored, err := writer.InsertRevision(f.ctx, sibling)
@@ -612,11 +553,6 @@ func TestPostgresRevisionSameIDDifferentContentRefused(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionLifecycleAndDoubleTransition proves the CAS lifecycle:
-// FailRevision is the only path to FAILED and admits just READY/ACTIVE; a
-// second fail (the double transition) and every stale expected-status token
-// are typed refusals whose refused rows stay byte-identical by full-row
-// witness; a missing revision is ErrNotFound.
 func TestPostgresRevisionLifecycleAndDoubleTransition(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -645,8 +581,6 @@ func TestPostgresRevisionLifecycleAndDoubleTransition(t *testing.T) {
 		t.Fatalf("literal failed row = %+v", row)
 	}
 
-	// Double transition: the same revision cannot fail twice -- typed
-	// refusal, whole row byte-identical (the second diagnostics never land).
 	blocked, err := writer.FailRevision(f.ctx, ready.ID, pgstate02Diagnostic("SECOND_FAIL"))
 	if !errors.Is(err, ErrStaleRevisionTransition) {
 		t.Fatalf("double FailRevision error = %v (result %+v), want ErrStaleRevisionTransition", err, blocked)
@@ -662,8 +596,6 @@ func TestPostgresRevisionLifecycleAndDoubleTransition(t *testing.T) {
 		t.Fatalf("refused double transition mutated the row:\n want %s\n got  %s", postFail, after)
 	}
 
-	// Stale tokens: a token that disagrees with the committed status is
-	// refused without writing, including tokens on the failed row.
 	if _, err := writer.FailRevisionFrom(f.ctx, ready.ID, explorer.RevisionReady, pgstate02Diagnostic("STALE")); !errors.Is(err, ErrStaleRevisionTransition) {
 		t.Fatalf("stale READY token on a FAILED revision error = %v, want ErrStaleRevisionTransition", err)
 	}
@@ -680,9 +612,6 @@ func TestPostgresRevisionLifecycleAndDoubleTransition(t *testing.T) {
 		t.Fatalf("missing revision fail error = %v, want ErrNotFound", err)
 	}
 
-	// ACTIVE and SUPERSEDED paths: an ACTIVE revision can be superseded by
-	// direct legal SQL, after which it can no longer be failed; an ACTIVE
-	// revision fails fine on the first attempt.
 	active := pgstate02Revision("rev_fail_active", "fail-active")
 	active.Status = explorer.RevisionActive
 	activated := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
@@ -710,12 +639,6 @@ func TestPostgresRevisionLifecycleAndDoubleTransition(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionStaleTokenRaceTwoConnections is the two-real-
-// connection race proof for the lifecycle CAS: connection B (witnessed
-// different backend) commits an activation; the losing writer on connection
-// A, still holding the stale READY token, is refused by its own CAS guard --
-// not by the trigger -- and every witness (row bytes, literal status,
-// failed_at NULL) proves it wrote nothing on its backend.
 func TestPostgresRevisionStaleTokenRaceTwoConnections(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -729,7 +652,6 @@ func TestPostgresRevisionStaleTokenRaceTwoConnections(t *testing.T) {
 		f.fail("insert revision from backend A", err)
 	}
 
-	// The activator commits on backend B.
 	activatedAt := time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)
 	tag, err := rawB.Exec(f.ctx,
 		`UPDATE `+f.revisionTable()+`
@@ -744,7 +666,6 @@ func TestPostgresRevisionStaleTokenRaceTwoConnections(t *testing.T) {
 	}
 	activatedWitness := f.rowSnapshot(t, f.revisionTable(), "id = $1", revision.ID)
 
-	// The stale writer on backend A still believes READY: typed refusal.
 	if _, err := storeA.FailRevisionFrom(f.ctx, revision.ID, explorer.RevisionReady,
 		pgstate02Diagnostic("STALE_AFTER_ACTIVATION")); !errors.Is(err, ErrStaleRevisionTransition) {
 		t.Fatalf("stale-token FailRevisionFrom after a cross-backend activation error = %v, want ErrStaleRevisionTransition", err)
@@ -757,18 +678,11 @@ func TestPostgresRevisionStaleTokenRaceTwoConnections(t *testing.T) {
 		t.Fatalf("literal row after refused stale write = %+v", row)
 	}
 
-	// The unconditioned FailRevision CAS still admits the now-ACTIVE row
-	// (READY->FAILED has passed, ACTIVE->FAILED is legal): the CAS is a
-	// state machine, not a one-shot latch.
 	if failed, err := storeA.FailRevision(f.ctx, revision.ID, pgstate02Diagnostic("POST_RACE")); err != nil || failed.Status != explorer.RevisionFailed {
 		t.Fatalf("post-race legal fail = %+v, %v", failed, err)
 	}
 }
 
-// TestPostgresRevisionConcurrentFailWritersTwoConnections races two
-// backends attempting to fail one READY revision: exactly one wins the CAS
-// transition, the other is refused with the stale-token type, and the
-// committed diagnostics are the single winner's -- never a merge of both.
 func TestPostgresRevisionConcurrentFailWritersTwoConnections(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -842,13 +756,6 @@ func TestPostgresRevisionConcurrentFailWritersTwoConnections(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionTransitionMonotonicityProbe pins the DB-enforced
-// state machine directly: each legal transition commits in one statement
-// with its timestamp witness; every illegal transition -- including the
-// double transition FAILED->FAILED with fresh diagnostics, every
-// resurrection, un-activation, and same-status mutation -- is refused by
-// PostgreSQL with 23514 from the guard (message-proven), leaving the row
-// byte-identical.
 func TestPostgresRevisionTransitionMonotonicityProbe(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -857,7 +764,7 @@ func TestPostgresRevisionTransitionMonotonicityProbe(t *testing.T) {
 		name    string
 		setup   explorer.Revision
 		set     string
-		want    bool // legal transition?
+		want    bool
 		wantMsg string
 	}
 	at := func(r explorer.Revision, status explorer.RevisionStatus, withActivated bool) explorer.Revision {
@@ -920,13 +827,11 @@ func TestPostgresRevisionTransitionMonotonicityProbe(t *testing.T) {
 		}
 	}
 
-	// The one legal timestamp witness: ready->active stored activated_at exactly.
 	row := f.revisionLiteralRow(t, "tr_ready_active")
 	if row.Status != "ACTIVE" || row.ActivatedAtText != "2026-05-04 00:00:00.000000" {
 		t.Fatalf("literal activated_at witness = %+v", row)
 	}
 
-	// A true no-op UPDATE (identical values) is harmless and stays legal.
 	noop := pgstate02Revision("tr_noop", "a")
 	f.rawInsertRevision(t, noop)
 	noopBefore := f.rowSnapshot(t, f.revisionTable(), "id = $1", noop.ID)
@@ -943,13 +848,6 @@ func TestPostgresRevisionTransitionMonotonicityProbe(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionFrozenGuardProvenNonVacuous is the accepted
-// non-vacuity bar for the frozen columns: every direct UPDATE of each
-// frozen column is refused with 23514 from the frozen guard (message-
-// proven), and the same statement -- including a legal transition smuggled
-// together with a frozen mutation -- SUCCEEDS only while the trigger is
-// live-dropped, with literal witnesses proving the row really changed,
-// before the guard is restored from the migration's exact text.
 func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -990,8 +888,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 			t.Fatalf("frozen refusal on %s came from something other than the guard: %s", m.column, pgErr.Message)
 		}
 	}
-	// A legal transition smuggled together with a frozen mutation is
-	// refused by the frozen guard, not the state machine.
 	_, err := f.iso.Exec(f.ctx,
 		"UPDATE "+f.revisionTable()+" SET status = 'FAILED', recipe_digest = 'sha256:smuggled' WHERE id = $1",
 		revision.ID)
@@ -1000,9 +896,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 		t.Fatalf("smuggled mutation refused by the wrong guard: %s", pgErr.Message)
 	}
 
-	// DELETE is refused while the trigger is live: insert-once is DB
-	// enforcement, not only the Go-side claim reread -- a DELETE followed
-	// by a re-INSERT would otherwise fire no guard on the fresh row.
 	if _, err := f.iso.Exec(f.ctx,
 		"DELETE FROM "+f.revisionTable()+" WHERE id = $1", revision.ID); err == nil {
 		t.Fatal("DELETE of a revision accepted while the guard is live")
@@ -1013,8 +906,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 		}
 	}
 
-	// Guard removal: the identical violating writes now succeed, with
-	// literal witnesses proving the row actually changed.
 	if _, err := f.iso.Exec(f.ctx,
 		`DROP TRIGGER explorer_revisions_guard ON `+f.revisionTable()); err != nil {
 		f.fail("drop revision guard", err)
@@ -1031,7 +922,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 	if mutated != "sha256:unfrozen" {
 		t.Fatalf("guard-removal probe did not persist: recipe_digest = %q", mutated)
 	}
-	// The resurrection that the state machine refuses also lands unfrozen.
 	resurrect := pgstate02Revision("rev_frozen_resurrect", "frozen")
 	resurrect.Status = explorer.RevisionFailed
 	failedAt := time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC)
@@ -1044,9 +934,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 	if row := f.revisionLiteralRow(t, resurrect.ID); row.Status != "READY" {
 		t.Fatalf("guard-removal resurrection did not persist: status = %q", row.Status)
 	}
-	// With the trigger dropped, DELETE succeeds and the row really goes --
-	// this is the exact hole the trigger closes, so the probe proves the
-	// vulnerability as well as the guard.
 	if _, err := f.iso.Exec(f.ctx,
 		"DELETE FROM "+f.revisionTable()+" WHERE id = $1", resurrect.ID); err != nil {
 		f.fail("DELETE without the trigger must succeed", err)
@@ -1060,8 +947,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 		t.Fatalf("guard-removal DELETE did not persist: %d rows remain", remaining)
 	}
 
-	// Restore the guard from the migration's own text: identical writes are
-	// refused again.
 	f.rerunMigration(t, 6)
 	if _, err := f.iso.Exec(f.ctx,
 		"UPDATE "+f.revisionTable()+" SET recipe_digest = 'sha256:refrozen' WHERE id = $1", revision.ID); err == nil {
@@ -1072,9 +957,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 			t.Fatalf("restored guard refusal came from something else: %s", pgErr.Message)
 		}
 	}
-	// A freshly inserted terminal row cannot be resurrected once the state
-	// machine is restored (the earlier resurrect row is now READY, so
-	// FAILED->READY must be probed on a clean FAILED row).
 	restoredProbe := pgstate02Revision("rev_frozen_restored", "frozen")
 	restoredProbe.Status = explorer.RevisionFailed
 	f.rawInsertRevision(t, restoredProbe)
@@ -1087,9 +969,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 			t.Fatalf("restored state-machine refusal came from something else: %s", pgErr.Message)
 		}
 	}
-	// Deletion is refused again once the guard is restored from the
-	// migration's own text: insert-once travels with the migration, not
-	// just with the first apply.
 	if _, err := f.iso.Exec(f.ctx,
 		"DELETE FROM "+f.revisionTable()+" WHERE id = $1", restoredProbe.ID); err == nil {
 		t.Fatal("DELETE accepted after the guard was restored")
@@ -1101,9 +980,6 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionSchemaConstraints proves the CHECK/NOT NULL guards are
-// enforced by PostgreSQL itself on raw INSERTs, and the rejected statements
-// persist nothing.
 func TestPostgresRevisionSchemaConstraints(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -1135,7 +1011,6 @@ func TestPostgresRevisionSchemaConstraints(t *testing.T) {
 		requirePgErrPGState02(t, err, variant.sqlstate, "constraint variant: "+variant.name)
 	}
 
-	// Non-JSON text in the tri-state jsonb boundary is refused at the wire.
 	args, _, err := pgstate02RevisionArgs(pgstate02Revision("rev_constraint_notjson", "c"))
 	if err != nil {
 		t.Fatal(err)
@@ -1149,12 +1024,6 @@ func TestPostgresRevisionSchemaConstraints(t *testing.T) {
 	}
 }
 
-// TestPostgresRevisionJSONTriStateFreshRead proves missing versus JSON-null
-// versus document for the three json.RawMessage payloads, and missing
-// versus empty for the slice payloads, survive a fresh DB read: each stored
-// shape is witnessed literally (SQL NULL 'missing', the jsonb value 'null',
-// the array '[]', or the object), and each reads back to the exact Go
-// state through a brand-new pool.
 func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 	f := newPGState02Fixture(t)
 	f.migrate(t)
@@ -1184,7 +1053,6 @@ func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 		}
 	}
 
-	// Literal storage-shape witnesses.
 	for _, tc := range []struct {
 		id     string
 		config string
@@ -1244,16 +1112,6 @@ func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 	}
 }
 
-// pgstate02EmbeddedMigrationPins carries the explicit per-file checksum
-// pins (the pg-store-02 wantEmbeddedChecksums convention): the lowercase
-// hex SHA-256 of each embedded migration file's exact bytes, keyed by file
-// name. Editing any migration SQL reddens the suite until its pin is
-// deliberately regenerated -- and an embedded file with no entry here fails
-// the suite too, so a new 000007+ migration must be pinned on purpose and
-// can never be silently trusted. The capability (4), interpretation (7),
-// and selection-revisions (8) migrations -- formerly state-scoped own-dir
-// fixtures under tests/ -- are now embedded with the rest of this history
-// and carry their byte-frozen pins here too.
 var pgstate02EmbeddedMigrationPins = map[string]string{
 	"000001_ledger.sql":                                             "46a99180c6c6c7d41ca13520e020b71827725ec8059cce0142e278fb7577f086",
 	"000002_explorer_owner.sql":                                     "fc85316901b79234695695f972d8abc17d29a726293b0ff6584c96aed1cc7056",
@@ -1268,8 +1126,6 @@ var pgstate02EmbeddedMigrationPins = map[string]string{
 	"000011_explorer_explicit_group_definition_guard_hardening.sql": "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec",
 }
 
-// pgstate02MigrationFileVersion parses the leading <version>_ of a
-// <version>_<name>.sql file name (the loader's own file shape).
 func pgstate02MigrationFileVersion(fileName string) (int64, error) {
 	versionText, _, found := strings.Cut(fileName, "_")
 	if !found {
@@ -1282,13 +1138,6 @@ func pgstate02MigrationFileVersion(fileName string) (int64, error) {
 	return version, nil
 }
 
-// pgstate02EnumerateEmbeddedMigrations walks this package's embed FS
-// (fs.WalkDir over migrationsFS) and returns the migration file names
-// sorted plus the highest version parsed from their names. Ledger
-// expectations derive from this enumeration -- following the session-54
-// capabilities harness, which derives expectations from the applied
-// history rather than fixed counts -- so tickets extending the open-ended
-// directory (000007, 000008, 000009, ...) never need an edit here.
 func pgstate02EnumerateEmbeddedMigrations(t *testing.T) ([]string, int64) {
 	t.Helper()
 	var files []string
@@ -1320,12 +1169,6 @@ func pgstate02EnumerateEmbeddedMigrations(t *testing.T) ([]string, int64) {
 	return files, maxVersion
 }
 
-// pgstate02VerifyEmbeddedChecksumPins verifies every enumerated file
-// against its explicit sha256 literal: a directory file with no pin fails
-// (new migrations must be pinned deliberately, which strengthens the
-// suite), a file whose loader-computed checksum no longer equals its pin
-// fails (SQL drift), and a pin with no file fails (removing a migration is
-// likewise a deliberate act).
 func pgstate02VerifyEmbeddedChecksumPins(t *testing.T, files []string, history []pgstore.Migration) {
 	t.Helper()
 	byVersion := make(map[int64]pgstore.Migration, len(history))
@@ -1358,17 +1201,7 @@ func pgstate02VerifyEmbeddedChecksumPins(t *testing.T, files []string, history [
 	}
 }
 
-// TestPostgresExplorerStateMigrationsRerunConverges proves the full owner
-// history reruns as a no-op that preserves all state and keeps the ledger
-// pinned to the owner checksums. Expectations are self-derived (the
-// session-54 capabilities-harness pattern): the expected ledger size and
-// latest version enumerate from the embedded directory through fs.WalkDir,
-// so in-flight tickets adding 000012+ never need an edit here -- while
-// per-file explicit sha256 pins keep demanding every file's checksum
-// literally, failing any unpinned addition, and the rerun must leave every
-// ledger row, applied_at included, byte-identical.
 func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
-	// Self-derived expectations from the embed FS, never a fixed count.
 	embeddedFiles, embeddedMaxVersion := pgstate02EnumerateEmbeddedMigrations(t)
 	ownerHistory, err := OwnerMigrations()
 	if err != nil {
@@ -1409,9 +1242,6 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	if len(second.Applied) != wantCount || second.LatestVersion != wantLatest {
 		t.Fatalf("rerun result = %+v, want the identical %d-row ledger ending at version %d (all recorded, nothing re-run)", second, wantCount, wantLatest)
 	}
-	// Converges exactly once: every ledger row survives the rerun
-	// byte-identical -- version, name, checksum, and applied_at. The rerun
-	// re-applied nothing, not even a timestamp.
 	for i := range first.Applied {
 		if first.Applied[i] != second.Applied[i] {
 			t.Fatalf("rerun disturbed applied[%d]: first = %+v, rerun = %+v (ledger rows must be stable and applied_at unchanged)", i, first.Applied[i], second.Applied[i])
@@ -1450,16 +1280,12 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 		}
 	}
 
-	// Double-apply witness: print the ledger rows verified after the second
-	// migrate, so the merged Explorer ledger appears literally in the test
-	// output (version/name -- convergence target of the rerun).
 	var witness []string
 	for _, rec := range ledger {
 		witness = append(witness, fmt.Sprintf("%d/%s", rec.version, rec.name))
 	}
 	t.Logf("double-apply ledger witness: [%s]", strings.Join(witness, " "))
 
-	// State survived every rerun, through brand-new pools.
 	reader := f.newStore(t)
 	if _, err := reader.Get(f.ctx, "proj_state", "exp_state"); err != nil {
 		f.fail("owner after migrate reruns", err)
@@ -1472,11 +1298,6 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	}
 }
 
-// TestZZNoLeftoverPGState02Resources runs last in this package's file order
-// and audits that every fixture name in the pgstate02_it_* namespace this
-// ticket owns is gone. The audit is scoped to this prefix -- never a global
-// scan -- so sibling packages' and sibling workers' concurrent fixtures in
-// other namespaces cannot make this fail spuriously.
 func TestZZNoLeftoverPGState02Resources(t *testing.T) {
 	raw := pgstate02TestPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -23,8 +23,6 @@ var (
 	ErrRetainedSemanticSourceMissing             = errors.New("retained semantic inventory source is missing despite field-profile evidence")
 )
 
-// PrepareSemanticInventoryBackfill bootstraps only the derived inventory
-// collections. Retained resource collections are never created or changed.
 func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 	return s.client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
 		{Name: catalog.SemanticInventoryCollection, Indexes: [][]string{
@@ -41,9 +39,6 @@ func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 	}})
 }
 
-// ReadRetainedSemanticInventoryPage returns at most limit retained source
-// vertices in stable _key order, without loading a resource collection into
-// application memory.
 func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (catalog.RetainedSemanticInventoryPage, error) {
 	canonical, ok := fhirschema.ConcreteResourceType(collection)
 	if !ok || canonical != collection || strings.TrimSpace(project) == "" || catalog.NormalizeDatasetGeneration(generation) == "" || limit < 1 || limit > 1000 {
@@ -115,10 +110,6 @@ func (s *Store) retainedSourceFieldProfileExists(ctx context.Context, project, g
 	return found, err
 }
 
-// ClaimSemanticInventoryBackfill atomically acquires or resumes the retained
-// source scanner. A complete build is returned with claimed=false and is not
-// rewritten, which prevents file and retained-vertex contribution sets from
-// being mixed by a second scan.
 func (s *Store) ClaimSemanticInventoryBackfill(ctx context.Context, build catalog.SemanticInventoryBuild, token string, lease time.Duration) (catalog.SemanticInventoryBuild, bool, error) {
 	if err := catalog.ValidateSemanticInventoryBuild(build); err != nil {
 		return catalog.SemanticInventoryBuild{}, false, err
@@ -164,9 +155,6 @@ func (s *Store) ClaimSemanticInventoryBackfill(ctx context.Context, build catalo
 	return catalog.SemanticInventoryBuild{}, false, ErrSemanticInventoryClaimed
 }
 
-// RefreshSemanticInventorySourceAvailability upgrades only the source-coverage
-// metadata of an unchanged completed retained build. Callers must independently
-// prove the generation's source counts before requesting this compare-and-set.
 func (s *Store) RefreshSemanticInventorySourceAvailability(ctx context.Context, expected catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, bool, error) {
 	if err := catalog.ValidateSemanticInventoryBuild(expected); err != nil {
 		return catalog.SemanticInventoryBuild{}, false, err
@@ -497,9 +485,6 @@ func (s *Store) PageSemanticInventory(ctx context.Context, opts catalog.Semantic
 	return page, nil
 }
 
-// ResolveSemanticInventorySelections resolves only requested catalog identities
-// under the caller's current authorization scope. It never pages or returns the
-// wider inventory to the authoring path.
 func (s *Store) ResolveSemanticInventorySelections(ctx context.Context, opts catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
 	selectionCount := len(opts.References) + len(opts.FamilyReferences)
 	if strings.TrimSpace(opts.Project) == "" || catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) == "" || opts.AuthResourcePathsUnrestricted == nil || selectionCount == 0 || selectionCount > 100 {

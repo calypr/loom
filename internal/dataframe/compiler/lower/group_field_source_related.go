@@ -10,10 +10,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// BindGroupRelatedOccurrenceSource resolves occurrence identities and the
-// canonical source-shape digest for one related Group field source. Lifecycle
-// choices pass graph route facts here; they do not synthesize occurrence IDs
-// or source-shape digests themselves.
 func BindGroupRelatedOccurrenceSource(
 	context *CompiledGroupFieldSourceContext,
 	source recipe.ConstructionGroupFieldSource,
@@ -45,10 +41,6 @@ func BindGroupRelatedOccurrenceSource(
 	return source, nil
 }
 
-// ResolveGroupRelatedOccurrenceSource is shared by capability issuance and
-// durable binding validation. It returns route-prefix occurrence IDs, the
-// route ID, and the selected-value source-shape digest from compiler-owned
-// source context and exact graph route facts.
 func ResolveGroupRelatedOccurrenceSource(
 	context *CompiledGroupFieldSourceContext,
 	valueKind string,

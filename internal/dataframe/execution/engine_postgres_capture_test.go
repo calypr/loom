@@ -1,19 +1,5 @@
 package execution
 
-// pg-exec-11 offline capture contract: a PostgreSQL-served output is a
-// legitimate private ClickHouse workspace artifact capture source.
-//
-// The matrix is exhaustive over the three source shapes (AQL-served,
-// PostgreSQL-served, prepared ClickHouse combine): a complete PostgreSQL
-// capture stream (PostgreSQL tag on the command and the expected backend,
-// declared column contract) captures through the shared writer flow; any
-// PostgreSQL-tagged stream that is not complete joins neither arm and fails
-// before any artifact exists. The capture contract (exact scope evidence,
-// scope mode coherence, restricted row-level path, stable row identity,
-// schema digest agreement, exact row count) is enforced with zero port
-// touches on every refusal path, and refusal messages name PostgreSQL for
-// PostgreSQL sources -- never silently impersonating the AQL arm.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -50,10 +36,6 @@ func exec11RestrictedBindings() recipe.RuntimeBindings {
 	}
 }
 
-// newExec11Capture compiles a two-output bundle through the PostgreSQL
-// target and builds the restricted private-capture stream for "patients".
-// The row port serves parent-tagged PostgreSQL commands only and records
-// every request; Arango and ClickHouse callbacks stay armed as spies.
 func newExec11Capture(t *testing.T, rows []map[string]any) exec11CaptureFixture {
 	t.Helper()
 	makeOutput := func(name string) recipe.Output {
@@ -103,12 +85,6 @@ func newExec11Capture(t *testing.T, rows []map[string]any) exec11CaptureFixture 
 	}
 }
 
-// exec11PortRows returns rows in the exact shape the real PostgreSQL row
-// port serves for the compiled capture command: the declared contract
-// columns only (_key, value, auth_resource_path). A stable __loom_row_id is
-// derived by the engine from the row's _key plus the compiled command's own
-// scope bind values (what the statement filters by); a port that supplied
-// one would be fabricating identity.
 func exec11PortRows(values ...string) []map[string]any {
 	rows := make([]map[string]any, 0, len(values))
 	for index, value := range values {
@@ -121,9 +97,6 @@ func exec11PortRows(values ...string) []map[string]any {
 	return rows
 }
 
-// exec11IdentityDigest re-derives the engine's scope-bound row identity:
-// the SHA-256 (hex) of the JSON array of the identity field values in
-// declaration order, here the Loom-owned project binding then the row key.
 func exec11IdentityDigest(project, key string) string {
 	encoded, err := json.Marshal([]any{project, key})
 	if err != nil {
@@ -133,9 +106,6 @@ func exec11IdentityDigest(project, key string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// L5-guard: the server composition relies on CombinePortsConfigured to
-// refuse a ClickHouse-enabled runtime whose engine is missing any one of
-// the four private workspace Combine ports.
 func TestPostgreSQLPrivateCaptureCombinePortsPredicate(t *testing.T) {
 	catalog := &testArtifactCatalog{items: map[string]chartifact.Manifest{}}
 	ch := &testArtifactClickHouse{columns: map[string][]clickhouse.Column{}, rows: map[string][]map[string]any{}}
@@ -199,9 +169,6 @@ func exec11Refusal(t *testing.T, fixture exec11CaptureFixture, wantPhrase string
 	}
 }
 
-// L1: the complete PostgreSQL capture stream captures through the PostgreSQL
-// arm with the compiler-attested restricted scope; the AQL and ClickHouse
-// arms stay dark.
 func TestPostgreSQLPrivateCaptureServesRestrictedRows(t *testing.T) {
 	fixture := newExec11Capture(t, exec11PortRows("Ada", "Grace"))
 	if fixture.stream.artifactScopeMode != chartifact.ScopeModeRows || fixture.stream.scopeEvidence == nil || fixture.stream.scopeEvidenceIdentity == nil {
@@ -240,8 +207,6 @@ func TestPostgreSQLPrivateCaptureServesRestrictedRows(t *testing.T) {
 	if written[0]["__loom_row_id"] == written[1]["__loom_row_id"] {
 		t.Fatalf("distinct _key rows collapsed to one stable identity")
 	}
-	// The identity is bound to the Loom-owned project: the same _key under a
-	// different project scope must not reproduce this digest.
 	if digest := exec11IdentityDigest("project-a", "generation-2/exec11-row-one"); written[0]["__loom_row_id"] != digest {
 		t.Fatalf("stable identity is not the scope-bound digest of the row key")
 	}
@@ -260,9 +225,6 @@ func TestPostgreSQLPrivateCaptureServesRestrictedRows(t *testing.T) {
 	}
 }
 
-// exec11IdentityDigestFields re-derives the engine's scope-bound row
-// identity over an arbitrary identity field list: the SHA-256 (hex) of the
-// JSON array of the field values in declaration order.
 func exec11IdentityDigestFields(values ...any) string {
 	encoded, err := json.Marshal(append([]any(nil), values...))
 	if err != nil {
@@ -272,19 +234,10 @@ func exec11IdentityDigestFields(values ...any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Review round (thread PRRT_kwDOS-yV5s62zvmz): the PostgreSQL identity
-// fallback must derive strictly from the compiled command's own scope
-// values. The statement's positional scope arguments are verbatim the
-// finalized plan's scope binds (render/postgres loadScope), so raw runtime
-// bindings -- which may carry untrimmed text the statement never bound --
-// can never enter a row identity.
 func TestPostgreSQLPrivateCaptureRowIdentityMatchesCommandBinds(t *testing.T) {
 	t.Run("UntrimmedRawBindingCannotEnterTheDigest", func(t *testing.T) {
 		fixture := newExec11Capture(t, exec11PortRows("Ada"))
 		fixture.stream.RowIdentity = &spec.RowIdentity{Fields: []string{"project", "dataset_generation", "_key"}}
-		// The only way raw bindings diverge from the compiled command:
-		// untrimmed text at the binding edge. The command keeps filtering
-		// by the trimmed scope values.
 		fixture.stream.bindings.Project = "  project-a  "
 		fixture.stream.bindings.DatasetGeneration = "  generation-2  "
 		sqlText, params, err := fixture.stream.command.PostgreSQLParameters()
@@ -315,9 +268,6 @@ func TestPostgreSQLPrivateCaptureRowIdentityMatchesCommandBinds(t *testing.T) {
 	t.Run("MissingScopeBindFailsClosedLikeTheAQLArm", func(t *testing.T) {
 		fixture := newExec11Capture(t, exec11PortRows("Ada"))
 		fixture.stream.RowIdentity = &spec.RowIdentity{Fields: []string{"project", "dataset_generation", "_key"}}
-		// A broken composition that leaves the scope bind untyped supplies
-		// no fallback value: the identity fails closed with the typed
-		// missing-field error, exactly as the AQL arm's nil bind does.
 		fixture.stream.physicalPlan.BindVars["dataset_generation"] = 42
 		if _, err := fixture.stream.Stream(context.Background(), func(map[string]any) error { return nil }); err == nil ||
 			!strings.Contains(err.Error(), `stable row identity field "dataset_generation" is missing`) {
@@ -325,9 +275,6 @@ func TestPostgreSQLPrivateCaptureRowIdentityMatchesCommandBinds(t *testing.T) {
 		}
 	})
 	t.Run("BlankGenerationCannotBuildACaptureCommand", func(t *testing.T) {
-		// A blank runtime generation never reaches the row port at all:
-		// lowering yields ir.DatasetGenerationBindValue's nil and the
-		// renderer's scope gate refuses before capture is ever built.
 		bindings := exec11RestrictedBindings()
 		bindings.DatasetGeneration = "   "
 		makeOutput := func(name string) recipe.Output {
@@ -356,9 +303,6 @@ func TestPostgreSQLPrivateCaptureRowIdentityMatchesCommandBinds(t *testing.T) {
 	})
 }
 
-// L1: the dispatch is exhaustive and honest. A PostgreSQL-tagged command
-// that is not a complete capture source joins neither arm and fails before
-// any artifact exists.
 func TestPostgreSQLPrivateCaptureDispatchRefusesIncompleteSourceShapes(t *testing.T) {
 	t.Run("ForeignExpectedBackend", func(t *testing.T) {
 		fixture := newExec11Capture(t, exec11PortRows("Ada"))
@@ -377,7 +321,6 @@ func TestPostgreSQLPrivateCaptureDispatchRefusesIncompleteSourceShapes(t *testin
 	})
 }
 
-// L2: the restricted capture contract fails closed, naming PostgreSQL.
 func TestPostgreSQLPrivateCaptureRestrictedContractFailClosed(t *testing.T) {
 	t.Run("RestrictedWithoutRowPathProjection", func(t *testing.T) {
 		fixture := newExec11Capture(t, exec11PortRows("Ada"))
@@ -397,9 +340,6 @@ func TestPostgreSQLPrivateCaptureRestrictedContractFailClosed(t *testing.T) {
 		}
 	})
 	t.Run("MissingRowKeyColumn", func(t *testing.T) {
-		// The real PostgreSQL row port serves only the declared contract
-		// columns; a row that cannot supply its _key has no stable identity
-		// even though the scope bindings supply the project component.
 		fixture := newExec11Capture(t, []map[string]any{{"value": "Ada", "auth_resource_path": "/programs/a"}})
 		exec11Refusal(t, fixture, `stable row identity field "_key" is missing`)
 	})
@@ -410,7 +350,6 @@ func TestPostgreSQLPrivateCaptureRestrictedContractFailClosed(t *testing.T) {
 	})
 }
 
-// L3: the artifact scope mode stays coherent with its evidence.
 func TestPostgreSQLPrivateCaptureScopeModeCoherence(t *testing.T) {
 	t.Run("WholeScopeWithoutCompilerDigest", func(t *testing.T) {
 		fixture := newExec11Capture(t, exec11PortRows("Ada"))
@@ -425,8 +364,6 @@ func TestPostgreSQLPrivateCaptureScopeModeCoherence(t *testing.T) {
 	})
 }
 
-// L4: the supplied artifact schema must be exactly the compiled output
-// schema; drift refuses before any writer opens.
 func TestPostgreSQLPrivateCaptureSchemaIdentity(t *testing.T) {
 	t.Run("SchemaDigestDrift", func(t *testing.T) {
 		fixture := newExec11Capture(t, exec11PortRows("Ada"))

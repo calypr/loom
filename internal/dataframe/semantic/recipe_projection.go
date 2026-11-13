@@ -1,11 +1,5 @@
 package semantic
 
-// This file owns the recipe-to-semantic projection boundary.  Recipe fields
-// are deliberately normalized here, before physical lowering, so selector
-// fallbacks continue to use the same typed extraction contract as recipes
-// fields.  In particular, this code must not choose a renderer or construct
-// backend expressions.
-
 import (
 	"fmt"
 	"strings"
@@ -15,16 +9,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// buildRecipeProjection checks one recipe field in the supplied lexical scope
-// and converts it to the canonical semantic field consumed by generic
-// lowering.
-// The function is intentionally kept separate from BuildRecipePlan so the
-// root and traversal builders can use exactly the same fallback/value-mode
-// rules, including slice fields.
-//
-// Schema-version-one fallbacks are selector-only. Their checked expression
-// forms remain attached to the field; selector metadata is derived only by
-// the physical lowerer when it needs schema-specialized extraction.
 func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string) (SemanticField, error) {
 	if strings.TrimSpace(field.Name) == "" {
 		return SemanticField{}, fmt.Errorf("%s.name is required", path)
@@ -46,9 +30,6 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		fallbacks = append(fallbacks, fallback)
 	}
 
-	// A selector primary plus selector fallbacks is the optimized physical
-	// representation. Keep only the checked expressions here; selectors are
-	// derived from them by ResolveSemanticField at the physical boundary.
 	if primary.Expression.Selector != nil {
 		cardinality := spec.CardinalityOptionalOne
 		if primary.Type.Cardinality == expression.Many {
@@ -80,19 +61,11 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 		}
 		selection, err := ResolveSemanticField(resourceTypeForScope(scope, primary.Expression), selectorContext(primary.Expression), 0, fieldSemantic)
 		if err != nil {
-			// ResolveSemanticField needs the resource type owning the selector. A
-			// malformed/unknown context is already rejected by scope.expression;
-			// retain its useful diagnostic here rather than silently weakening the
-			// cardinality contract.
 			return SemanticField{}, fmt.Errorf("%s: %w", path, err)
 		}
 		projected := primary
 		switch selection.Projection {
 		case spec.ProjectionFirst:
-			// FIRST over a repeated selector can produce no value, but it can
-			// never produce the source array. Carry that effective cardinality
-			// into the publication schema while retaining the selector AST for
-			// optimized PhysicalExtract lowering.
 			projected.Type.Cardinality = expression.OptionalOne
 		case spec.ProjectionArray, spec.ProjectionDistinctArray:
 			projected.Type.Cardinality = expression.Many
@@ -126,16 +99,10 @@ func semanticCardinality(input expression.Type) spec.Cardinality {
 	return spec.CardinalityOptionalOne
 }
 
-// recipeProjectionField returns the canonical selector-bearing SemanticField
-// for a projection.  For non-selector expressions it returns a field whose
-// Expr is the checked expression; physical expression lowering owns that
-// case, while selector lowering remains schema-backed.
 func recipeProjectionField(field recipe.Field, scope scopeFrame, path string) (SemanticField, error) {
 	return normalizeRecipeProjection(field, scope, path)
 }
 
-// recipeSelector converts a checked expression selector to the schema selector
-// used by the existing semantic and physical extraction contracts.
 func recipeSelector(input expression.Expression) (spec.Selector, error) {
 	if input.Selector == nil {
 		return spec.Selector{}, fmt.Errorf("expression is not a selector")
@@ -174,10 +141,6 @@ func validateRecipeProjectionTypes(primary expression.Type, fallbacks []Semantic
 	return nil
 }
 
-// applyRecipeValueMode applies an explicit value mode to a non-selector
-// expression using the typed expression AST. Selector expressions intentionally
-// bypass this function so their optimized PhysicalExtract representation keeps
-// fallback and selector specialization metadata.
 func applyRecipeValueMode(scope scopeFrame, input SemanticExpression, mode recipe.ValueMode) (SemanticExpression, error) {
 	normalized := mode.Normalized()
 	if normalized == recipe.ValueModeAuto && input.Type.Cardinality != expression.Many {

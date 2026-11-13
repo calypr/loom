@@ -50,8 +50,6 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 	}
 	refs := []explorer.SelectionMember{{Ref: explorer.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files001"}}, {Ref: explorer.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files002"}}, {Ref: explorer.ResourceRef{Project: header.Project, Generation: header.Generation, ResourceType: header.ResourceType, ID: "files001"}}}
 
-	// BeginSelection reaps expired staging leases, allowing an idempotent
-	// retry to recover both empty and partially populated crashed attempts.
 	expiredEmptyID := "selection-expired-empty-" + uuid.NewString()
 	expiredEmpty := header
 	expiredEmpty.ID, expiredEmpty.IdempotencyKey = expiredEmptyID, uuid.NewString()
@@ -135,9 +133,6 @@ func TestSelectionStorageAgainstArango(t *testing.T) {
 		t.Fatalf("changed idempotency intent err=%v", err)
 	}
 
-	// A stale retry may race a live writer, but its abort must not remove the
-	// live writer's staged members. Repeat this against production Arango
-	// transactions so a write-skew implementation cannot pass by luck.
 	for i := 0; i < 50; i++ {
 		raceID := "selection-owner-race-" + uuid.NewString()
 		owner := uuid.NewString()

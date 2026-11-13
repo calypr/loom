@@ -1,15 +1,5 @@
 package postgres
 
-// Offline unit tests for the PostgreSQL row streaming adapter (pg-exec-01):
-// every guard is checked for an exact-named refusal with a paired control
-// that proceeds (a guard that always refused would fail its control), and
-// every refusal is mutation-probed with a wrong-name or wrong-type input.
-// No test in this file may open a network connection: every rejection path
-// asserts that the Querier was never called, and the success path is driven
-// by a scripted pgx.Rows whose byte buffers are shared on purpose so the
-// visited-row copy semantics are observable. Real-PostgreSQL acceptance lives
-// in rows_postgres_test.go.
-
 import (
 	"context"
 	"encoding/json"
@@ -26,13 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// ---------------------------------------------------------------------------
-// Scripted driver fixtures.
-// ---------------------------------------------------------------------------
-
-// scriptedRows is a canned pgx.Rows. Byte slices in rowValues are handed out
-// by Scan without copying so a test can mutate the shared buffer afterwards
-// and prove the adapter's visited rows are copies.
 type scriptedRows struct {
 	fds       []pgconn.FieldDescription
 	rowValues [][]any
@@ -41,7 +24,7 @@ type scriptedRows struct {
 	closeRuns int
 	scanErr   error
 	err       error
-	shared    [][]byte // buffers a test may mutate post-visit
+	shared    [][]byte
 }
 
 func (r *scriptedRows) Close() { r.closed = true; r.closeRuns++ }
@@ -104,16 +87,12 @@ func (r *scriptedRows) RawValues() [][]byte  { return r.shared }
 func (r *scriptedRows) Conn() *pgx.Conn      { return nil }
 func (r *scriptedRows) TypeMap() *pgtype.Map { return pgtype.NewMap() }
 
-// recordingQuerier records every statement the adapter executes so refusal
-// paths can assert that nothing was ever sent to the driver.
 type recordingQuerier struct {
-	calls    int
-	lastSQL  string
-	lastArgs []any
-	rows     pgx.Rows
-	queryErr error
-	// rowsEvenOnError mirrors pgx, which returns a non-nil erroring Rows
-	// alongside the Query error.
+	calls           int
+	lastSQL         string
+	lastArgs        []any
+	rows            pgx.Rows
+	queryErr        error
 	rowsEvenOnError bool
 }
 
@@ -147,9 +126,6 @@ func mustPostgreSQLCommand(t *testing.T, sql string, args ...command.PostgreSQLP
 	return compiledCommand
 }
 
-// requireNamed asserts the exact sentinel class and that the refusal message
-// names the expected specifics (guard-drop discipline: an unnamed refusal or
-// a refusal that lost its specifics would fail here).
 func requireNamed(t *testing.T, err error, sentinel error, want ...string) {
 	t.Helper()
 	if err == nil {
@@ -164,10 +140,6 @@ func requireNamed(t *testing.T, err error, sentinel error, want ...string) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Guards: exact-named refusals, controls, and no network access.
-// ---------------------------------------------------------------------------
 
 func TestNewExecutorRejectsNilQuerier(t *testing.T) {
 	_, err := NewExecutor(nil)
@@ -208,8 +180,6 @@ func TestSourceRowsRequestGuardsRefuseBeforeQuerier(t *testing.T) {
 		})
 	}
 
-	// Control: the identical request with a valid context, visitor, and
-	// distinct non-blank columns proceeds to the driver.
 	querier := &recordingQuerier{rows: &scriptedRows{fds: []pgconn.FieldDescription{textFD("id")}}}
 	executor, err := NewExecutor(querier)
 	if err != nil {
@@ -222,7 +192,6 @@ func TestSourceRowsRequestGuardsRefuseBeforeQuerier(t *testing.T) {
 		t.Fatalf("control executed %d times, want 1", querier.calls)
 	}
 
-	// Zero-value executor fails closed the same way.
 	var zero Executor
 	if err := zero.SourceRows(context.Background(), execution.RowsRequest{Command: pgSQL, DeclaredColumns: []string{"id"}}, validVisit); err == nil || !errors.Is(err, ErrInvalidExecution) {
 		t.Fatalf("zero-value executor did not refuse: %v", err)
@@ -257,7 +226,6 @@ func TestSourceRowsDispatchIsBackendTagged(t *testing.T) {
 		}
 	})
 
-	// Control: the same statement tagged POSTGRESQL dispatches.
 	querier := &recordingQuerier{rows: &scriptedRows{fds: []pgconn.FieldDescription{textFD("id")}}}
 	executor, _ := NewExecutor(querier)
 	if err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, sql), DeclaredColumns: []string{"id"}}, visit); err != nil {
@@ -291,9 +259,6 @@ func TestSourceRowsStatementShapeGuards(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			querier := &recordingQuerier{}
 			executor, _ := NewExecutor(querier)
-			// NewPostgreSQLCommand validates argument discipline but not
-			// the placeholder/argument agreement; the shape guard is the
-			// adapter's own and must fire on every hole.
 			compiledCommand := mustPostgreSQLCommand(t, tc.sql, tc.args...)
 			err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: compiledCommand, DeclaredColumns: []string{"id"}}, visit)
 			requireNamed(t, err, ErrMalformedStatement, tc.wantName)
@@ -303,8 +268,6 @@ func TestSourceRowsStatementShapeGuards(t *testing.T) {
 		})
 	}
 
-	// Controls: a repeated placeholder and a placeholder-free statement are
-	// both well-formed and must proceed.
 	for _, control := range []struct {
 		sql  string
 		args []command.PostgreSQLParameter
@@ -322,10 +285,6 @@ func TestSourceRowsStatementShapeGuards(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Parameter canonicalization: single source in Go.
-// ---------------------------------------------------------------------------
 
 func TestBindParametersCanonicalizesEveryDeclaredType(t *testing.T) {
 	midnight := time.Date(2026, 2, 13, 0, 0, 0, 0, time.UTC)
@@ -388,10 +347,6 @@ func equalBoundValue(got, want any) bool {
 	}
 }
 
-// endToEndViolations are value-shape violations that survive the compiler's
-// construction validation (which only checks type registration and nil
-// discipline) and must therefore be refused by the adapter before the
-// driver is touched.
 func TestBindParametersRefusesEveryTypeViolation(t *testing.T) {
 	visit := func(map[string]any) error { return nil }
 	cases := []struct {
@@ -434,10 +389,6 @@ func TestBindParametersRefusesEveryTypeViolation(t *testing.T) {
 	}
 }
 
-// Defense-in-depth: the compiler's constructor already refuses these, so
-// they cannot be produced through NewPostgreSQLCommand. The adapter's own
-// binder must still refuse them if a future construction path ever leaks
-// one through.
 func TestBindParameterRefusesWhatTheCompilerConstructorAlsoRefuses(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -447,8 +398,6 @@ func TestBindParameterRefusesWhatTheCompilerConstructorAlsoRefuses(t *testing.T)
 		{"sql-null with a non-nil value is refused (no SQL-null/JSON-null flattening)",
 			command.PostgreSQLParameter{Type: command.PostgreSQLParameterNull, Value: "null"},
 			"must carry a nil value"},
-		// Wrong-name probe: an unregistered declared type is refused by the
-		// binder itself.
 		{"unregistered declared type is refused (wrong-name probe)", command.PostgreSQLParameter{Type: "uuid", Value: "x"},
 			`unregistered parameter type "uuid"`},
 	}
@@ -459,10 +408,6 @@ func TestBindParameterRefusesWhatTheCompilerConstructorAlsoRefuses(t *testing.T)
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Column contract, decoding, and stream lifecycle.
-// ---------------------------------------------------------------------------
 
 func TestSourceRowsEnforcesTheColumnContract(t *testing.T) {
 	querier := &recordingQuerier{rows: &scriptedRows{
@@ -475,11 +420,9 @@ func TestSourceRowsEnforcesTheColumnContract(t *testing.T) {
 	visits := 0
 	visit := func(map[string]any) error { visits++; return nil }
 
-	// Wrong-name probe: a declaration that differs only in case is refused.
 	err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id, payload FROM t`), DeclaredColumns: []string{"Id", "payload"}}, visit)
 	requireNamed(t, err, ErrColumnContractMismatch, `column 1 is "id", contract declares "Id"`)
 
-	// Count mismatch probe.
 	err = executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id, payload FROM t`), DeclaredColumns: []string{"id"}}, visit)
 	requireNamed(t, err, ErrColumnContractMismatch, "returns 2 column(s), contract declares 1")
 
@@ -491,7 +434,6 @@ func TestSourceRowsEnforcesTheColumnContract(t *testing.T) {
 		t.Fatal("rows left open after a column contract refusal")
 	}
 
-	// Control: the exact contract streams.
 	rows2 := &scriptedRows{
 		fds:       []pgconn.FieldDescription{textFD("id"), jsonbFD("payload")},
 		rowValues: [][]any{{[]byte("1"), []byte(`{}`)}},
@@ -508,12 +450,6 @@ func TestSourceRowsEnforcesTheColumnContract(t *testing.T) {
 	}
 }
 
-// TestSourceRowsColumnContractPositionalAliasException pins the ONE shape
-// of alias the contract exception allows: the renderer's positional alias
-// for exactly this position ("AS c<i>" as renderReturn emits), never the
-// shape c<digits> at any position. Swapped or shifted alias sets are
-// renderer/contract drift and must be refused so rows can never be keyed
-// under contract names with swapped values.
 func TestSourceRowsColumnContractPositionalAliasException(t *testing.T) {
 	run := func(t *testing.T, contract []string, aliasNames []string) error {
 		t.Helper()
@@ -551,12 +487,6 @@ func TestSourceRowsColumnContractPositionalAliasException(t *testing.T) {
 	})
 }
 
-// TestSourceRowsRoutesByBackendTagBeforeDialectValidation pins the F2
-// routing law: the backend tag is the routing key and is checked FIRST,
-// so a misrouted command reports its typed routing sentinel even when its
-// dialect fields (declared columns, statement shape) are also broken.
-// Dialect validation still fires for correctly routed commands — the tag
-// check neither skips nor weakens it.
 func TestSourceRowsRoutesByBackendTagBeforeDialectValidation(t *testing.T) {
 	visit := func(map[string]any) error { return nil }
 
@@ -668,8 +598,6 @@ func TestSourceRowsDecodesRowsIntoCopiedMaps(t *testing.T) {
 	}
 
 	second := visited[1]
-	// The three-state contract: a JSON null on a json column is a non-nil
-	// json.RawMessage("null"), while a SQL NULL on a json column is nil.
 	if note, ok := second["note"].(json.RawMessage); !ok || string(note) != "null" {
 		t.Fatalf("JSON null decoded as %#v, want json.RawMessage(\"null\")", second["note"])
 	}
@@ -677,8 +605,6 @@ func TestSourceRowsDecodesRowsIntoCopiedMaps(t *testing.T) {
 		t.Fatalf("JSONB null decoded as %#v, want json.RawMessage(\"null\")", second["payload"])
 	}
 
-	// Copy semantics: mutating the driver-owned buffers must not disturb the
-	// rows a visitor retained.
 	sharedJSON[1] = 'X'
 	sharedBytes[0] = 'X'
 	if string(visited[0]["payload"].(json.RawMessage)) != `{"k": 1}` {
@@ -716,7 +642,6 @@ func TestSourceRowsVisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 		t.Fatal("rows left open after a visitor error")
 	}
 
-	// Control: the same scripted rows drain fully when the visitor accepts.
 	rows2 := &scriptedRows{fds: rows.fds, rowValues: rows.rowValues}
 	querier.rows = rows2
 	full := 0
@@ -771,9 +696,6 @@ func TestSourceRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 	t.Run("non-matching driver error after cancel is pinned to the context error", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		// A transport-style error that does not itself unwrap to
-		// context.Canceled (mirrors pgx surfacing "conn closed" after the
-		// abort) must still be cancellable via errors.Is.
 		transportErr := errors.New("conn closed")
 		querier := &recordingQuerier{rows: &scriptedRows{fds: fds, err: transportErr}}
 		executor, _ := NewExecutor(querier)
@@ -811,8 +733,6 @@ func TestSourceRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 	})
 }
 
-// TestSourceRowsBoundarySignature pins that the executor method satisfies the
-// execution boundary function type, which is what the engine will hold.
 func TestSourceRowsBoundarySignature(t *testing.T) {
 	executor, err := NewExecutor(&recordingQuerier{rows: &scriptedRows{fds: fdsFor("x")}})
 	if err != nil {

@@ -12,16 +12,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// A registered recipe name must stay re-registerable with correct parent
-// chaining. The currentDigest AQL projection returned a bare scalar
-// (RETURN doc.digest); the arango driver cursor decoder requires object rows,
-// so EVERY second and later registration of a name died on a raw driver
-// decode error and surfaced as INTERNAL_ERROR 500 (retryable=false) at the
-// GraphQL boundary — recipe authoring save loops could never complete.
-// The fake below reproduces the driver contract (only object rows decode);
-// the legacy fake in revisions_test.go hand-synthesized object rows for any
-// projection, which is why this defect shipped green.
-
 type driverFaithfulClient struct {
 	docs []map[string]any
 }
@@ -59,7 +49,6 @@ func (c *driverFaithfulClient) QueryRows(_ context.Context, query string, _ int,
 			continue
 		}
 		if scalar {
-			// Real driver behavior: scalar rows fail to decode into map[string]any.
 			return errors.New("read arango query cursor: json: cannot unmarshal string into Go value of type map[string]interface {}")
 		}
 		row := map[string]any{"digest": doc["digest"], "project": doc["project"], "name": doc["name"]}
@@ -93,8 +82,6 @@ func TestSecondRegisterOfExistingNameIsClassifiedNotInternal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first registration failed: %v", err)
 	}
-	// Exact duplicate without parent: the current-parent contract must be
-	// reported as a user fault (STALE_CURSOR), never as an untyped internal.
 	_, err = registerForTest(t, reg, "rows-a", "1", "")
 	userErr, ok := classifiedUserFault(err)
 	if !ok {
@@ -103,11 +90,9 @@ func TestSecondRegisterOfExistingNameIsClassifiedNotInternal(t *testing.T) {
 	if userErr.Code() != "STALE_CURSOR" {
 		t.Fatalf("duplicate registration code = %s, want STALE_CURSOR", userErr.Code())
 	}
-	// Stale parent likewise stays a typed user fault.
 	if _, err := registerForTest(t, reg, "rows-a", "2", strings.Repeat("f", 64)); !isStaleCursor(err) {
 		t.Fatalf("stale parent must be STALE_CURSOR, got %v", err)
 	}
-	// Correct parent chains normally.
 	child, err := registerForTest(t, reg, "rows-a", "2", first.Digest)
 	if err != nil {
 		t.Fatalf("correct-parent child registration failed: %v", err)

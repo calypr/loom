@@ -14,11 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// CompiledPopulationMappingQuery is an internal witness query. Its rows are
-// (selected member, final row identity) pairs and are not a dataframe schema.
-// Default identities are returned as ordered IdentityPartsColumn values for
-// the execution layer to hash with RowIdentity. Explicit recipe identities
-// use ExplicitIdentityColumn and preserve the compiled identity expression.
 type CompiledPopulationMappingQuery struct {
 	Command                command.CompiledCommand
 	MemberColumn           string
@@ -28,10 +23,6 @@ type CompiledPopulationMappingQuery struct {
 	Diagnostics            ir.CompilerPlanDiagnostics
 }
 
-// CompilePopulationMappingOutputWithPolicy builds the complete mapping query
-// from the canonical final output plan. Unlike ordinary Preview/Publish, it
-// has no execution limit: required filters, authored filters, child sets, and
-// explicit expansion all run before the internal witness terminal.
 func CompilePopulationMappingOutput(target Target, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, policy ir.PhysicalOptimizationPolicy) (CompiledPopulationMappingQuery, error) {
 	if err := target.validate(); err != nil {
 		return CompiledPopulationMappingQuery{}, err
@@ -76,16 +67,6 @@ func CompilePopulationMappingOutput(target Target, output lower.CompiledRecipeOu
 	}, nil
 }
 
-// compilePopulationMappingPostgreSQL is the PostgreSQL dispatch arm (ticket
-// pg-sql-22): the same dialect-neutral mapping physical plan the AQL path
-// builds, rendered through the registered mapping entry with the membership
-// binding derived from the target's own validated storage schema (the
-// co-located control plane of the population.go deployment ruling — the
-// membership relations live in the same schema as the resource/edge tables,
-// so a target cannot pair storage from one schema with membership from
-// another). Rejections carry the renderer's typed ErrUnsupportedPostgresPlan
-// and never fall back to AQL; the proof metadata contract is identical to
-// the AQL entry.
 func compilePopulationMappingPostgreSQL(target Target, physical ir.PhysicalPlan, rowIdentity *spec.RowIdentity) (CompiledPopulationMappingQuery, error) {
 	membership, err := postgresrender.NewPostgresPopulationRootBinding(target.postgres.Resource.Identifier().Schema())
 	if err != nil {

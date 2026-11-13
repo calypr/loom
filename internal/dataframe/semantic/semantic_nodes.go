@@ -7,9 +7,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// SemanticNode is the canonical backend-independent graph node used by every
-// dataframe frontend. Runtime request provenance belongs in ExecutionContext,
-// while output-specific shaping belongs in OutputPlan.
 type SemanticNode struct {
 	OccurrenceID string
 	Alias        string
@@ -28,14 +25,10 @@ type SemanticNode struct {
 }
 
 type SemanticField struct {
-	Name     string
-	ColumnID string
-	Label    string
-	FieldRef string
-	// Expr and Fallbacks are the checked semantic expressions that produced
-	// this field. Selectors are intentionally derived from these expressions
-	// at the physical boundary; keeping both representations here allowed the
-	// recipe planner and lowerer to silently diverge.
+	Name       string
+	ColumnID   string
+	Label      string
+	FieldRef   string
 	Expr       SemanticExpression
 	Fallbacks  []SemanticExpression
 	Projection spec.ProjectionMode
@@ -43,29 +36,24 @@ type SemanticField struct {
 }
 
 type SemanticPivot struct {
-	Name             string
-	FieldRef         string
-	ColumnSelector   spec.Selector
-	ValueSelector    spec.Selector
-	ValueFallbacks   []spec.Selector
-	ValueKind        expression.ValueKind
-	StringifyValue   bool
-	ItemSource       spec.Selector
-	ItemResourceType string
-	Columns          []string
-	ColumnAliases    map[string]string
-	ProjectionMode   string
-	Family           string
-	Discovered       bool
-	// Correlation is the closed system+code/value binding used when a pivot
-	// must preserve one Coding and one owning repeated item. Nil retains the
-	// legacy validated pivot path.
-	Correlation        *fhirschema.CorrelatedBinding
-	CorrelationSystem  string
-	CorrelationCode    string
-	CorrelationVersion string
-	// ExtensionCorrelation carries the checked ancestor-aware extension
-	// binding. It shares the physical correlation IR with terminology pivots.
+	Name                 string
+	FieldRef             string
+	ColumnSelector       spec.Selector
+	ValueSelector        spec.Selector
+	ValueFallbacks       []spec.Selector
+	ValueKind            expression.ValueKind
+	StringifyValue       bool
+	ItemSource           spec.Selector
+	ItemResourceType     string
+	Columns              []string
+	ColumnAliases        map[string]string
+	ProjectionMode       string
+	Family               string
+	Discovered           bool
+	Correlation          *fhirschema.CorrelatedBinding
+	CorrelationSystem    string
+	CorrelationCode      string
+	CorrelationVersion   string
 	ExtensionCorrelation *fhirschema.ExtensionBinding
 }
 
@@ -77,20 +65,15 @@ type SemanticOwnerRecords struct {
 }
 
 type SemanticAggregate struct {
-	Name       string
-	OutputName string
-	Operation  string
-	FieldRef   string
-	// Predicate is the complete canonical typed contributor predicate. It is
-	// retained until physical lowering so operator, quantifier, kind, and value
-	// cannot diverge across compiler stages.
-	Predicate      *spec.TypedFilter
-	Selector       *spec.Selector
-	ValueMode      string
-	RequiredValues []string
-	ValueKind      expression.ValueKind
-	// UnitNormalization is compiler-resolved and contains the pinned registry
-	// rules. Authoring/recipe references do not cross this boundary.
+	Name               string
+	OutputName         string
+	Operation          string
+	FieldRef           string
+	Predicate          *spec.TypedFilter
+	Selector           *spec.Selector
+	ValueMode          string
+	RequiredValues     []string
+	ValueKind          expression.ValueKind
 	UnitNormalization  *unit.UnitNormalization
 	UnitSystemSelector *spec.Selector
 	UnitCodeSelector   *spec.Selector

@@ -1,18 +1,5 @@
 package postgres
 
-// coded_pivot_test.go is the pg-sql-14 test surface for the inline
-// single-stage CODED_PIVOT construction door: whole-plan door goldens
-// against render/aql/table_reshape.go renderCodedPivotCategoryValues
-// :338-389 and the correlation renderers of render/aql/predicates.go
-// :120-207, the C3 non-coded byte-identical refusal, the C11/C12
-// ignored-field goldens (Coding.version NEVER filters — ruling R2), the
-// refusal register with ALIVE controls, and the live legs over the
-// verify_sql14v1_* namespace: system separation, version-varied codings
-// as duplicate observations, the INVALID_CHOICE_ARM position, the value
-// fallback chain with the ONE trim set, and the coded reducer MISSING
-// guard on the TYPED count (:267, the verbatim asymmetry against the
-// scalar branch's RAW count at :230).
-
 import (
 	"encoding/json"
 	"errors"
@@ -26,8 +13,6 @@ import (
 	spec "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// clonePlanForPivot14 deep-copies the parts of a compiled plan the coded
-// door's mutations touch, so one refusal leg never leaks state into another.
 func clonePlanForPivot14(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	clone := plan
 	clone.BindVars = map[string]any{}
@@ -54,9 +39,6 @@ func clonePlanForPivot14(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	return clone
 }
 
-// pivot14CodedBundle authors the production CODED_PIVOT shape (probe
-// P-14.3..P-14.5 attested): Observation.component[] owners,
-// component[].code.coding[] keys, valueQuantity.value values.
 func pivot14CodedBundle(name string, categories []recipe.ConstructionCodedPivotCategory,
 	duplicate recipe.PivotDuplicatePolicy, missing recipe.PivotMissingCellPolicy,
 	valuePath string, fallbacks []string, blank bool, arms []string, logical string) recipe.Bundle {
@@ -148,10 +130,6 @@ func pivot14CodedRefused(t *testing.T, plan ir.PhysicalPlan, label string, wantF
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Door goldens
-// ---------------------------------------------------------------------------
-
 func TestCodedPivot14ProductionRenders(t *testing.T) {
 	plan := pivot14CompileCodedBundle(t, "p14_coded_render")
 	rendered, err := RenderPhysicalPlan(plan, mustBinding(t))
@@ -165,33 +143,17 @@ func TestCodedPivot14ProductionRenders(t *testing.T) {
 		"cp_cat_0 AS (",
 		"cp_elem_0 AS (",
 		"cp_agg_0 AS (",
-		// The (system, code) match on ONE Coding item
-		// (renderCodedPivotCategoryValues :360-:373): both keys are
-		// jsonb strings, non-empty EXACT (untrimmed — only the
-		// blank-string value fallback trims, ruling R2), equal to the
-		// bound pair.
 		"EXISTS (SELECT 1 FROM",
 		"jsonb_typeof(",
 		") = 'string'",
 		"::text <> ''",
 		"LEFT JOIN cp_agg_0 AS a0 ON a0.cp_key = s.cp_key",
-		// The INVALID_CHOICE_ARM assert on MATCHED owners only (the
-		// per-category match keeps badness as DATA — cp_bad is the
-		// BOOL_OR over matched rows only, WHERE t.cp_m precedes the
-		// aggregation) and raises it in the single ordered outer chain
-		// (the AQL lazy category LETs force the owner-loop ASSERT with
-		// the category's values, ahead of that category's cell guards:
-		// table_reshape.go:384).
 		"WHERE t.cp_m)",
 		"BOOL_OR(cp_bad) AS cp_bad",
 		"WHEN COALESCE(a0.cp_bad, false) THEN CAST('INVALID_CHOICE_ARM'",
-		// FIRST-over-candidates chain, ordinal-pinned to declared order
-		// (predicates.go:177), then the one-level FLATTEN of the chosen
-		// candidate (table_reshape.go:385) in document order.
 		"jsonb_agg(s.cp_e ORDER BY f.ord, s.ord1)",
 		"ELSE jsonb_build_array(f.x) END) WITH ORDINALITY AS s(cp_e, ord1)",
 		"(ARRAY_AGG(e.cp_e ORDER BY e.ord))[1] AS cp_first",
-		// Terminal identity order (stage_sequence.go:399-448 parity).
 		`ORDER BY '[' || '"GROUPED_PIVOT"'`,
 		`COLLATE "C" ASC`,
 	} {
@@ -199,10 +161,6 @@ func TestCodedPivot14ProductionRenders(t *testing.T) {
 			t.Fatalf("coded statement lost %q:\n%s", want, sql)
 		}
 	}
-	// The ordinal-pinned VALUES pick only exists on the multi-candidate
-	// path (a hand-carried fallback makes candidates > 1; the recipe
-	// layer's DECIMAL veto is irrelevant here because we hand-carry), so
-	// its text receipt lives with a fallback-carrying plan.
 	multi := pivot14CompileCodedBundle(t, "p14_coded_multi_candidate")
 	multiCodedPivot := pivot14CodedPivot(t, multi)
 	multiCodedPivot.CodedCorrelation.ValueFallbacks = []spec.Selector{specSelector(t, "valueString")}
@@ -219,7 +177,6 @@ func TestCodedPivot14ProductionRenders(t *testing.T) {
 		}
 	}
 
-	// Category pairs ride $n (the AQL @system/@code binds, :367/:370).
 	for _, forbidden := range []string{"8480-6", "8462-4", "http://loinc.org", "proj-a", "gen-1", "FHIR/Observation"} {
 		if strings.Contains(sql, forbidden) {
 			t.Fatalf("coded plan data leaked into SQL text (%q):\n%s", forbidden, sql)
@@ -244,14 +201,6 @@ func TestCodedPivot14ProductionRenders(t *testing.T) {
 }
 
 func TestCodedPivot14GuardOrderAndMissingBranches(t *testing.T) {
-	// The reducer branch conditions MISSING on the TYPED count — the
-	// verbatim asymmetry against the ordinary (scalar) branch's RAW count
-	// (table_reshape.go:267 vs :230). Diff receipt asserted here: the
-	// missing guard reads cp_tcnt, while the scalar ERROR branch reads the
-	// raw COUNT(*) FILTER (TestPivot14GoldenErrorBranch). The ALIVE
-	// controls are the paired live legs:
-	// TestCodedPivot14LiveReducerMissingTypedCount (raises here) vs
-	// TestPivot14LiveScalarMissingRawCountNoRaise (must NOT raise there).
 	plan := pivot14CompileCodedBundle(t, "p14_coded_missing_guard")
 	plan.StageSequence.Stages[0].GroupedPivot.MissingCellPolicy = "ERROR"
 	plan.StageSequence.Stages[0].GroupedPivot.DuplicatePolicy = "SUM"
@@ -268,8 +217,6 @@ func TestCodedPivot14GuardOrderAndMissingBranches(t *testing.T) {
 		t.Fatalf("coded reducer branch must NOT read the raw count for MISSING (:267 vs :230):\n%s", sql)
 	}
 
-	// The ERROR branch guards on the RAW count as well
-	// (table_reshape.go:252-258): cardinality cp_cnt > 1.
 	errPlan := pivot14CompileCodedBundle(t, "p14_coded_error_branch")
 	errPlan.StageSequence.Stages[0].GroupedPivot.DuplicatePolicy = "ERROR"
 	rendered, err = RenderPhysicalPlan(errPlan, mustBinding(t))
@@ -284,12 +231,6 @@ func TestCodedPivot14GuardOrderAndMissingBranches(t *testing.T) {
 		t.Fatalf("coded ERROR branch must not enumerate typed reducers:\n%s", sql)
 	}
 
-	// The choice-arm guard is DATA-qualified by the match (cp_bad is the
-	// BOOL_OR over matched rows only — WHERE t.cp_m precedes it, so an
-	// UNMATCHED owner carrying an unsupported arm can never raise it,
-	// predicates.go :185-207 at the :377 position) and raised ONLY in
-	// the single ordered outer chain, never inside the per-category CTE
-	// where CTE materialization would outrank the AQL lazy-LET order.
 	armRendered, err := RenderPhysicalPlan(pivot14CompileCodedBundle(t, "p14_coded_arm_guard"), mustBinding(t))
 	if err != nil {
 		t.Fatalf("render arm guard plan: %v", err)
@@ -302,10 +243,6 @@ func TestCodedPivot14GuardOrderAndMissingBranches(t *testing.T) {
 		!strings.Contains(armRendered.SQL, "WHEN COALESCE(a1.cp_bad, false) THEN CAST('INVALID_CHOICE_ARM'") {
 		t.Fatalf("choice-arm guard must ride the outer chain per category:\n%s", armRendered.SQL)
 	}
-	// Chain order receipts on the SUM+ERROR plan (sql): category order and
-	// within-category order — choice-arm, then that category's missing,
-	// then that category's value-type — mirror the AQL projection forcing
-	// each category's owner-loop ASSERT with its values LET.
 	type term struct {
 		frag  string
 		label string
@@ -332,11 +269,6 @@ func TestCodedPivot14GuardOrderAndMissingBranches(t *testing.T) {
 }
 
 func TestCodedPivot14IgnoredFieldsByteIdentical(t *testing.T) {
-	// C11/C12 (ruling R2): Coding.version NEVER filters; UnitSelector,
-	// ValueScope, SelectionScope, VersionSelector are ignored by the
-	// ground truth (renderCodedPivotCategoryValues reads values from the
-	// owner regardless, table_reshape.go:360/:364). Goldens pin the
-	// rendering byte-identical with and without them.
 	base := pivot14CompileCodedBundle(t, "p14_coded_ignored")
 	rendered, err := RenderPhysicalPlan(base, mustBinding(t))
 	if err != nil {
@@ -354,10 +286,6 @@ func TestCodedPivot14IgnoredFieldsByteIdentical(t *testing.T) {
 		{"unit-selector", func(c *ir.PhysicalCorrelation, _ map[string]any) {
 			c.UnitSelector = &spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity"}, {Field: "unit"}}}
 		}},
-		// ValueScope CODING and a hand-carried VersionSelector are beyond
-		// even the ir boundary for a pivot correlation carrying owner
-		// choice arms (physical_validation_refs.go :392) — the
-		// unreachable-state refusals are pinned below instead.
 	}
 	for _, test := range variants {
 		clone := clonePlanForPivot14(base)
@@ -371,11 +299,6 @@ func TestCodedPivot14IgnoredFieldsByteIdentical(t *testing.T) {
 		}
 	}
 
-	// A hand-carried version selector is refused at the ir boundary for a
-	// pivot carrying owner choice arms (physical_validation_refs.go
-	// :289/:392): the state is unreachable even before the renderer's own
-	// ignore-everything stance (ruling R2) can be exercised — pinned so a
-	// future ir relaxation is noticed here.
 	carrier := clonePlanForPivot14(base)
 	carrier.StageSequence.Stages[0].GroupedPivot.CodedCorrelation.VersionSelector =
 		&spec.Selector{Steps: []spec.SelectorStep{{Field: "code"}, {Field: "coding"}, {Field: "version"}}}
@@ -392,10 +315,6 @@ func TestCodedPivot14IgnoredFieldsByteIdentical(t *testing.T) {
 		t.Fatalf("ir must refuse CODING value scope on the pivot's owner choice arms: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Refusal register — every refusal with an ALIVE control
-// ---------------------------------------------------------------------------
 
 func TestCodedPivot14RefusalRegister(t *testing.T) {
 	cases := []struct {
@@ -415,14 +334,6 @@ func TestCodedPivot14RefusalRegister(t *testing.T) {
 		{"extension URL selectors (C10)", func(p *ir.PhysicalPlan) {
 			pivot14CodedPivot(t, *p).CodedCorrelation.ExtensionURLSelectors = []spec.Selector{{Steps: []spec.SelectorStep{{Field: "url"}}}}
 		}, "extension-URL"},
-		// The (system, code) match renders ONE property test on the
-		// coding item; the AQL oracle would evaluate the whole selector
-		// chain (renderCorrelationScalar, predicates.go:151-157), and ir
-		// admits these forms for EXACT scope
-		// (physical_validation_refs.go:420-425), so the door refuses
-		// everything outside the single plain step instead of silently
-		// matching nothing. ALIVE control: the goldens render the
-		// single-step pair (TestCodedPivot14ProductionRenders).
 		{"multi-step system selector", func(p *ir.PhysicalPlan) {
 			correlation := pivot14CodedPivot(t, *p).CodedCorrelation
 			correlation.SystemSelector.Steps = append([]spec.SelectorStep(nil), correlation.SystemSelector.Steps...)
@@ -500,7 +411,6 @@ func TestCodedPivot14RefusalRegister(t *testing.T) {
 	}
 	for index, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			// ALIVE control: the unmutated production coded plan renders.
 			control := pivot14CompileCodedBundle(t, fmt.Sprintf("p14_coded_control_%02d", index))
 			if _, err := RenderPhysicalPlan(control, mustBinding(t)); err != nil {
 				t.Fatalf("ALIVE control refused before any mutation: %v", err)
@@ -511,10 +421,6 @@ func TestCodedPivot14RefusalRegister(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Live legs
-// ---------------------------------------------------------------------------
 
 func pivot14SeedObservation(t *testing.T, svc *pgir02Service, logicalID string, payload any) {
 	t.Helper()
@@ -544,13 +450,6 @@ func pivot14Component(codings []map[string]any, value any, valueString *string) 
 
 func TestCodedPivot14LiveSystemSeparationAndVersionDuplication(t *testing.T) {
 	svc := pivot14LiveService(t)
-	// r1: matched loinc/8480-6 owner, value 120.
-	// r2: SAME code, different system (snomed) — must NOT match.
-	// r3: two matched owners differing only in Coding.version — ruling R2:
-	//     version NEVER filters, so these are DUPLICATE observations
-	//     (SUM = 10+5 = 15), never a silent drop.
-	// r4: hostile category pair with quotes/commas/brackets/JSON
-	//     fragments, matched exactly.
 	hostileCode := `8462-4",["EVIL",1]`
 	pivot14SeedObservation(t, svc, "r1", map[string]any{
 		"component": []map[string]any{pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, 120, nil)},
@@ -567,7 +466,6 @@ func TestCodedPivot14LiveSystemSeparationAndVersionDuplication(t *testing.T) {
 	pivot14SeedObservation(t, svc, "r4", map[string]any{
 		"component": []map[string]any{pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", hostileCode, "")}, 7, nil)},
 	})
-	// Non-vacuity: the discriminating payloads are really stored.
 	rows := svc.witness(t, `SELECT logical_id FROM "`+svc.schema+`"."fhir_resource`+
 		`" WHERE project = $1 AND dataset_generation = $2 AND logical_id = 'r3'`+
 		` AND payload @> '{"component":[{"code":{"coding":[{"system":"http://loinc.org","code":"8480-6","version":"1"}]},"valueQuantity":{"value":10}}]}'::jsonb`+
@@ -587,7 +485,7 @@ func TestCodedPivot14LiveSystemSeparationAndVersionDuplication(t *testing.T) {
 	}
 	out := map[string][]string{}
 	for _, row := range svc.runRendered(t, rendered) {
-		out[row[0]] = row // c0 is the hidden root _key (logical id)
+		out[row[0]] = row
 	}
 	systolic, hostile := -1, -1
 	for index, name := range rendered.OutputColumns {
@@ -601,15 +499,12 @@ func TestCodedPivot14LiveSystemSeparationAndVersionDuplication(t *testing.T) {
 	if systolic < 0 || hostile < 0 {
 		t.Fatalf("category columns missing: %v", rendered.OutputColumns)
 	}
-	// System separation: the snomed-coded row contributes nothing.
 	if got := out["r2"][systolic]; got != "<null>" && got != "null" {
 		t.Fatalf("same code across systems must not match; r2 systolic = %q", got)
 	}
-	// Version-varied codings are duplicate observations (R2): SUM 10+5.
 	if got := out["r3"][systolic]; got != "15" {
 		t.Fatalf("version-varied codings must be duplicate observations (SUM 15), got %q — silent version filtering would return 10 or 5", got)
 	}
-	// Hostile pair matched byte-exactly through $n.
 	if got := out["r4"][hostile]; got != "7" {
 		t.Fatalf("hostile category pair must match byte-exactly, got %q", got)
 	}
@@ -617,9 +512,6 @@ func TestCodedPivot14LiveSystemSeparationAndVersionDuplication(t *testing.T) {
 		t.Fatalf("r1 systolic = %q, want 120", got)
 	}
 
-	// Identity is the JSON-compact AQL composition riding parameters: the
-	// hostile pair never reaches SQL text and the identity composes from
-	// to_jsonb of the bound texts.
 	for _, forbidden := range []string{hostileCode, "EVIL"} {
 		if strings.Contains(rendered.SQL, forbidden) {
 			t.Fatalf("hostile category pair leaked into SQL text:\n%s", rendered.SQL)
@@ -627,15 +519,8 @@ func TestCodedPivot14LiveSystemSeparationAndVersionDuplication(t *testing.T) {
 	}
 }
 
-// TestCodedPivot14LiveInvalidChoiceArmRaise — plan §7/§8 named guard leg
-// (sabotage victim "drop INVALID_CHOICE_ARM guard"): the ALIVE control
-// runs first (an UNMATCHED owner with an unsupported arm must not raise),
-// then the matched owner raises through the ordered chain.
 func TestCodedPivot14LiveInvalidChoiceArmRaise(t *testing.T) {
 	svc := pivot14LiveService(t)
-	// ALIVE control first: an UNMATCHED owner carrying an unsupported
-	// choice arm must not raise (the AQL ASSERT runs after the match
-	// filter — predicates.go:185-207 at the :377 position).
 	pivot14SeedObservation(t, svc, "c1", map[string]any{
 		"component": []map[string]any{
 			pivot14Component([]map[string]any{pivot14Coding("http://snomed.info/sct", "8480-6", "")}, nil, strPtr("bad-arm-unmatched")),
@@ -652,10 +537,6 @@ func TestCodedPivot14LiveInvalidChoiceArmRaise(t *testing.T) {
 		t.Fatal("control root must survive")
 	}
 
-	// The matched owner with the unsupported arm raises
-	// INVALID_CHOICE_ARM through the guard barrier — EXPLAIN completes
-	// under BOTH plan_cache modes (plan-time safety) and execution raises
-	// 22P02 naming the tag (the calls_live pattern).
 	pivot14SeedObservation(t, svc, "c2", map[string]any{
 		"component": []map[string]any{
 			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, strPtr("bad-arm-matched")),
@@ -687,23 +568,11 @@ func TestCodedPivot14LiveInvalidChoiceArmRaise(t *testing.T) {
 
 func TestCodedPivot14LiveValueFallbackAndTrim(t *testing.T) {
 	svc := pivot14LiveService(t)
-	// Fallback chain (renderCorrelationValues :159-175): the primary
-	// valueQuantity.value is absent, so the valueString fallback is
-	// chosen when it is non-blank; an all-blank fallback (the ONE trim
-	// set) is ineligible and the cell reads null WITHOUT the value-type
-	// guard.
 	primary := pivot14CodedBundle("p14_live_fallback", []recipe.ConstructionCodedPivotCategory{
 		{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
 	}, recipe.PivotDuplicateSum, recipe.PivotMissingCellNull,
 		"valueQuantity.value", nil, false, []string{"valueQuantity"}, "decimal")
 	plan := pivot14CompileBundle(t, primary, []string{"FHIR/Observation"})
-	// The DECIMAL + valueString-arm + FallbackOnBlankString state is what
-	// AQL renders, but the authored layers refuse it three times over
-	// (construction_reshape.go:171 wants string values for blank-string
-	// fallback; lower rejects a valueString fallback and mixed choice
-	// arms under decimal),
-	// so it rides hand-carried IR; ir itself places no such restriction
-	// on the correlation.
 	correlation := pivot14CodedPivot(t, plan).CodedCorrelation
 	correlation.ValueFallbacks = []spec.Selector{specSelector(t, "valueString")}
 	correlation.ChoiceArms = []string{"valueQuantity", "valueString"}
@@ -722,7 +591,6 @@ func TestCodedPivot14LiveValueFallbackAndTrim(t *testing.T) {
 		t.Fatalf("systolic column missing: %v", probeRendered.OutputColumns)
 	}
 
-	// f1: matched owner with no candidates at all → cnt 0, null cell.
 	pivot14SeedObservation(t, svc, "f1", map[string]any{
 		"component": []map[string]any{
 			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, nil),
@@ -740,9 +608,6 @@ func TestCodedPivot14LiveValueFallbackAndTrim(t *testing.T) {
 		t.Fatalf("owner with no candidates must read the null cell, got %q", got)
 	}
 
-	// f2: non-blank numeric STRING fallback is chosen (primary empty), its
-	// item is a STRING under the DECIMAL witness → the typed enumeration
-	// rejects it and the value-type guard raises 22P02 naming the tag.
 	pivot14SeedObservation(t, svc, "f2", map[string]any{
 		"component": []map[string]any{
 			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, strPtr("12.5")),
@@ -756,11 +621,6 @@ func TestCodedPivot14LiveValueFallbackAndTrim(t *testing.T) {
 		t.Fatalf("value-type raise drifted: %v", err)
 	}
 
-	// All-blank fallback under FallbackOnBlankString: the candidate never
-	// enters the typed enumeration — no raise, null cell. The trim set
-	// reaches SQL only as the ONE bound parameter (structural law; the
-	// btrim render lives in the gate-file helper
-	// codedGroupTrimmedNonBlank, never inline in pivot.go).
 	blankSvc := pivot14LiveService(t)
 	pivot14SeedObservation(t, blankSvc, "b1", map[string]any{
 		"component": []map[string]any{
@@ -775,8 +635,6 @@ func TestCodedPivot14LiveValueFallbackAndTrim(t *testing.T) {
 	if len(blankRows) != 1 || (blankRows[0][systolicIndex] != "<null>" && blankRows[0][systolicIndex] != "null") {
 		t.Fatalf("all-blank fallback must be ineligible and read null, got %v", blankRows)
 	}
-	// The trim predicate renders (through the gate-file helper) with the
-	// ONE trim set as a bound parameter — never an inlined literal.
 	if !strings.Contains(blankRendered.SQL, "btrim(") ||
 		strings.Contains(blankRendered.SQL, "btrim(b.x #>> '{}', ' '") {
 		t.Fatalf("the trim must render with the ONE set as a bound parameter:\n%s", blankRendered.SQL)
@@ -793,34 +651,8 @@ func TestCodedPivot14LiveValueFallbackAndTrim(t *testing.T) {
 }
 
 func TestCodedPivot14LiveReducerMissingTypedCount(t *testing.T) {
-	// Coded-branch MISSING raise on a zero-candidate matched owner plus
-	// the NULL sibling; the textual §7 receipt is in
-	// TestCodedPivot14GuardOrderAndMissingBranches.
-	//
-	// DATED CORRECTION (2026-11-11, 157 verdict relay F-3): an earlier
-	// revision of this comment claimed cp_cnt == cp_tcnt on every
-	// reachable row and that the :267-vs-:230 swap hid only in
-	// unreachable states. That was FALSE: a value member storing an
-	// array whose item is JSON null reaches cp_vals as a null item
-	// through the chosen-candidate FLATTEN (table_reshape.go:385), so
-	// cp_cnt = 1 while cp_tcnt = 0 — 157 drove 1 != 0 and :267 fired.
-	// The per-branch runtime ALIVE controls the ratification required
-	// are therefore built for BOTH branches: the coded :267 leg is
-	// TestCodedPivot14TypedCountMissingRaiseControl (raises, and its
-	// NULL sibling must not) and the scalar :230 twin is
-	// TestPivot14LiveScalarMissingRawCountNoRaise (raw>0/typed=0 must
-	// NOT raise, opposite polarity).
 	svc := pivot14LiveService(t)
-	// ONLY the null-candidate state (no matched-owner-with-no-candidates
-	// row here: that owner has raw count 0 too and would raise MISSING
-	// under either count, masking the raw-vs-typed swap this leg is the
-	// ALIVE control for). valueQuantity present with a null value —
-	// jsonb stores the candidate array as [null].
 	pivot14SeedObservation(t, svc, "m2", json.RawMessage(`{"component":[{"code":{"coding":[{"system":"http://loinc.org","code":"8480-6"}]},"valueQuantity":{"value":null}}]}`))
-	// A SINGLE category: with the default two categories the never-matched
-	// diastolic term raises MISSING on its own and masks the raw-vs-typed
-	// count swap (the §7 ALIVE asymmetry control must flip on this leg
-	// alone).
 	codedCategories := []recipe.ConstructionCodedPivotCategory{
 		{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
 	}
@@ -839,7 +671,6 @@ func TestCodedPivot14LiveReducerMissingTypedCount(t *testing.T) {
 	if !strings.Contains(err.Error(), "TABLE_PIVOT_CELL_MISSING") || !strings.Contains(err.Error(), "22P02") {
 		t.Fatalf("coded MISSING raise drifted: %v", err)
 	}
-	// NULL missing sibling: identical data reads the null cell.
 	nullPlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_live_missing_null", codedCategories,
 		recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, ""),
 		[]string{"FHIR/Observation"})
@@ -857,25 +688,11 @@ func TestCodedPivot14LiveReducerMissingTypedCount(t *testing.T) {
 }
 
 func TestCodedPivot14LiveFlattenChosenCandidate(t *testing.T) {
-	// The chosen candidate is FLATTENed ONE level at exactly the layer
-	// the oracle does (LET __coded_values = FLATTEN(chosen),
-	// table_reshape.go:385): a value selector whose final member stores
-	// an array splices that member into its items, so counts and cell
-	// readings match AQL instead of treating the array as one element.
-	// Without the splice: the cardinality guard stays silent (the
-	// cardinality twin below passes vacuously) and the reducer raises
-	// VALUE_TYPE on the array (the SUM twin fails) where AQL returns a
-	// number.
 	svc := pivot14LiveService(t)
-	// One owner whose only value member is an array of two numbers:
-	// AQL sees items [7, 3] (raw count 2), not one array element.
 	pivot14SeedObservation(t, svc, "fl1", json.RawMessage(
 		`{"component":[{"code":{"coding":[{"system":"http://loinc.org","code":"8480-6"}]},`+
 			`"valueQuantity":{"value":[7,3]}}]}`))
 
-	// Cardinality twin: ERROR duplicate over the two spliced items must
-	// raise TABLE_PIVOT_CELL_CARDINALITY (22P02). Pre-splice this does
-	// not raise at all (raw count 1).
 	cardPlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_live_flatten_card",
 		[]recipe.ConstructionCodedPivotCategory{
 			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
@@ -890,8 +707,6 @@ func TestCodedPivot14LiveFlattenChosenCandidate(t *testing.T) {
 		t.Fatalf("spliced array member must reach the cardinality guard like AQL: %v", err)
 	}
 
-	// SUM twin: the reducer must return 10 where pre-splice the array
-	// item would trip the value-type guard.
 	sumBundle := pivot14CodedBundle("p14_live_flatten_sum",
 		[]recipe.ConstructionCodedPivotCategory{
 			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
@@ -921,17 +736,6 @@ func TestCodedPivot14LiveFlattenChosenCandidate(t *testing.T) {
 }
 
 func TestCodedPivot14LiveFallbackOrdinalPrecedence(t *testing.T) {
-	// FIRST-over-candidates is FIRST-in-DECLARED-order (the AQL
-	// FIRST(FOR __correlation_candidate IN [a1, a2, ...] FILTER eligible
-	// RETURN candidate), predicates.go:177): the VALUES pick carries an
-	// explicit ordinal and ORDER BY it, so a planner change can never
-	// let a later eligible fallback silently win. Here BOTH candidates
-	// are eligible on one matched owner — the primary number must win.
-	// (A wrong pick reads the string "999" under DECIMAL, tripping the
-	// value-type guard, so the leg fails loudly rather than drifting.)
-	// The DECIMAL + valueString-fallback state is refused by the recipe
-	// and lower layers (see TestCodedPivot14LiveValueFallbackAndTrim),
-	// so it rides hand-carried IR.
 	svc := pivot14LiveService(t)
 	bundle := pivot14CodedBundle("p14_live_fallback_precedence",
 		[]recipe.ConstructionCodedPivotCategory{
@@ -973,25 +777,12 @@ func TestCodedPivot14LiveFallbackOrdinalPrecedence(t *testing.T) {
 }
 
 func TestCodedPivot14LiveCompetingGuardsCategoryOrder(t *testing.T) {
-	// ALIVE control for the single ordered outer chain: category 0 is in
-	// the MISSING state and category 1 carries a matched owner with an
-	// unsupported choice arm. The AQL projection forces category 0's
-	// LETs first: the category-0 cell guard wins with
-	// TABLE_PIVOT_CELL_MISSING (table_reshape.go:384-:386 evaluates the
-	// categories strictly in declared order). Raising the choice-arm
-	// inside the per-category CTE let the CTE materialization pick
-	// INVALID_CHOICE_ARM instead — an unstable winner PostgreSQL does
-	// not even fix among the CTEs.
 	svc := pivot14LiveService(t)
-	// g0: matched 8480-6 owner with NO value → category 0 raw count 0.
 	pivot14SeedObservation(t, svc, "g0", map[string]any{
 		"component": []map[string]any{
 			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, nil),
 		},
 	})
-	// g1: matched 8462-4 owner whose only value is on an arm OUTSIDE the
-	// checked binding (default arms = [valueQuantity]) → cp_bad for
-	// category 1.
 	pivot14SeedObservation(t, svc, "g1", map[string]any{
 		"component": []map[string]any{
 			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8462-4", "")}, nil, strPtr("bad-arm")),
@@ -1013,21 +804,7 @@ func TestCodedPivot14LiveCompetingGuardsCategoryOrder(t *testing.T) {
 
 func strPtr(value string) *string { return &value }
 
-// ---------------------------------------------------------------------------
-// Plan §7/§8 acceptance (157 verdict relay, 2026-11-11): plan-named
-// production leg, ALIVE controls, guard legs, the F-3 runtime raw-vs-typed
-// discriminator, and the C4/C6 IR-channel refusal controls.
-// ---------------------------------------------------------------------------
-
 func TestPivot14ProductionCodedLive(t *testing.T) {
-	// Plan §8.2: production-compiled construction CODED_PIVOT with
-	// literal expected rows — same code under different systems stays
-	// distinct cells, a versioned coding under the same (system, code)
-	// contributes as a DUPLICATE observation (version never consulted,
-	// ruling R2), duplicate identical codings within one record
-	// double-count, zero-coding roots read the NULL-policy cell, exact
-	// row identities and output columns, and category literals never
-	// reach SQL text while riding parameters.
 	svc := pivot14LiveService(t)
 	pivot14SeedObservation(t, svc, "q1", map[string]any{
 		"component": []map[string]any{
@@ -1093,10 +870,10 @@ func TestPivot14ProductionCodedLive(t *testing.T) {
 		systolic, diastolic string
 	}{
 		{"q1", "120", "<null>"},
-		{"q2", "<null>", "<null>"}, // different systems never match
-		{"q3", "15", "<null>"},     // version-varied codings: 10+5 duplicate observations
-		{"q4", "<null>", "7"},      // duplicate identical codings double-count
-		{"q5", "<null>", "<null>"}, // zero-matching-coding root: NULL-policy cell
+		{"q2", "<null>", "<null>"},
+		{"q3", "15", "<null>"},
+		{"q4", "<null>", "7"},
+		{"q5", "<null>", "<null>"},
 	}
 	for _, want := range expectations {
 		row, ok := byRoot[want.root]
@@ -1117,9 +894,6 @@ func TestPivot14ProductionCodedLive(t *testing.T) {
 }
 
 func TestCodedPivot14SameCodeDistinctSystemAliveControl(t *testing.T) {
-	// Plan §8 ALIVE control (sabotage victim "coded match drops system
-	// param"): the SAME code under a foreign system must never match —
-	// including the OTHER category's code, so a code-only match dies.
 	svc := pivot14LiveService(t)
 	pivot14SeedObservation(t, svc, "sd1", map[string]any{
 		"component": []map[string]any{
@@ -1160,11 +934,6 @@ func TestCodedPivot14SameCodeDistinctSystemAliveControl(t *testing.T) {
 }
 
 func TestCodedPivot14DuplicateObservationAliveControl(t *testing.T) {
-	// Plan §8 ALIVE control (sabotage victim "coded values
-	// DISTINCT-collapse"): duplicate identical values under one (system,
-	// code) must NOT silently dedup — SUM double-counts 7+7=14, and the
-	// ERROR branch raises TABLE_PIVOT_CELL_CARDINALITY (a DISTINCT
-	// collapse makes both legs read as ONE observation).
 	bundleSum := pivot14CodedBundle("p14_dup_sum",
 		[]recipe.ConstructionCodedPivotCategory{
 			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
@@ -1205,12 +974,6 @@ func TestCodedPivot14DuplicateObservationAliveControl(t *testing.T) {
 }
 
 func TestCodedPivot14OwnerZeroItemAliveControl(t *testing.T) {
-	// Plan §8 ALIVE control: an owner whose candidate chain yields ZERO
-	// items contributes nothing (it must not poison the cell nor count
-	// as a null observation — a renderer that minted [null] for it would
-	// trip the ERROR cardinality guard), and a root with zero matching
-	// codings reads the NULL-policy cell versus raising MISSING under
-	// MissingCellPolicy=ERROR.
 	mixed := map[string]any{
 		"component": []map[string]any{
 			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, nil),
@@ -1267,14 +1030,6 @@ func TestCodedPivot14OwnerZeroItemAliveControl(t *testing.T) {
 }
 
 func TestCodedPivot14FallbackBlankAliveControl(t *testing.T) {
-	// Plan §8 ALIVE control (renderCorrelationValues blank eligibility):
-	// a non-blank fallback IS chosen (its item then trips the DECIMAL
-	// typed guard — proof it reached the cell), while an all-blank
-	// fallback (the ONE trim set) is INELIGIBLE and the cell reads null
-	// WITHOUT a raise. Dropping the blank eligibility would choose the
-	// blank fallback and raise — this leg is the RED pin for that
-	// mutant. The DECIMAL+fallback state rides hand-carried IR (recipe
-	// and lower reject it three times over, see FallbackOrdinalPrecedence).
 	blankBundle := pivot14CodedBundle("p14_fb_blank",
 		[]recipe.ConstructionCodedPivotCategory{
 			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
@@ -1314,17 +1069,6 @@ func TestCodedPivot14FallbackBlankAliveControl(t *testing.T) {
 }
 
 func TestCodedPivot14TypedCountMissingRaiseControl(t *testing.T) {
-	// F-3 (157 verdict relay): the raw-vs-typed counts DIVERGE on
-	// reachable ir-accepted data — a value member that stores [null]
-	// reaches cp_vals as a JSON null item through the chosen-candidate
-	// FLATTEN (table_reshape.go:385), so cp_cnt (raw) = 1 while
-	// cp_tcnt (typed) = 0. The coded reducer branch conditions MISSING
-	// on the TYPED count (table_reshape.go:267), so SUM+ERROR raises
-	// TABLE_PIVOT_CELL_MISSING — the raw-count reading would silently
-	// pass (this leg is the runtime victim for that swap; it supersedes
-	// the earlier unreachable-state deviation, corrected in the PR body
-	// and plan with a dated addendum). The scalar :230 twin keeps the
-	// OPPOSITE polarity: TestPivot14LiveScalarMissingRawCountNoRaise.
 	single := []recipe.ConstructionCodedPivotCategory{
 		{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
 	}
@@ -1357,12 +1101,6 @@ func TestCodedPivot14TypedCountMissingRaiseControl(t *testing.T) {
 }
 
 func TestCodedPivot14LiveValueTypeRaise(t *testing.T) {
-	// Plan §7 named guard leg, coded branch (F-2): a wrong-typed value
-	// — coercible "12.5" or not "abc" — must abort with the canonical
-	// TABLE_PIVOT_VALUE_TYPE_MISMATCH tag through the outer chain; the
-	// pre-cast guard keeps the aggregate total so the untagged
-	// double-precision cast never wins the race (AQL asserts the type
-	// per item before reducing).
 	for _, value := range []string{"abc", "12.5"} {
 		t.Run("value_"+value, func(t *testing.T) {
 			svc := pivot14LiveService(t)
@@ -1381,8 +1119,6 @@ func TestCodedPivot14LiveValueTypeRaise(t *testing.T) {
 		})
 	}
 
-	// Non-raise twin (ALIVE discipline: an always-firing guard must not
-	// pass this leg): clean numeric data reads the reducer, no raise.
 	cleanSvc := pivot14LiveService(t)
 	pivot14SeedObservation(t, cleanSvc, "cv0", json.RawMessage(
 		`{"component":[{"code":{"coding":[{"system":"http://loinc.org","code":"8480-6"}]},"valueQuantity":{"value":6}}]}`))
@@ -1402,13 +1138,6 @@ func TestCodedPivot14LiveValueTypeRaise(t *testing.T) {
 }
 
 func TestCodedPivotIRRowValuesAliveControl(t *testing.T) {
-	// Plan §C4 ALIVE control: RowValues is IR-ACCEPTED (the producer
-	// emits it for coded pivots at recipe_construction_coded_pivot.go
-	// :80-91; ir/physical_stage_validation.go admits it) — reaching the
-	// door's refusal (ErrUnsupportedPostgresPlan naming pg-sql-13) via
-	// RenderPhysicalPlan proves ir validation passed first. The
-	// arm-removal counterfactual is the gauntlet mutant (renders a
-	// partial statement instead of refusing).
 	base := pivot14CompileCodedBundle(t, "p14_ir_rowvalues")
 	clone := clonePlanForPivot14(base)
 	pivot14CodedPivot(t, clone).RowValues = []ir.PhysicalStageRowValue{
@@ -1418,11 +1147,6 @@ func TestCodedPivotIRRowValuesAliveControl(t *testing.T) {
 }
 
 func TestCodedPivotIRSetAliveControl(t *testing.T) {
-	// Plan §C6 ALIVE control, BOTH doors: the coded door refuses a
-	// source-region SET (the whitelist leak that the statement builder
-	// has no dispatch for — arm-removal would silently DROP the
-	// operation, the L-19.4 discipline); the scalar door refuses the
-	// coexisting SET with the registered cannot-coexist text.
 	coded := pivot14CompileCodedBundle(t, "p14_ir_set")
 	clone := clonePlanForPivot14(coded)
 	operations := make([]ir.PhysicalOperation, 0, len(clone.Operations)+1)
@@ -1442,9 +1166,6 @@ func TestCodedPivotIRSetAliveControl(t *testing.T) {
 }
 
 func TestCodedPivotIRExpressionLetAliveControl(t *testing.T) {
-	// Plan §C6 ALIVE control for EXPRESSION_LET, both doors (same
-	// silently-dropped shape as SET; the validator arm is the sole
-	// load-bearing gate, sabotage-proven by the gauntlet mutant).
 	coded := pivot14CompileCodedBundle(t, "p14_ir_let")
 	clone := clonePlanForPivot14(coded)
 	operations := make([]ir.PhysicalOperation, 0, len(clone.Operations)+1)

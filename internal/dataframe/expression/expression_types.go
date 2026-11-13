@@ -1,6 +1,3 @@
-// Package expression contains the typed, backend-neutral expression AST used
-// by dataframe recipes.  It intentionally has no knowledge of AQL, SQL, or
-// output names: a physical compiler consumes the checked tree later.
 package expression
 
 import (
@@ -9,9 +6,6 @@ import (
 	"strings"
 )
 
-// ValueKind is the logical type of an expression value. Cardinality is kept
-// separately in Type so a repeated string and a scalar string remain visibly
-// different to a compiler.
 type ValueKind string
 
 const (
@@ -24,14 +18,9 @@ const (
 	KindDateTime ValueKind = "date_time"
 	KindCode     ValueKind = "code"
 	KindUUID     ValueKind = "uuid"
-	// KindObject represents a structured value whose fields are resolved by a
-	// lexical recipe scope. It is intentionally backend-neutral; physical
-	// lowerers decide whether the object is a document, object expression, or
-	// relationship item.
-	KindObject ValueKind = "object"
+	KindObject   ValueKind = "object"
 )
 
-// Cardinality describes the number of values produced for one row context.
 type Cardinality string
 
 const (
@@ -47,9 +36,6 @@ func (c Cardinality) Valid() bool {
 func (c Cardinality) AllowsMany() bool { return c == Many }
 func (c Cardinality) Optional() bool   { return c == OptionalOne || c == Many }
 
-// Type is a logical expression type. Element is reserved for object-like
-// types in later recipe versions; scalar arrays are represented by the same
-// Kind with Cardinality=Many so functions can reason about them uniformly.
 type Type struct {
 	Kind        ValueKind   `json:"kind"`
 	Cardinality Cardinality `json:"cardinality"`
@@ -78,8 +64,6 @@ func (t Type) String() string {
 
 func scalar(kind ValueKind) Type { return Type{Kind: kind, Cardinality: RequiredOne} }
 
-// NullBehavior makes null handling part of semantic meaning rather than an
-// incidental renderer choice.
 type NullBehavior string
 
 const (
@@ -92,28 +76,19 @@ func (n NullBehavior) Valid() bool {
 	return n == "" || n == NullPropagate || n == NullEmpty || n == NullError
 }
 
-// NodeKind identifies a node in the expression tree.
 type NodeKind string
 
 const (
-	SelectorNode NodeKind = "selector"
-	LiteralNode  NodeKind = "literal"
-	CallNode     NodeKind = "call"
-	// DocumentRefNode denotes the complete document in a lexical resource
-	// context.  It intentionally carries no selector or backend query text;
-	// physical lowerers decide how to materialize the document envelope.
+	SelectorNode    NodeKind = "selector"
+	LiteralNode     NodeKind = "literal"
+	CallNode        NodeKind = "call"
 	DocumentRefNode NodeKind = "document_ref"
 )
 
-// DocumentRef identifies the complete document in a named lexical context.
-// Context defaults to root and is validated against the surrounding semantic
-// scope by the recipe planner.
 type DocumentRef struct {
 	Context string `json:"context,omitempty"`
 }
 
-// SelectorRef identifies a value in a named row context. The path is a
-// logical selector, not a query-language fragment.
 type SelectorRef struct {
 	Context string `json:"context,omitempty"`
 	Path    string `json:"path"`
@@ -142,23 +117,17 @@ func (s SelectorRef) Validate() error {
 	return nil
 }
 
-// Literal is a typed constant. Value is intentionally opaque to this package
-// after type validation, which keeps physical encodings out of the AST.
 type Literal struct {
 	Type  Type `json:"type"`
 	Value any  `json:"value,omitempty"`
 }
 
-// Call is a named generic function. Target is only used by cast and is kept
-// as a type rather than accepting a backend or language type name.
 type Call struct {
 	Name   string       `json:"name"`
 	Args   []Expression `json:"args,omitempty"`
 	Target *Type        `json:"target,omitempty"`
 }
 
-// Expression is a lowering-neutral AST node. Type is an optional annotation;
-// Check recomputes it and rejects a conflicting annotation.
 type Expression struct {
 	Kind         NodeKind     `json:"kind"`
 	Type         Type         `json:"type,omitempty"`
@@ -169,12 +138,8 @@ type Expression struct {
 	Document     *DocumentRef `json:"document,omitempty"`
 }
 
-// SelectorResolver supplies schema-aware types without coupling this package
-// to a particular generated FHIR schema or storage backend.
 type SelectorResolver func(SelectorRef) (Type, error)
 
-// TypeContext is the environment used to type-check selectors. Selectors map
-// keys may be either SelectorRef.String() or the path alone.
 type TypeContext struct {
 	Selectors map[string]Type
 	Resolve   SelectorResolver
@@ -182,19 +147,15 @@ type TypeContext struct {
 	MaxNodes  int
 }
 
-// CheckedExpression is an expression plus its inferred semantic result type.
 type CheckedExpression struct {
 	Expression Expression
 	Type       Type
 }
 
-// Check validates an expression tree and returns its inferred type.
 func Select(ref SelectorRef) Expression {
 	return Expression{Kind: SelectorNode, Selector: &ref, NullBehavior: NullPropagate}
 }
 
-// Document returns an expression referring to the complete document in
-// context. An empty context is normalized to root by semantic planning.
 func Document(context string) Expression {
 	return Expression{Kind: DocumentRefNode, Document: &DocumentRef{Context: strings.TrimSpace(context)}, NullBehavior: NullPropagate}
 }

@@ -8,21 +8,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// TestCompiledQueryFingerprintByteGolden pins the exact digest bytes the
-// cache-key and EXPLAIN policy consume, proving the typed-command migration
-// kept the hash input shape byte-identical: the AQL digest covers query text
-// and bind names only, and untagged or PostgreSQL-tagged commands contribute
-// the empty AQL shape (sha256 of an empty payload). A single flipped byte of
-// query text must move the AQL digest; the PostgreSQL/zero digests must not
-// move at all.
 func TestCompiledQueryFingerprintByteGolden(t *testing.T) {
 	const (
-		aqlText = "FOR d IN @@collection FILTER d.p == @p SORT d.id LIMIT @__loom_page_size RETURN d"
-		// sha256 of the documented JSON payload shape; recompute only when
-		// the documented encoding changes deliberately, never to chase a
-		// migration drift.
-		wantAQL = "47d2ce3477240c9eead395870c755b5bfbc99eae8e6d6d96480e2c6909657954"
-		// sha256 of the empty string: the pinned empty AQL shape.
+		aqlText   = "FOR d IN @@collection FILTER d.p == @p SORT d.id LIMIT @__loom_page_size RETURN d"
+		wantAQL   = "47d2ce3477240c9eead395870c755b5bfbc99eae8e6d6d96480e2c6909657954"
 		wantEmpty = "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
 	)
 	aqlCommand, err := command.NewAQLCommand(aqlText, map[string]any{
@@ -70,8 +59,6 @@ func TestCompiledQueryFingerprintExcludesBindValues(t *testing.T) {
 	query := "FOR root IN Patient FILTER root.id == @id RETURN root"
 	left := compiler.CompiledQuery{Command: mustAQLCommand(query, map[string]any{"id": "one"}), Columns: []string{"id"}}
 	right := left
-	// Commands are immutable; the value-varied and key-varied plans rebuild
-	// the tagged command rather than mutating shared bind state.
 	right.Command = mustAQLCommand(query, map[string]any{"id": "two"})
 	if got, want := CompiledQueryFingerprint(left), CompiledQueryFingerprint(right); got != want {
 		t.Fatalf("fingerprint includes bind value: left=%q right=%q", got, want)
@@ -96,7 +83,6 @@ func TestCompiledQueryFingerprintKeepsPostgreSQLShapeIndependentOfText(t *testin
 	if got, want := CompiledQueryFingerprint(left), CompiledQueryFingerprint(right); got != want {
 		t.Fatalf("PostgreSQL plan fingerprint must keep the pre-boundary empty AQL shape: left=%q right=%q", got, want)
 	}
-	// Output metadata still participates for PostgreSQL plans.
 	right.Columns = []string{"id", "name"}
 	if CompiledQueryFingerprint(left) == CompiledQueryFingerprint(right) {
 		t.Fatal("fingerprint did not include output column shape for a PostgreSQL plan")

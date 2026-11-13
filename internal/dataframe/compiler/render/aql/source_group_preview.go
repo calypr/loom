@@ -24,11 +24,6 @@ type sourceGroupPreviewFrontier struct {
 	rootKeysVariable string
 }
 
-// terminalSourceGroupPreviewWindowFor proves the source-Group shape whose
-// first preview groups can be selected before expanding related rows. The
-// frontier retains the exact root filters and key values, then checks each
-// group for at least one scoped route witness. The canonical source and Group
-// still compute all selected contributors, including duplicate edges/items.
 func terminalSourceGroupPreviewWindowFor(
 	plan, sourcePlan ir.PhysicalPlan,
 	sequence *ir.PhysicalStageSequence,

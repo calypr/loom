@@ -1,6 +1,3 @@
-// Package recipe defines the persistence-neutral recipe document used by the
-// dataframe compiler. A recipe describes semantic row shaping only; it never
-// carries database collection, table, AQL, or SQL details.
 package recipe
 
 import (
@@ -9,8 +6,6 @@ import (
 	"encoding/json"
 )
 
-// CanonicalJSONWithWorkspaceOutputs is limited to compiler fragments whose
-// sibling IDs are validated by the enclosing authoring workspace.
 func (b Bundle) CanonicalJSONWithWorkspaceOutputs(allowed []string) ([]byte, error) {
 	if err := b.ValidateWithWorkspaceOutputs(allowed); err != nil {
 		return nil, err
@@ -18,8 +13,6 @@ func (b Bundle) CanonicalJSONWithWorkspaceOutputs(allowed []string) ([]byte, err
 	return json.Marshal(b)
 }
 
-// DigestWithWorkspaceOutputs includes exact sibling IDs while validating the
-// fragment against its enclosing workspace context.
 func (b Bundle) DigestWithWorkspaceOutputs(allowed []string) (string, error) {
 	canonical, err := b.CanonicalJSONWithWorkspaceOutputs(allowed)
 	if err != nil {
@@ -36,9 +29,6 @@ func (b Bundle) CanonicalJSON() ([]byte, error) {
 	return json.Marshal(b)
 }
 
-// CanonicalBundle expands fragment macros and round-trips the validated
-// document so every registration and compilation boundary receives the same
-// immutable, standalone recipe shape.
 func (b Bundle) CanonicalBundle() (Bundle, error) {
 	if b.Fragments != nil {
 		expanded, err := b.ExpandFragments()
@@ -58,7 +48,6 @@ func (b Bundle) CanonicalBundle() (Bundle, error) {
 	return normalized, nil
 }
 
-// Digest returns the SHA-256 digest of CanonicalJSON encoded as lowercase hex.
 func (b Bundle) Digest() (string, error) {
 	canonical, err := b.CanonicalJSON()
 	if err != nil {
@@ -68,7 +57,6 @@ func (b Bundle) Digest() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// Explain returns the validated semantic shape and canonical digest.
 func (b Bundle) Explain() (Explanation, error) {
 	digest, err := b.Digest()
 	if err != nil {

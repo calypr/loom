@@ -1,38 +1,5 @@
 package postgres
 
-// arch-backend-03 boundary-through witnesses: the execution rows adapter
-// interprets vendor failures at the adapter boundary through the
-// store/postgres error boundary (TranslateError), so consumers above the
-// adapter (execution, server Explain) observe Loom error identities —
-// stable DriverCondition, SQLSTATE, retryability — instead of *pgconn.PgError
-// fields or message text. The raw server cause stays reachable server-side
-// only through (*TranslatedError).Cause and is never Is/As-visible or
-// rendered.
-//
-// Every witness drives the real Executor against the PostgreSQL 18 service
-// named by LOOM_TEST_POSTGRES_URL; the fixture refuses any other server.
-// Witness severity values are the merged boundary's own literals (the
-// dataframeerrors code constants the boundary specs carry), reused, never
-// restated. Cross-backend equivalence: the 57014 witness pins
-// CodeQueryResourceLimitExceeded — the same literal the Arango adapter seam
-// produces for query resource limits, so both backends surface one code at
-// the execution boundary.
-//
-// Non-vacuity discipline: each classification witness has a paired control
-// that must NOT classify (the happy stream on the same adapter; a caller
-// cancellation pinned to context identity), and the redaction assertions are
-// negative checks on the public rendering while the same server text is
-// simultaneously required through Cause() — a boundary that leaked or a
-// Cause that dropped detail both fail.
-//
-// Fixture databases are uniquely owned as verify_ab03_boundary_* and dropped
-// by the test that created them. The final TestZZ audit is ownership-scoped:
-// it requires each exact name this file registered to be gone, and it
-// requires zero foreign verify_ab03_* databases to remain after a bounded
-// grace period (a foreign one can only be a sibling witness process's live
-// fixture, dropped by its own owner). Workers in other fixture namespaces
-// never trip this audit.
-
 import (
 	"context"
 	"crypto/rand"
@@ -83,12 +50,9 @@ func ab03RandomHex(t *testing.T) string {
 	return hex.EncodeToString(buf)
 }
 
-// ab03Service owns one isolated database on the test service. Nothing
-// outside the returned DSN's database is created; every object lives inside
-// the single owned database, which cleanup drops with FORCE.
 type ab03Service struct {
 	ctx   context.Context
-	dsn   string // owned-database DSN (credentials scrubbed on failure)
+	dsn   string
 	scrub func(any) string
 	fail  func(step string, err error)
 }
@@ -168,8 +132,6 @@ func newAB03Service(t *testing.T) *ab03Service {
 	return &ab03Service{ctx: ctx, dsn: svcDSN.String(), scrub: scrub, fail: fail}
 }
 
-// ab03Conn returns a dedicated direct connection to the owned database plus
-// an Executor streaming through that same connection.
 func (s *ab03Service) ab03Conn(t *testing.T) (*pgx.Conn, *Executor) {
 	t.Helper()
 	conn, err := pgx.Connect(s.ctx, s.dsn)
@@ -184,9 +146,6 @@ func (s *ab03Service) ab03Conn(t *testing.T) (*pgx.Conn, *Executor) {
 	return conn, executor
 }
 
-// ab03RequireTranslated asserts the adapter surfaced the error through the
-// QueryError class with the expected boundary condition and SQLSTATE, and
-// returns the classification for further assertions.
 func ab03RequireTranslated(t *testing.T, err error, wantOp string, wantCondition storepg.DriverCondition, wantState string) *storepg.TranslatedError {
 	t.Helper()
 	if err == nil {
@@ -213,9 +172,6 @@ func ab03RequireTranslated(t *testing.T, err error, wantOp string, wantCondition
 	return translated
 }
 
-// ab03RequireCause pins the raw server cause behind the Cause accessor: the
-// exact SQLSTATE and a required message fragment, while the same fragment
-// must be absent from every public rendering.
 func ab03RequireCause(t *testing.T, err error, translated *storepg.TranslatedError, wantState, wantMessageFragment string) {
 	t.Helper()
 	if strings.Contains(err.Error(), wantMessageFragment) {
@@ -248,20 +204,11 @@ func ab03RequireCode(t *testing.T, err error, want dataframeerrors.ErrorCode) {
 	}
 }
 
-// TestAB03BoundaryThroughQueryCanceled proves the server-policy cancellation
-// (statement_timeout, 57014) arrives boundary-classified as
-// ConditionQueryCanceled with the cross-backend-equivalent severity literal
-// CodeQueryResourceLimitExceeded — the literal the Arango adapter seam uses
-// for query resource limits (golden-pinned in internal/backends/arango/internal/store). The
-// paired control proves the same adapter streams happy rows without any
-// classification.
 func TestAB03BoundaryThroughQueryCanceled(t *testing.T) {
 	svc := newAB03Service(t)
 	conn, executor := svc.ab03Conn(t)
 	_, controlExecutor := svc.ab03Conn(t)
 
-	// Control first: the happy stream through the same adapter shape must
-	// succeed and carry no classification.
 	rows := 0
 	if err := controlExecutor.SourceRows(svc.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT 1::bigint AS one UNION ALL SELECT 2::bigint`), DeclaredColumns: []string{"one"}}, func(map[string]any) error { rows++; return nil }); err != nil {
 		svc.fail("happy-stream control", err)
@@ -281,8 +228,6 @@ func TestAB03BoundaryThroughQueryCanceled(t *testing.T) {
 		t.Fatalf("public error %q discloses statement text", err)
 	}
 
-	// Double application is stable: re-applying the boundary to the
-	// already-classified error keeps the identical classification object.
 	reapplied, ok := storepg.TranslateError(err)
 	if !ok {
 		t.Fatal("re-applying the boundary to a classified error reported not-owned")
@@ -296,10 +241,6 @@ func TestAB03BoundaryThroughQueryCanceled(t *testing.T) {
 	}
 }
 
-// TestAB03BoundaryThroughServerRejected proves an unrecognized server
-// failure (undefined relation, 42P01) is classified internal at the boundary
-// with server_rejected, and that the relation name never reaches the public
-// rendering while staying exact through Cause().
 func TestAB03BoundaryThroughServerRejected(t *testing.T) {
 	svc := newAB03Service(t)
 	_, executor := svc.ab03Conn(t)
@@ -324,11 +265,6 @@ func TestAB03BoundaryThroughServerRejected(t *testing.T) {
 	}
 }
 
-// TestAB03BoundaryThroughAbortedTransaction proves 25P02 (statement refused
-// by an already-aborted transaction) surfaces as aborted_transaction with
-// the boundary predicate IsAbortedTransaction satisfied through the
-// adapter — never a rollback claim — while the transaction really was the
-// blocker (control: the same statement succeeds after ROLLBACK).
 func TestAB03BoundaryThroughAbortedTransaction(t *testing.T) {
 	svc := newAB03Service(t)
 	conn, executor := svc.ab03Conn(t)
@@ -347,8 +283,6 @@ func TestAB03BoundaryThroughAbortedTransaction(t *testing.T) {
 		t.Fatalf("adapter error not recognized by IsAbortedTransaction: %v", err)
 	}
 
-	// Control: after ending the transaction, the same adapter statement
-	// streams again — the classification tracked the real server state.
 	if _, err := conn.Exec(svc.ctx, `ROLLBACK`); err != nil {
 		svc.fail("rollback", err)
 	}
@@ -361,9 +295,6 @@ func TestAB03BoundaryThroughAbortedTransaction(t *testing.T) {
 	}
 }
 
-// TestAB03BoundaryThroughAdminShutdown proves a server-terminated session
-// (pg_terminate_backend, 57P01) surfaces as retryable backend-unavailable
-// with the ErrConnect sentinel reachable through the adapter chain.
 func TestAB03BoundaryThroughAdminShutdown(t *testing.T) {
 	svc := newAB03Service(t)
 	_, executor := svc.ab03Conn(t)
@@ -373,8 +304,6 @@ func TestAB03BoundaryThroughAdminShutdown(t *testing.T) {
 	}
 	defer terminator.Close(context.Background())
 
-	// Unique per invocation so a concurrent sibling witness process can
-	// never scope its terminator to this backend (or vice versa).
 	marker := fmt.Sprintf("/*ab03-terminate-%s*/", ab03RandomHex(t))
 	errc := make(chan error, 1)
 	go func() {
@@ -414,9 +343,6 @@ func TestAB03BoundaryThroughAdminShutdown(t *testing.T) {
 	ab03RequireCause(t, err, translated, "57P01", "terminating connection due to administrator command")
 }
 
-// TestAB03BoundaryThroughConnectionFailure proves an unreachable server
-// surfaces from the adapter as retryable backend-unavailable with the
-// connection_failure condition and the ErrConnect sentinel.
 func TestAB03BoundaryThroughConnectionFailure(t *testing.T) {
 	svc := newAB03Service(t)
 	pool, err := pgxpool.New(svc.ctx, `postgres://ab03:ab03@127.0.0.1:1/ab03_none?connect_timeout=2`)
@@ -448,10 +374,6 @@ func TestAB03BoundaryThroughConnectionFailure(t *testing.T) {
 	}
 }
 
-// TestAB03BoundaryThroughContextCancel proves the caller-abort precedence
-// survives boundary-through: a canceled caller context pins the verdict to
-// the context error (no vendor condition is invented for it) — the control
-// that keeps the classification witnesses non-vacuous.
 func TestAB03BoundaryThroughContextCancel(t *testing.T) {
 	svc := newAB03Service(t)
 	_, executor := svc.ab03Conn(t)
@@ -476,10 +398,6 @@ func TestAB03BoundaryThroughContextCancel(t *testing.T) {
 	}
 }
 
-// TestZZZeroLeftoverAB03Fixtures audits this file's ownership only: every
-// exact name it created must be gone, and the verify_ab03_* prefix count on
-// the service must equal the baseline captured before this process created
-// anything (zero survivors).
 func TestZZZeroLeftoverAB03Fixtures(t *testing.T) {
 	raw := ab03URL(t)
 	ab03OwnedMu.Lock()
@@ -539,9 +457,6 @@ func TestZZZeroLeftoverAB03Fixtures(t *testing.T) {
 			t.Fatalf("prefix audit scan: %v", err)
 		}
 		rows.Close()
-		// A foreign verify_ab03_* database can only belong to a sibling
-		// witness process this audit races at service scope; give its own
-		// owner time to drop it before declaring a survivor.
 		if len(survivors) == 0 || time.Now().After(deadline) {
 			break
 		}

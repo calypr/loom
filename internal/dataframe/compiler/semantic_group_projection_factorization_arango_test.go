@@ -53,8 +53,6 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 					})},
 			))
 		}
-		// This otherwise matching projection must be removed by the source scope
-		// before either the assessment sample or the weighted Group is evaluated.
 		payloads = append(payloads, semanticGroupProjectionRow(
 			"blocked_entropy", "/blocked",
 			[]any{semanticGroupProjectionComponent(targetSystem, targetVersion,
@@ -86,7 +84,6 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 				{code: "low-common", display: "Z Common"},
 				{code: "low-common", display: "A Common"},
 				{code: "low-common", display: "A Common"},
-				// Different tuple identities intentionally share one display.
 				{code: "low-label-one", display: "Shared label"},
 				{code: "low-label-two", display: "Shared label"},
 			},
@@ -107,17 +104,12 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 					})},
 			))
 		}
-		// Both source rows are in scope but have no matching Coding tuple. GROUP
-		// preserves them as one missing-category group; EXCLUDE drops them and
-		// ERROR rejects the query.
 		payloads = append(payloads,
 			semanticGroupProjectionRow("zz_empty_coding", "/included", []any{}),
 			semanticGroupProjectionRow("zz_no_matching_coding", "/included",
 				[]any{semanticGroupProjectionComponent("urn:loom:other-system", targetVersion,
 					[]semanticGroupProjectionCoding{{code: "unmatched", display: "Unmatched"}})}),
 		)
-		// This matching projection sorts before the repeated prefix but is outside
-		// the allowed source scope and must not affect the bounded assessment.
 		payloads = append(payloads, semanticGroupProjectionRow(
 			"000_blocked", "/blocked", []any{sharedProjection},
 		))
@@ -129,8 +121,6 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 		result := compileRunAndCaptureSemanticGroupProjectionPreview(t, ctx, client, bindings, groupOutput, 600)
 		assertSemanticGroupProjectionRowsEqual(t, result.ordinaryRows, result.factoredRows)
 		assertSemanticGroupProjectionRowsEqual(t, result.ordinaryRows, result.previewRows)
-		// The sample is bounded and unordered. The exact preview must still
-		// include every unique projection after its 512-row assessment window.
 		assertSemanticGroupProjectionAssessment(t, result.assessmentRows, 512, 1, 512)
 		if uniqueTailCount <= 512 {
 			t.Fatal("low-diversity fixture must place more unique projections after the bounded sample than the sample can contain")
@@ -182,8 +172,6 @@ func TestSemanticGroupProjectionFactorizationSelectsReadOnlyIndexForScopedFixtur
 	rows = append(rows, semanticGroupProjectionDirectCodingRow("blocked", "/blocked", codings))
 	insertSemanticGroupProjectionRowsForResource(t, ctx, client, resourceType, project, generation, rows)
 
-	// The selector is read-only: explicitly provision its prerequisite in this
-	// test-owned fixture instead of relying on an index from a developer's CDA DB.
 	const fixtureIndex = "loom_pivot_preview_semantic_projection_fixture"
 	indexesBeforeSetup := semanticProjectionIndexSnapshot(t, ctx, resourceType)
 	if err := client.EnsurePreviewCoveringIndex(ctx, resourceType, fixtureIndex,
@@ -229,7 +217,6 @@ func TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOn
 	if os.Getenv("LOOM_TEST_FULL_CDA_READONLY") != "1" {
 		t.Skip("requires explicit LOOM_TEST_FULL_CDA_READONLY=1 and a preseeded full CDA database with its existing covering index; the bounded scoped fixture runs separately")
 	}
-	// Do not let arangofactory.Open create an empty DB for this read-only probe.
 	semanticProjectionIndexRequest(t, context.Background(), http.MethodGet, "/_api/database/current")
 	ctx, client := openSemanticGroupProjectionArango(t)
 	const resourceType, project, generation, codingPath = "Specimen", "loom_dev_cda_fhir", "cda-fhir-v1", "type.coding[]"
@@ -658,8 +645,6 @@ func semanticGroupProjectionDirectCodingRow(id, authResourcePath string, codings
 	}
 }
 
-// Only stable index definition fields are compared; read queries may update
-// planner estimates, which are not schema mutations.
 type semanticProjectionIndexDefinition struct {
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
@@ -1014,13 +999,6 @@ func hasCoveringFactoredIndexExplain(records []semanticGroupProjectionExplainRes
 	return false
 }
 
-// semanticGroupProjectionScanEvidence adapts one live Arango explain response
-// to execution's neutral scan evidence for this integration harness. It
-// mirrors the production Arango adapter translation in
-// internal/server.PreviewCollectionScanEvidenceFromExplain, which is pinned
-// by dedicated decoder tests in the server package; this harness records the
-// raw response separately and re-verifies it independently below, so a
-// mis-decode here cannot produce a false pass.
 func semanticGroupProjectionScanEvidence(result arangofactory.ExplainResult, collection string) execution.PreviewCollectionScanEvidence {
 	var plan *arangofactory.ExplainPlan
 	switch {

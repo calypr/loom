@@ -10,11 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 )
 
-// casConflictRetryBudget bounds how many times the release CAS re-runs its
-// transaction after an Arango 1200 write-write abort. A racing driver that
-// targets the same release converges through the alreadyActive zero-write
-// no-op on the first retry; the budget only covers repeated collisions with
-// still-in-flight rival transactions.
 const casConflictRetryBudget = 8
 
 func (s *Store) SaveRelease(ctx context.Context, release dataset.ProjectRelease) (dataset.ProjectRelease, error) {
@@ -71,15 +66,10 @@ func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release datas
 	return CompareAndSwapActivateRelease(ctx, s.client, release, expectedRevision)
 }
 
-// CompareAndSwapActivateRelease commits the active Explorer revision and
-// matching dataset release in one Arango transaction.
 func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
 	return compareAndSwapActivateRelease(ctx, client, release, expectedRevision, false)
 }
 
-// CompareAndSwapPublishRelease activates a release produced by an Explorer
-// publication. The publication is only current when the active generation
-// pointer still identifies its source manifest.
 func CompareAndSwapPublishRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
 	return compareAndSwapActivateRelease(ctx, client, release, expectedRevision, true)
 }
@@ -104,18 +94,6 @@ func compareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQu
 	binds["require_current_generation"] = requireCurrentGeneration
 	binds["staged_state"] = string(dataset.StateStaged)
 	binds["ready_state"] = string(dataset.StateReady)
-	// Arango aborts a racing transaction on the ignoreRevs:false pointer
-	// update with error 1200, including when the racing drivers target the
-	// SAME release: the loser read the pointer before the winner committed,
-	// so its snapshot never sees the alreadyActive no-op that an identical
-	// sequential re-activation takes. The abort means this transaction wrote
-	// nothing, so re-running it is safe: the fresh transaction re-reads the
-	// pointer and either converges through the alreadyActive zero-write
-	// no-op (same candidate) or fails the currentRevision filter and
-	// surfaces the typed conflict (rival candidate). The fence cannot be
-	// bypassed by the retry — every guard is re-evaluated in the new
-	// transaction. The retry budget bounds the race window; exhausting it
-	// falls through to the typed conflict below.
 	const conflictRetries = casConflictRetryBudget
 	var active *dataset.ActiveRelease
 	for attempt := 0; ; attempt++ {
@@ -134,10 +112,6 @@ func compareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQu
 		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) && attempt < conflictRetries && ctx.Err() == nil {
 			continue
 		}
-		// Concurrent release CAS operations can both observe the same revision
-		// before Arango serializes their pointer writes. Arango reports the loser
-		// as error 1200 (write-write conflict), so preserve the repository's
-		// typed CAS contract for callers instead of leaking a backend failure.
 		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
 			return dataset.ActiveRelease{}, fmt.Errorf("%w: concurrent active-pointer update", dataset.ErrReleaseActivationConflict)
 		}

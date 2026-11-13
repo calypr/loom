@@ -4,9 +4,6 @@ import (
 	"strings"
 )
 
-// ClickHouseCombineScalarBaseType returns the scalar base type accepted for a
-// combine key or append input. KEY_JOIN, MEMBERSHIP, and APPEND accept nullable
-// scalars; Membership's ordinary equality treats NULL as a nonmatch.
 func ClickHouseCombineScalarBaseType(value string, kind PhysicalCombineKind) (string, bool) {
 	physical := strings.TrimSpace(value)
 	if physical == "" {

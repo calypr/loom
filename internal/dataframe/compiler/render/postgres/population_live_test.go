@@ -18,13 +18,6 @@ import (
 	explorer "github.com/calypr/loom/internal/explorer"
 )
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 membership-root integration (service-gated by
-// LOOM_TEST_POSTGRES_URL, owned namespace verify_pop18_*). Fixtures ride the
-// merged selection and explicit-group store lifecycles; assertions execute
-// the rendered statement with its ordered driver arguments.
-// ---------------------------------------------------------------------------
-
 const (
 	pop18Project     = "pop18-proj"
 	pop18Foreign     = "pop18-proj-x"
@@ -66,19 +59,6 @@ func newPop18Service(t *testing.T) *pop18Service {
 	return &pop18Service{pgir02Service: svc, store: store, groups: groups, binding: binding, members: members}
 }
 
-// applyExplorerMembershipDDL hosts the four membership relations beside the
-// source-store tables in one fixture schema. Schema ownership is split and
-// was ruled by the coordinator on 2026-11-10: the STORE migration history
-// owns the unified runtime schema — fhir_resource (000002) and the four
-// membership relations (000010) are store-side DDL, and
-// one-history-per-schema is inviolable. The fixture therefore composes the
-// explorer-family tables LEDGER-FREE (the explorers.go:85-95 precedent
-// these fixtures already follow): it executes the same authoritative
-// migration bodies -- exported verbatim by control.OwnerMigrations
-// -- with the session search_path pinned to the owned schema, the same pin
-// the pg-store-02 runner applies, skipping version 1 (the ledger table,
-// owned by the store history). No explorer history rows are ever registered
-// into a store-migrated schema.
 func applyExplorerMembershipDDL(t *testing.T, svc *pgir02Service) {
 	t.Helper()
 	migrations, err := control.OwnerMigrations()
@@ -117,8 +97,6 @@ func (s *pop18Service) render(t *testing.T, plan ir.PhysicalPlan) command.Render
 	return rendered
 }
 
-// runErr executes the rendered statement but returns the error instead of
-// failing, so guard-trigger cases can classify the SQLSTATE and message.
 func (s *pop18Service) runErr(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) ([][]string, error) {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
@@ -171,8 +149,6 @@ func singleColumnRows(rows [][]string) []string {
 	return out
 }
 
-// seedSelection drives the real staging lifecycle: begin, append, digest,
-// complete. It returns the stored header for use as an explicit-group source.
 func (s *pop18Service) seedSelection(t *testing.T, id, project, resourceType string, memberIDs []string, writer string) explorer.SelectionRevision {
 	t.Helper()
 	now := time.Now().UTC()
@@ -248,10 +224,6 @@ func pop18Patient(t *testing.T, s *pop18Service, project, logicalID, authPath st
 		map[string]any{"resourceType": "Patient", "id": logicalID})
 }
 
-// ---------------------------------------------------------------------------
-// Population root source, live
-// ---------------------------------------------------------------------------
-
 func livePopulationPlan(selectionID string, paths []string, unrestricted, allowed bool) ir.PhysicalPlan {
 	plan := populationPlan(1)
 	plan.BindVars["project"] = pop18Project
@@ -271,7 +243,6 @@ func livePopulationPlan(selectionID string, paths []string, unrestricted, allowe
 
 func seedPopulationFixture(t *testing.T, s *pop18Service) {
 	t.Helper()
-	// Selected observation and its route witnesses.
 	s.insertResource(t, s.schema, pop18Project, pop18Generation, "Observation", "O1", pop18ObsAuth,
 		map[string]any{"resourceType": "Observation", "id": "O1"})
 	s.insertResource(t, s.schema, pop18Project, pop18Generation, "Observation", "O2", pop18ObsAuth,
@@ -279,34 +250,25 @@ func seedPopulationFixture(t *testing.T, s *pop18Service) {
 	s.insertResource(t, s.schema, pop18Project, pop18Generation, "Observation", "O3", pop18ObsAuth,
 		map[string]any{"resourceType": "Observation", "id": "O3"})
 	s.seedSelection(t, "sel18_obs", pop18Project, "Observation", []string{"O1"}, "pop18-writer")
-	// Cross-project twin selection that also claims O3: only selection_id and
-	// pm.project keep its member out of our population.
 	s.seedSelection(t, "sel18_obs_x", pop18Foreign, "Observation", []string{"O3"}, "pop18-writer-x")
-	// P1: the fully valid route.
 	pop18Patient(t, s, pop18Project, "P1", pop18PatientAuth)
 	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P1",
 		TargetResourceType: "Observation", TargetLogicalID: "O1", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
-	// P2 routes to O2, which is not a member.
 	pop18Patient(t, s, pop18Project, "P2", pop18PatientAuth)
 	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P2",
 		TargetResourceType: "Observation", TargetLogicalID: "O2", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
-	// P3 routes to the member O3 through a foreign label.
 	pop18Patient(t, s, pop18Project, "P3", pop18PatientAuth)
 	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: "provenance-entity", SourceResourceType: "Patient", SourceLogicalID: "P3",
 		TargetResourceType: "Observation", TargetLogicalID: "O3", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
-	// P4 routes to O3 on a stale edge generation. The edge writer requires
-	// its source and target rows to exist in the edge's own scope, so the
-	// stale leg carries its own gen-2 twins; the renderer's generation
-	// predicates are what exclude it from the gen-1 population.
 	pop18Patient(t, s, pop18Project, "P4", pop18PatientAuth)
 	s.insertResource(t, s.schema, pop18Project, "gen-2", "Patient", "P4", pop18PatientAuth,
 		map[string]any{"resourceType": "Patient", "id": "P4"})
@@ -317,17 +279,12 @@ func seedPopulationFixture(t *testing.T, s *pop18Service) {
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P4",
 		TargetResourceType: "Observation", TargetLogicalID: "O3", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
-	// P5 is a fully valid route whose patient row sits outside the auth set.
 	pop18Patient(t, s, pop18Project, "P5", pop18SecretAuth)
 	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P5",
 		TargetResourceType: "Observation", TargetLogicalID: "O1", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
-	// P6's only route edge lives in the foreign project. The edge writer
-	// requires the source row in the edge's own scope, so the foreign
-	// project carries a same-named patient; the renderer's project
-	// predicates are what exclude the foreign edge.
 	pop18Patient(t, s, pop18Project, "P6", pop18PatientAuth)
 	pop18Patient(t, s, pop18Foreign, "P6", pop18PatientAuth)
 	s.insertEdge(t, control.EdgeOccurrenceRow{
@@ -335,15 +292,12 @@ func seedPopulationFixture(t *testing.T, s *pop18Service) {
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P6",
 		TargetResourceType: "Observation", TargetLogicalID: "O1", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
-	// P7 routes to O3, which is a member only of the foreign selection.
 	pop18Patient(t, s, pop18Project, "P7", pop18PatientAuth)
 	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P7",
 		TargetResourceType: "Observation", TargetLogicalID: "O3", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
-	// A duplicate route edge for P1 proves candidate dedup: one row must
-	// survive the identity DISTINCT join.
 	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P1",
@@ -365,9 +319,6 @@ func TestPopulationLiveSelectedRowsOnly(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("population rows = %v, want %v", got, want)
 	}
-	// Dedup witness: the duplicate route edge produced exactly one row,
-	// against a candidate join that itself yields the full identity tuple
-	// twice (my own duplicate insertion).
 	if len(rows) != 1 {
 		t.Fatalf("duplicate route edge leaked a second row: %v", rows)
 	}
@@ -395,8 +346,6 @@ func TestPopulationLiveSelectedRowsOnly(t *testing.T) {
 	if len(candDupes) != 1 || candDupes[0][0] != "2" {
 		t.Fatalf("undistinct candidate join must yield the P1 identity tuple twice, got %v", candDupes)
 	}
-	// fhir_resource identity uniqueness holds in the fixture (hand-written
-	// direct-SQL witness).
 	dupes := s.witness(t, `SELECT count(*) FROM (
 		SELECT project, dataset_generation, resource_type, logical_id
 		FROM "`+s.schema+`"."fhir_resource"
@@ -409,9 +358,6 @@ func TestPopulationLiveSelectedRowsOnly(t *testing.T) {
 func TestPopulationLiveMembershipScopingAlive(t *testing.T) {
 	s := newPop18Service(t)
 	seedPopulationFixture(t, s)
-	// Alive control for the member scoping: promoting O3 to a member of our
-	// selection must admit P7 (and still exclude P3's wrong-label route and
-	// P4's stale generation), proving P7's absence was membership-driven.
 	s.seedSelection(t, "sel18_obs_two", pop18Project, "Observation", []string{"O1", "O3"}, "pop18-writer-2")
 	rows := s.runRendered(t, s.render(t, livePopulationPlan("sel18_obs_two",
 		[]string{pop18PatientAuth, pop18ObsAuth}, false, true)))
@@ -429,23 +375,17 @@ func TestPopulationLiveCanonicalDenyAndUnrestricted(t *testing.T) {
 	if len(denied) != 0 {
 		t.Fatalf("canonical deny must read nothing, got %v", denied)
 	}
-	// Alive control: the same plan with the allow flag reads the selected row.
 	allowed := s.runRendered(t, s.render(t, livePopulationPlan("sel18_obs",
 		[]string{pop18PatientAuth, pop18ObsAuth}, false, true)))
 	if strings.Join(singleColumnRows(allowed), ",") != "P1" {
 		t.Fatalf("allowed control rows = %v, want [P1]", allowed)
 	}
-	// Explicit unrestricted mode admits even the out-of-auth patient P5.
 	unrestricted := s.runRendered(t, s.render(t, livePopulationPlan("sel18_obs",
 		nil, true, true)))
 	if got := strings.Join(singleColumnRows(unrestricted), ","); got != "P1,P5" {
 		t.Fatalf("unrestricted rows = %q, want P1,P5", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Cohort root source, live
-// ---------------------------------------------------------------------------
 
 func liveCohortPlan(revisionID string, paths []string, unrestricted, allowed bool, policy string) ir.PhysicalPlan {
 	plan := cohortPlan()
@@ -467,23 +407,17 @@ type pop18CohortFixture struct {
 	group  explorer.ExplicitGroupRevision
 }
 
-// seedCohortFixture creates four patients; the selection claims R1-R4, the
-// completed group assigns only R1, leaving R2-R3 unassigned and R4 both
-// unassigned and outside the auth set.
 func seedCohortFixture(t *testing.T, s *pop18Service) pop18CohortFixture {
 	t.Helper()
 	for _, id := range []string{"R1", "R2", "R3"} {
 		pop18Patient(t, s, pop18Project, id, pop18PatientAuth)
 	}
 	pop18Patient(t, s, pop18Project, "R4", pop18SecretAuth)
-	// An unselected patient proves candidates bound the result set.
 	pop18Patient(t, s, pop18Project, "R9", pop18PatientAuth)
 	source := s.seedSelection(t, "sel18_pat", pop18Project, "Patient",
 		[]string{"R1", "R2", "R3", "R4"}, "pop18-cwriter")
 	definitions := []explorer.ExplicitGroupDefinition{
 		{ID: "group-alpha", Label: "Alpha", Ordinal: 0},
-		// R1 under a second group: the duplicate membership row is the
-		// UNION-side duplicate the candidate dedup must survive.
 		{ID: "group-beta", Label: "Beta", Ordinal: 1},
 	}
 	var memberships []explorer.ExplicitGroupMembership
@@ -500,15 +434,9 @@ func TestCohortLiveAssignedUnassignedAndScoping(t *testing.T) {
 	fixture := seedCohortFixture(t, s)
 	plan := liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, true, "EXCLUDE")
 	first := s.runRendered(t, s.render(t, plan))
-	// All four selection rows are candidates (selection side of the UNION);
-	// R1 also arrives via the group side. R9 is not a candidate; R4 fails
-	// the root auth predicate.
 	if got := strings.Join(singleColumnRows(first), ","); got != "R1,R2,R3" {
 		t.Fatalf("cohort rows = %q, want R1,R2,R3", got)
 	}
-	// UNION-duplicate witness: the candidate set before dedup carries R1
-	// three times (selection side once, membership side twice — R1 sits
-	// under two groups), while the rendered join yields R1 exactly once.
 	unionDupes := s.witness(t, `SELECT count(*) FROM (
 		SELECT sm."id" FROM "`+s.schema+`"."selection_members" sm
 		WHERE sm."selection_id" = 'sel18_pat' AND sm."project" = $1 AND sm."generation" = $2 AND sm."resource_type" = 'Patient'
@@ -519,33 +447,24 @@ func TestCohortLiveAssignedUnassignedAndScoping(t *testing.T) {
 	if len(unionDupes) != 1 || unionDupes[0][0] != "3" {
 		t.Fatalf("undeduplicated candidates must carry R1 three times, got %v", unionDupes)
 	}
-	// Determinism and order stability across runs.
 	second, err := s.runErr(t, s.render(t, plan))
 	if err != nil || !reflectDeepEqualStrings(singleColumnRows(first), singleColumnRows(second)) {
 		t.Fatalf("cohort rows are not deterministic: %v vs %v (%v)", singleColumnRows(first), second, err)
 	}
-	// GROUP_AS_UNASSIGNED keeps the same source rows (policy changes the
-	// grouping stage, not the root selection; ERROR is the only guard arm).
 	policy := liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, true, "GROUP_AS_UNASSIGNED")
 	if got := strings.Join(singleColumnRows(s.runRendered(t, s.render(t, policy))), ","); got != "R1,R2,R3" {
 		t.Fatalf("GROUP_AS_UNASSIGNED rows = %q, want R1,R2,R3", got)
 	}
-	// Unrestricted admits the out-of-auth member R4.
 	unrestricted := liveCohortPlan(string(fixture.group.ID), nil, true, true, "EXCLUDE")
 	if got := strings.Join(singleColumnRows(s.runRendered(t, s.render(t, unrestricted))), ","); got != "R1,R2,R3,R4" {
 		t.Fatalf("unrestricted cohort rows = %q, want R1,R2,R3,R4", got)
 	}
-	// Canonical deny reads nothing even with a healthy cohort.
 	denied := liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, false, "EXCLUDE")
 	if rows := s.runRendered(t, s.render(t, denied)); len(rows) != 0 {
 		t.Fatalf("cohort deny must read nothing, got %v", rows)
 	}
 }
 
-// TestCohortLiveGuardIsUncorrelatedInitPlan proves the guard-execution
-// claim (requirement B) with the executor's own words: EXPLAIN must show
-// the WHERE-clause sublinks as InitPlans (evaluated once at initialization)
-// and never as SubPlans (which would mean per-row correlated evaluation).
 func TestCohortLiveGuardIsUncorrelatedInitPlan(t *testing.T) {
 	s := newPop18Service(t)
 	fixture := seedCohortFixture(t, s)
@@ -576,7 +495,6 @@ func TestCohortLiveUnassignedErrorPolicy(t *testing.T) {
 	_, err := s.runErr(t, s.render(t,
 		liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, true, "ERROR")))
 	wantGuardTag(t, err, "EXPLICIT_GROUP_UNASSIGNED_MEMBER")
-	// Alive control: fully assigned cohort under the same ERROR policy.
 	definitions := []explorer.ExplicitGroupDefinition{{ID: "group-all", Label: "All", Ordinal: 0}}
 	var memberships []explorer.ExplicitGroupMembership
 	for _, id := range []string{"R1", "R2", "R3", "R4"} {
@@ -591,33 +509,9 @@ func TestCohortLiveUnassignedErrorPolicy(t *testing.T) {
 	}
 }
 
-// TestCohortLiveNullMembershipSubstitutedControls covers the unassigned-
-// guard substitutions the coordinator approved on 2026-11-10. The original
-// case -- an explicit-group membership row with a NULL membership_id -- is
-// IMPOSSIBLE BY SCHEMA: every column of explorer_explicit_group_memberships
-// (000010) is NOT NULL with a CHECK (<> ”), and the primary key
-// (revision_id, group_id, project, generation, resource_type, resource_id)
-// includes all of them, so a NULL reference can never exist to be
-// misclassified. The reachable violations are used instead; each is a
-// RED-kills-it control (dropping the unassigned arm from the guard turns
-// that subtest red, proven in the PR-body sabotage run):
-//
-//   - dangling reference: a selection member (R8) whose fhir_resource row
-//     does not exist. It is unassigned, so the ERROR arm must still fire
-//     even though every existing resource is assigned -- and under EXCLUDE
-//     it must simply never appear as a root row.
-//   - foreign scope: memberships for R2/R3 recorded under a DIFFERENT group
-//     revision must not mark R2/R3 assigned for this revision; the
-//     NOT-EXISTS arm's revision_id scoping is exactly what keeps ERROR
-//     firing.
-//   - plain unassigned: R2/R3 with no membership row at all (fixture
-//     default), asserted in TestCohortLiveUnassignedErrorPolicy above.
 func TestCohortLiveNullMembershipSubstitutedControls(t *testing.T) {
 	s := newPop18Service(t)
 	fixture := seedCohortFixture(t, s)
-	// Dangling-reference control. Revision C assigns every EXISTING member
-	// (R1-R4) but leaves the dangling member R8 unassigned. R8 has no
-	// fhir_resource row.
 	definitionsC := []explorer.ExplicitGroupDefinition{{ID: "group-d", Label: "D", Ordinal: 0}}
 	var membershipsC []explorer.ExplicitGroupMembership
 	for _, id := range []string{"R1", "R2", "R3", "R4"} {
@@ -627,20 +521,13 @@ func TestCohortLiveNullMembershipSubstitutedControls(t *testing.T) {
 	danglingSource := s.seedSelection(t, "sel18_pat_d", pop18Project, "Patient",
 		[]string{"R1", "R2", "R3", "R4", "R8"}, "pop18-cwriter-d")
 	revisionC := s.seedGroup(t, "pop18-group-d", danglingSource, definitionsC, membershipsC, "pop18-gwriter-d")
-	// ERROR must fire solely because of the dangling unassigned member.
 	_, err := s.runErr(t, s.render(t,
 		liveCohortPlan(string(revisionC.ID), []string{pop18PatientAuth}, false, true, "ERROR")))
 	wantGuardTag(t, err, "EXPLICIT_GROUP_UNASSIGNED_MEMBER")
-	// EXCLUDE on the same revision: rows are the in-auth existing members
-	// (R4 is out-of-auth in this fixture), and the dangling id R8 never
-	// surfaces as a root row.
 	if got := strings.Join(singleColumnRows(s.runRendered(t, s.render(t,
 		liveCohortPlan(string(revisionC.ID), []string{pop18PatientAuth}, false, true, "EXCLUDE")))), ","); got != "R1,R2,R3" {
 		t.Fatalf("dangling-reference EXCLUDE rows = %q, want R1,R2,R3", got)
 	}
-	// Foreign-scope control. A second revision records memberships for
-	// R2/R3 under ITS OWN header. For the fixture revision those rows are
-	// foreign scope: the unassigned arm stays fired.
 	definitionsE := []explorer.ExplicitGroupDefinition{{ID: "group-e", Label: "E", Ordinal: 0}}
 	var membershipsE []explorer.ExplicitGroupMembership
 	for _, id := range []string{"R2", "R3"} {
@@ -651,9 +538,6 @@ func TestCohortLiveNullMembershipSubstitutedControls(t *testing.T) {
 	_, err = s.runErr(t, s.render(t,
 		liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, true, "ERROR")))
 	wantGuardTag(t, err, "EXPLICIT_GROUP_UNASSIGNED_MEMBER")
-	// Alive control for the scoping itself: under EXCLUDE the foreign
-	// memberships change nothing about fixture rows, and revision E renders
-	// (its own unassigned set R1/R4 only matters under ERROR).
 	if got := strings.Join(singleColumnRows(s.runRendered(t, s.render(t,
 		liveCohortPlan(string(revisionE.ID), []string{pop18PatientAuth}, false, true, "EXCLUDE")))), ","); got != "R1,R2,R3" {
 		t.Fatalf("foreign-scope control rows = %q, want R1,R2,R3", got)
@@ -663,7 +547,6 @@ func TestCohortLiveNullMembershipSubstitutedControls(t *testing.T) {
 func TestCohortLiveRevisionInvalidFiresAtZeroRows(t *testing.T) {
 	s := newPop18Service(t)
 	fixture := seedCohortFixture(t, s)
-	// A staging header (never completed): the revision guard must fire.
 	staging := explorer.ExplicitGroupRevision{
 		ID:      explorer.ExplicitGroupRevisionIDFor(pop18Project, "pop18-group-staging"),
 		Project: pop18Project, Generation: pop18Generation, ScopeDigest: fixture.source.ScopeDigest,
@@ -678,14 +561,9 @@ func TestCohortLiveRevisionInvalidFiresAtZeroRows(t *testing.T) {
 	_, err := s.runErr(t, s.render(t,
 		liveCohortPlan(string(staging.ID), []string{pop18PatientAuth}, false, true, "EXCLUDE")))
 	wantGuardTag(t, err, "EXPLICIT_GROUP_REVISION_INVALID")
-	// Zero-row guard firing: an auth set that matches no root row still
-	// raises the guard, proving the CASE arms run as an uncorrelated
-	// InitPlan before any root row is evaluated.
 	_, err = s.runErr(t, s.render(t,
 		liveCohortPlan(string(staging.ID), []string{"FHIR/Nothing"}, false, true, "EXCLUDE")))
 	wantGuardTag(t, err, "EXPLICIT_GROUP_REVISION_INVALID")
-	// Alive control for the zero-row shape: a healthy revision with the
-	// same impossible auth set returns zero rows without error.
 	rows := s.runRendered(t, s.render(t,
 		liveCohortPlan(string(fixture.group.ID), []string{"FHIR/Nothing"}, false, true, "EXCLUDE")))
 	if len(rows) != 0 {
@@ -693,14 +571,6 @@ func TestCohortLiveRevisionInvalidFiresAtZeroRows(t *testing.T) {
 	}
 }
 
-// TestCohortLiveGuardFiresAtZeroRowsUnderExplainAnalyze is the coordinator's
-// ruling-1 proof (2026-11-10): the typed guard raise is PROVEN, not
-// asserted, through EXPLAIN (ANALYZE). The violating revision is STAGING
-// and the auth set matches no root row, so the outer query would retrieve
-// zero rows -- yet the uncorrelated guard InitPlan raises SQLSTATE 22P02
-// naming EXPLICIT_GROUP_REVISION_INVALID during execution. The healthy
-// control in TestCohortLiveRevisionInvalidFiresAtZeroRows supplies the
-// silence side: same shape, all arms unselected, rows flow, no raise.
 func TestCohortLiveGuardFiresAtZeroRowsUnderExplainAnalyze(t *testing.T) {
 	s := newPop18Service(t)
 	fixture := seedCohortFixture(t, s)
@@ -727,23 +597,12 @@ func TestCohortLiveGuardFiresAtZeroRowsUnderExplainAnalyze(t *testing.T) {
 	if !errors.As(err, &pgErr) || pgErr.Code != "22P02" || !strings.Contains(pgErr.Message, "EXPLICIT_GROUP_REVISION_INVALID") {
 		t.Fatalf("EXPLAIN ANALYZE zero-row guard raise = %v, want 22P02 naming EXPLICIT_GROUP_REVISION_INVALID", err)
 	}
-	// Same statement without execution (plain EXPLAIN): plans fine, proving
-	// the raise is executor-initiated at zero rows, not a parse failure.
 	planRows := s.witness(t, "EXPLAIN "+rendered.SQL, args...)
 	if len(planRows) == 0 {
 		t.Fatalf("plain EXPLAIN produced no plan under the violating guard")
 	}
 }
 
-// seedStaleGroup produces a genuinely stale COMPLETE group revision the way
-// the guard exists to police it: a direct-SQL session drives the guarded
-// channels -- insert a STAGING header whose scope_digest no longer matches
-// the live selection row, declare its group, stage one membership, and
-// complete through the writer-token channel (completed selections can never
-// be edited, so staleness is only reachable through this forged-binding
-// path). The revision is COMPLETE and in scope, so only the stale-binding
-// arm can fire. Shared by TestCohortLiveSourceStale and
-// TestCohortLiveDenyStillRaisesGuards.
 func seedStaleGroup(t *testing.T, s *pop18Service, fixture pop18CohortFixture) explorer.ExplicitGroupRevisionID {
 	t.Helper()
 	key := "pop18-group-stale"
@@ -779,28 +638,6 @@ func seedStaleGroup(t *testing.T, s *pop18Service, fixture pop18CohortFixture) e
 	return staleID
 }
 
-// TestCohortLiveDenyStillRaisesGuards is the reviewer-found PR #119 pin
-// (discussion_r4528074392): the canonical deny must not silence the guards.
-// Under scope_allowed=false the r0 scope chain used to close with a literal
-// AND FALSE; eval_const_expressions folds any AND tree containing a
-// const-FALSE argument to constant FALSE (FALSE dominates under
-// three-valued logic), the planner then prunes the guard InitPlan as
-// unreferenced, and a violating revision returned zero rows with no error --
-// silently diverging from AQL, where the three ASSERT guards are LET/FOR
-// lines evaluated before the deny FILTER (render/aql/group_rows.go:245-261)
-// and the D3 contract promises violations are query errors independent of
-// candidate and root row counts. Two obvious repairs were measured live and
-// both fail: the literal FALSE folds the tree and prunes the InitPlan
-// ("Result One-Time Filter: false", no InitPlan at all), and a stable-false
-// stand-in conjunct (pg_catalog.version() = ”) survives the fold but gets
-// cost-sorted into the One-Time Filter ahead of the lazily-fetched guard
-// InitPlan and short-circuits it. The shipped fix merges deny and guard into
-// one atomic clause "(<guard sublink>) * 0 = 1" (cohortDenyGuardSuffix):
-// always false, never evaluable without evaluating the guard, unsplittable
-// by order_qual_clauses. Each arm is a RED-kills-it control: restoring the
-// literal " AND FALSE" deny (or any separate deny conjunct) turns all three
-// subtests red with a zero-row no-error result (sabotage logs in the PR
-// body).
 func TestCohortLiveDenyStillRaisesGuards(t *testing.T) {
 	s := newPop18Service(t)
 	fixture := seedCohortFixture(t, s)
@@ -823,8 +660,6 @@ func TestCohortLiveDenyStillRaisesGuards(t *testing.T) {
 	}{
 		{"revision-invalid", string(staging.ID), "EXPLICIT_GROUP_REVISION_INVALID"},
 		{"source-stale", string(staleID), "EXPLICIT_GROUP_SOURCE_STALE"},
-		// The fixture group leaves R2/R3 unassigned, so the ERROR arm is
-		// the third violating state.
 		{"unassigned-member", string(fixture.group.ID), "EXPLICIT_GROUP_UNASSIGNED_MEMBER"},
 	}
 	for _, arm := range arms {
@@ -834,14 +669,10 @@ func TestCohortLiveDenyStillRaisesGuards(t *testing.T) {
 			wantGuardTag(t, err, arm.tag)
 		})
 	}
-	// The silence side: a healthy revision under deny still reads nothing,
-	// proving the stable-false conjunct preserves zero-row deny semantics.
 	if rows := s.runRendered(t, s.render(t,
 		liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, false, "EXCLUDE"))); len(rows) != 0 {
 		t.Fatalf("healthy denied cohort must read nothing, got %v", rows)
 	}
-	// Structural pin: the denied statement must not fold into a
-	// constant-FALSE plan that prunes the guard.
 	rendered := s.render(t, liveCohortPlan(string(staging.ID), []string{pop18PatientAuth}, false, false, "ERROR"))
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {
@@ -866,19 +697,10 @@ func TestCohortLiveDenyStillRaisesGuards(t *testing.T) {
 func TestCohortLiveSourceStale(t *testing.T) {
 	s := newPop18Service(t)
 	fixture := seedCohortFixture(t, s)
-	// A completed selection can never be aborted or edited, so staleness is
-	// produced the way the guard exists to police it: a direct-SQL session
-	// driving the guarded channels -- insert a STAGING header whose
-	// scope_digest no longer matches the live selection row, declare its
-	// group, stage one membership, and complete through the writer-token
-	// channel. The revision itself is COMPLETE and in scope, so only the
-	// stale-binding arm can fire.
 	staleID := seedStaleGroup(t, s, fixture)
 	_, err := s.runErr(t, s.render(t,
 		liveCohortPlan(string(staleID), []string{pop18PatientAuth}, false, true, "EXCLUDE")))
 	wantGuardTag(t, err, "EXPLICIT_GROUP_SOURCE_STALE")
-	// The untouched group of the live selection still renders rows (the
-	// forged header is isolated to its own revision).
 	rows := s.runRendered(t, s.render(t,
 		liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, true, "EXCLUDE")))
 	if got := strings.Join(singleColumnRows(rows), ","); got != "R1,R2,R3" {
@@ -897,10 +719,6 @@ func reflectDeepEqualStrings(left, right []string) bool {
 	}
 	return true
 }
-
-// ---------------------------------------------------------------------------
-// Zero-leftover audit for the verify_pop18_* namespace (runs last).
-// ---------------------------------------------------------------------------
 
 func TestZZNoLeftoverPop18Resources(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))

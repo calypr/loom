@@ -7,36 +7,9 @@ import (
 	"testing"
 )
 
-// F-B23 prevention evidence: can an author forge the row-level security
-// metadata columns (auth_resource_path / project_id) through publication so a
-// restricted reader sees rows it should not (or provenance is spoofed)?
-// Adversary: author-controlled data (pivot ColumnExpr column names, dynamic
-// unknown keys) plus authored schema. Verdict encoded here: PREVENTED by
-// three independent lines, each pinned below.
-//
-//	L1 internal/dataframe/execution/engine.go publicStreamRow copies ONLY the
-//	   compiled s.Columns plus the two compiler-retained keys
-//	   {__loom_row_id, auth_resource_path} — a data-born row key outside the
-//	   compiled column set is dropped upstream of this package, so smuggled
-//	   keys never reach the publication runner. Pinned by source-quote gate
-//	   and by the documented stream-flow (engine.Stream -> visit ->
-//	   QualifyFlatRow -> injector). Data-born key semantics cannot be
-//	   behavior-tested from this package (publicStreamRow is package
-//	   `execution`); the source pin is the enforced contract.
-//	L2 injectPublicationMetadata refuses a DECLARED auth_resource_path column
-//	   (reserved-by-Loom) and strips author-declared project_id from schema.
-//	L3 row["project_id"] is unconditionally overwritten with identity.Project
-//	   ("never trust a source row value").
-//
-// The injector's "set auth_resource_path only if absent" branch is NOT a
-// hole: a surviving value can only be the compiler's multi-path scope
-// projection because L1 drops every other key. If the L1 fragments below
-// change, this artifact must be re-adjudicated.
-
 func TestFB23PublicationRowMetadataSmugglingPrevented(t *testing.T) {
 	identity := PublicationIdentity{Project: "prj-auth", AuthResourcePaths: []string{"p1", "p2"}}
 
-	// L2a: declaring the reserved security column is refused.
 	reserved := OutputStream{
 		Name:    "patients",
 		Columns: []LogicalColumn{{Name: "auth_resource_path", Kind: "string"}},
@@ -50,7 +23,6 @@ func TestFB23PublicationRowMetadataSmugglingPrevented(t *testing.T) {
 		t.Logf("FB23 L2a | reserved-column refusal | %v", err)
 	}
 
-	// L2b + L3: declared and row-forged project_id are both neutralized.
 	sneaky := OutputStream{
 		Name:    "patients",
 		Columns: []LogicalColumn{{Name: "project_id", Kind: "string"}, {Name: "age", Kind: "integer"}},
@@ -92,7 +64,6 @@ func TestFB23PublicationRowMetadataSmugglingPrevented(t *testing.T) {
 		t.Logf("FB23 note | auth_resource_path stays compiler-owned: absent rows get empty for 0/2+ paths; row-supplied values are intentionally preserved because L1 filters row keys upstream of this package")
 	}
 
-	// L1 pin: the engine-side declared-column filter must remain quote-identical.
 	src, err := os.ReadFile("../execution/engine.go")
 	if err != nil {
 		t.Fatalf("FB23 L1 pin unreadable: %v", err)
