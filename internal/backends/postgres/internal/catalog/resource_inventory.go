@@ -90,6 +90,9 @@ func (e *ResourceInventoryWriteError) Unwrap() []error {
 // type receives an exact count row, including a zero row when it has no
 // retained rows; rows are grouped per authorization path.
 func (s *Store) RebuildResourceInventory(ctx context.Context, opts catalog.ResourceInventoryRebuildOptions) (catalog.ResourceInventoryRebuildSummary, error) {
+	if err := requireLeg("inventory", s.inventory != nil, "RebuildResourceInventory"); err != nil {
+		return catalog.ResourceInventoryRebuildSummary{}, err
+	}
 	datasetGeneration := catalog.NormalizeDatasetGeneration(opts.DatasetGeneration)
 	if opts.Project == "" || datasetGeneration == "" {
 		return catalog.ResourceInventoryRebuildSummary{}, fmt.Errorf("resource inventory rebuild requires project and exact dataset generation")
@@ -174,6 +177,9 @@ func (s *Store) ReadResourceInventory(ctx context.Context, opts catalog.Resource
 func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.ResourceInventoryResult{Values: make([]catalog.ResourceInventoryObservation, 0, len(resourceTypes)), Available: true, Complete: true, Diagnostics: diagnostics}
+	if err := requireLeg("inventory", s.inventory != nil, "DiscoverResourceInventory"); err != nil {
+		return unavailableResourceInventory(result, err.Error()), err
+	}
 	datasetGeneration := catalog.NormalizeDatasetGeneration(opts.DatasetGeneration)
 
 	build, found, err := s.inventory.ReadBuild(ctx, opts.Project, datasetGeneration)

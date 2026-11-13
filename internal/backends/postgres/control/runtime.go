@@ -62,12 +62,14 @@ type Runtime struct {
 	Inventory     catalog.InventoryRebuilder
 	Relationships catalog.RelationshipDiscoverer
 	Contributions catalog.SemanticContributor
-	// Catalog is the full catalog store over the source series: the value
-	// behind the four narrow evidence ports above, and additionally the
-	// semantic-inventory read lane (PageSemanticInventory,
-	// ResolveSemanticInventorySelections) and the capability-evidence reads
-	// (DiscoverResourceInventory, DiscoverRelationshipObservations,
-	// DiscoverFieldEnrichment) the Explorer capability resolver consumes.
+	// Catalog is the full catalog store over the source series: one
+	// NewFullStore value over the inventory, field-profile, and
+	// relationship-evidence repositories, serving as the value behind the
+	// four narrow evidence ports above and carrying the capability-evidence
+	// reads (DiscoverResourceInventory, DiscoverRelationshipObservations,
+	// DiscoverFieldEnrichment) that catalog.ReadCapabilityEvidence consumes
+	// from a single reader. The semantic-inventory read lane is the separate
+	// SemanticReads port.
 	Catalog *catalogstore.Store
 	// Releases is the dataset release repository (save, read-active,
 	// compare-and-swap activate) over the dataset_release series.
@@ -240,30 +242,30 @@ func (r *Runtime) assembleControlPorts(cfg Config) error {
 	if err != nil {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble field profile repository in %q", schema), err, password)
 	}
-	profiles, err := catalogstore.NewFieldProfileStore(profileRepo)
-	if err != nil {
-		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble field profile store in %q", schema), err, password)
-	}
-	r.FieldProfiles = profiles
 	inventoryRepo, err := pgstore.NewInventoryRepository(r.client, schema)
 	if err != nil {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble inventory repository in %q", schema), err, password)
 	}
-	inventory, err := catalogstore.New(inventoryRepo)
-	if err != nil {
-		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble inventory store in %q", schema), err, password)
-	}
-	r.Inventory = inventory
-	r.Catalog = inventory
 	relationshipsRepo, err := catalogstore.NewRelationshipEvidenceRepository(r.client, schema)
 	if err != nil {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble relationship evidence repository in %q", schema), err, password)
 	}
-	relationships, err := catalogstore.NewRelationshipEvidenceStore(relationshipsRepo)
+	// One full Store over all three repositories backs every source-series
+	// catalog port. The capability resolver consumes all three evidence
+	// reads from a single value (catalog.ReadCapabilityEvidence), so the
+	// Catalog port must carry all three legs — the composition that made
+	// Runtime.Catalog inventory-only was the PG-PG-CAPABILITY-EVIDENCE-
+	// COMPOSITION-PANIC (nil deref on the absent legs). The single-leg
+	// constructors remain for the narrow ingest-recipe ports; here all
+	// four ports are the same assembled value.
+	catalogStore, err := catalogstore.NewFullStore(inventoryRepo, profileRepo, relationshipsRepo)
 	if err != nil {
-		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble relationship evidence store in %q", schema), err, password)
+		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble catalog store in %q", schema), err, password)
 	}
-	r.Relationships = relationships
+	r.FieldProfiles = catalogStore
+	r.Inventory = catalogStore
+	r.Catalog = catalogStore
+	r.Relationships = catalogStore
 	contributions, err := catalogstore.NewSemanticContributionRepository(r.client, schema)
 	if err != nil {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble semantic contribution repository in %q", schema), err, password)
