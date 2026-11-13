@@ -39,13 +39,18 @@ func fdDoc(project, generation, authPath, resourceType, path string, docCount in
 }
 
 // fdRecordingStore wraps the real repository, counting every method call
-// and capturing the last filtered read's parameters. It adds no behavior:
-// every call delegates unchanged.
+// and capturing the last filtered read's parameters and the last distinct
+// listing's project. It adds no behavior: every call delegates unchanged
+// unless a failure is explicitly injected.
 type fdRecordingStore struct {
-	real            *storepostgres.FieldProfileRepository
-	filteredCalls   int
-	lastFilter      storepostgres.FieldProfileFilter
-	injectReadError error
+	real                 *storepostgres.FieldProfileRepository
+	filteredCalls        int
+	lastFilter           storepostgres.FieldProfileFilter
+	injectReadError      error
+	distinctCalls        int
+	lastDistinctScope    string
+	injectDistinctErr    error
+	reverseDistinctOrder bool
 }
 
 func (w *fdRecordingStore) UpsertFieldProfileBatch(ctx context.Context, scope storepostgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, coverage storepostgres.FieldProfileCoverage, batchSize int) error {
@@ -67,6 +72,28 @@ func (w *fdRecordingStore) ReadFieldProfileRowsFiltered(ctx context.Context, fil
 
 func (w *fdRecordingStore) ReadProfileCoverage(ctx context.Context, filter storepostgres.FieldProfileFilter) ([]storepostgres.FieldProfileCoverage, error) {
 	return w.real.ReadProfileCoverage(ctx, filter)
+}
+
+func (w *fdRecordingStore) ListDistinctAuthResourcePaths(ctx context.Context, project string) ([]string, error) {
+	w.distinctCalls++
+	w.lastDistinctScope = project
+	if w.injectDistinctErr != nil {
+		return nil, w.injectDistinctErr
+	}
+	paths, err := w.real.ListDistinctAuthResourcePaths(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	if w.reverseDistinctOrder {
+		// Boundary-order stress, not a fabricated result: the values are
+		// the real repository's own, delivered in reversed stream order
+		// (a real database is free to change its rendered order; the
+		// adapter's contract must not depend on it).
+		for i, j := 0, len(paths)-1; i < j; i, j = i+1, j-1 {
+			paths[i], paths[j] = paths[j], paths[i]
+		}
+	}
+	return paths, nil
 }
 
 // fdService writes one scope through the public write path.
@@ -356,7 +383,12 @@ func TestDiscoverExistingAuthResourcePathsSortedDistinctIncludingMarker(t *testi
 	}
 }
 
-func TestDiscoverExistingAuthResourcePathsAllGenerationsRefusedTyped(t *testing.T) {
+// TestDiscoverExistingAuthResourcePathsAllGenerationsConflictRefusedNoRoundTrips
+// pins the F-2 conflict on its way to being replaced by the union (defect
+// PG-PG-AUTH-PATH-DISCOVERY-ALLGENS): AllGenerations with a selected
+// generation stays refused, and the refusal issues no store call of either
+// shape -- a conflict must never reach the database.
+func TestDiscoverExistingAuthResourcePathsAllGenerationsConflictRefusedNoRoundTrips(t *testing.T) {
 	s := newFieldProfileService(t)
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
 	store, err := NewFieldProfileStore(wrapper)
@@ -364,23 +396,206 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsRefusedTyped(t *testing.
 		s.fail("new field profile store", err)
 	}
 
-	// F-2 conflict: AllGenerations with a selected generation.
 	_, err = store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
 		Project: fdProject, DatasetGeneration: fdGenA, AllGenerations: true,
 	})
 	if !errors.Is(err, ErrAllGenerationsWithGeneration) {
 		t.Fatalf("AllGenerations+generation error = %v, want %v", err, ErrAllGenerationsWithGeneration)
 	}
+	if wrapper.filteredCalls != 0 || wrapper.distinctCalls != 0 {
+		t.Fatalf("conflict refused after %d filtered + %d distinct store calls; want zero of both",
+			wrapper.filteredCalls, wrapper.distinctCalls)
+	}
+}
 
-	// AllGenerations alone: typed unsupported refusal, zero round trips.
-	_, err = store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+// TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion
+// is the PG counterpart of the Arango reference pin
+// (internal/backends/arango/internal/catalog/
+// all_generations_project_binding_integration_test.go). The union must
+// match what a no-generation-filter COLLECT returns: every recorded path
+// of the project from every generation -- including the legacy unscoped
+// namespace, profile_status marker rows, and rows witnessed only on a
+// non-concrete type -- deduplicated and ascending-sorted, while foreign
+// projects and empty paths stay out. The distinct-path read fires exactly
+// once and no filtered read fires at all: no generation enumeration, no
+// N+1, no faked composition (coordinator condition 1: the wrapper delegates,
+// never fakes results).
+func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion(t *testing.T) {
+	s := newFieldProfileService(t)
+	fdWrite(t, s, fdScope(fdProject, fdGenA, fdPath1, "Patient"),
+		fdDoc(fdProject, fdGenA, fdPath1, "Patient", "gender", 3),
+		fdDoc(fdProject, fdGenA, fdPath1, "Patient", "birthDate", 3))
+	fdWrite(t, s, fdScope(fdProject, fdGenA, fdPath2, "Observation"), fdDoc(fdProject, fdGenA, fdPath2, "Observation", "status", 4))
+	// Shared path across generations: unioned once.
+	fdWrite(t, s, fdScope(fdProject, "generation-z", fdPath1, "Patient"), fdDoc(fdProject, "generation-z", fdPath1, "Patient", "gender", 1))
+	// Generation-unique path.
+	fdWrite(t, s, fdScope(fdProject, "generation-z", "/fhir/archive", "Observation"), fdDoc(fdProject, "generation-z", "/fhir/archive", "Observation", "status", 2))
+	// Legacy unscoped namespace: no dataset-series manifest could ever
+	// enumerate "", which is exactly why manifest enumeration was rejected
+	// as the union's source.
+	fdWrite(t, s, fdScope(fdProject, "", "/fhir/legacy", "Patient"), fdDoc(fdProject, "", "/fhir/legacy", "Patient", "gender", 1))
+	// Truncated-empty marker row: its scope's path is a witness.
+	truncated := false
+	complete := false
+	fdWrite(t, s, fdScope(fdProject, fdGenA, "/fhir/research", "Patient"),
+		catalog.FieldCatalogDocument{
+			Key: "Patient|status", RecordType: catalog.FieldProfileStatusRecordType,
+			Project: fdProject, DatasetGeneration: fdGenA, AuthResourcePath: "/fhir/research",
+			ResourceType: "Patient", EnrichmentComplete: &complete, EnrichmentTruncated: truncated,
+		})
+	// Path witnessed only on a non-concrete type (no resource_type filter
+	// in the reference union; review r4543172882 applies to the union too).
+	fdWrite(t, s, fdScope(fdProject, "generation-z", "/fhir/custom", "CustomCarePlan"),
+		fdDoc(fdProject, "generation-z", "/fhir/custom", "CustomCarePlan", "status", 2))
+	// Unscoped empty-path rows stay out of the listing.
+	fdWrite(t, s, fdScope(fdProject, fdGenA, "", "Patient"), fdDoc(fdProject, fdGenA, "", "Patient", "gender", 1))
+	// Foreign project must never cross the project bind.
+	fdWrite(t, s, fdScope("fd-other", fdGenA, "/fhir/foreign", "Patient"), fdDoc("fd-other", fdGenA, "/fhir/foreign", "Patient", "gender", 1))
+
+	wrapper := &fdRecordingStore{real: s.realRepository(t)}
+	store, err := NewFieldProfileStore(wrapper)
+	if err != nil {
+		s.fail("new field profile store", err)
+	}
+
+	paths, err := store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
 		Project: fdProject, AllGenerations: true,
 	})
-	if !errors.Is(err, ErrAllGenerationsUnsupported) {
-		t.Fatalf("AllGenerations error = %v, want %v", err, ErrAllGenerationsUnsupported)
+	if err != nil {
+		s.fail("all-generations listing", err)
+	}
+	want := []string{"/fhir/archive", fdPath1, "/fhir/custom", fdPath2, "/fhir/legacy", "/fhir/research"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("all-generations union = %v, want sorted distinct %v", paths, want)
+	}
+	if wrapper.distinctCalls != 1 || wrapper.lastDistinctScope != fdProject {
+		t.Fatalf("union issued %d distinct reads (project %q); want exactly 1 for %q",
+			wrapper.distinctCalls, wrapper.lastDistinctScope, fdProject)
 	}
 	if wrapper.filteredCalls != 0 {
-		t.Fatalf("refused all-generations listing issued %d store calls", wrapper.filteredCalls)
+		t.Fatalf("union issued %d filtered reads; the union is one distinct read, not per-generation composition",
+			wrapper.filteredCalls)
+	}
+
+	// Whitespace-only generation alongside AllGenerations is the same
+	// normalized-empty shape the F-B27 caller sends (the reference
+	// ValidateAuthResourcePathOptions keeps it valid): it must union, not
+	// conflict.
+	ws, err := store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+		Project: fdProject, DatasetGeneration: "  ", AllGenerations: true,
+	})
+	if err != nil {
+		s.fail("whitespace-generation all-generations listing", err)
+	}
+	if !reflect.DeepEqual(ws, want) {
+		t.Fatalf("whitespace-generation union = %v, want %v", ws, want)
+	}
+
+	// The scoped branch is untouched by the union wiring: exact-bind
+	// isolation still holds, so the union is genuinely a superset.
+	scoped, err := store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+		Project: fdProject, DatasetGeneration: "generation-z",
+	})
+	if err != nil {
+		s.fail("scoped generation-z listing", err)
+	}
+	if wantZ := []string{"/fhir/archive", fdPath1, "/fhir/custom"}; !reflect.DeepEqual(scoped, wantZ) {
+		t.Fatalf("scoped generation-z = %v, want %v", scoped, wantZ)
+	}
+}
+
+// TestDiscoverExistingAuthResourcePathsAllGenerationsAdapterOwnsByteOrder
+// pins the adapter-level half of the ordering guarantee (interrogation
+// finding M4): the boundary renders under COLLATE "C", but the adapter
+// must return ascending BYTE order whatever order the boundary delivers.
+// The wrapper hands over the real repository's own paths in reversed
+// stream order; deleting the adapter's final sort.Strings must fail here
+// (the adversarial path set is chosen so byte order and the service's
+// en_US-style collation order differ).
+func TestDiscoverExistingAuthResourcePathsAllGenerationsAdapterOwnsByteOrder(t *testing.T) {
+	s := newFieldProfileService(t)
+	for _, path := range []string{"/fhir/Beta", "/fhir/_x", "/fhir/alpha", "/fhir/Ω"} {
+		fdWrite(t, s, fdScope(fdProject, fdGenA, path, "Patient"), fdDoc(fdProject, fdGenA, path, "Patient", "gender", 1))
+	}
+	wrapper := &fdRecordingStore{real: s.realRepository(t), reverseDistinctOrder: true}
+	store, err := NewFieldProfileStore(wrapper)
+	if err != nil {
+		s.fail("new field profile store", err)
+	}
+	paths, err := store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+		Project: fdProject, AllGenerations: true,
+	})
+	if err != nil {
+		s.fail("all-generations listing", err)
+	}
+	if want := []string{"/fhir/Beta", "/fhir/_x", "/fhir/alpha", "/fhir/Ω"}; !reflect.DeepEqual(paths, want) {
+		t.Fatalf("adapter output = %v, want ascending byte order %v", paths, want)
+	}
+	if wrapper.distinctCalls != 1 {
+		t.Fatalf("boundary reads = %d, want exactly 1", wrapper.distinctCalls)
+	}
+}
+
+// TestDiscoverExistingAuthResourcePathsAllGenerationsUnrecordedProjectIsHonestEmpty
+// documents the F-B27 bootstrap posture and pins that the fix does not
+// alter it: for a genuinely unrecorded project the all-generations listing
+// is an honest empty slice produced by a real zero-row union read -- never
+// a refusal, never nil. ScopeResolver.AuthorizeWrite reads exactly this
+// empty as "no recorded paths" and allows the first-generation bootstrap
+// (scope_resolver.go zero-path branch), unchanged from the Arango
+// reference semantics. Emptiness earned from the database is the ONLY
+// route to that branch; the retired typed refusal used to make the whole
+// branch unreachable on PostgreSQL.
+func TestDiscoverExistingAuthResourcePathsAllGenerationsUnrecordedProjectIsHonestEmpty(t *testing.T) {
+	s := newFieldProfileService(t)
+	// Evidence exists for other projects so the empty is project-scoped
+	// truth, not an empty table.
+	fdWrite(t, s, fdScope("fd-other", fdGenA, "/fhir/foreign", "Patient"), fdDoc("fd-other", fdGenA, "/fhir/foreign", "Patient", "gender", 1))
+
+	wrapper := &fdRecordingStore{real: s.realRepository(t)}
+	store, err := NewFieldProfileStore(wrapper)
+	if err != nil {
+		s.fail("new field profile store", err)
+	}
+
+	paths, err := store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+		Project: "fd-unrecorded", AllGenerations: true,
+	})
+	if err != nil {
+		t.Fatalf("unrecorded project must list an honest empty, got error: %v", err)
+	}
+	if paths == nil || len(paths) != 0 {
+		t.Fatalf("unrecorded project union = %#v, want a non-nil empty slice", paths)
+	}
+	if wrapper.distinctCalls != 1 || wrapper.lastDistinctScope != "fd-unrecorded" {
+		t.Fatalf("honest empty came from %d distinct reads (project %q); it must be a real zero-row read",
+			wrapper.distinctCalls, wrapper.lastDistinctScope)
+	}
+}
+
+// TestDiscoverExistingAuthResourcePathsAllGenerationsStoreFailureIsWrappedNotEmpty
+// pins the fail-closed half of the honesty rule: a store failure surfaces
+// wrapped and nil, never as the empty that reaches the F-B27 bootstrap
+// branch. An unavailable database must not downgrade the project binding.
+func TestDiscoverExistingAuthResourcePathsAllGenerationsStoreFailureIsWrappedNotEmpty(t *testing.T) {
+	s := newFieldProfileService(t)
+	boom := errors.New("injected distinct listing failure")
+	wrapper := &fdRecordingStore{real: s.realRepository(t), injectDistinctErr: boom}
+	store, err := NewFieldProfileStore(wrapper)
+	if err != nil {
+		s.fail("new field profile store", err)
+	}
+	paths, err := store.DiscoverExistingAuthResourcePaths(s.ctx, catalog.AuthResourcePathOptions{
+		Project: fdProject, AllGenerations: true,
+	})
+	if err == nil {
+		t.Fatal("store failure was swallowed into a successful listing")
+	}
+	if paths != nil {
+		t.Fatalf("failed listing still returned paths: %#v", paths)
+	}
+	if !errors.Is(err, boom) {
+		t.Fatalf("store failure lost its identity in wrapping: %v", err)
 	}
 }
 

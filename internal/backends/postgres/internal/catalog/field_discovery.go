@@ -7,17 +7,26 @@
 // type law, and the same restricted-empty no-query rule. There is no
 // fallback: a store failure surfaces wrapped, never as an empty "success".
 //
-// Two registered divergences from the Arango reference:
+// One registered divergence from the Arango reference:
 //   - Ordering. populatedFieldsAQL sorts resource_type, doc_count DESC,
 //     path; the persistence boundary's ReadFieldProfileRowsFiltered orders
 //     resource_type, path (its declared order) and this adapter adds no
 //     comparator, so PostgreSQL discovery returns that order verbatim.
 //     It is a registered divergence, not a defect: the query path does not
 //     contract an AQL ordering for field discovery.
-//   - AllGenerations auth-path listing (F-B27 project-level write
-//     authorization) is a typed refusal on this lane, not an implicit
-//     result. Constructing the cross-generation union needs a dataset-
-//     series generation enumeration this read lane does not own.
+//
+// AllGenerations auth-path listing (F-B27 project-level write
+// authorization) is implemented, not refused (defect PG-PG-AUTH-PATH-
+// DISCOVERY-ALLGENS). It does not enumerate the dataset series: the
+// reference union (existingAuthResourcePathsAllGenerationsAQL) is a COLLECT
+// over auth_resource_path with the generation filter absent, so the
+// PostgreSQL shape is the persistence boundary's ListDistinctAuthResourcePaths
+// -- one distinct read with no dataset_generation predicate. Enumerating
+// generations from the dataset_release manifests and unioning per-generation
+// scoped listings was rejected: manifests are not the evidence source for
+// recorded paths, and an unmanifested generation would silently shrink the
+// union, turning a missing path into the F-B27 zero-path bootstrap-allow
+// posture this branch exists to close.
 package postgres
 
 import (
@@ -35,14 +44,6 @@ import (
 // combination of AllGenerations with a selected dataset generation,
 // mirroring the Arango adapter's F-2 law.
 var ErrAllGenerationsWithGeneration = errors.New("AllGenerations conflicts with a selected datasetGeneration")
-
-// ErrAllGenerationsUnsupported is the typed refusal of the cross-generation
-// auth-path union on the PostgreSQL read lane. It is explicit and
-// fail-closed: absence of the union is never presented as an empty truth,
-// because an empty list would hit the zero-path bootstrap branch of
-// write authorization (the F-B27 bypass posture).
-var ErrAllGenerationsUnsupported = errors.New(
-	"postgres catalog: all-generations auth-path discovery is not available on the PostgreSQL read lane")
 
 // DiscoverFields reads persisted field-profile rows as the populated-field
 // view of one project/generation, mirroring the Arango adapter's option
@@ -125,7 +126,12 @@ func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldO
 //
 // CursorBatch is accepted for parity and has no effect. AllGenerations
 // with a selected generation is the F-2 conflict error; AllGenerations
-// alone is the typed ErrAllGenerationsUnsupported refusal (file comment).
+// alone is the cross-generation union over the persistence boundary's
+// distinct-path read (file comment): one round trip, no dataset_generation
+// predicate, empty paths excluded, ascending-sorted, deduplicated. A
+// genuinely unrecorded project returns an honest empty -- the F-B27
+// bootstrap posture, unchanged from the reference, reachable only via a
+// real zero-row union read and never via a refusal.
 func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	datasetGeneration := catalog.NormalizeDatasetGeneration(opts.DatasetGeneration)
 	if opts.AllGenerations {
@@ -133,8 +139,17 @@ func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts cata
 			return nil, fmt.Errorf("%w: datasetGeneration %q must be empty when AllGenerations is set",
 				ErrAllGenerationsWithGeneration, opts.DatasetGeneration)
 		}
-		return nil, fmt.Errorf("%w: project %q requires the dataset-series generation enumeration of pg-runtime-server-composition",
-			ErrAllGenerationsUnsupported, opts.Project)
+		paths, err := s.profiles.ListDistinctAuthResourcePaths(ctx, opts.Project)
+		if err != nil {
+			return nil, fmt.Errorf("postgres catalog: discover existing auth paths %s (all generations): %w", opts.Project, err)
+		}
+		// The boundary already renders DISTINCT + ORDER BY under an
+		// explicit COLLATE "C" (byte order is a rendered guarantee, pinned
+		// by the store's golden + order witnesses); this sort is the final
+		// normalizer so the ascending-byte contract holds whatever the
+		// boundary returns -- the scoped branch sorts the same way.
+		sort.Strings(paths)
+		return paths, nil
 	}
 	// Every recorded row of the scope is a path witness regardless of
 	// record type or concrete-type law: existingAuthResourcePathsAQL has

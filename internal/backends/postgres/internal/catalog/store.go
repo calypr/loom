@@ -60,6 +60,13 @@ type FieldProfileStore interface {
 	// one filter. Their presence is what makes a zero-row profile read a
 	// known-empty profile rather than an unavailable one.
 	ReadProfileCoverage(ctx context.Context, filter storepostgres.FieldProfileFilter) ([]storepostgres.FieldProfileCoverage, error)
+	// ListDistinctAuthResourcePaths returns the distinct non-empty auth
+	// paths recorded for one project across every dataset generation: the
+	// cross-generation union the project-level write authorization (F-B27)
+	// needs, with no dataset_generation predicate (an empty generation is
+	// the legacy unscoped namespace, never "any generation"). A project
+	// with no recorded paths returns an honest empty, never a refusal.
+	ListDistinctAuthResourcePaths(ctx context.Context, project string) ([]string, error)
 }
 
 var _ FieldProfileStore = (*storepostgres.FieldProfileRepository)(nil)
