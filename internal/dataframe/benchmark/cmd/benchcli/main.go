@@ -96,7 +96,7 @@ type runFlags struct {
 // live leg was impossible.
 const (
 	defaultArangoCapability   = "no ArangoDB service in this execution environment; go-arango CI lane targets this leg"
-	defaultPostgresCapability = "blocked by PG-PG-AUTH-PATH-DISCOVERY-ALLGENS: the scoped calypr lane cannot ingest datasets on postgres; the catalog read lane refuses the all-generations auth-path listing that AuthorizeWrite's project binding requires (see pg-pg-auth-path-discovery-allgens-evidence.md)"
+	defaultPostgresCapability = "no PostgreSQL service or --postgres-dsn in this execution environment; the backend itself is ingest-ready since PR #156 (benchcli setup-pg provisions the loom_bench_* six-series schema ladder)"
 )
 
 // The benchmark project is addressed by its legacy key: program "loom",
