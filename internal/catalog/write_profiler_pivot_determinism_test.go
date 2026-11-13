@@ -245,6 +245,24 @@ func pivotDeterminismKindShards() (map[string]any, map[string]any) {
 	return codingDoc, conceptDoc
 }
 
+func pivotDeterminismMergePlans(firstKind string, firstPivot string, secondKind string, secondPivot string) *fieldPlan {
+	plans := make(map[string]*fieldPlan)
+	addFieldPlan(plans, "code", nil, firstKind, true, firstPivot)
+	addFieldPlan(plans, "code", nil, secondKind, true, secondPivot)
+	return plans["code"]
+}
+
+func TestFieldCatalogPlanPivotKindConvergesAcrossMergeOrder(t *testing.T) {
+	forward := pivotDeterminismMergePlans(fieldKindCodeableConcept, pivotKindCodeableConcept, fieldKindCodeableConcept, pivotKindObservation)
+	backward := pivotDeterminismMergePlans(fieldKindCodeableConcept, pivotKindObservation, fieldKindCodeableConcept, pivotKindCodeableConcept)
+	if forward.PivotKind != pivotKindObservation || backward.PivotKind != pivotKindObservation {
+		t.Fatalf("plan pivot kind depends on merge order: forward %q, backward %q, want %q", forward.PivotKind, backward.PivotKind, pivotKindObservation)
+	}
+	if !forward.PivotCandidate || !backward.PivotCandidate {
+		t.Fatalf("plan pivot candidate lost: forward %v, backward %v", forward.PivotCandidate, backward.PivotCandidate)
+	}
+}
+
 func TestFieldCatalogKindConvergesAcrossMergeDirection(t *testing.T) {
 	codingDoc, conceptDoc := pivotDeterminismKindShards()
 	forward := pivotDeterminismMergePair(t, []map[string]any{codingDoc}, []map[string]any{conceptDoc}, false)

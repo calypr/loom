@@ -1028,7 +1028,9 @@ func addFieldPlan(fieldMap map[string]*fieldPlan, path string, accessor []pathSt
 		}
 		if pivotCandidate {
 			existing.PivotCandidate = true
-			existing.PivotKind = pivotKind
+			if pivotKindRank(pivotKind) > pivotKindRank(existing.PivotKind) {
+				existing.PivotKind = pivotKind
+			}
 		}
 		return
 	}
