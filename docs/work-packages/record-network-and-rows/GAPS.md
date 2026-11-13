@@ -31,12 +31,12 @@ remain ordered, inspectable and intact when users switch interfaces.
 
 | Area | Integrated behavior | Remaining proof | Ticket |
 | --- | --- | --- | --- |
-| Shared editing | One proposal owner; receipt-bound source, row, column and root candidates; presentation switching does not mutate the plan | Native ownership, real stale recovery, graph-first/row-first canonical equivalence | 08, 06, 07 |
-| Row expression | Editable connections, source rows, Include policies and exact existing operations; complete Group tuple; explicit expansion | Native exact values, retained lists and separately selected scalars; earlier-term edit with downstream work retained | 09, 07 |
-| Traversal | Authored occurrence paths distinct from catalog possibilities; row-stage, pair and Group annotations | Native bidirectional correspondence, exact occurrence/stage identity | 10, 07 |
-| Workspace | Both/focused editors, one inspector, shared saved/proposed preview, bounded history/catalogs | Current 1536×900 and 1536×1100/back, open proposal, keyboard/focus and 100-operation history; inspector geometry now passes scoped checks; complete native cases remain pending after reviewed exact-order repair; imported now passes and graph/row retain earlier scoped passes | 11, 07 |
-| Persistence | Existing complete-plan receipt/CAS paths reused; pins and unrelated operations preserved | Current-source Preview/Cancel/Apply/edit/removal/reload/table switching, source-step restore and Group lifecycle | 06, 07 |
-| Product acceptance | Independent fixtures, production checks, reviewed 12-case native registration | Complete owned native matrix, then authenticated Calypr checks with configured credentials | 07 |
+| Shared editing | One proposal owner; receipt-bound source, row, column and root candidates; presentation switching does not mutate the plan | Owned final134 proof passes; corresponding authenticated host journey/frame remains unverified (missing token). | 08, 06, 07 |
+| Row expression | Editable connections, source rows, Include policies and exact existing operations; complete Group tuple; explicit expansion | Owned final134 proof passes; corresponding authenticated host journey/frame remains unverified (missing token). | 09, 07 |
+| Traversal | Authored occurrence paths distinct from catalog possibilities; row-stage, pair and Group annotations | Owned final134 proof passes; corresponding authenticated host journey/frame remains unverified (missing token). | 10, 07 |
+| Workspace | Both/focused editors, one inspector, shared saved/proposed preview, bounded history/catalogs | Owned final134 proof passes; corresponding authenticated host journey/frame remains unverified (missing token). | 11, 07 |
+| Persistence | Existing complete-plan receipt/CAS paths reused; pins and unrelated operations preserved | Owned final134 proof passes; corresponding authenticated host journey/frame remains unverified (missing token). | 06, 07 |
+| Product acceptance | Independent fixtures, production checks, reviewed 12-case native registration | Owned final134 proof passes; corresponding authenticated host journey/frame remains unverified (missing token). | 07 |
 
 Imported preserve-root changes remain blocked; explicit replacement discloses pin
 detachment and reset. Imported in-place edge replacement is unavailable: removal
@@ -49,3 +49,10 @@ canvas, new compiler, or LLM integration was introduced.
 Completion requires independently expected exact rows and values, equivalent
 canonical semantics, native persistence/ownership, and legible editing in the
 actual Calypr frame. Automated passes and case registration do not close that scope.
+
+
+Final closure: implementation and all12 owned native cases/105actions pass at134faf8b…,
+including canonical graph/row equivalence and100-operation layout/lifecycle. The
+remaining gap is authenticated host acceptance: missing token, host authoring journeys
+and actual267-column Calypr frame unverified. Earlier remaining-proof rows describe
+original acceptance goals; their owned scope is now satisfied, as VERIFICATION.md records.

@@ -159,7 +159,7 @@ async function assertDesktopLayout(page, run, label, { candidate = false } = {})
     return { viewport: { width: innerWidth, height: innerHeight }, scroll: { width: document.documentElement.scrollWidth,
       height: document.documentElement.scrollHeight }, network: rect('[aria-label="Record network"]'),
     expression: rect('[data-testid="row-recipe-expression"]'),
-    preview: rect('[data-testid="construction-preview"]'), table: rect('[data-testid="construction-preview"] [data-testid="preview-table-scroll"]') };
+    preview: rect('[data-testid="construction-preview"]'), table: rect(candidate ? '[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]' : '[data-testid="construction-preview"] [data-testid="preview-table-scroll"]') };
   }, { candidate });
   assertHistoryStressDesktopLayout(visible);
   run.report.historyStressLayout ??= [];

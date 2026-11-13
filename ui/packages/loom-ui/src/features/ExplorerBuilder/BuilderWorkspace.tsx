@@ -4515,7 +4515,10 @@ const BuilderWorkspaceContent = ({
     />
   );
   const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
-    ? <>{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
+    ? <div className="construction-mutation-inspector">
+        <div className="construction-mutation-fields">{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}</div>
+        {proposalPanel}
+      </div>
     : undefined;
   const sourceCandidate = sourceProposal?.owner === relationshipOwner ? sourceProposal : undefined;
   const sourceReviewColumnLabels = table ? new Map(table.document.columns.map((column) => [column.columnId ?? column.column, column.label || column.column])) : undefined;

@@ -1,5 +1,122 @@
 # GRAPH-ROWS verification record
 
+## Final owned snapshot: all 12 whole cases pass; authenticated acceptance blocked
+
+Current source is `134faf8b921e6fb0eae54851ff4a25de1091bb0640d6aa2b110e99a27d950e54`;
+API source `525a909f57adeb330a4e07e3969f5db234ec70c00f0018df13ad92ebd7afd95c`,
+binary `5af9117675328d886eda067f962f695d43d8ba33a0332f2496b3bbda4bca32dd`.
+No source/configuration changes followed this freeze. Exact tested performance source is now committed as
+`bb15001e` (two Go paths,35ec… review); not yet pushed at this checkpoint. Four
+earlier commits are pushed through163888da; the final UI/harness/docs commit ID is
+not yet known. Commit creation does not change the tested source content. The final matrix below
+supersedes earlier checkpoint statuses without expanding their evidence scopes.
+
+| Final case / attempt | Result (seconds / actions) | Raw evidence |
+| --- | --- | --- |
+| history-stress / 5 | PASS, 97.272s / 8 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-history-stress-5/` |
+| mixed / 5 | PASS, 98.708s / 12 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-mixed-5/` |
+| earlier-term / 2 | PASS, 93.755s / 8 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-earlier-term-2/` |
+| ordinary-policy / 3 | PASS, 29.607s / 3 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-ordinary-policy-3/` |
+| root-proposal / 2 | PASS, 43.161s / 5 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-root-proposal-2/` |
+| carry-in / 6 | PASS, 93.403s / 23 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-carry-in-6/` |
+| related-rows / 3 | PASS, 90.658s / 7 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-related-rows-3/` |
+| upstream-dependency / 3 | PASS, 48.916s / 4 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-upstream-dependency-3/` |
+| ordinary / 5 | PASS, 24.956s / 6 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-ordinary-5/` |
+| imported / 4 | PASS, 82.543s / 17 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-imported-4/` |
+| graph-first / 12 | PASS, 68.306s / 7 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-graph-first-12/` |
+| row-first / 5 | PASS, 50.453s / 5 actions; inner/outer exit0, storage guard PASS | `/tmp/loom-followup-row-first-5/` |
+
+All12 raw reports were independently audited by the parent with actual exit0:
+`/tmp/loom-followup-final-acceptance-ledger.json` (script `/tmp/loom-audit-final-native.py`)
+and worker `/tmp/loom-followup-final-native-matrix.json`. They total105 native
+actions and821.737s of case commands, with no browserErrors/writeFailures/source
+drift. Expected upstream422 and real stale-draft409 remain explicit negative checks,
+not unexpected errors. Strict graph12↔row5 same-snapshot canonical comparison passes
+(`/tmp/loom-followup-row-first-5/canonical-equivalence.json`); parent independently
+reran the actual helper, exact3rows/values/policies/order/catalog mapping PASS
+(`/tmp/loom-followup-canonical-parent-final134.{json,log}`).
+
+Fresh 100-operation creation belongs to history 3 at source76b6fdb0… under the NEW
+owned tmpfs configuration: setup 744.679s passes all 100 proposals/Applies within
+900s setup and original 30s request bounds, saved100/draft103. Its command exits1
+at798.675s because the native phase fails the obsolete saved-only candidate scroller
+selector. Creation is not relabeled as final-source creation. Reviewed selector
+62a24267… changes only saved/proposed root selection; all numeric/viewport guards
+remain. Separate actual product defect (Apply/Cancel bottom1098 at900, inspector
+2650px tall) was repaired with bounded wrapper/CSS, not waived.
+
+Bounded-inspector two-path exact-source review8f4df334… approves Builderf9a0de19…/
+CSS10837195… with39 focused tests16.80s, package build exit0 (Vite32.38s plus production
+TypeScript/assets), demo build exit0 (TypeScript/Vite35.75s). No effects, owner, API,
+operation or receipt semantics changed. Current57-path audit has zero gaps,
+SHA256 `9dd786464b14752e5c476f9d37ed81c163a24515018e4ddab8ecb5207592c4d2`;
+prior54 unchanged plus exact UI2/harness1 closures. External storage/helper/wrapper
+reviews remain separate from these57 production paths.
+
+History4 strict admission14.640s and inner native exit0/86.614s pass, but its external
+wrapper exits1 because Docker returns identical context-mount objects in reversed
+order. Raw authoritative fields/full objects/duplicates match
+(`/tmp/loom-followup-history-stress-4/parent-storage-order-review.json`). Reviewed
+external comparator70e4158c…/helperb845a22b… ignores only order, preserves records,
+all fields and duplicates; wrapper3b4d… unchanged, parent negative controls pass.
+History5 is the clean inner0/outer0 result; history4 is not retroactively relabeled.
+
+Actual final100 no-Apply PNG probe passes at900/1100/back:
+`/tmp/loom-history-layout/final-worker/{proof,geometry}.json` and three proposal PNGs.
+Saved100/draft103 and all300 saved+300 candidate values=3 hold; footer bottoms
+827/1027/827, Cancel preserves full workspace, blockedWrites0. Parent reviewed900/
+1100 images. Same-model visual review manifest
+`8bd914007817b8f74876ebd15f238340b64f4982deb92699880980084e45a446`
+(`/workspace/loom-followup-root-review/work/review-final-history-layout/receipt.md`)
+finds no confirmed owned-fixture blocker. Internal scrolling/horizontal102-column
+navigation and one-node graph remain scoped limitations; this is not actual267-column
+authenticated Calypr or complex graph acceptance.
+
+Storage isolation is activated and separately reviewed (config3660…):
+`/workspace/loom-followup-candidate/work/history-storage-isolation/activation-final.json`
+SHA256 `e881a2973f3e31f62c2cf7473bf00df668beb3fca1e1c148d1e22d36798cf085`
+records four config hashes, actual2GiB process tmpfs and new Arango949017…. Docker
+still lists the original named data mount BEHIND the tmpfs overlay; it is not detached.
+Original data/apps volumes are retained. Routine API restart preserves525a909f…/
+5af91176…. Fresh production bootstrap fixture `loom_dev_verify_tmpfs-root`,
+fixture-v2, fresh=true/reused=false passes explicit-query ownership/readiness/
+generation/Builder/UI checks. Generic doctor rejects unchanged old UI default root;
+it is not claimed passed or waived. Native uses supported explicit-query mode.
+
+Final owned multiline/multinode32-column screenshot review closes at manifest
+`5e40889c10f451b1a3efb41950682d4162d0588b9bead6726253ac2a169bd2e1` (`/workspace/loom-followup-root-review/work/review-final134-multinode-layout/receipt.md`),
+complementing100-operation8bd914…. No confirmed blocker, with small graph microtext,
+internal navigation and bounded technical headers retained as limitations. Parent
+independent read-only100 audit `/tmp/loom-history-layout/final-worker/parent-exact-values.json`
+checks exact source IDs/scores obs-one7/obs-many-A11/obs-many-B13,100 ordered IDs/
+previous-step anchors/literal ADD1+2, all300 saved+300 candidate cells=3, and Cancel
+fullworkspace/version/digest equality at103. This is separate from the105native actions.
+
+Fresh authenticated doctor for final134 exits2:
+`usage: set LOOM_E2E_TOKEN or pass --token-file PATH`
+(`/tmp/loom-followup-authenticated-doctor-final134.log`). No remote authenticated
+attempt was made. Required host authoring journeys, actual267-column Calypr frame,
+and authenticated source/bundle identity remain UNVERIFIED. Obtain a short-lived
+0600token file and run the doctor/drive commands below, then reproduce the graph-first,
+row-first, mixed, persistence/stale and desktop/100-history journeys in the host.
+Drive/load alone cannot close them. Optional GitHub Actions query was Forbidden;
+remote CI status is unknown, while the normal fast-forward pushes succeeded.
+
+Storage restoration remains reversible: use the retained original Compose base/
+overrides and volume identities in activation-final.json, stop the owned fixture
+stack, remove the tmpfs override from that owned configuration, and recreate the
+owned Arango service with its original named data/apps mounts. Never delete either
+volume. Restoration has not been executed; the final pass uses the documented tmpfs
+overlay. No production change, deployment or credential invention occurred.
+
+Original request/deadline/retry bounds remain unchanged. No authenticated token
+is available; doctor/token commands below remain required. Owned success does not
+close authenticated criteria. Tickets06–11 remain verification-in-progress: implementation and owned verification
+are complete, while authenticated scope remains incomplete. No package completion
+is claimed.
+
+## Earlier evidence checkpoints (historical scoped records)
+
 ## Follow-up 08–11: integrated implementation, acceptance incomplete
 
 The required planning revision `9613310fefacc987933275b9a9f92f3e456e886a` was
@@ -73,6 +190,11 @@ and ordinary passes do not prove the complementary-editor follow-up.
 | Row-first attempt 4 | WHOLE PASS, 56.940s/five actions; exact row-control focus and complete lifecycle, no errors, same source/API identity as graph-first 11 | `/tmp/loom-followup-row-first-4/{command.json,native-evidence.json}` |
 | Final graph/row canonical comparison | strict same-snapshot graph 11 ↔ row 4 PASS, independently repeated by parent with actual helper exit 0: canonical three rows/values, policies, operation order and actual catalog mapping match | `/tmp/loom-followup-row-first-4/canonical-equivalence.json`; `/tmp/loom-followup-canonical-parent-final.{log,json}` |
 | Fresh history attempt 1 | FAIL, actual exit 1/713.969s, setup only; native phase never admitted. 98 steps saved through stress_calc_097. Next stress_calc_098 candidate request times out at 30.076s; same server request later returns 200 at 34.462s, without Apply of step 99. Setup 900s deadline was not exceeded; native 180s was not started | `/tmp/loom-followup-history-stress-1/{command.json,history-preparation.json,api.log,saved-after-failure.json,request-provenance.json}` |
+| Receipt-validation performance repair | reviewed two-path local reuse of recomputed/compared compilation key inside one Validate call and discard-only syntax checks; public identity remains fresh, all canonical bytes/errors/binding/auth guards preserved. Focused and full affected checks pass actual exit 0 (explorer 0.102s, arango 0.142s, compilation 3.540s, lifecycle 28.645s) | `/workspace/loom-followup-candidate-review/work/review-candidate/receipt-local-reuse/receipt.md`; `/workspace/loom-followup-candidate/work/history-performance/receipt-repair/` |
+| Independent allocation evidence | captured 99-step singleValidate three-run allocation drops from about 113.51 MB/1.369M allocations to 71.44 MB/0.798M; timings noisy (baseline 319–384ms, fixed 284–1377ms), so no general speed claim. Full-Service/captured receipts/noDB seams preserve callback counts/receipt ID; allocation 873.10→582.80MB, not native acceptance | `/tmp/loom-history-profile/parent-validation-{baseline,fixed}.json`; repair `baseline-full-service-result.json`, `full-service-fixed-result.json` |
+| Fresh history attempt 2 | FAIL, actual exit 1/352.387s; 53 steps passed, 459-byte stress_calc_053 Apply times out at 30s, so native history never starts. Same server request 3eeee214… later commits 200 at 57.097s, saved 54 steps/version 57; never replayed | `/tmp/loom-followup-history-stress-2/{command.json,history-preparation.json,saved-after-failure.json,request-provenance.json}` |
+| Owned storage diagnosis | same interval Arango settings sync 6.994/11.470/6.587s, IOHeartbeat file tests 7.049819/1.948897s, WAL last sync 6009ms; disk 48% used/32GB free, no OOM. These correlate with delayed Apply; do not claim a completed isolation repair | retained owned API/Arango logs independently read by parent |
+| Optional remote CI observation | gh run list for requested branch exits 1/0.303s with GitHub Actions API Forbidden; push itself succeeded. Remote CI status is unknown, not passed or waived | parent command receipt |
 | Refreshed authenticated doctor | actual exit 2 (0.309s): `usage: set LOOM_E2E_TOKEN or pass --token-file PATH`; no token available and no authenticated remote check performed. This credential blocker is separate from owned native coverage | `/tmp/loom-followup-authenticated-doctor-final.log`; earlier readiness `/tmp/loom-followup-readiness-1794553181550017402/` |
 
 The successful draft source fingerprint is
@@ -274,6 +396,62 @@ identities are unchanged; all eleven other whole cases, strict canonical compari
 build and scoped reviews remain valid. Owned 100-operation acceptance is incomplete,
 performance implementation/verification remains pending, and authenticated Calypr
 is a separate missing-token blocker. No package completion or push is claimed.
+
+Commits `60af4516`, `d2d5eab5`, `1044c946` and `163888da` were pushed by normal
+fast-forward with actual exit 0. The newly integrated receipt-validation performance
+repair is separately reviewed at manifest
+`35ecb7abc3ea5488b98dc053565ee8c24591906562cd8773a4bdc6ed5813544a`.
+It uses no global cache/persistent validation authority; mutations between calls
+still recompute identity. Independent baseline-byte/error comparison and malformed/
+legacy/mutated-input controls pass. Existing compiler/receipt versions are unchanged.
+The owned full profile is retained under `/tmp/loom-history-owned-profile`; the
+temporary diagnostic sidecar was removed.
+
+Integrated performance API source is
+`525a909f57adeb330a4e07e3969f5db234ec70c00f0018df13ad92ebd7afd95c`,
+binary `5af9117675328d886eda067f962f695d43d8ba33a0332f2496b3bbda4bca32dd`.
+Parent original-30s/no-Apply step-99 regression now PASS, actual exit 0/16.611826s
+on final API: exact three source IDs and all 297 calculated values=3 asserted, saved
+98-step workspace/version/digest unchanged (`/tmp/loom-history-profile/parent-final-api-green99`).
+This is targeted regression evidence, not 100-operation acceptance or a general
+speed claim. Native history setup has not passed. Because common Validate code changed, all twelve fresh whole cases
+now hold a frozen-source native lease, with fresh history 2 first. Previous eleven passes
+remain valid historical evidence for their recorded source; they are not promoted
+to current repaired common-validation acceptance. Bounds and zero-retry policy
+remain unchanged. Whitespace-only Row Expression source now hashes `20d82…`, with
+review audit `ac788e4…`; previous `fd094…` is historical. Full identity belongs in
+the final review manifest. Final delivery/review await native results; authenticated
+token remains a separate blocker and all ticket statuses stay verification-in-progress.
+
+Final readiness doctor passes (3.275s), with all 2,069 relevant source files equal
+and native fingerprint
+`76b6fdb0066ab1f1741956cc3c58d18144dce27504841299abe34697f8dc0a4f`.
+Fresh history 2 failed setup at `/tmp/loom-followup-history-stress-2` under original
+bounds and without fixture reuse; see exact failure and delayed committed Apply above. API 525a909f… and
+binary 5af91176… are unchanged. Readiness is not acceptance.
+
+Fresh history 2 did not complete setup or admit native execution. Original HTTP
+Apply body was NOT captured: the 459-byte reconstruction uses exact immutable
+proposal binding plus deterministic fixture command ID, matches recorded length,
+and is explicitly labeled (`reconstructed-apply-54.json`, `request-provenance.json`).
+The timed-out mutation later committed once; saved state was read to establish its
+outcome and the command was never replayed. Setup/native/API bounds remain unchanged.
+
+Owned-storage isolation is in preparation only: a reversible reviewed 2GiB tmpfs
+Arango configuration is proposed while preserving original 331MiB named data and
+apps volume. It is NOT yet mutated or accepted at this checkpoint. Wait for actual
+configuration/readiness/results before making any acceptance claim. Performance
+repair 35ec… and targeted original-bound step-99 green remain valid within scope;
+final fresh twelve-case matrix is incomplete and the other eleven final cases
+have not run. Earlier eleven passes remain historical source-scoped evidence.
+Authenticated Calypr remains a separate missing-token blocker.
+
+Final source review coverage audit includes 57 paths with zero gaps: prior 55
+unchanged plus exact two-path performance closure 35ec…. Audit
+`/workspace/loom-followup-native-review/work/review-native/final-staging-coverage.json`
+SHA-256 `da63183d84a3eb80218e6877eaa8da8e99a19763fcc8a1ab1b7d6f15d49dccca`;
+prior ac788e4… is preserved as `.pre-performance.json`. This does not expand
+historical review scopes or establish native acceptance.
 
 The current 12-case matrix and pending criteria are in
 [fixtures/ACCEPTANCE.md](fixtures/ACCEPTANCE.md). The remaining current-source native

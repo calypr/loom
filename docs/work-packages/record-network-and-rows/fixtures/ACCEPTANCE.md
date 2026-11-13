@@ -10,40 +10,30 @@ source invalidates the run. Record commands, exit codes, first-failure action,
 elapsed time and sanitized request/error diagnostics. Native input must use real
 controls; read-only result checks may inspect saved documents and receipts.
 
-## Current follow-up native matrix: 11 of 12 whole cases pass
+## Final owned matrix: 12 of 12 whole cases pass
 
-Imported passes at `00990f30edd660c72d6cfa6c251e0033ddda4a544527768a866b8f54eb7b2ae1`.
-The later first-table scheduling repair changes current source (`557e277f75787a93245e18d7ee0a285c61e782b80e48ac2660290b0c660033a7`).
-Ordinary attempt 2 completed functional actions but remains incomplete because
-the strict semantic-inventory check observed a 409 after REMOVE_ROUTE. The closed
-Advanced catalog gate now has controlled native red/green proof; ordinary attempt 3 now passes at cec3182784afcb07ec1926ef3a49757085c2fd9db380322ec7947f4056fb40e4
-(26.431s, zero errors/409).
-Repeated final UI build now passes (34.02s/24.95s Vite plus TypeScript). Carry-in-4
-passes at `45142ac0e16c1a5fdf2c066bb0e526e512e076cd5b8dd9bd04b8b4ce57ebb3e1`;
-related and upstream whole cases pass. Mixed scalar Preview exposed a confirmed
-backend runtime-metadata defect; compiler-21 repair/review now passes, but the final
-compiler-21 matrix remains pending at 8d23bdb2…. Group EXCLUDE adds a reviewed
-23-action carry-in run; earlier carry-in-4 keep-policy pass retains its scope. Earlier imported/ordinary/graph/row passes retain their
-recorded source scopes; final reruns, remaining cases and fresh history remain pending. Graph-first and row-first have earlier
-whole passes and strict canonical equality at `01b7fd280661390fd82e0fa776af21f3b3967b675e31f99760bd104bc24b328f`;
-rerun them against the current frozen harness before promoting those scopes.
-Layout, saved-preview, ordering and focus repairs are reviewed. Earlier failures
-remain in VERIFICATION.md. Registration alone remains distinct from execution.
+All cases below pass on source134faf8b…/API525a909f…/binary5af91176… with inner/outer
+exit0 and storage guard PASS:105native actions, parent-independent raw audit.
+Strict graph12/row5 canonical semantics and exact3rows/values pass. Fresh100creation
+744.679s remains history3/source76b6 proof; final history5 uses strict current-source
+admission13.766s/full100/300values, not relabeled creation. Historical failures remain
+in VERIFICATION.md. Owned verification is complete; authenticated Calypr remains
+incomplete because no token is available and its267-column host frame is unverified.
 
 | Case | Required current proof | Status |
 | --- | --- | --- |
-| imported | Import, overlay relationship lifecycle, immutable pins, real stale conflict and explicit owner recovery | PASS, imported-3, 90.519s/17 actions at 7535bdaf…; expected real 409/stale recovery retained |
-| ordinary | Document.route lifecycle and reload | PASS, ordinary-4, 31.103s/6 actions at 7535bdaf… |
-| carry-in | Source-step Preview/Cancel/Apply/reload/restore; complete Group tuple, summaries and contributors | PASS, carry-in-5, 100.547s/23 actions incl EXCLUDE and restore at 7535bdaf… |
-| related-rows | Exact five/six related pairs, empty policy, full edit/removal/reload lifecycle | PASS, related-rows-2, 80.414s/7 actions at 7535bdaf… |
-| upstream-dependency | Valid edits preserve downstream work; invalid removal rejects atomically | PASS, upstream-dependency-2, 40.467s/4 actions at 7535bdaf…; expected 422 retained |
-| history-stress | Current-source admission of 100 operations and 300 cells; bounded visible ordered history | FAIL, history-stress-1 setup713.969s: 98 saved, 99th candidate exceeds30s; no native phase. Performance repair pending |
-| graph-first | Native connection and source policy; exact rows/values; canonical comparison with row-first | PASS, graph-first-11, 77.863s/7 actions plus 17 layouts at 4da639e4…; exact initiating focus and strict row4 canonical PASS |
-| row-first | Same supported recipe authored through editable terms; exact rows/values and canonical equivalence | PASS, row-first-4, 56.940s/5 actions at 4da639e4…; same-snapshot strict graph11 canonical PASS |
-| mixed | Explicit expansion retains ALL list; separately authored per-match scalar; complete lifecycle | PASS, mixed-4, 110.432s/12 actions at c339f7e2…; prior failed attempts retained |
-| earlier-term | ALL → DISTINCT → ALL preserves downstream expansion/scalar IDs, order, inputs, anchors and pin | PASS, earlier-term-1, 107.858s/8 actions at c339f7e2… |
-| ordinary-policy | Exact stable-ID FIELD policy Preview/Cancel/Apply/edit/reload with literal values | PASS, ordinary-policy-2, 36.609s/3 actions at 7535bdaf… |
-| root-proposal | Imported PRESERVE blocked; explicit REPLACE disclosed; Cancel intact, Apply/reload exact four Patients and unchanged other outputs | PASS, root-proposal-1, 35.280s/5 actions at 7535bdaf… |
+| imported | Import, overlay relationship lifecycle, immutable pins, real stale conflict and explicit owner recovery | PASS, imported-4, 82.543s/17 actions, source134faf8b… |
+| ordinary | Document.route lifecycle and reload | PASS, ordinary-5, 24.956s/6 actions, source134faf8b… |
+| carry-in | Source-step Preview/Cancel/Apply/reload/restore; complete Group tuple, summaries and contributors | PASS, carry-in-6, 93.403s/23 actions, source134faf8b… |
+| related-rows | Exact five/six related pairs, empty policy, full edit/removal/reload lifecycle | PASS, related-rows-3, 90.658s/7 actions, source134faf8b… |
+| upstream-dependency | Valid edits preserve downstream work; invalid removal rejects atomically | PASS, upstream-dependency-3, 48.916s/4 actions, source134faf8b… |
+| history-stress | Current-source admission of 100 operations and 300 cells; bounded visible ordered history | PASS, history-stress-5, 97.272s/8 actions, source134faf8b… |
+| graph-first | Native connection and source policy; exact rows/values; canonical comparison with row-first | PASS, graph-first-12, 68.306s/7 actions, source134faf8b… |
+| row-first | Same supported recipe authored through editable terms; exact rows/values and canonical equivalence | PASS, row-first-5, 50.453s/5 actions, source134faf8b… |
+| mixed | Explicit expansion retains ALL list; separately authored per-match scalar; complete lifecycle | PASS, mixed-5, 98.708s/12 actions, source134faf8b… |
+| earlier-term | ALL → DISTINCT → ALL preserves downstream expansion/scalar IDs, order, inputs, anchors and pin | PASS, earlier-term-2, 93.755s/8 actions, source134faf8b… |
+| ordinary-policy | Exact stable-ID FIELD policy Preview/Cancel/Apply/edit/reload with literal values | PASS, ordinary-policy-3, 29.607s/3 actions, source134faf8b… |
+| root-proposal | Imported PRESERVE blocked; explicit REPLACE disclosed; Cancel intact, Apply/reload exact four Patients and unchanged other outputs | PASS, root-proposal-2, 43.161s/5 actions, source134faf8b… |
 
 Both editors, relevant row/traversal meaning, one inspector and useful preview
 must fit at 1536×900 and 1536×1100/back, including an open proposal and 100-operation

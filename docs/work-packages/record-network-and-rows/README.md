@@ -1,6 +1,6 @@
 # Work package: edit the record network and row definition together
 
-Status: 08–11 implementation integrated; verification in progress. The shared owner, editable row expression, authored traversal, and composed workspace are implemented. Current automated and scoped same-model reviews pass; the 12-case current-source native matrix and authenticated Calypr acceptance remain incomplete. Original 01–07 evidence at `58544dcbb` is historical and retains only its recorded scope. See [GAPS.md](GAPS.md), [EDITING-CONTRACT.md](EDITING-CONTRACT.md), and [VERIFICATION.md](VERIFICATION.md). Follow-up baseline: `9613310fefacc987933275b9a9f92f3e456e886a` on `feature/default-recipe-authoring`; earlier baseline `1685bc4c2` contains `4b64797e3`.
+Status: implementation and owned verification complete: all12 final native cases/105 actions, canonical graph/row equivalence and100-operation acceptance pass at source134faf8b…. GRAPH-ROWS-06–11 remain verification-in-progress solely for required authenticated Calypr acceptance (missing short-lived token; actual267-column host frame unverified). See VERIFICATION.md for exact identities and preserved historical failures.
 
 ## Product goal
 

@@ -1,6 +1,8 @@
 # GRAPH-ROWS-06: Preserve the complete plan through save, reload, and concurrent edits
 
-Status: verification-in-progress (implementation and same-model review complete; required current-source native acceptance incomplete). Dependencies: GRAPH-ROWS-02; GRAPH-ROWS-03; integrate GRAPH-ROWS-04 and GRAPH-ROWS-05.
+Status: verification-in-progress (implementation and owned acceptance complete; authenticated Calypr journeys/frame remain incomplete because the required token is unavailable).
+
+Dependencies: GRAPH-ROWS-02; GRAPH-ROWS-03; integrate GRAPH-ROWS-04 and GRAPH-ROWS-05.
 
 ## Problem
 
@@ -45,9 +47,10 @@ Read [the work package](../README.md) and repository `AGENTS.md` before implemen
 
 ## Integrated follow-up checkpoint
 
-The shared owner, editable row expression, authored traversal and composed workspace
-are integrated. Current automated checks and scoped same-model reviews are recorded
-in [VERIFICATION.md](../VERIFICATION.md). The 12-case native matrix remains pending
-after layout and saved-preview repairs, with ordering repaired and remaining current native cases pending; authenticated Calypr acceptance is blocked by a
-missing short-lived token. Historical 01–07 evidence does not close these follow-up
-criteria. This ticket remains verification-in-progress.
+Implementation and all12 final owned native cases/105actions pass on source134faf8b…,
+including strict canonical graph/row equivalence and100-operation proof. Exact raw
+reports, current source/review identities, original creation/admission distinction,
+prior failures and limits are recorded in [VERIFICATION.md](../VERIFICATION.md).
+Authenticated Calypr authoring journeys and actual267-column host frame remain
+unverified because no short-lived token is available. This ticket remains
+verification-in-progress; owned fixture acceptance is not substituted for host checks.

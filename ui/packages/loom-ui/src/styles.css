@@ -435,3 +435,29 @@
   }
   .loom-ui-root .construction-result-region[data-has-network="true"]:not([data-has-editor="true"]) > [aria-label="Table result"] { grid-column: 1 / span 2; }
 }
+
+@media (min-width: 1280px) and (min-height: 700px) {
+  .loom-ui-root .construction-active-editor:has(> .construction-mutation-inspector) { overflow: hidden; }
+  .loom-ui-root .construction-mutation-inspector {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: .5rem;
+  }
+  .loom-ui-root .construction-mutation-fields { flex: 1; min-height: 0; overflow: hidden; }
+  .loom-ui-root .construction-mutation-fields > * { height: 100%; min-height: 0; overflow: auto; }
+  .loom-ui-root .construction-mutation-inspector > [data-testid="construction-proposal-panel"] {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 0;
+    max-height: 65%;
+    margin-top: 0;
+  }
+  .loom-ui-root .construction-mutation-inspector > [data-testid="construction-proposal-panel"] > :not(:last-child) {
+    min-height: 0;
+    overflow: auto;
+  }
+  .loom-ui-root .construction-mutation-inspector > [data-testid="construction-proposal-panel"] > :last-child { flex-shrink: 0; }
+}
