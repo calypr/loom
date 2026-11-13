@@ -562,7 +562,7 @@
     "internal/dataframe/publication/pointer_name_encoding_test.go": {
       "md5": "49187785c747aaad937bd0f3083fd08a",
       "role": "F-B21 durable units: historical-bare-join fault premise pinned; production fold must fail; injectivity matrix; ship-preserved blank-exclusion semantics; documented (TV=x,blank)/(blank,Out=x) boundary equality",
-      "rerun20261102_r58": "re-pinned round 58 (8c21eb64-only-commit content; r53 commit-time re-pin never executed); prior pin 76337dbac045"
+      "rerun20261102_r58": "re-pinned round 58 (8c21eb64-only-commit content; r53 commit-time re-pin never executed); prior pin 76337dbac045 — SUPERSEDED for the current value by PR #183 re-pin (ledger-digest-repair, coordinator directive, precedent a4d29f01): r58 attested md5 db3807f2b4a9116dd0c70db6f3eb0b9a (verified TRUE at 8c21eb64 and at 9534829d) was first moved to 49187785c747aaad937bd0f3083fd08a by comment sweep 80bca9a5 (#161, out-of-lane, no re-anchor); entry now SELF-RUN live md5 == git show e68c7d6b:internal/dataframe/publication/pointer_name_encoding_test.go == blob at feature/postgres-backend tip 48783199"
     },
     "internal/dataframe/published/current.go": "Bug-2 amplifier: :202-211 single bad binding -> whole-project listing error",
     "internal/dataframe/published/export.go": "F-B3 premise: accepts any future PinExpiresAt (:120-126); ticker cadence default 30s vs TTL 120s (:127-129,:156; selection.go:14-15); renewal loss/error aborts stream (:170-173 lost+cancel) -> F-B4 low-likelihood candidate only (stale-clock stamp needs >TTL app stall; untriggered, no positive evidence)",
