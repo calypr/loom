@@ -37,6 +37,9 @@ func fieldCatalogKeyForGeneration(project, datasetGeneration, authResourcePath, 
 	)
 }
 
+// catalogIdentityDigest hashes a length-prefixed sequence rather than a
+// delimiter-joined string. That keeps the input encoding injective even if a
+// project, generation, or path itself contains a delimiter or NUL byte.
 func catalogIdentityDigest(parts ...string) string {
 	hash := sha256.New()
 	for _, part := range parts {
