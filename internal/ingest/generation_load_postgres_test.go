@@ -311,7 +311,7 @@ func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing0
 	if faults != nil && faults.wrapFieldProfile != nil {
 		profileStore = faults.wrapFieldProfile(profileRepo)
 	}
-	profiles, err := control.NewCatalogFieldProfileStore(profileStore)
+	profiles, err := control.NewCatalogFieldProfileAdapter(profileStore)
 	if err != nil {
 		fail(fmt.Errorf("field profile store: %w", err))
 	}
@@ -323,7 +323,7 @@ func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing0
 	if faults != nil && faults.wrapInventory != nil {
 		inventoryStore = faults.wrapInventory(inventoryRepo)
 	}
-	inventory, err := control.NewCatalogStore(inventoryStore)
+	inventory, err := control.NewCatalogInventoryAdapter(inventoryStore)
 	if err != nil {
 		fail(fmt.Errorf("inventory store: %w", err))
 	}
@@ -335,7 +335,7 @@ func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing0
 	if faults != nil && faults.wrapRelationship != nil {
 		relationshipStore = faults.wrapRelationship(relationshipRepo)
 	}
-	relations, err := control.NewCatalogRelationshipEvidenceStore(relationshipStore)
+	relations, err := control.NewCatalogRelationshipAdapter(relationshipStore)
 	if err != nil {
 		fail(fmt.Errorf("relationship evidence store: %w", err))
 	}
