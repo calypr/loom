@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkEvents, ownDatabase, profiles, archBackend12Diagnostics, backendArchitectureConformance } from './run-arango-integration.mjs';
+import { checkEvents, ownDatabase, profiles, archBackend12Diagnostics, backendArchitectureConformance, cleanupOwnedDatabases } from './run-arango-integration.mjs';
 const stream = events => events.map(e => JSON.stringify(e)).join('\n');
 test('real case must pass; empty package and skip cannot masquerade as proof', () => {
     const profile = { required: 'TestReal' };
@@ -85,6 +85,51 @@ test('backend-architecture conformance: required legs run, skip and rename fail 
     assert.throws(() => checkEvents(stream(good.concat([{ Test: 'TestBackendArchitectureConformance/postgresl', Action: 'skip' }])), profile), /Unexpected skipped case/);
     assert.ok(backendArchitectureConformance.has('TestBackendArchitectureConformance/postgresql'));
     assert.ok(backendArchitectureConformance.has('TestBackendArchitectureConformance/arangodb'));
+});
+test('cleanup transport failure after verification warns without reddening the run', async () => {
+    const evidence = { status: 'passed', cleanup: [], cleanupAudit: [] };
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+        await cleanupOwnedDatabases('http://arangodb:8529', ['a', 'b'], evidence,
+            async () => { throw new Error('connect ECONNREFUSED 127.0.0.1:8529'); });
+    } finally {
+        console.warn = realWarn;
+    }
+    assert.equal(evidence.status, 'passed', 'transient transport cleanup failure must not fail a passed run');
+    assert.deepEqual(evidence.cleanup, [], 'transport failures are audit records, not cleanup verdicts');
+    assert.equal(evidence.cleanupAudit.length, 2);
+    assert.equal(evidence.cleanupAudit[0].database, 'a');
+    assert.match(evidence.cleanupAudit[0].transportError, /ECONNREFUSED/);
+    assert.equal(warnings.length, 2, 'each transport failure must be warned once');
+    assert.match(warnings[0], /cleanup-audit/);
+});
+test('cleanup HTTP refusal outside 404 still fails the run', async () => {
+    const evidence = { status: 'passed', cleanup: [], cleanupAudit: [] };
+    const requests = [];
+    await cleanupOwnedDatabases('http://arangodb:8529', ['locked'], evidence,
+        async (url, init) => { requests.push([url, init.method]); return { ok: false, status: 403 }; });
+    assert.equal(evidence.status, 'failed', 'an explicit cleanup refusal is a hard contract failure');
+    assert.deepEqual(requests, [['http://arangodb:8529/_api/database/locked', 'DELETE']]);
+    assert.deepEqual(evidence.cleanup, [
+        { database: 'locked', status: 403 },
+        { database: 'locked', error: 'Database cleanup HTTP 403' },
+    ]);
+    assert.deepEqual(evidence.cleanupAudit, []);
+});
+test('cleanup ok and 404 responses pass and are recorded', async () => {
+    const evidence = { status: 'passed', cleanup: [], cleanupAudit: [] };
+    let next = 0;
+    const statuses = [200, 404];
+    await cleanupOwnedDatabases('http://arangodb:8529', ['gone', 'absent'], evidence,
+        async () => ({ ok: next < 1, status: statuses[next++] ?? 404 }));
+    assert.equal(evidence.status, 'passed');
+    assert.deepEqual(evidence.cleanup, [
+        { database: 'gone', status: 200 },
+        { database: 'absent', status: 404 },
+    ]);
+    assert.deepEqual(evidence.cleanupAudit, []);
 });
 test('backend-architecture conformance skip-set capture is pinned and self-consistent', async () => {
     const { createHash } = await import('node:crypto');

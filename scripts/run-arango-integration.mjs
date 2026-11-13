@@ -236,6 +236,23 @@ export async function ownDatabase(endpoint, name, owned, request = fetch) {
     assert.ok(response.ok, `Refusing existing/unavailable database ${name}: HTTP ${response.status}`);
     owned.push(name);
 }
+export async function cleanupOwnedDatabases(endpoint, owned, evidence, request = fetch) {
+    for (const name of owned) {
+        let response;
+        try {
+            response = await request(`${endpoint}/_api/database/${encodeURIComponent(name)}`, { method: 'DELETE', signal: AbortSignal.timeout(10000) });
+        } catch (error) {
+            evidence.cleanupAudit.push({ database: name, transportError: error.message });
+            console.warn(`[cleanup-audit] transient transport failure dropping ${name}: ${error.message}; run verdict unaffected`);
+            continue;
+        }
+        evidence.cleanup.push({ database: name, status: response.status });
+        if (!response.ok && response.status !== 404) {
+            evidence.status = 'failed';
+            evidence.cleanup.push({ database: name, error: `Database cleanup HTTP ${response.status}` });
+        }
+    }
+}
 export async function runArango(output) {
     const endpoint = new URL(process.env.LOOM_TEST_ARANGO_URL || '');
     assert.ok(['http:', 'https:'].includes(endpoint.protocol) && !endpoint.username && !endpoint.password && endpoint.pathname === '/', 'Use an explicit unauthenticated owned Arango origin');
@@ -243,7 +260,7 @@ export async function runArango(output) {
     assert.ok(!existsSync(directory) || readdirSync(directory).length === 0, 'Evidence directory must be empty');
     mkdirSync(directory, { recursive: true });
     const before = sourceFingerprint(), owned = [], deadline = performance.now() + 8 * 60 * 1000;
-    const evidence = { tool, sourceBefore: before, profiles: [], cleanup: [], status: 'running', separatelyRouted: [{ test: 'TestPublicationRowsAndFreshViewerAgainstArangoClickHouse', feature: 'publication-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestCurrentDraftAppendRowsAgainstArangoClickHouse', feature: 'append-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse', feature: 'release-dangle-reconcile', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }] };
+    const evidence = { tool, sourceBefore: before, profiles: [], cleanup: [], cleanupAudit: [], status: 'running', separatelyRouted: [{ test: 'TestPublicationRowsAndFreshViewerAgainstArangoClickHouse', feature: 'publication-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestCurrentDraftAppendRowsAgainstArangoClickHouse', feature: 'append-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse', feature: 'release-dangle-reconcile', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }] };
     const database = `loom_test_restricted_starting_collection_${randomUUID()}`;
     const c01 = `loom_backend_c01_${randomUUID().replaceAll('-', '')}`;
     const sc02 = 'loom_qa_semantic_cov_resource_20261016';
@@ -279,13 +296,7 @@ export async function runArango(output) {
         evidence.status = evidence.profiles.some(p => p.unverified?.length) ? 'passed-with-explicit-unverified-external-cases' : 'passed';
     } catch (error) { evidence.status = 'failed'; evidence.error = error.message; }
     finally {
-        for (const name of owned.reverse()) {
-            try {
-                const response = await fetch(`${url}/_api/database/${encodeURIComponent(name)}`, { method: 'DELETE', signal: AbortSignal.timeout(10000) });
-                evidence.cleanup.push({ database: name, status: response.status });
-                assert.ok(response.ok || response.status === 404, `Database cleanup HTTP ${response.status}`);
-            } catch (error) { evidence.status = 'failed'; evidence.cleanup.push({ database: name, error: error.message }); }
-        }
+        await cleanupOwnedDatabases(url, owned.reverse(), evidence);
         evidence.sourceAfter = sourceFingerprint();
         if (before !== evidence.sourceAfter) { evidence.status = 'failed'; evidence.error = 'Source changed during verification'; }
         writeFileSync(resolve(directory, 'summary.json'), JSON.stringify(evidence, null, 2) + '\n');
