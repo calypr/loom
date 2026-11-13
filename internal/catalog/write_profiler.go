@@ -428,14 +428,30 @@ func pivotStatNeedsUpgrade(stat *fieldCatalogStats, field *fieldPlan) bool {
 	return !stat.pivotCandidate || stat.pivotKind == "" || !stat.pivotSpecApplied
 }
 
+func kindUpgradeRank(kind string) int {
+	switch kind {
+	case fieldKindCodeableConcept:
+		return 3
+	case fieldKindCoding:
+		return 2
+	case fieldKindObject:
+		return 1
+	default:
+		return 0
+	}
+}
+
 func kindUpgrade(current string, incoming string) string {
-	if current != fieldKindObject {
+	if kindUpgradeRank(current) < kindUpgradeRank(fieldKindObject) {
 		return ""
 	}
-	if incoming == fieldKindCodeableConcept || incoming == fieldKindCoding {
-		return incoming
+	if kindUpgradeRank(incoming) < kindUpgradeRank(fieldKindCoding) {
+		return ""
 	}
-	return ""
+	if kindUpgradeRank(incoming) <= kindUpgradeRank(current) {
+		return ""
+	}
+	return incoming
 }
 
 func (p *Profiler) upgradePivotStat(stat *fieldCatalogStats, field *fieldPlan) {
@@ -1004,8 +1020,8 @@ func isLoomMetadataField(path string) bool {
 
 func addFieldPlan(fieldMap map[string]*fieldPlan, path string, accessor []pathStep, kind string, pivotCandidate bool, pivotKind string) {
 	if existing, ok := fieldMap[path]; ok {
-		if existing.Kind == fieldKindObject && (kind == fieldKindCodeableConcept || kind == fieldKindCoding) {
-			existing.Kind = kind
+		if upgraded := kindUpgrade(existing.Kind, kind); upgraded != "" {
+			existing.Kind = upgraded
 		}
 		if existing.Kind == fieldKindArray && kind != fieldKindArray {
 			return

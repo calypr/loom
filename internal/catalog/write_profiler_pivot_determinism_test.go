@@ -233,6 +233,44 @@ func pivotDeterminismCreationOrderRuns(t *testing.T) []string {
 	}
 }
 
+func pivotDeterminismKindShards() (map[string]any, map[string]any) {
+	codingDoc := map[string]any{
+		"code":                 map[string]any{"coding": []any{map[string]any{"code": "KIND-CODING", "display": "Coding Kind"}}},
+		"valueCodeableConcept": map[string]any{"system": "http://example.org/sys", "code": "LEAF", "display": "Leaf"},
+	}
+	conceptDoc := map[string]any{
+		"code":                 map[string]any{"coding": []any{map[string]any{"code": "KIND-CONCEPT", "display": "Concept Kind"}}},
+		"valueCodeableConcept": map[string]any{"text": "CONCEPT"},
+	}
+	return codingDoc, conceptDoc
+}
+
+func TestFieldCatalogKindConvergesAcrossMergeDirection(t *testing.T) {
+	codingDoc, conceptDoc := pivotDeterminismKindShards()
+	forward := pivotDeterminismMergePair(t, []map[string]any{codingDoc}, []map[string]any{conceptDoc}, false)
+	backward := pivotDeterminismMergePair(t, []map[string]any{codingDoc}, []map[string]any{conceptDoc}, true)
+	if forward != backward {
+		t.Fatalf("merge direction changed the stored profile\nleft-into-right:  %s\nright-into-left: %s", forward, backward)
+	}
+	found := pivotDeterminismFieldDocument(t, forward, "valueCodeableConcept")
+	if found.Kind != fieldKindCodeableConcept {
+		t.Fatalf("kind = %q, want %q", found.Kind, fieldKindCodeableConcept)
+	}
+}
+
+func TestFieldCatalogKindConvergesAcrossDocumentArrivalOrder(t *testing.T) {
+	codingDoc, conceptDoc := pivotDeterminismKindShards()
+	forward := pivotDeterminismProfile(t, []map[string]any{codingDoc, conceptDoc})
+	backward := pivotDeterminismProfile(t, []map[string]any{conceptDoc, codingDoc})
+	if forward != backward {
+		t.Fatalf("document arrival order changed the stored profile\nforward:  %s\nbackward: %s", forward, backward)
+	}
+	found := pivotDeterminismFieldDocument(t, forward, "valueCodeableConcept")
+	if found.Kind != fieldKindCodeableConcept {
+		t.Fatalf("kind = %q, want %q", found.Kind, fieldKindCodeableConcept)
+	}
+}
+
 func TestFieldCatalogObservationPivotStatConvergesAcrossCreationOrder(t *testing.T) {
 	runs := pivotDeterminismCreationOrderRuns(t)
 	for index := 1; index < len(runs); index++ {
