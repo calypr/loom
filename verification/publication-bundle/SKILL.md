@@ -109,7 +109,7 @@ Historical, kept for provenance only — do not restore, re-pin, or delete:
   model digests are historical pins; refresh one only by re-deriving live
   bytes, never by hand. As of this guidance pass the canonical model is
   byte-identical to those pins (`md5sum BundleCommitLifecycle.tla` =
-  `14d341f86d6f4f072a585434334dfc7a`, matching `reviewed-sources.json`
+  `36c66fb5af5edbcf89bb9ca6867986dc` — lane05 2026-11-13 re-pin; pre-strip canonical was `14d341f86d6f4f072a585434334dfc7a` and the strip was comment-only, token-sequence-identical (TLC baseline re-run VIOLATES `InvariantNoDropUnderPointer` at depth 9 as expected; trail `reviewed-sources.json` `canonicalProbe.lane05Repin`), matching `reviewed-sources.json`
   `canonicalProbe.expectedMD5`), so this correction changed no model, witness
   or ledger bytes.
 

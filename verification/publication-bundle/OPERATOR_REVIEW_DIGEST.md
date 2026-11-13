@@ -56,6 +56,7 @@ Source snapshot: branch `feature/deep-clean` @ `dc9016bc`. Verification-only thr
 - **Local TLC runner**: `/sandbox/.local/bin/tlc-run` (operator-standard; defaults 2 GiB/4 workers; split `TLC_WORKERS`/`TLC_HEAP_MB`; one `-metadir` per run). Repaired this program for unreadable `/sys/fs/cgroup/{cpu,memory}.max` (OSError guards, contract preserved).
 - **Model ledger** (`verification/publication-bundle/`, all via tlc-run, 0 warnings; logs `/tmp/opencode/rbt-*.log`):
   - `BundleCommitLifecycle.tla` (+11 cfg families, matrix depths 9/15/7, holds 1.74M, fence-control complete) — canonical md5 `14d341f86d6f4f072a585434334dfc7a`.
+> lane05 2026-11-13 (AO loom-experiment-213, unified comment-strip wave): canonical md5 above is the pre-strip value; post-strip `BundleCommitLifecycle.tla` md5 = `36c66fb5af5edbcf89bb9ca6867986dc` (comment-only, token-identical; matrix depths 9/15/7 reconfirmed on post-strip bytes). Trail `reviewed-sources.json` `canonicalProbe.lane05Repin`.
   - `ReleaseBindingTrust.tla` 4 cfgs (md5 `2f09bc97`) — F-B6/Bug-3 violations + recheck control.
   - `StartupReconcileWedge.tla` 2 cfgs — F-B3 wedge vs proven clear.
   - `ActiveGenerationTrust.tla` 2 cfgs (md5 `68523966`) — F-B13.

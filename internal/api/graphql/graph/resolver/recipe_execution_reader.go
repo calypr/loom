@@ -15,9 +15,6 @@ type RecipeExecutionStore interface {
 	GetExecution(context.Context, string) (materialization.BundleExecution, error)
 }
 
-// NewAuthorizedRecipeExecutionReader performs the project/scope check before
-// exposing durable publication status. Execution IDs are opaque and are not
-// themselves authorization credentials.
 func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolver *authscope.ScopeResolver) RecipeExecutionReader {
 	return func(ctx context.Context, id string) (*RecipeExecution, error) {
 		if store == nil {
