@@ -1170,7 +1170,7 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 	bind := map[string]any{"project": project, "generation": generation}
 	body := fmt.Sprintf(`{"query":%q,"bindVars":%s}`, query, mustAB10JSON(t, bind))
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		strings.TrimRight(p.endpoint, "/")+"/_api/cursor/database/"+url.PathEscape(p.database),
+		strings.TrimRight(p.endpoint, "/")+"/_api/cursor/"+url.PathEscape(p.database),
 		strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("build cursor request: %v", err)
@@ -1204,7 +1204,7 @@ func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, key, att
 		"collection": collection, "key": key, "attribute": attribute,
 	}))
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		strings.TrimRight(p.endpoint, "/")+"/_api/cursor/database/"+url.PathEscape(p.database),
+		strings.TrimRight(p.endpoint, "/")+"/_api/cursor/"+url.PathEscape(p.database),
 		strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("build payload attribute request: %v", err)
