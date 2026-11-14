@@ -906,8 +906,9 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 		wire.ConstructionChoice = &choice
 		catalog.Candidates = append(catalog.Candidates, wire)
 	}
+	transformations := authoringv2.AggregateTransformationCapabilitiesForCatalogCandidates(catalog)
 	for index := range catalog.Candidates {
-		catalog.Candidates[index].Transformations = authoringv2.AggregateTransformationCapabilitiesForCatalog(catalog, catalog.Candidates[index].ID)
+		catalog.Candidates[index].Transformations = transformations[index]
 	}
 	return catalog
 }

@@ -125,6 +125,17 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	}
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 4, DraftDigest: digest}}
 	config := testConfig(snapshot)
+	resolveForCompilation := config.Capability.ForCompilation
+	compilationCapabilityCalls := 0
+	rejectNextCompilationCapability := false
+	config.Capability.ForCompilation = func(ctx context.Context, project, token string) (AuthorizedCapability, error) {
+		compilationCapabilityCalls++
+		if rejectNextCompilationCapability {
+			rejectNextCompilationCapability = false
+			return AuthorizedCapability{}, capability.ErrStaleSnapshot
+		}
+		return resolveForCompilation(ctx, project, token)
+	}
 	config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		return dataframeexecution.PreviewSummary{Columns: []string{"id"}, RowCount: 1, Complete: true}, nil
 	}
@@ -278,12 +289,16 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 	if got := compiledOutputIDs(compiledWorkspaces[len(compiledWorkspaces)-1]); !reflect.DeepEqual(got, []string{"patients", "other"}) {
 		t.Fatalf("capability compilation scope = %#v, want replacement plus independent sibling", got)
 	}
+	capabilityCallsBeforeReconcile := compilationCapabilityCalls
 	selectedReconcile, err := service.ReconcileWithWorkspace(context.Background(), ReconcileRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		DraftVersion: result.DraftVersion, DraftDigest: result.DraftDigest, OutputID: "patients",
 	})
 	if err != nil {
 		t.Fatalf("selected replacement reconcile with stale consumer: %v", err)
+	}
+	if calls := compilationCapabilityCalls - capabilityCallsBeforeReconcile; calls != 1 {
+		t.Fatalf("selected reconcile resolved compilation capability %d times, want once", calls)
 	}
 	if got := compiledOutputIDs(compiledWorkspaces[len(compiledWorkspaces)-1]); !reflect.DeepEqual(got, []string{"patients"}) {
 		t.Fatalf("selected replacement reconcile scope = %#v, want target only", got)
@@ -295,6 +310,18 @@ func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testin
 		},
 	}); err != nil {
 		t.Fatalf("preview selected replacement with stale consumer: %v", err)
+	}
+	rejectNextCompilationCapability = true
+	capabilityCallsBeforeReconcile = compilationCapabilityCalls
+	_, err = service.ReconcileWithWorkspace(context.Background(), ReconcileRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		DraftVersion: result.DraftVersion, DraftDigest: result.DraftDigest, OutputID: "patients",
+	})
+	if lifecycleErrorCode(err) != "STALE_CATALOG_SNAPSHOT" {
+		t.Fatalf("next selected reconcile error = %v, want fresh stale-capability rejection", err)
+	}
+	if calls := compilationCapabilityCalls - capabilityCallsBeforeReconcile; calls != 1 {
+		t.Fatalf("next selected reconcile resolved compilation capability %d times, want a fresh resolution", calls)
 	}
 	if _, err := service.ReconcileWithWorkspace(context.Background(), ReconcileRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,

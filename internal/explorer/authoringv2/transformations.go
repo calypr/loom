@@ -36,6 +36,11 @@ type aggregateTransformNode struct {
 // AggregateTransformationCapabilitiesForCatalog derives choices from the
 // resolved catalog candidates and generated FHIR schema.
 func AggregateTransformationCapabilitiesForCatalog(catalog CatalogSnapshot, candidateID string) AggregateTransformationCapabilities {
+	nodes, candidates := catalogAggregateTransformationInputs(catalog)
+	return aggregateTransformationCapabilities(nodes, candidates, candidateID)
+}
+
+func catalogAggregateTransformationInputs(catalog CatalogSnapshot) ([]aggregateTransformNode, []aggregateTransformCandidate) {
 	nodes := make([]aggregateTransformNode, 0, len(catalog.Nodes))
 	for _, node := range catalog.Nodes {
 		nodes = append(nodes, aggregateTransformNode{id: node.ID, resourceType: node.ResourceType, rowRootEligible: node.RowRootEligible})
@@ -58,7 +63,55 @@ func AggregateTransformationCapabilitiesForCatalog(catalog CatalogSnapshot, cand
 		}
 		candidates = append(candidates, mapped)
 	}
-	return aggregateTransformationCapabilities(nodes, candidates, candidateID)
+	return nodes, candidates
+}
+
+// AggregateTransformationCapabilitiesForCatalogCandidates returns one independent
+// result per catalog candidate, in catalog order, preparing shared temporal choices once.
+func AggregateTransformationCapabilitiesForCatalogCandidates(catalog CatalogSnapshot) []AggregateTransformationCapabilities {
+	nodes, candidates := catalogAggregateTransformationInputs(catalog)
+	resourceByNode := make(map[string]string, len(nodes))
+	rootNode := make(map[string]bool, len(nodes))
+	for _, node := range nodes {
+		resourceByNode[node.id] = node.resourceType
+		rootNode[node.id] = node.rowRootEligible
+	}
+	timestamps := make(map[string][]TemporalFieldChoice)
+	anchors := []TemporalFieldChoice{}
+	firstByID := make(map[string]aggregateTransformCandidate, len(candidates))
+	for _, candidate := range candidates {
+		if _, exists := firstByID[candidate.id]; !exists {
+			firstByID[candidate.id] = candidate
+		}
+		resourceType, ok := resourceByNode[candidate.nodeID]
+		if !ok || !isAdvertisedDateTime(candidate, resourceType) {
+			continue
+		}
+		choice := TemporalFieldChoice{CandidateID: candidate.id, NodeID: candidate.nodeID, ResourceType: resourceType,
+			FieldPath: canonicalTransformPath(candidate.fieldPath), Label: candidate.label}
+		timestamps[candidate.nodeID] = append(timestamps[candidate.nodeID], choice)
+		if rootNode[candidate.nodeID] {
+			anchors = append(anchors, choice)
+		}
+	}
+	for _, choices := range timestamps {
+		sort.Slice(choices, func(i, j int) bool { return choices[i].FieldPath < choices[j].FieldPath })
+	}
+	sort.Slice(anchors, func(i, j int) bool {
+		return anchors[i].ResourceType+"\x00"+anchors[i].FieldPath < anchors[j].ResourceType+"\x00"+anchors[j].FieldPath
+	})
+	results := make([]AggregateTransformationCapabilities, len(candidates))
+	for index, candidate := range candidates {
+		selected := firstByID[candidate.id]
+		result := AggregateTransformationCapabilities{
+			Temporal: TemporalReductionCapabilities{
+				TimestampFields: append([]TemporalFieldChoice{}, timestamps[selected.nodeID]...),
+				AnchorFields:    append([]TemporalFieldChoice{}, anchors...),
+			},
+		}
+		results[index] = finishAggregateTransformationCapabilities(result, selected)
+	}
+	return results
 }
 
 // AggregateTransformationCapabilitiesForCapability derives choices from the
@@ -128,6 +181,10 @@ func aggregateTransformationCapabilities(nodes []aggregateTransformNode, candida
 		left, right := result.Temporal.AnchorFields[i], result.Temporal.AnchorFields[j]
 		return left.ResourceType+"\x00"+left.FieldPath < right.ResourceType+"\x00"+right.FieldPath
 	})
+	return finishAggregateTransformationCapabilities(result, selected)
+}
+
+func finishAggregateTransformationCapabilities(result AggregateTransformationCapabilities, selected aggregateTransformCandidate) AggregateTransformationCapabilities {
 	switch {
 	case len(result.Temporal.TimestampFields) == 0:
 		result.Temporal.ReasonCode = "NO_TIMESTAMP_FIELDS"

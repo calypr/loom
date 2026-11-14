@@ -447,10 +447,18 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 	if (s.config.Capability.Token == nil && s.config.Capability.ForCompilation == nil) || s.config.CompileReceipt == nil {
 		return nil, unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
 	}
-	authorized, snapshot, err := s.resolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
+	authorized, _, err := s.resolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
 		return nil, conflict("capability", "STALE_CATALOG_SNAPSHOT", "the capability snapshot is stale or unavailable", map[string]any{"snapshotToken": request.SnapshotToken}, err)
 	}
+	return s.compileAuthorized(ctx, request, authorized)
+}
+
+func (s *Service) compileAuthorized(ctx context.Context, request compileRequest, authorized AuthorizedCapability) (*explorer.CompilationReceipt, error) {
+	if s.config.CompileReceipt == nil {
+		return nil, unavailable("compile", "CAPABILITY_UNAVAILABLE", "Explorer V2 compiler is not configured", nil)
+	}
+	snapshot := authorized.Snapshot
 	workspace := request.Workspace.NormalizePresentationOrders()
 	if err := (authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, Workspace: &workspace, Catalog: s.catalog(snapshot, request.ExplorerID)}).Validate(); err != nil {
 		return nil, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
@@ -655,7 +663,7 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 	if err != nil {
 		return ReconcileResult{}, unprocessable("reconcile", "INVALID_OUTPUT_SCOPE", err.Error(), err)
 	}
-	receipt, err := s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: scoped, SnapshotToken: request.SnapshotToken})
+	receipt, err := s.compileAuthorized(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: scoped, SnapshotToken: request.SnapshotToken}, authorized)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
