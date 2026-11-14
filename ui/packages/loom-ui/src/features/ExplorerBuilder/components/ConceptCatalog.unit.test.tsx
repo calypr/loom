@@ -473,8 +473,13 @@ describe('ConceptCatalog', () => {
     );
 
     await screen.findByRole('searchbox', { name: 'Search coded values by code or label' });
-    fireEvent.click(within(screen.getByTestId('feature-catalog-raw-fields')).getByText('Fields'));
-    expect(await screen.findByRole('button', { name: 'Select Patient.id' })).toBeEnabled();
+    const fields = screen.getByTestId('feature-catalog-raw-fields');
+    expect(fields).toHaveAttribute('open');
+    expect(await within(fields).findByRole('button', { name: 'Select Patient.id' })).toBeEnabled();
+    fireEvent.click(within(fields).getByText('Fields'));
+    expect(fields).not.toHaveAttribute('open');
+    fireEvent.click(within(fields).getByText('Fields'));
+    expect(fields).toHaveAttribute('open');
     expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/schema-fields'))).toBe(false);
   });
 

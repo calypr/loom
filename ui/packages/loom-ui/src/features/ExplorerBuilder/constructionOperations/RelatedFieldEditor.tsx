@@ -128,32 +128,69 @@ export const RelatedFieldEditor = ({
   const [error, setError] = useState('');
   const requestVersion = useRef(0);
   const moreController = useRef<AbortController | undefined>(undefined);
+  const seenCursors = useRef(new Set<string>());
 
   useEffect(() => () => moreController.current?.abort(), [stage.id]);
   useEffect(() => {
     if (!stage.activeRelatedRecord) return;
     const controller = new AbortController();
     const version = ++requestVersion.current;
+    seenCursors.current.clear();
     setLoading(true);
     setError('');
     const timeout = globalThis.setTimeout(() => {
-      void client.searchRelatedFieldChoices({
-        project, explorerId, authResourcePath, snapshotToken, outputId,
-        expectedDraftVersion: capabilities.draftVersion,
-        expectedDraftDigest: capabilities.draftDigest,
-        stageId: stage.id, query: query.trim(), limit: 20,
-      }, controller.signal).then((response) => {
+      void (async () => {
+        const eligibleChoices = (items: ReadonlyArray<FieldChoice>) => items.filter((item) =>
+          item.source.nodeId === stage.activeRelatedRecord?.targetNodeId &&
+          item.source.resourceType === stage.activeRelatedRecord?.targetResourceType &&
+          (item.source.cardinality === 'optional_one' || item.source.cardinality === 'required_one'),
+        );
+        let response = await client.searchRelatedFieldChoices({
+          project, explorerId, authResourcePath, snapshotToken, outputId,
+          expectedDraftVersion: capabilities.draftVersion,
+          expectedDraftDigest: capabilities.draftDigest,
+          stageId: stage.id, query: query.trim(), limit: 20,
+        }, controller.signal);
         if (controller.signal.aborted || version !== requestVersion.current) return;
         if (!matchesRequest(response, snapshotToken, capabilities, outputId)) {
           throw new Error('Available fields changed. Reload this table before adding a column.');
         }
-        setChoices(response.choices.filter((item) =>
-          item.source.nodeId === stage.activeRelatedRecord?.targetNodeId &&
-          item.source.resourceType === stage.activeRelatedRecord?.targetResourceType &&
-          (item.source.cardinality === 'optional_one' || item.source.cardinality === 'required_one'),
-        ));
-        setCursor(response.nextCursor);
-      }).catch((cause: unknown) => {
+        let available = eligibleChoices(response.choices);
+        let nextCursor = response.nextCursor;
+        setChoices(available);
+        setCursor(nextCursor);
+        // Sparse pages can contain no fields for the exact related record. Browse
+        // a small bounded number automatically so users see options without typing.
+        for (let page = 1; available.length === 0 && nextCursor && page < 3; page += 1) {
+          if (seenCursors.current.has(nextCursor)) {
+            setError('The field list stopped advancing. Change your search or reopen this editor.');
+            nextCursor = undefined;
+            break;
+          }
+          seenCursors.current.add(nextCursor);
+          const next = await client.searchRelatedFieldChoices({
+            project, explorerId, authResourcePath, snapshotToken, outputId,
+            expectedDraftVersion: capabilities.draftVersion,
+            expectedDraftDigest: capabilities.draftDigest,
+            stageId: stage.id, query: query.trim(), limit: 20, cursor: nextCursor,
+          }, controller.signal);
+          if (controller.signal.aborted || version !== requestVersion.current) return;
+          if (!matchesRequest(next, snapshotToken, capabilities, outputId)) {
+            throw new Error('Available fields changed. Reload this table before adding a column.');
+          }
+          available = eligibleChoices(next.choices);
+          nextCursor = next.nextCursor;
+          setChoices(available);
+          setCursor(nextCursor);
+        }
+        if (controller.signal.aborted || version !== requestVersion.current) return;
+        if (nextCursor && seenCursors.current.has(nextCursor)) {
+          setError('The field list stopped advancing. Change your search or reopen this editor.');
+          nextCursor = undefined;
+        }
+        setChoices(available);
+        setCursor(nextCursor);
+      })().catch((cause: unknown) => {
         if (!controller.signal.aborted && version === requestVersion.current) {
           setError(cause instanceof Error ? cause.message : 'Could not load fields from this record.');
         }
@@ -189,11 +226,18 @@ export const RelatedFieldEditor = ({
       if (!matchesRequest(response, snapshotToken, capabilities, outputId)) {
         throw new Error('Available fields changed. Reload this table before adding a column.');
       }
-      setChoices((current) => [...current, ...response.choices.filter((item) =>
+      const pageChoices = response.choices.filter((item) =>
         item.source.nodeId === stage.activeRelatedRecord?.targetNodeId &&
         item.source.resourceType === stage.activeRelatedRecord?.targetResourceType &&
         (item.source.cardinality === 'optional_one' || item.source.cardinality === 'required_one'),
-      )]);
+      );
+      seenCursors.current.add(cursor);
+      setChoices((current) => [...current, ...pageChoices]);
+      if (response.nextCursor && seenCursors.current.has(response.nextCursor)) {
+        setError('The field list stopped advancing. Change your search or reopen this editor.');
+        setCursor(undefined);
+        return;
+      }
       setCursor(response.nextCursor);
     } catch (cause) {
       if (!controller.signal.aborted && version === requestVersion.current) {
@@ -225,6 +269,7 @@ export const RelatedFieldEditor = ({
           requestVersion.current += 1;
           moreController.current?.abort();
           setQuery(event.target.value);
+          seenCursors.current.clear();
           setChoices([]);
           setCursor(undefined);
         }} placeholder="Search field name or path" className="rounded border border-slate-300 bg-white px-3 py-2 font-normal" />
@@ -251,9 +296,19 @@ export const RelatedFieldEditor = ({
             <span className="block text-xs text-slate-600">{candidate.source.path} · {candidate.source.logicalType}</span>
           </button>
         ))}
-        {!loading && choices.length === 0 && !error ? <p className="text-sm text-slate-600">No executable fields match this search.</p> : null}
+        {!loading && choices.length === 0 && !error ? <p className="text-sm text-slate-600">
+          {cursor
+            ? query.trim()
+              ? 'No matching fields on this page. Browse more fields or refine your search.'
+              : 'No supported fields on this page. Browse more fields to see the remaining options.'
+            : query.trim()
+              ? 'No executable fields match this search.'
+              : 'No supported fields are available from this related record.'}
+        </p> : null}
       </div>
-      {cursor ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start rounded border border-slate-300 bg-white px-3 py-2 text-sm">Load more fields</button> : null}
+      {cursor ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start rounded border border-slate-300 bg-white px-3 py-2 text-sm">
+        {choices.length === 0 ? 'Browse next page of fields' : 'Load more fields'}
+      </button> : null}
       {choice ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-sm font-medium">Column name

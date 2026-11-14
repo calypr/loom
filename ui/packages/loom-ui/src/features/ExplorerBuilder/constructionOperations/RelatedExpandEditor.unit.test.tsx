@@ -5,9 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { relatedExpandContributorSearchResponseSchema, type ConstructionCapabilitiesResponse, type ExplorerBuilderCatalog, type RelatedExpandContributorSearchResponse } from '../../../types';
 import { ConstructionProposalPanel } from '../constructionWorkspace/ConstructionProposalPanel';
 import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
+import { RelatedExpandContributorEditor } from './RelatedExpandContributorEditor';
 
 const searchRelatedExpandChoices = vi.fn();
-const searchRelatedExpandContributors = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string; outputId: string; stageId: string; routeChoiceId: string }): Promise<RelatedExpandContributorSearchResponse> => ({
+const searchRelatedExpandContributors = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string; outputId: string; stageId: string; routeChoiceId: string; query?: string; cursor?: string }, _signal?: AbortSignal): Promise<RelatedExpandContributorSearchResponse> => ({
   snapshotToken: args.snapshotToken, draftVersion: args.expectedDraftVersion, draftDigest: args.expectedDraftDigest,
   outputId: args.outputId, stageId: args.stageId, routeChoiceId: args.routeChoiceId,
   complete: true, truncated: false, choices: [],
@@ -36,6 +37,31 @@ const encounterAnchor = {
   anchorColumnId: '__loom_encounter_id', kind: 'activeRelatedRecord' as const,
   nodeId: 'encounter-node', resourceType: 'Encounter', label: 'Current Encounter record',
 };
+
+const contributorPage = (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string; outputId: string; stageId: string; routeChoiceId: string }, choices: RelatedExpandContributorSearchResponse['choices'], nextCursor?: string): RelatedExpandContributorSearchResponse => ({
+  snapshotToken: args.snapshotToken, draftVersion: args.expectedDraftVersion, draftDigest: args.expectedDraftDigest,
+  outputId: args.outputId, stageId: args.stageId, routeChoiceId: args.routeChoiceId,
+  complete: nextCursor === undefined, truncated: nextCursor !== undefined,
+  ...(nextCursor ? { nextCursor } : {}), choices,
+});
+const repeatedContributor: RelatedExpandContributorSearchResponse['choices'][number] = {
+  choiceId: 'repeated-status-choice', label: 'Repeated status',
+  source: { kind: 'FIELD', candidateId: 'encounter-observations', nodeId: 'encounter-node', resourceType: 'Encounter',
+    path: 'Encounter.observation[].status', cardinality: 'many', logicalType: 'string',
+    repeatedBoundaries: [{ path: 'observation[]', maxItems: 4 }] },
+  operators: ['EXISTS'], suggestedValues: [], suggestionsComplete: true, suggestionsTruncated: false, suggestionsSource: 'catalog',
+};
+const scalarContributor: RelatedExpandContributorSearchResponse['choices'][number] = {
+  choiceId: 'scalar-status-choice', label: 'Status',
+  source: { kind: 'FIELD', candidateId: 'encounter-status', nodeId: 'encounter-node', resourceType: 'Encounter', path: 'Encounter.status', cardinality: 'optional_one', logicalType: 'string' },
+  operators: ['EXISTS'], suggestedValues: [], suggestionsComplete: true, suggestionsTruncated: false, suggestionsSource: 'catalog',
+};
+function openEncounterContributorCondition() {
+  render(<RelatedExpandContributorEditor project="project" explorerId="explorer" snapshotToken="snapshot-1"
+    draftVersion={1} draftDigest="draft-1" outputId="patients" stageId="source_projection"
+    routeChoiceId="signed-choice" targetNodeId="encounter-node" targetResourceType="Encounter"
+    allowRepeatedFields={false} condition={{ kind: 'CHOOSE' }} disabled={false} onChange={vi.fn()} />);
+}
 
 const catalog: ExplorerBuilderCatalog = {
   snapshotToken: 'snapshot-1',
@@ -71,6 +97,136 @@ const fieldValue = (label: string): string => {
 };
 
 describe('RelatedExpandEditor', () => {
+  it('continues past filtered-only pages until an eligible contributor is found', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({ snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }] });
+    searchRelatedExpandContributors.mockReset().mockImplementation(async (args) => 'cursor' in args
+      ? contributorPage(args, [scalarContributor]) : contributorPage(args, [repeatedContributor], 'page-2'));
+    openEncounterContributorCondition();
+    expect(await screen.findByRole('button', { name: /Status/ })).toBeInTheDocument();
+    expect(screen.queryByText('No supported fields match this search.')).not.toBeInTheDocument();
+    expect(searchRelatedExpandContributors).toHaveBeenCalledTimes(2);
+    expect(searchRelatedExpandContributors.mock.calls[1]?.[0]).toMatchObject({ cursor: 'page-2', query: '' });
+  });
+
+  it('shows empty only after exhausting pages with no eligible contributors', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({ snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }] });
+    searchRelatedExpandContributors.mockReset().mockImplementation(async (args) => contributorPage(args, [repeatedContributor], 'cursor' in args ? undefined : 'page-2'));
+    openEncounterContributorCondition();
+    expect(await screen.findByText('No supported fields match this search.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Repeated status/ })).not.toBeInTheDocument();
+    expect(searchRelatedExpandContributors).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a browse action visible when the automatic page bound is reached', async () => {
+    searchRelatedExpandContributors.mockReset().mockImplementation(async (args) => {
+      const cursor = 'cursor' in args ? Number(String(args.cursor).replace('page-', '')) : 0;
+      return contributorPage(args, [{ ...repeatedContributor, choiceId: `repeated-${cursor}` }], `page-${cursor + 1}`);
+    });
+    openEncounterContributorCondition();
+    expect(await screen.findByText('More supported fields are available. Load more to continue browsing.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load more fields' })).toBeEnabled();
+    expect(screen.queryByText('No supported fields match this search.')).not.toBeInTheDocument();
+    expect(searchRelatedExpandContributors).toHaveBeenCalledTimes(3);
+  });
+
+  it('preserves a failed automatic continuation cursor for retry', async () => {
+    searchRelatedExpandContributors.mockReset().mockImplementation(async (args) => {
+      if (!('cursor' in args)) return contributorPage(args, [repeatedContributor], 'page-2');
+      if (searchRelatedExpandContributors.mock.calls.length === 2) throw new Error('Temporary page failure');
+      return contributorPage(args, [scalarContributor]);
+    });
+    openEncounterContributorCondition();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary page failure');
+    const retry = screen.getByRole('button', { name: 'Retry loading more fields' });
+    expect(retry).toBeEnabled();
+    fireEvent.click(retry);
+    expect(await screen.findByRole('button', { name: /Status/ })).toBeInTheDocument();
+    expect(searchRelatedExpandContributors.mock.calls.at(-1)?.[0]).toMatchObject({ cursor: 'page-2' });
+  });
+
+  it('preserves successfully browsed choices and resumes after a later page fails', async () => {
+    let failThirdPage = true;
+    searchRelatedExpandContributors.mockReset().mockImplementation(async (args) => {
+      if (!('cursor' in args)) return contributorPage(args, [scalarContributor], 'page-2');
+      if (args.cursor === 'page-2') return contributorPage(args, [{ ...scalarContributor, choiceId: 'page-two-choice', label: 'Page two status' }], 'page-3');
+      if (args.cursor === 'page-3' && failThirdPage) {
+        failThirdPage = false;
+        throw new Error('Temporary page three failure');
+      }
+      return contributorPage(args, [{ ...scalarContributor, choiceId: 'page-three-choice', label: 'Page three status' }]);
+    });
+    openEncounterContributorCondition();
+    expect(await screen.findByRole('button', { name: /Status/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more fields' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary page three failure');
+    expect(screen.getByRole('button', { name: /Page two status/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry loading more fields' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading more fields' }));
+    expect(await screen.findByRole('button', { name: /Page three status/ })).toBeInTheDocument();
+    expect(searchRelatedExpandContributors.mock.calls.at(-1)?.[0]).toMatchObject({ cursor: 'page-3' });
+  });
+
+  it('aborts continuation paging when the user switches back to all matching records', async () => {
+    let resolveContinuation!: (response: RelatedExpandContributorSearchResponse) => void;
+    searchRelatedExpandContributors.mockReset().mockImplementation((args) => 'cursor' in args
+      ? new Promise((resolve) => { resolveContinuation = resolve; })
+      : Promise.resolve(contributorPage(args, [scalarContributor], 'page-2')));
+    openEncounterContributorCondition();
+    expect(await screen.findByRole('button', { name: /Status/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more fields' }));
+    await waitFor(() => expect(searchRelatedExpandContributors).toHaveBeenCalledTimes(2));
+    const continuationSignal = searchRelatedExpandContributors.mock.calls[1]?.[1];
+    fireEvent.click(screen.getByRole('radio', { name: 'All matching records' }));
+    expect(continuationSignal?.aborted).toBe(true);
+    await act(async () => resolveContinuation(contributorPage(
+      { snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', routeChoiceId: 'signed-choice' },
+      [{ ...scalarContributor, choiceId: 'page-two-choice', label: 'Page two status' }], 'page-3')));
+    expect(searchRelatedExpandContributors).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: /Page two status/ })).not.toBeInTheDocument();
+  });
+
+  it('rejects a stale continuation response without showing its choices', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({ snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }] });
+    searchRelatedExpandContributors.mockReset().mockImplementation(async (args) => 'cursor' in args
+      ? { ...contributorPage(args, [scalarContributor]), draftDigest: 'stale-draft' }
+      : contributorPage(args, [repeatedContributor], 'page-2'));
+    openEncounterContributorCondition();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Available conditions changed. Reload this table before expanding records.');
+    expect(screen.queryByRole('button', { name: /Status/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Find a field on Encounter')).toBeInTheDocument();
+  });
+
+  it('ignores an aborted empty-query response after the user starts a new search', async () => {
+    let resolveOld!: (response: RelatedExpandContributorSearchResponse) => void;
+    searchRelatedExpandContributors.mockReset().mockImplementation((args) => args.query
+      ? Promise.resolve(contributorPage(args, [scalarContributor]))
+      : new Promise((resolve) => { resolveOld = resolve; }));
+    openEncounterContributorCondition();
+    await waitFor(() => expect(searchRelatedExpandContributors).toHaveBeenCalledTimes(1));
+    const oldSignal = searchRelatedExpandContributors.mock.calls[0]?.[1];
+    fireEvent.change(screen.getByLabelText('Find a field on Encounter'), { target: { value: 'status' } });
+    expect(await screen.findByRole('button', { name: /Status/ })).toBeInTheDocument();
+    expect(oldSignal?.aborted).toBe(true);
+    await act(async () => resolveOld(contributorPage({
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', routeChoiceId: 'signed-choice',
+    }, [{ ...scalarContributor, choiceId: 'stale-choice', label: 'Stale status' }])));
+    expect(screen.queryByRole('button', { name: /Stale status/ })).not.toBeInTheDocument();
+  });
+
+  it('stops repeated continuation cursors with an actionable error', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({ snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }] });
+    searchRelatedExpandContributors.mockReset().mockImplementation(async (args) => contributorPage(args, [repeatedContributor], 'page-2'));
+    openEncounterContributorCondition();
+    expect(await screen.findByRole('alert')).toHaveTextContent('The related-field catalog repeated a page cursor.');
+    expect(screen.getByLabelText('Find a field on Encounter')).toBeInTheDocument();
+    expect(searchRelatedExpandContributors).toHaveBeenCalledTimes(2);
+  });
+
   it('suggests a unique related-record ID column when a related ID list already exists', async () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',

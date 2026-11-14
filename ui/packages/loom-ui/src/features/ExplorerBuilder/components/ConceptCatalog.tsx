@@ -837,7 +837,7 @@ const ConceptCatalogContent = ({
   const browseResourceType = searchAcrossSources ? undefined : resourceType;
   const browseSourceNodeId = searchAcrossSources ? undefined : sourceNodeId;
   const browseRouteContext = searchAcrossSources ? undefined : routeContext;
-  const [rawFieldsExpanded, setRawFieldsExpanded] = useState(layout !== 'panel');
+  const [rawFieldsExpanded, setRawFieldsExpanded] = useState(true);
   const [pageNavigation, setPageNavigation] = useState<{
     readonly scopeKey: string;
     readonly cursors: ReadonlyArray<string | undefined>;
@@ -2250,7 +2250,7 @@ const ConceptCatalogContent = ({
               {fieldSection}
             </div>
           ) : view === 'all' ? (
-            <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' ? true : undefined}
+            <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' || rawFieldsExpanded}
               onToggle={(event) => { if (layout === 'panel') setRawFieldsExpanded(event.currentTarget.open); }}>
               <summary className="cursor-pointer text-sm font-semibold text-slate-700">Fields</summary>
               <p className="mt-2 text-xs text-slate-600">Choose a dataset field such as a row ID, date, grouping field, or value without a coded pairing.</p>

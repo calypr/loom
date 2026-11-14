@@ -15,6 +15,14 @@ type ContributorSearchError = {
   readonly diagnostic?: string;
 };
 
+const contributorPageSize = 20;
+const automaticBrowsePageLimit = 3;
+const repeatedContributorCursorMessage = 'The related-field catalog repeated a page cursor. Search for a field name or path to continue.';
+const filterContributorChoices = (
+  choices: ReadonlyArray<ContributorChoice>,
+  allowRepeatedFields: boolean,
+) => choices.filter((choice) => allowRepeatedFields || choice.source.cardinality !== 'many');
+
 const contributorSearchErrorFrom = (cause: unknown, fallback: string): ContributorSearchError =>
   cause instanceof ZodError
     ? {
@@ -87,6 +95,7 @@ export const RelatedExpandContributorEditor = ({
   const [error, setError] = useState<ContributorSearchError | undefined>();
   const requestVersion = useRef(0);
   const moreController = useRef<AbortController | undefined>(undefined);
+  const cursorHistory = useRef<{ readonly version: number; readonly cursors: Set<string> }>({ version: 0, cursors: new Set() });
   const selected = (condition.kind === 'EXISTS' || condition.kind === 'EQUALS')
     && (allowRepeatedFields || condition.choice.source.cardinality !== 'many')
     ? condition.choice : undefined;
@@ -100,30 +109,76 @@ export const RelatedExpandContributorEditor = ({
     setError(undefined);
     setSearchAttempt((attempt) => attempt + 1);
   };
+  const chooseAllMatches = () => {
+    requestVersion.current += 1;
+    moreController.current?.abort();
+    moreController.current = undefined;
+    setLoading(false);
+    setError(undefined);
+    onChange({ kind: 'ALL' });
+  };
 
   useEffect(() => () => moreController.current?.abort(), [routeChoiceId]);
   useEffect(() => {
     if (condition.kind === 'ALL') return;
     const controller = new AbortController();
     const version = ++requestVersion.current;
+    cursorHistory.current = { version, cursors: new Set() };
+    setChoices([]);
+    setCursor(undefined);
     setLoading(true);
     setError(undefined);
     const timeout = globalThis.setTimeout(() => {
-      void client.searchRelatedExpandContributors({
-        project, explorerId, authResourcePath, snapshotToken,
-        expectedDraftVersion: draftVersion, expectedDraftDigest: draftDigest,
-        outputId, stageId, routeChoiceId, query: query.trim(), limit: 20,
-      }, controller.signal).then((response) => {
-        if (controller.signal.aborted || version !== requestVersion.current) return;
-        if (!choicesMatchRequest(response, snapshotToken, draftVersion, draftDigest, outputId,
-          stageId, routeChoiceId, targetNodeId, targetResourceType)) {
-          throw new Error('Available conditions changed. Reload this table before expanding records.');
+      const available: ContributorChoice[] = [];
+      let pageCursor: string | undefined;
+      void (async () => {
+        let pagesRead = 0;
+        while (pagesRead < automaticBrowsePageLimit && available.length === 0) {
+          if (controller.signal.aborted || version !== requestVersion.current) return;
+          if (pageCursor) {
+            if (cursorHistory.current.version !== version || cursorHistory.current.cursors.has(pageCursor)) {
+              throw new Error(repeatedContributorCursorMessage);
+            }
+          }
+          const response = await client.searchRelatedExpandContributors({
+            project, explorerId, authResourcePath, snapshotToken,
+            expectedDraftVersion: draftVersion, expectedDraftDigest: draftDigest,
+            outputId, stageId, routeChoiceId, query: query.trim(), limit: contributorPageSize,
+            ...(pageCursor ? { cursor: pageCursor } : {}),
+          }, controller.signal);
+          if (controller.signal.aborted || version !== requestVersion.current) return;
+          if (!choicesMatchRequest(response, snapshotToken, draftVersion, draftDigest, outputId,
+            stageId, routeChoiceId, targetNodeId, targetResourceType)) {
+            throw new Error('Available conditions changed. Reload this table before expanding records.');
+          }
+          if (pageCursor) cursorHistory.current.cursors.add(pageCursor);
+          available.push(...filterContributorChoices(response.choices, allowRepeatedFields));
+          pagesRead += 1;
+          const nextCursor = response.nextCursor;
+          if (!nextCursor) {
+            pageCursor = undefined;
+            break;
+          }
+          if (cursorHistory.current.cursors.has(nextCursor) || nextCursor === pageCursor) {
+            throw new Error(repeatedContributorCursorMessage);
+          }
+          pageCursor = nextCursor;
         }
-        setChoices(response.choices.filter((choice) => allowRepeatedFields || choice.source.cardinality !== 'many'));
-        setCursor(response.nextCursor);
-      }).catch((cause: unknown) => {
+        if (controller.signal.aborted || version !== requestVersion.current) return;
+        setChoices(available);
+        setCursor(pageCursor);
+      })().catch((cause: unknown) => {
         if (!controller.signal.aborted && version === requestVersion.current) {
           setError(contributorSearchErrorFrom(cause, 'Could not load related-record conditions.'));
+          if (cause instanceof Error && cause.message === repeatedContributorCursorMessage) {
+            setCursor(undefined);
+          } else if (cause instanceof Error && cause.message.startsWith('Available conditions changed.')) {
+            setChoices([]);
+            setCursor(undefined);
+          } else {
+            setChoices(available);
+            setCursor(pageCursor);
+          }
         }
       }).finally(() => {
         if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
@@ -141,23 +196,49 @@ export const RelatedExpandContributorEditor = ({
     const version = requestVersion.current;
     setLoading(true);
     setError(undefined);
+    const available: ContributorChoice[] = [];
+    let pageCursor: string | undefined = cursor;
     try {
-      const response = await client.searchRelatedExpandContributors({
-        project, explorerId, authResourcePath, snapshotToken,
-        expectedDraftVersion: draftVersion, expectedDraftDigest: draftDigest,
-        outputId, stageId, routeChoiceId, query: query.trim(), limit: 20, cursor,
-      }, controller.signal);
-      if (controller.signal.aborted || version !== requestVersion.current) return;
-      if (!choicesMatchRequest(response, snapshotToken, draftVersion, draftDigest, outputId,
-        stageId, routeChoiceId, targetNodeId, targetResourceType)) {
-        throw new Error('Available conditions changed. Reload this table before expanding records.');
+      let pagesRead = 0;
+      while (pageCursor && pagesRead < automaticBrowsePageLimit && available.length < contributorPageSize) {
+        if (controller.signal.aborted || version !== requestVersion.current) return;
+        if (cursorHistory.current.version !== version || cursorHistory.current.cursors.has(pageCursor)) {
+          throw new Error(repeatedContributorCursorMessage);
+        }
+        const response = await client.searchRelatedExpandContributors({
+          project, explorerId, authResourcePath, snapshotToken,
+          expectedDraftVersion: draftVersion, expectedDraftDigest: draftDigest,
+          outputId, stageId, routeChoiceId, query: query.trim(), limit: contributorPageSize, cursor: pageCursor,
+        }, controller.signal);
+        if (controller.signal.aborted || version !== requestVersion.current) return;
+        if (!choicesMatchRequest(response, snapshotToken, draftVersion, draftDigest, outputId,
+          stageId, routeChoiceId, targetNodeId, targetResourceType)) {
+          throw new Error('Available conditions changed. Reload this table before expanding records.');
+        }
+        cursorHistory.current.cursors.add(pageCursor);
+        available.push(...filterContributorChoices(response.choices, allowRepeatedFields));
+        pagesRead += 1;
+        const nextCursor = response.nextCursor;
+        if (nextCursor && (cursorHistory.current.cursors.has(nextCursor) || nextCursor === pageCursor)) {
+          throw new Error(repeatedContributorCursorMessage);
+        }
+        pageCursor = nextCursor;
       }
-      setChoices((current) => [...current,
-        ...response.choices.filter((choice) => allowRepeatedFields || choice.source.cardinality !== 'many')]);
-      setCursor(response.nextCursor);
+      if (controller.signal.aborted || version !== requestVersion.current) return;
+      setChoices((current) => [...current, ...available]);
+      setCursor(pageCursor);
     } catch (cause) {
       if (!controller.signal.aborted && version === requestVersion.current) {
         setError(contributorSearchErrorFrom(cause, 'Could not load more conditions.'));
+        if (cause instanceof Error && cause.message === repeatedContributorCursorMessage) {
+          setCursor(undefined);
+        } else if (cause instanceof Error && cause.message.startsWith('Available conditions changed.')) {
+          setChoices([]);
+          setCursor(undefined);
+        } else {
+          setChoices((current) => [...current, ...available]);
+          setCursor(pageCursor);
+        }
       }
     } finally {
       if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
@@ -169,7 +250,7 @@ export const RelatedExpandContributorEditor = ({
       <legend className="px-1 font-medium text-slate-800">Which related records count?</legend>
       <label className="flex gap-2 text-slate-800">
         <input type="radio" name={`contributors-${routeChoiceId}`} checked={condition.kind === 'ALL'}
-          disabled={disabled} onChange={() => onChange({ kind: 'ALL' })} />
+          disabled={disabled} onChange={chooseAllMatches} />
         All matching records
       </label>
       <label className="flex gap-2 text-slate-800">
@@ -201,7 +282,7 @@ export const RelatedExpandContributorEditor = ({
             </div>
           ) : null}
           {loading ? <p role="status" className="text-slate-600">Finding supported fields…</p> : null}
-          {error && !loading && !cursor && !staleSearch ? (
+          {error && !loading && !cursor && !staleSearch && error.message !== repeatedContributorCursorMessage ? (
             <button type="button" disabled={disabled} onClick={retrySearch}
               className="justify-self-start text-blue-800 underline">
               Retry field search
@@ -219,7 +300,8 @@ export const RelatedExpandContributorEditor = ({
                 </span>
               </button>
             ))}
-            {!loading && choices.length === 0 && !selected && !error ? <p className="text-slate-600">No supported fields match this search.</p> : null}
+            {!loading && choices.length === 0 && !selected && !error && !cursor ? <p className="text-slate-600">No supported fields match this search.</p> : null}
+            {!loading && choices.length === 0 && !selected && !error && cursor ? <p role="status" className="text-slate-600">More supported fields are available. Load more to continue browsing.</p> : null}
           </div>
           {cursor && !staleSearch ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start text-blue-800">
             {error ? 'Retry loading more fields' : 'Load more fields'}

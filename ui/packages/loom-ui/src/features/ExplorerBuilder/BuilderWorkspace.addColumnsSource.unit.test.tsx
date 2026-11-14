@@ -1509,22 +1509,44 @@ describe('BuilderWorkspace Add columns source selection', () => {
         },
       },
     ];
+    let resolveStaleResponse: (() => void) | undefined;
     mockLoomClient.searchRelatedFieldChoices.mockReset().mockImplementation(async (args: {
       readonly snapshotToken: string;
       readonly expectedDraftVersion: number;
       readonly expectedDraftDigest: string;
       readonly outputId: string;
       readonly stageId: string;
-    }) => ({
-      snapshotToken: args.snapshotToken,
-      draftVersion: args.expectedDraftVersion,
-      draftDigest: args.expectedDraftDigest,
-      outputId: args.outputId,
-      stageId: args.stageId,
-      complete: true,
-      truncated: false,
-      choices: relatedFieldChoices,
-    }));
+      readonly cursor?: string;
+      readonly query?: string;
+    }) => {
+      if (args.query === 'stale') {
+        return await new Promise<RelatedFieldChoiceSearchResponse>((resolve) => {
+          resolveStaleResponse = () => resolve({
+            snapshotToken: args.snapshotToken,
+            draftVersion: args.expectedDraftVersion,
+            draftDigest: args.expectedDraftDigest,
+            outputId: args.outputId,
+            stageId: args.stageId,
+            complete: true,
+            truncated: false,
+            choices: relatedFieldChoices,
+          });
+        });
+      }
+      return {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        complete: args.query === 'no-match' || Boolean(args.cursor && args.query !== 'repeat'),
+        truncated: args.query !== 'no-match' && (!args.cursor || args.query === 'repeat'),
+        choices: args.cursor && args.query !== 'repeat' ? relatedFieldChoices : [],
+        ...(!args.query && !args.cursor ? { nextCursor: 'related-fields-page-2' }
+          : args.query === 'repeat' ? { nextCursor: 'repeat-page' }
+            : args.query === 'repeat-with-results' ? { nextCursor: 'related-fields-page-2' } : {}),
+      };
+    });
 
     const { unmount } = render(
       <BuilderWorkspace
@@ -1558,10 +1580,33 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(exactRelated);
     expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByRole('heading', { name: 'From this row’s MedicationAdministration' })).toBeInTheDocument();
-    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(2));
     const relatedFieldsList = screen.getByRole('group', { name: 'Fields from this related record' });
     expect(within(relatedFieldsList).getByRole('button', { name: /Medication/ })).toBeInTheDocument();
     expect(within(relatedFieldsList).getByRole('button', { name: /Effective date/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Browse next page of fields' })).not.toBeInTheDocument();
+    expect(mockLoomClient.searchRelatedFieldChoices.mock.calls[0]?.[0]).toMatchObject({ query: '', limit: 20 });
+    expect(mockLoomClient.searchRelatedFieldChoices.mock.calls[1]?.[0]).toMatchObject({ query: '', cursor: 'related-fields-page-2' });
+    fireEvent.change(screen.getByPlaceholderText('Search field name or path'), { target: { value: 'no-match' } });
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(3));
+    expect(within(relatedFieldsList).getByText('No executable fields match this search.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Browse next page of fields' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('Search field name or path'), { target: { value: 'repeat' } });
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(5));
+    expect(screen.getByRole('alert')).toHaveTextContent('The field list stopped advancing. Change your search or reopen this editor.');
+    expect(screen.queryByRole('button', { name: 'Browse next page of fields' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('Search field name or path'), { target: { value: 'repeat-with-results' } });
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(7));
+    expect(within(relatedFieldsList).getByRole('button', { name: /Medication/ })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('The field list stopped advancing. Change your search or reopen this editor.');
+    fireEvent.change(screen.getByPlaceholderText('Search field name or path'), { target: { value: 'stale' } });
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(8));
+    fireEvent.change(screen.getByPlaceholderText('Search field name or path'), { target: { value: 'no-match' } });
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(9));
+    resolveStaleResponse?.();
+    await act(async () => { await Promise.resolve(); });
+    expect(within(relatedFieldsList).getByText('No executable fields match this search.')).toBeInTheDocument();
+    expect(within(relatedFieldsList).queryByRole('button', { name: /Medication/ })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('construction-close-operation-editor'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
@@ -1577,7 +1622,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     });
     fireEvent.click(reopenedExactRelated);
     expect(screen.getByRole('tab', { name: 'Other fields' })).toHaveAttribute('aria-selected', 'true');
-    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledTimes(11));
     fireEvent.click(screen.getByRole('tab', { name: 'Coded values' }));
     expect(screen.getByRole('tab', { name: 'Coded values' })).toHaveAttribute('aria-selected', 'true');
     expect(within(screen.getByRole('group', { name: 'Search scope' })).queryByRole('button', { name: /this row’s related record/ })).not.toBeInTheDocument();
