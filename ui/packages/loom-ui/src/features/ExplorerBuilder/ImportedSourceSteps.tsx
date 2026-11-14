@@ -80,6 +80,7 @@ interface ImportedSourceStepEditorValues {
   readonly fieldFocusRequest?: number;
 }
 interface ImportedSourceStepEditorState extends ImportedSourceStepEditorValues {
+  readonly activeStepId?: string;
   readonly dependentEdits?: ReadonlyArray<ImportedSourceStepEditorValues>;
 }
 
@@ -102,6 +103,7 @@ interface ImportedSourceStepsProps {
 
 const editorStateFor = (step: ImportedSourceStep): ImportedSourceStepEditorState => ({
   stepId: step.id,
+  activeStepId: step.id,
   enabled: step.enabled,
   maxColumns: step.maxColumns === undefined ? '' : String(step.maxColumns),
   valueMode: step.valueMode ?? '',
@@ -135,11 +137,12 @@ export const ImportedSourceSteps = ({
     const parameters = editor?.stepId === stepId ? editor.parameters : dependent?.parameters ?? step.parameters;
     if (fieldId && !parameters?.fieldGroup?.fields.some((field) => field.fieldId === fieldId)) return;
     if (dependent && editor) {
-      if (fieldId) setEditor({ ...editor, dependentEdits: editor.dependentEdits?.map((change) => change.stepId === stepId ? { ...change, selectedFieldId: fieldId, fieldFocusRequest: ++fieldFocusRequest.current } : change) });
+      setEditor({ ...editor, activeStepId: stepId, dependentEdits: editor.dependentEdits?.map((change) => change.stepId === stepId && fieldId ? { ...change, selectedFieldId: fieldId, fieldFocusRequest: ++fieldFocusRequest.current } : change) });
       return;
     }
     if (editor?.stepId === stepId) {
-      if (fieldId) setEditor({ ...editor, selectedFieldId: fieldId, fieldFocusRequest: ++fieldFocusRequest.current });
+      if (fieldId) setEditor({ ...editor, activeStepId: stepId, selectedFieldId: fieldId, fieldFocusRequest: ++fieldFocusRequest.current });
+      else if (editor.activeStepId !== stepId) setEditor({ ...editor, activeStepId: stepId });
       return;
     }
     if (onBeginEdit?.(stepId) === false) return;
@@ -165,6 +168,13 @@ export const ImportedSourceSteps = ({
   const stepsById = new Map<string, ImportedSourceStep>();
   for (const step of steps ?? []) stepsById.set(step.id, step);
   const selectedStep = steps?.find((step) => step.id === editor?.stepId);
+  const dependentEdits = editor?.dependentEdits ?? [];
+  const activeStepId = editor?.activeStepId ?? editor?.stepId;
+  const activeStep = activeStepId === selectedStep?.id ? selectedStep : stepsById.get(activeStepId ?? '');
+  const activeDependent = activeStepId === selectedStep?.id ? undefined : dependentEdits.find((change) => change.stepId === activeStepId);
+  const activeValues = activeDependent ?? editor;
+  const activeParent = activeStep?.parentId ? stepsById.get(activeStep.parentId) : undefined;
+  const activeValueModes = activeStep ? valueModesForStep(activeStep) : undefined;
   const selectedParent = selectedStep?.parentId ? stepsById.get(selectedStep.parentId) : undefined;
   const valueModes = selectedStep ? valueModesForStep(selectedStep) : undefined;
   const disabledAncestorFor = (step: ImportedSourceStep): ImportedSourceStep | undefined => {
@@ -203,7 +213,9 @@ export const ImportedSourceSteps = ({
         : {}),
   } : undefined;
 
-  const dependentEdits = editor?.dependentEdits ?? [];
+  const activeChangedMaxColumns = activeStep && activeValues && activeStep.maxColumns !== undefined && activeValues.maxColumns !== String(activeStep.maxColumns);
+  const activeParsedMaxColumns = activeValues && activeValues.maxColumns.trim() !== '' ? Number(activeValues.maxColumns) : undefined;
+  const validActiveMaxColumns = !activeChangedMaxColumns || (activeParsedMaxColumns !== undefined && Number.isSafeInteger(activeParsedMaxColumns) && activeParsedMaxColumns > 0);
   const validDependentEdits = dependentEdits.every((change) => {
     const step = stepsById.get(change.stepId);
     return step && (step.maxColumns === undefined || (Number.isSafeInteger(Number(change.maxColumns)) && Number(change.maxColumns) > 0));
@@ -219,6 +231,11 @@ export const ImportedSourceSteps = ({
   });
   const sourceReview = selectedStep?.editable && renderReview && currentSourceStepChange && validMaxColumns && validDependentEdits && !(selectedStep.occurrenceId && removedOccurrences.has(selectedStep.occurrenceId))
     ? renderReview(currentSourceStepChange, closeEditor, dependentChanges.length ? [currentSourceStepChange, ...dependentChanges] : undefined) : null;
+  const updateActive = (patch: Partial<ImportedSourceStepEditorValues>) => {
+    if (!editor || !activeStep) return;
+    if (activeStep.id === editor.stepId) { onDraftChange?.(); setEditor({ ...editor, ...patch }); }
+    else updateDependent(activeStep.id, patch);
+  };
   const updateDependent = (stepId: string, patch: Partial<ImportedSourceStepEditorValues>) => {
     if (!editor) return;
     onDraftChange?.();
@@ -372,9 +389,14 @@ export const ImportedSourceSteps = ({
           })}
         </ol>
       )}
-      {selectedStep && editor ? presentEditor(
+      {editor && (!selectedStep || !activeStep || !activeValues) ? presentEditor(
+        <div className="construction-inspector-frame min-w-0 p-3">
+          <p role="alert" className="text-sm text-amber-900">The primary or selected source operation is no longer available. Close this editor and reload the source steps before editing.</p>
+          <button type="button" disabled={isDisabled} onClick={closeEditor} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">Close source editor</button>
+        </div>
+      ) : selectedStep && activeStep && activeValues && editor ? presentEditor(
         <form
-          aria-label={`Source step ${sourceStepLabel(selectedStep)} editor`}
+          aria-label={`Source step ${sourceStepLabel(activeStep)} editor`}
           data-testid="imported-source-step-editor"
           className="construction-inspector-frame min-w-0"
           onSubmit={(event) => {
@@ -383,99 +405,74 @@ export const ImportedSourceSteps = ({
           }}
         >
           <div className="construction-inspector-body space-y-2 px-3 py-2">
-          <h3 className="m-0 text-sm font-semibold text-slate-900">{sourceStepLabel({ ...selectedStep, parameters: editor.parameters })}</h3>
-          {selectedParent ? <p className="m-0 text-xs text-indigo-800">Under {sourceStepLabel(selectedParent)}</p> : null}
-          <p className="m-0 mt-1 text-xs text-slate-600">{selectedStep.kind === 'TRAVERSAL' ? matchSummary(selectedStep) : selectedStep.summary}</p>
-          {selectedStep.kind === 'TRAVERSAL' ? <details className="mt-1 text-xs text-slate-500">
-            <summary className="cursor-pointer">Relationship details</summary>
-            <p className="m-0 break-words">{selectedStep.title}</p>
-            <p className="m-0">Pinned recipe setting: {selectedStep.summary}</p>
-          </details> : null}
-          {selectedDisabledAncestor ? (
-            <p role="status" className="mt-1 text-xs text-slate-600">
-              Inactive because {sourceStepLabel(selectedDisabledAncestor)} is disabled. This step’s settings are retained and do not run until the parent is enabled.
-            </p>
-          ) : null}
-          {selectedStep.editable && editor.parameters ? <SourceStepParameterEditor key={selectedStep.id} selectedFieldId={editor.selectedFieldId} fieldFocusRequest={editor.fieldFocusRequest} parameters={editor.parameters} disabled={isDisabled} onChange={(parameters) => { onDraftChange?.(); setEditor({ ...editor, parameters, parametersChanged: true }); }} /> : null}
-          {selectedStep.editable ? (
-            <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
-              <label className="flex items-center gap-2 text-sm text-slate-800">
-                <input
-                  type="checkbox"
-                  checked={editor.enabled}
-                  disabled={isDisabled || !canDisableSourceStep(selectedStep)}
-                  onChange={(event) => { onDraftChange?.(); setEditor({ ...editor, enabled: event.currentTarget.checked }); }}
-                />
-                Enable this source step
-              </label>
-              {!canDisableSourceStep(selectedStep) ? <p className="text-xs text-slate-600">This operation defines the output rows or their identity. Edit its parameters; it cannot be disabled independently.</p> : null}
-              {selectedStep.maxColumns !== undefined ? (
-                <label className="grid gap-1 text-sm text-slate-800">
-                  Maximum columns
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={editor.maxColumns}
-                    disabled={isDisabled}
-                    aria-invalid={!validMaxColumns}
-                    data-testid="imported-source-max-columns"
-                    onChange={(event) => { onDraftChange?.(); setEditor({ ...editor, maxColumns: event.currentTarget.value }); }}
-                    className="rounded border border-slate-300 px-2 py-1.5"
-                  />
-                </label>
-              ) : null}
-              {isSupportedValueMode(selectedStep.valueMode, valueModes) && valueModes ? (
-                <label className="grid gap-1 text-sm text-slate-800">
-                  Value mode
-                  <select
-                    value={editor.valueMode}
-                    disabled={isDisabled}
-                    data-testid="imported-source-value-mode"
-                    onChange={(event) => { onDraftChange?.(); setEditor({ ...editor, valueMode: event.currentTarget.value }); }}
-                    className="rounded border border-slate-300 bg-white px-2 py-1.5"
-                  >
-                    {valueModes.map((mode) => <option key={mode} value={mode}>{valueModeLabels[mode]}</option>)}
-                  </select>
-                </label>
-              ) : null}
+          {selectedStep && (dependentEdits.length || renderReview) ? <section aria-label="Staged source operations" className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="m-0 text-sm font-semibold">Staged source operations</h3>
+              <span className="text-xs text-slate-600">One preview applies the selected edits together.</span>
             </div>
-          ) : (
-            <p className="mt-2 text-sm text-slate-600">This source step is read-only.</p>
-          )}
-          {selectedStep.kind === 'CATALOG_PROJECTION' && selectedParent?.kind === 'TRAVERSAL' && (editor.valueMode === 'FIRST' || editor.valueMode === 'ALL') ? (
-            <p className="mt-1 text-xs text-slate-600">Related records are ordered by their original record key. Items inside each record keep their array order.</p>
-          ) : null}
-          {selectedStep.editable && renderReview && editor.parameters ? <section aria-label="Coupled source edits" className="mt-3 space-y-2 border-t border-slate-200 pt-2">
-            <label className="grid gap-1 text-xs">Also edit a dependent operation<select aria-label="Also edit a dependent operation" value="" disabled={isDisabled || dependentEdits.length >= 127}
-              className="rounded border border-slate-300 bg-white px-2 py-1" onChange={(event) => {
+            <ol aria-label="Operations in this change" className="m-0 flex list-none flex-wrap gap-1 p-0">
+              {[{ step: selectedStep, label: sourceStepLabel(selectedStep), primary: true }, ...dependentEdits.flatMap((change) => {
+                const step = stepsById.get(change.stepId);
+                return step ? [{ step, label: sourceStepLabel({ ...step, parameters: change.parameters }), primary: false }] : [];
+              })].map(({ step, label, primary }) => <li key={step.id} className="flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1">
+                <button type="button" disabled={isDisabled} aria-label={`Edit operation ${label}`} aria-pressed={activeStep.id === step.id}
+                  className={`text-left text-xs ${activeStep.id === step.id ? 'font-semibold text-blue-900' : 'text-slate-700'}`}
+                  onClick={() => openEditor(step.id)}>{label}{primary ? ' · primary' : ''}</button>
+                {!primary ? <button type="button" aria-label={`Remove ${label} from this change`} disabled={isDisabled}
+                  className="text-xs text-blue-800 underline" onClick={() => {
+                    onDraftChange?.();
+                    const nextDependentEdits = dependentEdits.filter((entry) => entry.stepId !== step.id);
+                    setEditor({ ...editor, activeStepId: activeStep.id === step.id ? editor.stepId : editor.activeStepId, dependentEdits: nextDependentEdits });
+                  }}>Remove</button> : null}
+              </li>)}
+            </ol>
+            {activeStep.editable && renderReview && activeStep.parameters ? <label className="grid max-w-xl gap-1 text-xs">Add a dependent operation<select aria-label="Add a dependent operation" value="" disabled={isDisabled || dependentEdits.length >= 127}
+              className="rounded border border-slate-300 bg-white px-2 py-1.5" onChange={(event) => {
                 const step = stepsById.get(event.currentTarget.value);
                 if (!step?.editable || !step.parameters || step.id === editor.stepId || dependentEdits.some((change) => change.stepId === step.id)) return;
                 onDraftChange?.();
-                setEditor({ ...editor, dependentEdits: [...dependentEdits, editorStateFor(step)] });
+                setEditor({ ...editor, activeStepId: step.id, dependentEdits: [...dependentEdits, editorStateFor(step)] });
               }}>
-              <option value="">Choose an existing source operation</option>
+              <option value="">Choose an operation to include…</option>
               {steps?.filter((step) => step.editable && step.parameters && step.id !== editor.stepId && !dependentEdits.some((change) => change.stepId === step.id)).map((step) => <option key={step.id} value={step.id}>{sourceStepLabel(step)}</option>)}
-            </select></label>
-            <p className="text-xs text-slate-600">Update dependent selectors explicitly when changing an alias. Every operation keeps its recipe position. All staged operations share one Preview, Apply, or Cancel.</p>
-            {dependentEdits.length ? <ol aria-label="Staged source operations" className="space-y-2">
-              <li className="text-xs font-semibold">{sourceStepLabel(selectedStep)} · primary operation</li>
-              {dependentEdits.map((change) => {
-                const step = stepsById.get(change.stepId);
-                if (!step || !change.parameters) return null;
-                const modes = valueModesForStep(step);
-                return <li key={step.id} data-source-step-id={step.id} className="rounded border border-slate-300 p-2">
-                  <h4 className="text-sm font-semibold">{sourceStepLabel({ ...step, parameters: change.parameters })}</h4>
-                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={change.enabled} disabled={isDisabled || !canDisableSourceStep(step)} onChange={(event) => updateDependent(step.id, { enabled: event.currentTarget.checked })} />Enable {sourceStepLabel(step)}</label>
-                  {step.maxColumns !== undefined ? <label className="grid gap-1 text-xs">Maximum columns for {sourceStepLabel(step)}<input type="number" min={1} step={1} value={change.maxColumns} disabled={isDisabled} onChange={(event) => updateDependent(step.id, { maxColumns: event.currentTarget.value })} /></label> : null}
-                  {modes ? <label className="grid gap-1 text-xs">Value mode for {sourceStepLabel(step)}<select value={change.valueMode} disabled={isDisabled} onChange={(event) => updateDependent(step.id, { valueMode: event.currentTarget.value })}>{modes.map((mode) => <option key={mode} value={mode}>{valueModeLabels[mode]}</option>)}</select></label> : null}
-                  <SourceStepParameterEditor parameters={change.parameters} selectedFieldId={change.selectedFieldId} fieldFocusRequest={change.fieldFocusRequest} disabled={isDisabled} onChange={(parameters) => updateDependent(step.id, { parameters, parametersChanged: true })} />
-                  <button type="button" disabled={isDisabled} className="text-xs text-blue-800 underline" onClick={() => { onDraftChange?.(); setEditor({ ...editor, dependentEdits: dependentEdits.filter((entry) => entry.stepId !== step.id) }); }}>Remove {sourceStepLabel(step)} from this change</button>
-                </li>;
-              })}
-            </ol> : null}
-            {!validDependentEdits ? <p role="alert" className="text-xs text-red-800">Each staged maximum must be a positive whole number.</p> : null}
+            </select></label> : null}
+            <p className="m-0 text-xs text-slate-600">Changing an alias does not rename dependent selectors. Select each related operation to update its references. Recipe order stays fixed.</p>
           </section> : null}
+          <section aria-label={`Operation settings for ${sourceStepLabel(activeStep)}`} className="space-y-2">
+            <h3 className="m-0 text-sm font-semibold text-slate-900">{sourceStepLabel({ ...activeStep, parameters: activeValues.parameters })}</h3>
+            {activeParent ? <p className="m-0 text-xs text-indigo-800">Under {sourceStepLabel(activeParent)}</p> : null}
+            <p className="m-0 text-xs text-slate-600">{activeStep.kind === 'TRAVERSAL' ? matchSummary(activeStep) : activeStep.summary}</p>
+            {activeStep.kind === 'TRAVERSAL' ? <details className="text-xs text-slate-500">
+              <summary className="cursor-pointer">Relationship details</summary>
+              <p className="m-0 break-words">{activeStep.title}</p>
+              <p className="m-0">Pinned recipe setting: {activeStep.summary}</p>
+            </details> : null}
+            {disabledAncestorFor(activeStep) ? <p role="status" className="text-xs text-slate-600">
+              Inactive because {sourceStepLabel(disabledAncestorFor(activeStep)!)} is disabled. This step’s settings are retained and do not run until the parent is enabled.
+            </p> : null}
+            {activeStep.editable && activeValues.parameters ? <SourceStepParameterEditor key={activeStep.id} selectedFieldId={activeValues.selectedFieldId} fieldFocusRequest={activeValues.fieldFocusRequest} parameters={activeValues.parameters} disabled={isDisabled} onChange={(parameters) => updateActive({ parameters, parametersChanged: true })} /> : null}
+            {activeStep.editable ? <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              <label className="flex items-center gap-2 text-sm text-slate-800">
+                <input type="checkbox" checked={activeValues.enabled} disabled={isDisabled || !canDisableSourceStep(activeStep)}
+                  onChange={(event) => updateActive({ enabled: event.currentTarget.checked })} />Enable this source step
+              </label>
+              {!canDisableSourceStep(activeStep) ? <p className="text-xs text-slate-600">This operation defines the output rows or their identity. Edit its parameters; it cannot be disabled independently.</p> : null}
+              {activeStep.maxColumns !== undefined ? <label className="grid gap-1 text-sm text-slate-800">Maximum columns
+                <input type="number" min={1} step={1} value={activeValues.maxColumns} disabled={isDisabled} aria-invalid={!validActiveMaxColumns}
+                  data-testid="imported-source-max-columns" onChange={(event) => updateActive({ maxColumns: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+              </label> : null}
+              {isSupportedValueMode(activeStep.valueMode, activeValueModes) && activeValueModes ? <label className="grid gap-1 text-sm text-slate-800">Value mode
+                <select value={activeValues.valueMode} disabled={isDisabled} data-testid="imported-source-value-mode"
+                  onChange={(event) => updateActive({ valueMode: event.currentTarget.value })} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+                  {activeValueModes.map((mode) => <option key={mode} value={mode}>{valueModeLabels[mode]}</option>)}
+                </select>
+              </label> : null}
+            </div> : <p className="text-sm text-slate-600">This source step is read-only.</p>}
+            {activeStep.kind === 'CATALOG_PROJECTION' && activeParent?.kind === 'TRAVERSAL' && (activeValues.valueMode === 'FIRST' || activeValues.valueMode === 'ALL') ?
+              <p className="text-xs text-slate-600">Related records are ordered by their original record key. Items inside each record keep their array order.</p> : null}
+            {activeStep.editable && renderReview && !dependentEdits.length && activeStep.id === selectedStep?.id && activeValues.parameters ? <p className="text-xs text-slate-600">You can include another operation above when this change affects its selectors or parameters.</p> : null}
+            {activeStep.id === selectedStep?.id && !validDependentEdits ? <p role="alert" className="text-xs text-red-800">Each staged maximum must be a positive whole number.</p> : null}
+          </section>
           </div>
           {sourceReview ? <div className="construction-inspector-review">{sourceReview}</div> : null}
           {!reviewOwnsCancel || !sourceReview ? <div className="construction-inspector-footer flex justify-end gap-2">
@@ -487,11 +484,11 @@ export const ImportedSourceSteps = ({
             >
               Close
             </button>
-            {selectedStep.editable && !renderReview ? (
+            {activeStep.editable && !renderReview ? (
               <button
                 type="submit"
                 data-testid="imported-source-step-apply"
-                disabled={isDisabled || !validMaxColumns || !!(selectedStep.occurrenceId && removedOccurrences.has(selectedStep.occurrenceId))}
+                disabled={isDisabled || !validActiveMaxColumns || !!(activeStep.occurrenceId && removedOccurrences.has(activeStep.occurrenceId))}
                 className="rounded-md bg-indigo-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {applying ? 'Applying…' : 'Apply source step'}

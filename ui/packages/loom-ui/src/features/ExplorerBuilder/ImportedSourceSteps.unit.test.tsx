@@ -44,7 +44,7 @@ const renderSourceSteps = (
 ) => {
   const onRefresh = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
   const onApply = vi.fn<(command: ExplorerBuilderCommand) => Promise<boolean>>().mockResolvedValue(true);
-  render(
+  const view = render(
     <ImportedSourceSteps
       outputId="patients"
       importedSource={sourcePlan}
@@ -56,7 +56,7 @@ const renderSourceSteps = (
   for (const group of screen.queryAllByTestId(/^source-step-group-/)) {
     if (group instanceof HTMLDetailsElement) group.open = true;
   }
-  return { onRefresh, onApply };
+  return { onRefresh, onApply, view };
 };
 
 describe('ImportedSourceSteps', () => {
@@ -173,7 +173,7 @@ describe('ImportedSourceSteps', () => {
     }] } });
     fireEvent.click(screen.getByRole('button', { name: 'Source step 1: Unfamiliar relationship description' }));
     const editor = screen.getByTestId('imported-source-step-editor');
-    const primarySummary = [...(editor.querySelector('.construction-inspector-body') ?? editor).children].find((child) => child.tagName === 'P');
+    const primarySummary = editor.querySelector('[aria-label^="Operation settings"] p');
     expect(primarySummary?.textContent).toBe(summary);
   },
 );
@@ -214,18 +214,27 @@ it('stages an expansion alias and explicit dependent selector edits in one revie
     {id:'identity',kind:'IDENTITY',title:'Member identity',summary:'Stable member row identity',enabled:true,editable:true,parameters:{identity:{name:'id',expr:{select:'member.entity.reference'}}}},
     {id:'fields',kind:'FIELD_GROUP',title:'Member fields',summary:'Projected member fields',enabled:true,editable:true,parameters:{fieldGroup:{fields:[{fieldId:'member_id',enabled:true,name:'member_id',expr:{select:'member.entity.reference'}}]}}},
   ]} satisfies NonNullable<ExplorerBuilderDocument['importedSource']>;
-  renderSourceSteps({importedSource:source,navigatorOnly:true,editActionRef,fieldEditActionRef,onBeginEdit:begin,onDraftChange:draftChange,onCancelEdit:cancel,
+  const {onRefresh,onApply,view}=renderSourceSteps({importedSource:source,navigatorOnly:true,editActionRef,fieldEditActionRef,onBeginEdit:begin,onDraftChange:draftChange,onCancelEdit:cancel,
     renderReview:(change,_close,batch)=><pre data-testid="batch-review">{JSON.stringify(batch ?? [change])}</pre>});
   act(()=>editActionRef.current?.('expand'));
   fireEvent.change(screen.getByRole('textbox',{name:'Expanded item alias'}),{target:{value:'participant'}});
-  const chooser=screen.getByRole('combobox',{name:'Also edit a dependent operation'});
+  const chooser=screen.getByRole('combobox',{name:'Add a dependent operation'});
   fireEvent.change(chooser,{target:{value:'identity'}});
+  expect(screen.getByRole('list',{name:'Operations in this change'}).querySelectorAll('li')).toHaveLength(2);
+  expect(screen.queryByRole('textbox',{name:'Expanded item alias'})).toBeNull();
   expect((screen.getByRole('textbox',{name:'Row identity expression source path'}) as HTMLInputElement).value).toBe('member.entity.reference');
   fireEvent.change(screen.getByRole('textbox',{name:'Row identity expression source path'}),{target:{value:'participant.entity.reference'}});
-  fireEvent.change(chooser,{target:{value:'fields'}});
+  fireEvent.change(screen.getByRole('combobox',{name:'Add a dependent operation'}),{target:{value:'fields'}});
+  fireEvent.click(screen.getByRole('button',{name:/Edit operation Member fields/}));
+  expect(screen.getByRole('list',{name:'Operations in this change'}).querySelectorAll('li')).toHaveLength(3);
+  expect(screen.queryByRole('textbox',{name:'Row identity expression source path'})).toBeNull();
+  expect((screen.getByRole('textbox',{name:'Field 1 expression source path'}) as HTMLInputElement).value).toBe('member.entity.reference');
   act(()=>fieldEditActionRef.current?.('fields','member_id'));
   expect((screen.getByRole('textbox',{name:'Field 1 expression source path'}) as HTMLInputElement).value).toBe('member.entity.reference');
   fireEvent.change(screen.getByRole('textbox',{name:'Field 1 expression source path'}),{target:{value:'participant.entity.reference'}});
+  fireEvent.click(screen.getByRole('button',{name:/Edit operation Row identity/}));
+  expect((screen.getByRole('textbox',{name:'Row identity expression source path'}) as HTMLInputElement).value).toBe('participant.entity.reference');
+  expect(screen.queryByRole('textbox',{name:'Field 1 expression source path'})).toBeNull();
   const batch=JSON.parse(screen.getByTestId('batch-review').textContent!);
   expect(batch.map((change:{stepId:string})=>change.stepId)).toEqual(['expand','identity','fields']);
   expect(batch[0].parameters.expansion).toEqual({...source.steps[0].parameters.expansion,as:'participant'});
@@ -233,11 +242,10 @@ it('stages an expansion alias and explicit dependent selector edits in one revie
   expect(batch[2].parameters.fieldGroup.fields[0]).toEqual({...source.steps[2].parameters.fieldGroup!.fields[0],expr:{select:'participant.entity.reference'}});
   expect(begin).toHaveBeenCalledTimes(1);
   expect(source.steps[1].parameters.identity!.expr).toEqual({select:'member.entity.reference'});
-  fireEvent.click(screen.getByRole('button',{name:'Close'}));
+  expect(()=>view.rerender(<ImportedSourceSteps outputId="patients" importedSource={{steps:[source.steps[1],source.steps[2]]}} onRefresh={onRefresh} onApply={onApply} navigatorOnly editActionRef={editActionRef} fieldEditActionRef={fieldEditActionRef} onBeginEdit={begin} onDraftChange={draftChange} onCancelEdit={cancel} renderReview={(change,_close,batch)=><pre data-testid="batch-review">{JSON.stringify(batch ?? [change])}</pre>} />)).not.toThrow();
+  expect(screen.getByRole('alert')).toHaveTextContent(/primary or selected source operation is no longer available/i);
+  fireEvent.click(screen.getByRole('button',{name:'Close source editor'}));
   expect(cancel).toHaveBeenCalledOnce();expect(screen.queryByTestId('batch-review')).toBeNull();
-  act(()=>editActionRef.current?.('expand'));
-  expect(screen.queryByRole('list',{name:'Staged source operations'})).toBeNull();
-  expect((screen.getByRole('textbox',{name:'Expanded item alias'}) as HTMLInputElement).value).toBe('member');
 });
 
 it('uses a review-owned Cancel once and retains an exit when invalid parameters hide the review', () => {
