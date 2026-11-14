@@ -594,9 +594,77 @@ export const ConstructionWorkspace = ({
   readonly draftVersion: number;
   readonly draftDigest: string;
 }) => {
+  const [expandedPanel, setExpandedPanel] = useState<'graph' | 'preview' | 'editor' | undefined>();
+  const workspaceRootRef = useRef<HTMLDivElement>(null);
+  const panelExpandButtonRefs = useRef<Partial<Record<'graph' | 'preview' | 'editor', HTMLButtonElement | null>>>({});
+  if (expandedPanel === 'graph' && !network) {
+    setExpandedPanel(undefined);
+  }
+  const changeExpandedPanel = (panel: 'graph' | 'preview' | 'editor' | undefined) => {
+    if (!panel) {
+      const button = expandedPanel ? panelExpandButtonRefs.current[expandedPanel] : undefined;
+      button?.focus();
+    }
+    setExpandedPanel(panel);
+  };
+  const handleExpandedPanelKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!expandedPanel || event.defaultPrevented) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('[role="dialog"], [role="listbox"], [role="menu"], [data-radix-popper-content-wrapper], .mantine-Popover-dropdown, [data-dismissible-layer]')) return;
+    const selector = expandedPanel === 'graph'
+      ? '.construction-authored-region[data-expanded="true"]'
+      : expandedPanel === 'preview'
+        ? '[data-testid="construction-preview"][data-expanded="true"]'
+        : '.construction-side-panel[data-expanded="true"]';
+    const panel = workspaceRootRef.current?.querySelector<HTMLElement>(selector);
+    if (!panel) return;
+    if (event.key === 'Escape') {
+      if (panel.contains(target)) {
+        event.preventDefault();
+        changeExpandedPanel(undefined);
+      }
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [...panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
+    )].filter((element) => {
+      if (element.matches(':disabled,[aria-disabled="true"]') || element.closest('[hidden], [inert], [aria-disabled="true"]')) return false;
+      let ancestor = element.parentElement;
+      while (ancestor && ancestor !== panel) {
+        if (ancestor instanceof HTMLDetailsElement && !ancestor.open && !(element.tagName === 'SUMMARY' && element.parentElement === ancestor)) return false;
+        ancestor = ancestor.parentElement;
+      }
+      const style = getComputedStyle(element);
+      return style.visibility !== 'hidden' && style.display !== 'none';
+    });
+    if (!focusable.length) {
+      event.preventDefault();
+      panel.focus();
+      return;
+    }
+    const currentIndex = focusable.indexOf(target as HTMLElement);
+    const nextIndex = currentIndex < 0
+      ? event.shiftKey ? focusable.length - 1 : 0
+      : (currentIndex + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length;
+    event.preventDefault();
+    focusable[nextIndex]!.focus();
+  };
+  const panelControls = (panel: 'graph' | 'preview' | 'editor', label: string) => (
+    <div className="construction-panel-controls">
+      <button type="button" aria-label={expandedPanel === panel ? `Close expanded ${label}` : `Expand ${label}`}
+        aria-pressed={expandedPanel === panel} title={expandedPanel === panel ? 'Close expanded panel (Esc)' : `Expand ${label}`}
+        ref={(node) => { panelExpandButtonRefs.current[panel] = node; }}
+        onClick={() => changeExpandedPanel(expandedPanel === panel ? undefined : panel)}>
+        <span aria-hidden="true">{expandedPanel === panel ? '×' : '⛶'}</span>
+      </button>
+    </div>
+  );
   const editorFocusRef = useRef<HTMLDivElement>(null);
   if (presentationActionRef) presentationActionRef.current = () => { editorFocusRef.current?.focus(); };
   const viewportRef = useCallback((node: HTMLDivElement | null) => {
+    workspaceRootRef.current = node;
     if (!node) return;
     const measure = () => {
       const bounds = node.getBoundingClientRect();
@@ -616,27 +684,32 @@ export const ConstructionWorkspace = ({
   }, []);
   return (
   <div
+    onKeyDown={handleExpandedPanelKeyDown}
     ref={viewportRef}
     data-testid="construction-workspace"
     data-draft-version={draftVersion}
     data-draft-digest={draftDigest}
     className="construction-workspace mx-auto flex w-full max-w-[1920px] flex-col gap-2"
   >
-    <ConstructionTableNavigation
+      <div inert={expandedPanel ? true : undefined}>
+      <ConstructionTableNavigation
         tables={tables}
         selectedOutputId={selectedOutputId}
-        disabled={tableActionsDisabled}
+        disabled={tableActionsDisabled || Boolean(expandedPanel)}
         onSelectTable={onSelectTable}
         onNewTable={onNewTable}
         onDuplicateTable={onDuplicateTable}
         onDeleteTable={onDeleteTable}
         onRenameTable={onRenameTable}
       />
-      <div className="construction-controller-host">{controllers}</div>
+      </div>
+      <div className="construction-controller-host" inert={expandedPanel ? true : undefined}>{controllers}</div>
       <div data-composition={composition} data-has-editor={editor || inspection ? 'true' : undefined}
+        data-expanded-panel={expandedPanel}
         data-has-network={network ? 'true' : undefined} className="construction-result-region">
-        <div className="construction-main-panel">
-        {network ? <section aria-label="Related records" className="construction-authored-region">
+        <div className="construction-main-panel" inert={expandedPanel === 'editor' ? true : undefined}>
+        {network ? <section aria-label="Related records" inert={expandedPanel !== undefined && expandedPanel !== 'graph' ? true : undefined} data-expanded={expandedPanel === 'graph' ? 'true' : undefined} className="construction-authored-region">
+          {panelControls('graph', 'Related records')}
           <div ref={editorFocusRef} tabIndex={-1} className="construction-authored-content">{network}</div>
         </section> : null}
 
@@ -649,13 +722,16 @@ export const ConstructionWorkspace = ({
           data-preview-proposal-id={proposalId ?? ''}
           data-current-draft-version={draftVersion}
           data-current-draft-digest={draftDigest}
+          data-expanded={expandedPanel === 'preview' ? 'true' : undefined}
+          inert={expandedPanel !== undefined && expandedPanel !== 'preview' ? true : undefined}
           className="construction-result-preview min-w-0 bg-white"
         >
-          <p className="border-b bg-slate-50 px-2 py-1 text-xs font-semibold" data-testid="recipe-result-identity">{proposalId ? 'Proposed recipe result' : 'Saved recipe result'}</p>
+          <div className="construction-panel-heading"><p data-testid="recipe-result-identity">{proposalId ? 'Proposed recipe result' : 'Saved recipe result'}</p>{panelControls('preview', 'Table result')}</div>
           {preview}
         </section>
         </div>
-        <aside aria-label="Recipe editor" className="construction-side-panel">
+        <aside aria-label="Recipe editor" data-expanded={expandedPanel === 'editor' ? 'true' : undefined} inert={expandedPanel !== undefined && expandedPanel !== 'editor' ? true : undefined} className="construction-side-panel">
+          {panelControls('editor', 'Recipe editor')}
           <div className="construction-source-controls">{rowSetup}{history?.sourceSteps}</div>
           {editor ? <section aria-label="Change editor" className="construction-active-editor min-h-0 min-w-0">{editor}</section> : null}
           <div hidden={Boolean(editor)} className="construction-scope-navigation">

@@ -371,8 +371,109 @@
 .loom-ui-root .construction-history-disclosure .construction-history { padding: 0; }
 .loom-ui-root .construction-history-disclosure ol { display: grid; gap: .375rem; }
 .loom-ui-root .construction-history-disclosure .construction-history > header { display: none; }
-.loom-ui-root .construction-authored-content { min-height: 0; }
-
+.loom-ui-root .construction-authored-region { display: flex; flex-direction: column; }
+.loom-ui-root .construction-authored-content { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; }
+.loom-ui-root .construction-panel-controls {
+  display: flex;
+  flex: 0 0 2rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+.loom-ui-root .construction-authored-region,
+.loom-ui-root .construction-side-panel { position: relative; }
+.loom-ui-root .construction-panel-controls button {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: .375rem;
+  background: #fff;
+  color: #334155;
+  font-size: 1.125rem;
+  line-height: 1;
+}
+.loom-ui-root .construction-panel-controls button:hover { background: #f1f5f9; }
+.loom-ui-root .construction-panel-controls button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.loom-ui-root .construction-authored-region[data-expanded="true"],
+.loom-ui-root [data-testid="construction-preview"][data-expanded="true"],
+.loom-ui-root .construction-side-panel[data-expanded="true"] {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1000 !important;
+  display: flex !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #fff !important;
+  padding: 1rem !important;
+  box-shadow: none !important;
+}
+.loom-ui-root .construction-authored-region[data-expanded="true"] .construction-authored-content,
+.loom-ui-root [data-testid="construction-preview"][data-expanded="true"] > :not(.construction-panel-heading),
+.loom-ui-root .construction-side-panel[data-expanded="true"] > :not(.construction-panel-controls) {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+.loom-ui-root .construction-authored-region[data-expanded="true"] { display: flex; flex-direction: column; }
+.loom-ui-root .construction-panel-heading { flex: 0 0 2rem; padding-right: 0; }
+.loom-ui-root [data-testid="construction-preview"][data-expanded="true"] > .construction-panel-heading { flex: 0 0 2rem; }
+.loom-ui-root .construction-authored-region[data-expanded="true"] .construction-authored-content > * {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.loom-ui-root .construction-authored-region[data-expanded="true"] .construction-authored-content > * > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+.loom-ui-root .construction-authored-region[data-expanded="true"] .construction-authored-content [aria-label="Record network"] {
+  flex: 1 1 auto;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+.loom-ui-root .construction-authored-region[data-expanded="true"] .react-flow { height: 100% !important; min-height: 0 !important; }
+.loom-ui-root [data-testid="construction-preview"][data-expanded="true"] { display: flex; flex-direction: column; }
+.loom-ui-root [data-testid="construction-preview"][data-expanded="true"] .construction-preview-surface {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.loom-ui-root [data-testid="construction-preview"][data-expanded="true"] [data-testid="preview-table-scroll"] {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+.loom-ui-root .construction-side-panel[data-expanded="true"] { overflow: hidden !important; }
+.loom-ui-root .construction-side-panel[data-expanded="true"] > .construction-source-controls { flex: 0 0 auto; max-height: 30vh; overflow: auto; }
+.loom-ui-root .construction-side-panel[data-expanded="true"] > .construction-active-editor,
+.loom-ui-root .construction-side-panel[data-expanded="true"] > .construction-scope-navigation,
+.loom-ui-root .construction-side-panel[data-expanded="true"] > .construction-history-disclosure { flex: 1 1 auto; max-height: none; }
+.loom-ui-root .construction-side-panel[data-expanded="true"] .construction-active-editor,
+.loom-ui-root .construction-side-panel[data-expanded="true"] .construction-scope-navigation { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.loom-ui-root [data-testid="construction-preview"][data-expanded="true"] [data-testid="preview-table-scroll"] { max-height: none; }
+.loom-ui-root .construction-authored-region[data-expanded="true"] > .construction-panel-controls,
+.loom-ui-root [data-testid="construction-preview"][data-expanded="true"] .construction-panel-controls,
+.loom-ui-root .construction-side-panel[data-expanded="true"] > .construction-panel-controls { flex-basis: 2rem; }
+.loom-ui-root .construction-panel-heading { display: flex; min-height: 2rem; align-items: center; justify-content: space-between; gap: .5rem; }
+.loom-ui-root .construction-panel-heading p,
+.loom-ui-root .construction-panel-heading h2 { margin: 0; font-size: .75rem; font-weight: 600; }
 @media (min-width: 1024px) and (min-height: 700px) {
   .loom-ui-root .construction-workspace {
     height: calc(100dvh - var(--construction-top, 100px) - var(--construction-bottom, 12px));

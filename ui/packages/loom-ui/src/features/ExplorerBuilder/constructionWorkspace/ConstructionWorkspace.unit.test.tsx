@@ -1130,6 +1130,69 @@ it('uses one bounded shared fact slot and gives mutation editors precedence', ()
  expect(screen.getByLabelText('Change editor')).toHaveTextContent('Pending mutation');
 });
 
+it('expands each workspace panel to the viewport and restores it with Escape or its close button without remounting content', () => {
+  const view = render(<ConstructionWorkspace
+    tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+    onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()}
+    network={<button>Traversal node</button>}
+    editor={<input aria-label="Expanded editor field" defaultValue="pending edit" />}
+    preview={<div>Rows preview</div>} previewStatus="ready" draftVersion={1} draftDigest="draft" />);
+  const graphControl = screen.getByRole('button', { name: 'Expand Related records' });
+  const graphPanel = screen.getByRole('region', { name: 'Related records' });
+  const traversalNode = screen.getByRole('button', { name: 'Traversal node' });
+  fireEvent.click(graphControl);
+  expect(graphPanel).toHaveAttribute('data-expanded', 'true');
+  expect(traversalNode).toBeInTheDocument();
+  fireEvent.keyDown(traversalNode, { key: 'Tab' });
+  expect(document.activeElement).toBe(graphControl);
+  fireEvent.keyDown(graphControl, { key: 'Tab', shiftKey: true });
+  expect(document.activeElement).toBe(traversalNode);
+  fireEvent.keyDown(traversalNode, { key: 'Escape' });
+  expect(graphPanel).not.toHaveAttribute('data-expanded');
+  expect(document.activeElement).toBe(graphControl);
+
+  const previewControl = screen.getByRole('button', { name: 'Expand Table result' });
+  const preview = screen.getByTestId('construction-preview');
+  fireEvent.click(previewControl);
+  expect(preview).toHaveAttribute('data-expanded', 'true');
+  expect(screen.getByText('Rows preview')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Close expanded Table result' }));
+  expect(preview).not.toHaveAttribute('data-expanded');
+  expect(document.activeElement).toBe(previewControl);
+
+  const editorControl = screen.getByRole('button', { name: 'Expand Recipe editor' });
+  const panel = screen.getByRole('complementary', { name: 'Recipe editor' });
+  const editorField = screen.getByRole('textbox', { name: 'Expanded editor field' });
+  fireEvent.click(editorControl);
+  expect(panel).toHaveAttribute('data-expanded', 'true');
+  fireEvent.change(editorField, { target: { value: 'edited while expanded' } });
+  fireEvent.keyDown(editorField, { key: 'Escape' });
+  expect(panel).not.toHaveAttribute('data-expanded');
+  expect(document.activeElement).toBe(editorControl);
+  expect(screen.getByRole('textbox', { name: 'Expanded editor field' })).toBe(editorField);
+  expect((editorField as HTMLInputElement).value).toBe('edited while expanded');
+  expect(view.container.querySelector('[data-expanded="true"]')).toBeNull();
+});
+
+it('clears graph expansion when its optional network disappears without changing the persistent editor panel', () => {
+  const props = {
+    tables: [], onSelectTable: vi.fn(), onNewTable: vi.fn(), onDuplicateTable: vi.fn(),
+    onDeleteTable: vi.fn(), onRenameTable: vi.fn(), onSelectFamily: vi.fn(),
+    network: <button>Traversal node</button>, editor: <input aria-label="Field editor" />,
+    preview: <p>Rows</p>, previewStatus: 'ready' as const, draftVersion: 1, draftDigest: 'draft',
+  };
+  const view = render(<ConstructionWorkspace {...props} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Expand Related records' }));
+  view.rerender(<ConstructionWorkspace {...props} network={undefined} />);
+  view.rerender(<ConstructionWorkspace {...props} />);
+  expect(screen.getByRole('region', { name: 'Related records' })).not.toHaveAttribute('data-expanded');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Expand Recipe editor' }));
+  view.rerender(<ConstructionWorkspace {...props} editor={undefined} />);
+  view.rerender(<ConstructionWorkspace {...props} />);
+  expect(screen.getByRole('complementary', { name: 'Recipe editor' })).toHaveAttribute('data-expanded', 'true');
+});
+
 
 it('uses one side panel for scope operations and edits while keeping controllers and the result mounted', () => {
   const props = {
