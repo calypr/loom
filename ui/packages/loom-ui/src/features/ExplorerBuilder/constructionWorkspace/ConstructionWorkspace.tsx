@@ -635,24 +635,11 @@ export const ConstructionWorkspace = ({
       <div className="construction-controller-host">{controllers}</div>
       <div data-composition={composition} data-has-editor={editor || inspection ? 'true' : undefined}
         data-has-network={network ? 'true' : undefined} className="construction-result-region">
-        <aside aria-label="Recipe navigation" className="construction-scope-navigation">
-          <div className="construction-source-controls">{rowSetup}{history?.sourceSteps}</div>
-          {navigation ?? (!editor ? <ConstructionActionBar
-            activeFamily={activeFamily} disabled={actionsDisabled}
-            addColumnsDisabled={addColumnsDisabled} combineDisabled={combineDisabled}
-            calculateAvailable={calculateAvailable} calculateUnavailableReason={calculateUnavailableReason}
-            onSelect={onSelectFamily}
-          /> : null)}
-          {history && !navigation ? <details className="construction-history-disclosure">
-            <summary>Ordered operation history ({history.steps.length})</summary>
-            <ConstructionHistory {...history} sourceSteps={undefined} sourceControl={undefined} />
-          </details> : null}
-        </aside>
-        {network ? <section aria-label="Authored traversal" className="construction-authored-region">
+        <div className="construction-main-panel">
+        {network ? <section aria-label="Related records" className="construction-authored-region">
           <div ref={editorFocusRef} tabIndex={-1} className="construction-authored-content">{network}</div>
         </section> : null}
-        {editor ? <section aria-label="Change editor" className="construction-active-editor min-h-0 min-w-0">{editor}</section>
-          : inspection ? <div aria-label="Recipe fact inspector" className="construction-active-editor h-full min-h-0 min-w-0">{inspection}</div> : null}
+
         <section
           aria-label="Table result"
           data-testid="construction-preview"
@@ -667,6 +654,24 @@ export const ConstructionWorkspace = ({
           <p className="border-b bg-slate-50 px-2 py-1 text-xs font-semibold" data-testid="recipe-result-identity">{proposalId ? 'Proposed recipe result' : 'Saved recipe result'}</p>
           {preview}
         </section>
+        </div>
+        <aside aria-label="Recipe editor" className="construction-side-panel">
+          <div className="construction-source-controls">{rowSetup}{history?.sourceSteps}</div>
+          {editor ? <section aria-label="Change editor" className="construction-active-editor min-h-0 min-w-0">{editor}</section> : null}
+          <div hidden={Boolean(editor)} className="construction-scope-navigation">
+            {!editor && inspection ? <div aria-label="Recipe fact inspector" className="construction-fact-inspector min-h-0 min-w-0">{inspection}</div> : null}
+            {navigation ?? (!editor ? <ConstructionActionBar
+              activeFamily={activeFamily} disabled={actionsDisabled}
+              addColumnsDisabled={addColumnsDisabled} combineDisabled={combineDisabled}
+              calculateAvailable={calculateAvailable} calculateUnavailableReason={calculateUnavailableReason}
+              onSelect={onSelectFamily}
+            /> : null)}
+          </div>
+          {history && !navigation ? <details className="construction-history-disclosure">
+            <summary>Ordered operation history ({history.steps.length})</summary>
+            <ConstructionHistory {...history} sourceSteps={undefined} sourceControl={undefined} />
+          </details> : null}
+        </aside>
       </div>
   </div>
   );

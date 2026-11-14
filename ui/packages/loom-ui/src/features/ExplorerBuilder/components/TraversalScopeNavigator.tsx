@@ -60,8 +60,6 @@ export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
       onClick={() => editOperation(operation)}>
       <span className="font-medium">{operation.position}. {operationTitle(operation)}</span>{!operation.enabled ? ' · disabled' : ''}
     </button>
-    <p className="text-xs text-slate-600">{operation.summary}</p>
-    {operation.kind === 'construction' ? <p className="text-xs">Input: {operation.inputs.join(', ') || 'Unavailable input stage'}.</p> : null}
     {showScope ? <p className="text-xs text-slate-600">{operation.scopeId ? model.scopes.find(scope => scope.id === operation.scopeId)?.path : operation.scopeReason}</p> : null}
     {operation.scopeReason && !showScope ? <p role="note" className="text-xs text-amber-900">{operation.scopeReason}</p> : null}
     {!operation.editable ? <p className="text-xs text-amber-900">This operation has no supported in-place editor in the current operation metadata.</p> : null}
@@ -86,7 +84,8 @@ export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
         </ul>
       </details> : null}
     </> : null}
-    <details className="text-xs text-slate-500"><summary className="cursor-pointer">Operation identity and dependencies</summary>
+    <details className="text-xs text-slate-500"><summary className="cursor-pointer">Operation details</summary>
+      <p>{operation.summary}</p>
       <p>{operation.kind === 'source' ? 'Source step' : 'Construction step'}: {operation.id}</p>
       <p>Inputs: {operation.inputs.join(', ') || (operation.kind === 'source' ? 'Output source scope' : 'Unavailable')}</p>
       {operation.anchorColumnId ? <p>Saved anchor: {operation.anchorColumnId}</p> : null}
@@ -105,15 +104,14 @@ export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
       </li>)}</ul>
     </nav> : null}
     {selected ? <>
-      <h3 className="text-sm font-semibold">{selected.path}</h3>
+      <h3 className="text-sm font-semibold">{selected.resourceType} operations</h3>
       <div className="flex flex-wrap gap-1" aria-label={`Actions for ${selected.resourceType}`}>
         {selected.parentId === undefined ? <button type="button" className={buttonClass} disabled={blocked} onClick={props.onEditSourceRows}>Edit source rows</button> : null}
         <button type="button" className={buttonClass} disabled={blocked} onClick={() => props.onAddRelatedValues(selected.id)}>Collect related values</button>
         <button type="button" className={buttonClass} disabled={blocked} onClick={() => props.onExpandRelatedRows(selected.id)}>Expand related records into rows</button>
         <button type="button" className={buttonClass} disabled={blocked} onClick={() => props.onGroupRows(selected.id)}>Group resulting rows</button>
       </div>
-      <p className="text-xs text-slate-600">Row operations retain their saved input stage and anchor. Scope navigation does not change either.</p>
-      <div className="max-h-72 overflow-auto">
+      <div>
         <h4 className="text-xs font-medium">Source operations · source-plan order</h4>
         {scopeOperations.length ? <ol aria-label="Source operations in selected scope">{scopeOperations.map(operation => operationItem(operation))}</ol> : <p className="text-xs">No source operations in this scope.</p>}
         {ordinaryFields.length ? <details><summary className="cursor-pointer text-xs">Source fields ({ordinaryFields.length})</summary><ul aria-label="Source fields in selected scope" className="max-h-48 overflow-auto">{ordinaryFields.map(column => <li key={column.id} data-column-id={column.id}>

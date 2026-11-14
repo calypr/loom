@@ -591,7 +591,6 @@ const BuilderWorkspaceContent = ({
   }>();
   const [pendingCommands, setPendingCommands] = useState(0);
   const [occurrenceInspectorHost, setOccurrenceInspectorHost] = useState<HTMLElement | null>(null);
-  const [graphCatalogView, setGraphCatalogView] = useState<{owner: string; open: boolean} | undefined>();
   const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
   const cancelingConstructionProposalRef = useRef(false);
   const [populationSelectionOverride, setPopulationSelectionOverride] = useState<{
@@ -4660,13 +4659,11 @@ const BuilderWorkspaceContent = ({
     }
     rowSettingsOpenAction.current?.();
   };
-  const graphViewOwner = JSON.stringify([builderDataKey, state.explorerId, table?.outputId]);
-  const graphCatalogOpen = graphCatalogView?.owner === graphViewOwner ? graphCatalogView.open : false;
   const canInspectOccurrence = Boolean(table && recipeOwner.state.status === 'saved' && !sourceRowsOpen && !sourceRecipeInspector && !workspaceEditor &&
-    !graphCatalogOpen && routeNode(table.document.route, inspectedOccurrenceId));
-  const occurrenceInspection = canInspectOccurrence ? <div className="h-full min-h-0" ref={setOccurrenceInspectorHost} /> : undefined;
+    routeNode(table.document.route, inspectedOccurrenceId));
+  const occurrenceInspection = canInspectOccurrence ? <div className="min-w-0" ref={setOccurrenceInspectorHost} /> : undefined;
   const recordNetwork = table ? (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2" ref={(node) => { if (node) loadRecipeNetwork(); }}>
+    <div className="flex min-h-0 min-w-0 flex-col gap-2" ref={(node) => { if (node) loadRecipeNetwork(); }}>
       {recipeNotice ? <p role="alert" className="text-xs text-amber-900">{recipeNotice}</p> : null}
       <AuthoredTraversalEditor
         projectionKind={proposalPresentationTable ? 'proposed' : 'saved'}
@@ -4674,8 +4671,6 @@ const BuilderWorkspaceContent = ({
         rowIdentity={rootCandidate?.candidateRowIdentity ?? sourceCandidate?.proposal.candidateRowIdentity ?? (proposalPresentationTable ? undefined : savedNetwork?.owner === relationshipOwner ? savedNetwork.result.rowIdentity : undefined)}
         showInspector={canInspectOccurrence}
         inspectorHost={occurrenceInspectorHost}
-        catalogOpen={graphCatalogOpen}
-        onCatalogOpenChange={(open) => setGraphCatalogView({owner: graphViewOwner, open})}
         onInspectValues={() => { selectConstructionFamily('ADD_COLUMNS'); selectAddColumnsView('fields'); }}
         onInspectRelatedRows={() => chooseRelatedRows()}
         onEditSourceStep={(stepId) => sourceStepEditAction.current?.(stepId)}
@@ -4692,9 +4687,7 @@ const BuilderWorkspaceContent = ({
           onChangeMatchMode: (occurrenceId, matchMode) => proposeRelationship({ action: 'MATCH', occurrenceId, matchMode }),
           onRemove: (occurrenceId) => proposeRelationship({ action: 'REMOVE', occurrenceId }),
         } : undefined}
-        rowControl={<button type="button" className="text-sm font-semibold text-blue-800 underline" aria-label="One row per" onClick={() => {
-          rowSettingsOpenAction.current?.();
-        }}>Change row definition</button>}
+        onDefineRow={editTraversalRows}
         onSelectOccurrence={selectTraversalScope}
         onSetBase={(nodeId) => void applyCommands([{ type: 'CREATE_TABLE', title: table.title, rootNodeId: nodeId }])}
         onChangeBase={(nodeId) => selectRootChoice({ kind: 'catalog-node', nodeId })}
@@ -4717,10 +4710,6 @@ const BuilderWorkspaceContent = ({
           void applyCommands([{ type: 'REMOVE_ROUTE', outputId: table.outputId, occurrenceId }]);
         }}
       />
-      <AuthoringNetworkInspector key={relationshipOwner} client={loomClient} identity={{ project: projectId, explorerId: state.explorerId,
-        authResourcePath, snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
-        expectedDraftDigest: state.draftDigest, outputId: table.outputId }} />
-
     </div>
   ) : undefined;
 
@@ -4958,6 +4947,7 @@ const BuilderWorkspaceContent = ({
                 network={recordNetwork}
                 navigation={traversalTable ? <div className="space-y-3">
                   <TraversalScopeNavigator table={traversalTable} network={traversalNetwork} rowIdentity={traversalRowIdentity}
+                    showScopeNavigation={false}
                     constructionStages={constructionLifecycle.proposal.status === 'ready' ? constructionLifecycle.proposal.response.stages
                       : constructionCapabilitiesResponse?.outputId === table.outputId && constructionCapabilitiesResponse.snapshotToken === state.catalog.snapshotToken && constructionCapabilitiesResponse.draftVersion === state.draftVersion && constructionCapabilitiesResponse.draftDigest === state.draftDigest ? constructionCapabilitiesResponse.stages : undefined}
                     selectedOccurrenceId={inspectedOccurrenceId} sourceFieldsByStep={traversalFields} sourceOperationLabels={traversalOperationLabels}
@@ -4978,6 +4968,9 @@ const BuilderWorkspaceContent = ({
                       calculateAvailable={Boolean(capabilityIsForAppendStage && capabilityStage?.capabilities.some((candidate) => candidate.kind === 'DERIVE' && candidate.supported))}
                       calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />
                   </details>
+                  <AuthoringNetworkInspector key={relationshipOwner} client={loomClient} identity={{ project: projectId, explorerId: state.explorerId,
+                    authResourcePath, snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
+                    expectedDraftDigest: state.draftDigest, outputId: table.outputId }} />
                 </div> : undefined}
                 tables={state.tables.map((candidate) => ({
                   outputId: candidate.outputId,

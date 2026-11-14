@@ -507,7 +507,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByText('Current rows')).toBeInTheDocument();
   });
 
-  it('keeps secondary operation history within navigation before the result', () => {
+  it('keeps secondary operation history within the recipe editor', () => {
     render(<ConstructionWorkspace
       tables={[{ outputId: 'patients', title: 'Patients' }]}
       selectedOutputId="patients"
@@ -533,7 +533,8 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByTestId('construction-history-source')).toHaveTextContent('Patient');
     expect(within(screen.getByRole('navigation', { name: 'Tables' })).queryByTestId('construction-history')).not.toBeInTheDocument();
     expect(screen.getByTestId('construction-action-add-columns').compareDocumentPosition(screen.getByTestId('construction-history')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByTestId('construction-history').compareDocumentPosition(screen.getByTestId('construction-preview')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByTestId('construction-history'))).toBe(true);
+    expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByTestId('construction-preview'))).toBe(false);
   });
 
   it('keeps secondary operation history reachable while an operation editor is open', () => {
@@ -1086,7 +1087,7 @@ it('compares the two compositions without remounting the actual editor, controll
   expect(screen.queryByText('Deferred row expression')).toBeNull();
   expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'candidate-receipt');
   expect(screen.getByTestId('recipe-result-identity')).toHaveTextContent('Proposed recipe result');
-  expect(screen.getByLabelText('Authored traversal')).toHaveTextContent('Authored subject path');
+  expect(screen.getByLabelText('Related records')).toHaveTextContent('Authored subject path');
 });
 
 it('keeps all 100 exact operations ordered behind one secondary history disclosure', () => {
@@ -1121,13 +1122,51 @@ it('keeps table switching available while a proposed change inspector is open', 
 it('uses one bounded shared fact slot and gives mutation editors precedence', () => {
  const props={preview:<p>Rows</p>,previewStatus:'ready' as const,draftVersion:1,draftDigest:'draft',tables:[{outputId:'subjects',title:'Subjects'}],selectedOutputId:'subjects',onSelectTable:vi.fn(),onNewTable:vi.fn(),onDuplicateTable:vi.fn(),onDeleteTable:vi.fn(),onRenameTable:vi.fn(),onSelectFamily:vi.fn()};
  const view=render(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>}/>);
- expect(screen.getByLabelText('Recipe fact inspector')).toHaveClass('construction-active-editor','min-h-0');
+ expect(screen.getByLabelText('Recipe fact inspector')).toHaveClass('construction-fact-inspector','min-h-0');
+ expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByLabelText('Recipe fact inspector'))).toBe(true);
  expect(screen.queryByLabelText('Change editor')).toBeNull();
  view.rerender(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>} editor={<p>Pending mutation</p>}/>);
  expect(screen.queryByLabelText('Recipe fact inspector')).toBeNull();
  expect(screen.getByLabelText('Change editor')).toHaveTextContent('Pending mutation');
 });
 
+
+it('uses one side panel for scope operations and edits while keeping controllers and the result mounted', () => {
+  const props = {
+    tables: [], onSelectTable: vi.fn(), onNewTable: vi.fn(), onDuplicateTable: vi.fn(),
+    onDeleteTable: vi.fn(), onRenameTable: vi.fn(), onSelectFamily: vi.fn(),
+    draftVersion: 4, draftDigest: 'saved-draft', previewStatus: 'ready' as const,
+    network: <button>Patient traversal</button>,
+    navigation: <details><summary>Patient operations</summary><button>Edit patient field</button></details>,
+    rowSetup: <input aria-label="Source controller" defaultValue="pending source" />,
+    inspection: <p>Patient match policy</p>, preview: <p>Saved patient rows</p>,
+  };
+  const view = render(<ConstructionWorkspace {...props} />);
+  const panel = screen.getByRole('complementary', { name: 'Recipe editor' });
+  expect(screen.getAllByRole('complementary')).toEqual([panel]);
+  expect(screen.queryByRole('complementary', { name: 'Recipe navigation' })).toBeNull();
+  expect(within(panel).getByText('Patient match policy')).toBeInTheDocument();
+  const operations = within(panel).getByText('Patient operations').closest('details')!;
+  fireEvent.click(within(panel).getByText('Patient operations'));
+  const controller = screen.getByRole('textbox', { name: 'Source controller' });
+  const result = screen.getByTestId('construction-preview');
+  expect(panel.contains(result)).toBe(false);
+  expect(panel.contains(screen.getByRole('button', { name: 'Patient traversal' }))).toBe(false);
+
+  view.rerender(<ConstructionWorkspace {...props} editor={<input aria-label="Field name" defaultValue="patient_id" />} />);
+  expect(screen.getByRole('complementary', { name: 'Recipe editor' })).toBe(panel);
+  expect(within(panel).getByRole('textbox', { name: 'Field name' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Edit patient field' })).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Source controller' })).toBe(controller);
+  expect(controller.closest('[hidden]')).toBeNull();
+  expect(screen.getByTestId('construction-preview')).toBe(result);
+
+  view.rerender(<ConstructionWorkspace {...props} />);
+  expect(screen.getByText('Patient operations').closest('details')).toBe(operations);
+  expect(operations).toHaveAttribute('open');
+  expect(screen.getByRole('button', { name: 'Edit patient field' })).toBeInTheDocument();
+  expect(controller instanceof HTMLInputElement && controller.value).toBe('pending source');
+});
 
 it('uses supplied scoped navigation as the sole ordered-history owner while keeping source controllers mounted', () => {
  render(<ConstructionWorkspace tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}

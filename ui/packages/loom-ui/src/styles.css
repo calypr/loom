@@ -352,21 +352,26 @@
   }
 }
 
-/* Traversal-first compositions share the same mounted navigation, graph,
-   inspector and result. Only their grid placement changes for comparison. */
+/* One contextual editor shares the workspace with the traversal bar and result. */
 .loom-ui-root .construction-result-region { display: grid; gap: .75rem; min-width: 0; }
+.loom-ui-root .construction-main-panel,
+.loom-ui-root .construction-side-panel,
 .loom-ui-root .construction-scope-navigation,
 .loom-ui-root .construction-authored-region,
 .loom-ui-root .construction-active-editor,
 .loom-ui-root .construction-result-preview { min-width: 0; min-height: 0; }
-.loom-ui-root .construction-scope-navigation { display: flex; flex-direction: column; gap: .75rem; background: #fff; padding: .75rem; }
+.loom-ui-root .construction-main-panel { display: flex; flex-direction: column; gap: .75rem; }
+.loom-ui-root .construction-side-panel { display: flex; flex-direction: column; gap: .75rem; overflow: hidden; border: 1px solid #dbe4ef; border-radius: .5rem; background: #fff; padding: .875rem; }
+.loom-ui-root .construction-scope-navigation { display: flex; flex: 1; flex-direction: column; gap: 1rem; overflow: auto; overscroll-behavior: contain; }
+.loom-ui-root .construction-scope-navigation[hidden] { display: none; }
+.loom-ui-root .construction-fact-inspector { flex-shrink: 0; }
 .loom-ui-root .construction-controller-host { display: contents; }
 .loom-ui-root .construction-source-controls:empty { display: none; }
 .loom-ui-root .construction-history-disclosure > summary { cursor: pointer; padding: .5rem 0; font-size: .875rem; font-weight: 600; }
 .loom-ui-root .construction-history-disclosure .construction-history { padding: 0; }
 .loom-ui-root .construction-history-disclosure ol { display: grid; gap: .375rem; }
 .loom-ui-root .construction-history-disclosure .construction-history > header { display: none; }
-.loom-ui-root .construction-authored-content { height: 100%; min-height: 0; }
+.loom-ui-root .construction-authored-content { min-height: 0; }
 
 @media (min-width: 1024px) and (min-height: 700px) {
   .loom-ui-root .construction-workspace {
@@ -378,36 +383,26 @@
     min-height: 0;
     overflow: hidden;
     align-items: stretch;
-    grid-template-columns: 16.25rem minmax(0, 1fr);
-    grid-template-rows: minmax(13.75rem, .9fr) minmax(12.5rem, 1fr);
-    grid-template-areas: "navigation graph" "navigation preview";
-  }
-  .loom-ui-root .construction-result-region[data-has-editor="true"] {
-    grid-template-columns: 16.25rem minmax(0, 1fr) 21.875rem;
-    grid-template-areas: "navigation graph inspector" "navigation preview inspector";
-  }
-  .loom-ui-root .construction-result-region[data-composition="inspector-below"][data-has-editor="true"] {
-    grid-template-columns: 16.25rem minmax(20rem, .9fr) minmax(0, 1.3fr);
-    grid-template-areas: "navigation graph graph" "navigation inspector preview";
-  }
-  .loom-ui-root .construction-result-region:not([data-has-network="true"]) {
+    grid-template-columns: minmax(0, 1fr) clamp(21rem, 28vw, 27rem);
     grid-template-rows: minmax(0, 1fr);
-    grid-template-areas: "navigation preview";
+    grid-template-areas: "main inspector";
   }
-  .loom-ui-root .construction-result-region:not([data-has-network="true"])[data-has-editor="true"] {
-    grid-template-areas: "navigation preview inspector";
+  .loom-ui-root .construction-main-panel { grid-area: main; overflow: auto; overscroll-behavior: contain; }
+  .loom-ui-root .construction-result-region[data-composition="inspector-below"] {
+    grid-template-rows: auto minmax(12.5rem, 1fr);
+    grid-template-areas: "graph graph" "preview inspector";
   }
-  .loom-ui-root .construction-scope-navigation { grid-area: navigation; overflow: auto; overscroll-behavior: contain; }
-  .loom-ui-root .construction-authored-region { grid-area: graph; overflow: hidden; }
-  .loom-ui-root .construction-authored-content { overflow: auto; }
-  .loom-ui-root .construction-authored-content > div,
-  .loom-ui-root .construction-authored-content > section { height: 100%; min-height: 0; }
-  .loom-ui-root .construction-active-editor { grid-area: inspector; height: 100%; max-height: none; overflow: auto; background: #fff; }
+  .loom-ui-root .construction-result-region[data-composition="inspector-below"] .construction-main-panel { display: contents; }
+  .loom-ui-root .construction-result-region[data-composition="inspector-below"]:not([data-has-network="true"]) { grid-template-rows: minmax(0, 1fr); grid-template-areas: "preview inspector"; }
+  .loom-ui-root .construction-side-panel { grid-area: inspector; }
+  .loom-ui-root .construction-authored-region { grid-area: graph; flex-shrink: 0; }
+  .loom-ui-root .construction-active-editor { flex: 1; height: 100%; max-height: none; overflow: auto; background: #fff; }
   .loom-ui-root [data-testid="construction-preview"] {
     grid-area: preview;
+    flex: 1 0 12.5rem;
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-height: 12.5rem;
     overflow: hidden;
   }
   .loom-ui-root .construction-preview-surface { display: flex; flex: 1; flex-direction: column; min-height: 0; }

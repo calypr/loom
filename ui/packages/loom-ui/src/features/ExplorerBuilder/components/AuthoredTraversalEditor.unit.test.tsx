@@ -21,7 +21,14 @@ vi.mock('@xyflow/react', () => ({
     {edges.map((edge) => <span className="react-flow__edge" data-id={edge.id} tabIndex={0} key={edge.id} data-testid={edge.id} data-source={edge.source} data-target={edge.target} onClick={event=>onEdgeClick(event,edge)} />)}
   </div>,
 }));
-vi.mock('./GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: () => <div>Available catalog connections</div> }));
+vi.mock('./GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: (props: Record<string, unknown>) => {
+  const currentTable = props.table as DraftTable | undefined;
+  const currentCatalog = props.catalog as ExplorerBuilderCatalog;
+  const occurrences = currentTable ? authoredTraversal(currentTable, currentCatalog) : [];
+  return <section aria-label="Record network">
+    {<div><p>Available catalog connections</p><div data-testid="flow">{occurrences.map((occurrence) => <button className="react-flow__node" data-id={occurrence.id} data-testid={`node-${occurrence.id}`} key={occurrence.id} onClick={() => (props.onSelectOccurrence as (id: string) => void)(occurrence.id)}>{occurrence.path}</button>)}{occurrences.slice(1).map((occurrence) => <span className="react-flow__edge" data-id={`authored:${occurrence.id}`} key={occurrence.id} data-testid={`authored:${occurrence.id}`} data-source={occurrence.parentId} data-target={occurrence.id} />)}</div></div>}
+  </section>;
+} }));
 const catalog: ExplorerBuilderCatalog = { snapshotToken: 's', generation: 'g', routePolicy: { allowRepeatedEdges: true, allowSelfLoops: true },
   nodes: [
     { nodeId: 'subject', resourceType: 'ResearchSubject', rowRootEligible: true, populated: true, documentCount: 4 },
@@ -48,6 +55,18 @@ const navigatorProps = (value: DraftTable, actions = callbacks()) => ({ table: v
 });
 
 describe('authored traversal correspondence', () => {
+  it('keeps the graph and selected-fact inspector visible without a redundant heading', () => {
+    const props = { ...callbacks(), catalog, table, projectionKind: 'saved' as const, selectedOccurrenceId: 'subjectPatient', disabled: false };
+    render(<AuthoredTraversalEditor {...props} />);
+    expect(screen.queryByRole('heading', { name: /Related records/ })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Authored traversal' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Current traversal' })).toBeNull();
+    expect(screen.queryByText('Current query')).toBeNull();
+    expect(screen.getByTestId('authored-occurrence-inspector')).toBeInTheDocument();
+    expect(screen.getByText('Available catalog connections')).toBeInTheDocument();
+    expect(screen.getByTestId('authored-occurrence-inspector')).toBeInTheDocument();
+  });
+
   it('uses actual distinct occurrence identities rather than merging same resource catalog nodes', () => {
     const projection = authoredTraversal(table, catalog);
     expect(projection.map((item) => [item.id, item.path, item.edgeId])).toEqual([
@@ -91,11 +110,10 @@ describe('authored traversal correspondence', () => {
       { occurrenceId: 'root', column: 'status', label: 'Status', logicalType: 'string', source: { kind: 'field', field: { path: 'status' } } },
     ], construction: { version: 1, steps: [{ id: 'group1', inputs: [{ kind: 'SOURCE_PROJECTION' }], operation: { kind: 'GROUP', group: { constructionId: 'g', keys: [{ inputColumnId: 'gender', outputColumnId: 'g' }, { inputColumnId: 'status', outputColumnId: 's' }], missingKeyPolicy: 'GROUP' } }, rowValues: [{ inputColumnId: 'status', outputColumnId: 'values', policy: 'ALL' }], outputs: [{ id: 'g', name: 'g', label: 'Gender', type: 'string' }, { id: 's', name: 's', label: 'Status', type: 'string' }, { id: 'values', name: 'values', label: 'Statuses', type: 'list<string>' }] }] } } };
     const actions = callbacks(); render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={grouped} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(grouped, actions)} /></>);
-    fireEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
     fireEvent.click(screen.getByText('Resulting table · all 1 operations in execution order'));
     const stage = within(screen.getByRole('list', { name: 'Ordered resulting-table operations' }));
     expect(stage.getByText(/Group rows by Gender, Status/)).toHaveTextContent('Statuses retains all contributor values');
-    expect(stage.getByText('Input: Source projection.')).toBeTruthy();
+    expect(stage.getByText('Inputs: Source projection')).toBeTruthy();
     fireEvent.click(stage.getByRole('button', { name: 'Edit table operation 1: Group by Gender, Status' }));
     expect(actions.onInspectOperation).toHaveBeenCalledWith('group1');
     expect(authoredStages(grouped).map((item) => item.id)).toEqual(['group1']);
@@ -112,7 +130,7 @@ describe('authored traversal correspondence', () => {
     render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={expanded} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(expanded,actions)} /></>);
     fireEvent.click(screen.getByText('Resulting table · all 1 operations in execution order'));
     const stages = screen.getByRole('list', { name: 'Ordered resulting-table operations' });
-    expect(stages).toHaveTextContent('Input: Source projection.');
+    expect(stages).toHaveTextContent('Inputs: Source projection');
     fireEvent.click(within(stages).getByRole('button'));
     expect(actions.onInspectOperation).toHaveBeenCalledExactlyOnceWith('pairs');
     expect(authoredTraversal(expanded, catalog)).toHaveLength(3);
@@ -168,13 +186,12 @@ it('keeps exact source policy editing in the traversal navigator across proposed
   expect(exact).toBeDisabled();expect(imported.document).toEqual(before);
 });
 
-it('selects the exact authored relationship with Enter and Space without mutating the recipe', () => {
+it('forwards exact graph occurrence selection without mutating the recipe', () => {
   const actions=callbacks();const before=structuredClone(table.document);
   render(<AuthoredTraversalEditor {...actions} table={table} catalog={catalog} disabled={false} projectionKind="saved" selectedOccurrenceId="root"/>);
-  const edge=screen.getByTestId('authored:investigatorPatient');
-  fireEvent.keyDown(edge,{key:'Enter'});fireEvent.keyDown(edge,{key:' '});
-  expect(actions.onSelectOccurrence.mock.calls).toEqual([['investigatorPatient'],['investigatorPatient']]);
-  fireEvent.keyDown(edge,{key:'Escape'});expect(actions.onSelectOccurrence).toHaveBeenCalledTimes(2);
+  const branch=screen.getByRole('button',{name:'ResearchSubject → investigator → Patient'});
+  fireEvent.click(branch);
+  expect(actions.onSelectOccurrence).toHaveBeenCalledExactlyOnceWith('investigatorPatient');
   expect(actions.onChangeMatchMode).not.toHaveBeenCalled();expect(actions.onTruncate).not.toHaveBeenCalled();
   expect(actions.onInspectValues).not.toHaveBeenCalled();expect(table.document).toEqual(before);
 });
@@ -183,11 +200,30 @@ it('portals selected facts into the shared inspection host and preserves catalog
  const host=document.createElement('div'); document.body.appendChild(host);
  const props={table,catalog,projectionKind:'saved' as const,selectedOccurrenceId:'root',disabled:false,...callbacks()};
  const view=render(<AuthoredTraversalEditor {...props} inspectorHost={host}/>);
- expect(within(host).getByTestId('authored-occurrence-inspector')).toHaveClass('h-full','overflow-auto');
+ expect(within(host).getByTestId('authored-occurrence-inspector')).not.toHaveClass('h-full');
  expect(within(screen.getByRole('region',{name:'Record network'})).queryByTestId('authored-occurrence-inspector')).toBeNull();
- view.rerender(<AuthoredTraversalEditor {...props} inspectorHost={host} catalogOpen/>);
- expect(within(host).queryByTestId('authored-occurrence-inspector')).toBeNull();
+ view.rerender(<AuthoredTraversalEditor {...props} inspectorHost={host}/>);
+ expect(within(host).getByTestId('authored-occurrence-inspector')).toBeInTheDocument();
  view.rerender(<AuthoredTraversalEditor {...props} inspectorHost={host} showInspector={false}/>);
  expect(within(host).queryByTestId('authored-occurrence-inspector')).toBeNull();
  view.unmount();host.remove();
+});
+
+it('keeps row definition, row-start and alternative relationship controls in the selected inspector', () => {
+ const single = { ...table, document: { ...table.document, route: { ...table.document.route, children: [table.document.route.children![0]] } } };
+ const actions = callbacks();
+ const view = render(<AuthoredTraversalEditor {...actions} table={single} catalog={catalog} disabled={false} projectionKind="saved" selectedOccurrenceId="subjectPatient" />);
+ const inspector = within(screen.getByTestId('authored-occurrence-inspector'));
+ fireEvent.change(inspector.getByRole('combobox', { name: 'Relationship for ResearchSubject → subject → Patient' }), { target: { value: 'investigator-patient' } });
+ expect(actions.onChangeEdge).toHaveBeenCalledExactlyOnceWith('subjectPatient', 'investigator-patient');
+ fireEvent.click(inspector.getByRole('button', { name: 'Make each Patient one row' }));
+ expect(actions.onChangeBase).toHaveBeenCalledExactlyOnceWith('patient');
+ fireEvent.click(inspector.getByRole('button', { name: 'Change row definition' }));
+ expect(actions.onDefineRow).toHaveBeenCalledExactlyOnceWith();
+ view.rerender(<AuthoredTraversalEditor {...actions} table={single} catalog={catalog} disabled={false} projectionKind="proposed" selectedOccurrenceId="subjectPatient" />);
+ expect(inspector.getByRole('button', { name: 'Change row definition' })).toBeDisabled();
+ expect(inspector.getByRole('button', { name: 'Make each Patient one row' })).toBeDisabled();
+ expect(inspector.getByRole('combobox', { name: 'Relationship for ResearchSubject → subject → Patient' })).toBeDisabled();
+ fireEvent.click(inspector.getByRole('button', { name: 'Change row definition' }));
+ expect(actions.onDefineRow).toHaveBeenCalledTimes(1);
 });

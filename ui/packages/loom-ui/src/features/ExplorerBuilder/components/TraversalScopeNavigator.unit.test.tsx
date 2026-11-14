@@ -43,6 +43,16 @@ it('does not replace a missing selected scope with root and disables new mutatio
   fireEvent.click(screen.getByRole('button', { name: 'Collect related values' })); expect(value.onAddRelatedValues).not.toHaveBeenCalled();
 });
 
+it('keeps scope editing available without duplicating the traversal bar navigation', () => {
+  const value = props();
+  render(<TraversalScopeNavigator {...value} showScopeNavigation={false} selectedOccurrenceId="patient" />);
+  expect(screen.queryByRole('navigation', { name: 'Authored traversal scopes' })).toBeNull();
+  expect(screen.getByRole('heading', { name: 'Patient operations' })).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole('list', { name: 'Source operations in selected scope' })).getByRole('button', { name: 'Edit source operation 2: Related Patient records' }));
+  expect(value.onEditSourceStep).toHaveBeenCalledExactlyOnceWith('patient-step');
+  expect(value.onSelectScope).not.toHaveBeenCalled();
+});
+
 it('field shortcuts cannot bypass a read-only source operation', () => {
   const value = { ...props(), table: { ...table, document: { ...table.document, importedSource: { steps: table.document.importedSource!.steps.map(step => ({ ...step, editable: false })) } } },
     sourceFieldsByStep: new Map([['fields', [{ fieldId: 'read-only', name: 'Read-only field' }]]]), onEditSourceField: vi.fn() };

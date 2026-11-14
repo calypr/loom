@@ -219,9 +219,7 @@ export const builderAuthoringReducer = (
       const table = state.tables.find(
         (candidate) => candidate.outputId === state.selectedOutputId,
       );
-      return derivedOccurrences(table, state.catalog).some(
-        (occurrence) => occurrence.id === action.occurrenceId,
-      )
+      return table && routeNode(table.document.route, action.occurrenceId)
         ? { ...state, selectedOccurrenceId: action.occurrenceId }
         : state;
     }

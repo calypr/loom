@@ -980,3 +980,23 @@ describe('table selection automatic preview ownership', () => {
     }
   });
 });
+
+describe('saved occurrence inspection', () => {
+  it('selects unresolved saved occurrences without changing the recipe or requiring catalog resolution', () => {
+    const state = stateFromBuilder(ready, { project: 'project', explorerId: 'default' });
+    const table = state.tables[0];
+    const source: BuilderAuthoringState = { ...state, tables: [{ ...table, document: { ...table.document, route: {
+      ...table.document.route, children: [{ occurrenceId: 'unresolved', resourceType: 'Patient', relationship: 'retired', catalogEdgeId: 'removed', children: [
+        { occurrenceId: 'unresolved-child', resourceType: 'Observation', relationship: 'retired-child' },
+      ] }],
+    } } }] };
+    expect(derivedOccurrences(source.tables[0], source.catalog).map(item => item.id)).toEqual(['base']);
+    for (const occurrenceId of ['unresolved', 'unresolved-child', 'base']) {
+      const selected = builderAuthoringReducer(source, { type: 'selectOccurrence', occurrenceId });
+      expect(selected.selectedOccurrenceId).toBe(occurrenceId);
+      expect(selected).toEqual({ ...source, selectedOccurrenceId: occurrenceId });
+      expect(selected.tables).toBe(source.tables);
+    }
+    expect(builderAuthoringReducer(source, { type: 'selectOccurrence', occurrenceId: 'not-in-this-table' })).toBe(source);
+  });
+});
