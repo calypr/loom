@@ -596,6 +596,84 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/authoring-network:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: describeExplorerAuthoringNetwork
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AuthoringNetworkRequest'}
+      responses:
+        '200':
+          description: The effective record network and source and construction row identities for one exact saved draft.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthoringNetworkResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/source-relationship-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerSourceRelationship
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SourceRelationshipProposalRequest'}
+      responses:
+        '200':
+          description: A project-local native relationship candidate bound to the saved draft and successful receipt preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceRelationshipProposal'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-policy-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerColumnPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ColumnPolicyProposalRequest'}
+      responses:
+        '200':
+          description: An existing ordinary source column policy candidate bound to the saved draft and successful receipt preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ColumnPolicyProposal'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1230,6 +1308,123 @@ paths:
         '409': {$ref: '#/components/responses/ServiceConflict'}
         '500': {$ref: '#/components/responses/ServiceInternalError'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+    put:
+      operationId: beginDatasetSourceLoad
+      summary: Create or retrieve a durable source-load plan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SourceLoadPlan'}
+      responses:
+        '200':
+          description: The durable source-load plan and completed file receipts.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadStatus'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+    get:
+      operationId: getDatasetSourceLoadStatus
+      summary: Read a durable source-load plan and completed file receipts.
+      responses:
+        '200':
+          description: The durable source-load plan and completed file receipts.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadStatus'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}/files/{resourceType}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+      - name: resourceType
+        in: path
+        required: true
+        schema: {type: string, minLength: 1}
+    put:
+      operationId: uploadDatasetSourceLoadFile
+      summary: Upload exactly one canonical META NDJSON file into the inactive source generation.
+      requestBody:
+        required: true
+        description: One streamed file is uploaded per request. The configurable byte limit applies to this file; other selected resource files use separate requests.
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary, description: "Exactly one file named META/{resourceType}.ndjson."}
+      responses:
+        '200':
+          description: The file was fully validated and durably accepted.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceFileReceipt'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422':
+          description: The entire file was rejected before a READY receipt was recorded. Details contain at most 100 safe row issues, totalErrors, and truncated.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadValidationErrorResponse'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}/publish:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+    post:
+      operationId: publishDatasetSourceLoad
+      summary: Materialize the completed candidate and select its published release.
+      responses:
+        '200':
+          description: The source-load publication completed or was safely replayed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourcePublishReceipt'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/dataframe/recipe-executions/{id}:
     parameters:
       - name: id
@@ -1501,6 +1696,126 @@ paths:
         '422': {$ref: '#/components/responses/LegacyUnprocessable'}
         '500': {$ref: '#/components/responses/LegacyInternalError'}
         '503': {$ref: '#/components/responses/LegacyUnavailable'}
+  /api/v1/projects/{project}/view-builder:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    get:
+      operationId: getProjectViewBuilder
+      summary: Read project views and exact published dataframe metadata.
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+  /api/v1/projects/{project}/view-builder/adopt:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: adoptProjectViewBuilder
+      summary: Attach existing publication metadata without reloading data.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+  /api/v1/projects/{project}/view-builder/defaults:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    put:
+      operationId: saveProjectViewDefaults
+      summary: Choose the default saved view and dataframe.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RawJSON'}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+  /api/v1/projects/{project}/view-builder/configs/{explorerId}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    put:
+      operationId: saveProjectViewConfig
+      summary: Save presentation against an existing published dataframe.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RawJSON'}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+    delete:
+      operationId: deleteProjectViewConfig
+      summary: Delete a non-default saved view while retaining publication history.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+        - name: expectedRevisionId
+          in: query
+          required: true
+          schema: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
 components:
   parameters:
     Project:
@@ -1677,6 +1992,95 @@ components:
         text/html:
           schema: {type: string}
   schemas:
+    SourceManifestFile:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1, description: Canonical META/<ResourceType>.ndjson path.}
+        sha256: {type: string, pattern: '^[0-9a-fA-F]{64}$', description: Optional expected file digest.}
+    SourceLoadPlan:
+      type: object
+      additionalProperties: false
+      required: [repository, commit, files]
+      properties:
+        repository: {type: string, minLength: 1}
+        commit: {type: string, minLength: 40, maxLength: 64}
+        files:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/SourceManifestFile'}
+        auth_resource_path: {type: string}
+        expected_revision: {type: integer, format: int64, minimum: 0}
+    SourceFileReceipt:
+      type: object
+      additionalProperties: false
+      required: [path, resource_type, sha256, rows, state]
+      properties:
+        path: {type: string}
+        resource_type: {type: string}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        rows: {type: integer, format: int64, minimum: 0}
+        state: {type: string, enum: [READY]}
+    SourceLoadStatus:
+      type: object
+      additionalProperties: false
+      required: [operation_id, generation, state, base_revision, files]
+      properties:
+        operation_id: {type: string}
+        generation: {type: string}
+        state: {type: string, enum: [UPLOADING, READY, PUBLISH_PENDING, PUBLISHED, SUPERSEDED]}
+        base_revision: {type: integer, format: int64, minimum: 0}
+        files:
+          type: array
+          items: {$ref: '#/components/schemas/SourceFileReceipt'}
+    SourcePublishReceipt:
+      type: object
+      additionalProperties: false
+      required: [operation_id, source_revision, manifest_hash, execution_id, state, reused]
+      properties:
+        operation_id: {type: string}
+        source_revision: {type: integer, format: int64, minimum: 0}
+        manifest_hash: {type: string}
+        execution_id: {type: string}
+        state: {type: string, enum: [PUBLISHED]}
+        reused: {type: boolean}
+    SourceLoadValidationIssue:
+      type: object
+      additionalProperties: false
+      required: [filename, row, resourceType, category, message]
+      properties:
+        filename: {type: string}
+        row: {type: integer, format: int64, minimum: 1}
+        resourceType: {type: string}
+        category: {type: string}
+        message: {type: string, description: Safe summary without resource payloads or credentials.}
+    SourceLoadValidationDetails:
+      type: object
+      additionalProperties: false
+      required: [issues, totalErrors, truncated]
+      properties:
+        issues:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/SourceLoadValidationIssue'}
+        totalErrors: {type: integer, format: int64, minimum: 0}
+        truncated: {type: boolean}
+    SourceLoadValidationErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code: {type: string, enum: [INVALID_DATA]}
+            message: {type: string}
+            details: {$ref: '#/components/schemas/SourceLoadValidationDetails'}
+            requestId: {type: string}
+            retryable: {type: boolean}
     SelectionResourceRef:
       type: object
       additionalProperties: false
@@ -2303,6 +2707,8 @@ components:
       required: [kind, output, rootResourceType, route, rows, columns]
       properties:
         kind: {type: string, enum: [ExplorerBuilderDocument]}
+        importedRecipe: {$ref: '#/components/schemas/ImportedRecipeRef'}
+        importedSource: {$ref: '#/components/schemas/ImportedSourcePlan'}
         output: {$ref: '#/components/schemas/Output'}
         rootResourceType: {type: string, minLength: 1}
         route: {$ref: '#/components/schemas/RouteNode'}
@@ -2436,6 +2842,224 @@ components:
         children:
           type: array
           items: {$ref: '#/components/schemas/RouteNode'}
+    ImportedRecipeRef:
+      type: object
+      additionalProperties: false
+      required: [name, translationVersion, digest, output]
+      properties:
+        name: {type: string, minLength: 1}
+        translationVersion: {type: string, minLength: 1}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        output: {type: string, minLength: 1}
+    ImportedSourcePlan:
+      type: object
+      additionalProperties: false
+      required: [steps]
+      properties:
+        fieldBindings:
+          type: array
+          readOnly: true
+          items:
+            type: object
+            additionalProperties: false
+            required: [fieldId, columnId]
+            properties:
+              fieldId: {type: string, minLength: 1}
+              columnId: {type: string, minLength: 1}
+        relationships: {$ref: '#/components/schemas/ImportedRelationshipOverlay'}
+        steps:
+          type: array
+          items: {$ref: '#/components/schemas/ImportedSourceStep'}
+    NetworkOccurrence:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, resourceType, labelMissing, enabled, preservesRowIdentity, canExcludeRows]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        parentOccurrenceId: {type: string, minLength: 1}
+        sourceStepId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        storageDirection: {type: string, minLength: 1}
+        matchMode: {type: string, minLength: 1}
+        labelMissing: {type: boolean}
+        enabled: {type: boolean}
+        preservesRowIdentity: {type: boolean}
+        canExcludeRows: {type: boolean}
+    NetworkColumnBinding:
+      type: object
+      additionalProperties: false
+      required: [columnId, status]
+      properties:
+        columnId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        sourceStepId: {type: string, minLength: 1}
+        valueMode: {type: string, minLength: 1}
+        status: {type: string, minLength: 1}
+    NetworkOperation:
+      type: object
+      additionalProperties: false
+      required: [operationId, kind, inputStepIds]
+      properties:
+        operationId: {type: string, minLength: 1}
+        kind: {type: string, minLength: 1}
+        inputStepIds: {type: array, items: {type: string, minLength: 1}}
+        anchorColumnId: {type: string, minLength: 1}
+    AuthoringNetwork:
+      type: object
+      additionalProperties: false
+      required: [owner, outputId, sourceRows, occurrences, bindings, operations]
+      properties:
+        owner: {type: string, enum: [DOCUMENT, IMPORTED_SOURCE]}
+        outputId: {type: string, minLength: 1}
+        sourceRows: {$ref: '#/components/schemas/RowDefinition'}
+        occurrences: {type: array, items: {$ref: '#/components/schemas/NetworkOccurrence'}}
+        bindings: {type: array, items: {$ref: '#/components/schemas/NetworkColumnBinding'}}
+        operations: {type: array, items: {$ref: '#/components/schemas/NetworkOperation'}}
+    RowIdentity:
+      type: object
+      additionalProperties: false
+      required: [kind, scope]
+      properties:
+        kind: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        inputStageId: {type: string, minLength: 1}
+        anchorColumnId: {type: string, minLength: 1}
+        relatedRecordColumnId: {type: string, minLength: 1}
+        scopePath: {type: string, minLength: 1}
+        groupRevisionId: {type: string, minLength: 1}
+        missingPolicy: {type: string, minLength: 1}
+        scope: {type: string, minLength: 1}
+        keyColumnIds: {type: array, items: {type: string, minLength: 1}}
+    RowCountEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [UNKNOWN]}
+        value: {type: integer, format: int64, minimum: 0}
+    RowIdentityStage:
+      type: object
+      additionalProperties: false
+      required: [stageId, identity, meaning, effect, mayExcludeRows, multiplicity, count]
+      properties:
+        stageId: {type: string, minLength: 1}
+        operationId: {type: string, minLength: 1}
+        identity: {$ref: '#/components/schemas/RowIdentity'}
+        meaning: {type: string}
+        effect: {type: string, minLength: 1}
+        mayExcludeRows: {type: boolean}
+        multiplicity: {type: string, enum: [UNKNOWN]}
+        count: {$ref: '#/components/schemas/RowCountEvidence'}
+        unsupportedReason: {type: string, minLength: 1}
+    RelationshipRowEffect:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, matchMode, preservesIdentity, mayExcludeRows, multiplicity]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        preservesIdentity: {type: boolean}
+        mayExcludeRows: {type: boolean}
+        multiplicity: {type: string, enum: [UNKNOWN]}
+    RowIdentityPlan:
+      type: object
+      additionalProperties: false
+      required: [outputId, sourceDefinition, stages, relationships]
+      properties:
+        outputId: {type: string, minLength: 1}
+        sourceDefinition: {$ref: '#/components/schemas/RowDefinition'}
+        stages: {type: array, items: {$ref: '#/components/schemas/RowIdentityStage'}}
+        relationships: {type: array, items: {$ref: '#/components/schemas/RelationshipRowEffect'}}
+    AuthoringNetworkRequest:
+      type: object
+      x-go-type: lifecycle.AuthoringNetworkRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+    AuthoringNetworkResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, network, rowIdentity]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        network: {$ref: '#/components/schemas/AuthoringNetwork'}
+        rowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
+    ImportedRelationshipField:
+      type: object
+      additionalProperties: false
+      required: [candidateId, columnId, column, fieldPath, label, valueMode]
+      properties:
+        candidateId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        valueMode: {type: string, enum: [ALL, FIRST, DISTINCT]}
+    ImportedRelationship:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, parentOccurrenceId, catalogEdgeId, relationship, resourceType, matchMode]
+      properties:
+        occurrenceId: {type: string, pattern: '^project_[A-Za-z0-9_]+$'}
+        parentOccurrenceId: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        fields: {type: array, items: {$ref: '#/components/schemas/ImportedRelationshipField'}}
+    ImportedRelationshipMatch:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, matchMode]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    ImportedRelationshipOverlay:
+      type: object
+      additionalProperties: false
+      properties:
+        additions: {type: array, items: {$ref: '#/components/schemas/ImportedRelationship'}}
+        removals: {type: array, items: {type: string, minLength: 1}}
+        matchOverrides: {type: array, items: {$ref: '#/components/schemas/ImportedRelationshipMatch'}}
+    ImportedSourceStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, title, summary, enabled, editable]
+      properties:
+        id: {type: string, minLength: 1}
+        parentId: {type: string, minLength: 1}
+        sourceKey: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+        kind: {type: string, minLength: 1}
+        title: {type: string, minLength: 1}
+        summary: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        editable: {type: boolean}
+        maxColumns: {type: integer, minimum: 1}
+        valueMode: {type: string, minLength: 1}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
+    ImportedSource:
+      type: object
+      additionalProperties: false
+      required: [outputColumn]
+      properties:
+        outputColumn: {type: string, minLength: 1}
     ColumnSource:
       type: object
       additionalProperties: false
@@ -2443,7 +3067,8 @@ components:
       properties:
         kind:
           type: string
-          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, ownerRecords, projectId]
+          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, ownerRecords, projectId, imported]
+        imported: {$ref: '#/components/schemas/ImportedSource'}
         field: {$ref: '#/components/schemas/FieldSource'}
         aggregate: {$ref: '#/components/schemas/AggregateSource'}
         lookup: {$ref: '#/components/schemas/LookupSource'}
@@ -2824,7 +3449,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, RESTORE_DRAFT_REVISION]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, APPLY_IMPORTED_RELATIONSHIP_PROPOSAL, APPLY_COLUMN_POLICY_PROPOSAL, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         draftRevisionId: {type: string, minLength: 1}
@@ -2856,12 +3481,459 @@ components:
           maxItems: 100
           items: {$ref: '#/components/schemas/SemanticSelectionIntent'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoiceSelection'}
+        sourceStep: {$ref: '#/components/schemas/ImportedSourceStepChange'}
         frameChoiceId: {type: string, minLength: 1, maxLength: 16384}
         frameId: {type: string, minLength: 1}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
         outputIds:
           type: array
           items: {type: string, minLength: 1}
+    SourceRelationshipChange:
+      type: object
+      x-go-type: authoringv2.ImportedRelationshipChange
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: {type: string, enum: [ADD, MATCH, REMOVE]}
+        parentOccurrenceId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        edgeId: {type: string, minLength: 1}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    SourceRelationshipProposalRequest:
+      type: object
+      x-go-type: lifecycle.SourceRelationshipProposalRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
+      oneOf:
+        - required: [change]
+        - required: [sourceStep]
+        - required: [sourceSteps]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        change: {$ref: '#/components/schemas/SourceRelationshipChange'}
+        sourceStep: {$ref: '#/components/schemas/ImportedSourceStepChange'}
+        sourceSteps:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items: {$ref: '#/components/schemas/ImportedSourceStepChange'}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+    SourceRelationshipProposal:
+      type: object
+      additionalProperties: false
+      required: [proposalId, candidateReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, previewStatus, sampledRows, sampled, affectedColumns, notices, candidateDocument, candidateNetwork, candidateRowIdentity]
+      properties:
+        candidateDocument: {$ref: '#/components/schemas/Document'}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork'}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
+        proposalId: {type: string, minLength: 1}
+        candidateReceiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        baseDocumentDigest: {type: string, minLength: 1}
+        candidateWorkspaceDigest: {type: string, minLength: 1}
+        previewStatus: {type: string, enum: [READY]}
+        sampledRows: {type: integer, minimum: 0}
+        sampled: {type: boolean}
+        affectedColumns: {type: array, items: {type: string}}
+        notices: {type: array, items: {type: string}}
+    ColumnPolicyProposalRequest:
+      type: object
+      x-go-type: lifecycle.ColumnPolicyProposalRequest
+      x-go-type-import:
+        name: lifecycle
+        path: github.com/calypr/loom/internal/explorer/lifecycle
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, columnId, projectionMode]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+        projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+    ColumnPolicyProposal:
+      $ref: '#/components/schemas/SourceRelationshipProposal'
+    SourceRecipeExpression:
+      type: object
+      additionalProperties: false
+      properties:
+        select:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        literal: {}
+        call:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        args:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        document:
+          type: object
+          additionalProperties: false
+          properties:
+            context:
+              type: string
+              maxLength: 2048
+      oneOf:
+      - required:
+        - select
+      - required:
+        - literal
+      - required:
+        - call
+      - required:
+        - document
+      x-go-type: recipe.Expression
+      x-go-type-import:
+        name: recipe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+      description: Existing recipe expression wire format. Read descriptors preserve pinned functions. Source edits admit
+        only select, primitive literal, and first/all/reference_id/last_segment/coalesce/coalesce_string/join/concat/uuid5;
+        document references are not editable.
+    ImportedSourceFieldParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - fieldId
+      - enabled
+      - name
+      - expr
+      properties:
+        fieldId:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        enabled:
+          type: boolean
+        name:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        label:
+          type: string
+          maxLength: 2048
+        expr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        fallbacks:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        valueMode:
+          type: string
+          enum:
+          - ''
+          - AUTO
+          - FIRST
+          - ALL
+          - DISTINCT
+      x-go-type: authoringv2.ImportedFieldParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedOutputParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - rowGrain
+      properties:
+        rowGrain:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        collisionPolicy:
+          type: string
+          enum:
+          - ''
+          - error
+          - overwrite
+          - coalesce
+      x-go-type: authoringv2.ImportedOutputParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedFieldGroupParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - fields
+      properties:
+        fields:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/ImportedSourceFieldParameters'
+      x-go-type: authoringv2.ImportedFieldGroupParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedCatalogParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        includePaths:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        excludePaths:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        kinds:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        naming:
+          type: string
+          enum:
+          - ''
+          - PATH
+          - PATH_SUFFIX
+      x-go-type: authoringv2.ImportedCatalogParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedDynamicParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - source
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        columnPrefix:
+          type: string
+          maxLength: 2048
+        source:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        key:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        value:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedDynamicParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedExtensionParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - source
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        columnPrefix:
+          type: string
+          maxLength: 2048
+        source:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedExtensionParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedPivotParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        discovery:
+          type: object
+          additionalProperties: false
+          properties:
+            family:
+              type: string
+              maxLength: 2048
+            path:
+              type: string
+              maxLength: 2048
+        columnExpr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        valueExpr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        valueFallbacks:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        itemSource:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        itemResourceType:
+          type: string
+          maxLength: 2048
+        columns:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        columnAliases:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 2048
+      x-go-type: authoringv2.ImportedPivotParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedExpansionParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - from
+      - as
+      properties:
+        from:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        as:
+          type: string
+          maxLength: 2048
+        ordinality:
+          type: string
+          maxLength: 2048
+        emptyPolicy:
+          type: string
+          enum:
+          - ''
+          - ERROR
+          - EXCLUDE
+          - PRESERVE_PARENT
+      x-go-type: authoringv2.ImportedExpansionParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedIdentityParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - expr
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        expr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedIdentityParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedTraversalParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - toResourceType
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        toResourceType:
+          type: string
+          maxLength: 2048
+        alias:
+          type: string
+          maxLength: 2048
+        from:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedTraversalParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedSourceParameters:
+      type: object
+      additionalProperties: false
+      properties:
+        output:
+          $ref: '#/components/schemas/ImportedOutputParameters'
+        fieldGroup:
+          $ref: '#/components/schemas/ImportedFieldGroupParameters'
+        catalog:
+          $ref: '#/components/schemas/ImportedCatalogParameters'
+        dynamic:
+          $ref: '#/components/schemas/ImportedDynamicParameters'
+        extension:
+          $ref: '#/components/schemas/ImportedExtensionParameters'
+        pivot:
+          $ref: '#/components/schemas/ImportedPivotParameters'
+        expansion:
+          $ref: '#/components/schemas/ImportedExpansionParameters'
+        identity:
+          $ref: '#/components/schemas/ImportedIdentityParameters'
+        traversal:
+          $ref: '#/components/schemas/ImportedTraversalParameters'
+      oneOf:
+      - required:
+        - output
+      - required:
+        - fieldGroup
+      - required:
+        - catalog
+      - required:
+        - dynamic
+      - required:
+        - extension
+      - required:
+        - pivot
+      - required:
+        - expansion
+      - required:
+        - identity
+      - required:
+        - traversal
+      x-go-type: authoringv2.ImportedSourceParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedSourceStepChange:
+      type: object
+      x-go-type: authoringv2.ImportedSourceStepChange
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+      additionalProperties: false
+      required: [stepId, enabled]
+      properties:
+        stepId: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        maxColumns: {type: integer, minimum: 1}
+        valueMode: {type: string, minLength: 1}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     ConstructionChoiceSelection:
       type: object
       additionalProperties: false
@@ -2977,6 +4049,9 @@ components:
         currentRootResourceType: {type: string, minLength: 1}
         candidateRootResourceType: {type: string, minLength: 1}
         proposal: {$ref: '#/components/schemas/RowChangeProposal'}
+        candidateDocument: {$ref: '#/components/schemas/Document', description: Exact verified target document; present only for READY. The preview receipt may scope out downstream consumers.}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork', description: Present only for READY.}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan', description: Present only for READY.}
         candidateReceiptId:
           type: string
           minLength: 1
@@ -3613,8 +4688,11 @@ components:
     RowDefinitionProposal:
       type: object
       additionalProperties: false
-      required: [baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison]
+      required: [baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison, candidateDocument, candidateNetwork, candidateRowIdentity]
       properties:
+        candidateDocument: {$ref: '#/components/schemas/Document'}
+        candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork'}
+        candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}
         proposalId: {type: string, minLength: 1, description: Present only when a candidate receipt can be applied through the existing proposal command.}
         baseReceiptId: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}

@@ -34,7 +34,7 @@ func TestRecipeOutputLogicalColumnsUsesSortableGroupStorageKey(t *testing.T) {
 				}},
 			}}}}
 
-			columns := recipeOutputLogicalColumns(resolved, "output")
+			columns := dataframeexecution.PublicationColumns(resolved, "output")
 			if len(columns) != 1 || columns[0].Name != "__loom_row_id" || columns[0].Kind != test.wantKind || !columns[0].IsIdentity || !columns[0].LoomOwned {
 				t.Fatalf("publication identity column = %#v, want storage kind %q and Loom-owned identity", columns, test.wantKind)
 			}
@@ -75,7 +75,7 @@ func TestRecipeOutputLogicalColumnsPreservesAuthoredIDsAcrossOutputOwners(t *tes
 				}}, test.fields...),
 			}}}}
 
-			logical := recipeOutputLogicalColumns(resolved, "output")
+			logical := dataframeexecution.PublicationColumns(resolved, "output")
 			if len(logical) != len(test.fields)+1 {
 				t.Fatalf("publication columns = %#v, want row identity plus %d authored columns", logical, len(test.fields))
 			}
@@ -174,7 +174,7 @@ func TestPlainTableAuthoredColumnIDReachesCompiledAndPublishedSchema(t *testing.
 		t.Fatalf("compiler output schema ID = %q, want exact authored ID %q", compiledID, authored.ColumnID)
 	}
 
-	logical := recipeOutputLogicalColumns(dataframeexecution.Resolved{Compiled: compiled}, created[0].OutputID)
+	logical := dataframeexecution.PublicationColumns(dataframeexecution.Resolved{Compiled: compiled}, created[0].OutputID)
 	for _, column := range logical {
 		if column.Name == authored.Column {
 			if column.ID != authored.ColumnID {

@@ -84,3 +84,40 @@ test("classifies authentication, contract, and visible UI failures", () => {
   assert.equal(classifyResult({ result: "PASSED" }, { authRedirected: false, authPromptVisible: false, fallbackVisible: true, failedRequests: [], consoleErrors: [] }), "UI_FAILED");
   assert.equal(classifyResult({ result: "PASSED" }, { authRedirected: false, authPromptVisible: true, fallbackVisible: false, failedRequests: [], consoleErrors: [] }), "BROWSER_AUTH_REQUIRED");
 });
+
+
+test("accepts current workspace and catalog envelope keys while rejecting unknown keys", () => {
+  const state = {
+    apiVersion: "loom.calypr.org/explorer-authoring/v2", kind: "ExplorerBuilderState",
+    lifecycleState: "READY", draftVersion: 1, draftDigest: "sha256:draft",
+    workspace: {
+      apiVersion: "loom.calypr.org/explorer-authoring/v2", kind: "ExplorerBuilderWorkspace",
+      semanticsVersion: 11, migrationDecisions: [], explorer: { title: "Default" }, documents: [], tabs: [],
+    },
+    catalog: {
+      snapshotToken: "sha256:catalog", generation: "generation", complete: true,
+      availability: { readiness: { status: "COMPLETE", resourceInventory: { status: "COMPLETE" }, relationships: { status: "COMPLETE" }, fieldProfiles: { status: "COMPLETE" } }, resources: [], fields: [], relationships: [] }, routePolicy: {}, nodes: [], edges: [], candidates: [],
+    },
+  };
+  assert.equal(summarizeBuilder(200, state).result, "PASSED");
+  assert.equal(summarizeBuilder(200, { ...state, workspace: { ...state.workspace, unexpected: true } }).result, "CONTRACT_FAILED");
+  assert.equal(summarizeBuilder(200, { ...state, catalog: { ...state.catalog, unexpected: true } }).result, "CONTRACT_FAILED");
+});
+
+test("fails an HTTP error document even without browser console or network failures", () => {
+  const finalUrl = "https://example.test/builder";
+  const browser = {
+    finalUrl, authRedirected: false, authPromptVisible: false, fallbackVisible: false,
+    failedRequests: [], consoleErrors: [], responses: [],
+  };
+  for (const status of [400, 404, 500, 504]) {
+    assert.equal(classifyResult({ result: "PASSED" }, { ...browser,
+      responses: [{ type: "Document", url: finalUrl, status }],
+    }), "UI_FAILED");
+  }
+  for (const responses of [[], [{ type: "Document", url: finalUrl, status: 200 }],
+    [{ type: "Fetch", url: finalUrl, status: 504 }],
+    [{ type: "Document", url: "https://other.test/frame", status: 504 }]]) {
+    assert.equal(classifyResult({ result: "PASSED" }, { ...browser, responses }), "PASSED");
+  }
+});

@@ -57,6 +57,7 @@ const renderEditor = (args: {
   readonly editingStep?: ConstructionReshapeStep;
   readonly initialKind?: ConstructionReshapeEditorProps['initialKind'];
   readonly initialEntry?: ConstructionReshapeEditorProps['initialEntry'];
+  readonly rowValuesOnly?: boolean;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly onFormKindChange?: ConstructionReshapeEditorProps['onFormKindChange'];
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
@@ -73,6 +74,7 @@ const renderEditor = (args: {
       construction={args.construction ?? { version: 1, steps: [] }}
       capabilities={args.capabilities ?? capabilitiesFor()}
       editingStep={args.editingStep}
+      rowValuesOnly={args.rowValuesOnly}
       initialKind={args.initialKind}
       initialEntry={args.initialEntry}
       selectedColumns={args.selectedColumns}
@@ -108,6 +110,16 @@ const completePivotDiscovery = (
 const openReshapeIntent = (intent: 'group' | 'reshape') => {
   const intentButton = screen.queryByTestId(`construction-reshape-intent-${intent}`);
   if (intentButton) fireEvent.click(intentButton);
+};
+
+const openGroupFieldBrowser = () => {
+  const browser = screen.getByTestId('construction-group-by-browser');
+  if (!browser.hasAttribute('open')) fireEvent.click(within(browser).getByText('Add grouping field'));
+};
+
+const openGroupContributorValueBrowser = () => {
+  const browser = screen.getByTestId('construction-group-add-columns-browser');
+  if (!browser.hasAttribute('open')) fireEvent.click(within(browser).getByText('Add contributor value'));
 };
 
 const chooseReshapeOperation = (intent: 'group' | 'reshape', operation: string) => {
@@ -298,6 +310,10 @@ describe('ConstructionReshapeEditor', () => {
 
     render(<RowIntentHost />);
     expect(onCandidateChange).not.toHaveBeenCalled();
+    const groupBrowser = screen.getByTestId('construction-group-by-browser');
+    expect(groupBrowser).not.toHaveAttribute('open');
+    expect(screen.getByLabelText('Search fields to group by').closest('details')).toBe(groupBrowser);
+    openGroupFieldBrowser();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Subject reference' }));
 
@@ -360,6 +376,7 @@ describe('ConstructionReshapeEditor', () => {
 
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, initialKind: 'group', initialEntry: entry, onCandidateChange });
+    openGroupFieldBrowser();
 
     expect(screen.getByRole('group', { name: 'Group by' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Summaries' })).toBeInTheDocument();
@@ -1043,6 +1060,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
     expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
     expect(controlChecked('Group by Site')).toBe(true);
+    openGroupFieldBrowser();
     expect(screen.getByRole('checkbox', { name: 'Group by Age' })).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Group by Tags' })).not.toBeInTheDocument();
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
@@ -1073,7 +1091,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByRole('region', { name: 'Available dataset fields' })).not.toBeInTheDocument();
     expect(controlChecked('Group by Site')).toBe(true);
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
-    expect(screen.getByRole('searchbox', { name: 'Search fields to group by' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-group-by-browser')).not.toHaveAttribute('open');
     expect(groupPreview.mock.lastCall?.[0]).toBeUndefined();
 
     cleanup();
@@ -1275,6 +1293,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByLabelText('Search coded values')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'More coded values' })).not.toBeInTheDocument();
     expect(screen.queryByText('Need a coded-value column first?')).not.toBeInTheDocument();
+    openGroupFieldBrowser();
     fireEvent.click(screen.getByLabelText('Group by Site'));
     fireEvent.click(codedChoice);
 
@@ -1335,6 +1354,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(browseFrameSourceOptions).not.toHaveBeenCalled();
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
 
+    openGroupFieldBrowser();
     fireEvent.click(screen.getByLabelText('Group by Site'));
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
       kind: 'GROUP', group: { aggregates: [{ operation: 'COUNT_ROWS' }] },
@@ -1777,6 +1797,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(editedHelper?.operation.codedPivot.categories[0].outputColumnId).toBe('specimen-helper-output');
     expect(editedHelper?.operation.codedPivot.categories).toHaveLength(2);
 
+    openGroupFieldBrowser();
     fireEvent.click(screen.getByLabelText('Group by Observation ID'));
     await waitFor(() => {
       const candidate = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction;
@@ -1903,6 +1924,8 @@ describe('ConstructionReshapeEditor', () => {
     chooseReshapeOperation('group', 'group');
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Change row operation' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-group-by-browser')).not.toHaveAttribute('open');
+    openGroupFieldBrowser();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
     const advanced = screen.getByTestId('construction-reshape-group-advanced');
@@ -1946,6 +1969,7 @@ describe('ConstructionReshapeEditor', () => {
     const onDiscoverCategories = vi.fn();
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, initialKind: 'group', onCandidateChange, onDiscoverCategories });
+    openGroupFieldBrowser();
 
     expect(screen.getByTestId('construction-group-by-field-list')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Group by Component quantity' })).toBeEnabled();
@@ -2024,6 +2048,7 @@ describe('ConstructionReshapeEditor', () => {
     });
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, initialKind: 'group', onCandidateChange });
+    openGroupFieldBrowser();
 
     const fieldList = screen.getByTestId('construction-group-by-field-list');
     for (const choice of choices) {
@@ -2088,6 +2113,7 @@ describe('ConstructionReshapeEditor', () => {
     });
     renderEditor({ capabilities: codingCapabilities, initialKind: 'group', selectedColumns: ['site-id'] });
     expect(screen.getByText('Counts every input row.')).toBeInTheDocument();
+    openGroupFieldBrowser();
     fireEvent.click(screen.getByTestId(`construction-group-field-choice-${codingChoice.fieldSource.choiceId}`));
     expect(screen.getByText('Counts each contributing code occurrence. Repeated identical codes count separately; kept empty rows also count.')).toBeInTheDocument();
 
@@ -2102,6 +2128,7 @@ describe('ConstructionReshapeEditor', () => {
       matchedOutputKeyId: 'matched-related-scalar-count-choice',
     });
     renderEditor({ capabilities: scalarCapabilities, initialKind: 'group', selectedColumns: ['site-id'] });
+    openGroupFieldBrowser();
     fireEvent.click(screen.getByTestId(`construction-group-field-choice-${scalarChoice.fieldSource.choiceId}`));
     expect(screen.getByText('Counts each matching related record; kept empty rows also count.')).toBeInTheDocument();
   });
@@ -2433,6 +2460,7 @@ describe('ConstructionReshapeEditor', () => {
 
     expect(screen.getByTestId('construction-group-related-route-conflict')).toHaveTextContent('Apply is blocked');
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+    openGroupFieldBrowser();
     expect(screen.getByRole('checkbox', { name: 'Group by Root field' })).toBeEnabled();
     expect(screen.getByTestId('construction-group-field-choice-route-a-extra-choice')).toBeDisabled();
     expect(screen.getByTestId('construction-group-field-choice-route-b-extra-choice')).toBeDisabled();
@@ -2485,6 +2513,10 @@ describe('ConstructionReshapeEditor', () => {
     renderEditor({ construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, capabilities, onCandidateChange, onDiscoverCategories });
 
     expect(screen.getByTestId('construction-group-add-columns')).toBeInTheDocument();
+    const contributorBrowser = screen.getByTestId('construction-group-add-columns-browser');
+    expect(contributorBrowser).not.toHaveAttribute('open');
+    expect(screen.getByLabelText('Search fields to add').closest('details')).toBe(contributorBrowser);
+    openGroupContributorValueBrowser();
     expect(screen.getByRole('checkbox', { name: 'Add column Component value' })).toBeEnabled();
     const candidateCallsBeforeSearch = onCandidateChange.mock.calls.length;
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search fields to add' }), { target: { value: 'valuequantity' } });
@@ -2540,8 +2572,11 @@ describe('ConstructionReshapeEditor', () => {
       }],
     };
     const onCandidateChange = vi.fn();
-    renderEditor({ construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, capabilities, onCandidateChange });
+    renderEditor({ construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, capabilities, rowValuesOnly: true, onCandidateChange });
 
+    expect(screen.getByRole('region', { name: 'Add columns from Group contributors' })).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-group')).not.toBeInTheDocument();
+    openGroupContributorValueBrowser();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Add column Status' }));
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
@@ -2639,6 +2674,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(savedRowValues[1]).toHaveTextContent('Patient · subject_Patient → Specimen · one target per input row');
     expect(screen.queryByTestId('construction-group-add-column-choice-same-patient-choice')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-group-add-column-choice-same-component-choice')).not.toBeInTheDocument();
+    openGroupContributorValueBrowser();
     expect(screen.getByTestId('construction-group-add-column-choice-other-route-choice')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Added column name 1'), { target: { value: 'patient_ids_copy' } });
     fireEvent.change(screen.getByLabelText('Added column name 2'), { target: { value: 'specimen_ids_copy' } });
@@ -2675,6 +2711,7 @@ describe('ConstructionReshapeEditor', () => {
     const capabilities = capabilitiesFor([stage], stage);
     const onCandidateChange = vi.fn();
     renderEditor({ initialKind: 'group', capabilities, onCandidateChange });
+    openGroupFieldBrowser();
 
     expect(screen.getByTestId('construction-reshape-group')).toHaveClass('construction-reshape-group-editor');
     for (const column of eligibleColumns) {
@@ -2715,6 +2752,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
       'rows with any missing key are excluded before summaries run',
     );
+    openGroupFieldBrowser();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Advanced options'));
     fireEvent.change(screen.getByLabelText('Summary 1'), { target: { value: 'MEAN' } });

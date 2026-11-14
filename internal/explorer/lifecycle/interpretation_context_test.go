@@ -259,3 +259,89 @@ func assertLifecycleCode(t *testing.T, err error, code string) {
 		t.Fatalf("error = %v, want lifecycle code %s", err, code)
 	}
 }
+
+func TestConfiguredColumnContextKeepsOrdinaryMappingsAlongsideLargeImportedSources(t *testing.T) {
+	revision := lifecyclePrepareInterpretation(t)
+	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns,
+		authoringv2.Column{Column: "project", Label: "Project", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
+		authoringv2.Column{Column: "missing", Label: "Missing", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name.family", ProjectionMode: "FIRST"}}},
+	)
+	ordinaryColumns := 0
+	for _, document := range workspace.Documents {
+		ordinaryColumns += len(document.Columns)
+	}
+	imported := workspace.Documents[0]
+	imported.Output.ID = "imported"
+	imported.ImportedRecipe = &authoringv2.ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Digest: fmt.Sprintf("%064d", 0), Output: "Patient"}
+	imported.Columns = make([]authoringv2.Column, maxInterpretationContextColumns+1)
+	for index := range imported.Columns {
+		name := fmt.Sprintf("imported_%d", index)
+		imported.Columns[index] = authoringv2.Column{ColumnID: name, Column: name, Label: name, OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: name}}}
+	}
+	workspace.Documents = append(workspace.Documents, imported)
+	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "imported", Title: "Imported", OutputID: "imported", Order: len(workspace.Tabs), Visible: true})
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", DraftConfig: draft, DraftVersion: 7, DraftDigest: digest}
+	before := *owner
+	before.DraftConfig = append([]byte(nil), owner.DraftConfig...)
+	store := &fakeStore{created: owner, copyGet: true}
+	repository := &interpretationContextRepository{
+		libraries: []explorer.InterpretationLibrary{{ID: revision.LibraryID, Project: revision.Project, HeadRevisionID: revision.ID, HeadDigest: revision.ContentDigest}},
+		revisions: map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision},
+	}
+	snapshot, scope := interpretationContextSnapshot()
+	service := newTestService(t, store, Config{
+		InterpretationRepository: repository,
+		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		}},
+	})
+
+	result, err := service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SnapshotToken != snapshot.Token || result.DraftVersion != 7 || result.DraftDigest != digest {
+		t.Fatalf("freshness = %#v", result)
+	}
+	if len(result.Libraries) != 1 || result.Libraries[0].Head == nil || result.Libraries[0].Head.ID != string(revision.ID) {
+		t.Fatalf("libraries = %#v", result.Libraries)
+	}
+	if len(result.PinnedRevisions) != 1 || result.PinnedRevisions[0].ID != string(revision.ID) {
+		t.Fatalf("pinned revisions = %#v", result.PinnedRevisions)
+	}
+	if repository.reads[revision.ID] != 1 {
+		t.Fatalf("revision reads = %#v, want one deduplicated load", repository.reads)
+	}
+	if len(result.Columns) != ordinaryColumns {
+		t.Fatalf("ordinary mappings lost or imported columns resolved: %d", len(result.Columns))
+	}
+	states := make(map[string]explorercompilation.InterpretationCandidateResolutionState, len(result.Columns))
+	for _, column := range result.Columns {
+		states[column.Column] = column.Resolution.State()
+		if column.Resolution.State() != explorercompilation.InterpretationCandidateReady {
+			continue
+		}
+		ready, ok := column.Resolution.Ready()
+		if !ok || !reflect.DeepEqual(ready.CapabilityCandidateIDs, []string{"candidate-id"}) || !reflect.DeepEqual(ready.ApplicableRevisionIDs, []string{string(revision.ID)}) {
+			t.Fatalf("ready resolution for %s = %#v", column.Column, column.Resolution)
+		}
+	}
+	if states["patient_id"] != explorercompilation.InterpretationCandidateReady || states["project"] != explorercompilation.InterpretationCandidateUnsupported || states["missing"] != explorercompilation.InterpretationCandidateMissing {
+		t.Fatalf("column states = %#v", states)
+	}
+	if !reflect.DeepEqual(*owner, before) || store.saveDraftCalls != 0 {
+		t.Fatalf("context read mutated draft: owner=%#v before=%#v saves=%d", owner, before, store.saveDraftCalls)
+	}
+}

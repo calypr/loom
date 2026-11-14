@@ -1,0 +1,4 @@
+{"resourceType":"Patient","id":"p-zero","active":true}
+{"resourceType":"Patient","id":"p-one","active":true,"gender":"female"}
+{"resourceType":"Patient","id":"p-many","active":true,"gender":"male"}
+{"resourceType":"Patient","id":"p-performer","active":false,"gender":"other"}

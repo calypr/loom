@@ -371,7 +371,9 @@ export const PreviewTable = ({
   const removableColumnName = (entry: PreviewPresentationColumn): string | undefined => {
     switch (entry.change.kind) {
       case 'AUTHORED_COLUMN':
-        return entry.change.column.column;
+        return entry.change.column.source.kind === 'imported'
+          ? undefined
+          : entry.change.column.column;
       case 'CONSTRUCTION_OUTPUT': {
         const output = entry.change.column;
         if (!rowValueOutputIds.has(output.id)) return undefined;
@@ -441,6 +443,11 @@ export const PreviewTable = ({
     );
   });
   const rows = preview?.rows ?? [];
+  const hasEmptyPreview = preview !== undefined && rows.length === 0;
+  const previewContentHeight =
+    PREVIEW_HEADER_HEIGHT +
+    rows.length * PREVIEW_ROW_HEIGHT +
+    (hasEmptyPreview ? 48 : 0);
   const previewTableWidth = Math.max(
     viewport.width,
     PREVIEW_ROW_GUTTER_WIDTH +
@@ -536,7 +543,7 @@ export const PreviewTable = ({
           style={columnsMenuPosition ?? { visibility: 'hidden' }}
         >
           <p className="border-b border-slate-100 px-2 pb-2 text-[11px] text-slate-500">
-            Rename or recode column values here. Uncheck to hide a column; drag to change its order.
+            Rename columns or edit their semantic values here.
           </p>
           <div
             role="list"
@@ -596,72 +603,10 @@ export const PreviewTable = ({
                   key={column.name}
                   role="listitem"
                   data-column-name={column.name}
-                  onDragOver={(event) => {
-                    if (disabled || !draggedColumnRef.current) return;
-                    event.preventDefault();
-                    const bounds = event.currentTarget.getBoundingClientRect();
-                    setDropIndex(
-                      index +
-                        (event.clientY > bounds.top + bounds.height / 2
-                          ? 1
-                          : 0),
-                    );
-                  }}
-                  onDrop={(event) => {
-                    if (disabled) return;
-                    event.preventDefault();
-                    const columnName =
-                      draggedColumnRef.current ??
-                      event.dataTransfer.getData('text/plain');
-                    if (columnName) {
-                      const bounds = event.currentTarget.getBoundingClientRect();
-                      const insertionIndex =
-                        index +
-                        (event.clientY > bounds.top + bounds.height / 2
-                          ? 1
-                          : 0);
-                      reorderColumns(columnName, insertionIndex);
-                    }
-                    resetDrag();
-                  }}
-                  className={`relative flex items-center gap-2 rounded px-2 py-2 text-xs hover:bg-slate-50 ${draggedColumn === column.name ? 'opacity-50' : ''}`}
+                  className="relative flex items-center gap-2 rounded px-2 py-2 text-xs hover:bg-slate-50"
                 >
-                  {draggedColumn && dropIndex === index && (
-                    <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded bg-blue-500" />
-                  )}
-                  <span
-                    aria-label={`Drag ${column.label}`}
-                    draggable={!disabled}
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = 'move';
-                      event.dataTransfer.setData('text/plain', column.name);
-                      draggedColumnRef.current = column.name;
-                      setDraggedColumn(column.name);
-                      setDropIndex(index);
-                    }}
-                    onDragEnd={resetDrag}
-                    className="cursor-grab select-none text-base leading-none text-slate-400 active:cursor-grabbing"
-                  >
-                    ⋮⋮
-                  </span>
                   <div className="flex min-w-0 flex-1 flex-col gap-1 leading-5">
                     <div className="flex min-w-0 items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 shrink-0"
-                        aria-label={column.label}
-                        disabled={disabled}
-                        checked={visible}
-                        onChange={(event) =>
-                          onColumnChange(
-                            withPresentationTable(column, {
-                              ...(column.table ?? {}),
-                              visible: event.currentTarget.checked,
-                              order: column.table?.order ?? index,
-                            }),
-                          )
-                        }
-                      />
                       <input
                         key={column.label}
                         aria-label={`Column name for ${column.label}`}
@@ -697,6 +642,9 @@ export const PreviewTable = ({
                         }}
                       />
                     </div>
+                    {authoredColumn?.source.kind === 'imported' ? (
+                      <p className="text-[10px] text-amber-800">Use dataframe operations to transform this imported source.</p>
+                    ) : null}
                     {rowValueBinding && onRowValuePolicyChange ? (
                       <label className="ml-6 flex min-w-0 items-center gap-2 text-[10px] text-slate-600">
                         <span className="shrink-0">Cohort member values</span>
@@ -809,7 +757,7 @@ export const PreviewTable = ({
             className="relative"
             style={{
               width: previewTableWidth,
-              height: PREVIEW_HEADER_HEIGHT + rows.length * PREVIEW_ROW_HEIGHT,
+              height: previewContentHeight,
             }}
           >
             {tableControls}
@@ -977,6 +925,16 @@ export const PreviewTable = ({
               );
             })}
             </div>
+            {hasEmptyPreview ? (
+              <p
+                role="status"
+                data-testid="preview-table-empty-state"
+                className="absolute inset-x-0 px-4 py-3 text-sm text-slate-500"
+                style={{ top: PREVIEW_HEADER_HEIGHT }}
+              >
+                No rows in this table.
+              </p>
+            ) : null}
           </div>
         )}
       </div>

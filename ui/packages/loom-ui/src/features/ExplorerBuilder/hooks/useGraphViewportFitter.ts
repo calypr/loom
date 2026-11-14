@@ -1,20 +1,33 @@
 import { useEffect } from 'react';
 import { useNodesInitialized, useReactFlow } from '@xyflow/react';
 
+export interface GraphViewportBounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export const useGraphViewportFitter = ({
   expanded,
   graphIdentity,
   hostRef,
   nodeCount,
+  fitBounds,
 }: {
   readonly expanded: boolean;
   readonly graphIdentity: string;
   readonly hostRef: React.RefObject<HTMLDivElement | null>;
   readonly nodeCount: number;
+  readonly fitBounds?: GraphViewportBounds;
 }): void => {
   const flow = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const viewportInitialized = flow.viewportInitialized;
+  const boundsX = fitBounds?.x;
+  const boundsY = fitBounds?.y;
+  const boundsWidth = fitBounds?.width;
+  const boundsHeight = fitBounds?.height;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -28,12 +41,19 @@ export const useGraphViewportFitter = ({
       window.cancelAnimationFrame(secondFrame);
       firstFrame = window.requestAnimationFrame(() => {
         secondFrame = window.requestAnimationFrame(() => {
-          void flow.fitView({
-            padding: 0.08,
-            minZoom: 0.05,
-            maxZoom: 1.8,
-            duration: 200,
-          });
+          if (boundsX !== undefined && boundsY !== undefined && boundsWidth !== undefined && boundsHeight !== undefined) {
+            void flow.fitBounds(
+              { x: boundsX, y: boundsY, width: boundsWidth, height: boundsHeight },
+              { padding: 0.08, duration: 200 },
+            );
+          } else {
+            void flow.fitView({
+              padding: 0.08,
+              minZoom: 0.05,
+              maxZoom: 1.8,
+              duration: 200,
+            });
+          }
         });
       });
     };
@@ -57,5 +77,9 @@ export const useGraphViewportFitter = ({
     nodeCount,
     nodesInitialized,
     viewportInitialized,
+    boundsX,
+    boundsY,
+    boundsWidth,
+    boundsHeight,
   ]);
 };

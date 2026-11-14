@@ -91,7 +91,19 @@ type WorkspaceOutputSource struct {
 // CompiledOutputColumn describes one finalized physical projection. Kind and
 // Cardinality are logical, backend-neutral values; Internal projections are
 // never exposed by dataframe transports.
+// CompiledSourceOrigin records authoring ownership at the existing lowering
+// boundary. Paths are structural recipe paths, never inferred display labels.
+type CompiledSourceOrigin struct {
+	SourceKey    string
+	SourceKind   string
+	OccurrenceID string
+	SourcePath   string
+	ValueMode    string
+}
+
 type CompiledOutputColumn struct {
+	SourceOrigin *CompiledSourceOrigin
+
 	ID    string
 	Name  string
 	Label string
@@ -134,6 +146,10 @@ type CompiledRelatedRecordAnchor struct {
 func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputColumn {
 	cloned := append([]CompiledOutputColumn(nil), columns...)
 	for index := range cloned {
+		if cloned[index].SourceOrigin != nil {
+			origin := *cloned[index].SourceOrigin
+			cloned[index].SourceOrigin = &origin
+		}
 		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
 		cloned[index].SourceChild = lineage.CloneSourceChild(cloned[index].SourceChild)
 		if cloned[index].RelatedRecordAnchor != nil {
@@ -153,6 +169,8 @@ func cloneUnitIdentity(identity *unit.UnitIdentity) *unit.UnitIdentity {
 }
 
 type DynamicColumnMetadata struct {
+	SourceOrigin *CompiledSourceOrigin
+
 	Name             string
 	SemanticPath     string
 	DynamicName      string

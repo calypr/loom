@@ -41,6 +41,8 @@ export interface LoomExplorerBuilderProps {
   readonly organization?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
   readonly className?: string;
+  /** Host-selected inspector placement. Defaults to the right of the traversal. */
+  readonly workspaceComposition?: React.ComponentProps<typeof BuilderWorkspace>['workspaceComposition'];
   /** Feature selected from a Viewer explanation for focused repair. */
   readonly featureFocus?: LoomBuilderFeatureFocus;
 }
@@ -59,6 +61,7 @@ export const LoomExplorerBuilder = ({
   organization,
   onExplorerChange,
   className,
+  workspaceComposition,
   featureFocus,
 }: LoomExplorerBuilderProps) => {
   const ownedClient = useMemo(() => client ?? createLoomClient(), [client]);
@@ -85,7 +88,7 @@ export const LoomExplorerBuilder = ({
     const projectId = organization ? `${organization}/${project}` : project;
     void ownedClient.getSelection({
       project: projectId,
-      explorerId: explorerId || 'default',
+      explorerId: !explorerId || explorerId === 'default' ? 'dataframe-default' : explorerId,
       selectionRevision: selectionRevisionId,
       limit: 1,
       authResourcePath: organization ? `/programs/${organization}/projects/${project}` : undefined,
@@ -119,7 +122,7 @@ export const LoomExplorerBuilder = ({
         <BuilderWorkspace
           organization={organization}
           project={project}
-          explorerId={explorerId}
+          explorerId={!explorerId || explorerId === 'default' ? 'dataframe-default' : explorerId}
           populationSelection={
             currentPopulationSelection.status === 'ready'
               ? currentPopulationSelection.selection
@@ -135,6 +138,7 @@ export const LoomExplorerBuilder = ({
           }
           onExplorerChange={onExplorerChange}
           featureFocus={featureFocus}
+          workspaceComposition={workspaceComposition}
         />
       </div>
     </LoomProvider>

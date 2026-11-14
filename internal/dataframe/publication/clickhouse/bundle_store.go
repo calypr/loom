@@ -161,13 +161,42 @@ func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity public
 		case publication.BundlePublished, publication.BundleReady:
 			return &clickHouseBundleTx{store: s, execution: existing, idempotent: true, columns: make(map[string][]clickhouse.Column)}, nil
 		case publication.BundleQueued, publication.BundleRunning, publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
-			return nil, dataframeerrors.Wrap(
-				fmt.Errorf("%w: %s", ErrBundleInFlight, existing.ID),
-				dataframeerrors.CodePublicationInProgress,
-				"",
-				dataframeerrors.WithDetails(map[string]any{"executionId": existing.ID}),
-				dataframeerrors.WithRetryable(true),
-			)
+			if existing.LeaseExpiresAt == nil || existing.LeaseExpiresAt.After(time.Now().UTC()) {
+				return nil, dataframeerrors.Wrap(
+					fmt.Errorf("%w: %s", ErrBundleInFlight, existing.ID),
+					dataframeerrors.CodePublicationInProgress,
+					"",
+					dataframeerrors.WithDetails(map[string]any{"executionId": existing.ID}),
+					dataframeerrors.WithRetryable(true),
+				)
+			}
+			// A process crash can leave RUNNING metadata after its lease expires.
+			// Reconcile only this exact immutable identity before retrying it; the
+			// existing lease, pointer, read-pin, and active-release checks still
+			// decide whether its staging tables can be reclaimed.
+			reconcilerID := "retry-reconciler-" + uuid.NewString()
+			if err := s.reconcileExecution(ctx, existing, reconcilerID); err != nil {
+				return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+			}
+			refreshed, refreshErr := s.catalog.FindExecutionByKey(ctx, key)
+			if errors.Is(refreshErr, publication.ErrBundleNotFound) {
+				break
+			}
+			if refreshErr != nil {
+				return nil, dataframeerrors.Wrap(refreshErr, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+			}
+			switch refreshed.State.Canonical() {
+			case publication.BundlePublished, publication.BundleReady:
+				return &clickHouseBundleTx{store: s, execution: refreshed, idempotent: true, columns: make(map[string][]clickhouse.Column)}, nil
+			case publication.BundleQueued, publication.BundleRunning, publication.BundlePending, publication.BundlePreflight, publication.BundleLoading, publication.BundleValidating:
+				return nil, dataframeerrors.Wrap(
+					fmt.Errorf("%w: %s", ErrBundleInFlight, refreshed.ID),
+					dataframeerrors.CodePublicationInProgress,
+					"",
+					dataframeerrors.WithDetails(map[string]any{"executionId": refreshed.ID}),
+					dataframeerrors.WithRetryable(true),
+				)
+			}
 		}
 	} else if !errors.Is(err, publication.ErrBundleNotFound) {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import React from 'react';
 import type { ReactNode } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ExplorerBuilderPreviewResult, RowChangeAssessment, RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
+import type { ExplicitGroupRevisionSummary, ExplorerBuilderPreviewResult, RowChangeAssessment, RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
 import type { SelectionRevision } from '../../../selection';
 import type { DraftTable } from '../authoring/model';
 import type { RootChangePickerState, RootChangeSelection } from '../authoring/rootChangeSelection';
@@ -34,6 +34,9 @@ const choices: RowDefinitionChoicesResponse = {
 };
 
 const proposal: RowDefinitionProposal = {
+  candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'patients', title: 'Patient' }, rootResourceType: 'Patient', route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
+  candidateNetwork: { owner: 'DOCUMENT', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} }, occurrences: [], bindings: [], operations: [] },
+  candidateRowIdentity: { outputId: 'patients', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
   proposalId: 'proposal-receipt-1',
   baseReceiptId: 'base-receipt-1',
   outputId: 'patients',
@@ -329,7 +332,11 @@ const selectionPage = {
 };
 
 const renderSettings = (overrides: {
-  triggerPresentation?: 'source-chip';
+  presentation?: 'fullscreen' | 'compact';
+  triggerPresentation?: 'source-chip' | 'hidden';
+  inspectorHost?: HTMLElement | null;
+  onOpenChange?: (open: boolean) => void;
+  openActionRef?: { current: (() => void) | undefined };
   triggerLabel?: string;
   draftVersion?: number;
   draftDigest?: string;
@@ -351,6 +358,7 @@ const renderSettings = (overrides: {
   selection?: SelectionRevision;
   constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
   rowOperationEditor?: ReactNode;
+  operationInspectorPresentation?: 'dialog' | 'workspace';
   onChooseRelatedRows?: () => void;
   onChooseReshape?: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => void;
   onSwitchRowIntent?: (intent: 'records' | 'reshape') => void;
@@ -365,6 +373,8 @@ const renderSettings = (overrides: {
   replacementAssessment?: RowChangeAssessment;
   replacementPreview?: ExplorerBuilderPreviewResult;
   onApplyRootReplacement?: (assessment: ReadyReplacementAssessment) => Promise<boolean>;
+  onBeginRootProposal?: Parameters<typeof RowDefinitionSettingsPanel>[0]['onBeginRootProposal'];
+  onCancelRootProposal?: () => void;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
@@ -383,6 +393,11 @@ const renderSettings = (overrides: {
   const onRemoveConstructionStep = overrides.onRemoveConstructionStep ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
+      inspectorHost={overrides.inspectorHost}
+      onOpenChange={overrides.onOpenChange}
+      openActionRef={overrides.openActionRef}
+      operationInspectorPresentation={overrides.operationInspectorPresentation}
+      presentation={overrides.presentation}
       triggerPresentation={overrides.triggerPresentation}
       triggerLabel={overrides.triggerLabel}
       {...idleRootChangeProps()}
@@ -420,6 +435,8 @@ const renderSettings = (overrides: {
       disabled={false}
       onApply={onApply}
       onApplyRootReplacement={onApplyRootReplacement}
+      onBeginRootProposal={overrides.onBeginRootProposal}
+      onCancelRootProposal={overrides.onCancelRootProposal}
       onSwitchRowIntent={onSwitchRowIntent}
       onCloseRowIntentSession={onCloseRowIntentSession}
       onEditConstructionStep={onEditConstructionStep}
@@ -432,6 +449,126 @@ const renderSettings = (overrides: {
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
+  for(const boundary of ['cancel-choices','cancel-create','cancel-reopen','draft','table','unmount','apply','current-error'] as const) {
+    it(`ignores a named-cohort completion after ${boundary}`, async () => {
+      const revision:ExplicitGroupRevisionSummary={revisionId:'created-late',sourceSelectionRevisionId:sourceSelection.id,groupCount:1,memberCount:0,createdAt:'2026-11-13T00:00:00.000Z',groups:[{id:'g1',label:'Group A',ordinal:0,memberCount:0}]};
+      const createdChoices:RowDefinitionChoicesResponse={...choices,explicitGroups:[...choices.explicitGroups,{revisionId:revision.revisionId,groupCount:1,memberCount:0,createdAt:revision.createdAt,unassignedMemberPolicies:['ERROR']}]};
+      let resolveChoices!:(value:RowDefinitionChoicesResponse)=>void;
+      let rejectChoices!:(error:Error)=>void;
+      let resolveCreate!:(value:ExplicitGroupRevisionSummary)=>void;
+      const listRowDefinitionChoices=vi.fn().mockResolvedValue(choices).mockResolvedValueOnce(choices).mockImplementationOnce(()=>new Promise<RowDefinitionChoicesResponse>((resolve,reject)=>{resolveChoices=resolve;rejectChoices=reject;}));
+      let createdRevision=revision;
+      const createExplicitGroupRevision=vi.fn().mockImplementation((args:{groups:ReadonlyArray<{id:string;label:string;ordinal:number;memberIds:ReadonlyArray<string>}>})=>{
+        createdRevision={...revision,groupCount:args.groups.length,groups:args.groups.map(group=>({id:group.id,label:group.label,ordinal:group.ordinal,memberCount:group.memberIds.length}))};
+        return boundary==='cancel-create'?new Promise<ExplicitGroupRevisionSummary>(resolve=>{resolveCreate=resolve;}):Promise.resolve(createdRevision);
+      });
+      const proposeRowDefinition=vi.fn().mockResolvedValue(proposal);
+      const props={...idleRootChangeProps(),...relatedRowProps,client:{listRowDefinitionChoices,createExplicitGroupRevision,proposeRowDefinition,getSelection:vi.fn().mockResolvedValue(selectionPage)},project:'project-a',explorerId:'explorer-a',snapshotToken:'snapshot-1',draftVersion:4,draftDigest:'draft-digest-4',table,workspaceTables:[table],selection:sourceSelection,disabled:false,onApply:vi.fn().mockResolvedValue(true),onApplyRootReplacement:vi.fn().mockResolvedValue(true)};
+      const view=render(<RowDefinitionSettingsPanel {...props}/>);
+      fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+      await screen.findByRole('combobox',{name:'Rows per starting record'});
+      if(boundary==='apply') {
+        fireEvent.change(screen.getByRole('combobox',{name:'Rows per starting record'}),{target:{value:'explicit:grouprev_0123456789abcdef'}});
+        await screen.findByRole('button',{name:'Apply row definition'});proposeRowDefinition.mockClear();
+      }
+      fireEvent.click(screen.getByRole('button',{name:'Create groups from this selection'}));
+      await screen.findByText('Record 3 · record-c');
+      fireEvent.click(screen.getByRole('button',{name:'Remove Group B'}));
+      fireEvent.click(screen.getByRole('button',{name:'Create group revision'}));
+      if(boundary==='cancel-create') await waitFor(()=>expect(createExplicitGroupRevision).toHaveBeenCalledOnce());
+      else await waitFor(()=>expect(listRowDefinitionChoices).toHaveBeenCalledTimes(2));
+      if(boundary.startsWith('cancel')) fireEvent.click(screen.getByRole('button',{name:'Back to table'}));
+      if(boundary==='cancel-reopen') {fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));await screen.findByRole('combobox',{name:'Rows per starting record'});}
+      if(boundary==='unmount') view.unmount();
+      if(boundary==='apply') {fireEvent.click(screen.getByRole('button',{name:'Apply row definition'}));await waitFor(()=>expect(props.onApply).toHaveBeenCalledOnce());}
+      if(boundary==='draft') view.rerender(<RowDefinitionSettingsPanel {...props} draftVersion={5} draftDigest="draft-digest-5"/>);
+      if(boundary==='table') view.rerender(<RowDefinitionSettingsPanel {...props} table={{...table,outputId:'another',tabId:'another',document:{...table.document,output:{...table.document.output,id:'another'}}}}/>);
+      await act(async()=>{
+        if(boundary==='cancel-create') resolveCreate(createdRevision);else if(boundary==='current-error') rejectChoices(new Error('Cohort choices failed.'));else resolveChoices(createdChoices);
+        await Promise.resolve();
+      });
+      if(boundary==='cancel-create' && listRowDefinitionChoices.mock.calls.length>1) await act(async()=>{resolveChoices(createdChoices);await Promise.resolve();});
+      await act(async()=>{await new Promise(resolve=>setTimeout(resolve,350));});
+      if(boundary.startsWith('cancel') && boundary!=='cancel-reopen' || boundary==='apply' || boundary==='unmount') expect(screen.queryByRole('dialog',{name:'Row definition settings'})).toBeNull();
+      if(boundary==='cancel-reopen') expect(screen.queryByRole('option',{name:/created-late/})).toBeNull();
+      if(boundary==='current-error') expect(await screen.findByText('Cohort choices failed.')).toBeInTheDocument();
+      expect(proposeRowDefinition).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button',{name:'Apply row definition'})).toBeNull();
+    });
+  }
+
+  it('portals hidden-trigger row settings into one normal inspector through owning open and close actions', async () => {
+    const host=document.createElement('div');document.body.appendChild(host);
+    const openActionRef:{current:(()=>void)|undefined}={current:undefined};const onOpenChange=vi.fn();
+    const view=renderSettings({inspectorHost:host,triggerPresentation:'hidden',openActionRef,onOpenChange});
+    expect(screen.queryByTestId('construction-rows-settings-trigger')).toBeNull();expect(onOpenChange).not.toHaveBeenCalled();
+    act(()=>openActionRef.current?.());
+    const inspector=await within(host).findByRole('region',{name:'Row definition settings'});
+    expect(screen.queryByRole('dialog',{name:'Row definition settings'})).toBeNull();
+    expect(inspector.className).toContain('construction-inspector-frame');
+    expect(inspector.querySelector('header p')).toBeNull();
+    expect(inspector.parentElement?.className).not.toContain('fixed');
+    expect(onOpenChange.mock.calls.map(([open])=>open)).toEqual([true]);
+    fireEvent.click(within(inspector).getByRole('button',{name:'Close row settings'}));
+    expect(onOpenChange.mock.calls.map(([open])=>open)).toEqual([true,false]);
+    expect(within(host).queryByRole('region',{name:'Row definition settings'})).toBeNull();
+    view.unmount();host.remove();
+  });
+  for(const intent of ['group','related'] as const) {
+    it(`hands off ${intent} from the shared inspector without a late choices reopen`, async () => {
+      const host=document.createElement('div');document.body.appendChild(host);
+      const openActionRef:{current:(()=>void)|undefined}={current:undefined};const onOpenChange=vi.fn();
+      const controls=renderSettings({inspectorHost:host,triggerPresentation:'hidden',openActionRef,onOpenChange,relatedRowsSupported:true});
+      let done!:(value:typeof choices)=>void;controls.listRowDefinitionChoices.mockImplementationOnce(()=>new Promise(resolve=>{done=resolve;}));
+      act(()=>openActionRef.current?.());
+      const inspector=within(host).getByRole('region',{name:'Row definition settings'});
+      fireEvent.click(within(inspector).getByTestId(intent==='group'?'construction-action-group-rows':'construction-action-related-rows'));
+      expect(onOpenChange.mock.calls.map(([open])=>open)).toEqual([true,false]);
+      await act(async()=>{done(choices);await Promise.resolve();});
+      expect(within(host).queryByRole('region',{name:'Row definition settings'})).toBeNull();
+      expect(intent==='group'?controls.onChooseReshape:controls.onChooseRelatedRows).toHaveBeenCalledOnce();
+      expect(controls.onCloseRowIntentSession).not.toHaveBeenCalled();
+      controls.unmount();host.remove();
+    });
+  }
+  it('waits for a shared inspector host while keeping its hidden controller mounted', async () => {
+    const openActionRef:{current:(()=>void)|undefined}={current:undefined};const onOpenChange=vi.fn();
+    const controls=renderSettings({inspectorHost:null,triggerPresentation:'hidden',openActionRef,onOpenChange});
+    act(()=>openActionRef.current?.());await act(async()=>{await Promise.resolve();});
+    expect(controls.listRowDefinitionChoices).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog',{name:'Row definition settings'})).toBeNull();
+    expect(screen.queryByRole('region',{name:'Row definition settings'})).toBeNull();
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+  });
+
+  for (const intent of ['group', 'related'] as const) {
+    it(`keeps the workspace chooser closed after late row choices for ${intent}`, async () => {
+      const controls = renderSettings({operationInspectorPresentation:'workspace', relatedRowsSupported:true});
+      let resolve!: (value: typeof choices) => void;
+      controls.listRowDefinitionChoices.mockImplementationOnce(() => new Promise(done => {resolve=done;}));
+      fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+      await screen.findByRole('dialog',{name:'Row definition settings'});
+      fireEvent.click(screen.getByTestId(intent === 'group' ? 'construction-action-group-rows' : 'construction-action-related-rows'));
+      expect(screen.queryByRole('dialog',{name:'Row definition settings'})).toBeNull();
+      await act(async () => {resolve(choices);await Promise.resolve();});
+      expect(screen.queryByRole('dialog',{name:'Row definition settings'})).toBeNull();
+      expect(intent === 'group' ? controls.onChooseReshape : controls.onChooseRelatedRows).toHaveBeenCalledOnce();
+      expect(controls.onCloseRowIntentSession).not.toHaveBeenCalled();
+    });
+  }
+
+  it('keeps compact row settings nonmodal and returns keyboard focus on Cancel', async () => {
+    const { container } = renderSettings({ presentation: 'compact' });
+    const trigger = screen.getByTestId('construction-rows-settings-trigger');
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    expect(dialog).not.toHaveAttribute('aria-modal', 'true');
+    expect(container.contains(dialog)).toBe(false); // Escape the scrolling toolbar's clipping context.
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('previews exact replacement consequences for the same table and cancels without applying', async () => {
     const { assessRowChange, preview, onApplyRootReplacement } = renderSettings({
       tableValue: patientWorkspaceTable,
@@ -1490,4 +1627,23 @@ describe('RowDefinitionSettingsPanel', () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
     expect(proposeRowDefinition).toHaveBeenLastCalledWith(expect.objectContaining({ selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'EXCLUDE' } } }), expect.any(AbortSignal));
   });
+});
+
+it('shared replacement ownership rejects unavailable rows rather than enabling Apply', async()=>{
+ const ready=vi.fn(()=>true), failed=vi.fn();
+ const {onApplyRootReplacement}=renderSettings({replacementPreview:{...replacementPreview,rows:null},onBeginRootProposal:()=>({ready,failed})});
+ fireEvent.click(screen.getByRole('button',{name:'Change current rows'}));
+ await screen.findByRole('combobox',{name:'Rows per starting record'});
+ fireEvent.click(screen.getByRole('button',{name:'Replace current setup'}));
+ await waitFor(()=>expect(failed).toHaveBeenCalledOnce());
+ expect(ready).not.toHaveBeenCalled();
+ expect(screen.queryByRole('button',{name:'Change starting record type'})).toBeNull();
+ expect(onApplyRootReplacement).not.toHaveBeenCalled();
+});
+it('a denied replacement owner does not begin a second assessment', async()=>{
+ const {assessRowChange}=renderSettings({onBeginRootProposal:()=>undefined});
+ fireEvent.click(screen.getByRole('button',{name:'Change current rows'}));
+ await screen.findByRole('combobox',{name:'Rows per starting record'});
+ fireEvent.click(screen.getByRole('button',{name:'Replace current setup'}));
+ expect(assessRowChange).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
@@ -371,8 +372,13 @@ const requestFailureMessage = (error: unknown, fallback: string): string => {
 };
 
 export const RowDefinitionSettingsPanel = ({
+  presentation = 'fullscreen',
   triggerPresentation,
+  inspectorHost, onOpenChange,
   triggerLabel,
+  openActionRef,
+  onBeginProposal, onCancelProposal, onBeginRootProposal, onCancelRootProposal,
+  replacementPresentation = 'dialog', replacementInspectorHost, operationInspectorPresentation = 'dialog',
   client,
   project,
   explorerId,
@@ -407,8 +413,19 @@ export const RowDefinitionSettingsPanel = ({
   onEditConstructionStep,
   onRemoveConstructionStep,
 }: {
-  readonly triggerPresentation?: 'source-chip';
+  readonly presentation?: 'fullscreen' | 'compact';
+  readonly triggerPresentation?: 'source-chip' | 'hidden';
+  readonly inspectorHost?: HTMLElement | null;
+  readonly onOpenChange?: (open: boolean) => void;
   readonly triggerLabel?: string;
+  readonly operationInspectorPresentation?: 'dialog' | 'workspace';
+  readonly onBeginRootProposal?: (nodeId: string) => {ready: (assessment: ReadyReplacementAssessment, preview: ExplorerBuilderPreviewResult) => boolean; failed: (message: string, stale?: boolean) => void} | undefined;
+  readonly onCancelRootProposal?: () => void;
+  readonly replacementPresentation?: 'dialog' | 'shared';
+  readonly replacementInspectorHost?: HTMLElement | null;
+  readonly onBeginProposal?: () => { ready: (proposal: RowDefinitionProposal, preview: import('../../../types').ExplorerBuilderPreviewResult) => boolean; failed: (message: string) => void } | undefined;
+  readonly onCancelProposal?: () => void;
+  readonly openActionRef?: { current: (() => void) | undefined };
   readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'> &
     Partial<Pick<LoomClient, 'assessRowChange' | 'preview'>>;
   readonly project: string;
@@ -458,7 +475,16 @@ export const RowDefinitionSettingsPanel = ({
   readonly onEditConstructionStep?: (stepId: string) => void;
   readonly onRemoveConstructionStep?: (stepId: string) => void;
 }) => {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const compact = presentation === 'compact';
+  const [panelPosition, setPanelPosition] = useState({ top: 80, left: 16 });
+  const inspectorMode = inspectorHost !== undefined;
+  const presentPanel = (panel: ReactNode) => inspectorMode ? (inspectorHost ? createPortal(panel, inspectorHost) : null) : compact && typeof document !== 'undefined' ? createPortal(panel, document.body) : panel;
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
+  const controllerRef = useRef<HTMLDivElement | null>(null);
+  const controllerIdentity = JSON.stringify([project, explorerId, authResourcePath ?? '', snapshotToken, table.outputId, draftVersion, draftDigest]);
+  const latestControllerIdentity = useRef(controllerIdentity);
+  latestControllerIdentity.current = controllerIdentity;
   const [rowChangeIntent, setRowChangeIntent] = useState<RowChangeIntent>('records');
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
   const [replacementState, setReplacementState] = useState<ReplacementState>({ kind: 'idle' });
@@ -519,6 +545,13 @@ export const RowDefinitionSettingsPanel = ({
   }, [table, snapshotToken, draftVersion, draftDigest]);
 
   const openSettings = async () => {
+    if (inspectorMode && settings.kind !== 'closed') { onOpenChange?.(true); return; }
+    onOpenChange?.(true);
+    if (compact && triggerRef.current) {
+      const bounds = triggerRef.current.getBoundingClientRect();
+      setPanelPosition({ top: Math.max(8, Math.min(bounds.bottom + 8, window.innerHeight - 320)),
+        left: Math.max(8, Math.min(bounds.left, window.innerWidth - 496)) });
+    }
     cancelPendingPreview();
     const requestEpoch = ++settingsRequestEpoch.current;
     setRowChangeIntent('records');
@@ -561,10 +594,10 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   useEffect(() => {
-    if (rootChangeState.kind === 'idle') return;
+    if (inspectorMode || rootChangeState.kind === 'idle') return;
     if (settings.kind === 'closed') void openSettings();
   }, [rootChangeState.kind, rootChangeState.kind === 'idle' ? -1 : rootChangeState.identity.epoch,
-    settings.kind]);
+    settings.kind, inspectorMode]);
 
   useEffect(() => {
     if (rootChangePreviewOpen && settings.kind !== 'closed') {
@@ -580,6 +613,8 @@ export const RowDefinitionSettingsPanel = ({
   }, [rootChangePreviewOpen, settings.kind]);
 
   const propose = async (selected: RowDefinitionSelection) => {
+    const ownership = onBeginProposal?.();
+    if (onBeginProposal && !ownership) return;
     cancelPendingPreview();
     const requestEpoch = proposalRequestEpoch.current;
     const controller = new AbortController();
@@ -602,9 +637,16 @@ export const RowDefinitionSettingsPanel = ({
         setProposalState({ kind: 'failed', selection: selected, message: proposal.comparison.status === 'UNAVAILABLE' ? proposal.comparison.reason : 'Loom returned an incomplete row preview. The saved draft was not changed.' });
         return;
       }
+      if (ownership) {
+        if (!client.preview) throw new Error('The candidate preview is unavailable.');
+        const preview = await client.preview({ project, explorerId, authResourcePath, receiptId: proposal.proposalId, outputId: table.outputId }, controller.signal);
+        if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current ||
+          preview.receiptId !== proposal.proposalId || preview.outputId !== table.outputId || !ownership.ready(proposal, preview)) return;
+      }
       setProposalState({ kind: 'fresh', selection: selected, proposal });
     } catch (error) {
       if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current) return;
+      ownership?.failed(requestFailureMessage(error, 'The row proposal failed.'));
       setProposalState({
         kind: 'failed', selection: selected,
         message: requestFailureMessage(error, 'Loom could not preview this row definition. The saved draft was not changed.'),
@@ -615,12 +657,23 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   const assessReplacement = async (rootNodeId: string) => {
+    const ownership = onBeginRootProposal?.(rootNodeId);
+    if (onBeginRootProposal && !ownership) return;
+    if (replacementPresentation === 'shared') {
+      settingsRequestEpoch.current += 1;
+      setSettings({kind:'closed'});
+      onOpenChange?.(false);
+    }
+    const fail = (message: string, stale = false) => {
+      ownership?.failed(message, stale);
+      setReplacementState(stale ? {kind:'stale', rootNodeId} : {kind:'failed', message});
+    };
     cancelPendingPreview();
     cancelReplacementRequest();
     const assessRowChange = client.assessRowChange;
     const loadPreview = client.preview;
     if (!assessRowChange || !loadPreview) {
-      setReplacementState({ kind: 'failed', message: 'Replacement review is unavailable in this Builder session. The saved draft was not changed.' });
+      fail('Replacement review is unavailable in this Builder session. The saved draft was not changed.');
       return;
     }
     const requestEpoch = replacementRequestEpoch.current;
@@ -635,21 +688,22 @@ export const RowDefinitionSettingsPanel = ({
       if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
       if (assessment.snapshotToken !== snapshotToken || assessment.draftVersion !== draftVersion ||
           assessment.draftDigest !== draftDigest) {
-        setReplacementState({ kind: 'stale', rootNodeId });
+        fail('The draft changed while checking this replacement. Cancel and review the current table.', true);
         return;
       }
       if (assessment.status === 'BLOCKED') {
+        ownership?.failed(assessment.diagnostics.map((item) => item.message).join(' ') || 'This starting-record replacement requires repair.');
         setReplacementState({ kind: 'blocked', assessment });
         return;
       }
       if (!isReadyReplacementAssessment(assessment, table, snapshotToken, draftVersion, draftDigest) ||
           assessment.proposal.rootNodeId !== rootNodeId) {
-        setReplacementState({ kind: 'failed', message: 'Loom returned an incomplete or mismatched replacement review. The saved draft was not changed.' });
+        fail('Loom returned an incomplete or mismatched replacement review. The saved draft was not changed.');
         return;
       }
       const candidateReceiptId = assessment.candidateReceiptId;
       if (!candidateReceiptId) {
-        setReplacementState({ kind: 'failed', message: 'Loom did not provide a replacement preview receipt. The saved draft was not changed.' });
+        fail('Loom did not provide a replacement preview receipt. The saved draft was not changed.');
         return;
       }
       setReplacementState({ kind: 'loading-preview', assessment });
@@ -658,33 +712,36 @@ export const RowDefinitionSettingsPanel = ({
         outputId: assessment.proposal.outputId,
       }, controller.signal);
       if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
-      if (preview.receiptId !== candidateReceiptId || preview.outputId !== table.outputId) {
-        setReplacementState({ kind: 'failed', message: 'Loom returned a preview for a different replacement receipt or table. The saved draft was not changed.' });
+      if (preview.receiptId !== candidateReceiptId || preview.outputId !== table.outputId || preview.rows === null) {
+        fail('Loom returned a preview for a different replacement receipt or table. The saved draft was not changed.');
         return;
       }
       const idColumns = preview.columns.filter((column) => column.column === 'id');
       if (idColumns.length !== 1) {
-        setReplacementState({ kind: 'failed', message: 'The replacement preview does not contain exactly one default id column. The saved draft was not changed.' });
+        fail('The replacement preview does not contain exactly one default id column. The saved draft was not changed.');
         return;
       }
       const idColumn = idColumns[0];
       if (idColumn.sourcePath !== 'id' || idColumn.sourceResourceType !== assessment.candidateRootResourceType) {
-        setReplacementState({ kind: 'failed', message: 'The replacement preview does not identify the base record id field. The saved draft was not changed.' });
+        fail('The replacement preview does not identify the base record id field. The saved draft was not changed.');
+        return;
+      }
+      if (ownership && !ownership.ready(assessment, preview)) {
+        setReplacementState({kind:'failed', message:'The replacement candidate could not be described for both editors. The saved table has not changed.'});
         return;
       }
       setReplacementState({ kind: 'ready', assessment, preview, idColumn });
     } catch (error) {
       if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
-      setReplacementState({
-        kind: 'failed',
-        message: requestFailureMessage(error, 'Loom could not review this replacement. The saved draft was not changed.'),
-      });
+      fail(requestFailureMessage(error, 'Loom could not review this replacement. The saved draft was not changed.'));
     } finally {
       if (replacementController.current === controller) replacementController.current = undefined;
     }
   };
 
   const cancelReplacementReview = () => {
+    if (replacementState.kind === 'applying') return;
+    onCancelRootProposal?.();
     cancelReplacementRequest();
     setReplacementState({ kind: 'idle' });
   };
@@ -699,7 +756,9 @@ export const RowDefinitionSettingsPanel = ({
     setReplacementState({ kind: 'applying', assessment });
     if (await onApplyRootReplacement(assessment)) {
       setReplacementState({ kind: 'idle' });
+      settingsRequestEpoch.current += 1;
       setSettings({ kind: 'closed' });
+      onOpenChange?.(false);
       setGroupAuthoringOpen(false);
       onCloseRowIntentSession?.();
     } else {
@@ -726,7 +785,9 @@ export const RowDefinitionSettingsPanel = ({
     if (!proposalId) return;
     setProposalState({ kind: 'applying', selection: proposalState.selection });
     if (await onApply(proposalId)) {
+      settingsRequestEpoch.current += 1;
       setSettings({ kind: 'closed' });
+      onOpenChange?.(false);
       setProposalState({ kind: 'none' });
       setGroupAuthoringOpen(false);
       onCloseRowIntentSession?.();
@@ -736,15 +797,19 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   const cancel = () => {
+    if (replacementState.kind !== 'idle') onCancelRootProposal?.();
+    onCancelProposal?.();
     cancelPendingPreview();
     cancelReplacementRequest();
     if (rootChangeState.kind !== 'idle' || rootChangePreviewOpen) onCancelRootChange();
     setReplacementState({ kind: 'idle' });
     settingsRequestEpoch.current += 1;
     setSettings({ kind: 'closed' });
+    onOpenChange?.(false);
     setProposalState({ kind: 'none' });
     setGroupAuthoringOpen(false);
     onCloseRowIntentSession?.();
+    triggerRef.current?.focus();
   };
 
   const cancelLocalRowProposals = () => {
@@ -775,11 +840,21 @@ export const RowDefinitionSettingsPanel = ({
   const chooseRelatedRows = () => {
     cancelLocalRowProposals();
     setRowChangeIntent('records');
+    if (operationInspectorPresentation === 'workspace' || inspectorMode) {
+      settingsRequestEpoch.current += 1;
+      setSettings({ kind: 'closed' });
+      onOpenChange?.(false);
+    }
     onChooseRelatedRows();
   };
   const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => {
     cancelLocalRowProposals();
     setRowChangeIntent(kind === 'group' || kind === 'source-group' || kind === 'coded-group' ? 'group' : 'reshape');
+    if (operationInspectorPresentation === 'workspace' || inspectorMode) {
+      settingsRequestEpoch.current += 1;
+      setSettings({ kind: 'closed' });
+      onOpenChange?.(false);
+    }
     onChooseReshape(kind);
   };
   const editConstructionStep = (stepId: string) => {
@@ -817,10 +892,21 @@ export const RowDefinitionSettingsPanel = ({
   const historyByStepId = new Map(constructionHistory.map((step) => [step.id, step] as const));
   const appliedRowSteps = (table.document.construction?.steps ?? [])
     .filter((step) => rowChangingOperationKinds.has(step.operation.kind));
+  const groupCreationEpoch = settingsRequestEpoch.current;
   const onExplicitGroupsCreated = async (revision: ExplicitGroupRevisionSummary) => {
-    const choices = await client.listRowDefinitionChoices({
-      project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
-    });
+    const isCurrent = () => Boolean(controllerRef.current?.isConnected) &&
+      groupCreationEpoch === settingsRequestEpoch.current && latestControllerIdentity.current === controllerIdentity;
+    if (!isCurrent()) return;
+    let choices: RowDefinitionChoicesResponse;
+    try {
+      choices = await client.listRowDefinitionChoices({
+        project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
+      });
+    } catch (error) {
+      if (!isCurrent()) return;
+      throw error;
+    }
+    if (!isCurrent()) return;
     if (choices.outputId !== table.outputId || choices.snapshotToken !== snapshotToken ||
         !choices.explicitGroups.some((group) => group.revisionId === revision.revisionId)) {
       throw new Error('The new group revision is not available for this table. Check that its selected resource type matches the table row type.');
@@ -833,9 +919,26 @@ export const RowDefinitionSettingsPanel = ({
     setGroupAuthoringOpen(false);
   };
 
+  const rowDefinitionActions = proposalState.kind === 'fresh' && currentProposal?.proposalId && comparison?.status === 'AVAILABLE' ? (
+<div className="mt-4 flex justify-end gap-2">
+                <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>
+                <button type="button" className="rounded-md bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={disabled || !isCurrentProposal(currentProposal, table, snapshotToken, draftVersion, draftDigest)} onClick={() => void apply()}>
+                  Apply row definition
+                </button>
+              </div>
+  ) : null;
+
+  if (openActionRef) openActionRef.current = () => { void openSettings(); };
+
   return (
-    <>
-      <button
+    <div ref={controllerRef} className={compact ? 'relative inline-block min-w-0' : undefined} onKeyDown={(event) => {
+      if (compact && event.key === 'Escape' && settingsOpen && replacementState.kind === 'idle') {
+        event.stopPropagation();
+        cancel();
+      }
+    }}>
+      {triggerPresentation !== 'hidden' ? <button
+        ref={triggerRef}
         type="button"
         data-testid="construction-rows-settings-trigger"
         data-construction-source-selection-trigger
@@ -852,30 +955,31 @@ export const RowDefinitionSettingsPanel = ({
       >
         <span className="shrink-0">{triggerLabel ?? 'Change rows'}</span>
         {triggerPresentation === 'source-chip' ? null : <span className="shrink-0 font-medium text-blue-800" aria-hidden="true">→</span>}
-      </button>
-      {settings.kind !== 'closed' ? (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-white">
-          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="min-h-dvh w-full px-4 py-4 sm:px-6 lg:px-8">
+      </button> : null}
+      {settings.kind !== 'closed' ? presentPanel(
+        <div style={!inspectorMode && compact ? { top: panelPosition.top, left: panelPosition.left, maxHeight: `calc(100dvh - ${panelPosition.top + 12}px)` } : undefined} className={inspectorMode ? 'h-full min-h-0' : compact ? 'fixed z-50 w-[min(30rem,90vw)] overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-xl' : 'fixed inset-0 z-50 overflow-y-auto bg-white'}>
+          <div role={inspectorMode ? 'region' : 'dialog'} aria-modal={inspectorMode || compact ? undefined : true} aria-label="Row definition settings" className={inspectorMode ? 'construction-inspector-frame' : compact ? 'w-full p-3' : 'mx-auto min-h-dvh w-full max-w-[1600px] px-4 py-3 sm:px-6'}>
+            <div className={inspectorMode ? 'construction-inspector-body p-3' : undefined}>
             <header className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <h3 className="text-xl font-semibold text-slate-900">Change current rows</h3>
-                <p className="mt-1 text-sm text-slate-700">{currentRowMeaning}</p>
+                <h3 className="m-0 text-base font-semibold text-slate-900">Change current rows</h3>
+                {!inspectorMode ? <p className="m-0 mt-1 text-sm text-slate-700">{currentRowMeaning}</p> : null}
               </div>
-              <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50" onClick={cancel}>Back to table</button>
+              {!inspectorMode ? <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50" onClick={cancel}>Back to table</button> : null}
             </header>
-            <section aria-label="Choose a row intent" className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <section aria-label="Choose a row intent" className="mt-2 flex flex-wrap items-start gap-1 border-b border-slate-200 pb-2">
               <button type="button" data-testid="construction-row-intent-records" aria-pressed={rowChangeIntent === 'records'}
                 onClick={() => switchRowIntent('records')}
-                className={`flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'records' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                className={`flex min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'records' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <span className="block text-sm font-semibold text-slate-900">Use different records</span>
-                <span className="block text-xs text-slate-600">Choose a starting record type, row shape, or related records.</span>
+                <span className="sr-only">Choose a starting record type, row shape, or related records.</span>
               </button>
-              <div className={`min-w-0 rounded-lg border ${rowChangeIntent === 'group' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+              <div className={`min-w-0 rounded ${rowChangeIntent === 'group' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <button type="button" data-testid="construction-action-group-rows" aria-pressed={rowChangeIntent === 'group'} disabled={disabled || !reshapeRows.group.supported}
                   onClick={() => chooseReshape(reshapeRows.groupEntry)}
-                  className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  className="flex w-full min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                   <span className="block text-sm font-semibold text-slate-900">Group and summarize</span>
-                  <span className={`block text-xs text-slate-600 ${reshapeRows.group.supported ? 'truncate' : 'whitespace-normal'}`} title={reshapeRows.group.supported
+                  <span className={reshapeRows.group.supported ? "sr-only" : "block text-xs text-slate-600"} title={reshapeRows.group.supported
                     ? 'Make one row for each unique combination of the fields you choose.'
                     : reshapeRows.group.reason}>{reshapeRows.group.supported
                     ? 'Choose fields that define each output row.'
@@ -899,9 +1003,9 @@ export const RowDefinitionSettingsPanel = ({
               </div>
               <button type="button" data-testid="construction-row-intent-reshape" aria-pressed={rowChangeIntent === 'reshape'}
                 onClick={() => switchRowIntent('reshape')}
-                className={`flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'reshape' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                className={`flex min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'reshape' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <span className="block text-sm font-semibold text-slate-900">Reshape table</span>
-                <span className="block text-xs text-slate-600">Pivot categories into columns or stack columns into rows.</span>
+                <span className="sr-only">Pivot categories into columns or stack columns into rows.</span>
               </button>
             </section>
             {rowChangeIntent === 'records' ? (
@@ -982,7 +1086,7 @@ export const RowDefinitionSettingsPanel = ({
                 <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
                   <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || reshapeRows.pivotPending === true}
                     onClick={() => chooseReshape('categories')}
-                    className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                    className="flex w-full min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <span className="block text-sm font-semibold text-slate-900">Pivot categories</span>
                     <span className="block text-xs text-slate-600">Make a column for each category. Choose which values fill those columns.</span>
                   </button>
@@ -1004,7 +1108,7 @@ export const RowDefinitionSettingsPanel = ({
                   <button type="button" data-testid="construction-action-unpivot-rows" disabled={disabled}
                     onClick={() => chooseReshape('unpivot')}
                     title="Move selected columns into a field-name column and a value column. Other columns repeat on each new row."
-                    className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                    className="flex w-full min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <span className="block text-sm font-semibold text-slate-900">Stack columns</span>
                     <span className="block text-xs text-slate-600">Move selected columns into field and value rows.</span>
                   </button>
@@ -1012,7 +1116,7 @@ export const RowDefinitionSettingsPanel = ({
                     <button type="button" data-testid="construction-action-expand-signed-rows" disabled={disabled}
                       onClick={() => chooseReshape('expand-signed')}
                       title="Turn one repeated FHIR field into one row per value."
-                      className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      className="flex w-full min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                       <span className="block text-sm font-semibold text-slate-900">Expand repeated field</span>
                       <span className="block text-xs text-slate-600">One row per value of a repeated source field.</span>
                     </button>
@@ -1126,14 +1230,7 @@ export const RowDefinitionSettingsPanel = ({
                 {comparison.notices.map((notice) => <p key={notice} className="mt-2 text-xs text-slate-600">{notice}</p>)}
               </section>
                   ) : null}
-                  {proposalState.kind === 'fresh' && currentProposal?.proposalId && comparison?.status === 'AVAILABLE' ? (
-              <div className="mt-4 flex justify-end gap-2">
-                <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>
-                <button type="button" className="rounded-md bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={disabled || !isCurrentProposal(currentProposal, table, snapshotToken, draftVersion, draftDigest)} onClick={() => void apply()}>
-                  Apply row definition
-                </button>
-              </div>
-                  ) : null}
+                  {!inspectorMode ? rowDefinitionActions : null}
               </div>
               ) : null}
               {startingCollectionSettings ? (
@@ -1146,13 +1243,20 @@ export const RowDefinitionSettingsPanel = ({
                 </details>
               ) : null}
             </div>
+            {inspectorMode ? <footer className="construction-inspector-footer">
+              {rowDefinitionActions ?? <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm" disabled={disabled || proposalState.kind === 'applying' || replacementState.kind === 'applying'} onClick={cancel}>Close row settings</button>}
+            </footer> : null}
+          </div>
         </div>
       ) : null}
-      {replacementState.kind !== 'idle' ? (
-        <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/40 p-4 sm:p-8">
-          <section role="dialog" aria-modal="true" aria-labelledby="root-replacement-title" className="mx-auto max-w-3xl rounded-xl bg-white p-5 shadow-xl sm:p-7">
+      {replacementState.kind !== 'idle' && (replacementPresentation !== 'shared' || replacementInspectorHost) ? createPortal(
+        <div className={replacementPresentation === 'shared' ? 'min-w-0' : 'fixed inset-0 z-[60] overflow-y-auto bg-slate-950/40 p-4 sm:p-8'}>
+          <section role={replacementPresentation === 'shared' ? 'region' : 'dialog'} aria-modal={replacementPresentation === 'shared' ? undefined : true} aria-labelledby="root-replacement-title" className={replacementPresentation === 'shared' ? 'min-w-0 rounded border bg-white p-2' : 'mx-auto max-w-3xl rounded-xl bg-white p-5 shadow-xl sm:p-7'}>
             <h2 id="root-replacement-title" className="text-xl font-semibold text-slate-900">Replace this table’s current setup?</h2>
             <p className="mt-2 text-sm text-slate-700">This replaces the current setup for {table.title}. The table, output, and tab keep their identity. Review the candidate and its effects before applying.</p>
+            {table.document.importedRecipe ? <p role="note" className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm">
+              This replacement detaches this table from its pinned recipe ({table.document.importedRecipe.name}, {table.document.importedRecipe.translationVersion}) and resets its source changes and table setup. The shared recipe stays unchanged.
+            </p> : null}
             {replacementState.kind === 'assessing' ? <p role="status" className="mt-4 text-sm text-slate-700">Checking the replacement and preparing its preview…</p> : null}
             {replacementState.kind === 'loading-preview' ? <p role="status" className="mt-4 text-sm text-slate-700">Loading the receipt-bound replacement preview…</p> : null}
             {replacementState.kind === 'blocked' ? (
@@ -1214,7 +1318,7 @@ export const RowDefinitionSettingsPanel = ({
                 </div>
               </section>
             ) : null}
-            {replacementState.kind === 'ready' ? (
+            {replacementState.kind === 'ready' && replacementPresentation !== 'shared' ? (
               <section className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <h3 className="font-semibold text-slate-900">Candidate preview</h3>
                 <div className="mt-2 max-h-72 overflow-auto">
@@ -1233,7 +1337,7 @@ export const RowDefinitionSettingsPanel = ({
               </section>
             ) : null}
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancelReplacementReview}>Cancel</button>
+              <button type="button" disabled={replacementState.kind === 'applying'} className="rounded-md border border-slate-300 px-3 py-2" onClick={cancelReplacementReview}>Cancel</button>
               {replacementState.kind === 'ready' ? (
                 <button
                   type="button"
@@ -1247,8 +1351,8 @@ export const RowDefinitionSettingsPanel = ({
               {replacementState.kind === 'applying' ? <span role="status" className="self-center text-sm text-slate-700">Applying replacement…</span> : null}
             </div>
           </section>
-        </div>
+        </div>, replacementPresentation === 'shared' ? replacementInspectorHost! : document.body
       ) : null}
-    </>
+    </div>
   );
 };

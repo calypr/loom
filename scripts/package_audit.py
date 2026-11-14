@@ -32,6 +32,7 @@ EXCLUDED_PARTS = {
 # without one so a directory listing cannot masquerade as a semantic inventory.
 RESPONSIBILITIES = {
     ".": "Start the default Loom server process through the internal server composition root.",
+    "client/ingest": "Upload versioned source files and publish durable Loom source loads through the HTTP client library.",
     "cmd/arango-fhir-proto": "Provide operator commands for FHIR loading, catalog diagnostics, generation repair, and activation.",
     "cmd/arango-fhir-server": "Start the explicit Loom HTTP server binary.",
     "cmd/dataframe-profile": "Run and compare developer-facing dataframe profiling workloads.",

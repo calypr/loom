@@ -1181,7 +1181,7 @@ func constructionSearchSourceKey(source ConstructionChoiceSearchSource) (string,
 
 func (s *Service) currentWorkspace(ctx context.Context, project, explorerID string) (authoringv2.Workspace, error) {
 	project = projectid.Canonical(project)
-	owner, err := s.store.Get(ctx, project, explorerID)
+	owner, err := s.getOwner(ctx, project, explorerID)
 	if errors.Is(err, explorer.ErrNotFound) {
 		return authoringv2.Workspace{}, notFound("construction-choices", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}

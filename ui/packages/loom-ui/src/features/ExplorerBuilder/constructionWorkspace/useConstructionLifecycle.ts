@@ -35,6 +35,18 @@ export type ConstructionCandidateIntent = Pick<
   'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'filterSources' | 'deriveSources' | 'unpivotSources'
 >;
 
+/** Optional bridge to the workspace's one active recipe edit. */
+export interface ConstructionEditingAttempt {
+  ready(response: ConstructionProposalResponse, preview: ExplorerBuilderPreviewResult): boolean;
+  failed(message: string): void;
+  cancel(): boolean;
+  beginApply(): boolean;
+  finishApply(applied: boolean): void;
+}
+export interface ConstructionEditingOwner {
+  onStart(intent: ConstructionCandidateIntent, request: GetConstructionCapabilitiesArgs): ConstructionEditingAttempt | undefined;
+}
+
 export type ConstructionCapabilitiesViewState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
@@ -55,6 +67,7 @@ type ProposalOwner = {
   readonly generation: number;
   readonly resource: ProposalResource;
   readonly abortController: AbortController;
+  readonly editingAttempt?: ConstructionEditingAttempt;
 };
 type ProposalOverride = {
   readonly ownerId: number;
@@ -135,10 +148,12 @@ export const useConstructionLifecycle = ({
   client,
   capabilitiesRequest,
   previewLimit = 25,
+  editingOwner,
 }: {
   readonly client: ConstructionLifecycleClient;
   readonly capabilitiesRequest?: GetConstructionCapabilitiesArgs;
   readonly previewLimit?: number;
+  readonly editingOwner?: ConstructionEditingOwner;
 }) => {
   const [capabilitiesLoad, setCapabilitiesLoad] = useState<CapabilitiesLoad>({
     key: '',
@@ -155,6 +170,8 @@ export const useConstructionLifecycle = ({
   const applyingOwnerRef = useRef<ConstructionApplyAttempt<ProposalOwner> | undefined>(undefined);
   const pivotDiscoveryGeneration = useRef(0);
   const candidateIntent = useRef<ConstructionCandidateIntent | undefined>(undefined);
+  const editingOwnerRef = useRef(editingOwner);
+  editingOwnerRef.current = editingOwner;
   const capabilitiesRequestRef = useRef(capabilitiesRequest);
   capabilitiesRequestRef.current = capabilitiesRequest;
 
@@ -248,10 +265,16 @@ export const useConstructionLifecycle = ({
   }, []);
 
   const startCandidateProposal = useCallback((intent: ConstructionCandidateIntent) => {
-    invalidateProposalRequest();
-    candidateIntent.current = intent;
     const currentRequest = capabilitiesRequestRef.current;
     if (!currentRequest) return Promise.reject(new Error('The current table is still loading.'));
+    let editingAttempt: ConstructionEditingAttempt | undefined;
+    try {
+      editingAttempt = editingOwnerRef.current?.onStart(intent, currentRequest);
+      if (editingOwnerRef.current && !editingAttempt) return Promise.reject(new Error('Apply or Cancel the active recipe change before starting another edit.'));
+    } catch (error) { return Promise.reject(error); }
+    // Acquire the shared edit before invalidating the existing local proposal.
+    invalidateProposalRequest();
+    candidateIntent.current = intent;
 
     const generation = proposalGeneration.current;
     const args: ProposeConstructionArgs = {
@@ -299,6 +322,7 @@ export const useConstructionLifecycle = ({
         if (!previewMatchesProposal(preview, proposalId, args.outputId)) {
           throw new Error('Loom did not return rows for this proposal receipt, so it cannot be applied yet.');
         }
+        if (editingAttempt && !editingAttempt.ready(response, preview)) throw abortError();
         return { status: 'ready', response, preview };
       } finally {
         resourceSignal.removeEventListener('abort', abortFromResource);
@@ -310,6 +334,7 @@ export const useConstructionLifecycle = ({
       generation,
       resource,
       abortController,
+      editingAttempt,
     };
     proposalOwnerRef.current = owner;
     setProposalOwner(owner);
@@ -336,11 +361,18 @@ export const useConstructionLifecycle = ({
       }
       if (outcome.status !== 'ready') throw new Error('This construction change needs repair before it can be applied.');
       return outcome;
+    }).catch((error: unknown) => {
+      if (!abortController.signal.aborted && proposalGeneration.current === generation &&
+          capabilitiesIdentity(capabilitiesRequestRef.current) === requestKey && proposalOwnerRef.current === owner) {
+        editingAttempt?.failed(errorMessage(error, 'Loom could not check this construction change.'));
+      }
+      throw error;
     }).finally(() => abortController.signal.removeEventListener('abort', onAbort));
   }, [client, invalidateProposalRequest, previewLimit, requestKey]);
 
   const onCandidateChange = useCallback((intent: ConstructionCandidateIntent | undefined) => {
     if (!intent) {
+      if (proposalOwnerRef.current?.editingAttempt?.cancel() === false) return;
       invalidateProposalRequest();
       candidateIntent.current = undefined;
       return;
@@ -361,6 +393,7 @@ export const useConstructionLifecycle = ({
   }, [requestKey, startCandidateProposal]);
 
   const cancel = useCallback(() => {
+    if (proposalOwnerRef.current?.editingAttempt?.cancel() === false) return;
     applyingOwnerRef.current = undefined;
     invalidateProposalRequest();
     candidateIntent.current = undefined;
@@ -494,6 +527,7 @@ export const useConstructionLifecycle = ({
     };
     const proposalId = state.response.proposalId;
     if (!proposalId || !constructionProposalIsApplicable(state, identity)) return undefined;
+    if (owner.editingAttempt && !owner.editingAttempt.beginApply()) return undefined;
     const finish = beginConstructionApply(
       applyingOwnerRef,
       { owner, requestKey: owner.requestKey, generation: owner.generation },
@@ -507,7 +541,12 @@ export const useConstructionLifecycle = ({
         } : undefined;
       },
       (applied) => {
-        if (applied) cancel();
+        owner.editingAttempt?.finishApply(applied);
+        if (applied) {
+          applyingOwnerRef.current = undefined;
+          invalidateProposalRequest();
+          candidateIntent.current = undefined;
+        }
         else setProposalOverride({
           ownerId: owner.id,
           state: {
@@ -517,11 +556,11 @@ export const useConstructionLifecycle = ({
         });
       },
     );
-    if (!finish) return undefined;
+    if (!finish) { owner.editingAttempt?.finishApply(false); return undefined; }
     setProposalOverride({ ownerId: owner.id,
       state: { status: 'applying', response: state.response, preview: state.preview } });
     return { proposalId, finish };
-  }, [activeProposal, activeProposalOwner, cancel]);
+  }, [activeProposal, activeProposalOwner, invalidateProposalRequest]);
 
   const activeCapabilities = capabilitiesLoad.key === requestKey
     ? capabilitiesLoad.state

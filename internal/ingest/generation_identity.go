@@ -148,6 +148,10 @@ func namespaceEdgeDocument(raw json.RawMessage, project, datasetGeneration strin
 		return nil, fmt.Errorf("edge _to: %w", err)
 	}
 	document[logicalKeyField] = json.RawMessage(strconvQuote(logicalKey))
+	// Preserve the original logical endpoints. These are needed to rebase a
+	// copied edge even when an endpoint row is absent from the source snapshot.
+	document["logical_from"] = json.RawMessage(strconvQuote(from))
+	document["logical_to"] = json.RawMessage(strconvQuote(to))
 	document[generationIdentityField] = json.RawMessage(strconvQuote(datasetGeneration))
 	document["_key"] = json.RawMessage(strconvQuote(generationEdgeKey(project, datasetGeneration, logicalKey, from, to)))
 	document["_from"] = json.RawMessage(strconvQuote(namespacedFrom))

@@ -13,8 +13,8 @@ const DEFAULT_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Ch
 const FAILURE_TEXT = "Loom’s V2 Builder state could not be loaded. This Builder has no V1 fallback.";
 const SECRET_KEYS = new Set(["authorization", "cookie", "set-cookie", "access_token", "refresh_token", "id_token"]);
 const BUILDER_STATE_KEYS = new Set(["apiVersion", "kind", "lifecycleState", "draftVersion", "draftDigest", "workspace", "catalog"]);
-const BUILDER_WORKSPACE_KEYS = new Set(["apiVersion", "kind", "explorer", "documents", "tabs", "sharedFilters", "fileActions"]);
-const BUILDER_CATALOG_KEYS = new Set(["snapshotToken", "generation", "resolvedSchemaDigest", "authorizationScopeDigest", "complete", "routePolicy", "nodes", "edges", "candidates"]);
+const BUILDER_WORKSPACE_KEYS = new Set(["apiVersion", "kind", "semanticsVersion", "migrationDecisions", "explorer", "documents", "tabs", "sharedFilters", "fileActions"]);
+const BUILDER_CATALOG_KEYS = new Set(["snapshotToken", "generation", "resolvedSchemaDigest", "authorizationScopeDigest", "complete", "availability", "routePolicy", "nodes", "edges", "candidates"]);
 
 class UsageError extends Error {}
 
@@ -146,7 +146,9 @@ export function classifyResult(api, browser) {
   if (api.result !== "PASSED") return api.result;
   if (!browser) return "DOCTOR_PASSED";
   if (browser.authRedirected || browser.authPromptVisible) return "BROWSER_AUTH_REQUIRED";
-  if (browser.fallbackVisible) return "UI_FAILED";
+  if (browser.fallbackVisible || browser.responses?.some((response) =>
+    response.type === "Document" && response.status >= 400
+    && response.url === browser.finalUrl)) return "UI_FAILED";
   if (browser.failedRequests.length || browser.consoleErrors.length) return "UI_WARNINGS";
   return "PASSED";
 }

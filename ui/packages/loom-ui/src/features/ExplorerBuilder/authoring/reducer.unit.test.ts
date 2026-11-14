@@ -1,5 +1,11 @@
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { useReducer } from 'react';
+import { useAutomaticPreview, type AutomaticPreviewIdentity } from '../useAutomaticPreview';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../types';
 import {
+  type BuilderAuthoringState,
   derivedOccurrences,
   nextRouteOccurrenceId,
   stateFromBuilder,
@@ -70,6 +76,30 @@ const ready: ExplorerBuilderState = {
 };
 
 describe('semantic Builder hydration', () => {
+  it('round trips imported recipe references and source columns unchanged', () => {
+    const workspace = {
+      ...ready.workspace!,
+      documents: ready.workspace!.documents.map((document) => ({
+        ...document,
+        importedRecipe: {
+          name: 'shared-default',
+          translationVersion: '1',
+          digest: 'a'.repeat(64),
+          output: 'Specimen',
+        },
+        columns: document.columns.map((column) => ({
+          ...column,
+          source: { kind: 'imported' as const, imported: { outputColumn: column.column } },
+        })),
+      })),
+    };
+    const state = stateFromBuilder({ ...ready, workspace }, {
+      project: 'project',
+      explorerId: 'dataframe-default',
+    });
+    expect(workspaceFromState(state)).toEqual(workspace);
+  });
+
   it('reopens and recompiles the canonical workspace without reconstructing sources', () => {
     const state = stateFromBuilder(ready, {
       project: 'project',
@@ -879,5 +909,94 @@ describe('semantic Builder hydration', () => {
     });
 
     expect(next.selectedOccurrenceId).toBe('base');
+  });
+});
+
+describe('table selection automatic preview ownership', () => {
+  const initialState = () => {
+    const state = stateFromBuilder(ready, { project: 'project', explorerId: 'default' });
+    const table = state.tables[0];
+    return { ...state, tables: [table, { ...table, outputId: 'Observation', tabId: 'observation',
+      document: { ...table.document, output: { id: 'Observation', title: 'Observation' } } }] };
+  };
+  const response = (identity: AutomaticPreviewIdentity) => {
+    const receipt: ExplorerBuilderCompileResult = { apiVersion: ready.apiVersion, kind: 'ExplorerBuilderReceipt',
+      receiptId: `receipt-${identity.key}`, snapshotToken: identity.snapshotToken, intentDigest: identity.draftDigest,
+      builder: ready.workspace!, outputs: [{ outputId: identity.outputId, columns: [] }], diagnostics: [] };
+    const preview = { apiVersion: ready.apiVersion, kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+      receiptId: receipt.receiptId, outputId: identity.outputId, columns: [],
+      rows: [{ table: identity.outputId, value: 17 }], rowCount: 1, diagnostics: [] };
+    return { identity, receipt, preview };
+  };
+  const identityFor = (state: BuilderAuthoringState, limit: 25 | 100): AutomaticPreviewIdentity => ({
+    ownerKey: 'owner', snapshotToken: state.catalog.snapshotToken, draftVersion: state.draftVersion,
+    draftDigest: state.draftDigest, outputId: state.selectedOutputId!, previewRequestVersion: state.previewRequestVersion, limit,
+    key: JSON.stringify(['owner', state.catalog.snapshotToken, state.draftVersion, state.draftDigest,
+      state.previewRequestVersion, state.selectedOutputId, limit]),
+  });
+  it.each(['successful', 'failed'] as const)('restores exact saved rows after %s preview and proposal A → B → A Cancel, retaining limit and recipe', async (firstResult) => {
+    const initial = initialState();
+    const refresh = vi.fn();
+    const hook = renderHook(({ enabled, limit }: { enabled: boolean; limit: 25 | 100 }) => {
+      const [state, dispatch] = useReducer(builderAuthoringReducer, initial);
+      const identity = identityFor(state, limit);
+      const query = useAutomaticPreview({ request: identity, enabled, refresh: async (request) => {
+        refresh(request);
+        if (firstResult === 'failed' && refresh.mock.calls.length === 1) throw new Error('Old A request failed');
+        const run = response(request);
+        dispatch({ type: 'previewAccepted', ...run, identity: { ...request, project: state.project, explorerId: state.explorerId } });
+        return run;
+      } });
+      return { state, dispatch, query };
+    }, { initialProps: { enabled: true, limit: 100 as 25 | 100 } });
+    if (firstResult === 'failed') await waitFor(() => expect(hook.result.current.query.error).toHaveProperty('message', 'Old A request failed'));
+    else await waitFor(() => expect(hook.result.current.state.preview?.rows).toEqual([{ table: 'Specimen', value: 17 }]));
+    hook.rerender({ enabled: false, limit: 100 });
+    act(() => hook.result.current.dispatch({ type: 'selectTable', outputId: 'Observation' }));
+    expect(hook.result.current.state.preview).toBeUndefined();
+    act(() => hook.result.current.dispatch({ type: 'selectTable', outputId: 'Specimen' }));
+    hook.rerender({ enabled: true, limit: 100 });
+    await waitFor(() => expect(hook.result.current.state.preview?.rows).toEqual([{ table: 'Specimen', value: 17 }]));
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh.mock.calls.map(([request]) => request.limit)).toEqual([100, 100]);
+    expect(workspaceFromState(hook.result.current.state)).toEqual(workspaceFromState(initial));
+    hook.rerender({ enabled: true, limit: 25 });
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
+    expect(refresh.mock.calls[2][0].limit).toBe(25);
+  });
+  it('invalidates old A and B responses while same and unknown table selections remain no-ops', () => {
+    const initial = initialState();
+    expect(builderAuthoringReducer(initial, { type: 'selectTable', outputId: 'Specimen' })).toBe(initial);
+    expect(builderAuthoringReducer(initial, { type: 'selectTable', outputId: 'unknown' })).toBe(initial);
+    const b = builderAuthoringReducer(initial, { type: 'selectTable', outputId: 'Observation' });
+    const a = builderAuthoringReducer(b, { type: 'selectTable', outputId: 'Specimen' });
+    expect(b.previewRequestVersion).toBe(initial.previewRequestVersion + 1);
+    expect(a.previewRequestVersion).toBe(initial.previewRequestVersion + 2);
+    for (const stale of [initial, b]) {
+      const run = response(identityFor(stale, 25));
+      expect(builderAuthoringReducer(a, { type: 'previewAccepted', ...run,
+        identity: { ...run.identity, project: a.project, explorerId: a.explorerId } })).toBe(a);
+    }
+  });
+});
+
+describe('saved occurrence inspection', () => {
+  it('selects unresolved saved occurrences without changing the recipe or requiring catalog resolution', () => {
+    const state = stateFromBuilder(ready, { project: 'project', explorerId: 'default' });
+    const table = state.tables[0];
+    const source: BuilderAuthoringState = { ...state, tables: [{ ...table, document: { ...table.document, route: {
+      ...table.document.route, children: [{ occurrenceId: 'unresolved', resourceType: 'Patient', relationship: 'retired', catalogEdgeId: 'removed', children: [
+        { occurrenceId: 'unresolved-child', resourceType: 'Observation', relationship: 'retired-child' },
+      ] }],
+    } } }] };
+    expect(derivedOccurrences(source.tables[0], source.catalog).map(item => item.id)).toEqual(['base']);
+    for (const occurrenceId of ['unresolved', 'unresolved-child', 'base']) {
+      const selected = builderAuthoringReducer(source, { type: 'selectOccurrence', occurrenceId });
+      expect(selected.selectedOccurrenceId).toBe(occurrenceId);
+      expect(selected).toEqual({ ...source, selectedOccurrenceId: occurrenceId });
+      expect(selected.tables).toBe(source.tables);
+    }
+    expect(builderAuthoringReducer(source, { type: 'selectOccurrence', occurrenceId: 'not-in-this-table' })).toBe(source);
   });
 });

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 
 import type { ExplorerSummary } from '../../../api';
 import type { DraftTable } from '../authoring/model';
-import { IconCopy, IconGripVertical, IconTrash } from './icons';
+import { IconCopy, IconTrash } from './icons';
 import { useDismissibleLayer } from './useDismissibleLayer';
 
 interface BuilderToolbarProps {
@@ -21,7 +21,6 @@ interface BuilderToolbarProps {
   onNewTable: () => void;
   onDuplicateTable: () => void;
   onDeleteTable: () => void;
-  onReorderTable: (outputId: string, before?: string) => void;
   onReview: () => void;
   reviewExpanded: boolean;
   onPublish: () => void;
@@ -141,7 +140,6 @@ const TableToolbar = ({
   onNewTable,
   onDuplicateTable,
   onDeleteTable,
-  onReorderTable,
   busy,
   columnCreationSupported,
 }: Pick<
@@ -153,11 +151,9 @@ const TableToolbar = ({
   | 'onNewTable'
   | 'onDuplicateTable'
   | 'onDeleteTable'
-  | 'onReorderTable'
   | 'busy'
   | 'columnCreationSupported'
 >) => {
-  const [draggedOutputId, setDraggedOutputId] = useState<string | null>(null);
   const [tableMenuOpen, setTableMenuOpen] = useState(false);
   const tableMenuRef = useDismissibleLayer<HTMLDetailsElement>(
     tableMenuOpen,
@@ -190,48 +186,18 @@ const TableToolbar = ({
         <div className="absolute left-0 top-full z-30 mt-1 w-80 rounded-md border border-slate-200 bg-white p-2 shadow-xl">
           <div className="mb-1 flex items-center justify-between px-1">
             <p className="text-xs font-semibold text-slate-700">Tables</p>
-            <p className="text-[10px] text-slate-400">
-              Drag to reorder · edit names directly
-            </p>
+            <p className="text-[10px] text-slate-400">Edit dataframe output names</p>
           </div>
           <ol className="space-y-1">
             {tables.map((table) => (
               <li
                 key={table.outputId}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => {
-                  if (draggedOutputId && draggedOutputId !== table.outputId) {
-                    const fromIndex = tables.findIndex(
-                      (candidate) => candidate.outputId === draggedOutputId,
-                    );
-                    const targetIndex = tables.findIndex(
-                      (candidate) => candidate.outputId === table.outputId,
-                    );
-                    onReorderTable(
-                      draggedOutputId,
-                      fromIndex < targetIndex
-                        ? tables[targetIndex + 1]?.outputId
-                        : table.outputId,
-                    );
-                  }
-                  setDraggedOutputId(null);
-                }}
                 className={`flex items-center gap-2 rounded border px-2 py-1.5 ${
                   table.outputId === selectedOutputId
                     ? 'border-blue-300 bg-blue-50'
                     : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
               >
-                <span
-                  draggable
-                  aria-label={`Drag ${table.title || table.outputId}`}
-                  title="Drag to reorder"
-                  onDragStart={() => setDraggedOutputId(table.outputId)}
-                  onDragEnd={() => setDraggedOutputId(null)}
-                  className="cursor-grab text-slate-400 active:cursor-grabbing"
-                >
-                  <IconGripVertical size={16} />
-                </span>
                 <input
                   aria-label={`Table name for ${table.title || table.outputId}`}
                   value={table.title}
@@ -295,7 +261,6 @@ export function BuilderToolbar({
   onNewTable,
   onDuplicateTable,
   onDeleteTable,
-  onReorderTable,
   onReview,
   reviewExpanded,
   onPublish,
@@ -317,7 +282,6 @@ export function BuilderToolbar({
       onNewTable={onNewTable}
       onDuplicateTable={onDuplicateTable}
       onDeleteTable={onDeleteTable}
-      onReorderTable={onReorderTable}
       busy={busy}
       columnCreationSupported={columnCreationSupported}
     />

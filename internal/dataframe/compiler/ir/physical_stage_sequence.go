@@ -139,6 +139,9 @@ const (
 )
 
 type PhysicalStageGroup struct {
+	// DynamicRuntimeKeysVariable retains each contributing row inventory for
+	// post-query validation after grouping removes source projections.
+	DynamicRuntimeKeysVariable  string
 	GroupRowsVariable           string
 	IdentityVariable            string
 	ConstructionIDBindKey       string

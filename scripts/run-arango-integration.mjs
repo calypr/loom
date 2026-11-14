@@ -47,7 +47,15 @@ export const profiles = [
 // unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
 profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
-profiles.find(p => p.id === 'explorer').alsoRequired = ['TestDraftCASConcurrentWritersAgainstArango', 'TestDraftCASAfterWinnerCommitAgainstArango', 'TestDraftCASPublicApplyConflictClassAgainstArango', 'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango'];
+profiles.find(p => p.id === 'explorer').alsoRequired = [
+    'TestDraftCASConcurrentWritersAgainstArango',
+    'TestDraftCASAfterWinnerCommitAgainstArango',
+    'TestDraftCASPublicApplyConflictClassAgainstArango',
+    'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango',
+    'TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango',
+    'TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAgainstArango',
+    'TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstArango',
+];
 // The assembled dual-store checkpoint has its own API/CI route with both services.
 profiles.find(p => p.id === 'server').skip = '^(TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestCurrentDraftAppendRowsAgainstArangoClickHouse)$';
 export function checkEvents(stdout, profile) {

@@ -156,9 +156,6 @@ func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (
 	if strings.TrimSpace(request.GitCommit) == "" {
 		request.GitCommit = ref.Generation
 	}
-	if request.GitCommit != ref.Generation {
-		return ProjectRelease{}, fmt.Errorf("gitCommit must match generation")
-	}
 	if err := s.validateGeneration(ctx, ref); err != nil {
 		return ProjectRelease{}, err
 	}
@@ -232,7 +229,7 @@ func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (
 		now = s.Now().UTC()
 	}
 	release := ProjectRelease{
-		Project: ref.Project, GitCommit: ref.Generation, Generation: ref.Generation,
+		Project: ref.Project, GitCommit: request.GitCommit, Generation: ref.Generation,
 		Publications: publications, RequiredVerifications: verifications, CreatedAt: now,
 	}
 	// F-B15 repair: the ID is CONTENT-ADDRESSED (revision excluded). The

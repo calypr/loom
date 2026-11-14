@@ -48,6 +48,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/projectid"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -454,6 +455,11 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, publicationarango.BootstrapSpec()); err != nil {
 		return fmt.Errorf("bootstrap dataset lifecycle store: %w", err)
 	}
+	if err := lifecycleClient.Bootstrap(ctx, arangostore.BootstrapSpec{
+		Collections: []arangostore.CollectionSpec{{Name: catalog.FieldCatalogCollection}},
+	}); err != nil {
+		return fmt.Errorf("bootstrap authorization catalog: %w", err)
+	}
 	var degradation error
 	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
@@ -464,10 +470,15 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 		return fmt.Errorf("bootstrap Explorer store: %w", err)
 	}
+	explorerStore, err := explorerarango.New(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create Explorer store: %w", err)
+	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
 	}
+	var configuredRecipeName, configuredRecipeVersion string
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
@@ -477,6 +488,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
+		configuredRecipeName = defaultBundle.Name
+		configuredRecipeVersion = defaultBundle.TranslationVersion
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
@@ -652,10 +665,6 @@ func run(ctx context.Context, serverConfig Config) error {
 	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {
 		return releaseService.ValidateGeneration(ctx, project, generation)
 	}
-	explorerStore, err := explorerarango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create Explorer store: %w", err)
-	}
 	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
 		return fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
 	}
@@ -675,6 +684,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create Explorer artifact store: %w", err)
 	}
+	readRecipeExecution := graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver)
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
@@ -694,7 +704,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}},
 		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
 		RecipeRevisions:  recipeRevisions,
-		RecipeExecutions: graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
+		RecipeExecutions: readRecipeExecution,
 	})
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,
@@ -715,6 +725,105 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create generation load service: %w", err)
 	}
+	sourceLoadLimits := loadapi.SourceLoadLimits{MaxFileBytes: serverConfig.Server.SourceLoadMaxFileBytes}
+	var sourceLoader loadapi.SourceLoader
+	if bundleTarget != nil && configuredRecipeName != "" {
+		sourceLoader, err = ingest.NewRepositorySourceLoader(ingest.SourceLoadPublisherConfig{
+			Client: lifecycleClient, DatasetStore: lifecycleStore, SchemaPath: serverConfig.Server.Schema,
+			ValidateProject: func(ctx context.Context, project string) error {
+				if scopeResolver == nil {
+					return nil
+				}
+				principal, _ := authscope.PrincipalFromContext(ctx)
+				if err := scopeResolver.AuthorizeReadProject(ctx, principal, project); err != nil {
+					return recipeAuthorizationError(err)
+				}
+				return nil
+			},
+			MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, commit string, expectedRevision int64) (string, int64, error) {
+				bindings, err := (recipeAuthorization{resolver: scopeResolver}).AuthorizeRead(ctx, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+				if err != nil {
+					return "", 0, err
+				}
+				var identity publication.BundleIdentity
+				resolved, err := recipeEngine.Materialize(ctx, configuredRecipeName, bindings, func(publishCtx context.Context, full dataframeexecution.Resolved) error {
+					var publishErr error
+					identity, publishErr = publishResolvedRecipe(
+						publishCtx, recipeEngine, bundleTarget, configuredRecipeName, bindings, full,
+						operationID, nil, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
+						serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,
+					)
+					return publishErr
+				})
+				if err != nil {
+					return "", 0, err
+				}
+				execution, err := publishedRegistry.FindExecutionByKey(ctx, identity.Key())
+				if err != nil {
+					return "", 0, err
+				}
+				if execution.State.Canonical() != publication.BundlePublished || execution.ReceiptID != operationID || execution.Project != project || execution.DatasetGeneration != generation {
+					return "", 0, fmt.Errorf("configured recipe did not publish the candidate generation")
+				}
+				catalogSnapshot, err := explorer.PrepareViewBuilderCatalogSnapshot(resolved, execution, commit)
+				if err != nil {
+					return "", 0, fmt.Errorf("prepare view builder catalog snapshot: %w", err)
+				}
+				settings, err := explorerStore.GetViewBuilderSettings(ctx, project)
+				if err != nil {
+					return "", 0, fmt.Errorf("load project view builder settings: %w", err)
+				}
+				catalogRevisionID, catalogAnchored := settings.Catalogs[configuredRecipeName]
+				if catalogAnchored && (strings.TrimSpace(catalogRevisionID) == "" || catalogRevisionID != strings.TrimSpace(catalogRevisionID)) {
+					return "", 0, fmt.Errorf("project view builder catalog anchor for recipe %q is invalid", configuredRecipeName)
+				}
+				owners, err := explorerStore.List(ctx, projectid.Legacy(project))
+				if err != nil {
+					return "", 0, fmt.Errorf("load project-owned Explorer views: %w", err)
+				}
+				definitions, expectedConfigRevisionIDs, err := projectConfigsForSourcePublication(
+					owners, configuredRecipeName, catalogAnchored, catalogSnapshot,
+				)
+				if err != nil {
+					return "", 0, fmt.Errorf("resolve project views for source publication: %w", err)
+				}
+				selectors := make([]publicationcontract.DataframeSelector, 0, len(execution.Outputs))
+				for _, output := range execution.Outputs {
+					selectors = append(selectors, execution.Selector(output.Name))
+				}
+				configs, err := explorer.PrepareProjectConfigsForPublication(definitions, resolved, execution, commit)
+				if err != nil {
+					return "", 0, fmt.Errorf("prepare project configs: %w", err)
+				}
+				candidateReleaseService := *releaseService
+				candidateReleaseService.Required = append(append([]publicationcontract.DataframeSelector(nil), releaseService.Required...), selectors...)
+				release, err := candidateReleaseService.Create(ctx, publicationcontract.ActivationRequest{
+					Project: project, Generation: generation, GitCommit: commit,
+					ExpectedRevision: expectedRevision,
+				})
+				if err != nil {
+					return "", 0, err
+				}
+				active, err := explorerStore.PublishProjectConfigs(ctx, explorer.ProjectConfigPublishRequest{
+					RecipeName: configuredRecipeName, Configs: configs, Release: release,
+					ExpectedReleaseRevision: expectedRevision, ExpectedConfigRevisionIDs: expectedConfigRevisionIDs,
+					CatalogSnapshot: &catalogSnapshot,
+				})
+				if err != nil {
+					return "", 0, fmt.Errorf("activate project publication: %w", err)
+				}
+				discoveryCache.InvalidateProject(project)
+				if scopeResolver != nil {
+					scopeResolver.InvalidateProject(project)
+				}
+				return execution.ID, active.Revision, nil
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("create per-file source loader: %w", err)
+		}
+	}
+	importedSources := importedRecipeSources{registry: recipeRegistry, engine: recipeEngine, capabilities: capabilityResolver, defaultName: configuredRecipeName, defaultVersion: configuredRecipeVersion}
 	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		var resolveCombineSchemas combineInputSchemaResolver
 		if materializationReader != nil {
@@ -722,7 +831,7 @@ func run(ctx context.Context, serverConfig Config) error {
 				return exactPublishedCombineInputSchemas(ctx, output, bindings, materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
 			}
 		}
-		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas)
+		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas, importedSources)
 	}
 	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
 	if err != nil {
@@ -756,6 +865,11 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("configure table-shape capability repository: %w", err)
 	}
 	lifecycleConfig := lifecycle.Config{
+		DefaultDataframeWorkspace:          importedSources.DefaultWorkspace,
+		EditImportedSource:                 importedSources.Edit,
+		EditImportedSources:                importedSources.EditBatch,
+		EditImportedRelationship:           importedSources.EditRelationship,
+		AuthoringNetwork:                   importedSources.Network,
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
 		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
@@ -771,7 +885,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ScanCategories:                     configuredCategoryScanner(logger, recipeEngine),
 		CompileReceipt:                     compileReceipt,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return compileConstructionSourceStage(ctx, request, recipeEngine, importedSources)
 		},
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
@@ -900,11 +1014,15 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 	}, explorerService, lifecycleConfig)
+	explorerHandlers.authorizeExecution = func(ctx context.Context, id string) error {
+		_, err := readRecipeExecution(ctx, id)
+		return err
+	}
 	explorerHandlers.constructionInputs = constructionInputsCatalog{
 		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
+	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if privateClickHouseArtifacts != nil {

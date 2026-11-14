@@ -162,10 +162,15 @@ const formatStep = (
       });
       const grouping = keys.length > 0 ? ` by ${keys.join(', ')}` : '';
       const measures = aggregates.length > 0 ? `; ${aggregates.join('; ')}` : '';
+      const retained = (step.rowValues ?? []).map((value) => {
+        const output = step.outputs.find((column) => column.id === value.outputColumnId)?.label ?? 'a retained value';
+        return `${output} retains ${value.policy === 'ALL' ? 'all contributor values' : 'one distinct contributor value (reject conflicting values)'}`;
+      });
+      const retainedSummary = retained.length > 0 ? ` Retained values: ${retained.join('; ')}.` : '';
       return {
         id: step.id,
         title: keys.length > 0 ? `Group by ${keys.join(', ')}` : 'Group rows',
-        summary: `Group rows${grouping}${measures}.`,
+        summary: `Group rows${grouping}${measures}.${retainedSummary}`,
         editable: true,
       };
     }
@@ -246,7 +251,7 @@ const formatStep = (
       return {
         id: step.id,
         title: `Rows from ${expansion.targetResourceType}`,
-        summary: `One row per distinct ${expansion.targetResourceType} via ${path}${contributorCondition(expansion.contributorRule.predicate, expansion.contributorSource?.path ?? 'the selected field')}; ${empty}.`,
+        summary: `For each input row, one row per matching ${expansion.targetResourceType} via ${path}${contributorCondition(expansion.contributorRule.predicate, expansion.contributorSource?.path ?? 'the selected field')}; ${empty}.`,
         editable: true,
       };
     }
@@ -283,7 +288,6 @@ const formatStep = (
 
 const isColumnAdjustment = (operation: Construction['steps'][number]['operation']): boolean => {
   switch (operation.kind) {
-    case 'EXPAND':
     case 'RELATED_SOURCE':
     case 'RELATED_FIELD':
     case 'DERIVE':
@@ -304,18 +308,28 @@ export const constructionHistorySteps = (
   }
   const stages = new Map<string, ReadonlyMap<string, ConstructionStageColumn>>();
   const result: ConstructionHistoryStep[] = [];
+  const scopes = new Map<string, string>();
 
   for (const step of construction.steps) {
     const inputRef = step.inputs[0];
     const input = inputRef?.kind === 'STEP_OUTPUT'
       ? stages.get(inputRef.stepId) ?? source
       : source;
+    const inputScope = inputRef?.kind === 'STEP_OUTPUT' ? scopes.get(inputRef.stepId) ?? `stage:${inputRef.stepId}` : 'source';
+    let scopeKey = inputScope;
+    if (step.operation.kind === 'RELATED_SOURCE') {
+      const related = step.operation.relatedSource;
+      scopeKey += `:related:${related.sourceOccurrenceId}:${related.anchorColumnId}:${related.route.map((edge) => edge.edgeId).join('/')}`;
+    } else if (step.operation.kind === 'RELATED_FIELD') {
+      scopeKey += `:related-field:${step.operation.relatedField.source.nodeId}`;
+    }
     if (!step.ownerStepId) {
       const historyStep = formatStep(step, input);
       result.push(isColumnAdjustment(step.operation)
-        ? { ...historyStep, hierarchy: 'COLUMN_ADJUSTMENT' }
+        ? { ...historyStep, hierarchy: 'COLUMN_ADJUSTMENT', scopeKey }
         : historyStep);
     }
+    scopes.set(step.id, isColumnAdjustment(step.operation) ? inputScope : `stage:${step.id}`);
     stages.set(step.id, new Map(step.outputs.map((column) => [column.id, column] as const)));
   }
 

@@ -30,7 +30,7 @@ func TestRootPageRelatedSeedConstructionFilterPlacement(t *testing.T) {
 
 	query := page.RootKeysQuery
 	unique := strings.Index(query, "LET child_set_1 = UNIQUE((")
-	childSort := strings.Index(query, "SORT child_set_1_node._key")
+	childSort := strings.Index(query, "SORT NOT_NULL(child_set_1_node.logical_key, child_set_1_node._key), child_set_1_node._key")
 	first := strings.Index(query, "FIRST(FLATTEN(child_set_1[*].__loom_projection_0))")
 	filterBind := strings.LastIndex(query, "@construction_filter_value")
 	filter := -1

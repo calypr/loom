@@ -58,6 +58,12 @@ type ColumnSource struct {
 	Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
 	Lookup       *LookupSource       `json:"lookup,omitempty"`
 	OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
+	Imported     *ImportedSource     `json:"imported,omitempty"`
+}
+
+// ImportedSource addresses one structural column in the server-resolved output.
+type ImportedSource struct {
+	OutputColumn string `json:"outputColumn"`
 }
 
 // OwnerRecordsSource preserves one repeated FHIR owner as one structured
@@ -219,31 +225,36 @@ func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
 		Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
 		Lookup       *LookupSource       `json:"lookup,omitempty"`
 		OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
+		Imported     *ImportedSource     `json:"imported,omitempty"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
 	}
-	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup, OwnerRecords: wire.OwnerRecords}
+	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup, OwnerRecords: wire.OwnerRecords, Imported: wire.Imported}
 	switch wire.Kind {
 	case SourceField:
-		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil || wire.Imported != nil {
 			return fmt.Errorf("field source requires exactly the field payload")
 		}
 	case SourceAggregate:
-		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil || wire.OwnerRecords != nil || wire.Imported != nil {
 			return fmt.Errorf("aggregate source requires exactly the aggregate payload")
 		}
 	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodedValue:
-		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil || wire.OwnerRecords != nil {
+		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil || wire.OwnerRecords != nil || wire.Imported != nil {
 			return fmt.Errorf("%s source requires exactly the lookup payload", wire.Kind)
 		}
 	case SourceOwnerRecords:
-		if wire.OwnerRecords == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil {
+		if wire.OwnerRecords == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.Imported != nil {
 			return fmt.Errorf("ownerRecords source requires exactly the ownerRecords payload")
 		}
 	case SourceProjectID:
-		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil || wire.Imported != nil {
 			return fmt.Errorf("projectId source does not accept a payload")
+		}
+	case SourceImported:
+		if wire.Imported == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+			return fmt.Errorf("imported source requires exactly the imported payload")
 		}
 	default:
 		return fmt.Errorf("unsupported source kind %q", wire.Kind)
@@ -394,6 +405,7 @@ const (
 	SourceOwnerRecords       = "ownerRecords"
 	SourceProjectID          = "projectId"
 	SourceAggregate          = "aggregate"
+	SourceImported           = "imported"
 )
 
 type Column struct {
@@ -645,9 +657,18 @@ func (s ColumnSource) validate(path string) error {
 	if s.OwnerRecords != nil {
 		variants++
 	}
+	if s.Imported != nil {
+		variants++
+	}
 	if s.Kind == SourceProjectID {
 		if variants != 0 {
 			return fmt.Errorf("%s projectId source does not accept a payload", path)
+		}
+		return nil
+	}
+	if s.Kind == SourceImported {
+		if variants != 1 || s.Imported == nil || strings.TrimSpace(s.Imported.OutputColumn) == "" || s.Imported.OutputColumn != strings.TrimSpace(s.Imported.OutputColumn) {
+			return fmt.Errorf("%s imported source requires imported.outputColumn", path)
 		}
 		return nil
 	}
@@ -846,6 +867,19 @@ func (d Document) validateSemantic() error {
 		}
 	}
 	seen := map[string]bool{}
+	if d.ImportedRecipe != nil {
+		if err := d.ImportedRecipe.Validate(); err != nil {
+			return fmt.Errorf("importedRecipe: %w", err)
+		}
+	}
+	if d.ImportedSource != nil {
+		if d.ImportedRecipe == nil {
+			return fmt.Errorf("importedSource requires an importedRecipe reference")
+		}
+		if err := d.ImportedSource.Validate(); err != nil {
+			return fmt.Errorf("importedSource: %w", err)
+		}
+	}
 	for i, column := range d.Columns {
 		path := fmt.Sprintf("columns[%d]", i)
 		if !physicalColumnPattern.MatchString(column.Column) {
@@ -863,6 +897,9 @@ func (d Document) validateSemantic() error {
 		}
 		if err := column.Source.validate(path + ".source"); err != nil {
 			return err
+		}
+		if (column.Source.Kind == SourceImported) != (d.ImportedRecipe != nil) {
+			return fmt.Errorf("%s imported source requires a matching importedRecipe reference", path)
 		}
 		if column.Source.Aggregate != nil && column.Source.Aggregate.ContributorWindow != nil && column.OccurrenceID == RootOccurrenceID {
 			return fmt.Errorf("%s.source.aggregate.contributorWindow requires a related resource occurrence", path)

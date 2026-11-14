@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { importedSourceParametersSchema, validateEditableSourceParameters } from './sourceRecipeParameters';
+export { importedSourceParametersSchema, sourceRecipeExpressionSchema, sourceRecipeEditFunctions } from './sourceRecipeParameters';
+export type { ImportedSourceParameters, SourceRecipeExpression } from './sourceRecipeParameters';
 /** Selector identity for published dataframe reads. */
 export interface DataframeSelector {
   readonly recipe: string;
@@ -536,6 +539,10 @@ export const contributorPredicateSchema = z
   .strict();
 export type ContributorPredicate = z.infer<typeof contributorPredicateSchema>;
 export const explorerColumnSourceSchema = z.union([
+  z.object({
+    kind: z.literal('imported'),
+    imported: z.object({ outputColumn: opaqueIdSchema }).strict(),
+  }).strict(),
   fieldColumnSourceSchema,
   lookupColumnSourceSchema,
   ownerRecordsColumnSourceSchema,
@@ -773,6 +780,9 @@ export const rowDefinitionComparisonSchema = z.discriminatedUnion('status', [
 ]);
 export type RowDefinitionComparison = z.infer<typeof rowDefinitionComparisonSchema>;
 export const rowDefinitionProposalSchema = z.object({
+  candidateDocument: z.lazy(() => explorerBuilderDocumentSchema),
+  candidateNetwork: z.lazy(() => authoringNetworkSchema),
+  candidateRowIdentity: z.lazy(() => rowIdentityPlanSchema),
   proposalId: opaqueIdSchema.optional(),
   baseReceiptId: opaqueIdSchema,
   outputId: opaqueIdSchema,
@@ -2223,6 +2233,46 @@ export const constructionProposalResponseSchema = z.object({
 }).strict();
 export type ConstructionProposalResponse = z.infer<typeof constructionProposalResponseSchema>;
 
+const importedRelationshipFieldSchema = z.object({
+  candidateId: opaqueIdSchema, columnId: opaqueIdSchema, column: opaqueIdSchema,
+  fieldPath: z.string().min(1), label: z.string().min(1), valueMode: z.enum(['ALL', 'FIRST', 'DISTINCT']),
+}).strict();
+const importedRelationshipOverlaySchema = z.object({
+  additions: z.array(z.object({
+    occurrenceId: opaqueIdSchema.regex(/^project_[A-Za-z0-9_]+$/), parentOccurrenceId: opaqueIdSchema,
+    catalogEdgeId: opaqueIdSchema, relationship: z.string().min(1), resourceType: opaqueIdSchema,
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(), matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+    fields: z.array(importedRelationshipFieldSchema).optional(),
+  }).strict()).optional(),
+  removals: z.array(opaqueIdSchema).optional(),
+  matchOverrides: z.array(z.object({ occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict()).optional(),
+}).strict();
+export const authoringNetworkSchema = z.object({
+  owner: z.enum(['DOCUMENT', 'IMPORTED_SOURCE']), outputId: opaqueIdSchema, sourceRows: explorerRowDefinitionSchema,
+  occurrences: z.array(z.object({
+    occurrenceId: opaqueIdSchema, parentOccurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(),
+    resourceType: opaqueIdSchema, label: z.string().optional(), labelMissing: z.boolean(), catalogEdgeId: opaqueIdSchema.optional(),
+    relationship: z.string().optional(), storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+    matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(), enabled: z.boolean(), preservesRowIdentity: z.boolean(), canExcludeRows: z.boolean(),
+  }).strict()),
+  bindings: z.array(z.object({ columnId: opaqueIdSchema, occurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(), valueMode: z.string().optional(), status: z.enum(['EXACT', 'UNKNOWN']) }).strict()),
+  operations: z.array(z.object({ operationId: opaqueIdSchema, kind: z.string().min(1), inputStepIds: z.array(opaqueIdSchema), anchorColumnId: opaqueIdSchema.optional() }).strict()),
+}).strict();
+export const rowIdentityPlanSchema = z.object({
+  outputId: opaqueIdSchema, sourceDefinition: explorerRowDefinitionSchema,
+  stages: z.array(z.object({
+    stageId: opaqueIdSchema, operationId: opaqueIdSchema.optional(),
+    identity: z.object({ kind: z.string().min(1), occurrenceId: opaqueIdSchema.optional(), resourceType: opaqueIdSchema.optional(), inputStageId: opaqueIdSchema.optional(), anchorColumnId: opaqueIdSchema.optional(), relatedRecordColumnId: opaqueIdSchema.optional(), scopePath: z.string().optional(), keyColumnIds: z.array(opaqueIdSchema).optional(), groupRevisionId: opaqueIdSchema.optional(), missingPolicy: z.string().optional(), scope: z.string().min(1) }).strict(),
+    meaning: z.string(), effect: z.string(), mayExcludeRows: z.boolean(), multiplicity: z.literal('UNKNOWN'),
+    count: z.object({ kind: z.literal('UNKNOWN'), value: z.number().int().nonnegative().optional() }).strict(), unsupportedReason: z.string().optional(),
+  }).strict()),
+  relationships: z.array(z.object({ occurrenceId: opaqueIdSchema, catalogEdgeId: opaqueIdSchema.optional(), matchMode: z.enum(['OPTIONAL', 'REQUIRED']), preservesIdentity: z.boolean(), mayExcludeRows: z.boolean(), multiplicity: z.literal('UNKNOWN') }).strict()),
+}).strict();
+export const authoringNetworkRequestSchema = z.object({ snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1), outputId: opaqueIdSchema }).strict();
+export type AuthoringNetworkRequest = z.infer<typeof authoringNetworkRequestSchema>;
+export const authoringNetworkResponseSchema = z.object({ snapshotToken: opaqueIdSchema, draftVersion: z.number().int().positive(), draftDigest: z.string().min(1), network: authoringNetworkSchema, rowIdentity: rowIdentityPlanSchema }).strict();
+export type AuthoringNetworkResponse = z.infer<typeof authoringNetworkResponseSchema>;
+
 export const explorerBuilderDocumentSchema = z
   .object({
     kind: z.literal('ExplorerBuilderDocument'),
@@ -2234,6 +2284,31 @@ export const explorerBuilderDocumentSchema = z
       })
       .strict(),
     rootResourceType: opaqueIdSchema,
+    importedRecipe: z.object({
+      name: z.string().min(1),
+      translationVersion: z.string().min(1),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+      output: z.string().min(1),
+    }).strict().optional(),
+    importedSource: z.object({
+      fieldBindings: z.array(z.object({ fieldId: opaqueIdSchema, columnId: opaqueIdSchema }).strict()).optional(),
+      relationships: importedRelationshipOverlaySchema.optional(),
+      steps: z.array(z.object({
+        id: opaqueIdSchema,
+        parentId: opaqueIdSchema.optional(),
+        sourceKey: z.string().min(1).optional(),
+        occurrenceId: opaqueIdSchema.optional(),
+        matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
+        kind: z.string().min(1),
+        title: z.string().min(1),
+        summary: z.string().min(1),
+        enabled: z.boolean(),
+        editable: z.boolean(),
+        maxColumns: z.number().int().positive().optional(),
+        valueMode: z.string().min(1).optional(),
+        parameters: importedSourceParametersSchema.optional(),
+      }).strict()),
+    }).strict().optional(),
     population: explorerPopulationSchema.optional(),
     route: explorerBuilderRouteNodeSchema,
     rows: explorerRowDefinitionSchema,
@@ -2275,6 +2350,14 @@ export const explorerBuilderDocumentSchema = z
   })
   .strict()
   .superRefine((document, context) => {
+    const importedColumns = document.columns.filter((column) => column.source.kind === 'imported');
+    if (importedColumns.length > 0 && !document.importedRecipe) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Imported source columns require an imported recipe reference.',
+        path: ['importedRecipe'],
+      });
+    }
     if (document.construction && document.tableShape) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -3071,6 +3154,9 @@ export type RowChangeUnresolvedReference = z.infer<
 export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
   rowChangeAssessmentBaseSchema.extend({
     status: z.literal('READY'),
+    candidateDocument: explorerBuilderDocumentSchema.optional(),
+    candidateNetwork: authoringNetworkSchema.optional(),
+    candidateRowIdentity: rowIdentityPlanSchema.optional(),
     proposal: rowChangeProposalSchema,
     candidateReceiptId: opaqueIdSchema.optional(),
     unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
@@ -3122,6 +3208,58 @@ export const semanticSelectionResultSchema = z
   .strict();
 export type SemanticSelectionResult = z.infer<typeof semanticSelectionResultSchema>;
 
+const importedSourceStepChangeSchema = z.object({
+  stepId: opaqueIdSchema,
+  enabled: z.boolean(),
+  maxColumns: z.number().int().positive().optional(),
+  valueMode: z.string().min(1).optional(),
+  parameters: importedSourceParametersSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.parameters) validateEditableSourceParameters(value.parameters, context);
+});
+
+export const sourceRelationshipChangeSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('ADD'), parentOccurrenceId: opaqueIdSchema, edgeId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
+  z.object({ action: z.literal('MATCH'), occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
+  z.object({ action: z.literal('REMOVE'), occurrenceId: opaqueIdSchema }).strict(),
+]);
+export type SourceRelationshipChange = z.infer<typeof sourceRelationshipChangeSchema>;
+export const sourceRelationshipProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  change: sourceRelationshipChangeSchema.optional(),
+  sourceStep: importedSourceStepChangeSchema.optional(),
+  sourceSteps: z.array(importedSourceStepChangeSchema).min(1).max(128).optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict().superRefine((request, context) => {
+  if (Number(request.change !== undefined) + Number(request.sourceStep !== undefined) + Number(request.sourceSteps !== undefined) !== 1) context.addIssue({ code: 'custom', message: 'Choose one relationship change, source-step change, or atomic source-step batch.' });
+  if (request.sourceSteps && new Set(request.sourceSteps.map((step) => step.stepId)).size !== request.sourceSteps.length) context.addIssue({ code: 'custom', path: ['sourceSteps'], message: 'Choose each source operation only once.' });
+});
+export type SourceRelationshipProposalRequest = z.infer<typeof sourceRelationshipProposalRequestSchema>;
+export const sourceRelationshipProposalSchema = z.object({
+  candidateDocument: explorerBuilderDocumentSchema,
+  candidateNetwork: authoringNetworkSchema,
+  candidateRowIdentity: rowIdentityPlanSchema,
+  proposalId: opaqueIdSchema, candidateReceiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema, snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(), draftDigest: z.string().min(1),
+  baseDocumentDigest: z.string().min(1), candidateWorkspaceDigest: z.string().min(1),
+  previewStatus: z.literal('READY'), sampledRows: z.number().int().nonnegative(), sampled: z.boolean(),
+  affectedColumns: z.array(z.string()), notices: z.array(z.string()),
+}).strict();
+export type SourceRelationshipProposal = z.infer<typeof sourceRelationshipProposalSchema>;
+
+export const columnPolicyProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema, columnId: opaqueIdSchema, projectionMode: projectionModeSchema,
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict();
+export type ColumnPolicyProposalRequest = z.infer<typeof columnPolicyProposalRequestSchema>;
+export const columnPolicyProposalSchema = sourceRelationshipProposalSchema;
+export type ColumnPolicyProposal = z.infer<typeof columnPolicyProposalSchema>;
+
 export const explorerBuilderCommandSchema = z
   .object({
     type: z.enum([
@@ -3158,6 +3296,10 @@ export const explorerBuilderCommandSchema = z
       'APPLY_ROW_DEFINITION_PROPOSAL',
       'APPLY_CONSTRUCTION_PROPOSAL',
       'APPLY_TABLE_SHAPE_PROPOSAL',
+      'UPDATE_IMPORTED_SOURCE_STEP',
+      'REFRESH_IMPORTED_SOURCE',
+      'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',
+      'APPLY_COLUMN_POLICY_PROPOSAL',
       'RESTORE_DRAFT_REVISION',
     ]),
     outputId: opaqueIdSchema.optional(),
@@ -3203,9 +3345,42 @@ export const explorerBuilderCommandSchema = z
     semanticSelections: z.array(semanticSelectionIntentSchema).min(1).max(100).optional(),
     constructionChoice: constructionChoiceSelectionSchema.optional(),
     outputIds: z.array(opaqueIdSchema).optional(),
+    sourceStep: importedSourceStepChangeSchema.optional(),
   })
   .strict()
   .superRefine((command, context) => {
+    if (command.type === 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL' || command.type === 'APPLY_COLUMN_POLICY_PROPOSAL') {
+      if (!command.outputId || !command.proposalId) context.addIssue({ code: 'custom', message: 'Relationship Apply requires outputId and proposalId.' });
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'proposalId'].includes(key) && value !== undefined) context.addIssue({ code: 'custom', path: [key], message: 'Relationship Apply accepts only outputId and proposalId.' });
+      }
+      return;
+    }
+    if (command.type === 'UPDATE_IMPORTED_SOURCE_STEP') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires an output ID.' });
+      }
+      if (!command.sourceStep) {
+        context.addIssue({ code: 'custom', path: ['sourceStep'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires a source step change.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'sourceStep'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'UPDATE_IMPORTED_SOURCE_STEP accepts only outputId and sourceStep.' });
+        }
+      }
+      return;
+    }
+    if (command.type === 'REFRESH_IMPORTED_SOURCE') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'REFRESH_IMPORTED_SOURCE requires an output ID.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'REFRESH_IMPORTED_SOURCE accepts only an output ID.' });
+        }
+      }
+      return;
+    }
     if (command.type === 'APPLY_POPULATION_MEMBER_PROPOSAL') {
       if (!command.outputId) {
         context.addIssue({ code: 'custom', path: ['outputId'], message: 'APPLY_POPULATION_MEMBER_PROPOSAL requires an output ID.' });

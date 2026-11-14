@@ -166,10 +166,17 @@ func loadFile(
 	insert documentInserter,
 ) (result fileLoadResult, err error) {
 	resourceType := ResourceTypeFromPath(file)
+	if strings.TrimSpace(opts.SourceFileOwner) != "" {
+		resourceType = strings.TrimSpace(opts.SourceFileOwner)
+	}
 	result.ResourceType = resourceType
 	semanticSourceFile := ""
 	if catalog.NormalizeDatasetGeneration(datasetGeneration) != "" {
-		semanticSourceFile = semanticInventorySourceFileID(opts.MetaDir, file)
+		if strings.TrimSpace(opts.SourceFileOwner) != "" {
+			semanticSourceFile = "META/" + strings.TrimSpace(opts.SourceFileOwner) + ".ndjson"
+		} else {
+			semanticSourceFile = semanticInventorySourceFileID(opts.MetaDir, file)
+		}
 	}
 	class := schema.GetClass(resourceType)
 	if class == nil {
@@ -195,6 +202,9 @@ func loadFile(
 		if err != nil {
 			return result, err
 		}
+	}
+	if strings.TrimSpace(opts.SourceFileOwner) != "" {
+		rowBuilder = sourceFileOwnerRowBuilder{delegate: rowBuilder, owner: opts.SourceFileOwner}
 	}
 
 	linesChan := make(chan fileLine, opts.LineQueueSize)
@@ -366,7 +376,8 @@ func loadFile(
 					built, errorType, buildErr := rowBuilder.Build(resourceType, []byte(line.text), localTimings)
 					if buildErr != nil {
 						if opts.FailFast {
-							setPipelineErr(fmt.Errorf("%s %s row %d: %w", filepath.Base(file), resourceType, line.number, buildErr))
+							setPipelineErr(&RowError{File: filepath.Base(file), ResourceType: resourceType,
+								Row: line.number, Category: string(errorType), Cause: buildErr})
 							return
 						}
 						recordRowError(line.number, errorType, buildErr)

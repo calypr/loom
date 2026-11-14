@@ -127,7 +127,7 @@ describe('BuilderWorkspace empty authenticated project', () => {
     );
   });
 
-  it('shows first-Explorer creation for an explicit default URL without reading default', async () => {
+  it('loads the reserved shared dataframe for a default URL in an empty project', async () => {
     const { client, listExplorers, getBuilder, getCapability } = createTestClient(
       () => [],
     );
@@ -141,24 +141,31 @@ describe('BuilderWorkspace empty authenticated project', () => {
       </LoomProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Create your first Explorer' }))
-        .toBeInTheDocument();
-    });
+    await waitFor(() => expect(getBuilder).toHaveBeenCalledWith(
+      expect.objectContaining({ project, explorerId: 'dataframe-default', authResourcePath }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
 
     expect(listExplorers).toHaveBeenCalledWith(
       { project, authResourcePath },
       expect.any(AbortSignal),
     );
-    expect(getBuilder).not.toHaveBeenCalled();
-    expect(getCapability).not.toHaveBeenCalled();
-    expect(screen.getByText(/This project does not have an Explorer yet\./))
-      .toBeInTheDocument();
+    expect(getCapability).toHaveBeenCalledWith(
+      expect.objectContaining({ project, explorerId: 'dataframe-default', authResourcePath }),
+      expect.any(AbortSignal),
+    );
+    expect((screen.getByRole('combobox', { name: 'Explorer' }) as HTMLSelectElement).value)
+      .toBe('dataframe-default');
+    expect(screen.getByRole('option', { name: 'Shared default dataframe' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Create your first Explorer' })).not.toBeInTheDocument();
+    expect(getBuilder).not.toHaveBeenCalledWith(
+      expect.objectContaining({ explorerId: 'default' }), expect.anything(),
+    );
     expect(screen.getByText('New explorer')).toBeInTheDocument();
     expect(screen.queryByText('Couldn’t load this dataset.')).not.toBeInTheDocument();
   });
 
-  it('creates a blank Explorer and enters the normal first-table UI', async () => {
+  it('creates a blank Explorer from the shared dataframe toolbar and switches its owner', async () => {
     const createdExplorer = { explorerId: 'first-explorer', title: 'First Explorer' };
     const { client, listExplorers, getBuilder } = createTestClient(() => []);
 
@@ -185,10 +192,11 @@ describe('BuilderWorkspace empty authenticated project', () => {
       </LoomProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Create your first Explorer' }))
-        .toBeInTheDocument();
-    });
+    await screen.findByRole('heading', { name: 'Build your first table' });
+    expect(getBuilder).toHaveBeenCalledWith(
+      expect.objectContaining({ project, explorerId: 'dataframe-default', authResourcePath }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
 
     fireEvent.click(screen.getByText('New explorer'));
     fireEvent.change(screen.getByLabelText('Explorer name'), {
@@ -270,7 +278,7 @@ describe('BuilderWorkspace empty authenticated project', () => {
       .not.toBeInTheDocument();
   });
 
-  it('falls back from synthetic default to a listed Explorer in a populated project', async () => {
+  it('keeps the shared dataframe selected until a listed Explorer is explicitly chosen', async () => {
     const listedExplorer = explorerSummary('existing-explorer', 'Existing Explorer');
     const { client, getBuilder, getCapability } = createTestClient(
       () => [listedExplorer],
@@ -287,20 +295,32 @@ describe('BuilderWorkspace empty authenticated project', () => {
     );
 
     await waitFor(() => expect(getBuilder).toHaveBeenCalledWith(
-      expect.objectContaining({ project, explorerId: listedExplorer.explorerId, authResourcePath }),
+      expect.objectContaining({ project, explorerId: 'dataframe-default', authResourcePath }),
       expect.anything(),
+    ));
+    expect(getCapability).toHaveBeenCalledWith(
+      expect.objectContaining({ project, explorerId: 'dataframe-default', authResourcePath }),
+      expect.any(AbortSignal),
+    );
+    expect(getBuilder).not.toHaveBeenCalledWith(
+      expect.objectContaining({ explorerId: listedExplorer.explorerId }), expect.anything(),
+    );
+    expect((screen.getByRole('combobox', { name: 'Explorer' }) as HTMLSelectElement).value)
+      .toBe('dataframe-default');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Explorer' }), {
+      target: { value: listedExplorer.explorerId },
+    });
+    await waitFor(() => expect(getBuilder).toHaveBeenCalledWith(
+      expect.objectContaining({ project, explorerId: listedExplorer.explorerId, authResourcePath }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     ));
     expect(getCapability).toHaveBeenCalledWith(
       expect.objectContaining({ project, explorerId: listedExplorer.explorerId, authResourcePath }),
       expect.any(AbortSignal),
     );
-    expect(getBuilder).not.toHaveBeenCalledWith(
-      expect.objectContaining({ project, explorerId: 'default' }),
-      expect.anything(),
-    );
   });
 
-  it('keeps a listed default Explorer as the populated-project match', async () => {
+  it('resolves the default URL to the shared dataframe even when a legacy default is listed', async () => {
     const listedDefault = explorerSummary('default', 'Default Explorer');
     const { client, getBuilder, getCapability } = createTestClient(
       () => [listedDefault],
@@ -317,12 +337,17 @@ describe('BuilderWorkspace empty authenticated project', () => {
     );
 
     await waitFor(() => expect(getBuilder).toHaveBeenCalledWith(
-      expect.objectContaining({ project, explorerId: 'default', authResourcePath }),
+      expect.objectContaining({ project, explorerId: 'dataframe-default', authResourcePath }),
       expect.anything(),
     ));
     expect(getCapability).toHaveBeenCalledWith(
-      expect.objectContaining({ project, explorerId: 'default', authResourcePath }),
+      expect.objectContaining({ project, explorerId: 'dataframe-default', authResourcePath }),
       expect.any(AbortSignal),
+    );
+    expect(screen.getByRole('option', { name: 'Shared default dataframe' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: listedDefault.title })).toBeInTheDocument();
+    expect(getBuilder).not.toHaveBeenCalledWith(
+      expect.objectContaining({ explorerId: 'default' }), expect.anything(),
     );
   });
 });

@@ -140,10 +140,19 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		})
 		return assessment, nil
 	}
-	if document.RootResourceType == node.ResourceType && rootNodeID == request.RootNodeID {
+	if document.RootResourceType == node.ResourceType && rootNodeID == request.RootNodeID &&
+		(request.RootOccurrenceID == "" || request.RootOccurrenceID == document.Route.OccurrenceID) {
 		assessment.Status = RowChangeNoChange
 		return assessment, nil
 	}
+	if document.ImportedRecipe != nil {
+		assessment.Unresolved = append(assessment.Unresolved, RowChangeUnresolvedReference{
+			Kind: RowReferenceRoute, ID: document.Route.OccurrenceID, Code: "IMPORTED_SOURCE_ROOT_OVERLAY_REQUIRED",
+			Message: "preserving imported source rows requires a typed source-root overlay; use explicit source replacement to detach the pin and reset the table",
+		})
+		return assessment, nil
+	}
+
 	sourceDocument, err := cloneDocument(document)
 	if err != nil {
 		return RowChangeAssessment{}, err

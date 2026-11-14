@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
@@ -26,6 +27,8 @@ import {
   relatedExpandContributorSearchResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
+  importedSourceParametersSchema,
+  sourceRelationshipProposalRequestSchema,
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
   tableShapeComparisonSchema,
@@ -34,8 +37,11 @@ import {
 } from './types';
 
 describe('Explorer authoring contract version', () => {
-  it('bumps for the contributor-window aggregate wire contract', () => {
-    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(10);
+  it('sends the semantics version required by the Go command decoder', () => {
+    const source = readFileSync(new URL('../../../../internal/explorer/authoringv2/types.go', import.meta.url), 'utf8');
+    const match = source.match(/CurrentSemanticsVersion\s*=\s*(\d+)/);
+    expect(match, 'Go authoring semantics version must be declared').not.toBeNull();
+    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(Number(match?.[1]));
   });
 });
 
@@ -204,6 +210,72 @@ describe('explorerBuilderDocumentSchema', () => {
         tableShape: invalidTableShape,
       }).success).toBe(false);
     }
+  });
+
+  it('preserves strict imported source-step metadata and validates advertised bounds', () => {
+    const importedDocument = {
+      ...document,
+      rows: { kind: 'RECORDS', records: {} },
+      importedRecipe: {
+        name: 'research_subject',
+        translationVersion: '1',
+        digest: 'a'.repeat(64),
+        output: 'ResearchSubject',
+      },
+      importedSource: {
+        steps: [{
+          id: 'traversals[0].pivots[0]',
+          parentId: 'traversals[0]',
+          kind: 'PIVOT',
+          title: 'Observation values',
+          summary: 'Discover columns for Observation values',
+          enabled: true,
+          editable: true,
+          maxColumns: 128,
+          valueMode: 'FIRST',
+        }],
+      },
+    };
+
+    expect(explorerBuilderDocumentSchema.parse(importedDocument).importedSource)
+      .toEqual(importedDocument.importedSource);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...importedDocument,
+      importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], maxColumns: 0 }] },
+    }).success).toBe(false);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...importedDocument,
+      importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], unknown: true }] },
+    }).success).toBe(false);
+  });
+});
+
+describe('imported source step authoring commands', () => {
+  it('accepts only scoped refresh and source-step update payloads', () => {
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'REFRESH_IMPORTED_SOURCE',
+      outputId: 'patients',
+    })).toEqual({ type: 'REFRESH_IMPORTED_SOURCE', outputId: 'patients' });
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      outputId: 'patients',
+      sourceStep: { stepId: 'traversals[0].pivots[0]', enabled: true, maxColumns: 64, valueMode: 'ALL' },
+    })).toMatchObject({ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId: 'patients' });
+
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      outputId: 'patients',
+      sourceStep: { stepId: 'pivot', enabled: true, maxColumns: 0 },
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REFRESH_IMPORTED_SOURCE',
+      outputId: 'patients',
+      sourceStep: { stepId: 'pivot', enabled: true },
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      sourceStep: { stepId: 'pivot', enabled: true },
+    }).success).toBe(false);
   });
 });
 
@@ -1030,6 +1102,9 @@ describe('row-definition contract schemas', () => {
     expect(rowDefinitionChoicesResponseSchema.parse(choices)).toEqual(choices);
 
     const proposal = {
+      candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'output', title: 'Output' }, rootResourceType: 'Patient', route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
+      candidateNetwork: { owner: 'DOCUMENT', outputId: 'output', sourceRows: { kind: 'RECORDS', records: {} }, occurrences: [], bindings: [], operations: [] },
+      candidateRowIdentity: { outputId: 'output', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
       proposalId: 'proposal-receipt',
       baseReceiptId: 'base-receipt',
       outputId: 'output',
@@ -2142,4 +2217,44 @@ describe('explorerBuilderCommandSchema', () => {
       },
     })).toThrow();
   });
+});
+
+
+describe('typed imported source parameter editing', () => {
+  const owner = { snapshotToken: 'snapshot', expectedDraftVersion: 4, expectedDraftDigest: 'draft', outputId: 'subjects' };
+  it('preserves explicit empty prefix and null literals through proposal serialization', () => {
+    const sourceStep = { stepId: 'dynamic-identifiers', enabled: true, parameters: { dynamic: {
+      name: 'identifiers', columnPrefix: '', source: { select: 'root.identifier[]' }, value: { literal: null },
+    } } };
+    expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceStep }).sourceStep).toEqual(sourceStep);
+    const withoutPrefix = { dynamic: { name: 'identifiers', source: { select: 'root.identifier[]' } } };
+    expect(importedSourceParametersSchema.parse(withoutPrefix)).toEqual(withoutPrefix);
+  });
+  it('reads legacy pinned expressions while rejecting their introduction by an edit', () => {
+    for (const expr of [{ call: 'legacy_function', args: [{ select: 'root.id' }] }, { document: { context: 'prior' } }, { literal: { original: true } }]) {
+      const parameters = { identity: { name: 'identity', expr } };
+      expect(importedSourceParametersSchema.parse(parameters)).toEqual(parameters);
+      expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'identity', enabled: true, parameters } }).success).toBe(false);
+    }
+  });
+  it('keeps an explicit coupled alias edit atomic and rejects duplicate or mixed requests', () => {
+    const sourceSteps = [
+      { stepId: 'expansion', enabled: true, parameters: { expansion: { from: { select: 'root.member[]' }, as: 'member' } } },
+      { stepId: 'identity', enabled: true, parameters: { identity: { name: 'member_id', expr: { select: 'member.reference' } } } },
+    ];
+    expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceSteps }).sourceSteps).toEqual(sourceSteps);
+    expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceSteps: [sourceSteps[0], sourceSteps[0]] }).success).toBe(false);
+    expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceSteps, sourceStep: sourceSteps[0] }).success).toBe(false);
+    expect(importedSourceParametersSchema.safeParse({ output: { rowGrain: 'one' }, identity: { name: 'id', expr: { select: 'root.id' } } }).success).toBe(false);
+    expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'identity', enabled: true, columnId: 'client-owned', parameters: sourceSteps[1].parameters } }).success).toBe(false);
+  });
+});
+
+
+it('treats arbitrary pivot alias names as strings while checking only actual expression slots', () => {
+  const owner = { snapshotToken: 's', expectedDraftVersion: 4, expectedDraftDigest: 'd', outputId: 'Observation' };
+  const parameters = { pivot: { name: 'codes', columns: ['call', 'document', 'literal'], columnAliases: { call: 'renamed_call', document: 'renamed_document', literal: 'renamed_literal' }, columnExpr: { select: 'root.code' }, valueExpr: { select: 'root.valueInteger' } } };
+  expect(sourceRelationshipProposalRequestSchema.parse({ ...owner, sourceStep: { stepId: 'pivots[0]', enabled: true, parameters } }).sourceStep?.parameters).toEqual(parameters);
+  const unsupported = { ...parameters, pivot: { ...parameters.pivot, valueFallbacks: [{ call: 'unsupported', args: [{ select: 'root.id' }] }] } };
+  expect(sourceRelationshipProposalRequestSchema.safeParse({ ...owner, sourceStep: { stepId: 'pivots[0]', enabled: true, parameters: unsupported } }).success).toBe(false);
 });

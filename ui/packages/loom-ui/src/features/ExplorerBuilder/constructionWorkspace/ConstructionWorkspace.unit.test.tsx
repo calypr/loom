@@ -15,6 +15,23 @@ import { sourceProjectionAvailability } from './sourceProjectionAvailability';
 import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../types';
 
 describe('ConstructionWorkspace', () => {
+  it('collapses a 100-operation run without crossing source scopes or semantic boundaries', () => {
+    const columns = Array.from({ length: 100 }, (_, index) => ({
+      id: `column-${index}`, title: `Column ${index}`, summary: `Value ${index}`,
+      hierarchy: 'COLUMN_ADJUSTMENT' as const, scopeKey: index < 50 ? 'source:subject' : 'source:patient',
+    }));
+    const steps = [...columns.slice(0, 75), { id: 'filter', title: 'Filter rows', summary: 'Required output filter' }, ...columns.slice(75)];
+    render(<ConstructionHistory resourceType="ResearchSubject" steps={steps} selected={{ kind: 'source' }} onSelect={vi.fn()} />);
+    const groups = screen.getAllByTestId(/construction-history-adjustment-group-/);
+    expect(groups).toHaveLength(3);
+    expect(groups[0]).toHaveTextContent('(50)');
+    expect(groups[1]).toHaveTextContent('(25)');
+    expect(groups[2]).toHaveTextContent('(25)');
+    const orderedIds = [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map((node) => node.getAttribute('data-testid'));
+    expect(orderedIds).toEqual(steps.map((step) => `construction-history-step-${step.id}`));
+    expect(screen.getByText('Required output filter')).toBeInTheDocument();
+  });
+
   it('keeps the visible row meaning aligned with the last row-changing step', () => {
     const sourceColumns = [
       { id: 'status', name: 'status', label: 'Status' },
@@ -183,7 +200,7 @@ describe('ConstructionWorkspace', () => {
     ])).toBe('For each current row (one row per distinct combination of Status), one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep the current row once with an empty MedicationAdministration FHIR resource ID when no match exists.');
   });
 
-  it('keeps row actions in More actions without reopening the reshape menu', () => {
+  it('makes all five operation families reachable and explains unavailable calculations', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 
     render(<ConstructionActionBar onSelect={onSelect} />);
@@ -200,9 +217,6 @@ describe('ConstructionWorkspace', () => {
       fireEvent.click(button);
       expect(onSelect).toHaveBeenLastCalledWith(family);
     }
-    expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
     const moreActions = screen.getByTestId('construction-more-actions');
     fireEvent.click(moreActions);
     expect(moreActions).toHaveAttribute('aria-expanded', 'true');
@@ -211,10 +225,36 @@ describe('ConstructionWorkspace', () => {
     expect(document.activeElement).toBe(moreActions);
     fireEvent.click(moreActions);
     const menu = screen.getByRole('group', { name: 'More table actions' });
-    expect(within(menu).getByTestId('construction-action-combine')).toBeEnabled();
-    expect(within(menu).queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
-    fireEvent.click(within(menu).getByTestId('construction-action-combine'));
+    const calculate = within(menu).getByTestId('construction-action-calculate');
+    const reshape = within(menu).getByTestId('construction-action-reshape');
+    const combine = within(menu).getByTestId('construction-action-combine');
+    expect(calculate).toBeDisabled();
+    expect(calculate).toHaveAttribute('title', 'Calculation is unavailable for the current table stage.');
+    expect(within(menu).getByRole('status')).toHaveTextContent('Calculation is unavailable for the current table stage.');
+    expect(reshape).toBeEnabled();
+    expect(combine).toBeEnabled();
+    fireEvent.click(reshape);
+    expect(onSelect).toHaveBeenLastCalledWith('RESHAPE');
+    fireEvent.click(moreActions);
+    const reopenedMenu = screen.getByRole('group', { name: 'More table actions' });
+    fireEvent.click(within(reopenedMenu).getByTestId('construction-action-combine'));
     expect(onSelect).toHaveBeenLastCalledWith('COMBINE');
+  });
+
+  it('keeps Calculate, Reshape, and Combine reachable when calculation is supported', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} calculateAvailable />);
+
+    fireEvent.click(screen.getByTestId('construction-more-actions'));
+    const menu = screen.getByRole('group', { name: 'More table actions' });
+    const calculate = within(menu).getByTestId('construction-action-calculate');
+    const reshape = within(menu).getByTestId('construction-action-reshape');
+    const combine = within(menu).getByTestId('construction-action-combine');
+    expect(calculate).toBeEnabled();
+    expect(reshape).toBeEnabled();
+    expect(combine).toBeEnabled();
+    fireEvent.click(calculate);
+    expect(onSelect).toHaveBeenCalledWith('CALCULATE');
   });
 
   it('groups only contiguous column adjustments and opens the selected group', () => {
@@ -242,21 +282,17 @@ describe('ConstructionWorkspace', () => {
     );
 
     const adjustmentGroups = screen.getAllByTestId(/^construction-history-adjustment-group-/);
-    expect(adjustmentGroups.map((group) => group.querySelector('summary')?.textContent?.replace('▸', '').trim())).toEqual([
+    expect(adjustmentGroups.map((group) => group.querySelector('h4')?.textContent?.trim())).toEqual([
       'Column adjustments (2)',
       'Column adjustments (1)',
       'Column adjustments (1)',
     ]);
-    const marker = adjustmentGroups[0]?.querySelector('summary > [aria-hidden="true"]');
-    expect(marker).toHaveTextContent('▸');
-    expect(marker).toHaveClass('group-open:rotate-90');
-    expect(adjustmentGroups[0]).not.toHaveAttribute('open');
-    expect(adjustmentGroups[1]).toHaveAttribute('open');
-    expect(adjustmentGroups[2]).not.toHaveAttribute('open');
+    expect(adjustmentGroups[0]).toHaveTextContent('Expand summary');
+    expect(adjustmentGroups[1]).toHaveTextContent('Related field summary');
+    expect(adjustmentGroups[2]).toHaveTextContent('Related source summary');
 
-    const renderedStepIds = screen.getAllByTestId(/^construction-history-step-/)
-      .map((button) => button.getAttribute('data-testid'));
-    expect(renderedStepIds).toEqual([
+    const renderedSteps = screen.getAllByTestId(/^construction-history-step-/);
+    expect(renderedSteps.map((button) => button.getAttribute('data-testid'))).toEqual([
       'construction-history-step-expand-first',
       'construction-history-step-derive-first',
       'construction-history-step-group-rows',
@@ -264,11 +300,16 @@ describe('ConstructionWorkspace', () => {
       'construction-history-step-pivot-rows',
       'construction-history-step-related-source',
     ]);
+    expect(renderedSteps.map((button) => button.parentElement?.querySelector('[aria-hidden="true"]')?.textContent))
+      .toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(screen.getByText('Source')).toBeInTheDocument();
+    expect(screen.getByText('Transformations')).toBeInTheDocument();
     for (const majorStepId of ['group-rows', 'pivot-rows']) {
       expect(screen.getByTestId(`construction-history-step-${majorStepId}`).closest('details')).toBeNull();
     }
 
     const selectedStep = screen.getByTestId('construction-history-step-related-field');
+    expect(selectedStep).toHaveTextContent('Related field summary');
     expect(selectedStep).toHaveAttribute('title', 'Related field summary');
     expect(selectedStep).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(selectedStep);
@@ -409,8 +450,9 @@ describe('ConstructionWorkspace', () => {
     const onEditStep = vi.fn();
     const onRemoveStep = vi.fn();
     const view = render(<ConstructionHistory resourceType="Patient" steps={[step]} selected={{ kind: 'source' }} onSelect={onSelect} onEditStep={onEditStep} onRemoveStep={onRemoveStep} />);
-    expect(screen.getByRole('region', { name: 'Row operations' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Dataframe steps' })).toBeInTheDocument();
     expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Filter rows');
+    expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Keep matching observations.');
     expect(screen.queryByTestId('construction-edit-step-filter')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-history-step-filter'));
     expect(onSelect).not.toHaveBeenCalled();
@@ -465,7 +507,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByText('Current rows')).toBeInTheDocument();
   });
 
-  it('places the horizontal row-operation strip beside the table result instead of Tables', () => {
+  it('keeps secondary operation history within the recipe editor', () => {
     render(<ConstructionWorkspace
       tables={[{ outputId: 'patients', title: 'Patients' }]}
       selectedOutputId="patients"
@@ -490,8 +532,38 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByTestId('construction-history')).toBeInTheDocument();
     expect(screen.getByTestId('construction-history-source')).toHaveTextContent('Patient');
     expect(within(screen.getByRole('navigation', { name: 'Tables' })).queryByTestId('construction-history')).not.toBeInTheDocument();
-    expect(screen.getByTestId('construction-history').compareDocumentPosition(screen.getByTestId('construction-action-add-columns')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByTestId('construction-action-add-columns').compareDocumentPosition(screen.getByTestId('construction-preview')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('construction-action-add-columns').compareDocumentPosition(screen.getByTestId('construction-history')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByTestId('construction-history'))).toBe(true);
+    expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByTestId('construction-preview'))).toBe(false);
+  });
+
+  it('keeps secondary operation history reachable while an operation editor is open', () => {
+    render(<ConstructionWorkspace
+      tables={[{ outputId: 'patients', title: 'Patients' }]}
+      selectedOutputId="patients"
+      onSelectTable={vi.fn()}
+      onNewTable={vi.fn()}
+      onDuplicateTable={vi.fn()}
+      onDeleteTable={vi.fn()}
+      onRenameTable={vi.fn()}
+      onSelectFamily={vi.fn()}
+      history={{
+        resourceType: 'Patient',
+        steps: [{ id: 'filter-current', title: 'Filter rows', summary: 'Keep adults.', editable: true }],
+        selected: { kind: 'source' },
+        onSelect: vi.fn(),
+      }}
+      editor={<div>Filter editor</div>}
+      preview={<div>Preview table</div>}
+      previewStatus="ready"
+      draftVersion={1}
+      draftDigest="digest-1"
+    />);
+
+    fireEvent.click(screen.getByText('Ordered operation history (1)'));
+    expect(screen.getByRole('heading', { name: 'Dataframe steps' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-step-filter-current')).toHaveTextContent('Keep adults.');
+    expect(screen.getByText('Filter editor')).toBeInTheDocument();
   });
 
   it('keeps the starting-record source chip visible when there are no saved row operations', () => {
@@ -515,6 +587,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByTestId('construction-history')).toBeInTheDocument();
     expect(screen.getByTestId('source-settings')).toHaveTextContent('Patient');
     expect(screen.queryByTestId(/^construction-history-step-/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-empty')).toHaveTextContent('Add a step to shape this dataframe.');
   });
 
   it('summarizes actual typed construction steps using stable source and stage column identities', () => {
@@ -566,7 +639,7 @@ describe('ConstructionWorkspace', () => {
       { id: 'weight', name: 'weight', label: 'Weight', type: 'decimal' },
       { id: 'height', name: 'height', label: 'Height', type: 'decimal' },
     ])).toEqual([
-      { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' },
+      { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true, hierarchy: 'COLUMN_ADJUSTMENT', scopeKey: 'source' },
       { id: 'filter_bmi', title: 'Filter BMI', summary: 'Filter output rows where BMI is at least 25.', editable: true },
     ]);
   });
@@ -602,7 +675,7 @@ describe('ConstructionWorkspace', () => {
         }],
       };
       expect(constructionHistorySteps(construction, [])).toEqual([
-        { id: 'related-observation', title: 'Related Observation', summary, removeActionLabel: 'Remove connection to Observation', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' },
+        { id: 'related-observation', title: 'Related Observation', summary, removeActionLabel: 'Remove connection to Observation', editable: true, hierarchy: 'COLUMN_ADJUSTMENT', scopeKey: 'source:related:observation-node:patient-id:' },
       ]);
     }
   });
@@ -639,6 +712,7 @@ describe('ConstructionWorkspace', () => {
       summary: 'Add Observation.status as Observation status.',
       editable: true,
       hierarchy: 'COLUMN_ADJUSTMENT',
+      scopeKey: 'source:related-field:observation-node',
     }]);
   });
 
@@ -703,6 +777,7 @@ describe('ConstructionWorkspace', () => {
     ];
 
     expect(steps.map(({ title }) => title)).toEqual(expectedTitles);
+    expect(steps.slice(1).map((step) => step.hierarchy)).toEqual([undefined, undefined, undefined]);
     expect(new Set(expectedTitles.slice(1)).size).toBe(3);
 
     render(
@@ -715,13 +790,13 @@ describe('ConstructionWorkspace', () => {
     );
 
     for (const step of steps) {
-      const button = screen.getByRole('button', { name: step.title });
+      const button = screen.getByTestId(`construction-history-step-${step.id}`);
       expect(button).toHaveAttribute('data-testid', `construction-history-step-${step.id}`);
     }
 
     const longTitleButton = screen.getByTestId('construction-history-step-expand-allowed-value');
     expect(within(longTitleButton).getByText(`Expand ${longFieldLabel}`))
-      .toHaveClass('block', 'max-w-48', 'truncate');
+      .toHaveClass('block', 'break-words');
     expect(longTitleButton).toHaveAttribute(
       'title',
       `One row per value from ${longFieldLabel}; Identifier Value contains that value. Other fields repeat on each row.`,
@@ -870,7 +945,6 @@ describe('ConstructionWorkspace', () => {
         title: 'Expand Items',
         summary: "One row per value from Items; Item contains that value. Other fields repeat on each row. Position records each item's position. Empty lists: exclude.",
         editable: true,
-        hierarchy: 'COLUMN_ADJUSTMENT',
       },
       {
         id: 'append_visits',
@@ -983,4 +1057,126 @@ describe('ConstructionWorkspace', () => {
       preview: { ...preview, receiptId: 'base-receipt' },
     }, identity)).toBe(false);
   });
+});
+
+it('compares the two compositions without remounting the actual editor, controllers or preview', () => {
+  const props = {
+    tables: [{ outputId: 'subjects', title: 'Subjects' }], selectedOutputId: 'subjects',
+    onSelectTable: vi.fn(), onNewTable: vi.fn(), onDuplicateTable: vi.fn(), onDeleteTable: vi.fn(), onRenameTable: vi.fn(),
+    onSelectFamily: vi.fn(), draftVersion: 3, draftDigest: 'draft3', previewStatus: 'ready' as const,
+    previewReceiptId: 'candidate-receipt', previewOutputId: 'subjects', proposalId: 'candidate-receipt',
+    network: <div>Authored subject path</div>, navigation: <button>Observation scope</button>,
+    controllers: <input aria-label="Mounted source controller" defaultValue="source" />,
+    rowSetup: <button>Source options</button>, rowExpression: <div>Deferred row expression</div>,
+    editor: <input aria-label="Existing operation parameter" defaultValue="original" />,
+    preview: <div>Literal candidate rows</div>,
+  };
+  const view = render(<ConstructionWorkspace {...props} composition="inspector-right" />);
+  const parameter = screen.getByRole('textbox', { name: 'Existing operation parameter' });
+  const controller = screen.getByRole('textbox', { name: 'Mounted source controller' });
+  fireEvent.change(parameter, { target: { value: 'pending parameter' } });
+  fireEvent.change(controller, { target: { value: 'pending source' } });
+  view.rerender(<ConstructionWorkspace {...props} composition="inspector-below" />);
+  expect(screen.getByRole('textbox', { name: 'Existing operation parameter' })).toBe(parameter);
+  expect((parameter as HTMLInputElement).value).toBe('pending parameter');
+  expect(screen.getByRole('textbox', { name: 'Mounted source controller' })).toBe(controller);
+  expect((controller as HTMLInputElement).value).toBe('pending source');
+  expect(controller.closest('details,[hidden]')).toBeNull();
+  expect(screen.getAllByRole('button', { name: 'Source options' })).toHaveLength(1);
+  expect(screen.queryByRole('navigation', { name: 'Recipe presentation' })).toBeNull();
+  expect(screen.queryByText('Deferred row expression')).toBeNull();
+  expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'candidate-receipt');
+  expect(screen.getByTestId('recipe-result-identity')).toHaveTextContent('Proposed recipe result');
+  expect(screen.getByLabelText('Related records')).toHaveTextContent('Authored subject path');
+});
+
+it('keeps all 100 exact operations ordered behind one secondary history disclosure', () => {
+  const select = vi.fn();
+  const steps = Array.from({length:100},(_,index)=>({id:`operation-${index}`,title:`Calculate ${index}`,summary:`Value ${index}`}));
+  render(<ConstructionWorkspace tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+    onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()}
+    history={{resourceType:'Observation',steps,selected:{kind:'source'},onSelect:select,sourceSteps:<input aria-label="Source-step controller"/>}}
+    preview={<div>Exact saved rows</div>}
+    previewStatus="ready" draftVersion={1} draftDigest="draft" />);
+  const disclosure=screen.getByText('Ordered operation history (100)').closest('details')!;
+  expect(disclosure).not.toHaveAttribute('open');
+  expect(screen.getByRole('textbox',{name:'Source-step controller'}).closest('details')).toBeNull();
+  fireEvent.click(screen.getByText('Ordered operation history (100)'));
+  const history=within(screen.getByTestId('construction-history'));
+  const buttons=history.getAllByRole('button').filter(button=>button.dataset.testid?.startsWith('construction-history-step-'));
+  expect(buttons.map(button=>button.dataset.testid)).toEqual(steps.map(step=>`construction-history-step-${step.id}`));
+  fireEvent.click(buttons[99]!);
+  expect(select).toHaveBeenCalledWith({kind:'step',stepId:'operation-99'});
+});
+
+it('keeps table switching available while a proposed change inspector is open', () => {
+ const select=vi.fn();
+ render(<ConstructionWorkspace tables={[{outputId:'subjects',title:'Subjects'},{outputId:'visits',title:'Visits'}]} selectedOutputId="subjects"
+ onSelectTable={select} onNewTable={vi.fn()} onDuplicateTable={vi.fn()} onDeleteTable={vi.fn()} onRenameTable={vi.fn()}
+ onSelectFamily={vi.fn()} editor={<p>Proposed change</p>} preview={<p>Proposed result</p>} previewStatus="ready" proposalId="candidate" draftVersion={1} draftDigest="draft"/>);
+ const tabs=screen.getByRole('navigation',{name:'Tables'});
+ fireEvent.click(within(tabs).getByRole('button',{name:'Visits'}));
+ expect(select).toHaveBeenCalledWith('visits');
+});
+
+it('uses one bounded shared fact slot and gives mutation editors precedence', () => {
+ const props={preview:<p>Rows</p>,previewStatus:'ready' as const,draftVersion:1,draftDigest:'draft',tables:[{outputId:'subjects',title:'Subjects'}],selectedOutputId:'subjects',onSelectTable:vi.fn(),onNewTable:vi.fn(),onDuplicateTable:vi.fn(),onDeleteTable:vi.fn(),onRenameTable:vi.fn(),onSelectFamily:vi.fn()};
+ const view=render(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>}/>);
+ expect(screen.getByLabelText('Recipe fact inspector')).toHaveClass('construction-fact-inspector','min-h-0');
+ expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByLabelText('Recipe fact inspector'))).toBe(true);
+ expect(screen.queryByLabelText('Change editor')).toBeNull();
+ view.rerender(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>} editor={<p>Pending mutation</p>}/>);
+ expect(screen.queryByLabelText('Recipe fact inspector')).toBeNull();
+ expect(screen.getByLabelText('Change editor')).toHaveTextContent('Pending mutation');
+});
+
+
+it('uses one side panel for scope operations and edits while keeping controllers and the result mounted', () => {
+  const props = {
+    tables: [], onSelectTable: vi.fn(), onNewTable: vi.fn(), onDuplicateTable: vi.fn(),
+    onDeleteTable: vi.fn(), onRenameTable: vi.fn(), onSelectFamily: vi.fn(),
+    draftVersion: 4, draftDigest: 'saved-draft', previewStatus: 'ready' as const,
+    network: <button>Patient traversal</button>,
+    navigation: <details><summary>Patient operations</summary><button>Edit patient field</button></details>,
+    rowSetup: <input aria-label="Source controller" defaultValue="pending source" />,
+    inspection: <p>Patient match policy</p>, preview: <p>Saved patient rows</p>,
+  };
+  const view = render(<ConstructionWorkspace {...props} />);
+  const panel = screen.getByRole('complementary', { name: 'Recipe editor' });
+  expect(screen.getAllByRole('complementary')).toEqual([panel]);
+  expect(screen.queryByRole('complementary', { name: 'Recipe navigation' })).toBeNull();
+  expect(within(panel).getByText('Patient match policy')).toBeInTheDocument();
+  const operations = within(panel).getByText('Patient operations').closest('details')!;
+  fireEvent.click(within(panel).getByText('Patient operations'));
+  const controller = screen.getByRole('textbox', { name: 'Source controller' });
+  const result = screen.getByTestId('construction-preview');
+  expect(panel.contains(result)).toBe(false);
+  expect(panel.contains(screen.getByRole('button', { name: 'Patient traversal' }))).toBe(false);
+
+  view.rerender(<ConstructionWorkspace {...props} editor={<input aria-label="Field name" defaultValue="patient_id" />} />);
+  expect(screen.getByRole('complementary', { name: 'Recipe editor' })).toBe(panel);
+  expect(within(panel).getByRole('textbox', { name: 'Field name' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Edit patient field' })).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Source controller' })).toBe(controller);
+  expect(controller.closest('[hidden]')).toBeNull();
+  expect(screen.getByTestId('construction-preview')).toBe(result);
+
+  view.rerender(<ConstructionWorkspace {...props} />);
+  expect(screen.getByText('Patient operations').closest('details')).toBe(operations);
+  expect(operations).toHaveAttribute('open');
+  expect(screen.getByRole('button', { name: 'Edit patient field' })).toBeInTheDocument();
+  expect(controller instanceof HTMLInputElement && controller.value).toBe('pending source');
+});
+
+it('uses supplied scoped navigation as the sole ordered-history owner while keeping source controllers mounted', () => {
+ render(<ConstructionWorkspace tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+ onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()} preview={<div>Rows</div>} previewStatus="ready" draftVersion={1} draftDigest="draft"
+ navigation={<nav aria-label="Actual scoped navigation">Scoped operations</nav>}
+ rowSetup={<input aria-label="Rows controller"/>}
+ history={{resourceType:'Patient',steps:[{id:'filter',title:'Filter',summary:'Keep active'}],selected:{kind:'source'},onSelect:vi.fn(),sourceSteps:<input aria-label="Imported controller"/>}}/>);
+ expect(screen.getByRole('navigation',{name:'Actual scoped navigation'})).toBeInTheDocument();
+ expect(screen.queryByTestId('construction-history')).toBeNull();
+ for(const label of ['Rows controller','Imported controller']){
+  const controller=screen.getByRole('textbox',{name:label});expect(controller.closest('details,[hidden]')).toBeNull();expect(screen.getAllByRole('textbox',{name:label})).toHaveLength(1);
+ }
 });

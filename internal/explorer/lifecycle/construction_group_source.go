@@ -13,6 +13,10 @@ import (
 
 func (s *Service) constructionGroupSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (ConstructionGroupSourceCapability, error) {
 	result := ConstructionGroupSourceCapability{StageID: stageID, Choices: []ConstructionGroupSourceChoice{}}
+	if code, reason, unavailable := importedSourceChoiceUnavailable(base.document); unavailable {
+		result.ReasonCode, result.Reason = code, reason
+		return result, nil
+	}
 	if stageID != recipe.ConstructionSourceProjectionID {
 		result.ReasonCode = "TRANSFORMED_STAGE_SOURCE_INPUT_UNSUPPORTED"
 		result.Reason = "scalar source inputs are currently available only at the direct source stage"

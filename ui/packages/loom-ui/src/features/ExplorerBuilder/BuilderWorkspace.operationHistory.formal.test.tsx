@@ -31,6 +31,9 @@ import { useConstructionLifecycle, type ConstructionCandidateIntent } from './co
 
 const harness = vi.hoisted(() => {
   const client = {
+    proposeSourceRelationship: vi.fn(),
+    proposeColumnPolicy: vi.fn(),
+    describeAuthoringNetwork: vi.fn().mockResolvedValue({network:{outputId:"table-1"},draftVersion:0}),
     getSelection: vi.fn(),
     listRowDefinitionChoices: vi.fn(),
     searchPopulationRoutes: vi.fn(),
@@ -51,6 +54,8 @@ const harness = vi.hoisted(() => {
   const getSuggestions = vi.fn();
   return {
     client,
+    applyCommands: vi.fn(),
+    configuredContext: undefined as unknown,
     getSuggestions,
     builderState: null as ExplorerBuilderState | null,
     replayCapabilities: undefined as ConstructionCapabilitiesResponse | undefined,
@@ -65,7 +70,7 @@ vi.mock('../../react', async (importOriginal) => {
   return {
     ...actual,
     useLoomClient: () => harness.client,
-    useApplyExplorerBuilderCommandsV2Mutation: mutation,
+    useApplyExplorerBuilderCommandsV2Mutation: () => [harness.applyCommands, {isLoading:false}],
     useAssessExplorerRowChangeMutation: mutation,
     useCreateExplorerAuthoringMutation: mutation,
     useDeleteExplorerAuthoringMutation: mutation,
@@ -84,7 +89,7 @@ vi.mock('../../react', async (importOriginal) => {
     usePreviewExplorerAuthoringV2Mutation: mutation,
     usePublishExplorerAuthoringV2Mutation: mutation,
     useReconcileExplorerBuilderV2Mutation: mutation,
-    useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false }),
+    useResolveConfiguredColumnContextsQuery: () => ({ data: harness.configuredContext, error: undefined, isLoading: false, isFetching: false }),
     useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
   };
 });
@@ -733,6 +738,7 @@ const LifecycleEditorReplay = React.forwardRef<EditorReplayHandle, {
 describe('BuilderWorkspace operation history actual candidate capture', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    harness.configuredContext=undefined;
     harness.builderState = acceptedState;
     harness.replayCapabilities = undefined;
     harness.nextProposalStatus = 'READY';
@@ -784,6 +790,107 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('regression: source-step Apply returns focus to the same fact after draft remount', async () => {
+    const imported=structuredClone(acceptedState);
+    const document=imported.workspace!.documents[0];
+    document.importedRecipe={name:'default',translationVersion:'1',digest:'a'.repeat(64),output:'table-1'};
+    document.importedSource={steps:[{id:'fields',kind:'FIELD_GROUP',title:'Patient fields',summary:'Patient source values',enabled:true,editable:true}]};
+    harness.builderState=imported;
+    harness.client.proposeSourceRelationship.mockResolvedValue({proposalId:'candidate-source',candidateReceiptId:'candidate-source',outputId:'table-1',snapshotToken:catalog.snapshotToken,draftVersion:1,draftDigest:acceptedState.draftDigest,baseDocumentDigest:'base',candidateWorkspaceDigest:'next-draft',previewStatus:'READY',sampledRows:1,sampled:false,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'IMPORTED_SOURCE',outputId:'table-1',sourceRows:document.rows,occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'table-1',sourceDefinition:document.rows,stages:[],relationships:[]}});
+    harness.client.preview.mockResolvedValue(previewFor('candidate-source','table-1'));
+    harness.applyCommands.mockImplementation((args)=>({unwrap:async()=>({commandId:args.commandId,workspace:imported.workspace,draftVersion:2,draftDigest:'next-draft',results:[],diagnostics:[]})}));
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+    const initiator=await screen.findByRole('button',{name:'Source step 1: Patient fields'});initiator.focus();fireEvent.click(initiator);
+    fireEvent.click(screen.getByRole('button',{name:'Preview source step'}));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Apply source step'})).toBeEnabled());
+    const apply=screen.getByRole('button',{name:'Apply source step'});apply.focus();fireEvent.click(apply);
+    await waitFor(()=>expect(screen.queryByTestId('imported-source-step-editor')).toBeNull());
+    const replacement=screen.getByRole('button',{name:'Source step 1: Patient fields'});
+    expect(initiator.isConnected).toBe(false);
+    await waitFor(()=>expect(globalThis.document.activeElement).toBe(replacement));
+  });
+
+  it('regression: malformed column policy identity reports stale instead of endless loading', async () => {
+    const state=structuredClone(acceptedState);
+    (state.catalog as unknown as {candidates:unknown[]}).candidates=[{candidateId:'gender-field',nodeId:'patient-node',fieldPath:'gender',projectionModes:['VALUE','ALL']}];
+    harness.builderState=state;
+    harness.configuredContext={snapshotToken:catalog.snapshotToken,draftVersion:1,draftDigest:state.draftDigest,columns:[{outputId:'table-1',column:'gender',occurrenceId:'base',resolution:{state:'READY',capabilityCandidateIds:['gender-field']}}]};
+    const document=state.workspace!.documents[0];
+    harness.client.proposeColumnPolicy.mockResolvedValue({proposalId:'candidate-column',candidateReceiptId:'candidate-column',outputId:'table-1',snapshotToken:catalog.snapshotToken,draftVersion:99,draftDigest:'wrong-draft',baseDocumentDigest:'base',candidateWorkspaceDigest:'next-draft',previewStatus:'READY',sampledRows:1,sampled:false,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'DOCUMENT',outputId:'table-1',sourceRows:document.rows,occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'table-1',sourceDefinition:document.rows,stages:[],relationships:[]}});
+    harness.client.preview.mockResolvedValue(previewFor('candidate-column','table-1'));
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+    fireEvent.click(await screen.findByRole('button',{name:'Edit column Gender: one scalar value'}));
+    fireEvent.change(screen.getByRole('combobox',{name:'Value policy for Gender'}),{target:{value:'ALL'}});
+    fireEvent.click(screen.getByRole('button',{name:'Preview column policy'}));
+    await waitFor(()=>expect(harness.client.preview).toHaveBeenCalledOnce());
+    await waitFor(()=>expect(screen.queryByRole('button',{name:'Working…'})).toBeNull());
+    expect(screen.getByRole('alert')).toHaveTextContent(/draft|stale/i);
+  });
+
+  it('regression: Cancel aborts a pending policy preview and ignores its late response', async () => {
+    const state=structuredClone(acceptedState);
+    (state.catalog as unknown as {candidates:unknown[]}).candidates=[{candidateId:'gender-field',nodeId:'patient-node',fieldPath:'gender',projectionModes:['VALUE','ALL']}];
+    harness.builderState=state;
+    harness.configuredContext={snapshotToken:catalog.snapshotToken,draftVersion:1,draftDigest:state.draftDigest,columns:[{outputId:'table-1',column:'gender',occurrenceId:'base',resolution:{state:'READY',capabilityCandidateIds:['gender-field']}}]};
+    let resolve!: (value:unknown)=>void;
+    harness.client.proposeColumnPolicy.mockImplementation(()=>new Promise(done=>{resolve=done;}));
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+    fireEvent.click(await screen.findByRole('button',{name:'Edit column Gender: one scalar value'}));
+    fireEvent.change(screen.getByRole('combobox',{name:'Value policy for Gender'}),{target:{value:'ALL'}});
+    fireEvent.click(screen.getByRole('button',{name:'Preview column policy'}));
+    const signal=harness.client.proposeColumnPolicy.mock.calls.at(-1)![1] as AbortSignal;
+    fireEvent.click(screen.getByRole('button',{name:'Cancel column edit'}));
+    expect(signal.aborted).toBe(true);
+    await act(async()=>{resolve({candidateReceiptId:'late'});await Promise.resolve();});
+    expect(harness.client.preview).not.toHaveBeenCalled();
+    expect(screen.getByTestId('recipe-result-identity')).toHaveTextContent('Saved recipe result');
+    expect(screen.queryByTestId('recipe-column-policy-inspector')).toBeNull();
+  });
+
+  it('regression: blocks replacing an open Group edit with removal before Apply or Cancel', async () => {
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+    fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+    await screen.findByTestId('construction-reshape-editor');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Summary 1' }), { target: { value: 'MEAN' } });
+    await waitFor(() => expect(harness.client.proposeConstruction).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId('recipe-result-identity').textContent).toBe('Proposed recipe result'));
+    fireEvent.click(screen.getByTestId('construction-remove-step-group-step'));
+    await new Promise(resolve=>setTimeout(resolve,700));
+    expect(harness.client.proposeConstruction.mock.calls).toHaveLength(1);
+  });
+
+  it('regression: Open Define a row actually reveals the row editor from network-only presentation', async () => {
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+    fireEvent.click(await screen.findByRole('button', {name:'Record network'}));
+    fireEvent.click(screen.getByRole('button', {name:'Open Define a row'}));
+    expect(screen.getByTestId('row-recipe-expression').closest('[hidden]')).toBeNull();
+  });
+
+  it('regression: proposed Group grain agrees between both actual Builder editor projections', async () => {
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+    fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+    await screen.findByTestId('construction-reshape-editor');
+    fireEvent.click(screen.getByRole('checkbox', {name:'Group by Gender'}));
+    await waitFor(()=>expect(harness.client.proposeConstruction).toHaveBeenCalledOnce());
+    await waitFor(()=>expect(screen.getByTestId('recipe-result-identity').textContent).toBe('Proposed recipe result'));
+    const networkMeaning=screen.getByTestId('authored-traversal-editor').querySelector('p[aria-live]')?.textContent;
+    const rowMeaning=screen.getByLabelText('Current row meaning').textContent;
+    expect(networkMeaning).toBe(rowMeaning);
+  });
+
+  it('regression: source-step edit replaces the previous Group inspector', async () => {
+    const imported=structuredClone(acceptedState);
+    imported.workspace!.documents[0].importedRecipe={name:'default',translationVersion:'1',digest:'a'.repeat(64),output:'table-1'};
+    imported.workspace!.documents[0].importedSource={steps:[{id:'fields',kind:'FIELD_GROUP',title:'Patient fields',summary:'Patient source values',enabled:true,editable:true}]};
+    harness.builderState=imported;
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+    fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+    await screen.findByTestId('construction-reshape-editor');
+    fireEvent.click(screen.getByRole('button',{name:'Source step 1: Patient fields'}));
+    expect(screen.getByTestId('imported-source-step-editor')).toBeTruthy();
+    expect(screen.queryByTestId('construction-reshape-editor')).toBeNull();
   });
 
   it('keeps the saved Group operation and identifiers across remounts', async () => {

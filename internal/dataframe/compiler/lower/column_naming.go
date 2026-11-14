@@ -34,3 +34,19 @@ func traversalColumnNamePrefix(prefix string) string {
 	}
 	return prefix + "__"
 }
+
+// NativePivotColumnName exposes the compiler's exact frozen native pivot-key
+// naming correspondence to import authoring. Prefix is the already-normalized
+// traversal projection prefix, including its separator when nonempty.
+func NativePivotColumnName(prefix, family, key string, aliases map[string]string) string {
+	if alias, ok := aliases[key]; ok {
+		return prefix + alias
+	}
+	return prefix + family + "__" + sanitizeColumnName(key)
+}
+
+// NativeTraversalColumnPrefix returns the existing compiler namespace for a
+// traversal occurrence. Import identity inspection uses the same naming rules.
+func NativeTraversalColumnPrefix(naming recipe.TraversalColumnNaming, parentPrefix, alias string) string {
+	return traversalColumnPrefix(naming, parentPrefix, alias)
+}

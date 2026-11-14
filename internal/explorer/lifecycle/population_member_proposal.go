@@ -94,7 +94,7 @@ func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request Po
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return PopulationMemberRemovalProposalResponse{}, conflict("population-member-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	owner, err := s.store.Get(ctx, projectid.Canonical(request.Project), request.ExplorerID)
+	owner, err := s.getOwner(ctx, projectid.Canonical(request.Project), request.ExplorerID)
 	if err != nil {
 		return PopulationMemberRemovalProposalResponse{}, err
 	}

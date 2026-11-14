@@ -204,20 +204,12 @@ func qualityReportsFromError(completed []QualityReport, err error) []QualityRepo
 func injectPublicationMetadata(identity PublicationIdentity, outputs []OutputStream) ([]OutputStream, error) {
 	result := make([]OutputStream, 0, len(outputs))
 	for _, output := range outputs {
-		columns := make([]LogicalColumn, 0, len(output.Columns))
-		for _, column := range output.Columns {
-			if column.Name == "auth_resource_path" {
-				return nil, fmt.Errorf("output %q column %q is reserved by Loom", output.Name, column.Name)
-			}
-			if column.Name != "project_id" {
-				columns = append(columns, column)
-			}
+		columns, err := WithPublicationMetadata(output.Columns)
+		if err != nil {
+			return nil, fmt.Errorf("output %q: %w", output.Name, err)
 		}
 		copyOutput := output
-		copyOutput.Columns = append([]LogicalColumn{
-			{Name: "auth_resource_path", Kind: "string", Nullable: true, Provenance: ColumnExplicit, LoomOwned: true},
-			{Name: "project_id", Kind: "string", Provenance: ColumnExplicit, LoomOwned: true},
-		}, columns...)
+		copyOutput.Columns = columns
 		originalStream := output.Stream
 		copyOutput.Stream = func(ctx context.Context, visit func(map[string]any) error) error {
 			return originalStream(ctx, func(row map[string]any) error {

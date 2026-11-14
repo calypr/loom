@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	"github.com/calypr/loom/internal/explorer/recipeimport"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -117,6 +119,24 @@ type ResolvedPopulation struct {
 // preserving a single shape for lifecycle, compilation, and receipts.
 type ResolvedInterpretation = explorer.ResolvedInterpretation
 
+// ResolvedImportedRecipe keeps registered source identity separate from the
+// runtime discovered output used to compile it.
+type ResolvedImportedRecipe struct {
+	Reference      authoringv2.ImportedRecipeRef  `json:"reference"`
+	Bundle         recipe.Bundle                  `json:"bundle"`
+	ResolvedBundle recipe.Bundle                  `json:"resolvedBundle"`
+	SourceColumns  []ResolvedImportedSourceColumn `json:"sourceColumns"`
+}
+
+// ResolvedImportedSourceColumn is the server discovered schema at the
+// imported output boundary. Structural fields only are exposed to Builder.
+type ResolvedImportedSourceColumn struct {
+	Column       recipe.StageColumn `json:"column"`
+	Cardinality  string             `json:"cardinality,omitempty"`
+	Shape        string             `json:"shape,omitempty"`
+	SemanticPath string             `json:"semanticPath,omitempty"`
+}
+
 func CompileWorkspace(ctx context.Context, project, explorerID string, workspace authoringv2.Workspace, snapshot capability.Snapshot, resolvedInputs ResolvedInputs) (WorkspaceResult, error) {
 	project = projectid.Canonical(project)
 	wire := catalogFromCapability(snapshot, explorerID)
@@ -135,6 +155,9 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 	}
 	if err := validateResolvedInterpretationCoverage(project, snapshot, workspace, resolvedInputs); err != nil {
 		return WorkspaceResult{}, fail("intent", "INTERPRETATION_INPUT_MISMATCH", "$.resolvedInputs.interpretations", err.Error(), nil, err)
+	}
+	if err := validateResolvedImportedRecipeCoverage(workspace, wire, resolvedInputs); err != nil {
+		return WorkspaceResult{}, fail("intent", "IMPORTED_RECIPE_INPUT_MISMATCH", "$.resolvedInputs.importedRecipes", err.Error(), nil, err)
 	}
 	resolvedInputsDigest, err := ResolvedInputsDigest(workspace, snapshot, resolvedInputs)
 	if err != nil {
@@ -179,9 +202,25 @@ func CompileWorkspace(ctx context.Context, project, explorerID string, workspace
 				return WorkspaceResult{}, fail("intent", "POPULATION_INPUT_MISMATCH", fmt.Sprintf("$.workspace.documents[%d].population", i), err.Error(), nil, err)
 			}
 		}
-		compiled, err := compileWithWorkspaceOutputs(ctx, project, explorerID, document, snapshot, workspaceOutputIDs)
+		var compiled Result
+		if document.ImportedRecipe != nil {
+			imported, ok := resolvedInputs.ImportedRecipeFor(*document.ImportedRecipe)
+			if !ok {
+				return WorkspaceResult{}, fail("intent", "IMPORTED_RECIPE_UNRESOLVED", fmt.Sprintf("$.workspace.documents[%d].importedRecipe", i), "imported recipe must be resolved before compilation", nil, nil)
+			}
+			compiled, err = compileImportedDocument(document, wire, imported)
+		} else {
+			compiled, err = compileWithWorkspaceOutputs(ctx, project, explorerID, document, snapshot, workspaceOutputIDs)
+		}
 		if err != nil {
 			return WorkspaceResult{}, fail("compile", "DOCUMENT_COMPILE_FAILED", fmt.Sprintf("$.workspace.documents[%d]", i), err.Error(), nil, err)
+		}
+		if len(compiled.Bundle.Outputs) == 1 && compiled.Bundle.Fragments != nil {
+			if result.Bundle.Fragments == nil {
+				result.Bundle.Fragments = compiled.Bundle.Fragments
+			} else if !reflect.DeepEqual(result.Bundle.Fragments, compiled.Bundle.Fragments) {
+				return WorkspaceResult{}, fail("compile", "IMPORTED_FRAGMENT_CONFLICT", fmt.Sprintf("$.workspace.documents[%d].importedRecipe", i), "imported outputs contain conflicting fragment libraries", nil, nil)
+			}
 		}
 		if hasResolvedPopulation {
 			if len(compiled.Bundle.Outputs) != 1 {
@@ -516,6 +555,16 @@ func applyResolvedInterpretations(workspace authoringv2.Workspace, inputs Resolv
 type ResolvedInputs struct {
 	Populations     []ResolvedPopulation     `json:"populations,omitempty"`
 	Interpretations []ResolvedInterpretation `json:"interpretations,omitempty"`
+	ImportedRecipes []ResolvedImportedRecipe `json:"importedRecipes,omitempty"`
+}
+
+func (r ResolvedInputs) ImportedRecipeFor(reference authoringv2.ImportedRecipeRef) (ResolvedImportedRecipe, bool) {
+	for _, imported := range r.ImportedRecipes {
+		if imported.Reference == reference {
+			return imported, true
+		}
+	}
+	return ResolvedImportedRecipe{}, false
 }
 
 func (r ResolvedInputs) PopulationFor(outputID string) (ResolvedPopulation, bool) {
@@ -525,6 +574,170 @@ func (r ResolvedInputs) PopulationFor(outputID string) (ResolvedPopulation, bool
 		}
 	}
 	return ResolvedPopulation{}, false
+}
+
+func validateResolvedImportedRecipeCoverage(workspace authoringv2.Workspace, catalog authoringv2.CatalogSnapshot, inputs ResolvedInputs) error {
+	expected := make(map[authoringv2.ImportedRecipeRef]struct{})
+	for _, document := range workspace.Documents {
+		if document.ImportedRecipe == nil {
+			continue
+		}
+		ref := *document.ImportedRecipe
+		if _, duplicate := expected[ref]; duplicate {
+			return fmt.Errorf("duplicate imported recipe reference for output %q", ref.Output)
+		}
+		expected[ref] = struct{}{}
+	}
+	seen := make(map[authoringv2.ImportedRecipeRef]struct{}, len(inputs.ImportedRecipes))
+	for index, imported := range inputs.ImportedRecipes {
+		if _, ok := expected[imported.Reference]; !ok {
+			return fmt.Errorf("resolved imported recipe %d has no exact authoring reference", index)
+		}
+		if _, duplicate := seen[imported.Reference]; duplicate {
+			return fmt.Errorf("duplicate resolved imported recipe %q output %q", imported.Reference.Name, imported.Reference.Output)
+		}
+		seen[imported.Reference] = struct{}{}
+		digest, err := imported.Bundle.Digest()
+		if err != nil {
+			return fmt.Errorf("resolved imported recipe %d source bundle: %w", index, err)
+		}
+		if imported.Bundle.Name != imported.Reference.Name || imported.Bundle.TranslationVersion != imported.Reference.TranslationVersion || digest != imported.Reference.Digest {
+			return fmt.Errorf("resolved imported recipe %d does not match its exact pinned source", index)
+		}
+		if imported.ResolvedBundle.Name != imported.Bundle.Name || imported.ResolvedBundle.TranslationVersion != imported.Bundle.TranslationVersion {
+			return fmt.Errorf("resolved imported recipe %d changed immutable bundle identity", index)
+		}
+		if _, ok := recipeOutput(imported.Bundle, imported.Reference.Output); !ok {
+			return fmt.Errorf("pinned source output %q was not found", imported.Reference.Output)
+		}
+		if _, ok := recipeOutput(imported.ResolvedBundle, imported.Reference.Output); !ok {
+			return fmt.Errorf("resolved source output %q was not found", imported.Reference.Output)
+		}
+		if err := validateImportedSourceColumns(imported); err != nil {
+			return fmt.Errorf("resolved imported recipe %d: %w", index, err)
+		}
+	}
+	if len(seen) != len(expected) {
+		return fmt.Errorf("not every imported recipe reference was resolved")
+	}
+	return nil
+}
+
+func recipeOutput(bundle recipe.Bundle, name string) (recipe.Output, bool) {
+	for _, output := range bundle.Outputs {
+		if output.Name == name {
+			return output, true
+		}
+	}
+	return recipe.Output{}, false
+}
+
+func validateImportedSourceColumns(imported ResolvedImportedRecipe) error {
+	seenNames, seenIDs := map[string]bool{}, map[string]bool{}
+	for index, source := range imported.SourceColumns {
+		column := source.Column
+		if strings.TrimSpace(column.ID) == "" || strings.TrimSpace(column.Name) == "" {
+			return fmt.Errorf("sourceColumns[%d] requires stable id and name", index)
+		}
+		if seenNames[column.Name] || seenIDs[column.ID] {
+			return fmt.Errorf("sourceColumns[%d] duplicates column identity", index)
+		}
+		seenNames[column.Name], seenIDs[column.ID] = true, true
+	}
+	return nil
+}
+
+func compileImportedDocument(document authoringv2.Document, catalog authoringv2.CatalogSnapshot, imported ResolvedImportedRecipe) (Result, error) {
+	if imported.Reference != *document.ImportedRecipe {
+		return Result{}, fmt.Errorf("resolved pin does not match imported document")
+	}
+	sourceOutput, ok := recipeOutput(imported.Bundle, imported.Reference.Output)
+	if !ok {
+		return Result{}, fmt.Errorf("pinned source output %q was not found", imported.Reference.Output)
+	}
+	sourceOutput, err := recipeimport.ApplySourcePlan(sourceOutput, document.ImportedSource)
+	if err != nil {
+		return Result{}, fmt.Errorf("imported source plan: %w", err)
+	}
+	if document.TableShape != nil || document.Population != nil || !reflect.DeepEqual(document.Rows, recipeimport.ImportRows(sourceOutput)) || len(document.FixedFilters) != 0 || len(document.Actions) != 0 || len(document.Frames) != 0 {
+		return Result{}, fmt.Errorf("imported recipe route, rows, and current overlay are not supported by this compile path")
+	}
+	if sourceOutput.Construction != nil || sourceOutput.TableReshape != nil || len(sourceOutput.DerivedColumns) != 0 {
+		return Result{}, fmt.Errorf("imported recipe already has a post-source construction that conflicts with the Builder overlay")
+	}
+	expectedRoute, err := recipeimport.ImportRoute(sourceOutput, catalog)
+	if err != nil {
+		return Result{}, err
+	}
+	if !reflect.DeepEqual(document.Route, expectedRoute) || document.RootResourceType != sourceOutput.RootResourceType {
+		return Result{}, fmt.Errorf("imported recipe route was edited")
+	}
+	if len(document.Columns) != len(imported.SourceColumns) {
+		return Result{}, fmt.Errorf("imported recipe source columns were added or removed")
+	}
+	publicColumns := make([]explorer.PublicOutputColumn, 0, len(document.Columns))
+	emittedColumns := make([]explorer.EmittedColumn, 0, len(document.Columns))
+	presentationColumns := make([]PresentationColumn, 0, len(document.Columns))
+	for index, authored := range document.Columns {
+		if authored.ValueTransformation != nil || authored.Contributor != nil || authored.Interpretation != nil || authored.Filter != nil || authored.Chart != nil {
+			return Result{}, fmt.Errorf("imported recipe column %d contains an unsupported semantic overlay", index)
+		}
+		if authored.Source.Kind != authoringv2.SourceImported || authored.Source.Imported == nil {
+			return Result{}, fmt.Errorf("imported recipe column %d source was edited", index)
+		}
+		var source *ResolvedImportedSourceColumn
+		for sourceIndex := range imported.SourceColumns {
+			if imported.SourceColumns[sourceIndex].Column.Name == authored.Source.Imported.OutputColumn {
+				source = &imported.SourceColumns[sourceIndex]
+				break
+			}
+		}
+		if source == nil || authored.Source.Imported.OutputColumn != authored.Column || authored.ColumnID != source.Column.ID {
+			return Result{}, fmt.Errorf("imported recipe column %d source identity was edited", index)
+		}
+		column := source.Column
+		visible, order := true, index
+		if authored.Table != nil {
+			if authored.Table.Visible != nil {
+				visible = *authored.Table.Visible
+			}
+			if authored.Table.Order != nil {
+				order = *authored.Table.Order
+			}
+		}
+		emission := explorer.EmittedColumn{EmissionID: column.ID, OutputID: document.Output.ID, OccurrenceID: authored.OccurrenceID, AuthoredColumns: []string{authored.Column}, PublicColumn: column.Name, Label: authored.Label, LogicalType: column.Type, Cardinality: source.Cardinality, Nullable: column.Nullable, Shape: source.Shape, SourcePath: source.SemanticPath, StructuralSuitability: "requires-review", LossReasons: []string{"IMPORTED_RECIPE_QUALITY_UNASSESSED"}}
+		emittedColumns = append(emittedColumns, emission)
+		publicColumn := publicColumnContract(emission)
+		publicColumn.Cardinality = emission.Cardinality
+		publicColumns = append(publicColumns, publicColumn)
+		presentationColumns = append(presentationColumns, PresentationColumn{EmissionID: column.ID, PublicColumn: column.Name, Label: authored.Label, Visible: visible, Order: order})
+	}
+	resolvedOutput, ok := recipeOutput(imported.ResolvedBundle, imported.Reference.Output)
+	if !ok {
+		return Result{}, fmt.Errorf("resolved source output %q was not found", imported.Reference.Output)
+	}
+	resolvedOutput.Name = document.Output.ID
+	constructionIntent := document.Construction
+	if constructionIntent == nil {
+		constructionIntent = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{}}
+	}
+	construction, err := recipeConstruction(constructionIntent, document.Columns, emittedColumns)
+	if err != nil {
+		return Result{}, fmt.Errorf("translate imported output overlay: %w", err)
+	}
+	resolvedOutput.Construction = construction
+	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: sourceOutput.RootResourceType, RowGrain: resolvedOutput.RowGrain, RowMultiplication: "none", Lossless: true, MLReady: true, Columns: publicColumns}
+	if resolvedOutput.Expand != nil {
+		contract.RowMultiplication = "expand"
+	}
+	if len(emittedColumns) > 0 {
+		contract.StructuralSuitability = emittedColumns[0].StructuralSuitability
+	}
+	for _, emission := range emittedColumns {
+		mergeContractQuality(&contract, emission)
+	}
+	result := Result{Bundle: recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: imported.ResolvedBundle.Name, TranslationVersion: imported.ResolvedBundle.TranslationVersion, Fragments: imported.ResolvedBundle.Fragments, Outputs: []recipe.Output{resolvedOutput}}, EmittedColumns: emittedColumns, Presentation: PresentationConfig{OutputID: document.Output.ID, Title: document.Output.Title, Columns: presentationColumns}, OutputContract: contract}
+	return result, nil
 }
 
 func recipePopulation(input ResolvedPopulation) *recipe.PopulationConstraint {
@@ -567,7 +780,7 @@ func ResolvedInputsDigest(workspace authoringv2.Workspace, snapshot capability.S
 }
 
 func (r ResolvedInputs) Canonical() ResolvedInputs {
-	copy := ResolvedInputs{Populations: append([]ResolvedPopulation(nil), r.Populations...), Interpretations: append([]ResolvedInterpretation(nil), r.Interpretations...)}
+	copy := ResolvedInputs{Populations: append([]ResolvedPopulation(nil), r.Populations...), Interpretations: append([]ResolvedInterpretation(nil), r.Interpretations...), ImportedRecipes: append([]ResolvedImportedRecipe(nil), r.ImportedRecipes...)}
 	for index := range copy.Populations {
 		copy.Populations[index].Route = append([]authoringv2.PopulationRouteStep(nil), copy.Populations[index].Route...)
 	}
@@ -589,6 +802,16 @@ func (r ResolvedInputs) Canonical() ResolvedInputs {
 			return left.Column < right.Column
 		}
 		return left.OccurrenceID < right.OccurrenceID
+	})
+	sort.SliceStable(copy.ImportedRecipes, func(i, j int) bool {
+		left, right := copy.ImportedRecipes[i].Reference, copy.ImportedRecipes[j].Reference
+		if left.Output != right.Output {
+			return left.Output < right.Output
+		}
+		if left.Name != right.Name {
+			return left.Name < right.Name
+		}
+		return left.TranslationVersion < right.TranslationVersion
 	})
 	return copy
 }

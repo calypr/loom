@@ -182,16 +182,19 @@ type RowDefinitionComparison struct {
 }
 
 type RowDefinitionProposal struct {
-	ProposalID               string                     `json:"proposalId,omitempty"`
-	BaseReceiptID            string                     `json:"baseReceiptId"`
-	OutputID                 string                     `json:"outputId"`
-	SnapshotToken            string                     `json:"snapshotToken"`
-	DraftVersion             int64                      `json:"draftVersion"`
-	DraftDigest              string                     `json:"draftDigest"`
-	BaseDocumentDigest       string                     `json:"baseDocumentDigest"`
-	CandidateWorkspaceDigest string                     `json:"candidateWorkspaceDigest"`
-	Mode                     RowDefinitionSelectionKind `json:"mode"`
-	Comparison               RowDefinitionComparison    `json:"comparison"`
+	CandidateDocument        authoringv2.Document         `json:"candidateDocument"`
+	CandidateNetwork         authoringv2.AuthoringNetwork `json:"candidateNetwork"`
+	CandidateRowIdentity     authoringv2.RowIdentityPlan  `json:"candidateRowIdentity"`
+	ProposalID               string                       `json:"proposalId,omitempty"`
+	BaseReceiptID            string                       `json:"baseReceiptId"`
+	OutputID                 string                       `json:"outputId"`
+	SnapshotToken            string                       `json:"snapshotToken"`
+	DraftVersion             int64                        `json:"draftVersion"`
+	DraftDigest              string                       `json:"draftDigest"`
+	BaseDocumentDigest       string                       `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string                       `json:"candidateWorkspaceDigest"`
+	Mode                     RowDefinitionSelectionKind   `json:"mode"`
+	Comparison               RowDefinitionComparison      `json:"comparison"`
 }
 
 type RowChoiceKind string
@@ -295,7 +298,7 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return RowDefinitionProposal{}, conflict("row-definition-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
@@ -313,6 +316,9 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	baseDocument := proposalDocument(workspace, request.OutputID)
 	if baseDocument == nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
+	}
+	if baseDocument.ImportedRecipe != nil {
+		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "IMPORTED_SOURCE_ROW_OVERLAY_REQUIRED", "imported source rows are defined by the immutable recipe pin and source overlay; use a construction Group or related-record expansion, or explicitly replace the source to detach the pin", nil)
 	}
 	baseDocumentDigest, err := documentDigest(*baseDocument)
 	if err != nil {
@@ -376,17 +382,31 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
-	if _, err := s.verifyRowDefinitionReceipt(ctx, candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace); err != nil {
+	verifiedCandidate, err := s.verifyRowDefinitionReceipt(ctx, candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace)
+	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
 	if err := s.validateExplicitGroupReceipt(ctx, candidateGroupProof, candidateReceipt); err != nil {
 		return RowDefinitionProposal{}, err
 	}
+	// Source row proposals are restricted to ordinary documents. Project the
+	// exact receipt-verified candidate through the existing route adapter rather
+	// than guessing rows from the requested mode or the comparison sample.
+	candidateDocument := proposalDocument(verifiedCandidate, request.OutputID)
+	if candidateDocument == nil {
+		return RowDefinitionProposal{}, conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
+	}
+	candidateNetwork, err := authoringv2.NetworkForDocument(*candidateDocument, catalog)
+	if err != nil {
+		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_AUTHORING_NETWORK", err.Error(), err)
+	}
+	candidateRowIdentity := rowIdentityForNetwork(*candidateDocument, candidateNetwork)
 	comparison, err := s.compareRowDefinitionReceipts(ctx, request, snapshot, baseReceipt, candidateReceipt, limit)
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}
 	return RowDefinitionProposal{
+		CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity,
 		ProposalID: candidateReceipt.ID, BaseReceiptID: baseReceipt.ID, OutputID: request.OutputID,
 		SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, Mode: request.Selection.Kind,

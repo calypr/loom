@@ -40,13 +40,22 @@ import type {
   ConstructionStep,
   ConstructionChoiceSelection,
   RowChangeAssessment,
+  SourceRelationshipChange,
+  AuthoringNetworkResponse,
+  SourceRelationshipProposal,
+  RowDefinitionProposal,
 } from '../../types';
 import { BuilderToolbar, NewExplorerControl } from './components/BuilderToolbar';
 import {
   DatasetReviewPanel,
   type DatasetReviewTarget,
 } from './components/DatasetReviewPanel';
-import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
+import { useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './recipeEditing/recipeEditingOwner';
+import { AuthoringNetworkInspector } from './components/AuthoringNetworkInspector';
+import { SourceRelationshipReview } from './components/SourceRelationshipReview';
+import { AuthoredTraversalEditor } from './components/AuthoredTraversalEditor';
+import { TraversalScopeNavigator } from './components/TraversalScopeNavigator';
+import { RecipeColumnPolicyInspector } from './components/RecipeColumnPolicyInspector';
 import { ColumnSelector } from './components/ColumnSelector';
 import { ConceptCatalog, type ConceptCatalogView } from './components/ConceptCatalog';
 import { RowRootPicker } from './components/RowRootPicker';
@@ -60,7 +69,6 @@ import { RowChangePreviewPanel } from './components/RowChangePreviewPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel, rowScopeLabel } from './components/RowDefinitionSettingsPanel';
 import { FrameSourcePanel } from './constructionWorkspace/FrameSourcePanel';
-import { SourceCollectionExpandEditor } from './constructionOperations/SourceCollectionExpandEditor';
 import { TableShapeSettingsPanel } from './components/TableShapeSettingsPanel';
 import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
 import {
@@ -113,6 +121,7 @@ import { catalogSourceOptions, sanitizeReasonText, unavailableOperationReason, t
 
 import {
   ConstructionWorkspace,
+  ConstructionActionBar,
   ConstructionUndoButton,
   constructionOperationFamilies,
   type ConstructionHistorySelection,
@@ -126,6 +135,7 @@ import {
   ConstructionProposalPanel,
 } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
+import { ImportedSourceSteps } from './ImportedSourceSteps';
 import {
   constructionHistorySteps,
   constructionRowMeaning,
@@ -209,7 +219,7 @@ const emptyCatalog = (): ExplorerBuilderCatalog => ({
 });
 const emptyBuilderState = (project: string): BuilderAuthoringState => ({
   project,
-  explorerId: 'default',
+  explorerId: 'dataframe-default',
   catalog: emptyCatalog(),
   workspace: null,
   draftVersion: 0,
@@ -426,6 +436,7 @@ const BuilderWorkspaceContent = ({
   populationSelectionError,
   onExplorerChange,
   featureFocus,
+  workspaceComposition,
 }: {
   readonly organization?: string;
   readonly project: string;
@@ -434,6 +445,7 @@ const BuilderWorkspaceContent = ({
   readonly populationSelectionLoading?: boolean;
   readonly populationSelectionError?: string;
   readonly onExplorerChange?: (explorerId: string) => void;
+  readonly workspaceComposition?: React.ComponentProps<typeof ConstructionWorkspace>['composition'];
   readonly featureFocus?: {
     readonly outputId: string;
     readonly column: string;
@@ -445,7 +457,9 @@ const BuilderWorkspaceContent = ({
   const authResourcePath = organization
     ? `/programs/${organization}/projects/${project}`
     : undefined;
-  const [selectedExplorerId, setSelectedExplorerId] = useState(explorerId || '');
+  const [selectedExplorerId, setSelectedExplorerId] = useState(
+    !explorerId || explorerId === 'default' ? 'dataframe-default' : explorerId,
+  );
   const explorers = useGetExplorerAuthoringExplorersQuery({
     project: projectId,
     authResourcePath,
@@ -453,10 +467,18 @@ const BuilderWorkspaceContent = ({
   const effectiveExplorerId =
     selectedExplorerId && selectedExplorerId !== 'default'
       ? selectedExplorerId
-      : explorers.data?.find((candidate) => candidate.explorerId === 'default')
-          ?.explorerId ??
-        explorers.data?.[0]?.explorerId ??
-        '';
+      : 'dataframe-default';
+  const explorerSummaries = useMemo(() => {
+    const available = explorers.data ?? [];
+    if (available.some((candidate) => candidate.explorerId === 'dataframe-default')) return available;
+    return [{
+      project: projectId,
+      explorerId: 'dataframe-default',
+      title: 'Shared default dataframe',
+      management: 'SYSTEM',
+      updatedAt: '',
+    }, ...available];
+  }, [explorers.data, projectId]);
   const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId);
   const workspaceAttached = useRef(false);
   const workspaceHostRef = useCallback((node: HTMLElement | null) => {
@@ -568,6 +590,7 @@ const BuilderWorkspaceContent = ({
     readonly draftDigest: string;
   }>();
   const [pendingCommands, setPendingCommands] = useState(0);
+  const [occurrenceInspectorHost, setOccurrenceInspectorHost] = useState<HTMLElement | null>(null);
   const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
   const cancelingConstructionProposalRef = useRef(false);
   const [populationSelectionOverride, setPopulationSelectionOverride] = useState<{
@@ -595,6 +618,23 @@ const BuilderWorkspaceContent = ({
   const appliedChoicePreview = useRef<AppliedPreviewHandoff | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [sourceSetupOpen, setSourceSetupOpen] = useState(false);
+  const [editingRecipeColumn, setEditingRecipeColumn] = useState<{ owner: string; columnId: string }>();
+  const [sourceStepInspectorHost, setSourceStepInspectorHost] = useState<HTMLDivElement | null>(null);
+  const columnPolicyRequest = useRef<AbortController | undefined>(undefined);
+  const networkRequestOwner = useRef('');
+  const recipeFocusGeneration = useRef(0);
+  const pendingRecipeFocus = useRef<{ testId: string; outputId: string; fallback?: HTMLElement } | undefined>(undefined);
+  const recipeInitiator = useRef<HTMLElement | undefined>(undefined);
+  const recipeInitiatorFact = useRef<{ testId?: string; columnId?: string; occurrenceId?: string } | undefined>(undefined);
+  const sourceStepEditAction = useRef<((stepId: string) => void) | undefined>(undefined);
+  const sourceFieldEditAction = useRef<((stepId: string, fieldId: string) => void) | undefined>(undefined);
+  const rowSettingsOpenAction = useRef<(() => void) | undefined>(undefined);
+  const recipeEditToken = useRef<RecipeEditToken | undefined>(undefined);
+  const [candidateInspection, setCandidateInspection] = useState<{ key: string; occurrenceId: string }>();
+  const [sourceProposal, setSourceProposal] = useState<{ owner: string; proposal: Pick<SourceRelationshipProposal, 'candidateDocument' | 'candidateNetwork' | 'candidateRowIdentity' | 'candidateWorkspaceDigest'>; preview: ExplorerBuilderPreviewResult }>();
+  const [savedNetwork, setSavedNetwork] = useState<{ owner: string; result: AuthoringNetworkResponse }>();
+  const [recipeNotice, setRecipeNotice] = useState<string>();
+  const [relationshipEdit, setRelationshipEdit] = useState<{ owner: string; change: SourceRelationshipChange }>();
   const [activeConstructionSelection, setActiveConstructionSelection] = useState<{
     readonly ownerKey: string;
     readonly explorerId: string;
@@ -649,6 +689,7 @@ const BuilderWorkspaceContent = ({
   const cancelAutomaticPreview = useCallback(() => {
     activeAutomaticPreview.current?.cancel();
   }, []);
+  const commandRecipeAdmission = useRef<(commands: ReadonlyArray<ExplorerBuilderCommand>) => boolean>(() => true);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
   const relatedExpandQueryOwnerRef = useRef<RelatedExpandQueryOwner | null>(null);
   const firstTableActionPending = useRef(false);
@@ -810,6 +851,7 @@ const BuilderWorkspaceContent = ({
       constructionApplyIdentity?: ConstructionApplyPreviewIdentity,
       admitCommand?: () => boolean,
     ) => {
+      if (!commandRecipeAdmission.current(commands)) return Promise.resolve(undefined);
       cancelAutomaticPreview();
       const applyPreviewEpoch = constructionApplyIdentity
         ? automaticPreviewGeneration.current
@@ -824,7 +866,7 @@ const BuilderWorkspaceContent = ({
         let commandSucceeded = false;
         try {
           await queryOwner?.pauseAndDrain();
-          if (admitCommand && !admitCommand()) return undefined;
+          if (!commandRecipeAdmission.current(commands) || (admitCommand && !admitCommand())) return undefined;
           const current = latestState.current;
           const commandId = proposedCommandId ?? window.crypto.randomUUID();
           const draftIdentity = commandDraftIdentity(current, serverDraft.current);
@@ -953,7 +995,143 @@ const BuilderWorkspaceContent = ({
 
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
 
+  const rootRecipeAssessment = useRef<Extract<RowChangeAssessment, {status: 'READY'}> | undefined>(undefined);
+  const rootRecipeActions = useRef<{
+    begin: (nodeId: string, mode: 'PRESERVE' | 'REPLACE') => { ready: (assessment: Extract<RowChangeAssessment, {status:'READY'}>, preview: ExplorerBuilderPreviewResult) => boolean; failed: (message: string, stale?: boolean) => void; noChange: () => void } | undefined;
+    cancel: () => boolean;
+    apply: (assessment: Extract<RowChangeAssessment, {status:'READY'}>) => Promise<boolean>;
+  } | undefined>(undefined);
+  const [rootReplacementInspectorHost, setRootReplacementInspectorHost] = useState<HTMLElement | null>(null);
+  const [sourceRowsOpen, setSourceRowsOpen] = useState(false);
+  const [sourceRowsInspectorHost, setSourceRowsInspectorHost] = useState<HTMLElement | null>(null);
   const table = selectedTable(state);
+  const recipeOwner = useRecipeEditingOwner({ project: projectId, explorerId: state.explorerId,
+    outputId: table?.outputId ?? '', snapshotToken: state.catalog.snapshotToken,
+    draftVersion: state.draftVersion, draftDigest: state.draftDigest });
+  commandRecipeAdmission.current = (commands) => {
+    if (recipeOwner.state.status === 'saved') return true;
+    const candidate = recipeOwner.state.candidate;
+    const rootAssessment = rootRecipeAssessment.current;
+    if (candidate && recipeOwner.state.target?.kind === 'root' && rootAssessment && commands.length === 1 &&
+      commands[0].type === 'APPLY_TABLE_ROOT_REBASE' && commands[0].outputId === recipeOwner.state.identity.outputId &&
+      rootAssessment.candidateReceiptId === candidate.receiptId &&
+      JSON.stringify(commands[0].rowChange) === JSON.stringify(rootAssessment.proposal)) return true;
+    if (candidate && commands.length === 1 && commands[0].outputId === recipeOwner.state.identity.outputId &&
+      commands[0].proposalId === candidate.receiptId && ['APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', 'APPLY_COLUMN_POLICY_PROPOSAL',
+        'APPLY_ROW_DEFINITION_PROPOSAL', 'APPLY_CONSTRUCTION_PROPOSAL'].includes(commands[0].type)) return true;
+    setRecipeNotice('Apply or Cancel the active recipe change before starting another edit.');
+    return false;
+  };
+  const rememberRecipeFocus = (element: Element | null = document.activeElement) => {
+    if (!(element instanceof HTMLElement)) return;
+    recipeFocusGeneration.current += 1;
+    pendingRecipeFocus.current = undefined;
+    recipeInitiator.current = element;
+    recipeInitiatorFact.current = {
+      testId: element.dataset.testid,
+      columnId: element.closest<HTMLElement>('[data-column-id]')?.dataset.columnId,
+      occurrenceId: element.closest<HTMLElement>('[data-occurrence-id]')?.dataset.occurrenceId,
+    };
+  };
+  const rememberOperationFocus = () => {
+    const fromSourceSettings = document.activeElement instanceof Element && document.activeElement.closest('[aria-label="Source row settings inspector"]');
+    if (!fromSourceSettings || !recipeInitiator.current?.isConnected) rememberRecipeFocus();
+  };
+  const restoreRecipeFocus = () => {
+    const expectedOutputId = recipeOwner.state.identity.outputId;
+    const initiator = recipeInitiator.current;
+    const fact = recipeInitiatorFact.current;
+    if (!initiator && !fact) return;
+    const generation = ++recipeFocusGeneration.current;
+    const activeAtCompletion = document.activeElement;
+    recipeInitiator.current = undefined;
+    recipeInitiatorFact.current = undefined;
+    window.requestAnimationFrame(() => {
+      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || latestState.current.selectedOutputId !== expectedOutputId) return;
+      if (document.activeElement !== activeAtCompletion && document.activeElement !== document.body && document.activeElement !== initiator) return;
+      let target = initiator?.isConnected ? initiator : undefined;
+      if (!target && fact?.testId) target = [...document.querySelectorAll<HTMLElement>('[data-testid]')].find((node) => node.dataset.testid === fact.testId);
+      if (!target && fact?.columnId) target = [...document.querySelectorAll<HTMLElement>('[data-column-id]')].find((node) => node.dataset.columnId === fact.columnId)?.querySelector<HTMLElement>('button') ?? undefined;
+      if (!target && fact?.occurrenceId) target = [...document.querySelectorAll<HTMLElement>('button[data-occurrence-id]')].find((node) => node.dataset.occurrenceId === fact.occurrenceId);
+      if (fact?.testId?.startsWith('shared-source-policy-') && target?.dataset.testid !== fact.testId) {
+        pendingRecipeFocus.current = { testId: fact.testId, outputId: expectedOutputId, fallback: target };
+      }
+      if (target) {
+        let ancestor: HTMLElement | null = target.parentElement;
+        while (ancestor) { if (ancestor instanceof HTMLDetailsElement) ancestor.open = true; ancestor = ancestor.parentElement; }
+        target.focus();
+      }
+    });
+  };
+  rootRecipeActions.current = {
+    begin: (nodeId, mode) => {
+      const existing = recipeOwner.getState();
+      if (existing.status !== 'saved' && (existing.target?.kind !== 'root' || existing.target.mode !== mode || existing.target.nodeId !== nodeId)) {
+        setRecipeNotice('Apply or Cancel the active recipe change before choosing another starting record.');
+        return undefined;
+      }
+      if (existing.status === 'saved') {
+        constructionLifecycle.cancel(); setActiveConstructionFamily(undefined); setEditingConstructionStepId(undefined); setRowIntentSession(false);
+      }
+      if (!recipeInitiator.current?.isConnected) rememberRecipeFocus(document.querySelector('[data-testid="construction-rows-settings-trigger"]'));
+      const initial = existing.status === 'saved' ? recipeOwner.begin({kind:'root', mode, nodeId}) : recipeEditToken.current;
+      if (!initial) return undefined;
+      const attempt = recipeOwner.previewing(initial);
+      if (!attempt) return undefined;
+      recipeEditToken.current = attempt;
+      rootRecipeAssessment.current = undefined;
+      setSourceProposal(undefined);
+      return {
+        failed: (message, stale = false) => { recipeOwner.fail(attempt, message, stale); },
+        noChange: () => { recipeOwner.cancel(attempt); recipeEditToken.current = undefined; restoreRecipeFocus(); },
+        ready: (assessment, preview) => {
+          if (assessment.snapshotToken !== attempt.identity.snapshotToken ||
+            assessment.draftVersion !== attempt.identity.draftVersion || assessment.draftDigest !== attempt.identity.draftDigest ||
+            assessment.proposal.outputId !== attempt.identity.outputId || assessment.proposal.rootNodeId !== nodeId ||
+            (assessment.mode ?? 'PRESERVE') !== mode || (assessment.proposal.mode ?? 'PRESERVE') !== mode || !assessment.candidateReceiptId ||
+            !assessment.candidateDocument || !assessment.candidateNetwork || !assessment.candidateRowIdentity) {
+            recipeOwner.fail(attempt, 'The starting-record preview is incomplete or belongs to another draft. Cancel and review the current table.', true);
+            return false;
+          }
+          const accepted = recipeOwner.ready(attempt, {receiptId:assessment.candidateReceiptId, preview,
+            candidateDocument:assessment.candidateDocument, candidateNetwork:assessment.candidateNetwork,
+            candidateRowIdentity:assessment.candidateRowIdentity});
+          if (accepted) { rootRecipeAssessment.current = assessment; setSourceRowsOpen(false); }
+          else recipeOwner.fail(attempt, 'The starting-record preview does not belong to this recipe edit.');
+          return accepted;
+        },
+      };
+    },
+    cancel: () => {
+      if (recipeOwner.getState().target?.kind !== 'root') return true;
+      const token = recipeEditToken.current;
+      if (token && !recipeOwner.cancel(token)) return false;
+      recipeEditToken.current = undefined;
+      rootRecipeAssessment.current = undefined;
+      restoreRecipeFocus();
+      return true;
+    },
+    apply: async (assessment) => {
+      const token = recipeEditToken.current;
+      const current = rootRecipeAssessment.current;
+      if (!token || !current || current.candidateReceiptId !== assessment.candidateReceiptId ||
+        JSON.stringify(current.proposal) !== JSON.stringify(assessment.proposal) || !recipeOwner.applying(token)) return false;
+      try {
+        const applied = await applyCommands([{type:'APPLY_TABLE_ROOT_REBASE', outputId:token.identity.outputId, rowChange:assessment.proposal}]);
+        if (applied) {
+          recipeOwner.applied(token); recipeEditToken.current = undefined; rootRecipeAssessment.current = undefined;
+          setPendingRowChangePreview(undefined); setRootChangeState({kind:'idle'}); restoreRecipeFocus();
+        } else recipeOwner.fail(token, 'The starting-record change was not saved. Review the current draft.');
+        return applied;
+      } catch (cause) { recipeOwner.fail(token, cause instanceof Error ? cause.message : 'The starting-record change was not saved.'); return false; }
+    },
+  };
+  const recipeMutationAllowed = () => {
+    if (recipeOwner.state.status === 'saved' && rootChangeStateRef.current.kind === 'idle' && !pendingRowChangePreview) return true;
+    setRecipeNotice('Apply or Cancel the active recipe change before starting another edit.');
+    return false;
+  };
+
   const rootChangeIdentityForTable = (outputId: string): RootChangeRequestIdentity => ({
     epoch: rowChangeRequestEpoch.current,
     project: projectId,
@@ -1071,6 +1249,30 @@ const BuilderWorkspaceContent = ({
     client: loomClient,
     capabilitiesRequest,
     previewLimit,
+    editingOwner: { onStart: (intent, request) => {
+      const existing = recipeOwner.state;
+      if (existing.status === 'saved' && (rootChangeStateRef.current.kind !== 'idle' || pendingRowChangePreview)) return undefined;
+      let token = recipeEditToken.current;
+      if (existing.status !== 'saved' && !(existing.target?.kind === 'operation'
+        && existing.target.operationId === intent.changedStepId && existing.target.stageId === request.stageId)) return undefined;
+      if (existing.status === 'saved' && !recipeInitiator.current?.isConnected) rememberRecipeFocus();
+      if (!token || existing.status === 'saved') token = recipeOwner.begin(intent.changedStepId
+        ? { kind: 'operation', operationId: intent.changedStepId, stageId: request.stageId }
+        : { kind: 'appendOperation', operationKind: 'construction', stageId: request.stageId });
+      if (!token) return undefined;
+      const attempt = recipeOwner.previewing(token);
+      if (!attempt) return undefined;
+      recipeEditToken.current = attempt;
+      return {
+        ready: (response, preview) => recipeOwner.ready(attempt, { receiptId: response.proposalId ?? '',
+          candidateWorkspaceDigest: response.candidateWorkspaceDigest, preview, candidateConstruction: response.candidateConstruction }),
+        failed: (message) => { recipeOwner.fail(attempt, message); },
+        cancel: () => { const canceled = recipeOwner.cancel(attempt); if (canceled) restoreRecipeFocus(); return canceled; },
+        beginApply: () => recipeOwner.applying(attempt),
+        finishApply: (applied) => { if (applied) { recipeOwner.applied(attempt); recipeEditToken.current = undefined; restoreRecipeFocus(); }
+          else recipeOwner.fail(attempt, 'The construction change was not saved.'); },
+      };
+    } },
   });
   const combineCatalogIdentityFor = (value: BuilderAuthoringState): string => {
     const selected = selectedTable(value);
@@ -2116,6 +2318,7 @@ const BuilderWorkspaceContent = ({
   }, []);
 
   const cancelRootChange = useCallback(() => {
+    if (rootRecipeActions.current?.cancel() === false) return;
     abortRootChangeRequests();
     rowChangeRequestEpoch.current += 1;
     setPendingRowChangePreview(undefined);
@@ -2124,11 +2327,14 @@ const BuilderWorkspaceContent = ({
 
   const changeTableRoot = useCallback(
     async (selection: RootChangeSelection, resolution: RootChangeResolution = {}) => {
+      const rootOwnership = rootRecipeActions.current?.begin(selection.nodeId, 'PRESERVE');
+      if (!rootOwnership) return;
       abortRootChangeRequests();
       rowChangeRequestEpoch.current += 1;
       const epoch = rowChangeRequestEpoch.current;
       const identity = getCurrentRootChangeIdentity();
       if (!identity) {
+        rootOwnership.failed('The selected table is unavailable.');
         setRootChangeState({ kind: 'idle' });
         return;
       }
@@ -2159,6 +2365,7 @@ const BuilderWorkspaceContent = ({
         if (assessment.snapshotToken !== identity.snapshotToken ||
             assessment.draftVersion !== identity.draftVersion ||
             assessment.draftDigest !== identity.draftDigest) {
+          rootOwnership.failed('The draft changed while checking the starting record.', true);
           setRootChangeState({
             kind: 'failed', reason: 'stale', selection, resolution, identity,
             message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
@@ -2166,11 +2373,13 @@ const BuilderWorkspaceContent = ({
           return;
         }
         if (assessment.status === 'NO_CHANGE') {
+          rootOwnership.noChange();
           setRootChangeState({ kind: 'idle' });
           setMessage(undefined);
           return;
         }
         if (assessment.status === 'BLOCKED') {
+          rootOwnership.failed(assessment.diagnostics.map((item) => item.message).join(' ') || 'This starting-record change needs a supported relationship or repair.');
           setRootChangeState({ kind: 'blocked', selection, resolution, identity, assessment });
           setMessage(undefined);
           return;
@@ -2180,6 +2389,7 @@ const BuilderWorkspaceContent = ({
             assessment.proposal.rootNodeId !== selection.nodeId ||
             (resolution.rootOccurrenceId !== undefined &&
               assessment.proposal.rootOccurrenceId !== resolution.rootOccurrenceId)) {
+          rootOwnership.failed('The starting-record assessment has no matching preview receipt.');
           setRootChangeState({
             kind: 'failed', reason: 'unavailable', selection, resolution, identity,
             message: 'Loom could not match this row choice to a preview receipt. The table has not changed.',
@@ -2205,6 +2415,7 @@ const BuilderWorkspaceContent = ({
           if (candidatePreview.receiptId !== candidateReceiptId ||
               candidatePreview.outputId !== identity.outputId ||
               candidatePreview.rows === null) {
+            rootOwnership.failed('The preview does not match the starting-record candidate.');
             setPendingRowChangePreview(undefined);
             setRootChangeState({
               kind: 'failed', reason: 'unavailable', selection, resolution, identity,
@@ -2212,10 +2423,16 @@ const BuilderWorkspaceContent = ({
             });
             return;
           }
+          if (!rootOwnership.ready(assessment, candidatePreview)) {
+            setPendingRowChangePreview(undefined);
+            setRootChangeState({kind:'failed', reason:'unavailable', selection, resolution, identity, message:'The starting-record candidate could not be described for both editors. The saved table has not changed.'});
+            return;
+          }
           setPendingRowChangePreview({ ...context, status: 'ready', preview: candidatePreview });
           setRootChangeState({ kind: 'idle' });
         } catch (error) {
           if (controller.signal.aborted || !isCurrentAttempt()) return;
+          rootOwnership.failed(error instanceof Error ? error.message : 'The proposed starting-record rows could not be loaded.');
           setPendingRowChangePreview(undefined);
           setRootChangeState({
             kind: 'failed', reason: 'request', selection, resolution, identity,
@@ -2226,6 +2443,7 @@ const BuilderWorkspaceContent = ({
         }
       } catch (error) {
         if (!isCurrentAttempt()) return;
+        rootOwnership.failed(error instanceof Error ? error.message : 'The starting-record change could not be assessed.');
         const apiError = typeof error === 'object' && error !== null && 'code' in error &&
           typeof error.code === 'string'
           ? {
@@ -2357,10 +2575,7 @@ const BuilderWorkspaceContent = ({
       setMessage('The table changed. Review the proposed rows again.');
       return;
     }
-    const applied = await applyCommands([{
-      type: 'APPLY_TABLE_ROOT_REBASE',
-      rowChange: pending.assessment.proposal,
-    }]);
+    const applied = await rootRecipeActions.current?.apply(pending.assessment);
     if (applied) setPendingRowChangePreview(undefined);
   }, [applyCommands, getCurrentRootChangeIdentity, pendingRowChangePreview]);
 
@@ -2447,12 +2662,14 @@ const BuilderWorkspaceContent = ({
       lastPublished.draftDigest === state.draftDigest) ||
     incomplete ||
     blockingDiagnostics ||
+    recipeOwner.state.status !== 'saved' ||
     constructionLifecycle.proposal.status !== 'idle' ||
     state.tables.some((candidate) =>
       !effectiveOutputAvailability(candidate.document).hasAnyOutputColumn,
     );
 
   const addTable = () => {
+    if (!recipeMutationAllowed()) return;
     if (
       firstTableActionPending.current ||
       latestState.current.tables.length === 0
@@ -2461,6 +2678,7 @@ const BuilderWorkspaceContent = ({
     setTableCreatorOpen(true);
   };
   const duplicateTable = () => {
+    if (!recipeMutationAllowed()) return;
     if (!table) return;
     if (!table.document.rootResourceType) {
       const outputId = opaqueId('output');
@@ -2500,12 +2718,14 @@ const BuilderWorkspaceContent = ({
     void applyCommands([{ type: 'RENAME_TABLE', outputId, title }]);
   };
   const renameTableById = (outputId: string) => {
+    if (!recipeMutationAllowed()) return;
     const target = state.tables.find((candidate) => candidate.outputId === outputId);
     if (!target) return;
     const title = window.prompt('Table name', target.title)?.trim();
     if (title && title !== target.title) renameTable(outputId, title);
   };
   const deleteSelectedTable = () => {
+    if (!recipeMutationAllowed()) return;
     if (!table) return;
     if (!window.confirm(`Delete ${table.title}?`)) return;
     if (table.document.rootResourceType) {
@@ -2519,19 +2739,6 @@ const BuilderWorkspaceContent = ({
     )?.outputId;
     dispatch({ type: 'removeTable', outputId: table.outputId });
     if (fallbackOutputId) rememberSelectedTable(fallbackOutputId);
-  };
-  const reorderTable = (outputId: string, before?: string) => {
-    const moving = state.tables.find((candidate) => candidate.outputId === outputId);
-    if (!moving?.document.rootResourceType || incomplete) {
-      dispatch({ type: 'reorderTable', outputId, before });
-      return;
-    }
-    const outputIds = state.tables
-      .filter((candidate) => candidate.outputId !== outputId)
-      .map((candidate) => candidate.outputId);
-    const index = before ? outputIds.indexOf(before) : outputIds.length;
-    outputIds.splice(index < 0 ? outputIds.length : index, 0, outputId);
-    void applyCommands([{ type: 'REORDER_TABLES', outputIds }]);
   };
   const createCustomExplorer = async (title: string, fromCurrent: boolean) => {
     try {
@@ -2560,7 +2767,7 @@ const BuilderWorkspaceContent = ({
       (explorers.data ?? []).find(
         (explorer) =>
           explorer.explorerId !== effectiveExplorerId &&
-          explorer.explorerId === 'default',
+          explorer.explorerId === 'dataframe-default',
       ) ??
       (explorers.data ?? []).find(
         (explorer) => explorer.explorerId !== effectiveExplorerId,
@@ -3214,7 +3421,7 @@ const BuilderWorkspaceContent = ({
   const emptyExplorerProject = !effectiveExplorerId &&
     !explorers.isLoading &&
     !explorers.error &&
-    explorers.data?.length === 0;
+    false;
 
   if (
     explorers.isLoading ||
@@ -3280,7 +3487,7 @@ const BuilderWorkspaceContent = ({
 
   const toolbar = (
     <BuilderToolbar
-      explorers={explorers.data ?? []}
+      explorers={explorerSummaries}
       selectedExplorerId={effectiveExplorerId}
       onExplorerChange={selectExplorer}
       onCreateExplorer={(title, fromCurrent) =>
@@ -3300,7 +3507,6 @@ const BuilderWorkspaceContent = ({
       onNewTable={addTable}
       onDuplicateTable={duplicateTable}
       onDeleteTable={deleteSelectedTable}
-      onReorderTable={reorderTable}
       onReview={() => {
         const open = !reviewOpen;
         setReviewOpen(open);
@@ -3370,6 +3576,8 @@ const BuilderWorkspaceContent = ({
   };
 
   const selectConstructionFamily = (family: ConstructionOperationFamily) => {
+    if (!recipeMutationAllowed()) return;
+    rememberOperationFocus();
     const willOpen = activeConstructionFamily !== family;
     setRowIntentSession(false);
     if (family === 'ADD_COLUMNS' && willOpen) selectAddColumnsView('coded');
@@ -3387,6 +3595,8 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionFamily((current) => current === family ? undefined : family);
   };
   const chooseRelatedRows = () => {
+    if (!recipeMutationAllowed()) return;
+    rememberOperationFocus();
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
@@ -3401,7 +3611,9 @@ const BuilderWorkspaceContent = ({
     kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'expand-signed' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot',
     preferredColumnIds?: ReadonlyArray<string>,
   ) => {
+    if (!recipeMutationAllowed()) return;
     if (kind === 'expand' && preferredColumnIds?.length !== 1) return;
+    rememberOperationFocus();
     if (kind !== 'expand') setRowIntentSession(true);
 
     let entry: ConstructionReshapeEditorEntry | undefined;
@@ -3466,6 +3678,9 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionFamily('RESHAPE');
   };
   const selectConstructionHistory = (selection: ConstructionHistorySelection) => {
+    if (recipeOwner.state.status !== 'saved') {
+      setRecipeNotice('Apply or Cancel the active recipe change before editing another step.'); return;
+    }
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
     setRowIntentSession(false);
@@ -3474,8 +3689,10 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionFamily(undefined);
   };
   const editConstructionStep = (stepId: string) => {
+    if (!recipeMutationAllowed()) return;
     const step = construction?.steps.find((candidate) => candidate.id === stepId);
     if (!step) return;
+    rememberOperationFocus();
     if (step.operation.kind === 'RELATED_SOURCE' || step.operation.kind === 'RELATED_FIELD') {
       constructionLifecycle.cancel();
       setConstructionHistorySelection({ kind: 'step', stepId });
@@ -3521,6 +3738,7 @@ const BuilderWorkspaceContent = ({
     setRowIntentSession(false);
   };
   const removeConstructionStep = (stepId: string) => {
+    if (!recipeMutationAllowed()) return;
     if (!construction?.steps.some((step) => step.id === stepId)) return;
     cancelCombineCatalogRequest();
     constructionLifecycle.onCandidateChange({
@@ -3538,6 +3756,7 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionFamily(undefined);
   };
   const restorePreviousDraft = async () => {
+    if (!recipeMutationAllowed()) return;
     if (!previousDraftRevisionId) return;
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
@@ -3622,6 +3841,22 @@ const BuilderWorkspaceContent = ({
       constructionLifecycle.capabilities.response.baseConstruction,
       table?.document.rows,
     );
+  const deriveCapability = capabilityStage?.capabilities.find(
+    (candidate) => candidate.kind === 'DERIVE',
+  );
+  const calculateUnavailableReason = !table?.document.rootResourceType
+    ? 'Choose a row source before calculating.'
+    : constructionLifecycle.capabilities.status === 'loading'
+      ? 'Checking calculation support for this table stage…'
+      : constructionLifecycle.capabilities.status === 'error'
+        ? sanitizeReasonText(constructionLifecycle.capabilities.message)
+        : constructionLifecycle.capabilities.status === 'idle'
+          ? 'Calculation support is not available until the table capabilities load.'
+          : !capabilityIsForAppendStage
+            ? 'The table stage changed; reload calculation support.'
+            : deriveCapability?.reason
+              ? sanitizeReasonText(deriveCapability.reason)
+              : 'The current table stage does not support calculated columns.';
   const capabilitiesErrorMessage = constructionLifecycle.capabilities.status === 'error'
     ? constructionLifecycle.capabilities.message
     : '';
@@ -3737,6 +3972,121 @@ const BuilderWorkspaceContent = ({
     type: column.logicalType,
   }));
   const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
+  const relationshipOwner = JSON.stringify([builderDataKey, state.explorerId, table?.outputId,
+    state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
+  const completePendingRecipeFocus = (outputId: string) => {
+    const generation = recipeFocusGeneration.current;
+    window.requestAnimationFrame(() => {
+      const pending = pendingRecipeFocus.current;
+      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || !pending || pending.outputId !== outputId || latestState.current.selectedOutputId !== pending.outputId) return;
+      if (document.activeElement !== document.body && document.activeElement !== pending.fallback) {
+        pendingRecipeFocus.current = undefined;
+        return;
+      }
+      const control = [...document.querySelectorAll<HTMLElement>('[data-testid]')].find((node) => node.dataset.testid === pending.testId);
+      if (!control) return;
+      pendingRecipeFocus.current = undefined;
+      control.focus();
+    });
+  };
+  const loadRecipeNetwork = () => {
+    if (firstTableProgress.kind !== 'idle' || !table) return;
+    // The portal may commit after current bindings; this existing ref action also
+    // completes a pending restoration without issuing another metadata request.
+    completePendingRecipeFocus(table.outputId);
+    if (networkRequestOwner.current === relationshipOwner) return;
+    networkRequestOwner.current = relationshipOwner;
+    void loomClient.describeAuthoringNetwork({ project: projectId, explorerId: state.explorerId, authResourcePath,
+      snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
+      expectedDraftDigest: state.draftDigest, outputId: table.outputId }).then((result) => {
+      if (networkRequestOwner.current !== relationshipOwner) return;
+      if (result.draftVersion !== state.draftVersion || result.draftDigest !== state.draftDigest ||
+        result.snapshotToken !== state.catalog.snapshotToken || result.network.outputId !== table.outputId) return;
+      setSavedNetwork({ owner: relationshipOwner, result });
+      completePendingRecipeFocus(result.network.outputId);
+    }).catch(() => { if (networkRequestOwner.current === relationshipOwner) networkRequestOwner.current = ''; });
+  };
+  const pendingRelationship = relationshipEdit?.owner === relationshipOwner ? relationshipEdit.change : undefined;
+  const proposeRelationship = (change: SourceRelationshipChange) => {
+    if (!recipeMutationAllowed()) return;
+    rememberRecipeFocus();
+    const token = recipeOwner.begin(change.action === 'ADD'
+      ? { kind: 'connection', parentOccurrenceId: change.parentOccurrenceId, catalogEdgeId: change.edgeId }
+      : { kind: 'relationship', occurrenceId: change.occurrenceId });
+    if (!token) return;
+    recipeEditToken.current = token;
+    setRecipeNotice(undefined);
+    setSourceProposal(undefined);
+    setRelationshipEdit({ owner: relationshipOwner, change });
+  };
+  const cancelRecipeRelationship = () => {
+    columnPolicyRequest.current?.abort();
+    const token = recipeEditToken.current;
+    if (token && !recipeOwner.cancel(token)) return;
+    recipeEditToken.current = undefined;
+    setSourceProposal(undefined);
+    setRelationshipEdit(undefined);
+    setEditingRecipeColumn(undefined);
+    setRecipeNotice(undefined);
+    constructionLifecycle.cancel();
+    restoreRecipeFocus();
+  };
+  const sourceReviewStatus = (status: 'previewing' | 'applying' | 'failed', message?: string) => {
+    const token = recipeEditToken.current;
+    if (!token) return;
+    if (status === 'previewing') recipeEditToken.current = recipeOwner.previewing(token);
+    else if (status === 'failed') recipeOwner.fail(token, message ?? 'The proposal failed.');
+  };
+  const beginSourceReview = () => {
+    const currentToken = recipeEditToken.current;
+    if (!currentToken) return undefined;
+    const attempt = recipeOwner.previewing(currentToken);
+    if (!attempt) return undefined;
+    recipeEditToken.current = attempt;
+    setSourceProposal(undefined);
+    return {
+      ready: (proposal: Pick<SourceRelationshipProposal, 'candidateDocument' | 'candidateNetwork' | 'candidateRowIdentity' | 'candidateWorkspaceDigest' | 'candidateReceiptId' | 'outputId' | 'snapshotToken' | 'draftVersion' | 'draftDigest'>, preview: ExplorerBuilderPreviewResult) => {
+        if (proposal.outputId !== attempt.identity.outputId || proposal.snapshotToken !== attempt.identity.snapshotToken ||
+          proposal.draftVersion !== attempt.identity.draftVersion || proposal.draftDigest !== attempt.identity.draftDigest) {
+          recipeOwner.fail(attempt, 'The draft changed while the proposal was loading. Cancel and review the current draft.', true);
+          return false;
+        }
+        const accepted = recipeOwner.ready(attempt, { receiptId: proposal.candidateReceiptId,
+          candidateWorkspaceDigest: proposal.candidateWorkspaceDigest, preview,
+          candidateDocument: proposal.candidateDocument, candidateNetwork: proposal.candidateNetwork,
+          candidateRowIdentity: proposal.candidateRowIdentity });
+        if (accepted) setSourceProposal({ owner: relationshipOwner, proposal, preview });
+        else recipeOwner.fail(attempt, 'The candidate preview does not belong to this recipe edit. Preview again or Cancel.');
+        return accepted;
+      },
+      failed: (message: string) => { recipeOwner.fail(attempt, message); },
+    };
+  };
+  const beginSourceRowsReview = () => {
+    const editing = recipeOwner.getState();
+    if (editing.status === 'saved') {
+      if (!recipeMutationAllowed()) return undefined;
+      recipeEditToken.current = recipeOwner.begin({ kind: 'sourceRows' });
+    } else if (editing.target?.kind !== 'sourceRows') {
+      setRecipeNotice('Apply or Cancel the active recipe change before opening another row editor.');
+      return undefined;
+    }
+    const attempt = beginSourceReview();
+    return attempt ? { failed: attempt.failed, ready: (proposal: RowDefinitionProposal, preview: ExplorerBuilderPreviewResult) => proposal.proposalId
+      ? attempt.ready({ ...proposal, candidateReceiptId: proposal.proposalId }, preview) : false } : undefined;
+  };
+  const applySourceRecipe = async (commands: ExplorerBuilderCommand[]) => {
+    const token = recipeEditToken.current;
+    if (!token || commands.some((command) => command.proposalId !== recipeOwner.state.candidate?.receiptId) || !recipeOwner.applying(token)) return false;
+    let applied = false;
+    try { applied = await applyCommands(commands); } catch (error) {
+      recipeOwner.fail(token, error instanceof Error ? error.message : 'The proposal was not saved.'); return false;
+    }
+    if (applied) { recipeOwner.applied(token); recipeEditToken.current = undefined; setSourceProposal(undefined); setRelationshipEdit(undefined); setEditingRecipeColumn(undefined); restoreRecipeFocus(); }
+    else recipeOwner.fail(token, 'The change was not saved. Review the current draft.');
+    return applied;
+  };
+
   const attachedPopulationSelection = table?.document.population?.selectionRevisionId === activePopulationSelection?.id
     ? activePopulationSelection
     : undefined;
@@ -3764,7 +4114,7 @@ const BuilderWorkspaceContent = ({
       data-testid="construction-operation-editor"
       data-operation-family={activeOperation.family}
       data-output-id={table.outputId}
-      className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"
+      className={rowIntentSession ? "min-w-0 bg-white" : "overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"}
     >
       {!rowIntentSession ? <header className="border-b border-slate-200 px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
@@ -3810,7 +4160,7 @@ const BuilderWorkspaceContent = ({
         ) : null}
       </header> : null}
 
-      <div className="p-3">
+      <div className={rowIntentSession ? "py-2" : "p-3"}>
         {activeOperation.family === 'ADD_COLUMNS' ? (
           <div className="grid gap-4">
             {editingConstructionStep?.operation.kind === 'GROUP' && constructionLifecycle.capabilities.status === 'ready' ? (
@@ -4177,16 +4527,26 @@ const BuilderWorkspaceContent = ({
     />
   );
   const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
-    ? <>{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
+    ? <div className="construction-mutation-inspector">
+        <div className="construction-mutation-fields">{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}</div>
+        {proposalPanel}
+      </div>
     : undefined;
-  const candidatePreview = constructionLifecycle.proposal.status === 'ready' ||
+  const sourceCandidate = sourceProposal?.owner === relationshipOwner ? sourceProposal : undefined;
+  const sourceReviewColumnLabels = table ? new Map(table.document.columns.map((column) => [column.columnId ?? column.column, column.label || column.column])) : undefined;
+  const rootCandidate = recipeOwner.state.target?.kind === 'root' ? recipeOwner.state.candidate : undefined;
+  const candidatePreview = rootCandidate?.preview ?? sourceCandidate?.preview ?? (constructionLifecycle.proposal.status === 'ready' ||
     constructionLifecycle.proposal.status === 'applying'
     ? constructionLifecycle.proposal.preview
-    : undefined;
+    : undefined);
   const proposalResponse = 'response' in constructionLifecycle.proposal
     ? constructionLifecycle.proposal.response
     : undefined;
-  const proposalPresentationTable = table && proposalResponse
+  const proposalPresentationTable = table && rootCandidate
+    ? { ...table, document: rootCandidate.candidateDocument! }
+    : table && sourceCandidate
+    ? { ...table, document: sourceCandidate.proposal.candidateDocument }
+    : table && proposalResponse
     ? {
         ...table,
         document: {
@@ -4195,17 +4555,172 @@ const BuilderWorkspaceContent = ({
         },
       }
     : undefined;
+  // Inspection is ephemeral and receipt-bound; it never changes the saved route or a stage anchor.
+  const candidateInspectionKey = candidatePreview && proposalPresentationTable
+    ? JSON.stringify([relationshipOwner, candidatePreview.receiptId, candidatePreview.outputId]) : undefined;
+  const inspectedOccurrenceId = candidateInspectionKey && proposalPresentationTable
+    ? candidateInspection?.key === candidateInspectionKey && routeNode(proposalPresentationTable.document.route, candidateInspection.occurrenceId)
+      ? candidateInspection.occurrenceId
+      : routeNode(proposalPresentationTable.document.route, state.selectedOccurrenceId) ? state.selectedOccurrenceId : proposalPresentationTable.document.route.occurrenceId
+    : state.selectedOccurrenceId;
+  const sourceRecipeInspector = recipeOwner.state.status === 'stale' && recipeOwner.state.target?.kind !== 'root'
+    ? <p role="alert">{recipeOwner.state.error} <button type="button" onClick={cancelRecipeRelationship}>Cancel earlier recipe change</button></p>
+    : recipeOwner.state.target?.kind === 'root' ? (recipeOwner.state.target.mode === 'REPLACE'
+      ? <div ref={setRootReplacementInspectorHost} aria-label="Starting-record replacement inspector" />
+      : rootCandidate || rootChangeState.kind === 'idle' ? <RowChangePreviewPanel candidateRoot={rootRecipeAssessment.current?.candidateRootResourceType ?? table?.document.rootResourceType ?? 'records'}
+          status={rootCandidate ? 'ready' : recipeOwner.state.status === 'failed' || recipeOwner.state.status === 'stale' ? 'error' : 'loading'}
+          preview={rootCandidate?.preview} error={recipeOwner.state.error} sharedPreview
+          disabled={pendingCommands > 0 || recipeOwner.state.status === 'applying'}
+          onApply={() => void applyRowChangePreview()} onCancel={cancelRootChange} /> : undefined)
+    : table && (pendingRelationship || editingRecipeColumn?.owner === relationshipOwner || recipeOwner.state.target?.kind === 'sourceStep') ? <>
+      {recipeOwner.state.target?.kind === 'sourceStep' ? <div className="construction-inspector-portal-host" ref={setSourceStepInspectorHost} aria-label="Source step inspector" /> : null}
+      {editingRecipeColumn?.owner === relationshipOwner ? (() => {
+        const column = table.document.columns.find((item) => (item.columnId ?? item.column) === editingRecipeColumn.columnId);
+        const occurrence = column ? derivedOccurrences(table, state.catalog).find((item) => item.id === column.occurrenceId) : undefined;
+        return column ? <RecipeColumnPolicyInspector key={`${relationshipOwner}:${editingRecipeColumn.columnId}`}
+          column={column} sourceNodeId={occurrence?.nodeId ?? ''} candidate={candidateForPreviewColumn(column)}
+          disabled={pendingCommands > 0 || publishing || state.reconciliation === 'pending'}
+          onCancel={cancelRecipeRelationship}
+          busy={recipeOwner.state.status === 'previewing' || recipeOwner.state.status === 'applying'}
+          error={recipeOwner.state.error}
+          cancelDisabled={recipeOwner.state.status === 'applying'}
+          canApply={recipeOwner.state.status === 'preview-ready' && Boolean(sourceCandidate)}
+          onDraftChange={() => {
+            if (recipeEditToken.current) recipeEditToken.current = recipeOwner.changed(recipeEditToken.current);
+            setSourceProposal(undefined);
+          }}
+          onPreview={(columnValue) => {
+            if (columnValue.source.kind !== 'field' || !columnValue.source.field.projectionMode) return;
+            const attempt = beginSourceReview();
+            if (!attempt) return;
+            columnPolicyRequest.current?.abort();
+            const controller = new AbortController();
+            columnPolicyRequest.current = controller;
+            void (async () => {
+              try {
+                const proposal = await loomClient.proposeColumnPolicy({ project: projectId, explorerId: state.explorerId,
+                  authResourcePath, snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
+                  expectedDraftDigest: state.draftDigest, outputId: table.outputId, columnId: column.columnId ?? column.column,
+                  projectionMode: columnValue.source.kind === 'field' ? columnValue.source.field.projectionMode! : 'VALUE' }, controller.signal);
+                if (controller.signal.aborted) return;
+                const preview = await loomClient.preview({ project: projectId, explorerId: state.explorerId, authResourcePath,
+                  receiptId: proposal.candidateReceiptId, outputId: table.outputId }, controller.signal);
+                if (controller.signal.aborted) return;
+                attempt.ready(proposal, preview);
+              } catch (error) { if (!controller.signal.aborted) attempt.failed(error instanceof Error ? error.message : 'The column policy could not be previewed.'); }
+            })();
+          }}
+          onChange={() => { if (sourceCandidate) void applySourceRecipe([{ type: 'APPLY_COLUMN_POLICY_PROPOSAL', outputId: table.outputId,
+            proposalId: sourceCandidate.preview.receiptId }]); }} /> : null;
+      })() : null}
+      {pendingRelationship ? <SourceRelationshipReview key={`${relationshipOwner}:${JSON.stringify(pendingRelationship)}`}
+        columnLabels={sourceReviewColumnLabels}
+        client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+        snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
+        outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+        change={pendingRelationship} sharedPreview onStatusChange={sourceReviewStatus} onPreviewStart={beginSourceReview}
+        onApply={applySourceRecipe} onCancel={cancelRecipeRelationship} /> : null}
+  </> : undefined;
+  const selectTraversalScope = (occurrenceId: string) => {
+    if (candidateInspectionKey && proposalPresentationTable) {
+      if (routeNode(proposalPresentationTable.document.route, occurrenceId)) setCandidateInspection({ key: candidateInspectionKey, occurrenceId });
+    } else dispatch({ type: 'selectOccurrence', occurrenceId });
+  };
+  const editTraversalColumn = (columnId: string) => {
+    const binding = savedNetwork?.owner === relationshipOwner ? savedNetwork.result.network.bindings.find((item) => item.columnId === columnId) : undefined;
+    if (binding?.sourceStepId) sourceStepEditAction.current?.(binding.sourceStepId);
+    else {
+      if (!recipeMutationAllowed()) return;
+      rememberRecipeFocus();
+      const token = recipeOwner.begin({ kind: 'column', columnId });
+      if (!token) return;
+      recipeEditToken.current = token;
+      setEditingRecipeColumn({ owner: relationshipOwner, columnId });
+    }
+  };
+  const traversalTable = proposalPresentationTable ?? table;
+  const traversalNetwork = rootCandidate?.candidateNetwork ?? sourceCandidate?.proposal.candidateNetwork ?? (savedNetwork?.owner === relationshipOwner ? savedNetwork.result.network : undefined);
+  const traversalRowIdentity = rootCandidate?.candidateRowIdentity ?? sourceCandidate?.proposal.candidateRowIdentity ?? (proposalPresentationTable ? undefined : savedNetwork?.owner === relationshipOwner ? savedNetwork.result.rowIdentity : undefined);
+  const traversalSourceSteps = traversalTable?.document.importedSource?.steps ?? [];
+  const traversalFields = new Map(traversalSourceSteps.flatMap((step) => step.parameters?.fieldGroup
+    ? [[step.id, step.parameters.fieldGroup.fields.map((field) => ({ fieldId: field.fieldId, name: field.name, label: field.label, valueMode: field.valueMode, editable: step.editable }))] as const] : []));
+  const traversalOperationLabels = new Map(traversalSourceSteps.flatMap((step) => {
+    const parameters = step.parameters;
+    const name = parameters?.dynamic?.name ?? parameters?.extension?.name ?? parameters?.pivot?.name ?? parameters?.catalog?.name ?? parameters?.identity?.name;
+    return name ? [[step.id, `${step.kind === 'DYNAMIC_COLUMN' ? 'Keyed columns' : step.kind === 'PIVOT' ? 'Pivot' : step.kind === 'CATALOG_PROJECTION' ? 'Populated fields' : step.kind === 'IDENTITY' ? 'Row identity' : 'Extension columns'}: ${name}`] as const] : [];
+  }));
+  const editTraversalRows = () => {
+    if (!recipeMutationAllowed() || !table) return;
+    rememberRecipeFocus();
+    if (table.document.importedRecipe) {
+      const sourceStep = table.document.importedSource?.steps.find((step) => step.kind === 'EXPANSION')
+        ?? table.document.importedSource?.steps.find((step) => step.kind === 'OUTPUT');
+      if (sourceStep) { sourceStepEditAction.current?.(sourceStep.id); return; }
+    }
+    rowSettingsOpenAction.current?.();
+  };
+  const canInspectOccurrence = Boolean(table && recipeOwner.state.status === 'saved' && !sourceRowsOpen && !sourceRecipeInspector && !workspaceEditor &&
+    routeNode(table.document.route, inspectedOccurrenceId));
+  const occurrenceInspection = canInspectOccurrence ? <div className="min-w-0" ref={setOccurrenceInspectorHost} /> : undefined;
+  const recordNetwork = table ? (
+    <div className="flex min-h-0 min-w-0 flex-col gap-2" ref={(node) => { if (node) loadRecipeNetwork(); }}>
+      {recipeNotice ? <p role="alert" className="text-xs text-amber-900">{recipeNotice}</p> : null}
+      <AuthoredTraversalEditor
+        projectionKind={proposalPresentationTable ? 'proposed' : 'saved'}
+        network={rootCandidate?.candidateNetwork ?? sourceCandidate?.proposal.candidateNetwork ?? (savedNetwork?.owner === relationshipOwner ? savedNetwork.result.network : undefined)}
+        rowIdentity={rootCandidate?.candidateRowIdentity ?? sourceCandidate?.proposal.candidateRowIdentity ?? (proposalPresentationTable ? undefined : savedNetwork?.owner === relationshipOwner ? savedNetwork.result.rowIdentity : undefined)}
+        showInspector={canInspectOccurrence}
+        inspectorHost={occurrenceInspectorHost}
+        onInspectValues={() => { selectConstructionFamily('ADD_COLUMNS'); selectAddColumnsView('fields'); }}
+        onInspectRelatedRows={() => chooseRelatedRows()}
+        onEditSourceStep={(stepId) => sourceStepEditAction.current?.(stepId)}
+        onInspectOperation={editConstructionStep}
+        showOccurrenceNavigation={false}
+        onEditStartingRecords={() => { if (recipeMutationAllowed()) rowSettingsOpenAction.current?.(); }}
+        mutationBlockedReason={recipeOwner.state.status !== 'saved' ? 'Apply or Cancel the active recipe change before starting another edit.' : undefined}
+        presentation="compact"
+        onTableToolbarHostChange={setTableToolbarHost}
+        catalog={state.catalog} table={proposalPresentationTable ?? table} selectedOccurrenceId={inspectedOccurrenceId}
+        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved'}
+        importedRelationshipActions={table.document.importedRecipe ? {
+          onAdd: (parentOccurrenceId, edgeId) => proposeRelationship({ action: 'ADD', parentOccurrenceId, edgeId, matchMode: 'OPTIONAL' }),
+          onChangeMatchMode: (occurrenceId, matchMode) => proposeRelationship({ action: 'MATCH', occurrenceId, matchMode }),
+          onRemove: (occurrenceId) => proposeRelationship({ action: 'REMOVE', occurrenceId }),
+        } : undefined}
+        onDefineRow={editTraversalRows}
+        onSelectOccurrence={selectTraversalScope}
+        onSetBase={(nodeId) => void applyCommands([{ type: 'CREATE_TABLE', title: table.title, rootNodeId: nodeId }])}
+        onChangeBase={(nodeId) => selectRootChoice({ kind: 'catalog-node', nodeId })}
+        onAppendEdge={(parentOccurrenceId, edgeId) => {
+          if (!table.document.importedRecipe) void applyCommands([{ type: 'ADD_ROUTE', outputId: table.outputId, parentOccurrenceId, edgeId }]);
+        }}
+        onChangeEdge={(occurrenceId, edgeId) => {
+          if (!table.document.importedRecipe) void applyCommands([{ type: 'UPDATE_ROUTE_EDGE', outputId: table.outputId, occurrenceId, edgeId }]);
+        }}
+        onChangeMatchMode={(occurrenceId, matchMode) => {
+          if (!table.document.importedRecipe) void applyCommands([{ type: 'SET_ROUTE_MATCH_MODE', outputId: table.outputId, occurrenceId, matchMode }]);
+        }}
+        onTruncate={(occurrenceId) => {
+          if (table.document.importedRecipe) return;
+          const subtree = routeNode(table.document.route, occurrenceId);
+          if (!subtree) return;
+          const ids = routeSubtreeOccurrenceIds(subtree);
+          const columnCount = table.document.columns.filter((column) => ids.has(column.occurrenceId)).length;
+          if (!window.confirm(`Remove this local branch (${ids.size} occurrence${ids.size === 1 ? '' : 's'}, ${columnCount} column${columnCount === 1 ? '' : 's'})?`)) return;
+          void applyCommands([{ type: 'REMOVE_ROUTE', outputId: table.outputId, occurrenceId }]);
+        }}
+      />
+    </div>
+  ) : undefined;
+
   const candidatePreviewElement = candidatePreview ? (
     <ConstructionProposalPreview
       preview={candidatePreview}
       presentationTable={proposalPresentationTable}
     />
   ) : undefined;
-  const rowIntentEditor = rowIntentSession
-    ? <>{workspaceEditor}{candidatePreviewElement}</>
-    : undefined;
-  const externalWorkspaceEditor = rowIntentSession ? undefined : workspaceEditor;
-  const workspaceCandidatePreview = rowIntentSession ? undefined : candidatePreview;
+  const externalWorkspaceEditor = sourceRecipeInspector ?? (sourceRowsOpen ? <div className="construction-inspector-portal-host" ref={setSourceRowsInspectorHost} aria-label="Source row settings inspector" /> : workspaceEditor);
+  const workspaceCandidatePreview = candidatePreview;
   const workspacePreview = workspaceCandidatePreview ?? tablePreview;
   const workspacePreviewIsCurrent = Boolean(workspaceCandidatePreview) || previewIsCurrent;
   const workspacePreviewStatus = workspaceCandidatePreview
@@ -4296,7 +4811,7 @@ const BuilderWorkspaceContent = ({
     sameRootChangeRequestIdentity(pendingRowChangePreview.identity, currentRootChangeIdentity);
 
   return (
-    <main ref={workspaceHostRef} className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
+    <main ref={workspaceHostRef} className="min-h-full bg-slate-50 p-2 text-slate-900 sm:p-3">
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {reviewOpen ? (
         <DatasetReviewPanel
@@ -4422,36 +4937,59 @@ const BuilderWorkspaceContent = ({
             </button>
           </div>
         ) : null}
-        {rootChangePreviewReady && pendingRowChangePreview?.status === 'ready' ? (
-          <RowChangePreviewPanel
-            candidateRoot={pendingRowChangePreview.assessment.candidateRootResourceType}
-            status="ready"
-            preview={pendingRowChangePreview.preview}
-            disabled={pendingCommands > 0}
-            onApply={() => void applyRowChangePreview()}
-            onCancel={cancelRootChange}
-          />
-        ) : null}
         {state.tables.length === 0 ? tableCreatorPanel : (
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
             {tableCreatorOpen ? tableCreatorPanel : null}
             {table ? (
               <ConstructionWorkspace
+                composition={workspaceComposition}
+                network={recordNetwork}
+                navigation={traversalTable ? <div className="space-y-3">
+                  <TraversalScopeNavigator table={traversalTable} network={traversalNetwork} rowIdentity={traversalRowIdentity}
+                    showScopeNavigation={false}
+                    constructionStages={constructionLifecycle.proposal.status === 'ready' ? constructionLifecycle.proposal.response.stages
+                      : constructionCapabilitiesResponse?.outputId === table.outputId && constructionCapabilitiesResponse.snapshotToken === state.catalog.snapshotToken && constructionCapabilitiesResponse.draftVersion === state.draftVersion && constructionCapabilitiesResponse.draftDigest === state.draftDigest ? constructionCapabilitiesResponse.stages : undefined}
+                    selectedOccurrenceId={inspectedOccurrenceId} sourceFieldsByStep={traversalFields} sourceOperationLabels={traversalOperationLabels}
+                    selectedOperation={recipeOwner.state.target?.kind === 'sourceStep' ? { kind: 'source', stepId: recipeOwner.state.target.sourceStepId }
+                      : editingConstructionStepId ? { kind: 'construction', stepId: editingConstructionStepId } : undefined}
+                    projectionKind={proposalPresentationTable ? 'proposed' : 'saved'}
+                    disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved'}
+                    disabledReason={recipeOwner.state.status !== 'saved' ? 'Apply or Cancel the active change before editing another operation.' : undefined}
+                    onSelectScope={selectTraversalScope} onEditSourceStep={(stepId) => sourceStepEditAction.current?.(stepId)}
+                    onEditSourceField={(stepId, fieldId) => sourceFieldEditAction.current?.(stepId, fieldId)}
+                    onEditConstructionStep={editConstructionStep} onEditColumn={editTraversalColumn} onEditSourceRows={editTraversalRows}
+                    onAddRelatedValues={() => { selectConstructionFamily('ADD_COLUMNS'); selectAddColumnsView('fields'); }}
+                    onExpandRelatedRows={() => chooseRelatedRows()} onGroupRows={() => chooseReshapeRows('group')} />
+                  <details><summary className="cursor-pointer text-sm font-medium">Other result operations</summary>
+                    <ConstructionActionBar activeFamily={activeConstructionFamily}
+                      disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
+                      addColumnsDisabled={addColumnsPreviewPending} combineDisabled={!canStartCombine}
+                      calculateAvailable={Boolean(capabilityIsForAppendStage && capabilityStage?.capabilities.some((candidate) => candidate.kind === 'DERIVE' && candidate.supported))}
+                      calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />
+                  </details>
+                  <AuthoringNetworkInspector key={relationshipOwner} client={loomClient} identity={{ project: projectId, explorerId: state.explorerId,
+                    authResourcePath, snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
+                    expectedDraftDigest: state.draftDigest, outputId: table.outputId }} />
+                </div> : undefined}
                 tables={state.tables.map((candidate) => ({
                   outputId: candidate.outputId,
                   title: candidate.title,
                 }))}
                 selectedOutputId={table.outputId}
                 tableActionsDisabled={
-                  pendingCommands > 0 ||
+                  (sourceRowsOpen && recipeOwner.state.status === 'saved') || pendingCommands > 0 ||
                   publishing ||
                   firstTableProgress.kind === 'running' ||
                   constructionLifecycle.proposal.status === 'applying'
                 }
                 onSelectTable={(outputId) => {
-                  selectConstructionHistory({ kind: 'source' });
-                  cancelCombineCatalogRequest();
+                  if (sourceRowsOpen && recipeOwner.state.status === 'saved') { setRecipeNotice('Close source row settings before switching tables.'); return; }
+                  setSourceRowsOpen(false);
+                  if (recipeOwner.state.status === 'saved') {
+                    selectConstructionHistory({ kind: 'source' });
+                    cancelCombineCatalogRequest();
+                  }
                   selectTableFromUser(outputId);
                 }}
                 onNewTable={addTable}
@@ -4460,7 +4998,18 @@ const BuilderWorkspaceContent = ({
                 onRenameTable={renameTableById}
                 rowSetup={(
                   <RowDefinitionSettingsPanel
-                    triggerPresentation="source-chip"
+                    key={table.outputId}
+                    inspectorHost={sourceRowsInspectorHost}
+                    onOpenChange={setSourceRowsOpen}
+                    operationInspectorPresentation="workspace"
+                    openActionRef={rowSettingsOpenAction}
+                    replacementPresentation="shared" replacementInspectorHost={rootReplacementInspectorHost}
+                    onBeginRootProposal={(nodeId) => rootRecipeActions.current?.begin(nodeId, 'REPLACE')}
+                    onCancelRootProposal={cancelRootChange}
+                    onBeginProposal={beginSourceRowsReview}
+                    onCancelProposal={() => { if (recipeOwner.state.target?.kind === 'sourceRows') cancelRecipeRelationship(); else if (recipeOwner.state.status === 'saved') restoreRecipeFocus(); }}
+                    presentation="compact"
+                    triggerPresentation="hidden"
                     triggerLabel={table.document.rootResourceType || 'Choose records'}
                     client={loomClient}
                     project={projectId}
@@ -4538,39 +5087,9 @@ const BuilderWorkspaceContent = ({
                     reshapeRows={reshapeRowsAvailability}
                     onChooseRelatedRows={chooseRelatedRows}
                     onChooseReshape={chooseReshapeRows}
-                    rowOperationEditor={rowIntentEditor}
+                    rowOperationEditor={undefined}
                     onSwitchRowIntent={switchRowIntent}
                     onCloseRowIntentSession={closeRowIntentSession}
-                    sourceCollectionAction={table.document.rootResourceType ? (
-                      <SourceCollectionExpandEditor
-                        key={JSON.stringify([
-                          projectId,
-                          state.explorerId,
-                          authResourcePath ?? '',
-                          state.catalog.snapshotToken,
-                          state.draftVersion,
-                          state.draftDigest,
-                          table.outputId,
-                        ])}
-                        context={{
-                          client: loomClient,
-                          project: projectId,
-                          explorerId: state.explorerId,
-                          authResourcePath,
-                          snapshotToken: state.catalog.snapshotToken,
-                          draftVersion: state.draftVersion,
-                          draftDigest: state.draftDigest,
-                          outputId: table.outputId,
-                          rowsKind: table.document.rows.kind,
-                          onApply: (proposalId) => applyCommands([{
-                            type: 'APPLY_ROW_DEFINITION_PROPOSAL',
-                            outputId: table.outputId,
-                            proposalId,
-                          }]),
-                        }}
-                        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                      />
-                    ) : undefined}
                     onChangeRootSelection={selectRootChoice}
                     onResolveRootSelection={resolveRootChange}
                     rootChangeState={rootChangeState}
@@ -4578,24 +5097,68 @@ const BuilderWorkspaceContent = ({
                     onCancelRootChange={cancelRootChange}
                     onEditConstructionStep={editConstructionStep}
                     onRemoveConstructionStep={removeConstructionStep}
-                    onApply={(proposalId) => applyCommands([{
+                    onApply={(proposalId) => applySourceRecipe([{
                       type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
                     }])}
-                    onApplyRootReplacement={(assessment) => applyCommands([{
-                      type: 'APPLY_TABLE_ROOT_REBASE',
-                      outputId: table.outputId,
-                      rowChange: assessment.proposal,
-                    }])}
+                    onApplyRootReplacement={(assessment) => rootRecipeActions.current?.apply(assessment) ?? Promise.resolve(false)}
                   />
                 )}
                 history={{
                   resourceType: table.document.rootResourceType,
                   steps: persistedConstructionHistory,
                   selected: constructionHistorySelection,
-                  disabled: pendingCommands > 0 || publishing || constructionLifecycle.proposal.status === 'applying',
+                  disabled: pendingCommands > 0 || publishing || recipeOwner.state.status !== 'saved',
                   onSelect: selectConstructionHistory,
                   onEditStep: editConstructionStep,
                   onRemoveStep: removeConstructionStep,
+                  ...(table.document.importedRecipe ? {
+                    sourceSteps: (
+                      <ImportedSourceSteps
+                        key={JSON.stringify([
+                          builderDataKey,
+                          state.explorerId,
+                          table.outputId,
+                          state.draftVersion,
+                          state.draftDigest,
+                        ])}
+                        outputId={table.outputId}
+                        importedSource={table.document.importedSource}
+                        editorHost={sourceStepInspectorHost}
+                        editActionRef={sourceStepEditAction}
+                        fieldEditActionRef={sourceFieldEditAction} navigatorOnly reviewOwnsCancel
+                        onBeginEdit={(stepId) => {
+                          if (!recipeMutationAllowed()) return false;
+                          constructionLifecycle.cancel();
+                          setActiveConstructionFamily(undefined);
+                          setEditingConstructionStepId(undefined);
+                          setRowIntentSession(false);
+                          rememberRecipeFocus();
+                          const token = recipeOwner.begin({ kind: 'sourceStep', sourceStepId: stepId });
+                          recipeEditToken.current = token;
+                          return Boolean(token);
+                        }}
+                        onCancelEdit={cancelRecipeRelationship}
+                        onDraftChange={() => {
+                          if (recipeEditToken.current) recipeEditToken.current = recipeOwner.changed(recipeEditToken.current);
+                          setSourceProposal(undefined);
+                        }}
+                        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                        renderReview={(sourceStep, onCancel, sourceSteps) => <SourceRelationshipReview
+                          columnLabels={sourceReviewColumnLabels}
+                          key={`${relationshipOwner}:source:${JSON.stringify(sourceSteps ?? sourceStep)}`}
+                          client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+                          snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
+                          outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                          {...(sourceSteps ? { sourceSteps } : { sourceStep })} sharedPreview onStatusChange={sourceReviewStatus} onPreviewStart={beginSourceReview}
+                          onApply={applySourceRecipe} onCancel={onCancel} />}
+                        onRefresh={() => recipeMutationAllowed() ? applyCommands([{
+                          type: 'REFRESH_IMPORTED_SOURCE',
+                          outputId: table.outputId,
+                        }]) : Promise.resolve(false)}
+                        onApply={(command) => applyCommands([command])}
+                      />
+                    ),
+                  } : {}),
                 }}
                 actionsDisabled={
                   !table.document.rootResourceType ||
@@ -4608,12 +5171,12 @@ const BuilderWorkspaceContent = ({
                 addColumnsDisabled={addColumnsPreviewPending}
                 combineDisabled={!canStartCombine}
                 calculateAvailable={Boolean(
-                  construction?.steps.length &&
                   capabilityIsForAppendStage &&
                   capabilityStage?.capabilities.some(
                     (candidate) => candidate.kind === 'DERIVE' && candidate.supported,
                   ),
                 )}
+                calculateUnavailableReason={calculateUnavailableReason}
                 activeFamily={activeConstructionFamily}
                 onSelectFamily={selectConstructionFamily}
                 preview={
@@ -4679,6 +5242,7 @@ const BuilderWorkspaceContent = ({
                   </>
                 }
                 editor={externalWorkspaceEditor}
+                inspection={occurrenceInspection}
                 previewStatus={workspacePreviewStatus}
                 previewReceiptId={workspacePreview?.receiptId}
                 previewOutputId={workspacePreview?.outputId ?? table?.outputId}
@@ -4731,7 +5295,7 @@ const BuilderWorkspaceContent = ({
             <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(28rem,0.95fr)]">
               {featureMode === 'catalog' ? (
                 table?.document.rootResourceType ? (
-                  <ConceptCatalog
+                  sourceSetupOpen ? <ConceptCatalog
                   key={`${ownerKey}:${state.catalog.snapshotToken}:${table.document.rootResourceType}`}
                   project={projectId}
                   explorerId={state.explorerId}
@@ -4750,7 +5314,7 @@ const BuilderWorkspaceContent = ({
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending' || addColumnsPreviewPending}
                   onAddSelected={addSelectedFeatures}
                   onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                  />
+                  /> : null
                 ) : (
                   <RowRootPicker
                     catalog={state.catalog}
@@ -4766,91 +5330,13 @@ const BuilderWorkspaceContent = ({
                   />
                 )
               ) : (
-              <GuidedGraphWorkspace
-                catalog={state.catalog}
-                table={table}
-                selectedOccurrenceId={state.selectedOccurrenceId}
-                disabled={
-                  rowChangeStatus.isLoading ||
-                  addColumnsPreviewPending ||
-                  (state.reconciliation === 'pending' &&
-                    Boolean(table?.document.rootResourceType))
-                }
-                onSelectOccurrence={(occurrenceId) =>
-                  dispatch({ type: 'selectOccurrence', occurrenceId })
-                }
-                onSetBase={(nodeId) =>
-                  table &&
-                  void applyCommands([
-                    {
-                      type: 'CREATE_TABLE',
-                      title: table.title,
-                      rootNodeId: nodeId,
-                    },
-                  ])
-                }
-                onChangeBase={(nodeId) => selectRootChoice({ kind: 'catalog-node', nodeId })}
-                onAppendEdge={(parentOccurrenceId, edgeId) => {
-                  if (!table) return;
-                  const edge = state.catalog.edges.find(
-                    (candidate) => candidate.edgeId === edgeId,
-                  );
-                  if (!edge) return;
-                  void applyCommands([
-                    {
-                      type: 'ADD_ROUTE',
-                      outputId: table.outputId,
-                      parentOccurrenceId,
-                      edgeId,
-                    },
-                  ]);
-                }}
-                onChangeEdge={(occurrenceId, edgeId) => {
-                  if (!table) return;
-                  void applyCommands([
-                    {
-                      type: 'UPDATE_ROUTE_EDGE',
-                      outputId: table.outputId,
-                      occurrenceId,
-                      edgeId,
-                    },
-                  ]);
-                }}
-                onChangeMatchMode={(occurrenceId, matchMode) => {
-                  if (!table) return;
-                  void applyCommands([
-                    {
-                      type: 'SET_ROUTE_MATCH_MODE',
-                      outputId: table.outputId,
-                      occurrenceId,
-                      matchMode,
-                    },
-                  ]);
-                }}
-                onTruncate={(occurrenceId) => {
-                  if (!table) return;
-                  const subtree = routeNode(table.document.route, occurrenceId);
-                  if (!subtree) return;
-                  const ids = routeSubtreeOccurrenceIds(subtree);
-                  const columnCount = table.document.columns.filter((column) =>
-                    ids.has(column.occurrenceId),
-                  ).length;
-                  if (
-                    !window.confirm(
-                      `Remove this local branch (${ids.size} occurrence${ids.size === 1 ? '' : 's'}, ${columnCount} column${columnCount === 1 ? '' : 's'})?`,
-                    )
-                  )
-                    return;
-                  void applyCommands([
-                    {
-                      type: 'REMOVE_ROUTE',
-                      outputId: table.outputId,
-                      occurrenceId,
-                    },
-                  ]);
-                }}
-                onTableToolbarHostChange={setTableToolbarHost}
-              />
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
+                <p>Related records are available beside the result preview in the main editor.</p>
+                <button type="button" className="mt-2 font-semibold underline" onClick={() => {
+                  document.querySelector<HTMLElement>('[aria-label="Record network"]')?.scrollIntoView({ block: 'nearest' });
+                  document.querySelector<HTMLButtonElement>('[aria-label="One row per"]')?.focus();
+                }}>Return to related records</button>
+              </div>
               )}
               <div className="min-w-0 space-y-3">
               <ColumnSelector
@@ -4982,7 +5468,7 @@ const BuilderWorkspaceContent = ({
                 />
                 {featureMode === 'graph' && table && occurrence ? (
                   selectedRouteContext ? (
-                    <ConceptCatalog
+                    sourceSetupOpen ? <ConceptCatalog
                       key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${occurrence.id}`}
                       project={projectId}
                       explorerId={state.explorerId}
@@ -5005,7 +5491,7 @@ const BuilderWorkspaceContent = ({
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                       onAddSelected={addSelectedFeatures}
                       onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                    />
+                    /> : null
                   ) : (
                     <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                       Loom could not identify the saved route for this graph occurrence.
@@ -5097,7 +5583,7 @@ const BuilderWorkspace = (
   const ownerKey = builderOwnerKeyFor(
     projectId,
     authResourcePath,
-    props.explorerId || 'default',
+    !props.explorerId || props.explorerId === 'default' ? 'dataframe-default' : props.explorerId,
   );
   return <BuilderWorkspaceContent key={ownerKey} {...props} />;
 };

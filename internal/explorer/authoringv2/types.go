@@ -4,6 +4,7 @@
 package authoringv2
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -17,7 +18,7 @@ const (
 	StateKind               = "ExplorerBuilderState"
 	CatalogKind             = "ExplorerBuilderCatalog"
 	RootOccurrenceID        = "base"
-	CurrentSemanticsVersion = 10
+	CurrentSemanticsVersion = 12
 
 	contributorSemanticsVersion             = 4
 	aggregateTemporalPolicySemanticsVersion = 9
@@ -41,9 +42,35 @@ type Document struct {
 	// present, Route/Rows/Columns describe only the source projection and
 	// TableShape must be nil. A nil value preserves the existing V2 document
 	// semantics and compiler path.
-	Construction *Construction `json:"construction,omitempty"`
-	FixedFilters []FixedFilter `json:"fixedFilters,omitempty"`
-	Actions      []Action      `json:"actions,omitempty"`
+	Construction   *Construction       `json:"construction,omitempty"`
+	FixedFilters   []FixedFilter       `json:"fixedFilters,omitempty"`
+	Actions        []Action            `json:"actions,omitempty"`
+	ImportedRecipe *ImportedRecipeRef  `json:"importedRecipe,omitempty"`
+	ImportedSource *ImportedSourcePlan `json:"importedSource,omitempty"`
+}
+
+// ImportedRecipeRef pins one immutable, registered recipe output. The server
+// resolves the exact recipe source before compilation; the workspace carries
+// identity only, never executable recipe syntax.
+type ImportedRecipeRef struct {
+	Name               string `json:"name"`
+	TranslationVersion string `json:"translationVersion"`
+	Digest             string `json:"digest"`
+	Output             string `json:"output"`
+}
+
+func (r ImportedRecipeRef) Validate() error {
+	if strings.TrimSpace(r.Name) == "" || r.Name != strings.TrimSpace(r.Name) || strings.TrimSpace(r.TranslationVersion) == "" || r.TranslationVersion != strings.TrimSpace(r.TranslationVersion) || strings.TrimSpace(r.Output) == "" || r.Output != strings.TrimSpace(r.Output) {
+		return fmt.Errorf("imported recipe name, translationVersion, and output are required and must be trimmed")
+	}
+	if len(r.Digest) != 64 {
+		return fmt.Errorf("imported recipe digest must be a lowercase SHA-256 digest")
+	}
+	decoded, err := hex.DecodeString(r.Digest)
+	if err != nil || len(decoded) != 32 || strings.ToLower(r.Digest) != r.Digest {
+		return fmt.Errorf("imported recipe digest must be a lowercase SHA-256 digest")
+	}
+	return nil
 }
 
 // Population constrains an output's row roots to resources reachable from a

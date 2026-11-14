@@ -251,10 +251,7 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 		columnBindKey := columnsBindKey + "_" + sanitizeColumnName(column)
 		physical.BindVars[columnBindKey] = column
 		expression := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: columnBindKey}}
-		name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
-		if alias, ok := pivot.ColumnAliases[column]; ok {
-			name = prefix + alias
-		}
+		name := NativePivotColumnName(prefix, pivot.Name, column, pivot.ColumnAliases)
 		projections = append(projections, ir.PhysicalProjection{Name: name, Expression: &expression})
 	}
 	return projections, nil

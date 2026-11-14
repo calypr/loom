@@ -81,7 +81,9 @@ const candidateColumnName = (
 };
 
 const sourceSummary = (column: ExplorerBuilderColumn): string =>
-  [column.logicalType, column.source.kind].filter(Boolean).join(' · ');
+  column.source.kind === 'imported'
+    ? `imported dataframe output: ${column.source.imported.outputColumn}`
+    : [column.logicalType, column.source.kind].filter(Boolean).join(' · ');
 
 const ConstructionOutputRow = ({
   column,
@@ -105,7 +107,7 @@ const ConstructionOutputRow = ({
   };
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
+    <div className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
       <div className="min-w-0">
         <input
           aria-label={`Display name for construction output ${column.label}`}
@@ -129,7 +131,7 @@ const ConstructionOutputRow = ({
           Reorder in Preview → Columns. Filters, charts, and removal aren’t available for constructed outputs.
         </p>
       </div>
-      <label className="flex justify-center" title="Display in table">
+      <label className="hidden" title="Display in table">
         <span className="sr-only">Table</span>
         <input
           aria-label={`Display ${column.label} in table`}
@@ -245,7 +247,7 @@ const ConfiguredColumnRow = ({
   const visible = column.table?.visible ?? Boolean(column.table);
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
+    <div className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
       <div className="min-w-0">
         <input
           aria-label={`Display name for configured ${column.label}`}
@@ -265,18 +267,25 @@ const ConfiguredColumnRow = ({
         <div className="break-all px-1 font-mono text-[10px] leading-tight text-slate-400">
           {column.column} · {sourceSummary(column)}
         </div>
+        {column.source.kind === 'imported' ? (
+          <p className="mt-1 px-1 text-[11px] text-amber-800">
+            Use dataframe operations to transform this imported source.
+          </p>
+        ) : null}
         {resolution && resolution.state !== 'READY' ? (
           <p className="mt-1 px-1 text-[11px] text-amber-800">{resolution.reason}</p>
         ) : null}
-        <button
-          type="button"
-          className="ml-1 mt-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline"
-          onClick={onInspect}
-        >
-          Column details
-        </button>
+        {column.source.kind === 'imported' ? null : (
+          <button
+            type="button"
+            className="ml-1 mt-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline"
+            onClick={onInspect}
+          >
+            Column details
+          </button>
+        )}
       </div>
-      <label className="flex justify-center" title="Display in table">
+      <label className="hidden" title="Display in table">
         <span className="sr-only">Table</span>
         <input
           aria-label={`Display ${column.label} in table`}
@@ -296,7 +305,7 @@ const ConfiguredColumnRow = ({
         />
       </label>
       <label
-        className="flex justify-center"
+        className="hidden"
         title={
           filterable
             ? 'Use as filter'
@@ -320,7 +329,7 @@ const ConfiguredColumnRow = ({
         />
       </label>
       <label
-        className="flex justify-center"
+        className="hidden"
         title={
           chartable
             ? 'Use as chart'
@@ -347,7 +356,7 @@ const ConfiguredColumnRow = ({
         type="button"
         aria-label={`Move ${column.label} to end`}
         title="Move to end"
-        className="h-6 w-6 rounded text-sm leading-none text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+        className="hidden"
         disabled={disabled || moveToEndDisabled}
         onClick={onMoveToEnd}
       >
@@ -358,7 +367,7 @@ const ConfiguredColumnRow = ({
         aria-label={`Remove ${column.label}`}
         title="Remove configured column"
         className="h-6 w-6 rounded text-base leading-none text-red-600 hover:bg-red-50 disabled:opacity-40"
-        disabled={disabled}
+        disabled={disabled || column.source.kind === 'imported'}
         onClick={onRemove}
       >
         ×
@@ -403,7 +412,7 @@ const AvailableColumnRow = ({
   const concepts = candidate.conceptCandidates ?? [];
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-blue-50/40">
+    <div className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-blue-50/40">
       <div className="min-w-0">
         <input
           aria-label={`Display name for available ${candidate.label}`}
@@ -438,7 +447,7 @@ const AvailableColumnRow = ({
         />
       </label>
       <label
-        className="flex justify-center"
+        className="hidden"
         title={
           candidate.filterable
             ? 'Add as filter'
@@ -457,7 +466,7 @@ const AvailableColumnRow = ({
         />
       </label>
       <label
-        className="flex justify-center"
+        className="hidden"
         title={
           candidate.chartable
             ? 'Add as chart'
@@ -586,10 +595,10 @@ export const ColumnSelector = ({
     (output) => !authoredColumnNames.has(output.name),
   ) ?? [];
   const inspectedColumn = configured.find(
-    (column) => column.column === inspection?.column,
+    (column) => column.column === inspection?.column && column.source.kind !== 'imported',
   );
   const inspectColumn = async (column: ExplorerBuilderColumn) => {
-    if (!onInspectSource) return;
+    if (!onInspectSource || column.source.kind === 'imported') return;
     const generation = ++inspectionGeneration.current;
     setInspection({ column: column.column, loading: true });
     try {
@@ -620,7 +629,10 @@ export const ColumnSelector = ({
     [interpretationContext?.columns, table?.outputId],
   );
   const configuredResolutions = useMemo(
-    () => new Map(configured.map((column) => [column.column, contextColumns.get(column.column)?.resolution])),
+    () => new Map(configured.map((column) => [
+      column.column,
+      column.source.kind === 'imported' ? undefined : contextColumns.get(column.column)?.resolution,
+    ])),
     [configured, contextColumns],
   );
   const configuredCandidateIds = useMemo(
@@ -933,13 +945,9 @@ export const ColumnSelector = ({
               ) : null}
             </>
           ) : null}
-          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] gap-2 border-b border-slate-200 bg-slate-50/70 px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            <span className="text-left">Display name / source</span>
-            <span>Table</span>
-            <span>Filter</span>
-            <span>Chart</span>
-            <span>Order</span>
-            <span />
+          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_2rem] gap-2 border-b border-slate-200 bg-slate-50/70 px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            <span className="text-left">Dataframe columns</span>
+            <span>Add</span>
           </div>
           <div
             ref={candidateScrollRef}

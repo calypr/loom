@@ -1,0 +1,1191 @@
+{
+  "catalogProjections": [
+    {
+      "includePaths": [
+        "*"
+      ],
+      "kinds": [
+        "scalar"
+      ],
+      "maxColumns": 256,
+      "name": "populated_fields",
+      "naming": "PATH",
+      "valueMode": "FIRST"
+    }
+  ],
+  "collisionPolicy": "overwrite",
+  "construction": {
+    "sourceColumns": [
+      {
+        "id": "import_c3ca496a1336599ab44c8c41",
+        "label": "id",
+        "name": "id",
+        "type": "string"
+      },
+      {
+        "id": "import_8786da8ea7285b7725a286e5",
+        "label": "identifier",
+        "name": "identifier",
+        "type": "string"
+      },
+      {
+        "id": "import_3f4556f45fc8622746ccb1a8",
+        "label": "identifier_by_system_urn_graph_rows",
+        "name": "identifier_by_system_urn_graph_rows",
+        "type": "string"
+      },
+      {
+        "id": "import_95cb3db5d78813ae0fe849d5",
+        "label": "identifier_system",
+        "name": "identifier_system",
+        "type": "string"
+      },
+      {
+        "id": "import_2adeede5e83a8b0011727a28",
+        "label": "identifier_value",
+        "name": "identifier_value",
+        "type": "string"
+      },
+      {
+        "id": "import_f188ef6a9e2c738dcd14a54b",
+        "label": "patient__active",
+        "name": "patient__active",
+        "type": "boolean"
+      },
+      {
+        "id": "import_fba9b27a5f73735693b34299",
+        "label": "patient__condition__clinicalStatus_text",
+        "name": "patient__condition__clinicalStatus_text",
+        "type": "string"
+      },
+      {
+        "id": "import_840d1e8aab0f0d8c82ba2be6",
+        "label": "patient__condition__condition_id",
+        "name": "patient__condition__condition_id",
+        "type": "string"
+      },
+      {
+        "id": "import_3cb5bf2178cacf7e90f2ae25",
+        "label": "patient__condition__id",
+        "name": "patient__condition__id",
+        "type": "string"
+      },
+      {
+        "id": "import_e364f4de6eed664075079ba3",
+        "label": "patient__condition__language",
+        "name": "patient__condition__language",
+        "type": "string"
+      },
+      {
+        "id": "import_aa799995a839adad26d6f3e4",
+        "label": "patient__condition__resourceType",
+        "name": "patient__condition__resourceType",
+        "type": "string"
+      },
+      {
+        "id": "import_9719a352e67f203618bf0b13",
+        "label": "patient__condition__subject_reference",
+        "name": "patient__condition__subject_reference",
+        "type": "string"
+      },
+      {
+        "id": "import_0bf56fd4aba0ac1812c4268a",
+        "label": "patient__gender",
+        "name": "patient__gender",
+        "type": "string"
+      },
+      {
+        "id": "import_198862adc47f5a1aa025f6eb",
+        "label": "patient__id",
+        "name": "patient__id",
+        "type": "string"
+      },
+      {
+        "id": "import_5104daaedbd6cbd496bbe26a",
+        "label": "patient__observation__code_coding_code",
+        "name": "patient__observation__code_coding_code",
+        "type": "string"
+      },
+      {
+        "id": "import_8b9d9080aadb11fdf1444535",
+        "label": "patient__observation__code_coding_display",
+        "name": "patient__observation__code_coding_display",
+        "type": "string"
+      },
+      {
+        "id": "import_baffc93042bb6d33f5bb4142",
+        "label": "patient__observation__code_coding_system",
+        "name": "patient__observation__code_coding_system",
+        "type": "string"
+      },
+      {
+        "id": "import_a2454ec13c90664d3af1208b",
+        "label": "patient__observation__id",
+        "name": "patient__observation__id",
+        "type": "string"
+      },
+      {
+        "id": "import_36d671ef77a3f29ca614f673",
+        "label": "patient__observation__observation_id",
+        "name": "patient__observation__observation_id",
+        "type": "string"
+      },
+      {
+        "id": "import_91bb7988321906542d01eb59",
+        "label": "patient__observation__observation_values__Synthetic_fixture_score",
+        "name": "patient__observation__observation_values__Synthetic_fixture_score",
+        "type": "string"
+      },
+      {
+        "id": "import_01dc6204514968153bb6aa23",
+        "label": "patient__observation__performer_reference",
+        "name": "patient__observation__performer_reference",
+        "type": "string"
+      },
+      {
+        "id": "import_c21ca1077c43ba4ac750cc4d",
+        "label": "patient__observation__resourceType",
+        "name": "patient__observation__resourceType",
+        "type": "string"
+      },
+      {
+        "id": "import_ad096c563150d10b3217f74a",
+        "label": "patient__observation__status",
+        "name": "patient__observation__status",
+        "type": "string"
+      },
+      {
+        "id": "import_8b309917654efe1614405bb9",
+        "label": "patient__observation__subject_reference",
+        "name": "patient__observation__subject_reference",
+        "type": "string"
+      },
+      {
+        "id": "import_ae9d6023dfa6d1da1b7bb6b6",
+        "label": "patient__observation__valueInteger",
+        "name": "patient__observation__valueInteger",
+        "type": "integer"
+      },
+      {
+        "id": "import_c4963ec184fdb128b612cb9a",
+        "label": "patient__patient_id",
+        "name": "patient__patient_id",
+        "type": "string"
+      },
+      {
+        "id": "import_70e022133ad57169fc9c49f2",
+        "label": "patient__patient_identifier",
+        "name": "patient__patient_identifier",
+        "type": "string"
+      },
+      {
+        "id": "import_7c539a611194d78f379277ef",
+        "label": "patient__resourceType",
+        "name": "patient__resourceType",
+        "type": "string"
+      },
+      {
+        "id": "import_5b9eb12c4c46e0e41957869d",
+        "label": "resourceType",
+        "name": "resourceType",
+        "type": "string"
+      },
+      {
+        "id": "import_0efec125ff3494f9f04b6569",
+        "label": "status",
+        "name": "status",
+        "type": "string"
+      },
+      {
+        "id": "import_3ebdb39ccdf9f17f62fd6a55",
+        "label": "study_reference",
+        "name": "study_reference",
+        "type": "string"
+      },
+      {
+        "id": "import_7b13ffd9aca4c0740229b807",
+        "label": "subject_reference",
+        "name": "subject_reference",
+        "type": "string"
+      }
+    ],
+    "steps": [
+      {
+        "id": "related_expand_9ed44c3d-7c8f-4387-9d72-e00f974656b8",
+        "inputs": [
+          {
+            "kind": "SOURCE_PROJECTION"
+          }
+        ],
+        "operation": {
+          "kind": "RELATED_EXPAND",
+          "relatedExpand": {
+            "AnchorColumnID": "_key",
+            "ChoiceID": "fixture-default-related-observations",
+            "ContributorChoiceID": "",
+            "ContributorPolicy": "ALL_MATCHES",
+            "ContributorPredicate": null,
+            "ContributorSource": null,
+            "EmptyPolicy": "PRESERVE_PARENT",
+            "RelatedRecordColumnID": "related_record_8cbdfe25-2bd6-4bdb-a93c-dea84693adb1",
+            "Route": [
+              {
+                "edgeId": "e_3cbf1ce5f2b3fadac0f1ec45",
+                "fromNodeId": "n_288d0f0eeed081afe050ee5c",
+                "fromResourceType": "ResearchSubject",
+                "matchMode": "OPTIONAL",
+                "relationship": "subject_Patient",
+                "storageDirection": "OUTBOUND",
+                "toNodeId": "n_2e3176fa8e3419bf3eaf5df3",
+                "toResourceType": "Patient"
+              },
+              {
+                "edgeId": "e_da3cfc736577464a518eb58f",
+                "fromNodeId": "n_2e3176fa8e3419bf3eaf5df3",
+                "fromResourceType": "Patient",
+                "matchMode": "OPTIONAL",
+                "relationship": "subject_Patient",
+                "storageDirection": "INBOUND",
+                "toNodeId": "n_93e24d06e718d45bc22635c8",
+                "toResourceType": "Observation"
+              }
+            ],
+            "TargetNodeID": "n_93e24d06e718d45bc22635c8",
+            "TargetResourceType": "Observation"
+          }
+        },
+        "outputs": [
+          {
+            "id": "import_c3ca496a1336599ab44c8c41",
+            "label": "id",
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "id": "import_8786da8ea7285b7725a286e5",
+            "label": "identifier",
+            "name": "identifier",
+            "type": "string"
+          },
+          {
+            "id": "import_3f4556f45fc8622746ccb1a8",
+            "label": "identifier_by_system_urn_graph_rows",
+            "name": "identifier_by_system_urn_graph_rows",
+            "type": "string"
+          },
+          {
+            "id": "import_95cb3db5d78813ae0fe849d5",
+            "label": "identifier_system",
+            "name": "identifier_system",
+            "type": "string"
+          },
+          {
+            "id": "import_2adeede5e83a8b0011727a28",
+            "label": "identifier_value",
+            "name": "identifier_value",
+            "type": "string"
+          },
+          {
+            "id": "import_f188ef6a9e2c738dcd14a54b",
+            "label": "patient__active",
+            "name": "patient__active",
+            "type": "boolean"
+          },
+          {
+            "id": "import_fba9b27a5f73735693b34299",
+            "label": "patient__condition__clinicalStatus_text",
+            "name": "patient__condition__clinicalStatus_text",
+            "type": "string"
+          },
+          {
+            "id": "import_840d1e8aab0f0d8c82ba2be6",
+            "label": "patient__condition__condition_id",
+            "name": "patient__condition__condition_id",
+            "type": "string"
+          },
+          {
+            "id": "import_3cb5bf2178cacf7e90f2ae25",
+            "label": "patient__condition__id",
+            "name": "patient__condition__id",
+            "type": "string"
+          },
+          {
+            "id": "import_e364f4de6eed664075079ba3",
+            "label": "patient__condition__language",
+            "name": "patient__condition__language",
+            "type": "string"
+          },
+          {
+            "id": "import_aa799995a839adad26d6f3e4",
+            "label": "patient__condition__resourceType",
+            "name": "patient__condition__resourceType",
+            "type": "string"
+          },
+          {
+            "id": "import_9719a352e67f203618bf0b13",
+            "label": "patient__condition__subject_reference",
+            "name": "patient__condition__subject_reference",
+            "type": "string"
+          },
+          {
+            "id": "import_0bf56fd4aba0ac1812c4268a",
+            "label": "patient__gender",
+            "name": "patient__gender",
+            "type": "string"
+          },
+          {
+            "id": "import_198862adc47f5a1aa025f6eb",
+            "label": "patient__id",
+            "name": "patient__id",
+            "type": "string"
+          },
+          {
+            "id": "import_5104daaedbd6cbd496bbe26a",
+            "label": "patient__observation__code_coding_code",
+            "name": "patient__observation__code_coding_code",
+            "type": "string"
+          },
+          {
+            "id": "import_8b9d9080aadb11fdf1444535",
+            "label": "patient__observation__code_coding_display",
+            "name": "patient__observation__code_coding_display",
+            "type": "string"
+          },
+          {
+            "id": "import_baffc93042bb6d33f5bb4142",
+            "label": "patient__observation__code_coding_system",
+            "name": "patient__observation__code_coding_system",
+            "type": "string"
+          },
+          {
+            "id": "import_a2454ec13c90664d3af1208b",
+            "label": "patient__observation__id",
+            "name": "patient__observation__id",
+            "type": "string"
+          },
+          {
+            "id": "import_36d671ef77a3f29ca614f673",
+            "label": "patient__observation__observation_id",
+            "name": "patient__observation__observation_id",
+            "type": "string"
+          },
+          {
+            "id": "import_91bb7988321906542d01eb59",
+            "label": "patient__observation__observation_values__Synthetic_fixture_score",
+            "name": "patient__observation__observation_values__Synthetic_fixture_score",
+            "type": "string"
+          },
+          {
+            "id": "import_01dc6204514968153bb6aa23",
+            "label": "patient__observation__performer_reference",
+            "name": "patient__observation__performer_reference",
+            "type": "string"
+          },
+          {
+            "id": "import_c21ca1077c43ba4ac750cc4d",
+            "label": "patient__observation__resourceType",
+            "name": "patient__observation__resourceType",
+            "type": "string"
+          },
+          {
+            "id": "import_ad096c563150d10b3217f74a",
+            "label": "patient__observation__status",
+            "name": "patient__observation__status",
+            "type": "string"
+          },
+          {
+            "id": "import_8b309917654efe1614405bb9",
+            "label": "patient__observation__subject_reference",
+            "name": "patient__observation__subject_reference",
+            "type": "string"
+          },
+          {
+            "id": "import_ae9d6023dfa6d1da1b7bb6b6",
+            "label": "patient__observation__valueInteger",
+            "name": "patient__observation__valueInteger",
+            "type": "integer"
+          },
+          {
+            "id": "import_c4963ec184fdb128b612cb9a",
+            "label": "patient__patient_id",
+            "name": "patient__patient_id",
+            "type": "string"
+          },
+          {
+            "id": "import_70e022133ad57169fc9c49f2",
+            "label": "patient__patient_identifier",
+            "name": "patient__patient_identifier",
+            "type": "string"
+          },
+          {
+            "id": "import_7c539a611194d78f379277ef",
+            "label": "patient__resourceType",
+            "name": "patient__resourceType",
+            "type": "string"
+          },
+          {
+            "id": "import_5b9eb12c4c46e0e41957869d",
+            "label": "resourceType",
+            "name": "resourceType",
+            "type": "string"
+          },
+          {
+            "id": "import_0efec125ff3494f9f04b6569",
+            "label": "status",
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "id": "import_3ebdb39ccdf9f17f62fd6a55",
+            "label": "study_reference",
+            "name": "study_reference",
+            "type": "string"
+          },
+          {
+            "id": "import_7b13ffd9aca4c0740229b807",
+            "label": "subject_reference",
+            "name": "subject_reference",
+            "type": "string"
+          },
+          {
+            "id": "related_record_8cbdfe25-2bd6-4bdb-a93c-dea84693adb1",
+            "label": "Expanded Observation ID",
+            "name": "expanded_observation_id",
+            "nullable": true,
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "id": "related_field_024a51d5-b68f-4fc2-94cf-0be066b7bd73",
+        "inputs": [
+          {
+            "kind": "STEP_OUTPUT",
+            "stepId": "related_expand_9ed44c3d-7c8f-4387-9d72-e00f974656b8"
+          }
+        ],
+        "operation": {
+          "kind": "RELATED_FIELD",
+          "relatedField": {
+            "choiceId": "fixture-default-related-observation-value",
+            "outputColumnId": "related_field_column_5041c934-30bd-43df-93ef-8ecec6d31f02",
+            "source": {
+              "candidateId": "c_398ec480ec6e1160d4f4b702",
+              "cardinality": "optional_one",
+              "logicalType": "integer",
+              "nodeId": "n_93e24d06e718d45bc22635c8",
+              "path": "valueInteger",
+              "resourceType": "Observation"
+            }
+          }
+        },
+        "outputs": [
+          {
+            "id": "import_c3ca496a1336599ab44c8c41",
+            "label": "id",
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "id": "import_8786da8ea7285b7725a286e5",
+            "label": "identifier",
+            "name": "identifier",
+            "type": "string"
+          },
+          {
+            "id": "import_3f4556f45fc8622746ccb1a8",
+            "label": "identifier_by_system_urn_graph_rows",
+            "name": "identifier_by_system_urn_graph_rows",
+            "type": "string"
+          },
+          {
+            "id": "import_95cb3db5d78813ae0fe849d5",
+            "label": "identifier_system",
+            "name": "identifier_system",
+            "type": "string"
+          },
+          {
+            "id": "import_2adeede5e83a8b0011727a28",
+            "label": "identifier_value",
+            "name": "identifier_value",
+            "type": "string"
+          },
+          {
+            "id": "import_f188ef6a9e2c738dcd14a54b",
+            "label": "patient__active",
+            "name": "patient__active",
+            "type": "boolean"
+          },
+          {
+            "id": "import_fba9b27a5f73735693b34299",
+            "label": "patient__condition__clinicalStatus_text",
+            "name": "patient__condition__clinicalStatus_text",
+            "type": "string"
+          },
+          {
+            "id": "import_840d1e8aab0f0d8c82ba2be6",
+            "label": "patient__condition__condition_id",
+            "name": "patient__condition__condition_id",
+            "type": "string"
+          },
+          {
+            "id": "import_3cb5bf2178cacf7e90f2ae25",
+            "label": "patient__condition__id",
+            "name": "patient__condition__id",
+            "type": "string"
+          },
+          {
+            "id": "import_e364f4de6eed664075079ba3",
+            "label": "patient__condition__language",
+            "name": "patient__condition__language",
+            "type": "string"
+          },
+          {
+            "id": "import_aa799995a839adad26d6f3e4",
+            "label": "patient__condition__resourceType",
+            "name": "patient__condition__resourceType",
+            "type": "string"
+          },
+          {
+            "id": "import_9719a352e67f203618bf0b13",
+            "label": "patient__condition__subject_reference",
+            "name": "patient__condition__subject_reference",
+            "type": "string"
+          },
+          {
+            "id": "import_0bf56fd4aba0ac1812c4268a",
+            "label": "patient__gender",
+            "name": "patient__gender",
+            "type": "string"
+          },
+          {
+            "id": "import_198862adc47f5a1aa025f6eb",
+            "label": "patient__id",
+            "name": "patient__id",
+            "type": "string"
+          },
+          {
+            "id": "import_5104daaedbd6cbd496bbe26a",
+            "label": "patient__observation__code_coding_code",
+            "name": "patient__observation__code_coding_code",
+            "type": "string"
+          },
+          {
+            "id": "import_8b9d9080aadb11fdf1444535",
+            "label": "patient__observation__code_coding_display",
+            "name": "patient__observation__code_coding_display",
+            "type": "string"
+          },
+          {
+            "id": "import_baffc93042bb6d33f5bb4142",
+            "label": "patient__observation__code_coding_system",
+            "name": "patient__observation__code_coding_system",
+            "type": "string"
+          },
+          {
+            "id": "import_a2454ec13c90664d3af1208b",
+            "label": "patient__observation__id",
+            "name": "patient__observation__id",
+            "type": "string"
+          },
+          {
+            "id": "import_36d671ef77a3f29ca614f673",
+            "label": "patient__observation__observation_id",
+            "name": "patient__observation__observation_id",
+            "type": "string"
+          },
+          {
+            "id": "import_91bb7988321906542d01eb59",
+            "label": "patient__observation__observation_values__Synthetic_fixture_score",
+            "name": "patient__observation__observation_values__Synthetic_fixture_score",
+            "type": "string"
+          },
+          {
+            "id": "import_01dc6204514968153bb6aa23",
+            "label": "patient__observation__performer_reference",
+            "name": "patient__observation__performer_reference",
+            "type": "string"
+          },
+          {
+            "id": "import_c21ca1077c43ba4ac750cc4d",
+            "label": "patient__observation__resourceType",
+            "name": "patient__observation__resourceType",
+            "type": "string"
+          },
+          {
+            "id": "import_ad096c563150d10b3217f74a",
+            "label": "patient__observation__status",
+            "name": "patient__observation__status",
+            "type": "string"
+          },
+          {
+            "id": "import_8b309917654efe1614405bb9",
+            "label": "patient__observation__subject_reference",
+            "name": "patient__observation__subject_reference",
+            "type": "string"
+          },
+          {
+            "id": "import_ae9d6023dfa6d1da1b7bb6b6",
+            "label": "patient__observation__valueInteger",
+            "name": "patient__observation__valueInteger",
+            "type": "integer"
+          },
+          {
+            "id": "import_c4963ec184fdb128b612cb9a",
+            "label": "patient__patient_id",
+            "name": "patient__patient_id",
+            "type": "string"
+          },
+          {
+            "id": "import_70e022133ad57169fc9c49f2",
+            "label": "patient__patient_identifier",
+            "name": "patient__patient_identifier",
+            "type": "string"
+          },
+          {
+            "id": "import_7c539a611194d78f379277ef",
+            "label": "patient__resourceType",
+            "name": "patient__resourceType",
+            "type": "string"
+          },
+          {
+            "id": "import_5b9eb12c4c46e0e41957869d",
+            "label": "resourceType",
+            "name": "resourceType",
+            "type": "string"
+          },
+          {
+            "id": "import_0efec125ff3494f9f04b6569",
+            "label": "status",
+            "name": "status",
+            "type": "string"
+          },
+          {
+            "id": "import_3ebdb39ccdf9f17f62fd6a55",
+            "label": "study_reference",
+            "name": "study_reference",
+            "type": "string"
+          },
+          {
+            "id": "import_7b13ffd9aca4c0740229b807",
+            "label": "subject_reference",
+            "name": "subject_reference",
+            "type": "string"
+          },
+          {
+            "id": "related_record_8cbdfe25-2bd6-4bdb-a93c-dea84693adb1",
+            "label": "Expanded Observation ID",
+            "name": "expanded_observation_id",
+            "nullable": true,
+            "type": "string"
+          },
+          {
+            "id": "related_field_column_5041c934-30bd-43df-93ef-8ecec6d31f02",
+            "label": "Per-match Observation value",
+            "name": "per_match_observation_value",
+            "nullable": true,
+            "type": "integer"
+          }
+        ]
+      }
+    ],
+    "version": 1
+  },
+  "dynamicColumns": [
+    {
+      "columns": [
+        "urn:graph-rows"
+      ],
+      "key": {
+        "select": "item.system"
+      },
+      "maxColumns": 64,
+      "name": "identifier_by_system",
+      "source": {
+        "select": "root.identifier[]"
+      },
+      "value": {
+        "select": "item.value"
+      },
+      "valueMode": "AUTO"
+    },
+    {
+      "columns": [],
+      "key": {
+        "select": "item.url"
+      },
+      "maxColumns": 128,
+      "name": "extension_by_url",
+      "source": {
+        "select": "root.extension[]"
+      },
+      "value": {
+        "args": [
+          {
+            "select": "item.valueString"
+          },
+          {
+            "select": "item.valueCode"
+          },
+          {
+            "select": "item.valueInteger"
+          },
+          {
+            "select": "item.valueDecimal"
+          },
+          {
+            "select": "item.valueBoolean"
+          },
+          {
+            "select": "item.valueDate"
+          },
+          {
+            "select": "item.valueDateTime"
+          }
+        ],
+        "call": "coalesce_string"
+      },
+      "valueMode": "AUTO"
+    }
+  ],
+  "fields": [
+    {
+      "expr": {
+        "select": "root.id"
+      },
+      "name": "id"
+    },
+    {
+      "expr": {
+        "args": [
+          {
+            "select": "root.identifier[].value"
+          }
+        ],
+        "call": "first"
+      },
+      "name": "identifier"
+    },
+    {
+      "expr": {
+        "select": "root.status"
+      },
+      "name": "status"
+    },
+    {
+      "expr": {
+        "select": "root.identifier[].system"
+      },
+      "fieldRef": "identifier[].system",
+      "name": "identifier_system",
+      "valueMode": "FIRST"
+    },
+    {
+      "expr": {
+        "select": "root.identifier[].value"
+      },
+      "fieldRef": "identifier[].value",
+      "name": "identifier_value",
+      "valueMode": "FIRST"
+    },
+    {
+      "expr": {
+        "select": "root.resourceType"
+      },
+      "fieldRef": "resourceType",
+      "name": "resourceType",
+      "valueMode": "FIRST"
+    },
+    {
+      "expr": {
+        "select": "root.study.reference"
+      },
+      "fieldRef": "study.reference",
+      "name": "study_reference",
+      "valueMode": "FIRST"
+    },
+    {
+      "expr": {
+        "select": "root.subject.reference"
+      },
+      "fieldRef": "subject.reference",
+      "name": "subject_reference",
+      "valueMode": "FIRST"
+    }
+  ],
+  "name": "ResearchSubject",
+  "rootOccurrenceId": "base",
+  "rootResourceType": "ResearchSubject",
+  "rowGrain": "study_enrollment",
+  "traversals": [
+    {
+      "alias": "patient",
+      "catalogProjections": [
+        {
+          "includePaths": [
+            "*"
+          ],
+          "kinds": [
+            "scalar"
+          ],
+          "maxColumns": 256,
+          "name": "populated_fields",
+          "naming": "PATH",
+          "valueMode": "FIRST"
+        }
+      ],
+      "dynamicColumns": [
+        {
+          "columns": [],
+          "key": {
+            "select": "item.system"
+          },
+          "maxColumns": 64,
+          "name": "identifier_by_system",
+          "source": {
+            "select": "patient.identifier[]"
+          },
+          "value": {
+            "select": "item.value"
+          },
+          "valueMode": "AUTO"
+        },
+        {
+          "columns": [],
+          "key": {
+            "select": "item.url"
+          },
+          "maxColumns": 128,
+          "name": "extension_by_url",
+          "source": {
+            "select": "patient.extension[]"
+          },
+          "value": {
+            "args": [
+              {
+                "select": "item.valueString"
+              },
+              {
+                "select": "item.valueCode"
+              },
+              {
+                "select": "item.valueInteger"
+              },
+              {
+                "select": "item.valueDecimal"
+              },
+              {
+                "select": "item.valueBoolean"
+              },
+              {
+                "select": "item.valueDate"
+              },
+              {
+                "select": "item.valueDateTime"
+              }
+            ],
+            "call": "coalesce_string"
+          },
+          "valueMode": "AUTO"
+        }
+      ],
+      "fields": [
+        {
+          "expr": {
+            "select": "patient.id"
+          },
+          "name": "patient_id"
+        },
+        {
+          "expr": {
+            "args": [
+              {
+                "select": "patient.identifier[].value"
+              }
+            ],
+            "call": "first"
+          },
+          "name": "patient_identifier"
+        },
+        {
+          "expr": {
+            "select": "patient.active"
+          },
+          "fieldRef": "active",
+          "name": "active",
+          "valueMode": "FIRST"
+        },
+        {
+          "expr": {
+            "select": "patient.gender"
+          },
+          "fieldRef": "gender",
+          "name": "gender",
+          "valueMode": "FIRST"
+        },
+        {
+          "expr": {
+            "select": "patient.id"
+          },
+          "fieldRef": "id",
+          "name": "id",
+          "valueMode": "FIRST"
+        },
+        {
+          "expr": {
+            "select": "patient.resourceType"
+          },
+          "fieldRef": "resourceType",
+          "name": "resourceType",
+          "valueMode": "FIRST"
+        }
+      ],
+      "name": "subject_Patient",
+      "occurrenceId": "import_40169f0293ed",
+      "toResourceType": "Patient",
+      "traversals": [
+        {
+          "alias": "observation",
+          "catalogProjections": [
+            {
+              "includePaths": [
+                "*"
+              ],
+              "kinds": [
+                "scalar"
+              ],
+              "maxColumns": 256,
+              "name": "populated_fields",
+              "naming": "PATH",
+              "valueMode": "ALL"
+            }
+          ],
+          "fields": [
+            {
+              "expr": {
+                "select": "observation.id"
+              },
+              "name": "observation_id"
+            },
+            {
+              "expr": {
+                "select": "observation.code.coding[].code"
+              },
+              "fieldRef": "code.coding[].code",
+              "name": "code_coding_code",
+              "valueMode": "ALL"
+            },
+            {
+              "expr": {
+                "select": "observation.code.coding[].display"
+              },
+              "fieldRef": "code.coding[].display",
+              "name": "code_coding_display",
+              "valueMode": "ALL"
+            },
+            {
+              "expr": {
+                "select": "observation.code.coding[].system"
+              },
+              "fieldRef": "code.coding[].system",
+              "name": "code_coding_system",
+              "valueMode": "ALL"
+            },
+            {
+              "expr": {
+                "select": "observation.id"
+              },
+              "fieldRef": "id",
+              "name": "id",
+              "valueMode": "ALL"
+            },
+            {
+              "expr": {
+                "select": "observation.performer[].reference"
+              },
+              "fieldRef": "performer[].reference",
+              "name": "performer_reference",
+              "valueMode": "ALL"
+            },
+            {
+              "expr": {
+                "select": "observation.resourceType"
+              },
+              "fieldRef": "resourceType",
+              "name": "resourceType",
+              "valueMode": "ALL"
+            },
+            {
+              "expr": {
+                "select": "observation.status"
+              },
+              "fieldRef": "status",
+              "name": "status",
+              "valueMode": "ALL"
+            },
+            {
+              "expr": {
+                "select": "observation.subject.reference"
+              },
+              "fieldRef": "subject.reference",
+              "name": "subject_reference",
+              "valueMode": "ALL"
+            },
+            {
+              "expr": {
+                "select": "observation.valueInteger"
+              },
+              "fieldRef": "valueInteger",
+              "name": "valueInteger",
+              "valueMode": "ALL"
+            }
+          ],
+          "name": "subject_Patient",
+          "occurrenceId": "import_838d99819eb8",
+          "pivots": [
+            {
+              "columnExpr": {
+                "select": "observation.code.coding[].display"
+              },
+              "columns": [
+                "Synthetic fixture score"
+              ],
+              "name": "observation_values",
+              "projectionMode": "FIRST",
+              "valueExpr": {
+                "select": "observation.valueQuantity.value"
+              },
+              "valueFallbacks": [
+                {
+                  "select": "observation.valueCodeableConcept.text"
+                },
+                {
+                  "select": "observation.valueCodeableConcept.coding[].display"
+                },
+                {
+                  "select": "observation.valueString"
+                },
+                {
+                  "select": "observation.valueInteger"
+                },
+                {
+                  "select": "observation.valueBoolean"
+                },
+                {
+                  "select": "observation.valueDateTime"
+                },
+                {
+                  "select": "observation.valueTime"
+                },
+                {
+                  "select": "observation.valuePeriod.start"
+                },
+                {
+                  "select": "observation.valuePeriod.end"
+                },
+                {
+                  "select": "observation.valueRange.low.value"
+                },
+                {
+                  "select": "observation.valueRange.high.value"
+                },
+                {
+                  "select": "observation.valueRatio.numerator.value"
+                },
+                {
+                  "select": "observation.valueRatio.denominator.value"
+                }
+              ]
+            }
+          ],
+          "toResourceType": "Observation"
+        },
+        {
+          "alias": "condition",
+          "catalogProjections": [
+            {
+              "includePaths": [
+                "*"
+              ],
+              "kinds": [
+                "scalar"
+              ],
+              "maxColumns": 256,
+              "name": "populated_fields",
+              "naming": "PATH",
+              "valueMode": "FIRST"
+            }
+          ],
+          "dynamicColumns": [
+            {
+              "columns": [],
+              "key": {
+                "select": "item.system"
+              },
+              "maxColumns": 64,
+              "name": "identifier_by_system",
+              "source": {
+                "select": "condition.identifier[]"
+              },
+              "value": {
+                "select": "item.value"
+              },
+              "valueMode": "AUTO"
+            }
+          ],
+          "fields": [
+            {
+              "expr": {
+                "select": "condition.id"
+              },
+              "name": "condition_id"
+            },
+            {
+              "expr": {
+                "select": "condition.clinicalStatus.text"
+              },
+              "fieldRef": "clinicalStatus.text",
+              "name": "clinicalStatus_text",
+              "valueMode": "FIRST"
+            },
+            {
+              "expr": {
+                "select": "condition.id"
+              },
+              "fieldRef": "id",
+              "name": "id",
+              "valueMode": "FIRST"
+            },
+            {
+              "expr": {
+                "select": "condition.language"
+              },
+              "fieldRef": "language",
+              "name": "language",
+              "valueMode": "FIRST"
+            },
+            {
+              "expr": {
+                "select": "condition.resourceType"
+              },
+              "fieldRef": "resourceType",
+              "name": "resourceType",
+              "valueMode": "FIRST"
+            },
+            {
+              "expr": {
+                "select": "condition.subject.reference"
+              },
+              "fieldRef": "subject.reference",
+              "name": "subject_reference",
+              "valueMode": "FIRST"
+            }
+          ],
+          "name": "subject_Patient",
+          "occurrenceId": "import_a998c15556e2",
+          "toResourceType": "Condition"
+        }
+      ]
+    }
+  ]
+}

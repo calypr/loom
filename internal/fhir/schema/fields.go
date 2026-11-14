@@ -27,27 +27,44 @@ type ResolvedPath struct {
 
 const maxSelectorFieldDepth = 6
 
+type resourceFields struct {
+	fields []FieldSpec
+	byPath map[string]FieldSpec
+}
+
 var resourceCache sync.Map
 
-func FieldsForResource(resourceType string) []FieldSpec {
+// cachedResourceFields is immutable after publication. Public accessors copy
+// mutable slices before returning a value to their caller.
+func cachedResourceFields(resourceType string) resourceFields {
 	if cached, ok := resourceCache.Load(resourceType); ok {
-		return cloneFields(cached.([]FieldSpec))
+		return cached.(resourceFields)
 	}
 	fields := flattenDefinition(resourceType, 0, map[string]bool{})
 	if len(fields) == 0 {
-		return []FieldSpec{}
+		return resourceFields{}
 	}
-	resourceCache.Store(resourceType, cloneFields(fields))
-	return cloneFields(fields)
+	indexed := resourceFields{fields: fields, byPath: make(map[string]FieldSpec, len(fields))}
+	for _, field := range fields {
+		if _, exists := indexed.byPath[field.Path]; !exists {
+			indexed.byPath[field.Path] = field
+		}
+	}
+	cached, _ := resourceCache.LoadOrStore(resourceType, indexed)
+	return cached.(resourceFields)
+}
+
+func FieldsForResource(resourceType string) []FieldSpec {
+	return cloneFields(cachedResourceFields(resourceType).fields)
 }
 
 func LookupField(resourceType, canonicalPath string) (FieldSpec, bool) {
-	for _, field := range FieldsForResource(resourceType) {
-		if field.Path == canonicalPath {
-			return field, true
-		}
+	field, ok := cachedResourceFields(resourceType).byPath[canonicalPath]
+	if !ok {
+		return FieldSpec{}, false
 	}
-	return FieldSpec{}, false
+	field.PredicatePaths = cloneStrings(field.PredicatePaths)
+	return field, true
 }
 
 func ResolvePath(resourceType, canonicalPath string) (ResolvedPath, bool) {

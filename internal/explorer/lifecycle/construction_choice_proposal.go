@@ -145,7 +145,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 		return ConstructionChoiceProposalResponse{}, malformed("construction-choice-proposal", err.Error(), err)
 	}
 
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return ConstructionChoiceProposalResponse{}, err
 	}

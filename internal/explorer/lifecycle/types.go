@@ -55,6 +55,8 @@ type CompileReceiptRequest struct {
 	Authorized                      AuthorizedCapability
 	ResolvedInputs                  explorercompilation.ResolvedInputs
 	SelectionMembersCollection      string
+	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
+	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
 	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
 	TableShapeProposal              *explorer.TableShapeProposalBinding
 	ConstructionProposal            *explorer.ConstructionProposalBinding
@@ -144,6 +146,13 @@ type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSe
 // Config contains deployment adapters. Lifecycle policy calls these narrow
 // callbacks, but never imports the transport packages that construct them.
 type Config struct {
+	// DefaultDataframeWorkspace returns the lossless imported workspace that
+	// backs the native graphical builder's reserved default dataframe owner.
+	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error)
+	AuthoringNetwork          func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
+	EditImportedRelationship  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
+	EditImportedSource        func(context.Context, string, AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
+	EditImportedSources       func(context.Context, string, AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
 	// SelectionMembersCollection is a deployment-owned runtime binding. It is
 	// never copied into authoring intent, recipes, or receipt identity.
 	SelectionMembersCollection         string
@@ -230,6 +239,8 @@ type compileRequest struct {
 	Workspace                       authoringv2.Workspace
 	SnapshotToken                   string
 	RequestID                       string
+	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
+	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
 	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
 	TableShapeProposal              *explorer.TableShapeProposalBinding
 	ConstructionProposal            *explorer.ConstructionProposalBinding
@@ -264,11 +275,14 @@ type AssessRowChangeRequest struct {
 }
 
 type AssessRowChangeResult struct {
-	SnapshotToken      string
-	DraftVersion       int64
-	DraftDigest        string
-	CandidateReceiptID string
-	Assessment         authoringv2.RowChangeAssessment
+	CandidateDocument    *authoringv2.Document
+	CandidateNetwork     *authoringv2.AuthoringNetwork
+	CandidateRowIdentity *authoringv2.RowIdentityPlan
+	SnapshotToken        string
+	DraftVersion         int64
+	DraftDigest          string
+	CandidateReceiptID   string
+	Assessment           authoringv2.RowChangeAssessment
 }
 
 type PreviewRequest struct {

@@ -525,18 +525,22 @@ func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Contex
 	}
 	return directAuthoringJSON[loomapi.RowChangeAssessmentResponse](struct {
 		authoringv2.RowChangeAssessment
-		SnapshotToken      string           `json:"snapshotToken"`
-		DraftVersion       int64            `json:"draftVersion"`
-		DraftDigest        string           `json:"draftDigest"`
-		CandidateReceiptID string           `json:"candidateReceiptId,omitempty"`
-		Diagnostics        []map[string]any `json:"diagnostics"`
+		SnapshotToken        string                        `json:"snapshotToken"`
+		DraftVersion         int64                         `json:"draftVersion"`
+		DraftDigest          string                        `json:"draftDigest"`
+		CandidateReceiptID   string                        `json:"candidateReceiptId,omitempty"`
+		CandidateDocument    *authoringv2.Document         `json:"candidateDocument,omitempty"`
+		CandidateNetwork     *authoringv2.AuthoringNetwork `json:"candidateNetwork,omitempty"`
+		CandidateRowIdentity *authoringv2.RowIdentityPlan  `json:"candidateRowIdentity,omitempty"`
+		Diagnostics          []map[string]any              `json:"diagnostics"`
 	}{
 		RowChangeAssessment: value.Assessment,
 		SnapshotToken:       value.SnapshotToken,
 		DraftVersion:        value.DraftVersion,
 		DraftDigest:         value.DraftDigest,
 		CandidateReceiptID:  value.CandidateReceiptID,
-		Diagnostics:         []map[string]any{},
+		CandidateDocument:   value.CandidateDocument, CandidateNetwork: value.CandidateNetwork, CandidateRowIdentity: value.CandidateRowIdentity,
+		Diagnostics: []map[string]any{},
 	})
 }
 

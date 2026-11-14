@@ -994,7 +994,8 @@ func normalizeConstructionOutputOrder(document *Document) {
 		return
 	}
 	construction := *document.Construction
-	construction.Steps = append([]ConstructionStep(nil), document.Construction.Steps...)
+	// Keep the explicit empty sequence used by canonical persistence and receipt decoding.
+	construction.Steps = append([]ConstructionStep{}, document.Construction.Steps...)
 	candidate := *document
 	candidate.Construction = &construction
 	source, err := effectiveConstructionSourceSchema(candidate)

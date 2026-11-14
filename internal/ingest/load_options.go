@@ -26,8 +26,11 @@ type LoadOptions struct {
 	Truncate         bool
 	FailFast         bool
 	UseGeneric       bool
-	WriteAPI         string
-	EventSink        EventSink
+	// SourceFileOwner tags generated forward and reverse edges with the file
+	// whose row produced them. It is used only by durable per-file source loads.
+	SourceFileOwner string
+	WriteAPI        string
+	EventSink       EventSink
 	// Dataset identifies the complete immutable generation being loaded. The
 	// generation activates only after every graph file and catalog finalization
 	// succeeds.

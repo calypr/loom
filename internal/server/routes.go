@@ -13,7 +13,17 @@ import (
 )
 
 func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, graphResolver *resolver.Resolver, explorerHandlers *explorerHTTPHandlers, optional ...any) error {
-	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: generationService, Authorizer: authorizer})
+	var sourceLoader loadapi.SourceLoader
+	var sourceLimits loadapi.SourceLoadLimits
+	for _, value := range optional {
+		switch typed := value.(type) {
+		case loadapi.SourceLoader:
+			sourceLoader = typed
+		case loadapi.SourceLoadLimits:
+			sourceLimits = typed
+		}
+	}
+	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: generationService, Authorizer: authorizer, SourceLoader: sourceLoader, SourceLoadLimits: sourceLimits})
 	if err != nil {
 		return fmt.Errorf("create generation load handler: %w", err)
 	}

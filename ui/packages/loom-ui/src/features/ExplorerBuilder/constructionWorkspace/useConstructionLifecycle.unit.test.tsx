@@ -666,3 +666,55 @@ describe('useConstructionLifecycle', () => {
     unmount();
   });
 });
+
+describe('shared recipe owner bridge', () => {
+  it('refuses a competing mutation before replacing the current proposal or calling the API', async () => {
+    vi.useFakeTimers();
+    const attempt = { ready: vi.fn(() => true), failed: vi.fn(), cancel: vi.fn(() => true), beginApply: vi.fn(() => true), finishApply: vi.fn() };
+    const onStart = vi.fn<NonNullable<Parameters<typeof useConstructionLifecycle>[0]['editingOwner']>['onStart']>().mockReturnValueOnce(attempt).mockReturnValue(undefined);
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
+      proposeConstruction: vi.fn(async () => proposalResponse()), preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result } = renderHook(() => useConstructionLifecycle({ client, capabilitiesRequest: request, editingOwner: { onStart } }));
+    act(() => result.current.onCandidateChange({ candidateConstruction: { version: 1, steps: [] } }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(result.current.proposal.status).toBe('ready');
+    act(() => result.current.onCandidateChange({ candidateConstruction: { version: 1, steps: [] }, changedStepId: 'competing' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(client.proposeConstruction).toHaveBeenCalledTimes(1);
+    expect(attempt.ready).toHaveBeenCalledWith(expect.objectContaining({ proposalId: 'proposal-1' }), proposalPreview);
+    expect(attempt.cancel).not.toHaveBeenCalled(); expect(result.current.proposal.status).toBe('ready');
+  });
+  it('requires shared Apply permission and preserves an applying proposal when Cancel is refused', async () => {
+    vi.useFakeTimers();
+    const attempt = { ready: vi.fn(() => true), failed: vi.fn(), cancel: vi.fn(() => false), beginApply: vi.fn().mockReturnValueOnce(false).mockReturnValue(true), finishApply: vi.fn() };
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
+      proposeConstruction: vi.fn(async () => proposalResponse()), preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result } = renderHook(() => useConstructionLifecycle({ client, capabilitiesRequest: request, editingOwner: { onStart: () => attempt } }));
+    act(() => result.current.onCandidateChange({ candidateConstruction: { version: 1, steps: [] } }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    act(() => { expect(result.current.beginApply()).toBeUndefined(); }); expect(result.current.proposal.status).toBe('ready');
+    let apply: ReturnType<typeof result.current.beginApply>;
+    act(() => { apply = result.current.beginApply(); }); expect(result.current.proposal.status).toBe('applying');
+    act(() => result.current.cancel()); expect(result.current.proposal.status).toBe('applying');
+    act(() => apply?.finish(true)); expect(attempt.finishApply).toHaveBeenCalledWith(true); expect(result.current.proposal.status).toBe('idle');
+  });
+  it('does not authorize a candidate the shared owner rejects', async () => {
+    vi.useFakeTimers();
+    const attempt = { ready: vi.fn(() => false), failed: vi.fn(), cancel: vi.fn(() => true), beginApply: vi.fn(() => true), finishApply: vi.fn() };
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
+      proposeConstruction: vi.fn(async () => proposalResponse()), preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result } = renderHook(() => useConstructionLifecycle({ client, capabilitiesRequest: request, editingOwner: { onStart: () => attempt } }));
+    act(() => result.current.onCandidateChange({ candidateConstruction: { version: 1, steps: [] } }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(result.current.canApply).toBe(false); expect(result.current.proposal.status).toBe('error'); expect(attempt.failed).toHaveBeenCalledTimes(1);
+  });
+});

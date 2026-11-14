@@ -43,7 +43,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request Pr
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) {
 		return PreviewInterpretationCandidateResult{}, conflict("interpretation-preview", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return PreviewInterpretationCandidateResult{}, err
 	}

@@ -331,6 +331,7 @@ FILTER candidate != null
 FILTER active != null
 FILTER active.recordType == @active_record_type
 FILTER active.project == @project
+FILTER active.sourceTracked != true
 UPDATE active WITH { dataset: candidate.dataset, manifestKey: candidate._key } IN @@lifecycle_collection
   OPTIONS { ignoreRevs: false, mergeObjects: false }
 RETURN { dataset: NEW.dataset }

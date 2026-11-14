@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -44,6 +45,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	}
 	constructionChoiceCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionChoice
 	frameSourceCommand := request.Commands[0].Type == authoringv2.CommandSetFrameSource || request.Commands[0].Type == authoringv2.CommandReplaceFrameSource
+	columnPolicyProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyColumnPolicyProposal
 	rowDefinitionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyRowDefinitionProposal
 	rowChangeReplacementCommand := request.Commands[0].Type == authoringv2.CommandApplyTableRootRebase && request.Commands[0].RowChange != nil && request.Commands[0].RowChange.Mode == authoringv2.RowChangeModeReplace
 	var rowDefinitionCandidate *explorer.CompilationReceipt
@@ -53,6 +55,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	populationMemberProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyPopulationMemberProposal
 	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
 	rowValuePolicyCommand := request.Commands[0].Type == authoringv2.CommandUpdateColumnRowValuePolicy
+	importedSourceCommand := authoringv2.IsImportedSourceCommand(request.Commands[0].Type)
 	for _, command := range request.Commands {
 		if command.Type == authoringv2.CommandUpdateColumnRowValuePolicy && len(request.Commands) != 1 {
 			return nil, malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY must be the only command in its atomic request", nil)
@@ -119,7 +122,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand || rowChangeReplacementCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand || rowChangeReplacementCommand || importedSourceCommand || columnPolicyProposalCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -153,8 +156,24 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, nil)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, explorerID)
+	if explorerID == DefaultDataframeID {
+		if err := s.seedDefaultDataframeForApply(ctx, project, explorerID, snapshot, catalog, request, actor); err != nil {
+			return nil, err
+		}
+	}
 	var prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error)
-	if semanticCommand {
+	if columnPolicyProposalCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			return s.prepareColumnPolicyProposal(ctx, project, explorerID, request, authorized, workspace, commands)
+		}
+	} else if importedSourceCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			if commands[0].Type == authoringv2.CommandApplyImportedRelationshipProposal {
+				return s.prepareImportedRelationshipProposal(ctx, project, explorerID, request, authorized, workspace, commands)
+			}
+			return s.prepareImportedSource(ctx, project, explorerID, authorized, workspace, catalog, commands)
+		}
+	} else if semanticCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareSemanticSelections(ctx, project, explorerID, authorized, workspace, catalog, commands)
 		}
@@ -285,6 +304,50 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	}
 }
 
+func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, explorerID string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) error {
+	_, err := s.store.Get(ctx, project, explorerID)
+	if err == nil {
+		return nil // Persisted state, including a corrupt draft, takes precedence.
+	}
+	if !errors.Is(err, explorer.ErrNotFound) {
+		return err
+	}
+	if request.ExpectedDraftVersion != 1 || strings.TrimSpace(request.ExpectedDraftDigest) == "" {
+		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+	}
+	virtual, err := s.virtualDefaultDataframeOwner(ctx, project, snapshot, catalog)
+	if err != nil {
+		return err
+	}
+	if request.ExpectedDraftDigest != virtual.DraftDigest {
+		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+	}
+	workspace, err := authoringv2.DecodeWorkspace(virtual.DraftConfig)
+	if err != nil {
+		return conflict("commands", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+	}
+	created, createErr := s.store.CreateSeededDataframe(ctx, project, explorerID, virtual.Title, workspace, actor, authoringv2.DraftSourceContext{SnapshotToken: snapshot.Token, SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest})
+	if createErr == nil {
+		if created.DraftVersion != 1 || created.DraftDigest != virtual.DraftDigest {
+			return conflict("commands", "DEFAULT_DATAFRAME_SEED_CONFLICT", "the default dataframe seed differs from its imported workspace", nil, explorer.ErrDraftConflict)
+		}
+		return nil
+	}
+	if !errors.Is(createErr, explorer.ErrDraftConflict) {
+		return createErr
+	}
+	// Another first Apply may have inserted the exact seed between Get and
+	// Create. Accept only that seed; normal command CAS decides the winner.
+	created, err = s.store.Get(ctx, project, explorerID)
+	if err != nil {
+		return err
+	}
+	if created.DraftVersion != 1 || created.DraftDigest != virtual.DraftDigest || !bytes.Equal(created.DraftConfig, virtual.DraftConfig) {
+		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+	}
+	return nil
+}
+
 func checkRowChangeReplacementResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt, outputID string) error {
 	if receipt == nil || !receiptHasOutput(receipt.Bundle, outputID) || validateReceiptOutputContract(receipt, outputID) != nil {
 		return conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the applied row replacement does not match its candidate receipt", nil, nil)
@@ -406,7 +469,7 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
+	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, ColumnPolicyProposal: cloneColumnPolicyProposalBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: cloneSourceRelationshipProposalBinding(request.SourceRelationshipProposal), RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {
@@ -445,6 +508,12 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 		if check.got != check.want {
 			return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt identity does not match the request capability", map[string]any{"field": check.name, "expected": check.want, "actual": check.got}, nil)
 		}
+	}
+	if !reflect.DeepEqual(request.ColumnPolicyProposal, receipt.ColumnPolicyProposal) {
+		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled column policy proposal binding does not match the request", nil, nil)
+	}
+	if !reflect.DeepEqual(request.SourceRelationshipProposal, receipt.SourceRelationshipProposal) {
+		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled source relationship proposal binding does not match the request", nil, nil)
 	}
 	if !sameRowDefinitionProposalBinding(request.RowDefinitionProposal, receipt.RowDefinitionProposal) {
 		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
@@ -549,7 +618,7 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 0 {
 		return ReconcileResult{}, malformed("reconcile", "snapshotToken, draftVersion, and draftDigest are required", nil)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
@@ -677,4 +746,20 @@ func (s *Service) resolveCompilationCapability(ctx context.Context, project, tok
 	}
 	snapshot, err := s.config.Capability.Token(ctx, project, token)
 	return AuthorizedCapability{Snapshot: snapshot}, snapshot, err
+}
+
+func cloneSourceRelationshipProposalBinding(binding *explorer.SourceRelationshipProposalBinding) *explorer.SourceRelationshipProposalBinding {
+	if binding == nil {
+		return nil
+	}
+	cloned := *binding
+	return &cloned
+}
+
+func cloneColumnPolicyProposalBinding(binding *explorer.ColumnPolicyProposalBinding) *explorer.ColumnPolicyProposalBinding {
+	if binding == nil {
+		return nil
+	}
+	cloned := *binding
+	return &cloned
 }

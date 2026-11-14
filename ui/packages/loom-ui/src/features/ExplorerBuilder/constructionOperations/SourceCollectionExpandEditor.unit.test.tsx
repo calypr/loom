@@ -28,6 +28,9 @@ const choices: RowDefinitionChoicesResponse = {
 };
 
 const proposalFor = (policy: string): RowDefinitionProposal => ({
+  candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'observations', title: 'Observation' }, rootResourceType: 'Observation', route: { occurrenceId: 'base', resourceType: 'Observation' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
+  candidateNetwork: { owner: 'DOCUMENT', outputId: 'observations', sourceRows: { kind: 'RECORDS', records: {} }, occurrences: [], bindings: [], operations: [] },
+  candidateRowIdentity: { outputId: 'observations', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
   proposalId: `proposal-${policy.toLowerCase()}`,
   baseReceiptId: 'base-receipt',
   outputId: 'observations',
