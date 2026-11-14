@@ -89,8 +89,12 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
   GuidedGraphWorkspace: ({
     onSelectOccurrence,
     importedRelationshipActions,
+    selectedOccurrenceId,
+    projectionKind,
   }: {
     readonly onSelectOccurrence: (occurrenceId: string) => void;
+    readonly selectedOccurrenceId?: string;
+    readonly projectionKind?: 'saved' | 'proposed';
     readonly importedRelationshipActions?: { readonly onAdd: (parentOccurrenceId: string, edgeId: string, nodeId: string) => void };
   }) => (
     <>
@@ -100,7 +104,13 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
       >
         Select saved DiagnosticReport occurrence
       </button>
-      {importedRelationshipActions ? <button type="button" onClick={() => importedRelationshipActions.onAdd('base', 'patient-observations', 'observation-node')}>
+      <button type="button" onClick={() => onSelectOccurrence(selectedOccurrenceId || 'base')}>
+        Select current occurrence {selectedOccurrenceId || 'base'}
+      </button>
+      {projectionKind === 'proposed' ? <button type="button" onClick={() => onSelectOccurrence('candidate-observation-occurrence')}>
+        Inspect candidate-only Observation
+      </button> : null}
+      {importedRelationshipActions ? <button type="button" onClick={() => importedRelationshipActions.onAdd(selectedOccurrenceId ?? 'base', 'patient-observations', 'observation-node')}>
         Connect to Observation
       </button> : null}
     </>
@@ -242,6 +252,21 @@ const importedDocument = {
   ...workspace.documents[0]!,
   importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'patients' },
 };
+const candidateImportedDocument: ExplorerBuilderWorkspace['documents'][number] = {
+  ...importedDocument,
+  route: {
+    ...importedDocument.route,
+    children: [
+      ...(importedDocument.route.children ?? []),
+      {
+        occurrenceId: 'candidate-observation-occurrence',
+        resourceType: 'Observation',
+        relationship: 'observations',
+        catalogEdgeId: 'patient-observations',
+      },
+    ],
+  },
+};
 const importedWorkspace: ExplorerBuilderWorkspace = {
   ...workspace,
   documents: [importedDocument],
@@ -258,7 +283,7 @@ const importedPreview = (receiptId = 'relationship-proposal') => ({
   diagnostics: [],
 });
 const importedRelationshipProposal = (draftDigest = 'sha256:draft-1') => ({
-  candidateDocument: importedDocument,
+  candidateDocument: candidateImportedDocument,
   candidateNetwork: { owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: importedDocument.rows, occurrences: [], bindings: [], operations: [] },
   candidateRowIdentity: { outputId: 'patients', sourceDefinition: importedDocument.rows, stages: [], relationships: [] },
   proposalId: 'relationship-proposal',
@@ -276,6 +301,15 @@ const importedRelationshipProposal = (draftDigest = 'sha256:draft-1') => ({
   notices: ['Related values preserve the source row identity.'],
   preview: importedPreview(),
 });
+const importedRelationshipProposalWithReceipt = (receiptId: string) => {
+  const proposal = importedRelationshipProposal();
+  return {
+    ...proposal,
+    proposalId: receiptId,
+    candidateReceiptId: receiptId,
+    preview: { ...proposal.preview, receiptId },
+  };
+};
 
 const namedGroupMemberColumnId = 'named-cohort-status-column-id';
 const namedGroupMemberColumn: ExplorerBuilderWorkspace['documents'][number]['columns'][number] = {
@@ -885,6 +919,90 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(screen.getByRole('button', { name: 'Cancel earlier recipe change' })).toBeInTheDocument();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
     expect(mockLoomClient.preview).not.toHaveBeenCalled();
+  });
+
+  it('selection during pending Connect cancels the old request and a new Connect owns the review', async () => {
+    let resolveFirst!: (proposal: ReturnType<typeof importedRelationshipProposalWithReceipt>) => void;
+    const firstProposal = new Promise<ReturnType<typeof importedRelationshipProposalWithReceipt>>((resolve) => {
+      resolveFirst = resolve;
+    });
+    mockLoomClient.proposeSourceRelationship
+      .mockReturnValueOnce(firstProposal)
+      .mockResolvedValueOnce(importedRelationshipProposalWithReceipt('new-relationship'));
+    renderImportedBuilder();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect to Observation' }));
+    const oldSignal = mockLoomClient.proposeSourceRelationship.mock.calls[0]?.[1] as AbortSignal | undefined;
+    const nextNode = screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' });
+    nextNode.focus();
+    fireEvent.click(nextNode);
+
+    expect(oldSignal?.aborted).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Apply relationship' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('authored-occurrence-inspector')).toHaveAttribute('data-occurrence-id', 'saved-report-occurrence');
+    expect(document.activeElement).toBe(nextNode);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect to Observation' }));
+    expect(mockLoomClient.proposeSourceRelationship).toHaveBeenCalledTimes(2);
+    expect(mockLoomClient.proposeSourceRelationship.mock.calls[1]?.[0]).toMatchObject({
+      change: { action: 'ADD', parentOccurrenceId: 'saved-report-occurrence' },
+    });
+
+    await act(async () => resolveFirst(importedRelationshipProposalWithReceipt('late-old-relationship')));
+    const apply = await screen.findByRole('button', { name: 'Apply relationship' });
+    await waitFor(() => expect(apply).toBeEnabled());
+    fireEvent.click(apply);
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: 'patients', proposalId: 'new-relationship' }],
+    })));
+  });
+
+  it('selection cancels a ready relationship proposal, but keeps same-node and candidate-only inspection', async () => {
+    mockLoomClient.proposeSourceRelationship.mockResolvedValue(importedRelationshipProposal());
+    renderImportedBuilder();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect to Observation' }));
+    const apply = await screen.findByRole('button', { name: 'Apply relationship' });
+    await waitFor(() => expect(apply).toBeEnabled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select current occurrence base' }));
+    expect(screen.getByRole('button', { name: 'Apply relationship' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect candidate-only Observation' }));
+    expect(screen.getByRole('button', { name: 'Select current occurrence candidate-observation-occurrence' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply relationship' })).toBeEnabled();
+
+    const savedNode = screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' });
+    savedNode.focus();
+    fireEvent.click(savedNode);
+    expect(screen.queryByRole('button', { name: 'Apply relationship' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('authored-occurrence-inspector')).toHaveAttribute('data-occurrence-id', 'saved-report-occurrence');
+    expect(document.activeElement).toBe(savedNode);
+  });
+
+  it('ignores a stale graph selection callback while Apply owns the proposal', async () => {
+    let resolveApply!: (value: { commandId: string; draftVersion: number; draftDigest: string; workspace: ExplorerBuilderWorkspace; results: Array<{ type: string; outputId: string }>; diagnostics: unknown[] }) => void;
+    const applyPending = new Promise<{ commandId: string; draftVersion: number; draftDigest: string; workspace: ExplorerBuilderWorkspace; results: Array<{ type: string; outputId: string }>; diagnostics: unknown[] }>((resolve) => {
+      resolveApply = resolve;
+    });
+    applyExplorerCommands.mockReturnValue({ unwrap: () => applyPending });
+    mockLoomClient.proposeSourceRelationship.mockResolvedValue(importedRelationshipProposal());
+    renderImportedBuilder();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect to Observation' }));
+    const apply = await screen.findByRole('button', { name: 'Apply relationship' });
+    await waitFor(() => expect(apply).toBeEnabled());
+    fireEvent.click(apply);
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    expect(screen.getByRole('button', { name: 'Select current occurrence base' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply relationship' })).toBeDisabled();
+    expect(mockLoomClient.proposeSourceRelationship).toHaveBeenCalledOnce();
+
+    await act(async () => resolveApply({ commandId: 'command-apply', draftVersion: 2, draftDigest: 'sha256:draft-2', workspace, results: [], diagnostics: [] }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Apply relationship' })).not.toBeInTheDocument());
+    expect(applyExplorerCommands).toHaveBeenCalledOnce();
   });
 
   it('renders the blank first-table home without requesting construction capabilities', async () => {

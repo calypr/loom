@@ -24,6 +24,7 @@ interface BaseProps {
   readonly disabled: boolean;
   readonly onApply: (commands: ExplorerBuilderCommand[]) => Promise<boolean>;
   readonly onCancel: () => void;
+  readonly requestControllerRef?: { current: AbortController | undefined };
   readonly onPreviewStart?: () => {
     ready: (proposal: SourceRelationshipProposalWithPreview, preview: ExplorerBuilderPreviewResult) => boolean;
     failed: (message: string) => void;
@@ -56,16 +57,22 @@ export function SourceRelationshipReview(props: Props) {
   const pending = useRef<AbortController | undefined>(undefined);
   const cancel = () => {
     sequence.current += 1;
-    pending.current?.abort();
+    const controller = pending.current;
+    controller?.abort();
+    pending.current = undefined;
+    if (props.requestControllerRef && props.requestControllerRef.current === controller) props.requestControllerRef.current = undefined;
     props.onCancel();
   };
   const preview = async () => {
     const ownership = props.onPreviewStart?.();
     if (props.onPreviewStart && !ownership) return;
     const token = ++sequence.current;
-    pending.current?.abort();
+    const previous = pending.current;
+    previous?.abort();
+    if (props.requestControllerRef && props.requestControllerRef.current === previous) props.requestControllerRef.current = undefined;
     const controller = new AbortController();
     pending.current = controller;
+    if (props.requestControllerRef) props.requestControllerRef.current = controller;
     setBusy(true); setError(undefined); setResult(undefined);
     if (!props.onPreviewStart) props.onStatusChange?.('previewing');
     try {
@@ -92,6 +99,8 @@ export function SourceRelationshipReview(props: Props) {
         if (!props.onPreviewStart) props.onStatusChange?.('failed', message);
       }
     } finally {
+      if (pending.current === controller) pending.current = undefined;
+      if (props.requestControllerRef && props.requestControllerRef.current === controller) props.requestControllerRef.current = undefined;
       if (token === sequence.current) setBusy(false);
     }
   };

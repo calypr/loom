@@ -4029,20 +4029,28 @@ const BuilderWorkspaceContent = ({
     setRelationshipEdit({ owner: relationshipOwner, change });
     if (prepareImmediately) void prepareSourceRelationship(change);
   };
-  const cancelRecipeRelationship = () => {
+  const cancelRecipeRelationship = (restoreFocus = true) => {
+    if (recipeOwner.getState().status === 'applying') return false;
+    const token = recipeEditToken.current;
+    if (token && !recipeOwner.cancel(token)) return false;
     sourceRelationshipRequest.current?.abort();
     sourceRelationshipRequest.current = undefined;
     setConnectingRelationship(false);
     columnPolicyRequest.current?.abort();
-    const token = recipeEditToken.current;
-    if (token && !recipeOwner.cancel(token)) return;
     recipeEditToken.current = undefined;
     setSourceProposal(undefined);
     setRelationshipEdit(undefined);
     setEditingRecipeColumn(undefined);
     setRecipeNotice(undefined);
     constructionLifecycle.cancel();
-    restoreRecipeFocus();
+    if (restoreFocus) restoreRecipeFocus();
+    else {
+      recipeFocusGeneration.current += 1;
+      recipeInitiator.current = undefined;
+      recipeInitiatorFact.current = undefined;
+      pendingRecipeFocus.current = undefined;
+    }
+    return true;
   };
   const sourceReviewStatus = (status: 'previewing' | 'applying' | 'failed', message?: string) => {
     const token = recipeEditToken.current;
@@ -4616,7 +4624,7 @@ const BuilderWorkspaceContent = ({
       : routeNode(proposalPresentationTable.document.route, state.selectedOccurrenceId) ? state.selectedOccurrenceId : proposalPresentationTable.document.route.occurrenceId
     : state.selectedOccurrenceId;
   const sourceRecipeInspector = recipeOwner.state.status === 'stale' && recipeOwner.state.target?.kind !== 'root'
-    ? <p role="alert">{recipeOwner.state.error} <button type="button" onClick={cancelRecipeRelationship}>Cancel earlier recipe change</button></p>
+    ? <p role="alert">{recipeOwner.state.error} <button type="button" onClick={() => cancelRecipeRelationship()}>Cancel earlier recipe change</button></p>
     : recipeOwner.state.target?.kind === 'root' ? (recipeOwner.state.target.mode === 'REPLACE'
       ? <div ref={setRootReplacementInspectorHost} aria-label="Starting-record replacement inspector" />
       : rootCandidate || rootChangeState.kind === 'idle' ? <RowChangePreviewPanel candidateRoot={rootRecipeAssessment.current?.candidateRootResourceType ?? table?.document.rootResourceType ?? 'records'}
@@ -4673,13 +4681,38 @@ const BuilderWorkspaceContent = ({
         change={pendingRelationship} sharedPreview onStatusChange={sourceReviewStatus} onPreviewStart={beginSourceReview}
         preparing={connectingRelationship}
         preparationError={recipeOwner.state.error}
+        requestControllerRef={sourceRelationshipRequest}
         {...(sourceCandidate ? { prepared: { proposal: sourceCandidate.proposal, preview: sourceCandidate.preview } } : {})}
         onApply={applySourceRecipe} onCancel={cancelRecipeRelationship} /> : null}
   </> : undefined;
   const selectTraversalScope = (occurrenceId: string) => {
+    const editing = recipeOwner.getState();
+    const relationshipReviewActive = Boolean(
+      pendingRelationship &&
+      (editing.target?.kind === 'connection' || editing.target?.kind === 'relationship'),
+    );
+    if (editing.status === 'applying' && relationshipReviewActive) return;
+    const candidateOccurrence = Boolean(
+      candidateInspectionKey && proposalPresentationTable &&
+      routeNode(proposalPresentationTable.document.route, occurrenceId),
+    );
+    const savedOccurrence = Boolean(table && routeNode(table.document.route, occurrenceId));
     if (candidateInspectionKey && proposalPresentationTable) {
-      if (routeNode(proposalPresentationTable.document.route, occurrenceId)) setCandidateInspection({ key: candidateInspectionKey, occurrenceId });
-    } else dispatch({ type: 'selectOccurrence', occurrenceId });
+      if (!candidateOccurrence) return;
+      setCandidateInspection({ key: candidateInspectionKey, occurrenceId });
+      if (!savedOccurrence) return;
+    }
+    if (relationshipReviewActive && savedOccurrence) {
+      const sameSavedInspection = occurrenceId === state.selectedOccurrenceId &&
+        (!candidateInspectionKey || occurrenceId === inspectedOccurrenceId);
+      if (!sameSavedInspection) {
+        if (!cancelRecipeRelationship(false)) return;
+        setCandidateInspection(undefined);
+      }
+    } else if (candidateInspectionKey && proposalPresentationTable) {
+      return;
+    }
+    dispatch({ type: 'selectOccurrence', occurrenceId });
   };
   const editTraversalColumn = (columnId: string) => {
     const binding = savedNetwork?.owner === relationshipOwner ? savedNetwork.result.network.bindings.find((item) => item.columnId === columnId) : undefined;

@@ -58,6 +58,12 @@ describe('native source proposal ownership', () => {
     await waitFor(() => expect(calls.onApply).toHaveBeenCalledWith([{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: 'subjects', proposalId: 'p1' }]));
     expect(calls.onCancel).toHaveBeenCalledOnce();
   });
+  it('can Cancel before Preview when the inspector has no shared request controller', () => {
+    const calls = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(calls.onCancel).toHaveBeenCalledOnce();
+    expect(calls.proposeSourceRelationship).not.toHaveBeenCalled();
+  });
   it('rejects a proposal owned by another saved draft before reading preview', async () => {
     const bad = vi.fn().mockResolvedValue({ ...proposal, draftDigest: 'old' });
     const calls = setup({ proposeSourceRelationship: bad });
