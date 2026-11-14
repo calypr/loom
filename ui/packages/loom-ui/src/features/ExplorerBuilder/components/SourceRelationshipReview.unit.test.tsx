@@ -6,12 +6,13 @@ import type { LoomClient } from '../../../api';
 import { SourceRelationshipReview } from './SourceRelationshipReview';
 vi.mock('../constructionWorkspace/ConstructionProposalPreview', () => ({ ConstructionProposalPreview: () => <p>Candidate values</p> }));
 afterEach(cleanup);
+const rows = { apiVersion: 'loom.calypr.org/explorer-authoring/v2' as const, kind: 'ExplorerBuilderPreview' as const,
+  receiptId: 'r1', outputId: 'subjects', columns: [], rows: [{}], rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' }, rowCount: 1, diagnostics: [] };
 const proposal = {
   proposalId: 'p1', candidateReceiptId: 'r1', outputId: 'subjects', snapshotToken: 's1', draftVersion: 2,
   draftDigest: 'd2', baseDocumentDigest: 'doc2', candidateWorkspaceDigest: 'candidate', previewStatus: 'READY' as const,
-  sampledRows: 1, sampled: true, affectedColumns: [], notices: [],
+  sampledRows: 1, sampled: true, affectedColumns: [], notices: [], preview: rows,
 };
-const rows = { receiptId: 'r1', outputId: 'subjects' };
 function setup(overrides: Partial<LoomClient> = {}) {
   const proposeSourceRelationship = vi.fn().mockResolvedValue(proposal);
   const preview = vi.fn().mockResolvedValue(rows);
@@ -51,6 +52,7 @@ describe('native source proposal ownership', () => {
     expect(apply.disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
     await screen.findByText('Candidate values');
+    expect(calls.preview).not.toHaveBeenCalled();
     expect(calls.onApply).not.toHaveBeenCalled();
     fireEvent.click(apply);
     await waitFor(() => expect(calls.onApply).toHaveBeenCalledWith([{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: 'subjects', proposalId: 'p1' }]));
@@ -64,8 +66,8 @@ describe('native source proposal ownership', () => {
     expect(calls.preview).not.toHaveBeenCalled();
     expect(calls.onApply).not.toHaveBeenCalled();
   });
-  it('rejects mismatched preview receipt and never enables Apply', async () => {
-    setup({ preview: vi.fn().mockResolvedValue({ ...rows, receiptId: 'other' }) });
+it('rejects mismatched embedded preview receipt and never enables Apply', async () => {
+    setup({ proposeSourceRelationship: vi.fn().mockResolvedValue({ ...proposal, preview: { ...rows, receiptId: 'other' } }) });
     fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
     await screen.findByRole('alert');
     expect((screen.getByRole('button', { name: 'Apply relationship' }) as HTMLButtonElement).disabled).toBe(true);
@@ -100,7 +102,7 @@ describe('native source proposal ownership', () => {
 });
 
 it('refuses an unavailable receipt preview before enabling source Apply', async () => {
- setup({preview:vi.fn().mockResolvedValue({...rows,rows:null})});
+ setup({proposeSourceRelationship:vi.fn().mockResolvedValue({...proposal,preview:{...rows,rows:null}})});
  fireEvent.click(screen.getByRole('button',{name:'Preview relationship'}));
  await screen.findByRole('alert');
  expect(screen.getByRole('button',{name:'Apply relationship'})).toBeDisabled();
@@ -108,7 +110,7 @@ it('refuses an unavailable receipt preview before enabling source Apply', async 
 
 it('reports unavailable source rows to the shared owner without accepting its candidate', async()=>{
  const ready=vi.fn(()=>true), failed=vi.fn();
- render(<SourceRelationshipReview client={{proposeSourceRelationship:vi.fn().mockResolvedValue(proposal),preview:vi.fn().mockResolvedValue({...rows,rows:null})} as unknown as LoomClient}
+ render(<SourceRelationshipReview client={{proposeSourceRelationship:vi.fn().mockResolvedValue({...proposal,preview:{...rows,rows:null}}),preview:vi.fn()} as unknown as LoomClient}
  project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects" disabled={false}
  change={{action:'MATCH',occurrenceId:'base',matchMode:'OPTIONAL'}} onApply={vi.fn()} onCancel={vi.fn()} onPreviewStart={()=>({ready,failed})}/>);
  fireEvent.click(screen.getByRole('button',{name:'Preview relationship'}));

@@ -9,7 +9,7 @@ import (
 
 func TestSourceProposalWireAcceptsExactlyOneClosedIntent(t *testing.T) {
 	for _, payload := range []string{
-		`{}`, `{"change":null}`, `{"sourceStep":null}`, `{"change":{"action":"REMOVE","occurrenceId":"r"},"sourceStep":{"stepId":"fields","enabled":false}}`,
+		`{}`, `{"sourceStep":{"stepId":"fields","enabled":false},"includePreview":null}`, `{"sourceStep":{"stepId":"fields","enabled":false},"includePreview":"true"}`, `{"sourceStep":{"stepId":"fields","enabled":false},"previewSinkFactory":{}}`, `{"sourceStep":{"stepId":"fields","enabled":false},"nativePreview":{}}`, `{"change":null}`, `{"sourceStep":null}`, `{"change":{"action":"REMOVE","occurrenceId":"r"},"sourceStep":{"stepId":"fields","enabled":false}}`,
 		`{"sourceStep":{"stepId":"fields"}}`,
 		`{"sourceStep":{"stepId":"fields","enabled":false,"expr":{"select":"root.secret"}}}`,
 		`{"sourceStep":{"stepId":"fields","enabled":false},"project":"other"}`,
@@ -62,5 +62,30 @@ func TestSourceProposalWireAdmitsOnlyAtomicBoundedUniqueBatch(t *testing.T) {
 	}
 	if err := authoringv2.ValidateImportedSourceStepBatch(changes); err == nil {
 		t.Fatal("unbounded source batch admitted")
+	}
+}
+
+func TestSourceProposalPreviewOptInRoundTripsWithoutRuntimeFields(t *testing.T) {
+	for _, include := range []bool{false, true} {
+		input := SourceRelationshipProposalRequest{SnapshotToken: "snapshot", ExpectedDraftVersion: 1, ExpectedDraftDigest: "digest", OutputID: "out", IncludePreview: include, SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: true}}
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err = json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		_, exists := fields["includePreview"]
+		if exists != include {
+			t.Fatalf("opt-in presence=%v include=%v", exists, include)
+		}
+		var restored SourceRelationshipProposalRequest
+		if err = json.Unmarshal(raw, &restored); err != nil {
+			t.Fatal(err)
+		}
+		if restored.IncludePreview != include || restored.PreviewSinkFactory != nil {
+			t.Fatal("preview opt-in did not round trip safely")
+		}
 	}
 }

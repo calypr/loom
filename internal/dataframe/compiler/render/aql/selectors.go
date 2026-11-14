@@ -318,6 +318,10 @@ func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, sele
 	if len(selector.Steps) == 0 {
 		return "", fmt.Errorf("selector is required")
 	}
+	if !setSource && selector.Filter == nil && selectorHasNoArrays(selector) {
+		value := compileDirectExpr(source, selector.Steps)
+		return "(" + value + " == null ? [] : [" + value + "])", nil
+	}
 	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
 	lines, current := []string{"FOR __root IN [" + source + "]"}, "__root"
 	if setSource {

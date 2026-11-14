@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
-	loomapi "github.com/calypr/loom/generated/loomapi"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
+	"errors"
 	"net/http"
+
+	loomapi "github.com/calypr/loom/generated/loomapi"
+	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 func (h *explorerHTTPHandlers) proposeSourceRelationshipDirect(ctx context.Context, project, explorerID string, body *loomapi.SourceRelationshipProposalRequest) (loomapi.SourceRelationshipProposal, error) {
@@ -20,11 +23,40 @@ func (h *explorerHTTPHandlers) proposeSourceRelationshipDirect(ctx context.Conte
 		return empty, malformedRouteError("proposeExplorerSourceRelationship", err)
 	}
 	input.Project, input.ExplorerID = project, explorerID
+	var encoder *previewResponseEncoder
+	if input.IncludePreview {
+		input.PreviewSinkFactory = func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			var err error
+			encoder, err = newPreviewResponseEncoder(receipt, input.OutputID, columns, maxExplorerPreviewResponseBytes)
+			if err != nil {
+				return nil, err
+			}
+			return encoder.Visit, nil
+		}
+	}
 	value, err := h.application.ProposeSourceRelationship(ctx, input)
+	if err != nil {
+		var authoringError *explorer.AuthoringError
+		if input.IncludePreview && !errors.As(err, &authoringError) {
+			return empty, previewRouteError(err)
+		}
+		return empty, err
+	}
+	result, err := directAuthoringJSON[loomapi.SourceRelationshipProposal](value)
 	if err != nil {
 		return empty, err
 	}
-	return directAuthoringJSON[loomapi.SourceRelationshipProposal](value)
+	if input.IncludePreview {
+		if value.NativePreview == nil || encoder == nil {
+			return empty, previewRouteError(errors.New("source proposal preview sink was not configured"))
+		}
+		preview, err := previewResponseFromEncoder(encoder, value.NativePreview.Summary)
+		if err != nil {
+			return empty, err
+		}
+		result.Preview = &preview
+	}
+	return result, nil
 }
 
 func (r *HTTPRoutes) ProposeExplorerSourceRelationship(ctx context.Context, request loomapi.ProposeExplorerSourceRelationshipRequestObject) (loomapi.ProposeExplorerSourceRelationshipResponseObject, error) {
@@ -48,6 +80,12 @@ func (r *HTTPRoutes) ProposeExplorerSourceRelationship(ctx context.Context, requ
 		return loomapi.ProposeExplorerSourceRelationship404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
 	case http.StatusConflict:
 		return loomapi.ProposeExplorerSourceRelationship409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusRequestEntityTooLarge:
+		return loomapi.ProposeExplorerSourceRelationship413JSONResponse{AuthoringPayloadTooLargeJSONResponse: loomapi.AuthoringPayloadTooLargeJSONResponse(failure)}, nil
+	case http.StatusTooManyRequests:
+		return loomapi.ProposeExplorerSourceRelationship429JSONResponse{AuthoringTooManyRequestsJSONResponse: loomapi.AuthoringTooManyRequestsJSONResponse(failure)}, nil
+	case 499:
+		return loomapi.ProposeExplorerSourceRelationship499JSONResponse{AuthoringClientClosedRequestJSONResponse: loomapi.AuthoringClientClosedRequestJSONResponse(failure)}, nil
 	case http.StatusUnprocessableEntity:
 		return loomapi.ProposeExplorerSourceRelationship422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
 	case http.StatusInternalServerError:

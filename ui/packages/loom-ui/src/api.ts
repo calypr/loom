@@ -28,9 +28,9 @@ import {
   type AuthoringNetworkResponse,
   columnPolicyProposalRequestSchema, columnPolicyProposalSchema, type ColumnPolicyProposalRequest, type ColumnPolicyProposal,
   sourceRelationshipProposalRequestSchema,
-  sourceRelationshipProposalSchema,
   type SourceRelationshipProposalRequest,
-  type SourceRelationshipProposal,
+  sourceRelationshipProposalWithPreviewSchema,
+  type SourceRelationshipProposalWithPreview,
   constructionProposalRequestSchema,
   constructionProposalResponseSchema,
   constructionChoiceProposalRequestSchema,
@@ -779,7 +779,7 @@ export interface LoomClient {
   ) => Promise<ConstructionInputsResponse>;
   readonly describeAuthoringNetwork: (args: DescribeAuthoringNetworkArgs, signal?: AbortSignal) => Promise<AuthoringNetworkResponse>;
   readonly proposeColumnPolicy: (args: ProposeColumnPolicyArgs, signal?: AbortSignal) => Promise<ColumnPolicyProposal>;
-  readonly proposeSourceRelationship: (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => Promise<SourceRelationshipProposal>;
+  readonly proposeSourceRelationship: (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => Promise<SourceRelationshipProposalWithPreview>;
   readonly proposeConstruction: (
     args: ProposeConstructionArgs,
     signal?: AbortSignal,
@@ -1724,8 +1724,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   const proposeSourceRelationship = (args: ProposeSourceRelationshipArgs, signal?: AbortSignal) => {
     const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
     return request(durableAuthoringPath(args, '/source-relationship-proposals'), withJson(
-      sourceRelationshipProposalRequestSchema.parse(body), signal, requestId,
-    )).then((value) => sourceRelationshipProposalSchema.parse(value));
+      sourceRelationshipProposalRequestSchema.parse({ ...body, includePreview: true }), signal, requestId,
+    )).then((value) => sourceRelationshipProposalWithPreviewSchema.parse(value));
   };
   const proposeConstruction = (args: ProposeConstructionArgs, signal?: AbortSignal) => {
     const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;

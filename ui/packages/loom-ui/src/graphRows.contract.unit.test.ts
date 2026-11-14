@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient } from './api';
-import { sourceRelationshipChangeSchema, explorerBuilderDocumentSchema, sourceRelationshipProposalSchema } from './types';
+import { sourceRelationshipChangeSchema, explorerBuilderDocumentSchema, sourceRelationshipProposalSchema, sourceRelationshipProposalWithPreviewSchema } from './types';
 describe('record network public contracts', () => {
   it('rejects mixed or executable source relationship payloads', () => {
     expect(sourceRelationshipChangeSchema.safeParse({ action: 'REMOVE', occurrenceId: 'x', edgeId: 'edge' }).success).toBe(false);
@@ -12,17 +12,23 @@ describe('record network public contracts', () => {
     const candidateRowIdentity = { outputId: 'subjects', sourceDefinition: candidateDocument.rows, stages: [], relationships: [] };
     const proposal = { candidateDocument, candidateNetwork, candidateRowIdentity, proposalId: 'p', candidateReceiptId: 'p', outputId: 'subjects', snapshotToken: 'snapshot', draftVersion: 4,
       draftDigest: 'd4', baseDocumentDigest: 'doc4', candidateWorkspaceDigest: 'candidate', previewStatus: 'READY',
-      sampledRows: 3, sampled: true, affectedColumns: [], notices: [] };
+      sampledRows: 3, sampled: true, affectedColumns: [], notices: [],
+      preview: { apiVersion: 'loom.calypr.org/explorer-authoring/v2', kind: 'ExplorerBuilderPreview', receiptId: 'p', outputId: 'subjects',
+        columns: [], rows: [{}], rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' }, rowCount: 1, diagnostics: [] } };
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => new Response(JSON.stringify(proposal), { status: 200 }));
     const client = createLoomClient({ fetch });
     const change = { action: 'MATCH' as const, occurrenceId: 'patient', matchMode: 'REQUIRED' as const };
     await expect(client.proposeSourceRelationship({ project: 'qa', explorerId: 'draft', snapshotToken: 'snapshot', expectedDraftVersion: 4, expectedDraftDigest: 'd4', outputId: 'subjects', change })).resolves.toEqual(proposal);
-    expect(fetch).toHaveBeenCalledWith('/api/v1/projects/qa/explorers/draft/authoring/v2/source-relationship-proposals', expect.objectContaining({ method: 'POST', body: JSON.stringify({ snapshotToken: 'snapshot', expectedDraftVersion: 4, expectedDraftDigest: 'd4', outputId: 'subjects', change }) }));
+    expect(fetch).toHaveBeenCalledWith('/api/v1/projects/qa/explorers/draft/authoring/v2/source-relationship-proposals', expect.objectContaining({ method: 'POST', body: JSON.stringify({ snapshotToken: 'snapshot', expectedDraftVersion: 4, expectedDraftDigest: 'd4', outputId: 'subjects', includePreview: true, change }) }));
+    expect(fetch).toHaveBeenCalledTimes(1);
     await expect(client.proposeColumnPolicy({ project: 'qa', explorerId: 'draft', snapshotToken: 'snapshot', expectedDraftVersion: 4,
       expectedDraftDigest: 'd4', outputId: 'subjects', columnId: 'score', projectionMode: 'ALL' })).resolves.toEqual(proposal);
     expect(fetch).toHaveBeenLastCalledWith('/api/v1/projects/qa/explorers/draft/authoring/v2/column-policy-proposals', expect.objectContaining({ method: 'POST' }));
     expect(sourceRelationshipProposalSchema.safeParse({ ...proposal, draftVersion: 0 }).success).toBe(false);
     expect(sourceRelationshipProposalSchema.safeParse({ ...proposal, candidateDocument: undefined }).success).toBe(false);
+    expect(sourceRelationshipProposalWithPreviewSchema.safeParse({ ...proposal, preview: undefined }).success).toBe(false);
+    expect(sourceRelationshipProposalWithPreviewSchema.safeParse({ ...proposal, preview: { ...proposal.preview, receiptId: 'other' } }).success).toBe(false);
+    expect(sourceRelationshipProposalWithPreviewSchema.safeParse({ ...proposal, preview: { ...proposal.preview, rows: null } }).success).toBe(false);
   });
   it('public imported overlays accept the same value policies as Go', () => {
     const document = { kind: 'ExplorerBuilderDocument', output: { id: 'subjects', title: 'Subjects' }, rootResourceType: 'ResearchSubject',

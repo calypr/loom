@@ -23,8 +23,11 @@ type SourceRelationshipProposalRequest struct {
 	SourceStep           *authoringv2.ImportedSourceStepChange  `json:"sourceStep,omitempty"`
 	SourceSteps          []authoringv2.ImportedSourceStepChange `json:"sourceSteps,omitempty"`
 	Limit                int                                    `json:"limit,omitempty"`
+	IncludePreview       bool                                   `json:"includePreview,omitempty"`
+	PreviewSinkFactory   PreviewSinkFactory                     `json:"-"`
 }
 type SourceRelationshipProposal struct {
+	NativePreview            *PreviewResult               `json:"-"`
 	CandidateDocument        authoringv2.Document         `json:"candidateDocument"`
 	CandidateNetwork         authoringv2.AuthoringNetwork `json:"candidateNetwork"`
 	CandidateRowIdentity     authoringv2.RowIdentityPlan  `json:"candidateRowIdentity"`
@@ -141,9 +144,13 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		return fail, unprocessable("source-relationship-proposal", "INVALID_AUTHORING_NETWORK", "candidate network belongs to another output", nil)
 	}
 	candidateRowIdentity := rowIdentityForNetwork(*candidateDocument, candidateNetwork)
-	preview, err := s.Preview(ctx, PreviewRequest{Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: receipt.ID, OutputID: request.OutputID, Limit: request.Limit, SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
-		return func(map[string]any) error { return nil }, nil
-	}})
+	sinkFactory := request.PreviewSinkFactory
+	if sinkFactory == nil {
+		sinkFactory = func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			return func(map[string]any) error { return nil }, nil
+		}
+	}
+	preview, err := s.Preview(ctx, PreviewRequest{Project: request.Project, ExplorerID: request.ExplorerID, ReceiptID: receipt.ID, OutputID: request.OutputID, Limit: request.Limit, SinkFactory: sinkFactory})
 	if err != nil {
 		return fail, err
 	}
@@ -184,7 +191,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if request.Change.MatchMode == authoringv2.RouteMatchRequired {
 		notices = append(notices, "Required matches exclude source rows without a match; they do not expand rows.")
 	}
-	return SourceRelationshipProposal{CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity, ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: affected, Notices: notices}, nil
+	return SourceRelationshipProposal{NativePreview: &preview, CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity, ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: affected, Notices: notices}, nil
 }
 
 func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized AuthorizedCapability, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {

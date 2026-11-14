@@ -644,6 +644,9 @@ paths:
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '413': {$ref: '#/components/responses/AuthoringPayloadTooLarge'}
+        '429': {$ref: '#/components/responses/AuthoringTooManyRequests'}
+        '499': {$ref: '#/components/responses/AuthoringClientClosedRequest'}
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
@@ -3527,11 +3530,13 @@ components:
           maxItems: 128
           items: {$ref: '#/components/schemas/ImportedSourceStepChange'}
         limit: {type: integer, minimum: 1, maximum: 1000}
+        includePreview: {type: boolean, default: false}
     SourceRelationshipProposal:
       type: object
       additionalProperties: false
       required: [proposalId, candidateReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, previewStatus, sampledRows, sampled, affectedColumns, notices, candidateDocument, candidateNetwork, candidateRowIdentity]
       properties:
+        preview: {$ref: '#/components/schemas/PreviewResponse'}
         candidateDocument: {$ref: '#/components/schemas/Document'}
         candidateNetwork: {$ref: '#/components/schemas/AuthoringNetwork'}
         candidateRowIdentity: {$ref: '#/components/schemas/RowIdentityPlan'}

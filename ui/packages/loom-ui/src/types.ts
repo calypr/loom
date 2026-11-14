@@ -3229,6 +3229,7 @@ export const sourceRelationshipProposalRequestSchema = z.object({
   expectedDraftVersion: z.number().int().positive(),
   expectedDraftDigest: z.string().min(1),
   outputId: opaqueIdSchema,
+  includePreview: z.boolean().optional(),
   change: sourceRelationshipChangeSchema.optional(),
   sourceStep: importedSourceStepChangeSchema.optional(),
   sourceSteps: z.array(importedSourceStepChangeSchema).min(1).max(128).optional(),
@@ -3248,8 +3249,36 @@ export const sourceRelationshipProposalSchema = z.object({
   baseDocumentDigest: z.string().min(1), candidateWorkspaceDigest: z.string().min(1),
   previewStatus: z.literal('READY'), sampledRows: z.number().int().nonnegative(), sampled: z.boolean(),
   affectedColumns: z.array(z.string()), notices: z.array(z.string()),
+  preview: z.lazy(() => explorerBuilderPreviewResultSchema).optional(),
 }).strict();
 export type SourceRelationshipProposal = z.infer<typeof sourceRelationshipProposalSchema>;
+export const sourceRelationshipProposalWithPreviewSchema = sourceRelationshipProposalSchema
+  .extend({ preview: z.lazy(() => explorerBuilderPreviewResultSchema) })
+  .strict()
+  .superRefine((proposal, context) => {
+    if (proposal.preview.receiptId !== proposal.candidateReceiptId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'receiptId'],
+        message: 'The embedded preview must belong to the candidate receipt.',
+      });
+    }
+    if (proposal.preview.outputId !== proposal.outputId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'outputId'],
+        message: 'The embedded preview must belong to the proposed output.',
+      });
+    }
+    if (proposal.preview.rows === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'rows'],
+        message: 'The embedded preview must include rows before the candidate can be applied.',
+      });
+    }
+  });
+export type SourceRelationshipProposalWithPreview = z.infer<typeof sourceRelationshipProposalWithPreviewSchema>;
 
 export const columnPolicyProposalRequestSchema = z.object({
   snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1),

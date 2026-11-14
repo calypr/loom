@@ -84,10 +84,15 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 	previewFailure := false
 	previewCalls := 0
-	config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+	config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if previewFailure {
 			return dataframeexecution.PreviewSummary{}, errors.New("native source preview execution failed")
+		}
+		for i := 0; i < 3; i++ {
+			if err := visit(map[string]any{"value": i}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
 		}
 		return dataframeexecution.PreviewSummary{RowCount: 3, Complete: true}, nil
 	}
@@ -99,6 +104,43 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 	if proposal.ProposalID == "" || proposal.SampledRows != 3 || proposal.Sampled || previewCalls != 1 {
 		t.Fatalf("proposal did not execute its candidate preview: %#v", proposal)
+	}
+	if proposal.NativePreview == nil || proposal.NativePreview.Receipt.ID != proposal.CandidateReceiptID || proposal.NativePreview.Summary.RowCount != 3 {
+		t.Fatal("proposal lost its exact native preview")
+	}
+	for _, failure := range []string{"none", "factory", "row"} {
+		t.Run("transport-sink-"+failure, func(t *testing.T) {
+			requestWithSink := request
+			requestWithSink.IncludePreview = true
+			rows := 0
+			beforeCalls := previewCalls
+			sentinel := errors.New("transport sink failure")
+			requestWithSink.PreviewSinkFactory = func(receipt *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
+				if receipt.ID != proposal.CandidateReceiptID {
+					t.Fatal("sink received another receipt")
+				}
+				if failure == "factory" {
+					return nil, sentinel
+				}
+				return func(map[string]any) error {
+					rows++
+					if failure == "row" {
+						return sentinel
+					}
+					return nil
+				}, nil
+			}
+			got, err := service.ProposeSourceRelationship(ctx, requestWithSink)
+			if failure != "none" {
+				if !errors.Is(err, sentinel) || got.ProposalID != "" {
+					t.Fatalf("sink failure produced proposal: %v", err)
+				}
+				return
+			}
+			if err != nil || rows != 3 || previewCalls-beforeCalls != 1 || got.NativePreview == nil {
+				t.Fatalf("native execution was not reused exactly once: rows=%d calls=%d err=%v", rows, previewCalls-beforeCalls, err)
+			}
+		})
 	}
 	if proposal.CandidateDocument.Output.ID != request.OutputID || proposal.CandidateDocument.ImportedSource == nil || lifecycleSourceStepEnabled(t, proposal.CandidateDocument.ImportedSource, "fields") || proposal.CandidateNetwork.OutputID != request.OutputID || proposal.CandidateRowIdentity.OutputID != request.OutputID {
 		t.Fatalf("candidate projection lost the proposed source edit: %#v", proposal)

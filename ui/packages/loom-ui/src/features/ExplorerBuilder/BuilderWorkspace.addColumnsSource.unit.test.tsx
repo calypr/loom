@@ -38,6 +38,7 @@ import { ordinaryNetworkFixture } from '../../../testSupport/ordinaryNetworkFixt
 
 const mockLoomClient = vi.hoisted(() => ({
   describeAuthoringNetwork: vi.fn(),
+  proposeSourceRelationship: vi.fn(),
   browseFrameSourceOptions: vi.fn(),
   browseSemanticInventory: vi.fn(),
   getConstructionCapabilities: vi.fn(),
@@ -87,15 +88,22 @@ vi.mock('./components/BuilderToolbar', () => ({
 vi.mock('./components/GuidedGraphWorkspace', () => ({
   GuidedGraphWorkspace: ({
     onSelectOccurrence,
+    importedRelationshipActions,
   }: {
     readonly onSelectOccurrence: (occurrenceId: string) => void;
+    readonly importedRelationshipActions?: { readonly onAdd: (parentOccurrenceId: string, edgeId: string, nodeId: string) => void };
   }) => (
-    <button
-      type="button"
-      onClick={() => onSelectOccurrence('saved-report-occurrence')}
-    >
-      Select saved DiagnosticReport occurrence
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => onSelectOccurrence('saved-report-occurrence')}
+      >
+        Select saved DiagnosticReport occurrence
+      </button>
+      {importedRelationshipActions ? <button type="button" onClick={() => importedRelationshipActions.onAdd('base', 'patient-observations', 'observation-node')}>
+        Connect to Observation
+      </button> : null}
+    </>
   ),
 }));
 vi.mock('./components/ColumnSelector', () => ({ ColumnSelector: () => null }));
@@ -229,6 +237,45 @@ const builderState: ExplorerBuilderState = {
   workspace,
   catalog,
 };
+
+const importedDocument = {
+  ...workspace.documents[0]!,
+  importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'patients' },
+};
+const importedWorkspace: ExplorerBuilderWorkspace = {
+  ...workspace,
+  documents: [importedDocument],
+};
+const importedPreview = (receiptId = 'relationship-proposal') => ({
+  apiVersion,
+  kind: 'ExplorerBuilderPreview' as const,
+  receiptId,
+  outputId: 'patients',
+  columns: [{ column: 'patient_id', label: 'Patient ID', logicalType: 'string', filterable: true, chartable: false }],
+  rows: [{ patient_id: 'patient-1' }],
+  rowCount: 1,
+  rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+  diagnostics: [],
+});
+const importedRelationshipProposal = (draftDigest = 'sha256:draft-1') => ({
+  candidateDocument: importedDocument,
+  candidateNetwork: { owner: 'IMPORTED_SOURCE', outputId: 'patients', sourceRows: importedDocument.rows, occurrences: [], bindings: [], operations: [] },
+  candidateRowIdentity: { outputId: 'patients', sourceDefinition: importedDocument.rows, stages: [], relationships: [] },
+  proposalId: 'relationship-proposal',
+  candidateReceiptId: 'relationship-proposal',
+  outputId: 'patients',
+  snapshotToken: 'snapshot-1',
+  draftVersion: 1,
+  draftDigest,
+  baseDocumentDigest: 'sha256:base-document',
+  candidateWorkspaceDigest: 'sha256:candidate-workspace',
+  previewStatus: 'READY' as const,
+  sampledRows: 1,
+  sampled: false,
+  affectedColumns: [],
+  notices: ['Related values preserve the source row identity.'],
+  preview: importedPreview(),
+});
 
 const namedGroupMemberColumnId = 'named-cohort-status-column-id';
 const namedGroupMemberColumn: ExplorerBuilderWorkspace['documents'][number]['columns'][number] = {
@@ -649,6 +696,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
       }
       return ordinaryNetworkFixture(document, args);
     });
+    mockLoomClient.proposeSourceRelationship.mockReset();
     mockLoomClient.browseFrameSourceOptions.mockReset().mockImplementation(async (args: { outputId: string; snapshotToken: string }) => ({
       outputId: args.outputId,
       snapshotToken: args.snapshotToken,
@@ -769,6 +817,74 @@ describe('BuilderWorkspace Add columns source selection', () => {
     (useCreateExplorerAuthoringMutation as Mock).mockReturnValue(mutationResult());
     (useDeleteExplorerAuthoringMutation as Mock).mockReturnValue(mutationResult());
     (useGetExplorerCandidateSuggestionsV2Mutation as Mock).mockReturnValue(mutationResult());
+  });
+
+  const renderImportedBuilder = () => {
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: importedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    const network = importedRelationshipProposal().candidateNetwork;
+    const rowIdentity = importedRelationshipProposal().candidateRowIdentity;
+    mockLoomClient.describeAuthoringNetwork.mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'sha256:draft-1', network, rowIdentity,
+    });
+    return render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+  };
+
+  it('starts a cancellable Connect proposal immediately and enables explicit Apply after its exact preview', async () => {
+    let resolveProposal!: (proposal: ReturnType<typeof importedRelationshipProposal>) => void;
+    const proposalPending = new Promise<ReturnType<typeof importedRelationshipProposal>>((resolve) => {
+      resolveProposal = resolve;
+    });
+    mockLoomClient.proposeSourceRelationship.mockReturnValue(proposalPending);
+    renderImportedBuilder();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect to Observation' }));
+    expect(mockLoomClient.proposeSourceRelationship).toHaveBeenCalledOnce();
+    expect(mockLoomClient.preview).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Preparing connection…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply relationship' })).toBeDisabled();
+
+    await act(async () => resolveProposal(importedRelationshipProposal()));
+    const apply = await screen.findByRole('button', { name: 'Apply relationship' });
+    await waitFor(() => expect(apply).toBeEnabled());
+    fireEvent.click(apply);
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: 'patients', proposalId: 'relationship-proposal' }],
+    })));
+    expect(mockLoomClient.preview).not.toHaveBeenCalled();
+  });
+
+  it('does not accept or apply a Connect proposal after Cancel aborts it', async () => {
+    let resolveProposal!: (proposal: ReturnType<typeof importedRelationshipProposal>) => void;
+    const proposalPending = new Promise<ReturnType<typeof importedRelationshipProposal>>((resolve) => {
+      resolveProposal = resolve;
+    });
+    mockLoomClient.proposeSourceRelationship.mockReturnValue(proposalPending);
+    renderImportedBuilder();
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect to Observation' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    const requestSignal = mockLoomClient.proposeSourceRelationship.mock.calls[0]?.[1] as AbortSignal | undefined;
+    expect(requestSignal?.aborted).toBe(true);
+    await act(async () => resolveProposal(importedRelationshipProposal()));
+
+    expect(screen.queryByRole('button', { name: 'Apply relationship' })).not.toBeInTheDocument();
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+  });
+
+  it('keeps Apply disabled when the proposal belongs to an older draft identity', async () => {
+    mockLoomClient.proposeSourceRelationship.mockResolvedValue(importedRelationshipProposal('sha256:old-draft'));
+    renderImportedBuilder();
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect to Observation' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('draft changed while the proposal was loading');
+    expect(screen.queryByRole('button', { name: 'Apply relationship' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel earlier recipe change' })).toBeInTheDocument();
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+    expect(mockLoomClient.preview).not.toHaveBeenCalled();
   });
 
   it('renders the blank first-table home without requesting construction capabilities', async () => {

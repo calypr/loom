@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	loomapi "github.com/calypr/loom/generated/loomapi"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"strings"
 	"testing"
@@ -47,6 +50,10 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	edits, stepEdits, networks, previews := 0, 0, 0, 0
+	var previewFailure error
+	var lastPreviewLimit int
+	var previewCell any = "p1"
+	previewSummary := dataframeexecution.PreviewSummary{RowCount: 1, Complete: true}
 	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
 		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
@@ -117,13 +124,17 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			previews++
+			lastPreviewLimit = bindings.PreviewLimit
 			if receipt.SourceRelationshipProposal == nil || !bindings.IncludeRowIdentity || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
 				t.Fatal("preview did not use the bound source receipt")
 			}
-			if err := visit(map[string]any{"__loom_row_id": "patient-1", "c_patient": "p1"}); err != nil {
+			if err := visit(map[string]any{"__loom_row_id": "patient-1", "c_patient": previewCell, "__loom_preview_source": map[string]any{"kind": "SINGLE", "resourceType": "Patient", "id": "patient-1"}}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
-			return dataframeexecution.PreviewSummary{RowCount: 1, Complete: true}, nil
+			if previewFailure != nil {
+				return dataframeexecution.PreviewSummary{}, previewFailure
+			}
+			return previewSummary, nil
 		},
 	}
 	app := fiber.New()
@@ -192,6 +203,87 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if *proposal.CandidateDocument.ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
 		t.Fatal("HTTP candidate projection changed immutable recipe pin")
 	}
+	var oldEnvelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(proposed.Body), &oldEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := oldEnvelope["preview"]; exists {
+		t.Fatal("legacy request unexpectedly received preview")
+	}
+	if _, exists := oldEnvelope["nativePreview"]; exists {
+		t.Fatal("runtime preview result leaked into wire contract")
+	}
+	proposalBody := func(extra string) string {
+		return "{" + identity + `,"change":{"action":"ADD","parentOccurrenceId":"base","edgeId":"authorized-edge","matchMode":"OPTIONAL"}` + extra + "}"
+	}
+	for _, extra := range []string{`,"includePreview":null`, `,"includePreview":"true"`, `,"previewSinkFactory":{}`, `,"nativePreview":{}`} {
+		response := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", proposalBody(extra))
+		if response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("invalid preview intent HTTP%d", response.StatusCode)
+		}
+	}
+	t.Run("explicit-false-keeps-original-response", func(t *testing.T) {
+		beforeCalls := previews
+		response := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", proposalBody(`,"includePreview":false`))
+		if response.StatusCode != http.StatusOK || response.Body != proposed.Body || previews-beforeCalls != 1 {
+			t.Fatal("false opt-in changed original wire response or execution count")
+		}
+	})
+	t.Run("opted-in-single-execution", func(t *testing.T) {
+		previewSummary = dataframeexecution.PreviewSummary{RowCount: 1, Truncated: true, PartialValidation: true, RowLineageCapability: compiler.RowLineageCapability{Available: true}}
+		beforeCalls := previews
+		response := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", proposalBody(`,"includePreview":true,"limit":2`))
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("embedded preview HTTP%d: %s", response.StatusCode, response.Body)
+		}
+		var got loomapi.SourceRelationshipProposal
+		if err := json.Unmarshal([]byte(response.Body), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Preview == nil || got.Preview.ReceiptId != got.CandidateReceiptId || got.Preview.OutputId != "patients" || len(got.Preview.Rows) != 1 || got.Preview.RowCount != 1 || !got.Preview.Sampled || got.Preview.PartialValidation == nil || !*got.Preview.PartialValidation || string(got.Preview.RowLineageCapability.Status) != "AVAILABLE" || previews-beforeCalls != 1 || lastPreviewLimit != 2 {
+			t.Fatal("embedded preview lost exact receipt, rows, summary or single execution")
+		}
+		if len(got.Preview.RowSources) != 1 || string(got.Preview.RowSources[0].Kind) != "SINGLE" || got.Preview.RowSources[0].Id == nil || *got.Preview.RowSources[0].Id != "patient-1" {
+			t.Fatal("embedded preview lost aligned FHIR source identity")
+		}
+		if _, exists := got.Preview.Rows[0]["__loom_preview_source"]; exists {
+			t.Fatal("private row source leaked")
+		}
+		if !got.Sampled || got.SampledRows != 1 {
+			t.Fatal("proposal summary disagrees with native preview")
+		}
+	})
+	for _, failure := range []string{"execution", "encoding", "overflow", "canceled", "deadline"} {
+		t.Run("opted-in-"+failure, func(t *testing.T) {
+			previewFailure = nil
+			previewCell = "p1"
+			want := http.StatusInternalServerError
+			switch failure {
+			case "execution":
+				previewFailure = errors.New("native query failed")
+			case "canceled":
+				previewFailure = context.Canceled
+				want = 499
+			case "deadline":
+				previewFailure = context.DeadlineExceeded
+				want = http.StatusGatewayTimeout
+			case "encoding":
+				previewCell = func() {}
+			case "overflow":
+				previewCell = strings.Repeat("x", maxExplorerPreviewResponseBytes)
+				want = http.StatusRequestEntityTooLarge
+			}
+			beforeCalls := previews
+			response := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", proposalBody(`,"includePreview":true`))
+			if response.StatusCode != want || previews-beforeCalls != 1 || strings.Contains(response.Body, `"proposalId"`) {
+				t.Fatalf("failed preview was not atomic: HTTP%d calls%d", response.StatusCode, previews-beforeCalls)
+			}
+		})
+	}
+	previewFailure = nil
+	previewCell = "p1"
+	previewSummary = dataframeexecution.PreviewSummary{RowCount: 1, Complete: true}
+	previewsBeforeApply := previews
 	after, err := service.Get(ctx, "project-a", "custom")
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +302,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.DraftVersion != 2 || previews != 2 {
+	if saved.DraftVersion != 2 || previews != previewsBeforeApply+1 {
 		t.Fatal("HTTP Apply did not validate receipt and save once")
 	}
 	savedWorkspace, err := authoringv2.DecodeWorkspace(saved.DraftConfig)

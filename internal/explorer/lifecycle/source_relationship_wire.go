@@ -21,6 +21,7 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 		Change               *authoringv2.ImportedRelationshipChange `json:"change,omitempty"`
 		SourceStep           *authoringv2.ImportedSourceStepChange   `json:"sourceStep,omitempty"`
 		SourceSteps          []authoringv2.ImportedSourceStepChange  `json:"sourceSteps,omitempty"`
+		IncludePreview       *bool                                   `json:"includePreview,omitempty"`
 		Limit                *int                                    `json:"limit,omitempty"`
 	}
 	if err := decodeClosedSourceIntent(raw, &wire); err != nil {
@@ -34,6 +35,9 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 		if value, ok := supplied[name]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return fmt.Errorf("%s must be a typed object", name)
 		}
+	}
+	if value, ok := supplied["includePreview"]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		return fmt.Errorf("includePreview must be boolean when provided")
 	}
 	count := 0
 	if wire.Change != nil {
@@ -55,6 +59,9 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 		return fmt.Errorf("limit must be positive when provided")
 	}
 	*r = SourceRelationshipProposalRequest{SnapshotToken: wire.SnapshotToken, ExpectedDraftVersion: wire.ExpectedDraftVersion, ExpectedDraftDigest: wire.ExpectedDraftDigest, OutputID: wire.OutputID, SourceStep: wire.SourceStep, SourceSteps: wire.SourceSteps}
+	if wire.IncludePreview != nil {
+		r.IncludePreview = *wire.IncludePreview
+	}
 	if wire.Limit != nil {
 		r.Limit = *wire.Limit
 	}
@@ -138,5 +145,6 @@ func (r SourceRelationshipProposalRequest) MarshalJSON() ([]byte, error) {
 		SourceStep           *authoringv2.ImportedSourceStepChange   `json:"sourceStep,omitempty"`
 		SourceSteps          []authoringv2.ImportedSourceStepChange  `json:"sourceSteps,omitempty"`
 		Limit                int                                     `json:"limit,omitempty"`
-	}{r.SnapshotToken, r.ExpectedDraftVersion, r.ExpectedDraftDigest, r.OutputID, change, r.SourceStep, r.SourceSteps, r.Limit})
+		IncludePreview       bool                                    `json:"includePreview,omitempty"`
+	}{r.SnapshotToken, r.ExpectedDraftVersion, r.ExpectedDraftDigest, r.OutputID, change, r.SourceStep, r.SourceSteps, r.Limit, r.IncludePreview})
 }

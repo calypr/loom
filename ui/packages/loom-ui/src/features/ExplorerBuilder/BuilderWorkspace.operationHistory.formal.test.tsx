@@ -798,13 +798,13 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     document.importedRecipe={name:'default',translationVersion:'1',digest:'a'.repeat(64),output:'table-1'};
     document.importedSource={steps:[{id:'fields',kind:'FIELD_GROUP',title:'Patient fields',summary:'Patient source values',enabled:true,editable:true}]};
     harness.builderState=imported;
-    harness.client.proposeSourceRelationship.mockResolvedValue({proposalId:'candidate-source',candidateReceiptId:'candidate-source',outputId:'table-1',snapshotToken:catalog.snapshotToken,draftVersion:1,draftDigest:acceptedState.draftDigest,baseDocumentDigest:'base',candidateWorkspaceDigest:'next-draft',previewStatus:'READY',sampledRows:1,sampled:false,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'IMPORTED_SOURCE',outputId:'table-1',sourceRows:document.rows,occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'table-1',sourceDefinition:document.rows,stages:[],relationships:[]}});
-    harness.client.preview.mockResolvedValue(previewFor('candidate-source','table-1'));
+    harness.client.proposeSourceRelationship.mockResolvedValue({proposalId:'candidate-source',candidateReceiptId:'candidate-source',outputId:'table-1',snapshotToken:catalog.snapshotToken,draftVersion:1,draftDigest:acceptedState.draftDigest,baseDocumentDigest:'base',candidateWorkspaceDigest:'next-draft',previewStatus:'READY',sampledRows:1,sampled:false,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'IMPORTED_SOURCE',outputId:'table-1',sourceRows:document.rows,occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'table-1',sourceDefinition:document.rows,stages:[],relationships:[]},preview:previewFor('candidate-source','table-1')});
     harness.applyCommands.mockImplementation((args)=>({unwrap:async()=>({commandId:args.commandId,workspace:imported.workspace,draftVersion:2,draftDigest:'next-draft',results:[],diagnostics:[]})}));
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
     const initiator=await screen.findByRole('button',{name:'Source step 1: Patient fields'});initiator.focus();fireEvent.click(initiator);
     fireEvent.click(screen.getByRole('button',{name:'Preview source step'}));
     await waitFor(()=>expect(screen.getByRole('button',{name:'Apply source step'})).toBeEnabled());
+    expect(harness.client.preview.mock.calls.filter(([args]) => args.receiptId === 'candidate-source')).toHaveLength(0);
     const apply=screen.getByRole('button',{name:'Apply source step'});apply.focus();fireEvent.click(apply);
     await waitFor(()=>expect(screen.queryByTestId('imported-source-step-editor')).toBeNull());
     const replacement=screen.getByRole('button',{name:'Source step 1: Patient fields'});

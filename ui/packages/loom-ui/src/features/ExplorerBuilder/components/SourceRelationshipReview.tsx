@@ -1,7 +1,16 @@
 import { useRef, useState } from 'react';
 import type { LoomClient } from '../../../api';
-import type { ExplorerBuilderCommand, ExplorerBuilderPreviewResult, SourceRelationshipChange, SourceRelationshipProposal } from '../../../types';
+import type {
+  ExplorerBuilderCommand,
+  ExplorerBuilderPreviewResult,
+  SourceRelationshipChange,
+  SourceRelationshipProposal,
+  SourceRelationshipProposalWithPreview,
+} from '../../../types';
 import { ConstructionProposalPreview } from '../constructionWorkspace/ConstructionProposalPreview';
+
+type PreparedSourceProposal = Pick<SourceRelationshipProposal, 'candidateDocument' | 'proposalId'> &
+  Partial<Pick<SourceRelationshipProposal, 'affectedColumns' | 'notices'>>;
 
 interface BaseProps {
   readonly client: LoomClient;
@@ -15,10 +24,19 @@ interface BaseProps {
   readonly disabled: boolean;
   readonly onApply: (commands: ExplorerBuilderCommand[]) => Promise<boolean>;
   readonly onCancel: () => void;
-  readonly onPreviewStart?: () => { ready: (proposal: SourceRelationshipProposal, preview: ExplorerBuilderPreviewResult) => boolean; failed: (message: string) => void } | undefined;
-  readonly onPreviewReady?: (proposal: SourceRelationshipProposal, preview: ExplorerBuilderPreviewResult) => void;
+  readonly onPreviewStart?: () => {
+    ready: (proposal: SourceRelationshipProposalWithPreview, preview: ExplorerBuilderPreviewResult) => boolean;
+    failed: (message: string) => void;
+  } | undefined;
+  readonly onPreviewReady?: (
+    proposal: SourceRelationshipProposalWithPreview,
+    preview: ExplorerBuilderPreviewResult,
+  ) => void;
   readonly onStatusChange?: (status: 'previewing' | 'applying' | 'failed', message?: string) => void;
   readonly sharedPreview?: boolean;
+  readonly preparing?: boolean;
+  readonly prepared?: { readonly proposal: PreparedSourceProposal; readonly preview: ExplorerBuilderPreviewResult };
+  readonly preparationError?: string;
   readonly columnLabels?: ReadonlyMap<string, string>;
 }
 
@@ -31,7 +49,7 @@ type Props = BaseProps & (
 // The owner mounts this inspector with the full draft/snapshot/output identity
 // as its key. Cancel revokes in-flight responses, including a second Preview.
 export function SourceRelationshipReview(props: Props) {
-  const [result, setResult] = useState<{ proposal: SourceRelationshipProposal; preview: ExplorerBuilderPreviewResult }>();
+  const [result, setResult] = useState<{ proposal: SourceRelationshipProposalWithPreview; preview: ExplorerBuilderPreviewResult }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const sequence = useRef(0);
@@ -61,10 +79,9 @@ export function SourceRelationshipReview(props: Props) {
           proposal.draftVersion !== props.draftVersion || proposal.draftDigest !== props.draftDigest) {
         throw new Error('The draft changed. Cancel and review the current related records.');
       }
-      const rows = await props.client.preview({ project: props.project, explorerId: props.explorerId,
-        authResourcePath: props.authResourcePath, receiptId: proposal.candidateReceiptId, outputId: props.outputId }, controller.signal);
-      if (token !== sequence.current || controller.signal.aborted) return;
+      const rows = proposal.preview;
       if (rows.receiptId !== proposal.candidateReceiptId || rows.outputId !== props.outputId || rows.rows === null) throw new Error('The preview does not belong to this proposed change.');
+      if (token !== sequence.current || controller.signal.aborted) return;
       if (ownership && !ownership.ready(proposal, rows)) return;
       setResult({ proposal, preview: rows });
       props.onPreviewReady?.(proposal, rows);
@@ -79,18 +96,22 @@ export function SourceRelationshipReview(props: Props) {
     }
   };
   const apply = async () => {
-    if (!result || busy || props.disabled) return;
+    const candidate = props.prepared ?? result;
+    if (!candidate || busy || props.preparing || props.disabled) return;
     setBusy(true); setError(undefined);
     props.onStatusChange?.('applying');
     try {
-      if (await props.onApply([{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: props.outputId, proposalId: result.proposal.proposalId }])) cancel();
+      if (await props.onApply([{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: props.outputId, proposalId: candidate.proposal.proposalId }])) cancel();
       else setError('The change was not saved. Review the current draft before trying again.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The change was not saved.');
     } finally { setBusy(false); }
   };
-  const candidateLabels = new Map(result?.proposal.candidateDocument?.columns.map((column) => [column.columnId ?? column.column, column.label || column.column]));
-  const affectedFields = result?.proposal.affectedColumns.map((id) => ({
+  const visibleResult = props.prepared ?? result;
+  const externallyPreparing = props.preparing ?? false;
+  const visibleError = props.preparationError ?? error;
+  const candidateLabels = new Map(visibleResult?.proposal.candidateDocument?.columns.map((column) => [column.columnId ?? column.column, column.label || column.column]));
+  const affectedFields = visibleResult?.proposal.affectedColumns?.map((id) => ({
     id, label: candidateLabels.get(id) || props.columnLabels?.get(id) || 'Field label unavailable',
   })) ?? [];
   const sourceEdit = Boolean(props.sourceStep || props.sourceSteps);
@@ -102,9 +123,9 @@ export function SourceRelationshipReview(props: Props) {
       : props.change?.matchMode === 'REQUIRED'
         ? 'Require a matching record on this path. This does not expand rows.'
         : 'Keep input rows when this path has no match. Connecting records does not expand rows.'}</p> : null}
-    {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
-    {result ? <>
-      <ul className="text-sm">{result.proposal.notices.map((notice, i) => <li key={i}>{notice}</li>)}</ul>
+    {visibleError ? <p role="alert" className="text-sm text-red-800">{visibleError}</p> : null}
+    {visibleResult ? <>
+      <ul className="text-sm">{(visibleResult.proposal.notices ?? []).map((notice, i) => <li key={i}>{notice}</li>)}</ul>
       {affectedFields.length ? <>
         <details className="text-xs">
           <summary className="cursor-pointer">Affected fields ({affectedFields.length})</summary>
@@ -115,13 +136,13 @@ export function SourceRelationshipReview(props: Props) {
           <ul className="max-h-24 overflow-auto break-all">{affectedFields.map((field) => <li key={field.id}>{field.label}: <code>{field.id}</code></li>)}</ul>
         </details>
       </> : <p className="text-xs">No existing output fields are affected.</p>}
-      {!props.sharedPreview ? <div className="max-h-64 overflow-auto"><ConstructionProposalPreview preview={result.preview} partialValidationMessage="Only displayed rows were checked in this preview." /></div> : null}
+      {!props.sharedPreview ? <div className="max-h-64 overflow-auto"><ConstructionProposalPreview preview={visibleResult.preview} partialValidationMessage="Only displayed rows were checked in this preview." /></div> : null}
     </> : null}
     </div>
     <div className="construction-inspector-footer mt-2 flex flex-wrap gap-2">
-      <button type="button" disabled={busy || props.disabled} onClick={() => void preview()} className="rounded border bg-white px-3 py-1 text-sm">{busy ? 'Working…' : sourceEdit ? 'Preview source step' : 'Preview relationship'}</button>
-      <button type="button" data-testid={sourceEdit ? "imported-source-step-apply" : undefined} disabled={!result || busy || props.disabled} onClick={() => void apply()} className="rounded bg-blue-700 px-3 py-1 text-sm text-white disabled:opacity-50">{sourceEdit ? 'Apply source step' : 'Apply relationship'}</button>
-      <button type="button" disabled={busy && !!result} onClick={cancel} className="rounded border bg-white px-3 py-1 text-sm">Cancel</button>
+      <button type="button" disabled={busy || externallyPreparing || props.disabled} onClick={() => void preview()} className="rounded border bg-white px-3 py-1 text-sm">{externallyPreparing ? 'Preparing connection…' : busy ? 'Working…' : sourceEdit ? 'Preview source step' : 'Preview relationship'}</button>
+      <button type="button" data-testid={sourceEdit ? "imported-source-step-apply" : undefined} disabled={!visibleResult || busy || externallyPreparing || props.disabled} onClick={() => void apply()} className="rounded bg-blue-700 px-3 py-1 text-sm text-white disabled:opacity-50">{sourceEdit ? 'Apply source step' : 'Apply relationship'}</button>
+      <button type="button" disabled={busy && !!visibleResult} onClick={cancel} className="rounded border bg-white px-3 py-1 text-sm">Cancel</button>
     </div>
   </section>;
 }
