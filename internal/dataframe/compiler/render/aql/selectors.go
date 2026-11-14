@@ -323,9 +323,9 @@ func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, sele
 		return "(" + value + " == null ? [] : [" + value + "])", nil
 	}
 	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
-	lines, current := []string{"FOR __root IN [" + source + "]"}, "__root"
+	lines, current := []string{"LET __root = " + source}, "__root"
 	if setSource {
-		lines, current = []string{"FOR __item IN " + source, "  FOR __root IN [__item.payload]"}, "__root"
+		lines, current = []string{"FOR __item IN " + source, "  LET __root = __item.payload"}, "__root"
 	}
 	for index, step := range prefix {
 		next := fmt.Sprintf("__s%d", index)

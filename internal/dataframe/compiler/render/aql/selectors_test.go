@@ -46,8 +46,8 @@ func TestAggregateItemRenderingKeepsDifferentSourceFallbackAtRoot(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"FOR __root IN [aggregate_item.payload]",
-		"FOR __root IN [root.payload]",
+		"LET __root = aggregate_item.payload",
+		"LET __root = root.payload",
 		"__root.identifier",
 	} {
 		if !strings.Contains(query, want) {
@@ -62,8 +62,8 @@ func TestAggregateItemRenderingKeepsDifferentSourceFallbackAtRoot(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"FOR __root IN [aggregate_item_second.payload]",
-		"FOR __root IN [root.payload]",
+		"LET __root = aggregate_item_second.payload",
+		"LET __root = root.payload",
 	} {
 		if !strings.Contains(secondQuery, want) {
 			t.Errorf("second aggregate query missing %q:\n%s", want, secondQuery)

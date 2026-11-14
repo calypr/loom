@@ -81,10 +81,35 @@ func TestScalarSelectorArrayRetainsCollectionAndFilteredLoops(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := legacySelectorArray("root", selector, setSource, first, map[string]any{})
+			want = strings.ReplaceAll(want, "FOR __root IN [root]", "LET __root = root")
+			want = strings.ReplaceAll(want, "FOR __root IN [__item.payload]", "LET __root = __item.payload")
 			if strings.Join(strings.Fields(got), " ") != strings.Join(strings.Fields(strings.ReplaceAll(want, "@legacy_contains", "@__loom_physical_selector_contains")), " ") {
 				t.Fatalf("loop changed for %s: %s", path, got)
 			}
 		}
+	}
+}
+
+func TestSelectorArrayBindsSingletonSourceWithoutEnumeratingOneItemArray(t *testing.T) {
+	selector, err := spec.ParseSelector("valueCodeableConcept.coding[].display")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := newSelectorTestRenderer().renderSelectorArrayFromSource("root.payload", selector, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "FOR __root IN [root.payload]") || !strings.Contains(got, "LET __root = root.payload") {
+		t.Fatalf("singleton source should be bound directly while retaining nested iteration:\n%s", got)
+	}
+
+	got, err = newSelectorTestRenderer().renderSelectorArrayFromSource("items", selector, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "FOR __root IN [__item.payload]") || !strings.Contains(got, "LET __root = __item.payload") || !strings.Contains(got, "FOR __item IN items") || !strings.Contains(got, "LIMIT 1") {
+		t.Fatalf("set source should retain its item loop and first-only bound without singleton enumeration:\n%s", got)
 	}
 }
 

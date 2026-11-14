@@ -3,6 +3,7 @@ package compiler
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -40,8 +41,10 @@ func TestCorrelatedPhysicalScalarSelectorAQLFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectionSum := sha256.Sum256([]byte(projectionQuery.Query))
-	filterSum := sha256.Sum256([]byte(filterQuery.Query))
+	projectionAQL := restoreSingletonRootLoops(t, projectionQuery.Query, 3)
+	filterAQL := restoreSingletonRootLoops(t, filterQuery.Query, 3)
+	projectionSum := sha256.Sum256([]byte(projectionAQL))
+	filterSum := sha256.Sum256([]byte(filterAQL))
 	projectionHash := hex.EncodeToString(projectionSum[:])
 	filterHash := hex.EncodeToString(filterSum[:])
 	if projectionHash != "9fb070ed419c3d25ca187ad614f9867d381c8fcefadae2ab00e3cb3d3b46ecc9" {
@@ -50,4 +53,15 @@ func TestCorrelatedPhysicalScalarSelectorAQLFingerprint(t *testing.T) {
 	if filterHash != "9326ffa1a698d806ffd5e0ca0e52139db3309dbcec65caaf3de14367f8ee6d7e" {
 		t.Fatalf("legacy owner-scope filter AQL changed: sha256=%s", filterHash)
 	}
+}
+
+var singletonRootLet = regexp.MustCompile(`(?m)^([\t ]*)LET __root = ([A-Za-z_][A-Za-z0-9_.]*)$`)
+
+func restoreSingletonRootLoops(t *testing.T, query string, want int) string {
+	t.Helper()
+	matches := singletonRootLet.FindAllStringSubmatchIndex(query, -1)
+	if len(matches) != want {
+		t.Fatalf("singleton root normalization matched %d bindings, want exactly %d", len(matches), want)
+	}
+	return singletonRootLet.ReplaceAllString(query, `${1}FOR __root IN [${2}]`)
 }

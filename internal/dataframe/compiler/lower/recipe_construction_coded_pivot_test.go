@@ -68,9 +68,11 @@ func TestConstructionCodedPivotStreamsRootAndCorrelatesCategoryWithOwnedValue(t 
 		t.Fatalf("could not find coded Pivot owner variable in AQL:\n%s", rendered.Query)
 	}
 	ownerVariable := strings.TrimSpace(rendered.Query[loopStart+len("FOR ") : markerIndex+loopLineEnd])
-	ownedSelector := "FOR __root IN [" + ownerVariable + "]"
-	if got := strings.Count(rendered.Query, ownedSelector); got < len(pivot.CodedCategories)*2 {
-		t.Fatalf("each category must evaluate its coding keys and values under the same owner %q; found %d owned selectors, want at least %d:\n%s", ownerVariable, got, len(pivot.CodedCategories)*2, rendered.Query)
+	ownedSelector := "LET __root = " + ownerVariable + "\n"
+	keyLoops := strings.Count(rendered.Query, ownedSelector)
+	ownedValues := strings.Count(rendered.Query, ownerVariable+".valueQuantity.value")
+	if keyLoops < len(pivot.CodedCategories) || ownedValues < len(pivot.CodedCategories) {
+		t.Fatalf("each category must evaluate its coding keys and value under the same owner %q; found %d key loops and %d owned value references for %d categories:\n%s", ownerVariable, keyLoops, ownedValues, len(pivot.CodedCategories), rendered.Query)
 	}
 }
 
