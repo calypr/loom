@@ -45,8 +45,6 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
   readonly selectedFieldId?: string;
   readonly fieldFocusRequest?: number;
 }) {
-  const [fieldSearch, setFieldSearch] = useState('');
-  const [activeFieldId, setActiveFieldId] = useState<string>();
   const focusedField = useRef<string | undefined>(undefined);
   const fieldFocusGeneration = useRef(0);
   const [aliasError, setAliasError] = useState<string>();
@@ -60,12 +58,10 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
     {'fieldGroup' in parameters && parameters.fieldGroup ? (() => {
       const group = parameters.fieldGroup;
       const update = (index: number, patch: Partial<typeof group.fields[number]>) => onChange({ ...parameters, fieldGroup: { fields: group.fields.map((field, i) => i === index ? { ...field, ...patch } : field) } });
-      const matching = group.fields.map((field, index) => ({ field, index })).filter(({ field }) => field.fieldId === selectedFieldId || field.fieldId === activeFieldId || `${field.name} ${field.label ?? ''}`.toLocaleLowerCase().includes(fieldSearch.toLocaleLowerCase()));
       return <div className="space-y-2">
-        <Text label="Find projected field" value={fieldSearch} onChange={(value) => { setActiveFieldId(undefined); setFieldSearch(value); }} />
-        <p className="text-xs">{group.fields.length} fields in recipe order. Field identity stays fixed when its name or expression changes.</p>
+        <p className="text-xs font-semibold">Projected fields ({group.fields.length})</p>
         <ol aria-label="Projected fields" className="max-h-96 space-y-2 overflow-auto">
-          {matching.map(({ field, index }) => <li key={field.fieldId} data-field-id={field.fieldId} onFocusCapture={() => setActiveFieldId(field.fieldId)} ref={(node) => {
+          {group.fields.map((field, index) => <li key={field.fieldId} data-field-id={field.fieldId} ref={(node) => {
             if (!node || field.fieldId !== selectedFieldId || focusedField.current === fieldFocusKey) return;
             focusedField.current = fieldFocusKey;
             const generation = ++fieldFocusGeneration.current;
@@ -91,7 +87,6 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
             </details>
           </li>)}
         </ol>
-        {!matching.length ? <p className="text-xs">No matching fields.</p> : null}
       </div>;
     })() : null}
     {'catalog' in parameters && parameters.catalog ? (() => { const p = parameters.catalog; const update = (patch: Partial<typeof p>) => onChange({ ...parameters, catalog: { ...p, ...patch } }); return <>

@@ -41,7 +41,8 @@ describe('typed source step parameters', () => {
     const fields = Array.from({ length: 32 }, (_, index) => ({ fieldId: `fields[${index}]`, enabled: true, name: `value_${index}`, expr: { select: `root.value${index}` } }));
     const original: ImportedSourceParameters = { fieldGroup: { fields } };
     const { changed } = parameterHarness(original);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Find projected field' }), { target: { value: 'value_17' } });
+    expect(within(screen.getByRole('list', { name: 'Projected fields' })).getAllByRole('listitem')).toHaveLength(32);
+    expect(screen.queryByRole('textbox', { name: 'Find projected field' })).toBeNull();
     const field = screen.getByText('18. value_17').closest('details')!; field.open = true;
     fireEvent.change(within(field).getByRole('textbox', { name: 'Field 18 name' }), { target: { value: 'renamed_value' } });
     const result = changed.mock.calls.at(-1)![0].fieldGroup.fields;

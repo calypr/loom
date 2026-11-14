@@ -11,6 +11,10 @@
 - Preserve unrelated changes. Do not reset, stash, clean, or overwrite someone else's work.
 - Continue through running commands and their results. Report concrete changes, checks, and blockers concisely.
 
+## Builder interaction
+
+- Make available dataframe editing options visible and browsable by default. Search can supplement a clearly presented list when it helps with large sets; users must not need to guess or search to discover supported actions or fields.
+
 ## Parallel work
 
 - For multi-step work, actively look for independent tasks and delegate them without waiting for the user to request subagents. After enough source reading to define ownership, launch useful parallel work before doing those tracks serially.
