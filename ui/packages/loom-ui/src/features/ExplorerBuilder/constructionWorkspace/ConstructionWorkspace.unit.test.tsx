@@ -1137,41 +1137,73 @@ it('expands each workspace panel to the viewport and restores it with Escape or 
     network={<button>Traversal node</button>}
     editor={<input aria-label="Expanded editor field" defaultValue="pending edit" />}
     preview={<div>Rows preview</div>} previewStatus="ready" draftVersion={1} draftDigest="draft" />);
-  const graphControl = screen.getByRole('button', { name: 'Expand Related records' });
   const graphPanel = screen.getByRole('region', { name: 'Related records' });
   const traversalNode = screen.getByRole('button', { name: 'Traversal node' });
-  fireEvent.click(graphControl);
+  expect(screen.queryByRole('button', { name: 'Expand Related records' })).toBeNull();
+  fireEvent.click(traversalNode);
+  expect(graphPanel).not.toHaveAttribute('data-expanded');
+  fireEvent.click(graphPanel, { detail: 1 });
   expect(graphPanel).toHaveAttribute('data-expanded', 'true');
   expect(traversalNode).toBeInTheDocument();
   fireEvent.keyDown(traversalNode, { key: 'Tab' });
-  expect(document.activeElement).toBe(graphControl);
-  fireEvent.keyDown(graphControl, { key: 'Tab', shiftKey: true });
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close expanded Related records' }));
+  fireEvent.keyDown(graphPanel, { key: 'Tab', shiftKey: true });
   expect(document.activeElement).toBe(traversalNode);
   fireEvent.keyDown(traversalNode, { key: 'Escape' });
   expect(graphPanel).not.toHaveAttribute('data-expanded');
-  expect(document.activeElement).toBe(graphControl);
+  expect(document.activeElement).toBe(graphPanel);
 
-  const previewControl = screen.getByRole('button', { name: 'Expand Table result' });
   const preview = screen.getByTestId('construction-preview');
-  fireEvent.click(previewControl);
+  fireEvent.click(screen.getByText('Rows preview'));
+  expect(preview).not.toHaveAttribute('data-expanded');
+  fireEvent.click(preview, { detail: 1 });
   expect(preview).toHaveAttribute('data-expanded', 'true');
   expect(screen.getByText('Rows preview')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Close expanded Table result' }));
   expect(preview).not.toHaveAttribute('data-expanded');
-  expect(document.activeElement).toBe(previewControl);
+  expect(document.activeElement).toBe(preview);
 
-  const editorControl = screen.getByRole('button', { name: 'Expand Recipe editor' });
   const panel = screen.getByRole('complementary', { name: 'Recipe editor' });
   const editorField = screen.getByRole('textbox', { name: 'Expanded editor field' });
-  fireEvent.click(editorControl);
+  fireEvent.change(editorField, { target: { value: 'edited while compact' } });
+  fireEvent.click(editorField);
+  expect(panel).not.toHaveAttribute('data-expanded');
+  fireEvent.click(panel, { detail: 1 });
   expect(panel).toHaveAttribute('data-expanded', 'true');
   fireEvent.change(editorField, { target: { value: 'edited while expanded' } });
   fireEvent.keyDown(editorField, { key: 'Escape' });
   expect(panel).not.toHaveAttribute('data-expanded');
-  expect(document.activeElement).toBe(editorControl);
+  expect(document.activeElement).toBe(panel);
   expect(screen.getByRole('textbox', { name: 'Expanded editor field' })).toBe(editorField);
   expect((editorField as HTMLInputElement).value).toBe('edited while expanded');
   expect(view.container.querySelector('[data-expanded="true"]')).toBeNull();
+});
+
+it('does not expand from interactive content or a dragged panel background', () => {
+  render(<ConstructionWorkspace
+    tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+    onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()}
+    network={<button>Traversal node</button>}
+    editor={<input aria-label="Editor field" />}
+    preview={<div role="table"><div role="row"><div role="cell">Preview cell</div></div><button>Preview action</button></div>} previewStatus="ready" draftVersion={1} draftDigest="draft" />);
+  const editor = screen.getByRole('complementary', { name: 'Recipe editor' });
+  const editorField = screen.getByRole('textbox', { name: 'Editor field' });
+  fireEvent.click(editorField);
+  expect(editor).not.toHaveAttribute('data-expanded');
+  fireEvent.pointerDown(editorField, { button: 0, pointerId: 8, clientX: 10, clientY: 10 });
+  fireEvent.click(editor, { button: 0, detail: 1, clientX: 11, clientY: 10 });
+  expect(editor).not.toHaveAttribute('data-expanded');
+  const preview = screen.getByTestId('construction-preview');
+  fireEvent.click(screen.getByRole('cell', { name: 'Preview cell' }));
+  expect(preview).not.toHaveAttribute('data-expanded');
+  fireEvent.pointerDown(editor, { button: 0, pointerId: 7, clientX: 10, clientY: 10 });
+  fireEvent.pointerMove(editor, { pointerId: 7, clientX: 40, clientY: 10 });
+  fireEvent.pointerMove(editor, { pointerId: 7, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(editor, { pointerId: 7, clientX: 10, clientY: 10 });
+  fireEvent.click(editor, { button: 0, detail: 1, clientX: 10, clientY: 10 });
+  expect(editor).not.toHaveAttribute('data-expanded');
+  fireEvent.click(editor, { button: 0, detail: 1, clientX: 10, clientY: 10 });
+  expect(editor).toHaveAttribute('data-expanded', 'true');
 });
 
 it('clears graph expansion when its optional network disappears without changing the persistent editor panel', () => {
@@ -1182,12 +1214,12 @@ it('clears graph expansion when its optional network disappears without changing
     preview: <p>Rows</p>, previewStatus: 'ready' as const, draftVersion: 1, draftDigest: 'draft',
   };
   const view = render(<ConstructionWorkspace {...props} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Expand Related records' }));
+  fireEvent.click(screen.getByRole('region', { name: 'Related records' }), { detail: 1 });
   view.rerender(<ConstructionWorkspace {...props} network={undefined} />);
   view.rerender(<ConstructionWorkspace {...props} />);
   expect(screen.getByRole('region', { name: 'Related records' })).not.toHaveAttribute('data-expanded');
 
-  fireEvent.click(screen.getByRole('button', { name: 'Expand Recipe editor' }));
+  fireEvent.click(screen.getByRole('complementary', { name: 'Recipe editor' }), { detail: 1 });
   view.rerender(<ConstructionWorkspace {...props} editor={undefined} />);
   view.rerender(<ConstructionWorkspace {...props} />);
   expect(screen.getByRole('complementary', { name: 'Recipe editor' })).toHaveAttribute('data-expanded', 'true');

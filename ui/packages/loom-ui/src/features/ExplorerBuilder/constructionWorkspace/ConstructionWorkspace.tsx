@@ -596,15 +596,14 @@ export const ConstructionWorkspace = ({
 }) => {
   const [expandedPanel, setExpandedPanel] = useState<'graph' | 'preview' | 'editor' | undefined>();
   const workspaceRootRef = useRef<HTMLDivElement>(null);
-  const panelExpandButtonRefs = useRef<Partial<Record<'graph' | 'preview' | 'editor', HTMLButtonElement | null>>>({});
+  const panelRefs = useRef<Partial<Record<'graph' | 'preview' | 'editor', HTMLElement | null>>>({});
+  const panelPointerStart = useRef<{ readonly panel: 'graph' | 'preview' | 'editor'; readonly pointerId: number; readonly x: number; readonly y: number; readonly maxDistance: number; readonly eligibleStart: boolean } | undefined>(undefined);
   if (expandedPanel === 'graph' && !network) {
     setExpandedPanel(undefined);
   }
   const changeExpandedPanel = (panel: 'graph' | 'preview' | 'editor' | undefined) => {
-    if (!panel) {
-      const button = expandedPanel ? panelExpandButtonRefs.current[expandedPanel] : undefined;
-      button?.focus();
-    }
+    const focusPanel = panel ?? expandedPanel;
+    if (focusPanel) panelRefs.current[focusPanel]?.focus({ preventScroll: true });
     setExpandedPanel(panel);
   };
   const handleExpandedPanelKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -651,16 +650,48 @@ export const ConstructionWorkspace = ({
     event.preventDefault();
     focusable[nextIndex]!.focus();
   };
-  const panelControls = (panel: 'graph' | 'preview' | 'editor', label: string) => (
+  const panelControls = (panel: 'graph' | 'preview' | 'editor', label: string) => expandedPanel === panel ? (
     <div className="construction-panel-controls">
-      <button type="button" aria-label={expandedPanel === panel ? `Close expanded ${label}` : `Expand ${label}`}
-        aria-pressed={expandedPanel === panel} title={expandedPanel === panel ? 'Close expanded panel (Esc)' : `Expand ${label}`}
-        ref={(node) => { panelExpandButtonRefs.current[panel] = node; }}
-        onClick={() => changeExpandedPanel(expandedPanel === panel ? undefined : panel)}>
-        <span aria-hidden="true">{expandedPanel === panel ? '×' : '⛶'}</span>
+      <button type="button" aria-label={`Close expanded ${label}`} title="Close expanded panel (Esc)"
+        onClick={() => changeExpandedPanel(undefined)}>
+        <span aria-hidden="true">×</span>
       </button>
     </div>
-  );
+  ) : null;
+  const isPanelBackgroundTarget = (panelElement: HTMLElement, target: EventTarget | null) => {
+    if (!(target instanceof Element) || (target !== panelElement && !panelElement.contains(target))) return false;
+    if (target !== panelElement && target.closest(
+      'button, a[href], input, select, textarea, label, summary, details, table, thead, tbody, tr, td, th, [role="table"], [role="grid"], [role="row"], [role="cell"], [data-testid="preview-table-scroll"], p, h1, h2, h3, h4, h5, h6, span, img, [role="button"], [role="link"], [role="menu"], [role="dialog"], [contenteditable="true"], [data-no-panel-expand], .construction-panel-controls, .react-flow__node, .react-flow__edge, .react-flow__controls, .react-flow__panel, .react-flow__handle, .react-flow__resize-control',
+    )) return false;
+    const selection = window.getSelection();
+    return !(selection && !selection.isCollapsed && selection.toString().length > 0);
+  };
+  const onPanelPointerDown = (panel: 'graph' | 'preview' | 'editor') => (event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    panelPointerStart.current = { panel, pointerId: event.pointerId, x: event.clientX, y: event.clientY, maxDistance: 0,
+      eligibleStart: isPanelBackgroundTarget(event.currentTarget, event.target) };
+  };
+  const onPanelPointerMove = (panel: 'graph' | 'preview' | 'editor') => (event: React.PointerEvent<HTMLElement>) => {
+    const start = panelPointerStart.current;
+    if (!start || start.panel !== panel || start.pointerId !== event.pointerId) return;
+    panelPointerStart.current = { ...start, maxDistance: Math.max(start.maxDistance, Math.hypot(event.clientX - start.x, event.clientY - start.y)) };
+  };
+  const onPanelPointerCancel = (panel: 'graph' | 'preview' | 'editor') => (event: React.PointerEvent<HTMLElement>) => {
+    if (panelPointerStart.current?.panel === panel && panelPointerStart.current.pointerId === event.pointerId) panelPointerStart.current = undefined;
+  };
+  const onPanelBackgroundClick = (panel: 'graph' | 'preview' | 'editor') => (event: React.MouseEvent<HTMLElement>) => {
+    const start = panelPointerStart.current;
+    panelPointerStart.current = undefined;
+    if (expandedPanel || event.defaultPrevented || event.button !== 0 || event.detail === 0) return;
+    if (start?.panel === panel && (!start.eligibleStart || Math.max(start.maxDistance, Math.hypot(event.clientX - start.x, event.clientY - start.y)) > 5)) return;
+    if (!isPanelBackgroundTarget(event.currentTarget, event.target)) return;
+    changeExpandedPanel(panel);
+  };
+  const onPanelKeyDown = (panel: 'graph' | 'preview' | 'editor') => (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget || expandedPanel || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    changeExpandedPanel(panel);
+  };
   const editorFocusRef = useRef<HTMLDivElement>(null);
   if (presentationActionRef) presentationActionRef.current = () => { editorFocusRef.current?.focus(); };
   const viewportRef = useCallback((node: HTMLDivElement | null) => {
@@ -708,7 +739,10 @@ export const ConstructionWorkspace = ({
         data-expanded-panel={expandedPanel}
         data-has-network={network ? 'true' : undefined} className="construction-result-region">
         <div className="construction-main-panel" inert={expandedPanel === 'editor' ? true : undefined}>
-        {network ? <section aria-label="Related records" inert={expandedPanel !== undefined && expandedPanel !== 'graph' ? true : undefined} data-expanded={expandedPanel === 'graph' ? 'true' : undefined} className="construction-authored-region">
+        {network ? <section aria-label="Related records" tabIndex={expandedPanel === 'graph' ? -1 : 0} aria-keyshortcuts="Enter Space"
+          onPointerDownCapture={onPanelPointerDown('graph')} onPointerMoveCapture={onPanelPointerMove('graph')} onPointerCancelCapture={onPanelPointerCancel('graph')} onClick={onPanelBackgroundClick('graph')} onKeyDown={onPanelKeyDown('graph')}
+          ref={(node) => { panelRefs.current.graph = node; }} inert={expandedPanel !== undefined && expandedPanel !== 'graph' ? true : undefined}
+          data-expanded={expandedPanel === 'graph' ? 'true' : undefined} className="construction-authored-region">
           {panelControls('graph', 'Related records')}
           <div ref={editorFocusRef} tabIndex={-1} className="construction-authored-content">{network}</div>
         </section> : null}
@@ -723,14 +757,19 @@ export const ConstructionWorkspace = ({
           data-current-draft-version={draftVersion}
           data-current-draft-digest={draftDigest}
           data-expanded={expandedPanel === 'preview' ? 'true' : undefined}
-          inert={expandedPanel !== undefined && expandedPanel !== 'preview' ? true : undefined}
+          tabIndex={expandedPanel === 'preview' ? -1 : 0} aria-keyshortcuts="Enter Space"
+          onPointerDownCapture={onPanelPointerDown('preview')} onPointerMoveCapture={onPanelPointerMove('preview')} onPointerCancelCapture={onPanelPointerCancel('preview')} onClick={onPanelBackgroundClick('preview')} onKeyDown={onPanelKeyDown('preview')}
+          ref={(node) => { panelRefs.current.preview = node; }} inert={expandedPanel !== undefined && expandedPanel !== 'preview' ? true : undefined}
           className="construction-result-preview min-w-0 bg-white"
         >
           <div className="construction-panel-heading"><p data-testid="recipe-result-identity">{proposalId ? 'Proposed recipe result' : 'Saved recipe result'}</p>{panelControls('preview', 'Table result')}</div>
           {preview}
         </section>
         </div>
-        <aside aria-label="Recipe editor" data-expanded={expandedPanel === 'editor' ? 'true' : undefined} inert={expandedPanel !== undefined && expandedPanel !== 'editor' ? true : undefined} className="construction-side-panel">
+        <aside aria-label="Recipe editor" data-expanded={expandedPanel === 'editor' ? 'true' : undefined}
+          tabIndex={expandedPanel === 'editor' ? -1 : 0} aria-keyshortcuts="Enter Space"
+          onPointerDownCapture={onPanelPointerDown('editor')} onPointerMoveCapture={onPanelPointerMove('editor')} onPointerCancelCapture={onPanelPointerCancel('editor')} onClick={onPanelBackgroundClick('editor')} onKeyDown={onPanelKeyDown('editor')}
+          ref={(node) => { panelRefs.current.editor = node; }} inert={expandedPanel !== undefined && expandedPanel !== 'editor' ? true : undefined} className="construction-side-panel">
           {panelControls('editor', 'Recipe editor')}
           <div className="construction-source-controls">{rowSetup}{history?.sourceSteps}</div>
           {editor ? <section aria-label="Change editor" className="construction-active-editor min-h-0 min-w-0">{editor}</section> : null}
