@@ -916,7 +916,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('draft changed while the proposal was loading');
     expect(screen.queryByRole('button', { name: 'Apply relationship' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Cancel earlier recipe change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
     expect(mockLoomClient.preview).not.toHaveBeenCalled();
   });

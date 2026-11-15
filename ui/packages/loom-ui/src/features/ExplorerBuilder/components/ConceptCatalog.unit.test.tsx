@@ -483,7 +483,7 @@ describe('ConceptCatalog', () => {
     expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/schema-fields'))).toBe(false);
   });
 
-  it('explains unknown source coverage while keeping a complete inventory selectable', async () => {
+  it('keeps a complete inventory selectable when source coverage is unknown', async () => {
     const concept = item('coverage-unknown', 'Coverage example', 1);
     const response: SemanticInventoryBrowseResponse = {
       ...page([concept]),
@@ -495,9 +495,6 @@ describe('ConceptCatalog', () => {
     renderCatalog(fetch);
 
     expect(await screen.findByRole('button', { name: 'Select Coverage example' })).toBeEnabled();
-    expect(screen.getByText(
-      'This concept list may be incomplete. If a concept is missing, check the Other fields tab.',
-    )).toBeInTheDocument();
   });
 
   it('keeps the unproven source-coverage warning', async () => {

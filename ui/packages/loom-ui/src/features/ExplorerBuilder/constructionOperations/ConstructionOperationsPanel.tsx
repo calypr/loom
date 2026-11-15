@@ -197,13 +197,13 @@ const intentionsFor = (args: {
         },
         {
           value: { family, intent: 'PIVOT' },
-          label: 'Turn values into columns',
+          label: 'Pivot values into columns',
           description: 'Make selected category values into named columns.',
           availability: pivotAvailability,
         },
         {
           value: { family, intent: 'UNPIVOT' },
-          label: 'Turn columns into rows',
+          label: 'Unpivot columns into rows',
           description: 'Stack selected columns into a name column and a value column.',
           availability: unpivotAvailability,
         },
@@ -492,7 +492,7 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
         <div data-testid="construction-operation-editor" className="grid gap-3">
           <div>
             <h3 className="font-semibold text-slate-900">
-              {selectedIntention.family === 'CALCULATE' ? 'Calculate a value' : selectedIntention.intent === 'PIVOT' ? 'Turn values into columns' : 'Turn columns into rows'}
+              {selectedIntention.family === 'CALCULATE' ? 'Calculate a value' : selectedIntention.intent === 'PIVOT' ? 'Pivot values into columns' : 'Unpivot columns into rows'}
             </h3>
             <p className="mt-1 text-sm text-slate-600">
               Loom supplies the supported inputs and policies. A matching row preview is required before the change can be applied.

@@ -141,8 +141,8 @@ export async function runGraphRowsComplementaryConnection({ run, page, request, 
   // Continue in the opposite editor, editing this exact occurrence in place.
   const region = mode === 'graph-first' ? expression : page.getByTestId('authored-occurrence-inspector');
   if (mode === 'row-first') await graph.locator(`button[data-term-kind="connection"][data-occurrence-id="${addition.occurrenceId}"]`).click();
-  const match = region.getByRole('combobox', { name: /Match policy for .*ResearchStudy.*OPTIONAL/ });
-  await match.selectOption('REQUIRED');
+  const match = region.getByRole('checkbox', { name: /Match policy for .*ResearchStudy/ });
+  await match.uncheck();
   const review = page.getByRole('region', { name: 'Proposed related records', exact: true });
   await review.getByRole('button', { name: 'Preview relationship', exact: true }).click();
   await expect(review.getByRole('button', { name: 'Apply relationship', exact: true })).toBeEnabled();

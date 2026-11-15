@@ -26,6 +26,7 @@ vi.mock('./GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: (props: Record<
   const currentCatalog = props.catalog as ExplorerBuilderCatalog;
   const occurrences = currentTable ? authoredTraversal(currentTable, currentCatalog) : [];
   return <section aria-label="Record network">
+    {props.headerPath ? <p data-testid="selected-occurrence-path">{String(props.headerPath)}</p> : null}
     {<div><p>Available catalog connections</p><div data-testid="flow">{occurrences.map((occurrence) => <button className="react-flow__node" data-id={occurrence.id} data-testid={`node-${occurrence.id}`} key={occurrence.id} onClick={() => (props.onSelectOccurrence as (id: string) => void)(occurrence.id)}>{occurrence.path}</button>)}{occurrences.slice(1).map((occurrence) => <span className="react-flow__edge" data-id={`authored:${occurrence.id}`} key={occurrence.id} data-testid={`authored:${occurrence.id}`} data-source={occurrence.parentId} data-target={occurrence.id} />)}</div></div>}
   </section>;
 } }));
@@ -87,19 +88,19 @@ describe('authored traversal correspondence', () => {
   });
   it('edits the selected occurrence on the ordinary route path', () => {
     const actions = callbacks(); render(<AuthoredTraversalEditor {...actions} catalog={catalog} table={table} projectionKind="saved" selectedOccurrenceId="subjectPatient" disabled={false} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'REQUIRED' } });
+    fireEvent.click(screen.getByRole('checkbox'));
     expect(actions.onChangeMatchMode).toHaveBeenCalledWith('subjectPatient', 'REQUIRED');
-    expect(screen.getByTestId('authored-occurrence-inspector')).toHaveTextContent('ResearchSubject → subject → Patient');
-    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('OPTIONAL');
+    expect(screen.getByTestId('selected-occurrence-path')).toHaveTextContent('ResearchSubject → subject → Patient');
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true);
   });
   it('uses imported proposal callbacks exclusively and blocks mutation during proposed inspection', () => {
     const actions = callbacks(); const imported = { ...table, document: { ...table.document, importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' } } };
     const onChangeMatchMode = vi.fn(); const onRemove = vi.fn();
     const view = render(<AuthoredTraversalEditor {...actions} catalog={catalog} table={imported} projectionKind="saved" selectedOccurrenceId="subjectPatient" disabled={false} importedRelationshipActions={{ onAdd: vi.fn(), onChangeMatchMode, onRemove }} />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'REQUIRED' } });
+    fireEvent.click(screen.getByRole('checkbox'));
     expect(onChangeMatchMode).toHaveBeenCalledWith('subjectPatient', 'REQUIRED'); expect(actions.onChangeMatchMode).not.toHaveBeenCalled();
     view.rerender(<AuthoredTraversalEditor {...actions} catalog={catalog} table={imported} projectionKind="proposed" selectedOccurrenceId="subjectPatient" disabled={false} importedRelationshipActions={{ onAdd: vi.fn(), onChangeMatchMode, onRemove }} />);
-    expect(screen.getByRole('combobox')).toBeDisabled();
+    expect(screen.getByRole('checkbox')).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'ResearchSubject → investigator → Patient' }));
     expect(actions.onSelectOccurrence).toHaveBeenCalledWith('investigatorPatient');
     expect(screen.getByText(/Apply or Cancel the proposed/)).toBeTruthy();
@@ -110,7 +111,6 @@ describe('authored traversal correspondence', () => {
       { occurrenceId: 'root', column: 'status', label: 'Status', logicalType: 'string', source: { kind: 'field', field: { path: 'status' } } },
     ], construction: { version: 1, steps: [{ id: 'group1', inputs: [{ kind: 'SOURCE_PROJECTION' }], operation: { kind: 'GROUP', group: { constructionId: 'g', keys: [{ inputColumnId: 'gender', outputColumnId: 'g' }, { inputColumnId: 'status', outputColumnId: 's' }], missingKeyPolicy: 'GROUP' } }, rowValues: [{ inputColumnId: 'status', outputColumnId: 'values', policy: 'ALL' }], outputs: [{ id: 'g', name: 'g', label: 'Gender', type: 'string' }, { id: 's', name: 's', label: 'Status', type: 'string' }, { id: 'values', name: 'values', label: 'Statuses', type: 'list<string>' }] }] } } };
     const actions = callbacks(); render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={grouped} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(grouped, actions)} /></>);
-    fireEvent.click(screen.getByText('Resulting table · all 1 operations in execution order'));
     const stage = within(screen.getByRole('list', { name: 'Ordered resulting-table operations' }));
     expect(stage.getByText(/Group rows by Gender, Status/)).toHaveTextContent('Statuses retains all contributor values');
     expect(stage.getByText('Inputs: Source projection')).toBeTruthy();
@@ -128,7 +128,6 @@ describe('authored traversal correspondence', () => {
     }] } } };
     const actions = callbacks();
     render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={expanded} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(expanded,actions)} /></>);
-    fireEvent.click(screen.getByText('Resulting table · all 1 operations in execution order'));
     const stages = screen.getByRole('list', { name: 'Ordered resulting-table operations' });
     expect(stages).toHaveTextContent('Inputs: Source projection');
     fireEvent.click(within(stages).getByRole('button'));
@@ -148,7 +147,6 @@ describe('authored traversal correspondence', () => {
     const before=structuredClone(history.document);
     const actions=callbacks();
     render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={history} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(history,actions)} /></>);
-    fireEvent.click(screen.getByText('Resulting table · all 100 operations in execution order'));
     const list = screen.getByRole('list', { name: 'Ordered resulting-table operations' });
     expect(list.className).toContain('max-h-56');
     expect([...list.querySelectorAll('[data-operation-id]')].map((item) => item.getAttribute('data-operation-id'))).toEqual(Array.from({ length: 100 }, (_, index) => `filter-${index}`));
@@ -209,21 +207,16 @@ it('portals selected facts into the shared inspection host and preserves catalog
  view.unmount();host.remove();
 });
 
-it('keeps row definition, row-start and alternative relationship controls in the selected inspector', () => {
+it('keeps match policy and alternative relationship controls in the selected inspector', () => {
  const single = { ...table, document: { ...table.document, route: { ...table.document.route, children: [table.document.route.children![0]] } } };
  const actions = callbacks();
  const view = render(<AuthoredTraversalEditor {...actions} table={single} catalog={catalog} disabled={false} projectionKind="saved" selectedOccurrenceId="subjectPatient" />);
  const inspector = within(screen.getByTestId('authored-occurrence-inspector'));
  fireEvent.change(inspector.getByRole('combobox', { name: 'Relationship for ResearchSubject → subject → Patient' }), { target: { value: 'investigator-patient' } });
  expect(actions.onChangeEdge).toHaveBeenCalledExactlyOnceWith('subjectPatient', 'investigator-patient');
- fireEvent.click(inspector.getByRole('button', { name: 'Make each Patient one row' }));
- expect(actions.onChangeBase).toHaveBeenCalledExactlyOnceWith('patient');
- fireEvent.click(inspector.getByRole('button', { name: 'Change row definition' }));
- expect(actions.onDefineRow).toHaveBeenCalledExactlyOnceWith();
+ expect(inspector.queryByRole('button', { name: 'Change row definition' })).toBeNull();
  view.rerender(<AuthoredTraversalEditor {...actions} table={single} catalog={catalog} disabled={false} projectionKind="proposed" selectedOccurrenceId="subjectPatient" />);
- expect(inspector.getByRole('button', { name: 'Change row definition' })).toBeDisabled();
- expect(inspector.getByRole('button', { name: 'Make each Patient one row' })).toBeDisabled();
+ expect(inspector.getByRole('checkbox', { name: /Match policy for/ })).toBeDisabled();
  expect(inspector.getByRole('combobox', { name: 'Relationship for ResearchSubject → subject → Patient' })).toBeDisabled();
- fireEvent.click(inspector.getByRole('button', { name: 'Change row definition' }));
- expect(actions.onDefineRow).toHaveBeenCalledTimes(1);
+ expect(actions.onDefineRow).not.toHaveBeenCalled();
 });

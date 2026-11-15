@@ -52,19 +52,16 @@ import {
   type DatasetReviewTarget,
 } from './components/DatasetReviewPanel';
 import { useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './recipeEditing/recipeEditingOwner';
-import { AuthoringNetworkInspector } from './components/AuthoringNetworkInspector';
 import { SourceRelationshipReview } from './components/SourceRelationshipReview';
+import { RowRootPicker } from './components/RowRootPicker';
 import { AuthoredTraversalEditor } from './components/AuthoredTraversalEditor';
 import { TraversalScopeNavigator } from './components/TraversalScopeNavigator';
 import { RecipeColumnPolicyInspector } from './components/RecipeColumnPolicyInspector';
-import { ColumnSelector } from './components/ColumnSelector';
 import { ConceptCatalog, type ConceptCatalogView } from './components/ConceptCatalog';
-import { RowRootPicker } from './components/RowRootPicker';
 import {
   PreviewTable,
   type PreviewTablePresentationChange,
 } from './components/PreviewTable';
-import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangePreviewPanel } from './components/RowChangePreviewPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
@@ -118,7 +115,7 @@ import {
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
-import { catalogSourceOptions, sanitizeReasonText, unavailableOperationReason, type CatalogChoiceIntent } from './catalogItems';
+import { catalogSourceOptions, fieldCatalogItems, sanitizeReasonText, unavailableOperationReason, type CatalogChoiceIntent } from './catalogItems';
 
 import {
   ConstructionWorkspace,
@@ -598,6 +595,7 @@ const BuilderWorkspaceContent = ({
   }>();
   const [pendingCommands, setPendingCommands] = useState(0);
   const [occurrenceInspectorHost, setOccurrenceInspectorHost] = useState<HTMLElement | null>(null);
+  const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
   const cancelingConstructionProposalRef = useRef(false);
   const [populationSelectionOverride, setPopulationSelectionOverride] = useState<{
@@ -624,9 +622,9 @@ const BuilderWorkspaceContent = ({
   const addColumnsRequest = useRef<AbortController | undefined>(undefined);
   const appliedChoicePreview = useRef<AppliedPreviewHandoff | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
-  const [sourceSetupOpen, setSourceSetupOpen] = useState(false);
   const [editingRecipeColumn, setEditingRecipeColumn] = useState<{ owner: string; columnId: string }>();
   const [sourceStepInspectorHost, setSourceStepInspectorHost] = useState<HTMLDivElement | null>(null);
+  const [activeSourceStepId, setActiveSourceStepId] = useState<string>();
   const columnPolicyRequest = useRef<AbortController | undefined>(undefined);
   const sourceRelationshipRequest = useRef<AbortController | undefined>(undefined);
   const networkRequestOwner = useRef('');
@@ -636,10 +634,12 @@ const BuilderWorkspaceContent = ({
   const recipeInitiatorFact = useRef<{ testId?: string; columnId?: string; occurrenceId?: string } | undefined>(undefined);
   const sourceStepEditAction = useRef<((stepId: string) => void) | undefined>(undefined);
   const sourceFieldEditAction = useRef<((stepId: string, fieldId: string) => void) | undefined>(undefined);
+  const sourceOutputEditAction = useRef<((stepId: string, outputKey: string) => void) | undefined>(undefined);
   const rowSettingsOpenAction = useRef<(() => void) | undefined>(undefined);
   const recipeEditToken = useRef<RecipeEditToken | undefined>(undefined);
   const [candidateInspection, setCandidateInspection] = useState<{ key: string; occurrenceId: string }>();
   const [sourceProposal, setSourceProposal] = useState<{ owner: string; proposal: SourceProposalOwnerCandidate; preview: ExplorerBuilderPreviewResult }>();
+  const lastAcceptedOutputPreview = useRef<{ readonly owner: string; readonly outputId: string; readonly snapshotToken: string; readonly draftVersion: number; readonly draftDigest: string; readonly receiptId: string } | undefined>(undefined);
   const [connectingRelationship, setConnectingRelationship] = useState(false);
   const [savedNetwork, setSavedNetwork] = useState<{ owner: string; result: AuthoringNetworkResponse }>();
   const [recipeNotice, setRecipeNotice] = useState<string>();
@@ -666,7 +666,7 @@ const BuilderWorkspaceContent = ({
     readonly editorKey: string;
     readonly entry: ConstructionReshapeEditorEntry;
   }>();
-  const [addColumnsView, setAddColumnsView] = useState<Exclude<ConceptCatalogView, 'all'>>('coded');
+  const [addColumnsView, setAddColumnsView] = useState<Exclude<ConceptCatalogView, 'all'>>('fields');
   const [addColumnsViewRevision, setAddColumnsViewRevision] = useState(0);
   const [addColumnsSource, setAddColumnsSource] = useState<{
     readonly context: string;
@@ -1105,7 +1105,13 @@ const BuilderWorkspaceContent = ({
           const accepted = recipeOwner.ready(attempt, {receiptId:assessment.candidateReceiptId, preview,
             candidateDocument:assessment.candidateDocument, candidateNetwork:assessment.candidateNetwork,
             candidateRowIdentity:assessment.candidateRowIdentity});
-          if (accepted) { rootRecipeAssessment.current = assessment; setSourceRowsOpen(false); }
+          if (accepted) {
+            rootRecipeAssessment.current = assessment;
+            setSourceRowsOpen(false);
+            lastAcceptedOutputPreview.current = { owner: relationshipOwner, outputId: attempt.identity.outputId,
+              snapshotToken: attempt.identity.snapshotToken, draftVersion: attempt.identity.draftVersion,
+              draftDigest: attempt.identity.draftDigest, receiptId: preview.receiptId };
+          }
           else recipeOwner.fail(attempt, 'The starting-record preview does not belong to this recipe edit.');
           return accepted;
         },
@@ -1733,64 +1739,6 @@ const BuilderWorkspaceContent = ({
     }
     return counts;
   }, new Map<string, number>());
-  const addSourceOptionItems = addSourceOptions.filter((source) => source.kind !== 'ALL').map((source) => {
-    const isCurrentOccurrence = source.sourceNodeId !== undefined && source.sourceNodeId === selectedRouteContext?.nodeId;
-    const label = source.kind === 'EXACT_RELATED' ? source.label : source.resourceType ?? source.label;
-    const baseDescription = source.kind === 'ROOT'
-      ? 'Current table rows'
-      : source.kind === 'EXACT_RELATED'
-        ? 'This row’s related record'
-        : source.kind === 'SAVED_OCCURRENCE'
-          ? 'Selected occurrence'
-          : isCurrentOccurrence
-            ? 'Related resource, selected occurrence'
-            : 'Related resource';
-    const description = source.kind === 'RELATED' && (relatedSourceTypeCounts.get(source.resourceType) ?? 0) > 1
-      ? `${baseDescription} · source ${source.sourceNodeId}`
-      : baseDescription;
-    return {
-      source,
-      label,
-      description,
-      selected: source.key === selectedAddSource?.key,
-    };
-  }).sort((left, right) => {
-    const priority = (kind: typeof left.source.kind): number =>
-      kind === 'ROOT' ? 0 : kind === 'EXACT_RELATED' ? 3 : 1;
-    return priority(left.source.kind) - priority(right.source.kind);
-  });
-  const addColumnsSourceControls = (
-    <fieldset
-      aria-label="Add columns source"
-      data-testid="construction-add-columns-source"
-      className="rounded-lg border border-slate-200 bg-white px-2 py-1"
-    >
-      <legend className="sr-only">Browse from</legend>
-      <div role="group" aria-label="Search scope">
-        <div className="flex flex-wrap gap-1.5">
-          {addSourceOptionItems.map(({ source, label, description, selected }) => (
-            <button
-              key={source.key}
-              type="button"
-              aria-label={`${label}, ${description}`}
-              aria-pressed={selected}
-              data-testid="construction-add-columns-source-option"
-              data-source-key={source.key}
-              data-source-kind={source.kind}
-              onClick={() => {
-                setAddColumnsSource({ context: addSourceContext, key: source.key });
-                if (source.kind === 'EXACT_RELATED') setAddColumnsView('fields');
-              }}
-              title={description}
-              className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </fieldset>
-  );
   const addSourceRouteContext = selectedAddSource?.sourceNodeId !== undefined && selectedAddSource.sourceNodeId === selectedRouteContext?.nodeId
     ? selectedRouteContext
     : undefined;
@@ -3589,7 +3537,7 @@ const BuilderWorkspaceContent = ({
     rememberOperationFocus();
     const willOpen = activeConstructionFamily !== family;
     setRowIntentSession(false);
-    if (family === 'ADD_COLUMNS' && willOpen) selectAddColumnsView('coded');
+    if (family === 'ADD_COLUMNS' && willOpen) selectAddColumnsView('fields');
     if (family === 'COMBINE' && willOpen) {
       if (!canStartCombine) return;
       void startCombine();
@@ -4076,7 +4024,12 @@ const BuilderWorkspaceContent = ({
           candidateWorkspaceDigest: proposal.candidateWorkspaceDigest, preview,
           candidateDocument: proposal.candidateDocument, candidateNetwork: proposal.candidateNetwork,
           candidateRowIdentity: proposal.candidateRowIdentity });
-        if (accepted) setSourceProposal({ owner: relationshipOwner, proposal, preview });
+        if (accepted) {
+          lastAcceptedOutputPreview.current = { owner: relationshipOwner, outputId: attempt.identity.outputId,
+            snapshotToken: attempt.identity.snapshotToken, draftVersion: attempt.identity.draftVersion,
+            draftDigest: attempt.identity.draftDigest, receiptId: preview.receiptId };
+          setSourceProposal({ owner: relationshipOwner, proposal, preview });
+        }
         else recipeOwner.fail(attempt, 'The candidate preview does not belong to this recipe edit. Preview again or Cancel.');
         return accepted;
       },
@@ -4168,18 +4121,23 @@ const BuilderWorkspaceContent = ({
     pendingCommands === 0 &&
     !publishing &&
     state.reconciliation !== 'pending';
+  const populatedFieldItems = table
+    ? fieldCatalogItems(state.catalog, table.document.rootResourceType ?? '', undefined, '', undefined, true)
+      .filter((item) => item.kind === 'FIELD')
+    : [];
+  const populatedFieldCandidates = populatedFieldItems.flatMap((item) => item.kind === 'FIELD' ? [item.candidate] : []);
   const operationEditor = table && activeOperation ? (
     <section
       aria-label={`${activeOperation.label} editor`}
       data-testid="construction-operation-editor"
       data-operation-family={activeOperation.family}
       data-output-id={table.outputId}
-      className={rowIntentSession ? "min-w-0 bg-white" : "overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"}
+      className={activeOperation.family === 'ADD_COLUMNS' ? "flex h-full min-h-0 min-w-0 flex-col bg-white" : "min-w-0 bg-white"}
     >
-      {!rowIntentSession ? <header className="border-b border-slate-200 px-3 py-2.5">
+      <header className={activeOperation.family === 'ADD_COLUMNS' ? "px-3 py-2" : rowIntentSession ? "px-0 py-1" : "border-b border-slate-200 px-3 py-2.5"}>
         <div className="flex items-center justify-between gap-3">
           <div>
-            {activeOperation.family !== 'RESHAPE' ? <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2> : null}
+            {!rowIntentSession && activeOperation.family !== 'RESHAPE' ? <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2> : null}
             {editingConstructionStep ? <p className="text-xs text-slate-500">Editing a saved step</p> : null}
           </div>
           <button
@@ -4191,10 +4149,11 @@ const BuilderWorkspaceContent = ({
               cancelCombineCatalogRequest();
               setActiveConstructionFamily(undefined);
               setEditingConstructionStepId(undefined);
+              setRowIntentSession(false);
             }}
-            className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
+            className="inline-flex shrink-0 items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
           >
-            Back to table
+            <span aria-hidden="true">←</span> Back to table
           </button>
         </div>
         {hideGenericReshapeSelection ? null : activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' || activeOperation.family === 'RESHAPE' ? (
@@ -4218,9 +4177,9 @@ const BuilderWorkspaceContent = ({
             </span>
           </p>
         ) : null}
-      </header> : null}
+      </header>
 
-      <div className={rowIntentSession ? "py-2" : "p-3"}>
+      <div className={activeOperation.family === 'ADD_COLUMNS' ? "min-h-0 flex-1" : rowIntentSession ? "py-2" : "p-3"}>
         {activeOperation.family === 'ADD_COLUMNS' ? (
           <div className="grid gap-4">
             {editingConstructionStep?.operation.kind === 'GROUP' && constructionLifecycle.capabilities.status === 'ready' ? (
@@ -4251,37 +4210,6 @@ const BuilderWorkspaceContent = ({
             ) : null}
             {table.document.rootResourceType ? (
               <>
-                <div role="tablist" aria-label="Column types" className="flex gap-1 rounded-md bg-slate-100 p-1">
-                  <button
-                    type="button"
-                    role="tab"
-                    id="add-columns-tab-coded"
-                    aria-controls="add-columns-tabpanel"
-                    aria-selected={addColumnsView === 'coded'}
-                    tabIndex={addColumnsView === 'coded' ? 0 : -1}
-                    data-view="coded"
-                    onClick={() => selectAddColumnsView('coded')}
-                    onKeyDown={handleAddColumnsTabKeyDown}
-                    className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'coded' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}
-                  >
-                    Coded values
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    id="add-columns-tab-fields"
-                    aria-controls="add-columns-tabpanel"
-                    aria-selected={addColumnsView === 'fields'}
-                    tabIndex={addColumnsView === 'fields' ? 0 : -1}
-                    data-view="fields"
-                    onClick={() => selectAddColumnsView('fields')}
-                    onKeyDown={handleAddColumnsTabKeyDown}
-                    className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'fields' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}
-                  >
-                    Other fields
-                  </button>
-                </div>
-                <div id="add-columns-tabpanel" role="tabpanel" aria-labelledby={addColumnsView === 'coded' ? 'add-columns-tab-coded' : 'add-columns-tab-fields'} tabIndex={0}>
                 {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
                   <RelatedFieldEditor
                     key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
@@ -4295,7 +4223,6 @@ const BuilderWorkspaceContent = ({
                     capabilities={constructionLifecycle.capabilities.response}
                     disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
                     onCandidateChange={constructionLifecycle.onCandidateChange}
-                    sourceControls={addColumnsSourceControls}
                   />
                 ) : (
                   <>
@@ -4312,13 +4239,13 @@ const BuilderWorkspaceContent = ({
                       sourceNodeId={selectedAddSource?.sourceNodeId}
                       routeContext={addSourceRouteContext}
                       layout="panel"
-                      view={addColumnsView}
+                      dense
+                      view="all"
                       viewRevision={addColumnsViewRevision}
                       presentationContext={fieldPresentationContext}
                       onSwitchView={selectAddColumnsView}
                       semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
-                      sourceControls={addColumnsSourceControls}
-                      catalog={state.catalog}
+                        catalog={state.catalog}
                       sourceProjectionAvailability={sourceAvailability}
                       relatedSourceAvailability={relatedSourceAvailability}
                       suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
@@ -4331,7 +4258,7 @@ const BuilderWorkspaceContent = ({
                     />
                   </>
                 )}
-                {addColumnsView === 'coded' && table.document.frames?.length ? (
+                {table.document.frames?.length ? (
                   <details className="rounded-md border border-slate-200 bg-white p-3">
                     <summary className="cursor-pointer text-sm font-semibold text-slate-700">Manage saved coded-value sources</summary>
                     <FrameSourcePanel
@@ -4357,7 +4284,6 @@ const BuilderWorkspaceContent = ({
                     />
                   </details>
                 ) : null}
-                </div>
               </>
             ) : null}
           </div>
@@ -4490,7 +4416,7 @@ const BuilderWorkspaceContent = ({
     <section
       aria-label="Related source editor"
       data-testid="construction-related-source-editor"
-      className="overflow-hidden rounded-xl border border-emerald-200 bg-white p-4 shadow-sm"
+      className="min-w-0 bg-white p-4"
     >
       {constructionLifecycle.capabilities.status === 'loading' ? (
         <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
@@ -4520,7 +4446,7 @@ const BuilderWorkspaceContent = ({
     </section>
   ) : undefined;
   const relatedFieldStepEditor = table && editingRelatedFieldStep ? (
-    <section aria-label="Related field editor" className="overflow-hidden rounded-xl border border-emerald-200 bg-white p-4 shadow-sm">
+    <section aria-label="Related field editor" className="min-w-0 bg-white p-4">
       {constructionLifecycle.capabilities.status === 'loading' ? (
         <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
       ) : constructionLifecycle.capabilities.status === 'error' ? (
@@ -4599,6 +4525,12 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.proposal.status === 'applying'
     ? constructionLifecycle.proposal.preview
     : undefined);
+  const lastOutputPreview = lastAcceptedOutputPreview.current;
+  const retainedOutputPreviewReceipt = lastOutputPreview?.owner === relationshipOwner && lastOutputPreview.outputId === table?.outputId &&
+    lastOutputPreview.snapshotToken === state.catalog.snapshotToken && lastOutputPreview.draftVersion === state.draftVersion &&
+    lastOutputPreview.draftDigest === state.draftDigest ? lastOutputPreview.receiptId : undefined;
+  const generatedOutputRevision = candidatePreview?.receiptId ?? retainedOutputPreviewReceipt ??
+    `saved:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}`;
   const proposalResponse = 'response' in constructionLifecycle.proposal
     ? constructionLifecycle.proposal.response
     : undefined;
@@ -4623,8 +4555,29 @@ const BuilderWorkspaceContent = ({
       ? candidateInspection.occurrenceId
       : routeNode(proposalPresentationTable.document.route, state.selectedOccurrenceId) ? state.selectedOccurrenceId : proposalPresentationTable.document.route.occurrenceId
     : state.selectedOccurrenceId;
+  const pendingChangeReview = table && pendingRelationship ? <SourceRelationshipReview key={`${relationshipOwner}:${JSON.stringify(pendingRelationship)}`}
+    columnLabels={sourceReviewColumnLabels}
+    client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+    snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
+    outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+    change={pendingRelationship} sharedPreview onStatusChange={sourceReviewStatus} onPreviewStart={beginSourceReview}
+    relationshipDescription={(() => {
+      if (pendingRelationship.action === 'ADD') {
+        const parent = routeNode(table.document.route, pendingRelationship.parentOccurrenceId);
+        const edge = state.catalog.edges.find((item) => item.edgeId === pendingRelationship.edgeId);
+        const target = state.catalog.nodes.find((item) => item.nodeId === edge?.toNodeId);
+        return parent && edge && target ? `${parent.resourceType} → ${target.resourceType} via ${edge.label}` : undefined;
+      }
+      const occurrence = routeNode(table.document.route, pendingRelationship.occurrenceId);
+      return occurrence ? `${occurrence.resourceType} via ${occurrence.relationship}` : undefined;
+    })()}
+    preparing={connectingRelationship}
+    preparationError={recipeOwner.state.error}
+    requestControllerRef={sourceRelationshipRequest}
+    {...(sourceCandidate ? { prepared: { proposal: sourceCandidate.proposal, preview: sourceCandidate.preview } } : {})}
+    onApply={applySourceRecipe} onCancel={cancelRecipeRelationship} /> : undefined;
   const sourceRecipeInspector = recipeOwner.state.status === 'stale' && recipeOwner.state.target?.kind !== 'root'
-    ? <p role="alert">{recipeOwner.state.error} <button type="button" onClick={() => cancelRecipeRelationship()}>Cancel earlier recipe change</button></p>
+    ? <button type="button" className="rounded border border-slate-300 bg-white px-3 py-1 text-sm" onClick={() => cancelRecipeRelationship()}>Cancel</button>
     : recipeOwner.state.target?.kind === 'root' ? (recipeOwner.state.target.mode === 'REPLACE'
       ? <div ref={setRootReplacementInspectorHost} aria-label="Starting-record replacement inspector" />
       : rootCandidate || rootChangeState.kind === 'idle' ? <RowChangePreviewPanel candidateRoot={rootRecipeAssessment.current?.candidateRootResourceType ?? table?.document.rootResourceType ?? 'records'}
@@ -4632,7 +4585,7 @@ const BuilderWorkspaceContent = ({
           preview={rootCandidate?.preview} error={recipeOwner.state.error} sharedPreview
           disabled={pendingCommands > 0 || recipeOwner.state.status === 'applying'}
           onApply={() => void applyRowChangePreview()} onCancel={cancelRootChange} /> : undefined)
-    : table && (pendingRelationship || editingRecipeColumn?.owner === relationshipOwner || recipeOwner.state.target?.kind === 'sourceStep') ? <>
+    : table && (editingRecipeColumn?.owner === relationshipOwner || recipeOwner.state.target?.kind === 'sourceStep') ? <>
       {recipeOwner.state.target?.kind === 'sourceStep' ? <div className="construction-inspector-portal-host" ref={setSourceStepInspectorHost} aria-label="Source step inspector" /> : null}
       {editingRecipeColumn?.owner === relationshipOwner ? (() => {
         const column = table.document.columns.find((item) => (item.columnId ?? item.column) === editingRecipeColumn.columnId);
@@ -4673,17 +4626,6 @@ const BuilderWorkspaceContent = ({
           onChange={() => { if (sourceCandidate) void applySourceRecipe([{ type: 'APPLY_COLUMN_POLICY_PROPOSAL', outputId: table.outputId,
             proposalId: sourceCandidate.preview.receiptId }]); }} /> : null;
       })() : null}
-      {pendingRelationship ? <SourceRelationshipReview key={`${relationshipOwner}:${JSON.stringify(pendingRelationship)}`}
-        columnLabels={sourceReviewColumnLabels}
-        client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-        snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
-        outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-        change={pendingRelationship} sharedPreview onStatusChange={sourceReviewStatus} onPreviewStart={beginSourceReview}
-        preparing={connectingRelationship}
-        preparationError={recipeOwner.state.error}
-        requestControllerRef={sourceRelationshipRequest}
-        {...(sourceCandidate ? { prepared: { proposal: sourceCandidate.proposal, preview: sourceCandidate.preview } } : {})}
-        onApply={applySourceRecipe} onCancel={cancelRecipeRelationship} /> : null}
   </> : undefined;
   const selectTraversalScope = (occurrenceId: string) => {
     const editing = recipeOwner.getState();
@@ -4730,8 +4672,45 @@ const BuilderWorkspaceContent = ({
   const traversalNetwork = rootCandidate?.candidateNetwork ?? sourceCandidate?.proposal.candidateNetwork ?? (savedNetwork?.owner === relationshipOwner ? savedNetwork.result.network : undefined);
   const traversalRowIdentity = rootCandidate?.candidateRowIdentity ?? sourceCandidate?.proposal.candidateRowIdentity ?? (proposalPresentationTable ? undefined : savedNetwork?.owner === relationshipOwner ? savedNetwork.result.rowIdentity : undefined);
   const traversalSourceSteps = traversalTable?.document.importedSource?.steps ?? [];
-  const traversalFields = new Map(traversalSourceSteps.flatMap((step) => step.parameters?.fieldGroup
-    ? [[step.id, step.parameters.fieldGroup.fields.map((field) => ({ fieldId: field.fieldId, name: field.name, label: field.label, valueMode: field.valueMode, editable: step.editable }))] as const] : []));
+  const resourceTypeChoices = Array.from(new Set((state.catalog.nodes ?? []).filter((node) => node.populated).map((node) => node.resourceType))).sort();
+  const sourcePathChoices = Array.from(new Set(populatedFieldCandidates.flatMap((candidate) => [
+    ...(candidate.repeated ? [`root.${candidate.fieldPath}[]`] : []),
+    ...(candidate.repeatedBoundaries ?? []).map((boundary) => `root.${boundary.path}[]`),
+  ]))).sort();
+  const fieldPathChoices = Array.from(new Set(populatedFieldCandidates.map((candidate) => candidate.fieldPath))).sort();
+  const fieldKindChoices = Array.from(new Set(populatedFieldCandidates.map((candidate) => candidate.logicalType))).sort();
+  const catalogOutputsForStep = (stepId: string) => {
+    const step = traversalSourceSteps.find((candidate) => candidate.id === stepId && candidate.kind === 'CATALOG_PROJECTION');
+    if (!step?.parameters?.catalog) return [];
+    const overrides = step.parameters.catalog.outputs ?? [];
+    const bindings = traversalNetwork?.bindings.filter((binding) => binding.status === 'EXACT' && binding.sourceStepId === stepId && binding.outputKey) ?? [];
+    const emitted = bindings.flatMap((binding) => {
+      const matches = traversalTable?.document.columns.filter((column) => (column.columnId ?? column.column) === binding.columnId) ?? [];
+      if (matches.length !== 1 || !binding.outputKey) return [];
+      const override = overrides.find((item) => item.fieldPath === binding.outputKey);
+      return [{ outputKey: binding.outputKey, columnId: binding.columnId, defaultName: matches[0].label || matches[0].column, enabled: override?.enabled ?? true }];
+    });
+    const emittedKeys = new Set(emitted.map((output) => output.outputKey));
+    const persistedDisabled = overrides.filter((output) => !output.enabled && !emittedKeys.has(output.fieldPath))
+      .map((output) => ({ outputKey: output.fieldPath, defaultName: output.name ?? output.fieldPath, enabled: false }));
+    return [...emitted, ...persistedDisabled];
+  };
+  const pivotOutputsForStep = (stepId: string) => {
+    const step = traversalSourceSteps.find((candidate) => candidate.id === stepId && candidate.kind === 'PIVOT');
+    if (!step?.parameters?.pivot) return [];
+    const overrides = step.parameters.pivot.outputs ?? [];
+    const bindings = traversalNetwork?.bindings.filter((binding) => binding.status === 'EXACT' && binding.sourceStepId === stepId && binding.outputKey) ?? [];
+    const emitted = bindings.flatMap((binding) => {
+      const matches = traversalTable?.document.columns.filter((column) => (column.columnId ?? column.column) === binding.columnId) ?? [];
+      if (matches.length !== 1 || !binding.outputKey) return [];
+      const override = overrides.find((item) => item.key === binding.outputKey);
+      return [{ outputKey: binding.outputKey, columnId: binding.columnId, defaultName: matches[0].label || matches[0].column, enabled: override?.enabled ?? true }];
+    });
+    const emittedKeys = new Set(emitted.map((output) => output.outputKey));
+    const persistedDisabled = overrides.filter((output) => !output.enabled && !emittedKeys.has(output.key))
+      .map((output) => ({ outputKey: output.key, defaultName: output.name || output.key, enabled: false }));
+    return [...emitted, ...persistedDisabled];
+  };
   const traversalOperationLabels = new Map(traversalSourceSteps.flatMap((step) => {
     const parameters = step.parameters;
     const name = parameters?.dynamic?.name ?? parameters?.extension?.name ?? parameters?.pivot?.name ?? parameters?.catalog?.name ?? parameters?.identity?.name;
@@ -5032,33 +5011,30 @@ const BuilderWorkspaceContent = ({
             {table ? (
               <ConstructionWorkspace
                 composition={workspaceComposition}
+                showNavigationDuringEditor={false}
                 network={recordNetwork}
                 navigation={traversalTable ? <div className="space-y-3">
                   <TraversalScopeNavigator table={traversalTable} network={traversalNetwork} rowIdentity={traversalRowIdentity}
                     showScopeNavigation={false}
                     constructionStages={constructionLifecycle.proposal.status === 'ready' ? constructionLifecycle.proposal.response.stages
                       : constructionCapabilitiesResponse?.outputId === table.outputId && constructionCapabilitiesResponse.snapshotToken === state.catalog.snapshotToken && constructionCapabilitiesResponse.draftVersion === state.draftVersion && constructionCapabilitiesResponse.draftDigest === state.draftDigest ? constructionCapabilitiesResponse.stages : undefined}
-                    selectedOccurrenceId={inspectedOccurrenceId} sourceFieldsByStep={traversalFields} sourceOperationLabels={traversalOperationLabels}
-                    selectedOperation={recipeOwner.state.target?.kind === 'sourceStep' ? { kind: 'source', stepId: recipeOwner.state.target.sourceStepId }
+                    selectedOccurrenceId={inspectedOccurrenceId} sourceOperationLabels={traversalOperationLabels}
+                    selectedOperation={recipeOwner.state.target?.kind === 'sourceStep' ? { kind: 'source', stepId: activeSourceStepId ?? recipeOwner.state.target.sourceStepId }
                       : editingConstructionStepId ? { kind: 'construction', stepId: editingConstructionStepId } : undefined}
                     projectionKind={proposalPresentationTable ? 'proposed' : 'saved'}
                     disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved'}
-                    disabledReason={recipeOwner.state.status !== 'saved' ? 'Apply or Cancel the active change before editing another operation.' : undefined}
+                    sourceStepEditOnly={recipeOwner.state.target?.kind === 'sourceStep' && recipeOwner.state.status !== 'applying' && recipeOwner.state.status !== 'stale'}
+                    sourceOperationNavigationDisabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status === 'applying' || recipeOwner.state.status === 'stale'}
+                    disabledReason={recipeOwner.state.status !== 'saved' ? 'Select an existing source operation to include it in this change.' : undefined}
                     onSelectScope={selectTraversalScope} onEditSourceStep={(stepId) => sourceStepEditAction.current?.(stepId)}
-                    onEditSourceField={(stepId, fieldId) => sourceFieldEditAction.current?.(stepId, fieldId)}
+                    onEditSourceOutput={(stepId, outputKey) => { setActiveSourceStepId(stepId); sourceOutputEditAction.current?.(stepId, outputKey); }}
                     onEditConstructionStep={editConstructionStep} onEditColumn={editTraversalColumn} onEditSourceRows={editTraversalRows}
-                    onAddRelatedValues={() => { selectConstructionFamily('ADD_COLUMNS'); selectAddColumnsView('fields'); }}
-                    onExpandRelatedRows={() => chooseRelatedRows()} onGroupRows={() => chooseReshapeRows('group')} />
-                  <details><summary className="cursor-pointer text-sm font-medium">Other result operations</summary>
-                    <ConstructionActionBar activeFamily={activeConstructionFamily}
+                    onExpandRelatedRows={() => chooseRelatedRows()} onGroupRows={() => chooseReshapeRows('group')}
+                    resultActions={<ConstructionActionBar variant="compact" activeFamily={activeConstructionFamily}
                       disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
                       addColumnsDisabled={addColumnsPreviewPending} combineDisabled={!canStartCombine}
                       calculateAvailable={Boolean(capabilityIsForAppendStage && capabilityStage?.capabilities.some((candidate) => candidate.kind === 'DERIVE' && candidate.supported))}
-                      calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />
-                  </details>
-                  <AuthoringNetworkInspector key={relationshipOwner} client={loomClient} identity={{ project: projectId, explorerId: state.explorerId,
-                    authResourcePath, snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
-                    expectedDraftDigest: state.draftDigest, outputId: table.outputId }} />
+                      calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />} />
                 </div> : undefined}
                 tables={state.tables.map((candidate) => ({
                   outputId: candidate.outputId,
@@ -5212,8 +5188,18 @@ const BuilderWorkspaceContent = ({
                         outputId={table.outputId}
                         importedSource={table.document.importedSource}
                         editorHost={sourceStepInspectorHost}
+                        reviewHost={sourceChangeReviewHost}
                         editActionRef={sourceStepEditAction}
                         fieldEditActionRef={sourceFieldEditAction} navigatorOnly reviewOwnsCancel
+                        outputEditActionRef={sourceOutputEditAction}
+                        resourceTypeChoices={resourceTypeChoices}
+                        sourcePathChoices={sourcePathChoices}
+                        fieldPathChoices={fieldPathChoices}
+                        fieldKindChoices={fieldKindChoices}
+                        catalogOutputsForStep={catalogOutputsForStep}
+                        pivotOutputsForStep={pivotOutputsForStep}
+                        outputRevision={generatedOutputRevision}
+                        onActiveOperationChange={setActiveSourceStepId}
                         onBeginEdit={(stepId) => {
                           if (!recipeMutationAllowed()) return false;
                           constructionLifecycle.cancel();
@@ -5223,9 +5209,11 @@ const BuilderWorkspaceContent = ({
                           rememberRecipeFocus();
                           const token = recipeOwner.begin({ kind: 'sourceStep', sourceStepId: stepId });
                           recipeEditToken.current = token;
-                          return Boolean(token);
+                          if (!token) return false;
+                          setActiveSourceStepId(stepId);
+                          return true;
                         }}
-                        onCancelEdit={cancelRecipeRelationship}
+                        onCancelEdit={() => { setActiveSourceStepId(undefined); cancelRecipeRelationship(); }}
                         onDraftChange={() => {
                           if (recipeEditToken.current) recipeEditToken.current = recipeOwner.changed(recipeEditToken.current);
                           setSourceProposal(undefined);
@@ -5331,6 +5319,8 @@ const BuilderWorkspaceContent = ({
                 }
                 editor={externalWorkspaceEditor}
                 inspection={occurrenceInspection}
+                changeReview={pendingChangeReview}
+                onChangeReviewHostChange={setSourceChangeReviewHost}
                 previewStatus={workspacePreviewStatus}
                 previewReceiptId={workspacePreview?.receiptId}
                 previewOutputId={workspacePreview?.outputId ?? table?.outputId}
@@ -5339,319 +5329,6 @@ const BuilderWorkspaceContent = ({
                 draftDigest={state.draftDigest}
               />
             ) : null}
-            {!activeOperation && !workspaceEditor ? <details
-              className="w-fit max-w-full rounded-md border border-slate-200 bg-white shadow-sm open:w-full"
-              open={sourceSetupOpen || !table?.document.rootResourceType}
-              onToggle={(event) => setSourceSetupOpen(event.currentTarget.open)}
-              data-testid="construction-source-setup"
-            >
-              <summary className="cursor-pointer list-none px-3 py-2 text-xs font-semibold text-blue-800 marker:hidden">
-                <span>Advanced source setup</span>
-              </summary>
-              <div className="space-y-3 border-t border-slate-200 p-3">
-            <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-slate-900">Build your features</h2>
-                  <p className="text-xs text-slate-600">
-                    Choose rows, then find fields or coded concepts. Open the graph when you need route control.
-                  </p>
-                </div>
-                <div
-                  className="inline-flex rounded-md border border-slate-300 bg-slate-50 p-1"
-                  aria-label="Feature authoring view"
-                >
-                  <button
-                    type="button"
-                    aria-pressed={featureMode === 'catalog'}
-                    onClick={() => setFeatureMode('catalog')}
-                    className={`rounded px-3 py-1.5 text-sm font-semibold ${featureMode === 'catalog' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                  >
-                    Concept catalog
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={featureMode === 'graph'}
-                    onClick={() => setFeatureMode('graph')}
-                    className={`rounded px-3 py-1.5 text-sm font-semibold ${featureMode === 'graph' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                  >
-                    Advanced graph
-                  </button>
-                </div>
-              </div>
-            </section>
-            <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(28rem,0.95fr)]">
-              {featureMode === 'catalog' ? (
-                table?.document.rootResourceType ? (
-                  sourceSetupOpen ? <ConceptCatalog
-                  key={`${ownerKey}:${state.catalog.snapshotToken}:${table.document.rootResourceType}`}
-                  project={projectId}
-                  explorerId={state.explorerId}
-                  authResourcePath={authResourcePath}
-                  snapshotToken={state.catalog.snapshotToken}
-                  outputId={table.outputId}
-                  tableContextKey={`${state.draftVersion}:${state.draftDigest}`}
-                  rowRoot={table.document.rootResourceType}
-                  presentationContext={fieldPresentationContext}
-                  semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
-                  catalog={state.catalog}
-                  sourceProjectionAvailability={sourceAvailability}
-                  relatedSourceAvailability={relatedSourceAvailability}
-                  suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-                  disabledReason={sourceSelectionDisabledReason}
-                  disabled={pendingCommands > 0 || state.reconciliation === 'pending' || addColumnsPreviewPending}
-                  onAddSelected={addSelectedFeatures}
-                  onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                  /> : null
-                ) : (
-                  <RowRootPicker
-                    catalog={state.catalog}
-                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                    onChoose={(nodeId) => {
-                      if (!table) return;
-                      void applyCommands([{
-                        type: 'CREATE_TABLE',
-                        title: table.title,
-                        rootNodeId: nodeId,
-                      }]);
-                    }}
-                  />
-                )
-              ) : (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
-                <p>Related records are available beside the result preview in the main editor.</p>
-                <button type="button" className="mt-2 font-semibold underline" onClick={() => {
-                  document.querySelector<HTMLElement>('[aria-label="Record network"]')?.scrollIntoView({ block: 'nearest' });
-                  document.querySelector<HTMLButtonElement>('[aria-label="One row per"]')?.focus();
-                }}>Return to related records</button>
-              </div>
-              )}
-              <div className="min-w-0 space-y-3">
-              <ColumnSelector
-                catalog={state.catalog}
-                interpretationContext={interpretationContext}
-                table={table}
-                occurrenceId={state.selectedOccurrenceId}
-                focusColumn={
-                  reviewFocusColumn && reviewFocusColumn.outputId === table?.outputId
-                    ? reviewFocusColumn.column
-                    : focusedFeature && focusedFeature.table.outputId === table?.outputId
-                      ? focusedFeature.column.column
-                      : undefined
-                }
-                disabled={!occurrence}
-                showAvailable={featureMode === 'graph'}
-                loadingCandidates={suggestionsStatus.isLoading}
-                onAdd={(candidate, displayName, initialPresentation) =>
-                  table &&
-                  void applyCommands([
-                    {
-                      type: 'ADD_COLUMN',
-                      outputId: table.outputId,
-                      occurrenceId: state.selectedOccurrenceId,
-                      candidateId: candidate.candidateId,
-                      projectionMode: candidate.defaultProjectionMode,
-                      initialPresentation,
-                      title: displayName,
-                    },
-                  ])
-                }
-                onAddAll={(candidates) => {
-                  if (!table) return;
-                  void applyCommands(
-                    candidates.map((candidate) => ({
-                      type: 'ADD_COLUMN' as const,
-                      outputId: table.outputId,
-                      occurrenceId: state.selectedOccurrenceId,
-                      candidateId: candidate.candidateId,
-                      projectionMode: candidate.defaultProjectionMode,
-                      initialPresentation: 'TABLE',
-                      title: candidate.label,
-                    })),
-                  );
-                }}
-                onAddSource={(source, title) =>
-                  table &&
-                  void applyCommands([
-                    {
-                      type: 'ADD_COLUMN_SOURCE',
-                      outputId: table.outputId,
-                      occurrenceId: state.selectedOccurrenceId,
-                      source,
-                      title,
-                    },
-                  ])
-                }
-                onChange={(column) => applyPresentationChanges([{ kind: 'AUTHORED_COLUMN', column }])}
-                onColumnsChange={(columns) => applyPresentationChanges(columns.map((column) => ({ kind: 'AUTHORED_COLUMN', column })))}
-                onPresentationChanges={applyPresentationChanges}
-                onConstructionOutputChange={(stepId, column) =>
-                  applyPresentationChanges([{ kind: 'CONSTRUCTION_OUTPUT', stepId, column }])
-                }
-                onRemove={(column) =>
-                  table &&
-                  void applyCommands([
-                    {
-                      type: 'REMOVE_COLUMN',
-                      outputId: table.outputId,
-                      column,
-                    },
-                  ])
-                }
-                onInspectSource={(column) =>
-                  loomClient.inspectColumnSource({
-                    project: projectId,
-                    explorerId: state.explorerId,
-                    authResourcePath,
-                    snapshotToken: state.catalog.snapshotToken,
-                    outputId: table?.outputId ?? '',
-                    column: column.column,
-                    requestId: `column-source-${window.crypto.randomUUID()}`,
-                  })
-                }
-                onEditInGraph={(column) => {
-                  setFeatureMode('graph');
-                  dispatch({
-                    type: 'selectOccurrence',
-                    occurrenceId: column.occurrenceId,
-                  });
-                }}
-                onSourceChange={(column, source) =>
-                  table &&
-                  void applyCommands([
-                    {
-                      type: 'UPDATE_COLUMN_SOURCE',
-                      outputId: table.outputId,
-                      column,
-                      source,
-                    },
-                  ])
-                }
-                onContributorChange={(column, contributor) =>
-                  table &&
-                  void applyCommands([
-                    contributor
-                      ? {
-                          type: 'SET_COLUMN_CONTRIBUTOR',
-                          outputId: table.outputId,
-                          column,
-                          contributor,
-                        }
-                      : {
-                          type: 'CLEAR_COLUMN_CONTRIBUTOR',
-                          outputId: table.outputId,
-                          column,
-                        },
-                  ])
-                }
-                onTransformationChange={(column, transformationChange) =>
-                  table &&
-                  void applyCommands([{
-                    type: 'UPDATE_COLUMN_TRANSFORMATION',
-                    outputId: table.outputId,
-                    column,
-                    transformationChange,
-                  }])
-                }
-                />
-                {featureMode === 'graph' && table && occurrence ? (
-                  selectedRouteContext ? (
-                    sourceSetupOpen ? <ConceptCatalog
-                      key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${occurrence.id}`}
-                      project={projectId}
-                      explorerId={state.explorerId}
-                      authResourcePath={authResourcePath}
-                      snapshotToken={state.catalog.snapshotToken}
-                      outputId={table.outputId}
-                      tableContextKey={`${state.draftVersion}:${state.draftDigest}`}
-                      rowRoot={table.document.rootResourceType}
-                      resourceType={occurrence.resourceType}
-                      routeContext={selectedRouteContext}
-                      presentationContext={selectedRouteContext?.occurrenceId === startingOccurrence?.id
-                        ? fieldPresentationContext
-                        : undefined}
-                      layout="panel"
-                      catalog={state.catalog}
-                      sourceProjectionAvailability={sourceAvailability}
-                      relatedSourceAvailability={relatedSourceAvailability}
-                      suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-                      disabledReason={sourceSelectionDisabledReason}
-                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      onAddSelected={addSelectedFeatures}
-                      onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                    /> : null
-                  ) : (
-                    <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                      Loom could not identify the saved route for this graph occurrence.
-                    </p>
-                  )
-                ) : null}
-              </div>
-            </div>
-            {table ? (
-              <section className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/20 p-3">
-                <h2 className="text-base font-semibold text-indigo-950">Feature meanings</h2>
-                <p className="mt-1 text-sm text-slate-600">Keep the current inline meaning, or review an exact reusable interpretation before applying it.</p>
-                <div className="mt-2 space-y-2">
-                  {table.document.columns.filter((column) => column.occurrenceId === state.selectedOccurrenceId).map((column) => (
-                    <InterpretationPanel
-                      key={column.column}
-                      project={projectId}
-                      explorerId={state.explorerId}
-                      authResourcePath={authResourcePath}
-                      outputId={table.outputId}
-                      column={column}
-                      contextState={interpretationPanelContextState}
-                      snapshotToken={state.catalog.snapshotToken}
-                      expectedDraftVersion={state.draftVersion}
-                      expectedDraftDigest={state.draftDigest}
-                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      onApply={(command) => applyCommands([command])}
-                      onApplied={() => setMessage(undefined)}
-                      onContextRefresh={() => setInterpretationContextRefreshVersion((version) => version + 1)}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-            {table &&
-            !table.document.construction &&
-            activeConstructionFamily !== 'CALCULATE' &&
-            activeConstructionFamily !== 'RESHAPE' ? (
-              <details className="rounded-lg border border-slate-200 bg-white p-3">
-                <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                  Table shape settings
-                </summary>
-                <TableShapeSettingsPanel
-                  client={loomClient}
-                  project={projectId}
-                  explorerId={state.explorerId}
-                  authResourcePath={authResourcePath}
-                  snapshotToken={state.catalog.snapshotToken}
-                  draftVersion={state.draftVersion}
-                  draftDigest={state.draftDigest}
-                  table={table}
-                  disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                  onApply={(proposalId) =>
-                    applyCommands([
-                      {
-                        type: 'APPLY_TABLE_SHAPE_PROPOSAL',
-                        outputId: table.outputId,
-                        proposalId,
-                      },
-                    ])
-                  }
-                />
-              </details>
-            ) : null}
-            {state.receipt && state.reconciliation === 'resolved' && table ? (
-              <DataframeContractPanel
-                receipt={state.receipt}
-                outputId={table.outputId}
-              />
-            ) : null}
-              </div>
-            </details> : null}
           </>
         )}
       </div>

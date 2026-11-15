@@ -10,6 +10,7 @@ import {
   type ConstructionOperationFamily,
 } from './ConstructionWorkspace';
 import { constructionHistorySteps, constructionRowMeaning } from './constructionHistory';
+import { ConstructionColumnSelection } from './ConstructionColumnSelection';
 import { constructionProposalIsApplicable } from './ConstructionProposalPanel';
 import { sourceProjectionAvailability } from './sourceProjectionAvailability';
 import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../types';
@@ -200,7 +201,7 @@ describe('ConstructionWorkspace', () => {
     ])).toBe('For each current row (one row per distinct combination of Status), one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep the current row once with an empty MedicationAdministration FHIR resource ID when no match exists.');
   });
 
-  it('makes all five operation families reachable and explains unavailable calculations', () => {
+  it('lists all five operation families with unavailable calculations explained', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 
     render(<ConstructionActionBar onSelect={onSelect} />);
@@ -208,53 +209,49 @@ describe('ConstructionWorkspace', () => {
     const actions = [
       ['ADD_COLUMNS', 'Add columns'],
       ['KEEP_ROWS', 'Filter rows'],
+      ['CALCULATE', 'Add a calculated column'],
+      ['RESHAPE', 'Pivot / reshape'],
+      ['COMBINE', 'Combine'],
     ] as const;
+    expect(screen.queryByTestId('construction-more-actions')).not.toBeInTheDocument();
     for (const [family, label] of actions) {
       const button = screen.getByTestId(
         `construction-action-${family.toLowerCase().replace('_', '-')}`,
       );
       expect(button.getAttribute('aria-label')).toContain(label);
+      if (family === 'CALCULATE') {
+        expect(button).toBeDisabled();
+        expect(button).toHaveAttribute('title', 'Calculation is unavailable for the current table stage.');
+        continue;
+      }
       fireEvent.click(button);
       expect(onSelect).toHaveBeenLastCalledWith(family);
     }
-    const moreActions = screen.getByTestId('construction-more-actions');
-    fireEvent.click(moreActions);
-    expect(moreActions).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.keyDown(moreActions, { key: 'Escape' });
-    expect(screen.queryByTestId('construction-more-actions-menu')).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(moreActions);
-    fireEvent.click(moreActions);
-    const menu = screen.getByRole('group', { name: 'More table actions' });
-    const calculate = within(menu).getByTestId('construction-action-calculate');
-    const reshape = within(menu).getByTestId('construction-action-reshape');
-    const combine = within(menu).getByTestId('construction-action-combine');
-    expect(calculate).toBeDisabled();
-    expect(calculate).toHaveAttribute('title', 'Calculation is unavailable for the current table stage.');
-    expect(within(menu).getByRole('status')).toHaveTextContent('Calculation is unavailable for the current table stage.');
-    expect(reshape).toBeEnabled();
-    expect(combine).toBeEnabled();
-    fireEvent.click(reshape);
-    expect(onSelect).toHaveBeenLastCalledWith('RESHAPE');
-    fireEvent.click(moreActions);
-    const reopenedMenu = screen.getByRole('group', { name: 'More table actions' });
-    fireEvent.click(within(reopenedMenu).getByTestId('construction-action-combine'));
-    expect(onSelect).toHaveBeenLastCalledWith('COMBINE');
   });
 
   it('keeps Calculate, Reshape, and Combine reachable when calculation is supported', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
     render(<ConstructionActionBar onSelect={onSelect} calculateAvailable />);
 
-    fireEvent.click(screen.getByTestId('construction-more-actions'));
-    const menu = screen.getByRole('group', { name: 'More table actions' });
-    const calculate = within(menu).getByTestId('construction-action-calculate');
-    const reshape = within(menu).getByTestId('construction-action-reshape');
-    const combine = within(menu).getByTestId('construction-action-combine');
+    const calculate = screen.getByTestId('construction-action-calculate');
+    const reshape = screen.getByTestId('construction-action-reshape');
+    const combine = screen.getByTestId('construction-action-combine');
     expect(calculate).toBeEnabled();
     expect(reshape).toBeEnabled();
     expect(combine).toBeEnabled();
     fireEvent.click(calculate);
     expect(onSelect).toHaveBeenCalledWith('CALCULATE');
+  });
+
+  it('selects operation input columns from a searchable dropdown', () => {
+    const onToggleColumn = vi.fn();
+    render(<ConstructionColumnSelection
+      columns={[{ id: 'alpha', label: 'Alpha', type: 'string' }, { id: 'beta', label: 'Beta', type: 'integer' }]}
+      selectedColumnIds={[]} onToggleColumn={onToggleColumn} onClear={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search input columns' }), { target: { value: 'beta' } });
+    expect(screen.queryByTestId('construction-column-alpha')).toBeNull();
+    fireEvent.click(screen.getByTestId('construction-column-beta'));
+    expect(onToggleColumn).toHaveBeenCalledWith('beta');
   });
 
   it('groups only contiguous column adjustments and opens the selected group', () => {
@@ -343,7 +340,6 @@ describe('ConstructionWorkspace', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
     render(<ConstructionActionBar onSelect={onSelect} calculateAvailable />);
 
-    fireEvent.click(screen.getByTestId('construction-more-actions'));
     const calculate = screen.getByTestId('construction-action-calculate');
     expect(calculate).toBeEnabled();
     expect(calculate).toHaveTextContent('Calculate');
@@ -367,7 +363,6 @@ describe('ConstructionWorkspace', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
     render(<ConstructionActionBar onSelect={onSelect} />);
 
-    fireEvent.click(screen.getByTestId('construction-more-actions'));
     const combine = screen.getByTestId('construction-action-combine');
     expect(combine).toBeEnabled();
     expect(combine).toHaveAttribute('aria-label', 'Combine tables: Create a new table by joining or stacking table versions.');
@@ -1130,6 +1125,13 @@ it('uses one bounded shared fact slot and gives mutation editors precedence', ()
  expect(screen.getByLabelText('Change editor')).toHaveTextContent('Pending mutation');
 });
 
+it('keeps the existing operation navigator available while a source-step editor is open', () => {
+ const navigation = <nav aria-label="Existing traversal operations"><button type="button">Fields from Patient</button></nav>;
+ const props={preview:<p>Rows</p>,previewStatus:'ready' as const,draftVersion:1,draftDigest:'draft',tables:[{outputId:'subjects',title:'Subjects'}],selectedOutputId:'subjects',onSelectTable:vi.fn(),onNewTable:vi.fn(),onDuplicateTable:vi.fn(),onDeleteTable:vi.fn(),onRenameTable:vi.fn(),onSelectFamily:vi.fn()};
+ render(<ConstructionWorkspace {...props} navigation={navigation} editor={<p>Source step editor</p>} showNavigationDuringEditor />);
+ expect(screen.getByRole('navigation',{name:'Existing traversal operations'})).toBeInTheDocument();
+});
+
 it('expands each workspace panel to the viewport and restores it with Escape or its close button without remounting content', () => {
   const view = render(<ConstructionWorkspace
     tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
@@ -1146,7 +1148,7 @@ it('expands each workspace panel to the viewport and restores it with Escape or 
   expect(graphPanel).toHaveAttribute('data-expanded', 'true');
   expect(traversalNode).toBeInTheDocument();
   fireEvent.keyDown(traversalNode, { key: 'Tab' });
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close expanded Related records' }));
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Back from expanded Related records' }));
   fireEvent.keyDown(graphPanel, { key: 'Tab', shiftKey: true });
   expect(document.activeElement).toBe(traversalNode);
   fireEvent.keyDown(traversalNode, { key: 'Escape' });
@@ -1159,7 +1161,7 @@ it('expands each workspace panel to the viewport and restores it with Escape or 
   fireEvent.click(preview, { detail: 1 });
   expect(preview).toHaveAttribute('data-expanded', 'true');
   expect(screen.getByText('Rows preview')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Close expanded Table result' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Back from expanded Table result' }));
   expect(preview).not.toHaveAttribute('data-expanded');
   expect(document.activeElement).toBe(preview);
 
@@ -1169,13 +1171,9 @@ it('expands each workspace panel to the viewport and restores it with Escape or 
   fireEvent.click(editorField);
   expect(panel).not.toHaveAttribute('data-expanded');
   fireEvent.click(panel, { detail: 1 });
-  expect(panel).toHaveAttribute('data-expanded', 'true');
-  fireEvent.change(editorField, { target: { value: 'edited while expanded' } });
-  fireEvent.keyDown(editorField, { key: 'Escape' });
   expect(panel).not.toHaveAttribute('data-expanded');
-  expect(document.activeElement).toBe(panel);
   expect(screen.getByRole('textbox', { name: 'Expanded editor field' })).toBe(editorField);
-  expect((editorField as HTMLInputElement).value).toBe('edited while expanded');
+  expect((editorField as HTMLInputElement).value).toBe('edited while compact');
   expect(view.container.querySelector('[data-expanded="true"]')).toBeNull();
 });
 
@@ -1203,7 +1201,7 @@ it('does not expand from interactive content or a dragged panel background', () 
   fireEvent.click(editor, { button: 0, detail: 1, clientX: 10, clientY: 10 });
   expect(editor).not.toHaveAttribute('data-expanded');
   fireEvent.click(editor, { button: 0, detail: 1, clientX: 10, clientY: 10 });
-  expect(editor).toHaveAttribute('data-expanded', 'true');
+  expect(editor).not.toHaveAttribute('data-expanded');
 });
 
 it('clears graph expansion when its optional network disappears without changing the persistent editor panel', () => {
@@ -1222,7 +1220,7 @@ it('clears graph expansion when its optional network disappears without changing
   fireEvent.click(screen.getByRole('complementary', { name: 'Recipe editor' }), { detail: 1 });
   view.rerender(<ConstructionWorkspace {...props} editor={undefined} />);
   view.rerender(<ConstructionWorkspace {...props} />);
-  expect(screen.getByRole('complementary', { name: 'Recipe editor' })).toHaveAttribute('data-expanded', 'true');
+  expect(screen.getByRole('complementary', { name: 'Recipe editor' })).not.toHaveAttribute('data-expanded');
 });
 
 

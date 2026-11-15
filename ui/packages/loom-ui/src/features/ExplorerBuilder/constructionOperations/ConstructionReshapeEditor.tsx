@@ -330,9 +330,9 @@ const reshapeFormLabels = {
   'coded-group': 'Group by coded value',
   expand: 'Expand repeated values',
   'related-expand': 'One row per related record',
-  'coded-pivot': 'Coded values as columns',
-  pivot: 'Turn categories into columns',
-  unpivot: 'Turn columns into rows',
+  'coded-pivot': 'Pivot coded values into columns',
+  pivot: 'Pivot categories into columns',
+  unpivot: 'Unpivot columns into rows',
 } satisfies Record<Exclude<ReshapeForm['kind'], 'choose' | 'unsupported'>, string>;
 
 export interface ConstructionReshapeEditorProps {
@@ -2517,7 +2517,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
                 onClick={() => setChoiceIntent('reshape')}
                 className="grid gap-1 rounded-lg border border-slate-200 px-3 py-2 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:opacity-50">
                 <span className="text-sm font-semibold text-slate-900">Reshape table</span>
-                <span className="text-xs text-slate-600">Turn categories into columns or selected columns into rows.</span>
+                <span className="text-xs text-slate-600">Pivot categories into columns, unpivot columns into rows, or group rows.</span>
               </button>
             </div>
           ) : (
@@ -2568,7 +2568,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
                   {codedPivotSupport.supported && props.codedPivotContext ? (
                     <ReshapeChoice
                       testId="construction-reshape-choice-coded-pivot"
-                      title="Coded values as columns"
+                      title="Pivot coded values into columns"
                       rows="One per source record."
                       columns="One per selected code, filled from its paired value."
                       supported={codedPivotSupport.supported}
@@ -2579,7 +2579,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
                   ) : null}
                   <ReshapeChoice
                     testId="construction-reshape-choice-pivot"
-                    title="Turn categories into columns"
+                    title="Pivot categories into columns"
                     rows="One per unique combination of row values."
                     columns="One per accepted category, filled from the chosen value field."
                     supported={newPivotSupport.supported}
@@ -2589,7 +2589,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
                   />
                   <ReshapeChoice
                     testId="construction-reshape-choice-unpivot"
-                    title="Turn columns into rows"
+                    title="Unpivot columns into rows"
                     rows="One per selected column."
                     columns="One source-name field and one value field."
                     supported={unpivotSupport.supported}
@@ -3047,13 +3047,13 @@ const GroupRowValuesEditor = (props: {
   });
 
   return (
-    <fieldset data-testid="construction-group-add-columns" className="grid gap-2 border-0 p-0" disabled={props.disabled || !props.supported}>
-      <legend className="m-0 p-0 text-sm font-semibold text-slate-800">Contributor values</legend>
+    <fieldset data-testid="construction-group-add-columns" className="grid gap-3 rounded-md border border-slate-200 bg-white p-3" disabled={props.disabled || !props.supported}>
+      <legend className="m-0 px-1 text-xs font-semibold text-slate-700">Contributor values</legend>
       <p className="m-0 text-xs text-slate-600">Keep values from the records that contributed to each group. Group keys stay ahead of these columns.</p>
       {props.form.rowValues.length > 0 ? (
         <div data-testid="construction-group-retained-values" className="grid gap-1">
         {props.form.rowValues.map((value, index) => (
-          <div key={value.outputColumnId} data-testid="construction-group-row-value" className="grid gap-1 rounded bg-slate-50 px-2 py-1.5 sm:grid-cols-[minmax(0,1fr)_8rem_8rem_auto] sm:items-end">
+          <div key={value.outputColumnId} data-testid="construction-group-row-value" className="grid gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 sm:grid-cols-[minmax(0,1fr)_8rem_8rem_auto] sm:items-end">
             <div className="min-w-0">
               <p className="m-0 truncate text-sm font-medium text-slate-800" title={value.displayLabel}>{value.displayLabel}</p>
               <p className="m-0 truncate text-xs text-slate-500" title={value.scopeLabel}>{value.scopeLabel}</p>
@@ -3091,8 +3091,8 @@ const GroupRowValuesEditor = (props: {
         ))}
         </div>
       ) : null}
-      <details data-testid="construction-group-add-columns-browser" className="grid gap-2">
-        <summary className="cursor-pointer text-sm font-medium text-blue-800">Add contributor value</summary>
+      <details data-testid="construction-group-add-columns-browser" className="grid gap-3">
+        <summary className="w-fit cursor-pointer rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-50">Add contributor value</summary>
         <div className="grid gap-2">
           <label className="grid max-w-xl gap-1 text-xs font-medium text-slate-700">
             Search fields to add
@@ -3109,11 +3109,11 @@ const GroupRowValuesEditor = (props: {
             <button type="button" data-testid="construction-group-add-columns-clear-search" onClick={() => setRowValueSearch('')}
               className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
           ) : null}
-          <div data-testid="construction-group-add-columns-field-list" className="grid max-h-52 gap-1 overflow-y-auto">
+          <div data-testid="construction-group-add-columns-field-list" className="grid max-h-64 overflow-y-auto">
             {visibleRowValueChoices.map((choice) => {
               const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
               return (
-                <label key={`row-value:${choiceId}`} className="flex min-w-0 items-start gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                <label key={`row-value:${choiceId}`} className="flex min-w-0 items-start gap-2 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50">
                   <input
                     type="checkbox"
                     value={choiceId}
@@ -3131,7 +3131,7 @@ const GroupRowValuesEditor = (props: {
               );
             })}
             {visibleInputColumns.map((column) => (
-              <label key={`row-input:${column.id}`} className="flex min-w-0 items-start gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+              <label key={`row-input:${column.id}`} className="flex min-w-0 items-start gap-2 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50">
                 <input type="checkbox" value={column.id}
                   data-testid={`construction-group-add-column-input-${column.id}`}
                   aria-label={`Add column ${column.label}`} checked={false}
@@ -3497,12 +3497,12 @@ const GroupEditor = (props: {
   };
 
   return (
-    <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="construction-reshape-group-editor grid content-start gap-2">
+    <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="construction-reshape-group-editor grid content-start gap-4">
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
 
-      <div className="grid items-start gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
-        <fieldset className="grid min-w-0 content-start gap-2 border-0 p-0" disabled={props.disabled || !props.supported}>
-          <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Group by</legend>
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+        <fieldset className="grid min-w-0 content-start gap-3 rounded-md border border-slate-200 bg-white p-3" disabled={props.disabled || !props.supported}>
+          <legend className="m-0 px-1 text-xs font-semibold text-slate-700">Group by</legend>
           <p className="m-0 text-xs text-slate-600">Select the fields that define each output row.</p>
           <div data-testid="construction-group-selected-keys" className="grid gap-1">
             {selectedScalarColumns.map((column) => renderScalarChoice(column, true))}
@@ -3529,7 +3529,7 @@ const GroupEditor = (props: {
             </p>
           ) : null}
           <details data-testid="construction-group-by-browser" className="grid gap-2">
-            <summary className="cursor-pointer text-sm font-medium text-blue-800">Add grouping field</summary>
+            <summary className="w-fit cursor-pointer rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-50">Add grouping field</summary>
             <div className="grid gap-2">
               <label className="grid gap-1 text-xs font-medium text-slate-700">
                 Search fields
@@ -3546,7 +3546,7 @@ const GroupEditor = (props: {
                 <button type="button" data-testid="construction-group-by-clear-search" onClick={() => setGroupSearch('')}
                   className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
               ) : null}
-              <div data-testid="construction-group-by-field-list" className="grid max-h-52 gap-1 overflow-y-auto">
+              <div data-testid="construction-group-by-field-list" className="grid max-h-64 overflow-y-auto">
                 {visibleScalarColumns.map((column) => renderScalarChoice(column, false))}
                 {visibleSourceFieldChoices.map(renderFieldChoice)}
                 {visibleSemanticChoices.map((choice) => renderSemanticChoice(choice, false))}
@@ -3611,8 +3611,8 @@ const GroupEditor = (props: {
           ) : null}
         </fieldset>
 
-        <fieldset className="grid min-w-0 content-start gap-2 border-0 p-0" disabled={props.disabled || !props.supported}>
-          <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Summaries</legend>
+        <fieldset className="grid min-w-0 content-start gap-3 rounded-md border border-slate-200 bg-white p-3" disabled={props.disabled || !props.supported}>
+          <legend className="m-0 px-1 text-xs font-semibold text-slate-700">Summaries</legend>
           <p className="m-0 text-xs text-slate-600">Count rows needs no field; other summaries use a compatible field.</p>
           {props.form.aggregates.length === 0 ? (
             <p role="status" className="m-0 text-sm text-amber-900">Add at least one summary before proposing this group.</p>
@@ -3621,7 +3621,7 @@ const GroupEditor = (props: {
             const inputColumns = aggregateInputColumnsFor(props.stage, aggregate.operation);
             const operation: GroupAggregateKind = aggregate.operation;
             return (
-              <div key={aggregate.outputColumnId} data-testid={`construction-reshape-aggregate-${index}`} className="grid items-end gap-2 rounded bg-slate-50 px-2 py-1.5 sm:grid-cols-[minmax(8rem,0.8fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_auto]">
+              <div key={aggregate.outputColumnId} data-testid={`construction-reshape-aggregate-${index}`} className="grid items-end gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 sm:grid-cols-[minmax(8rem,0.8fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_auto]">
                 <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
                   Summary
                   <select
@@ -3707,7 +3707,7 @@ const GroupEditor = (props: {
       />
 
       <details data-testid="construction-reshape-group-advanced" className="grid gap-2">
-        <summary className="cursor-pointer py-1 text-sm font-medium text-slate-700">Advanced options</summary>
+        <summary className="w-fit cursor-pointer rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Advanced options</summary>
         <div className="grid gap-2">
           {props.form.keys.length > 0 || props.form.fieldKeys.length > 0 || props.form.semanticKey ? (
             <label className="grid gap-1 text-sm font-medium text-slate-800">
@@ -4530,6 +4530,7 @@ const PivotEditor = (props: {
   readonly onChange: (form: PivotForm) => void;
 }) => {
   const [categorySearch, setCategorySearch] = useState('');
+  const [columnFilter, setColumnFilter] = useState('');
   const columns = scalarColumnsFor(props.stage);
   const repeatedColumns = props.stage.columns.filter((column) => column.cardinality === 'many');
   const discoveryMatches = pivotDiscoveryMatches(props.form, props.stage.id, props.discovery);
@@ -4622,6 +4623,8 @@ const PivotEditor = (props: {
     props.onChange({ ...next, pivotSources: bindings.filter((binding) => used.has(binding.columnId)) });
   };
   const sourceOptions = props.sourceChoices.filter((choice) => choice.isPopulated && !props.form.pivotSources?.some((binding) => binding.choiceId === choice.choiceId));
+  const columnFilterText = columnFilter.trim().toLowerCase();
+  const filteredGroupColumns = columns.filter((column) => !columnFilterText || column.label.toLowerCase().includes(columnFilterText) || (column.type ?? '').toLowerCase().includes(columnFilterText));
 
   const toggleGroup = (columnId: string, checked: boolean) => {
     const groupKeyIds = checked
@@ -4705,8 +4708,9 @@ const PivotEditor = (props: {
           <div className="grid items-start gap-3 sm:grid-cols-3">
             <fieldset className="grid min-w-0 content-start gap-2 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
               <legend className="px-1 text-sm font-semibold text-slate-800">One row per</legend>
-              <div className="grid max-h-28 gap-1 overflow-auto">
-                {columns.map((column) => {
+              <input aria-label="Search pivot row fields" value={columnFilter} onChange={(event) => setColumnFilter(event.currentTarget.value)} placeholder="Search columns" className="w-full rounded border border-slate-300 px-2 py-1 text-xs" />
+              <div className="grid max-h-44 gap-1 overflow-auto">
+                {filteredGroupColumns.map((column) => {
                   const label = pivotColumnLabel(column);
                   return (
                     <label key={column.id} title={pivotColumnTitle(column)} className="flex items-center gap-2 text-sm text-slate-700">
@@ -4721,6 +4725,7 @@ const PivotEditor = (props: {
                     </label>
                   );
                 })}
+                {filteredGroupColumns.length === 0 ? <p className="px-1 text-xs text-slate-500">{columns.length === 0 ? 'No columns are available.' : 'No columns match this search.'}</p> : null}
               </div>
               {sourceOptions.length > 0 ? <select aria-label="Add pivot group field" value="" disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('group', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
                 <option value="">Add another field</option>
@@ -5048,7 +5053,7 @@ const UnpivotEditor = (props: {
   );
 
   return (
-    <section aria-label="Turn columns into rows" data-testid="construction-reshape-unpivot" className="grid content-start gap-3">
+    <section aria-label="Unpivot columns into rows" data-testid="construction-reshape-unpivot" className="grid content-start gap-3">
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       <fieldset className="grid gap-1" disabled={props.disabled || !props.supported}>
         <legend className="m-0 text-sm font-semibold text-slate-800">Columns to turn into rows</legend>

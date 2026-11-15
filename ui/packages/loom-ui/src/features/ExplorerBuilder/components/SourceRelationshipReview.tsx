@@ -7,7 +7,6 @@ import type {
   SourceRelationshipProposal,
   SourceRelationshipProposalWithPreview,
 } from '../../../types';
-import { ConstructionProposalPreview } from '../constructionWorkspace/ConstructionProposalPreview';
 
 type PreparedSourceProposal = Pick<SourceRelationshipProposal, 'candidateDocument' | 'proposalId'> &
   Partial<Pick<SourceRelationshipProposal, 'affectedColumns' | 'notices'>>;
@@ -24,6 +23,7 @@ interface BaseProps {
   readonly disabled: boolean;
   readonly onApply: (commands: ExplorerBuilderCommand[]) => Promise<boolean>;
   readonly onCancel: () => void;
+  readonly relationshipDescription?: string;
   readonly requestControllerRef?: { current: AbortController | undefined };
   readonly onPreviewStart?: () => {
     ready: (proposal: SourceRelationshipProposalWithPreview, preview: ExplorerBuilderPreviewResult) => boolean;
@@ -119,39 +119,14 @@ export function SourceRelationshipReview(props: Props) {
   const visibleResult = props.prepared ?? result;
   const externallyPreparing = props.preparing ?? false;
   const visibleError = props.preparationError ?? error;
-  const candidateLabels = new Map(visibleResult?.proposal.candidateDocument?.columns.map((column) => [column.columnId ?? column.column, column.label || column.column]));
-  const affectedFields = visibleResult?.proposal.affectedColumns?.map((id) => ({
-    id, label: candidateLabels.get(id) || props.columnLabels?.get(id) || 'Field label unavailable',
-  })) ?? [];
   const sourceEdit = Boolean(props.sourceStep || props.sourceSteps);
-  return <section aria-label={sourceEdit ? 'Proposed source step' : 'Proposed related records'} className="construction-source-review rounded border border-blue-300 bg-blue-50 p-3">
-    <div className="construction-inspector-body">
-    <h3 className="text-sm font-semibold">{props.sourceSteps ? `Review ${props.sourceSteps.length} source changes` : sourceEdit ? 'Review source change' : 'Review relationship'}</h3>
-    {!sourceEdit ? <p className="text-sm">{props.change?.action === 'REMOVE'
-      ? 'Remove this connection. Review affected operations before Apply.'
-      : props.change?.matchMode === 'REQUIRED'
-        ? 'Require a matching record on this path. This does not expand rows.'
-        : 'Keep input rows when this path has no match. Connecting records does not expand rows.'}</p> : null}
-    {visibleError ? <p role="alert" className="text-sm text-red-800">{visibleError}</p> : null}
-    {visibleResult ? <>
-      <ul className="text-sm">{(visibleResult.proposal.notices ?? []).map((notice, i) => <li key={i}>{notice}</li>)}</ul>
-      {affectedFields.length ? <>
-        <details className="text-xs">
-          <summary className="cursor-pointer">Affected fields ({affectedFields.length})</summary>
-          <ul className="max-h-24 overflow-auto">{affectedFields.map((field) => <li key={field.id}>{field.label}</li>)}</ul>
-        </details>
-        <details className="text-xs text-slate-600">
-          <summary className="cursor-pointer">Technical column identities</summary>
-          <ul className="max-h-24 overflow-auto break-all">{affectedFields.map((field) => <li key={field.id}>{field.label}: <code>{field.id}</code></li>)}</ul>
-        </details>
-      </> : <p className="text-xs">No existing output fields are affected.</p>}
-      {!props.sharedPreview ? <div className="max-h-64 overflow-auto"><ConstructionProposalPreview preview={visibleResult.preview} partialValidationMessage="Only displayed rows were checked in this preview." /></div> : null}
-    </> : null}
-    </div>
-    <div className="construction-inspector-footer mt-2 flex flex-wrap gap-2">
-      <button type="button" disabled={busy || externallyPreparing || props.disabled} onClick={() => void preview()} className="rounded border bg-white px-3 py-1 text-sm">{externallyPreparing ? 'Preparing connection…' : busy ? 'Working…' : sourceEdit ? 'Preview source step' : 'Preview relationship'}</button>
-      <button type="button" data-testid={sourceEdit ? "imported-source-step-apply" : undefined} disabled={!visibleResult || busy || externallyPreparing || props.disabled} onClick={() => void apply()} className="rounded bg-blue-700 px-3 py-1 text-sm text-white disabled:opacity-50">{sourceEdit ? 'Apply source step' : 'Apply relationship'}</button>
-      <button type="button" disabled={busy && !!visibleResult} onClick={cancel} className="rounded border bg-white px-3 py-1 text-sm">Cancel</button>
-    </div>
+  const summary = sourceEdit
+    ? props.sourceSteps ? `${props.sourceSteps.length} source changes` : 'Source change'
+    : `${props.change?.action === 'ADD' ? 'Add' : props.change?.action === 'REMOVE' ? 'Remove' : 'Update'}${props.relationshipDescription ? `: ${props.relationshipDescription}` : ''}`;
+  return <section aria-label={sourceEdit ? 'Proposed source step' : 'Proposed related records'} className="flex flex-wrap items-center justify-end gap-1">
+    {visibleError ? <p role="alert" className="mr-auto text-xs text-red-800">{visibleError}</p> : sourceEdit ? null : <p className="mr-auto min-w-0 truncate text-xs text-slate-700" title={summary}>{summary}</p>}
+    <button type="button" disabled={busy || externallyPreparing || props.disabled} onClick={() => void preview()} className="h-8 rounded border border-slate-300 bg-white px-3 text-sm">{externallyPreparing ? 'Preparing…' : busy ? 'Working…' : sourceEdit ? 'Preview source step' : 'Preview relationship'}</button>
+    <button type="button" data-testid={sourceEdit ? 'imported-source-step-apply' : undefined} disabled={!visibleResult || busy || externallyPreparing || props.disabled} onClick={() => void apply()} className="h-8 rounded bg-blue-700 px-3 text-sm text-white disabled:opacity-50">{sourceEdit ? 'Apply source step' : 'Apply relationship'}</button>
+    <button type="button" disabled={busy && !!visibleResult} onClick={cancel} className="h-8 rounded border border-slate-300 bg-white px-3 text-sm">Cancel</button>
   </section>;
 }

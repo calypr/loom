@@ -57,8 +57,8 @@ const allOperationFamilies = [
   },
   {
     family: 'RESHAPE',
-    label: 'Reshape',
-    description: 'Change what rows and columns represent.',
+    label: 'Pivot / reshape',
+    description: 'Pivot categories into columns, unpivot columns into rows, or group rows.',
   },
   {
     family: 'COMBINE',
@@ -94,6 +94,7 @@ export const ConstructionActionBar = ({
   combineDisabled = false,
   calculateAvailable = false,
   calculateUnavailableReason = 'Calculation is unavailable for the current table stage.',
+  variant = 'default',
   onSelect,
 }: {
   readonly activeFamily?: ConstructionOperationFamily;
@@ -102,18 +103,11 @@ export const ConstructionActionBar = ({
   readonly combineDisabled?: boolean;
   readonly calculateAvailable?: boolean;
   readonly calculateUnavailableReason?: string;
+  readonly variant?: 'default' | 'compact';
   readonly onSelect: (family: ConstructionOperationFamily) => void;
 }) => {
-  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
-  const moreActionsRef = useDismissibleLayer<HTMLDivElement>(moreActionsOpen, setMoreActionsOpen);
-  const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
-  const primaryFamilies = allOperationFamilies.filter(({ family }) =>
-    family === 'ADD_COLUMNS' || family === 'KEEP_ROWS'
-  );
-  const secondaryFamilies = allOperationFamilies.filter(({ family }) =>
-    family === 'CALCULATE' || family === 'RESHAPE' || family === 'COMBINE'
-  );
-  const renderAction = (family: ConstructionOperationFamily, inMenu = false) => {
+  const compactButtonClass = 'rounded border border-slate-300 bg-white px-2 py-1 text-left text-xs text-blue-900 disabled:opacity-50';
+  const renderAction = (family: ConstructionOperationFamily) => {
     const operation = allOperationFamilies.find((candidate) => candidate.family === family);
     if (!operation) return null;
     const { label, description } = operation;
@@ -125,13 +119,10 @@ export const ConstructionActionBar = ({
         aria-pressed={activeFamily === family}
         data-testid={`construction-action-${family.toLowerCase().replace('_', '-')}`}
         disabled={disabled || (family === 'ADD_COLUMNS' && addColumnsDisabled) || (family === 'COMBINE' && combineDisabled) || (family === 'CALCULATE' && !calculateAvailable)}
-        onClick={() => {
-          if (inMenu) setMoreActionsOpen(false);
-          onSelect(family);
-        }}
+        onClick={() => onSelect(family)}
         title={family === 'CALCULATE' && !calculateAvailable ? calculateUnavailableReason : description}
-        className={inMenu
-          ? 'rounded px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50'
+        className={variant === 'compact'
+          ? `${compactButtonClass} ${activeFamily === family ? 'bg-blue-100' : 'hover:bg-blue-50'}`
           : `h-8 min-w-0 rounded-md px-3 text-left text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
             activeFamily === family
               ? 'bg-blue-100 text-blue-950'
@@ -144,48 +135,8 @@ export const ConstructionActionBar = ({
   };
 
   return (
-    <nav aria-label="Table actions" className="flex flex-wrap items-center gap-1.5">
-      {primaryFamilies.map(({ family }) => renderAction(family))}
-      <div
-        ref={moreActionsRef}
-        className="relative"
-        onKeyDown={(event) => {
-          if (event.key !== 'Escape' || !moreActionsOpen) return;
-          event.preventDefault();
-          event.stopPropagation();
-          setMoreActionsOpen(false);
-          moreActionsButtonRef.current?.focus();
-        }}
-      >
-        <button
-          ref={moreActionsButtonRef}
-          type="button"
-          aria-haspopup="true"
-          aria-expanded={moreActionsOpen}
-          aria-label="More actions"
-          data-testid="construction-more-actions"
-          disabled={disabled}
-          onClick={() => setMoreActionsOpen((open) => !open)}
-          className="h-8 rounded-md bg-transparent px-3 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          More actions
-        </button>
-        {moreActionsOpen ? (
-          <div
-            role="group"
-            aria-label="More table actions"
-            data-testid="construction-more-actions-menu"
-            className="construction-more-actions-menu absolute right-0 top-full z-30 mt-1 grid min-w-40 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
-          >
-            {secondaryFamilies.map(({ family }) => renderAction(family, true))}
-            {!calculateAvailable ? (
-              <p role="status" className="px-2.5 py-1 text-[11px] text-slate-500">
-                {calculateUnavailableReason}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+    <nav aria-label="Table actions" className={`flex flex-wrap items-center ${variant === 'compact' ? 'gap-1' : 'gap-1.5'}`}>
+      {allOperationFamilies.map(({ family }) => renderAction(family))}
     </nav>
   );
 };
@@ -551,7 +502,10 @@ export const ConstructionWorkspace = ({
   presentationActionRef,
   preview,
   editor,
+  showNavigationDuringEditor = false,
   inspection,
+  changeReview,
+  onChangeReviewHostChange,
   previewStatus,
   previewReceiptId,
   previewOutputId,
@@ -586,7 +540,10 @@ export const ConstructionWorkspace = ({
   readonly presentationActionRef?: { current: ((view: 'both' | 'network' | 'row') => void) | undefined };
   readonly preview: React.ReactNode;
   readonly editor?: React.ReactNode;
+  readonly showNavigationDuringEditor?: boolean;
   readonly inspection?: React.ReactNode;
+  readonly changeReview?: React.ReactNode;
+  readonly onChangeReviewHostChange?: (node: HTMLDivElement | null) => void;
   readonly previewStatus: 'empty' | 'stale' | 'previewing' | 'needs-repair' | 'error' | 'ready';
   readonly previewReceiptId?: string;
   readonly previewOutputId?: string;
@@ -594,14 +551,33 @@ export const ConstructionWorkspace = ({
   readonly draftVersion: number;
   readonly draftDigest: string;
 }) => {
-  const [expandedPanel, setExpandedPanel] = useState<'graph' | 'preview' | 'editor' | undefined>();
+  const [expandedPanel, setExpandedPanel] = useState<'graph' | 'preview' | undefined>();
   const workspaceRootRef = useRef<HTMLDivElement>(null);
-  const panelRefs = useRef<Partial<Record<'graph' | 'preview' | 'editor', HTMLElement | null>>>({});
-  const panelPointerStart = useRef<{ readonly panel: 'graph' | 'preview' | 'editor'; readonly pointerId: number; readonly x: number; readonly y: number; readonly maxDistance: number; readonly eligibleStart: boolean } | undefined>(undefined);
+  const panelRefs = useRef<Partial<Record<'graph' | 'preview', HTMLElement | null>>>({});
+  const resultRegionRef = useRef<HTMLDivElement | null>(null);
+  const [inspectorWidth, setInspectorWidth] = useState<number>();
+  const resizableInspector = composition !== 'inspector-below';
+  const beginInspectorResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const region = resultRegionRef.current;
+    if (!region) return;
+    event.preventDefault();
+    const rect = region.getBoundingClientRect();
+    const move = (moveEvent: PointerEvent) => {
+      const next = Math.min(Math.max(rect.right - moveEvent.clientX, 288), Math.max(rect.width * 0.7, 288));
+      setInspectorWidth(next);
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop, { once: true });
+  };
+  const panelPointerStart = useRef<{ readonly panel: 'graph' | 'preview'; readonly pointerId: number; readonly x: number; readonly y: number; readonly maxDistance: number; readonly eligibleStart: boolean } | undefined>(undefined);
   if (expandedPanel === 'graph' && !network) {
     setExpandedPanel(undefined);
   }
-  const changeExpandedPanel = (panel: 'graph' | 'preview' | 'editor' | undefined) => {
+  const changeExpandedPanel = (panel: 'graph' | 'preview' | undefined) => {
     const focusPanel = panel ?? expandedPanel;
     if (focusPanel) panelRefs.current[focusPanel]?.focus({ preventScroll: true });
     setExpandedPanel(panel);
@@ -613,9 +589,7 @@ export const ConstructionWorkspace = ({
     if (target.closest('[role="dialog"], [role="listbox"], [role="menu"], [data-radix-popper-content-wrapper], .mantine-Popover-dropdown, [data-dismissible-layer]')) return;
     const selector = expandedPanel === 'graph'
       ? '.construction-authored-region[data-expanded="true"]'
-      : expandedPanel === 'preview'
-        ? '[data-testid="construction-preview"][data-expanded="true"]'
-        : '.construction-side-panel[data-expanded="true"]';
+      : '[data-testid="construction-preview"][data-expanded="true"]';
     const panel = workspaceRootRef.current?.querySelector<HTMLElement>(selector);
     if (!panel) return;
     if (event.key === 'Escape') {
@@ -650,11 +624,11 @@ export const ConstructionWorkspace = ({
     event.preventDefault();
     focusable[nextIndex]!.focus();
   };
-  const panelControls = (panel: 'graph' | 'preview' | 'editor', label: string) => expandedPanel === panel ? (
+  const panelControls = (panel: 'graph' | 'preview', label: string) => expandedPanel === panel ? (
     <div className="construction-panel-controls">
-      <button type="button" aria-label={`Close expanded ${label}`} title="Close expanded panel (Esc)"
-        onClick={() => changeExpandedPanel(undefined)}>
-        <span aria-hidden="true">×</span>
+      <button type="button" aria-label={`Back from expanded ${label}`} title="Back to builder (Esc)"
+        className="construction-panel-back" onClick={() => changeExpandedPanel(undefined)}>
+        <span aria-hidden="true">←</span> Back
       </button>
     </div>
   ) : null;
@@ -666,20 +640,20 @@ export const ConstructionWorkspace = ({
     const selection = window.getSelection();
     return !(selection && !selection.isCollapsed && selection.toString().length > 0);
   };
-  const onPanelPointerDown = (panel: 'graph' | 'preview' | 'editor') => (event: React.PointerEvent<HTMLElement>) => {
+  const onPanelPointerDown = (panel: 'graph' | 'preview') => (event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     panelPointerStart.current = { panel, pointerId: event.pointerId, x: event.clientX, y: event.clientY, maxDistance: 0,
       eligibleStart: isPanelBackgroundTarget(event.currentTarget, event.target) };
   };
-  const onPanelPointerMove = (panel: 'graph' | 'preview' | 'editor') => (event: React.PointerEvent<HTMLElement>) => {
+  const onPanelPointerMove = (panel: 'graph' | 'preview') => (event: React.PointerEvent<HTMLElement>) => {
     const start = panelPointerStart.current;
     if (!start || start.panel !== panel || start.pointerId !== event.pointerId) return;
     panelPointerStart.current = { ...start, maxDistance: Math.max(start.maxDistance, Math.hypot(event.clientX - start.x, event.clientY - start.y)) };
   };
-  const onPanelPointerCancel = (panel: 'graph' | 'preview' | 'editor') => (event: React.PointerEvent<HTMLElement>) => {
+  const onPanelPointerCancel = (panel: 'graph' | 'preview') => (event: React.PointerEvent<HTMLElement>) => {
     if (panelPointerStart.current?.panel === panel && panelPointerStart.current.pointerId === event.pointerId) panelPointerStart.current = undefined;
   };
-  const onPanelBackgroundClick = (panel: 'graph' | 'preview' | 'editor') => (event: React.MouseEvent<HTMLElement>) => {
+  const onPanelBackgroundClick = (panel: 'graph' | 'preview') => (event: React.MouseEvent<HTMLElement>) => {
     const start = panelPointerStart.current;
     panelPointerStart.current = undefined;
     if (expandedPanel || event.defaultPrevented || event.button !== 0 || event.detail === 0) return;
@@ -687,7 +661,7 @@ export const ConstructionWorkspace = ({
     if (!isPanelBackgroundTarget(event.currentTarget, event.target)) return;
     changeExpandedPanel(panel);
   };
-  const onPanelKeyDown = (panel: 'graph' | 'preview' | 'editor') => (event: React.KeyboardEvent<HTMLElement>) => {
+  const onPanelKeyDown = (panel: 'graph' | 'preview') => (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.target !== event.currentTarget || expandedPanel || (event.key !== 'Enter' && event.key !== ' ')) return;
     event.preventDefault();
     changeExpandedPanel(panel);
@@ -722,23 +696,27 @@ export const ConstructionWorkspace = ({
     data-draft-digest={draftDigest}
     className="construction-workspace mx-auto flex w-full max-w-[1920px] flex-col gap-2"
   >
-      <div inert={expandedPanel ? true : undefined}>
-      <ConstructionTableNavigation
-        tables={tables}
-        selectedOutputId={selectedOutputId}
-        disabled={tableActionsDisabled || Boolean(expandedPanel)}
-        onSelectTable={onSelectTable}
-        onNewTable={onNewTable}
-        onDuplicateTable={onDuplicateTable}
-        onDeleteTable={onDeleteTable}
-        onRenameTable={onRenameTable}
-      />
+      <div className="flex flex-wrap items-center gap-2" inert={expandedPanel ? true : undefined}>
+        <div className="min-w-0 flex-1">
+          <ConstructionTableNavigation
+            tables={tables}
+            selectedOutputId={selectedOutputId}
+            disabled={tableActionsDisabled || Boolean(expandedPanel)}
+            onSelectTable={onSelectTable}
+            onNewTable={onNewTable}
+            onDuplicateTable={onDuplicateTable}
+            onDeleteTable={onDeleteTable}
+            onRenameTable={onRenameTable}
+          />
+        </div>
+        {changeReview || onChangeReviewHostChange ? <div aria-label="Pending change actions" className="construction-change-review flex shrink-0 flex-wrap items-center justify-end gap-2"><div ref={onChangeReviewHostChange} className="min-w-0" />{changeReview}</div> : null}
       </div>
       <div className="construction-controller-host" inert={expandedPanel ? true : undefined}>{controllers}</div>
-      <div data-composition={composition} data-has-editor={editor || inspection ? 'true' : undefined}
-        data-expanded-panel={expandedPanel}
-        data-has-network={network ? 'true' : undefined} className="construction-result-region">
-        <div className="construction-main-panel" inert={expandedPanel === 'editor' ? true : undefined}>
+      <div ref={resultRegionRef} data-composition={composition} data-has-editor={editor || inspection ? 'true' : undefined}
+        data-expanded-panel={expandedPanel} data-has-resize-handle={resizableInspector ? 'true' : undefined}
+        data-has-network={network ? 'true' : undefined} className="construction-result-region"
+        style={inspectorWidth ? ({ '--inspector-width': `${inspectorWidth}px` } as React.CSSProperties) : undefined}>
+        <div className="construction-main-panel">
         {network ? <section aria-label="Related records" tabIndex={expandedPanel === 'graph' ? -1 : 0} aria-keyshortcuts="Enter Space"
           onPointerDownCapture={onPanelPointerDown('graph')} onPointerMoveCapture={onPanelPointerMove('graph')} onPointerCancelCapture={onPanelPointerCancel('graph')} onClick={onPanelBackgroundClick('graph')} onKeyDown={onPanelKeyDown('graph')}
           ref={(node) => { panelRefs.current.graph = node; }} inert={expandedPanel !== undefined && expandedPanel !== 'graph' ? true : undefined}
@@ -746,6 +724,7 @@ export const ConstructionWorkspace = ({
           {panelControls('graph', 'Related records')}
           <div ref={editorFocusRef} tabIndex={-1} className="construction-authored-content">{network}</div>
         </section> : null}
+
 
         <section
           aria-label="Table result"
@@ -762,25 +741,23 @@ export const ConstructionWorkspace = ({
           ref={(node) => { panelRefs.current.preview = node; }} inert={expandedPanel !== undefined && expandedPanel !== 'preview' ? true : undefined}
           className="construction-result-preview min-w-0 bg-white"
         >
-          <div className="construction-panel-heading"><p data-testid="recipe-result-identity">{proposalId ? 'Proposed recipe result' : 'Saved recipe result'}</p>{panelControls('preview', 'Table result')}</div>
+          <div className="construction-panel-heading"><p data-testid="recipe-result-identity" className="sr-only">{proposalId ? 'Proposed recipe result' : 'Saved recipe result'}</p>{panelControls('preview', 'Table result')}</div>
           {preview}
         </section>
         </div>
-        <aside aria-label="Recipe editor" data-expanded={expandedPanel === 'editor' ? 'true' : undefined}
-          tabIndex={expandedPanel === 'editor' ? -1 : 0} aria-keyshortcuts="Enter Space"
-          onPointerDownCapture={onPanelPointerDown('editor')} onPointerMoveCapture={onPanelPointerMove('editor')} onPointerCancelCapture={onPanelPointerCancel('editor')} onClick={onPanelBackgroundClick('editor')} onKeyDown={onPanelKeyDown('editor')}
-          ref={(node) => { panelRefs.current.editor = node; }} inert={expandedPanel !== undefined && expandedPanel !== 'editor' ? true : undefined} className="construction-side-panel">
-          {panelControls('editor', 'Recipe editor')}
+        {resizableInspector ? <div role="separator" aria-orientation="vertical" aria-label="Resize table and editor"
+          data-testid="construction-inspector-resize" onPointerDown={beginInspectorResize} className="construction-resize-handle construction-resize-handle-vertical" /> : null}
+        <aside aria-label="Recipe editor" className="construction-side-panel">
           <div className="construction-source-controls">{rowSetup}{history?.sourceSteps}</div>
           {editor ? <section aria-label="Change editor" className="construction-active-editor min-h-0 min-w-0">{editor}</section> : null}
-          <div hidden={Boolean(editor)} className="construction-scope-navigation">
-            {!editor && inspection ? <div aria-label="Recipe fact inspector" className="construction-fact-inspector min-h-0 min-w-0">{inspection}</div> : null}
+          <div hidden={Boolean(editor) && !showNavigationDuringEditor} className="construction-scope-navigation">
             {navigation ?? (!editor ? <ConstructionActionBar
               activeFamily={activeFamily} disabled={actionsDisabled}
               addColumnsDisabled={addColumnsDisabled} combineDisabled={combineDisabled}
               calculateAvailable={calculateAvailable} calculateUnavailableReason={calculateUnavailableReason}
               onSelect={onSelectFamily}
             /> : null)}
+            {!editor && inspection ? <div aria-label="Recipe fact inspector" className="construction-fact-inspector min-h-0 min-w-0">{inspection}</div> : null}
           </div>
           {history && !navigation ? <details className="construction-history-disclosure">
             <summary>Ordered operation history ({history.steps.length})</summary>

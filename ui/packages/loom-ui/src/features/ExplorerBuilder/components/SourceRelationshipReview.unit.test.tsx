@@ -26,32 +26,19 @@ function setup(overrides: Partial<LoomClient> = {}) {
   return { proposeSourceRelationship, preview, onApply, onCancel };
 }
 describe('native source proposal ownership', () => {
-  it('shows authoritative field labels and keeps opaque identities in collapsed details', async () => {
-    const reviewed = { ...proposal, affectedColumns: ['opaque-status', 'opaque-removed', 'opaque-unavailable'],
-      candidateDocument: { columns: [{ columnId: 'opaque-status', column: 'status', label: 'Subject status' }] } };
-    render(<SourceRelationshipReview client={{ proposeSourceRelationship: vi.fn().mockResolvedValue(reviewed), preview: vi.fn().mockResolvedValue(rows) } as unknown as LoomClient}
-      project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects" disabled={false}
-      change={{ action: 'REMOVE', occurrenceId: 'observation' }} columnLabels={new Map([['opaque-status', 'Previous status label'], ['opaque-removed', 'Observation value']])}
-      onApply={vi.fn()} onCancel={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
-    const fields = (await screen.findByText('Affected fields (3)')).closest('details')!;
-    expect(within(fields).getByText('Subject status')).toBeInTheDocument();
-    expect(within(fields).getByText('Observation value')).toBeInTheDocument();
-    expect(within(fields).getByText('Field label unavailable')).toBeInTheDocument();
-    expect(within(fields).queryByText('Previous status label')).not.toBeInTheDocument();
-    const identities = screen.getByText('Technical column identities').closest('details')!;
-    expect(identities).not.toHaveAttribute('open');
-    for (const id of reviewed.affectedColumns) {
-      expect(within(fields).queryByText(id)).not.toBeInTheDocument();
-      expect(within(identities).getByText(id)).toBeInTheDocument();
-    }
+  it('names the connection before its preview is ready', () => {
+    render(<SourceRelationshipReview client={{} as LoomClient} project="qa" explorerId="editor" snapshotToken="s1"
+      draftVersion={2} draftDigest="d2" outputId="subjects" disabled={false}
+      change={{ action: 'ADD', parentOccurrenceId: 'patient', edgeId: 'specimen', matchMode: 'OPTIONAL' }}
+      relationshipDescription="Patient → Specimen via specimen" onApply={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByText('Add: Patient → Specimen via specimen')).toBeInTheDocument();
   });
   it('requires successful exact-receipt Preview before Apply and applies only the proposal', async () => {
     const calls = setup();
     const apply = screen.getByRole('button', { name: 'Apply relationship' }) as HTMLButtonElement;
     expect(apply.disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
-    await screen.findByText('Candidate values');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply relationship' })).toBeEnabled());
     expect(calls.preview).not.toHaveBeenCalled();
     expect(calls.onApply).not.toHaveBeenCalled();
     fireEvent.click(apply);
@@ -97,7 +84,7 @@ it('rejects mismatched embedded preview receipt and never enables Apply', async 
       project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects"
       disabled={false} sourceStep={sourceStep} onApply={onApply} onCancel={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Preview source step' }));
-    await screen.findByText('Candidate values');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply source step' })).toBeEnabled());
     expect(proposeSourceRelationship).toHaveBeenCalledWith(expect.objectContaining({ sourceStep }), expect.any(AbortSignal));
     expect(proposeSourceRelationship.mock.calls[0][0]).not.toHaveProperty('change');
     expect(onApply).not.toHaveBeenCalled();
@@ -136,7 +123,7 @@ it('previews a coupled source edit as one atomic request and applies only its re
   sourceSteps={sourceSteps} onApply={onApply} onCancel={vi.fn()} />);
  expect(screen.getByRole('button',{name:'Apply source step'})).toBeDisabled();
  fireEvent.click(screen.getByRole('button',{name:'Preview source step'}));
- await screen.findByText('Candidate values');
+ await waitFor(() => expect(screen.getByRole('button', { name: 'Apply source step' })).toBeEnabled());
  expect(proposeSourceRelationship).toHaveBeenCalledTimes(1);
  const request=proposeSourceRelationship.mock.calls[0][0];
  expect(request.sourceSteps).toEqual(sourceSteps);

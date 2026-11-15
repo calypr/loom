@@ -13,11 +13,12 @@ const argumentLabel = (call: string, index: number) => call === 'uuid5' && index
   : call === 'join' && index === 1 ? 'Separator' : `Argument ${index + 1}`;
 
 /** Edits the existing recipe.Expression tree. Array order is execution order. */
-export function SourceExpressionEditor({ value, onChange, label, disabled = false }: {
+export function SourceExpressionEditor({ value, onChange, label, disabled = false, pathChoices }: {
   readonly value: SourceRecipeExpression;
   readonly onChange: (value: SourceRecipeExpression) => void;
   readonly label: string;
   readonly disabled?: boolean;
+  readonly pathChoices?: ReadonlyArray<string>;
 }) {
   const unsupported = value.document ? 'a document reference'
     : value.call && !sourceExpressionFunctions.some((name) => name === value.call) ? `the function ${value.call}`
@@ -32,7 +33,12 @@ export function SourceExpressionEditor({ value, onChange, label, disabled = fals
         onChange(next === 'select' ? { select: 'root.id' } : next === 'call' ? { call: 'first', args: [{ select: 'root.id' }] } : { literal: '' });
       }}><option value="select">Select a source path</option><option value="literal">Literal value</option><option value="call">Function</option></select>
     </label>
-    {typeof value.select === 'string' ? <label className="grid gap-1 text-xs">Source path<input aria-label={`${label} source path`} className={inputClass} value={value.select} onChange={(event) => onChange({ select: event.currentTarget.value })} /></label> : null}
+    {typeof value.select === 'string' ? <label className="grid gap-1 text-xs">Source path
+      {pathChoices !== undefined ? <select aria-label={`${label} source path`} className={inputClass} value={value.select} onChange={(event) => onChange({ select: event.currentTarget.value })}>
+        {!pathChoices.includes(value.select) ? <option value={value.select}>{value.select || 'Choose a source path'}</option> : null}
+        {pathChoices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+      </select> : <input aria-label={`${label} source path`} className={inputClass} value={value.select} onChange={(event) => onChange({ select: event.currentTarget.value })} />}
+    </label> : null}
     {Object.hasOwn(value, 'literal') ? <div className="space-y-2">
       <label className="flex items-center gap-2 text-xs">Literal type<select aria-label={`${label} literal type`} className={inputClass} value={value.literal === null ? 'null' : typeof value.literal}
         onChange={(event) => onChange({ literal: event.currentTarget.value === 'null' ? null : event.currentTarget.value === 'boolean' ? false : event.currentTarget.value === 'number' ? 0 : '' })}>

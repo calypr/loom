@@ -301,7 +301,7 @@ const CodedPivotEditorBody = ({
   };
 
   return (
-    <section aria-label="Coded values as columns" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+    <section aria-label="Pivot coded values into columns" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       {unavailableReason ? <p role="status" className="m-0 rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{unavailableReason}</p> : null}
       <p className="m-0 text-sm text-slate-600">Keep one row per {rowRoot} record. Each selected code becomes a column filled by its paired value.</p>
       <label className="block text-sm font-medium text-slate-800">Find a coded source

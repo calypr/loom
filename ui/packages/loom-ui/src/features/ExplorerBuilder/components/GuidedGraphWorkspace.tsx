@@ -195,12 +195,14 @@ export const GuidedGraphWorkspace = ({
   presentation = 'catalog',
   showSelectionDetails = true,
   headerStatus,
+  headerPath,
   rowControl,
   rowMeaning,
   importedRelationshipActions,
 }: {
   readonly presentation?: 'catalog' | 'compact' | 'traversal';
   readonly headerStatus?: React.ReactNode;
+  readonly headerPath?: string;
   /** The traversal-first owner supplies the single contextual inspector. */
   readonly showSelectionDetails?: boolean;
   readonly rowControl?: React.ReactNode;
@@ -808,17 +810,17 @@ export const GuidedGraphWorkspace = ({
         role={isExpanded ? 'dialog' : undefined}
         aria-modal={isExpanded ? true : undefined}
         aria-label={isExpanded ? 'Expanded dataset graph' : traversalPresentation ? 'Record network' : undefined}
-        className={`flex min-w-0 flex-col p-3 ${isExpanded ? 'fixed inset-3 z-50 h-[calc(100dvh-1.5rem)] min-h-0 rounded-xl border border-slate-200 bg-white shadow-xl' : compact ? 'relative h-[26rem] min-h-0 rounded-lg border border-slate-200 bg-white' : traversalPresentation ? 'relative h-[28rem] min-h-0 rounded-lg border border-slate-200 bg-white' : 'relative h-[min(70dvh,52rem)] min-h-[43rem] bg-white/60'}`}
+        className={`flex min-w-0 flex-col p-3 ${isExpanded ? 'fixed inset-3 z-50 h-[calc(100dvh-1.5rem)] min-h-0 rounded-xl border border-slate-200 bg-white shadow-xl' : compact ? 'relative h-[26rem] min-h-0 rounded-sm border-0 bg-white' : traversalPresentation ? 'relative h-full min-h-0 rounded-sm border-0 bg-white' : 'relative h-[min(70dvh,52rem)] min-h-[43rem] bg-white/60'}`}
       >
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            {!traversalPresentation ? <h2 className="text-base font-semibold text-slate-900">
+            {traversalPresentation ? (headerPath ? <p data-testid="selected-occurrence-path" className="truncate text-xs font-semibold text-slate-700" title={headerPath}>{headerPath}</p> : null) : <h2 className="text-base font-semibold text-slate-900">
               {compact ? 'Related records' : 'Dataset graph'}{' '}
               <span className="ml-1 text-xs font-normal text-slate-400">
                 {catalog.nodes.length} resources · {catalog.edges.length}{' '}
                 relationships
               </span>
-            </h2> : null}
+            </h2>}
           </div>
           <div
             data-testid="graph-header-controls"

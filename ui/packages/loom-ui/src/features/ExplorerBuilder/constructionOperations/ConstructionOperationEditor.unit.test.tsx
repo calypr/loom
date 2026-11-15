@@ -680,7 +680,6 @@ describe('ConstructionOperationEditor', () => {
       });
 
       const status = screen.getByTestId('construction-filter-source-unavailable');
-      expect(status).toHaveTextContent('FILTER_SOURCE_AFTER_GROUP');
       expect(status).toHaveTextContent('Loom cannot filter on unselected fields after rows are grouped.');
       expect(sourceOptgroup(filterSourceSelect())).toBeNull();
     });
@@ -1110,7 +1109,7 @@ describe('ConstructionOperationEditor', () => {
       });
 
       expect(screen.getByTestId('construction-calculate-left-source-unavailable'))
-        .toHaveTextContent('NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS · No populated numeric root scalar is available.');
+        .toHaveTextContent('No populated numeric root scalar is available.');
       expect(sourceOptgroup(operandColumn('First'))).toBeNull();
     });
   });
@@ -1250,7 +1249,7 @@ describe('ConstructionOperationEditor', () => {
         },
       });
       expect(screen.getByTestId('construction-filter-source-unavailable').textContent)
-        .toContain('FILTER_SOURCE_REQUIRES_SCALAR_KIND');
+        .toContain('Filters need scalar fields.');
       expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
     });
   });

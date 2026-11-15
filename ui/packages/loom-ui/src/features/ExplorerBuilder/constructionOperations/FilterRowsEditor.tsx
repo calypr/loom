@@ -37,14 +37,14 @@ export const FilterRowsEditor = ({
   const relatedSupport = capabilities.selectedStage.capabilities.find((capability) => capability.kind === 'RELATED_ELIGIBILITY');
   const relatedAvailable = Boolean(relatedSupport?.supported && capabilities.selectedStage.relatedExpandAnchors?.length);
   return (
-    <div className="grid gap-4">
-      {!editingStep ? <fieldset className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
-        <legend className="px-1 font-semibold text-slate-900">Filter rows by</legend>
+    <div className="grid gap-3">
+      {!editingStep ? <fieldset className="grid gap-2 border-0 p-0 text-sm">
+        <legend className="m-0 px-1 text-xs font-semibold text-slate-700">Filter rows by</legend>
         <div className="flex flex-wrap gap-2">
           {([['COLUMN', 'A value in this table'], ['RELATED', 'Related records']] as const).map(([value, label]) => (
             <button key={value} type="button" aria-pressed={selectedMode === value} disabled={disabled || (value === 'RELATED' && !relatedAvailable)}
               onClick={() => { setMode(value); onCandidateChange(undefined); }}
-              className={`rounded-md border px-3 py-2 font-medium ${selectedMode === value ? 'border-blue-700 bg-blue-50 text-blue-900' : 'border-slate-300 text-slate-700 hover:border-blue-300'}`}>
+              className={`rounded border px-2.5 py-1 text-xs font-medium ${selectedMode === value ? 'border-blue-700 bg-blue-50 text-blue-900' : 'border-slate-300 text-slate-700 hover:border-blue-300'}`}>
               {label}
             </button>
           ))}

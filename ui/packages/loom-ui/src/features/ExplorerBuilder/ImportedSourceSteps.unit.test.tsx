@@ -41,17 +41,18 @@ const sourcePlan = {
 
 const renderSourceSteps = (
   props: Partial<Parameters<typeof ImportedSourceSteps>[0]> = {},
+  navigation?: React.ReactNode,
 ) => {
   const onRefresh = vi.fn<() => Promise<boolean>>().mockResolvedValue(true);
   const onApply = vi.fn<(command: ExplorerBuilderCommand) => Promise<boolean>>().mockResolvedValue(true);
   const view = render(
-    <ImportedSourceSteps
+    <>{navigation}<ImportedSourceSteps
       outputId="patients"
       importedSource={sourcePlan}
       onRefresh={onRefresh}
       onApply={onApply}
       {...props}
-    />,
+    /></>,
   );
   for (const group of screen.queryAllByTestId(/^source-step-group-/)) {
     if (group instanceof HTMLDetailsElement) group.open = true;
@@ -60,16 +61,15 @@ const renderSourceSteps = (
 };
 
 describe('ImportedSourceSteps', () => {
-  it('uses related-record wording and keeps the exact technical route available in details', () => {
+  it('does not render a redundant summary or text-only relationship details', () => {
     renderSourceSteps({ importedSource: { steps: [{
       id: 'patient-route', kind: 'TRAVERSAL', title: 'Traversal to Patient via subject_Patient',
       summary: 'Optional relationship with nested source steps.', enabled: true, editable: true,
     }] } });
     fireEvent.click(screen.getByRole('button', { name: 'Source step 1: Related Patient records' }));
-    expect(screen.getByText('Use fields from these related records. A match is optional.')).toBeTruthy();
-    const technical = screen.getByText('Traversal to Patient via subject_Patient');
-    expect(technical.closest('details')).toHaveProperty('open', false);
-    expect(screen.getByText('Relationship details')).toBeTruthy();
+    expect(screen.queryByText('Use fields from these related records. A match is optional.')).toBeNull();
+    expect(screen.queryByText('Relationship details')).toBeNull();
+    expect(screen.queryByText('Traversal to Patient via subject_Patient')).toBeNull();
   });
 
   it('groups only adjacent columns in one scope and never moves a step across a traversal', () => {
@@ -89,15 +89,14 @@ describe('ImportedSourceSteps', () => {
     expect(groupSourceSteps(Array.from({ length: 100 }, (_, i) => ({ ...sourcePlan.steps[0], id: `column-${i}` })))).toHaveLength(1);
   });
 
-  it('keeps descriptions in one selected inspector while every recipe step stays selectable', () => {
+  it('keeps one selected inspector while every recipe step stays selectable', () => {
     renderSourceSteps();
     expect(screen.getAllByRole('button', { name: /^Source step / })).toHaveLength(3);
     expect(screen.queryByText(sourcePlan.steps[0].summary)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Source step 1: Patient fields' }));
-    expect(screen.getByText(sourcePlan.steps[0].summary)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Source step 3: Observation values' }));
     expect(screen.queryByText(sourcePlan.steps[0].summary)).toBeNull();
-    expect(screen.getByText(sourcePlan.steps[2].summary)).toBeTruthy();
+    expect(screen.queryByText(sourcePlan.steps[2].summary)).toBeNull();
     expect(screen.getByText('Under Observation')).toBeTruthy();
     expect(screen.getAllByTestId('imported-source-step-editor')).toHaveLength(1);
   });
@@ -135,14 +134,14 @@ describe('ImportedSourceSteps', () => {
     const onApply = vi.fn<(command: ExplorerBuilderCommand) => Promise<boolean>>().mockResolvedValue(false);
     renderSourceSteps({ onApply });
 
-    fireEvent.click(screen.getByTestId('imported-source-step-fields'));
-    fireEvent.click(screen.getByLabelText(/Run operation Patient fields/));
+    fireEvent.click(screen.getByTestId('imported-source-step-traversals[0].pivots[0]'));
+    fireEvent.change(screen.getByTestId('imported-source-value-mode'), { target: { value: 'ALL' } });
     fireEvent.click(screen.getByTestId('imported-source-step-apply'));
 
     await waitFor(() => expect(onApply).toHaveBeenCalledWith({
       type: 'UPDATE_IMPORTED_SOURCE_STEP',
       outputId: 'patients',
-      sourceStep: { stepId: 'fields', enabled: false },
+      sourceStep: expect.objectContaining({ stepId: 'traversals[0].pivots[0]', valueMode: 'ALL' }),
     }));
     expect(screen.getByTestId('imported-source-step-editor')).toBeTruthy();
   });
@@ -165,19 +164,6 @@ describe('ImportedSourceSteps', () => {
   });
 });
 
- it.each(['Optional relationship selection follows an external policy.', 'Required relationship selection follows an external policy.'])(
-  'preserves an unfamiliar relationship explanation: %s', (summary) => {
-    renderSourceSteps({ importedSource: { steps: [{
-      id: 'unknown', kind: 'TRAVERSAL', title: 'Unfamiliar relationship description',
-      summary, enabled: true, editable: true,
-    }] } });
-    fireEvent.click(screen.getByRole('button', { name: 'Source step 1: Unfamiliar relationship description' }));
-    const editor = screen.getByTestId('imported-source-step-editor');
-    const primarySummary = editor.querySelector('[aria-label^="Operation settings"] p');
-    expect(primarySummary?.textContent).toBe(summary);
-  },
-);
-
 it('keeps navigator-only parameter editing on the existing shared review and cancellation path', () => {
   const parameters = { fieldGroup: { fields: [{fieldId:'fields[0]',enabled:true,name:'id',expr:{select:'root.id'}},{fieldId:'fields[1]',enabled:true,name:'status',expr:{select:'root.status'}}] } };
   const editActionRef: {current: ((stepId:string)=>void)|undefined}={current:undefined};
@@ -188,18 +174,18 @@ it('keeps navigator-only parameter editing on the existing shared review and can
     renderReview:(change)=><pre data-testid="reviewed-parameters">{JSON.stringify(change)}</pre>});
   expect(screen.queryByTestId('imported-source-step-list')).toBeNull();
   act(()=>editActionRef.current?.('fields'));
-  screen.getByText('1. id').closest('details')!.open=true;
-  fireEvent.change(screen.getByRole('textbox',{name:'Field 1 name'}),{target:{value:'record_id'}});
+  screen.getByText('id').closest('details')!.open=true;
+  fireEvent.change(screen.getByRole('combobox',{name:'Field 1 value policy'}),{target:{value:'ALL'}});
   expect(changed).toHaveBeenCalledOnce();
   const review=JSON.parse(screen.getByTestId('reviewed-parameters').textContent!);
-  expect(review).toEqual({stepId:'fields',enabled:true,parameters:{fieldGroup:{fields:[{...parameters.fieldGroup.fields[0],name:'record_id'},parameters.fieldGroup.fields[1]]}}});
+  expect(review).toEqual({stepId:'fields',enabled:true,parameters:{fieldGroup:{fields:[{...parameters.fieldGroup.fields[0],valueMode:'ALL'},parameters.fieldGroup.fields[1]]}}});
   const reviewedBeforeNavigation=screen.getByTestId('reviewed-parameters').textContent;
   act(()=>fieldEditActionRef.current?.('fields','fields[1]'));
-  expect(screen.getByRole('textbox',{name:'Field 2 name'}).closest('details')?.open).toBe(true);
+  expect(screen.getByRole('combobox',{name:'Field 2 value policy'}).closest('details')?.open).toBe(true);
   expect(screen.getByTestId('reviewed-parameters').textContent).toBe(reviewedBeforeNavigation);
   expect(changed).toHaveBeenCalledOnce();
   act(()=>editActionRef.current?.('traversals[0]'));
-  expect((screen.getByRole('textbox',{name:'Field 1 name'}) as HTMLInputElement).value).toBe('record_id');
+  expect((screen.getByRole('combobox',{name:'Field 1 value policy'}) as HTMLSelectElement).value).toBe('ALL');
   expect(parameters.fieldGroup.fields[0].name).toBe('id');
   fireEvent.click(screen.getByRole('button',{name:'Close'}));
   expect(canceled).toHaveBeenCalledOnce();expect(screen.queryByTestId('imported-source-step-editor')).toBeNull();
@@ -214,42 +200,73 @@ it('stages an expansion alias and explicit dependent selector edits in one revie
     {id:'identity',kind:'IDENTITY',title:'Member identity',summary:'Stable member row identity',enabled:true,editable:true,parameters:{identity:{name:'id',expr:{select:'member.entity.reference'}}}},
     {id:'fields',kind:'FIELD_GROUP',title:'Member fields',summary:'Projected member fields',enabled:true,editable:true,parameters:{fieldGroup:{fields:[{fieldId:'member_id',enabled:true,name:'member_id',expr:{select:'member.entity.reference'}}]}}},
   ]} satisfies NonNullable<ExplorerBuilderDocument['importedSource']>;
+  const navigation = <nav aria-label="Existing traversal operations">
+    <button type="button" onClick={() => editActionRef.current?.('expand')}>Expand</button>
+    <button type="button" onClick={() => editActionRef.current?.('identity')}>Member identity</button>
+    <button type="button" onClick={() => editActionRef.current?.('fields')}>Member fields</button>
+  </nav>;
   const {onRefresh,onApply,view}=renderSourceSteps({importedSource:source,navigatorOnly:true,editActionRef,fieldEditActionRef,onBeginEdit:begin,onDraftChange:draftChange,onCancelEdit:cancel,
-    renderReview:(change,_close,batch)=><pre data-testid="batch-review">{JSON.stringify(batch ?? [change])}</pre>});
+    renderReview:(change,_close,batch)=><pre data-testid="batch-review">{JSON.stringify(batch ?? [change])}</pre>}, navigation);
   act(()=>editActionRef.current?.('expand'));
   fireEvent.change(screen.getByRole('textbox',{name:'Expanded item alias'}),{target:{value:'participant'}});
-  const operations=screen.getByRole('list',{name:'Existing recipe operations'});
-  expect(within(operations).getAllByRole('listitem')).toHaveLength(3);
-  expect(within(operations).getByRole('button',{name:/Include operation Row identity · id/}).textContent).toMatch(/2\.\s*Row identity · id/);
-  expect(within(operations).getByRole('button',{name:/Include operation Member fields/}).textContent).toMatch(/3\.\s*Member fields/);
-  fireEvent.click(within(operations).getByRole('button',{name:/Include operation Row identity · id/}));
+  expect(screen.queryByRole('region', { name: 'Recipe operations' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Member identity' }));
   expect(screen.queryByRole('textbox',{name:'Expanded item alias'})).toBeNull();
   expect((screen.getByRole('textbox',{name:'Row identity expression source path'}) as HTMLInputElement).value).toBe('member.entity.reference');
   fireEvent.change(screen.getByRole('textbox',{name:'Row identity expression source path'}),{target:{value:'participant.entity.reference'}});
-  fireEvent.click(within(operations).getByRole('button',{name:/Include operation Member fields/}));
-  expect(screen.getByRole('list',{name:'Existing recipe operations'}).querySelectorAll('li')).toHaveLength(3);
+  fireEvent.click(screen.getByRole('button', { name: 'Member fields' }));
   expect(screen.queryByRole('textbox',{name:'Row identity expression source path'})).toBeNull();
-  expect((screen.getByRole('textbox',{name:'Field 1 expression source path'}) as HTMLInputElement).value).toBe('member.entity.reference');
+  expect((screen.getByRole('combobox',{name:'Field 1 value policy'}) as HTMLSelectElement).value).toBe('');
   act(()=>fieldEditActionRef.current?.('fields','member_id'));
-  expect((screen.getByRole('textbox',{name:'Field 1 expression source path'}) as HTMLInputElement).value).toBe('member.entity.reference');
-  fireEvent.change(screen.getByRole('textbox',{name:'Field 1 expression source path'}),{target:{value:'participant.entity.reference'}});
-  fireEvent.click(screen.getByRole('button',{name:/Edit operation Row identity/}));
+  fireEvent.change(screen.getByRole('combobox',{name:'Field 1 value policy'}),{target:{value:'ALL'}});
+  fireEvent.click(screen.getByRole('button', { name: 'Member identity' }));
   expect((screen.getByRole('textbox',{name:'Row identity expression source path'}) as HTMLInputElement).value).toBe('participant.entity.reference');
-  expect(screen.queryByRole('textbox',{name:'Field 1 expression source path'})).toBeNull();
+  expect(screen.queryByRole('combobox',{name:'Field 1 value policy'})).toBeNull();
   const batch=JSON.parse(screen.getByTestId('batch-review').textContent!);
   expect(batch.map((change:{stepId:string})=>change.stepId)).toEqual(['expand','identity','fields']);
   expect(batch[0].parameters.expansion).toEqual({...source.steps[0].parameters.expansion,as:'participant'});
   expect(batch[1].parameters.identity.expr).toEqual({select:'participant.entity.reference'});
-  expect(batch[2].parameters.fieldGroup.fields[0]).toEqual({...source.steps[2].parameters.fieldGroup!.fields[0],expr:{select:'participant.entity.reference'}});
+  expect(batch[2].parameters.fieldGroup.fields[0]).toEqual({...source.steps[2].parameters.fieldGroup!.fields[0],valueMode:'ALL'});
   expect(begin).toHaveBeenCalledTimes(1);
   expect(source.steps[1].parameters.identity!.expr).toEqual({select:'member.entity.reference'});
-  fireEvent.click(within(screen.getByRole('list',{name:'Existing recipe operations'})).getByRole('button',{name:/Remove Member fields from this change/}));
-  expect(within(operations).getByRole('button',{name:/Include operation Member fields/})).toBeTruthy();
-  expect(within(operations).getAllByRole('listitem')).toHaveLength(3);
-  expect(()=>view.rerender(<ImportedSourceSteps outputId="patients" importedSource={{steps:[source.steps[1],source.steps[2]]}} onRefresh={onRefresh} onApply={onApply} navigatorOnly editActionRef={editActionRef} fieldEditActionRef={fieldEditActionRef} onBeginEdit={begin} onDraftChange={draftChange} onCancelEdit={cancel} renderReview={(change,_close,batch)=><pre data-testid="batch-review">{JSON.stringify(batch ?? [change])}</pre>} />)).not.toThrow();
+  fireEvent.click(screen.getByRole('button', { name: 'Member fields' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Member fields from this change' }));
+  expect(JSON.parse(screen.getByTestId('batch-review').textContent!).map((change:{stepId:string})=>change.stepId)).toEqual(['expand','identity']);
+  expect(()=>view.rerender(<>{navigation}<ImportedSourceSteps outputId="patients" importedSource={{steps:[source.steps[1],source.steps[2]]}} onRefresh={onRefresh} onApply={onApply} navigatorOnly editActionRef={editActionRef} fieldEditActionRef={fieldEditActionRef} onBeginEdit={begin} onDraftChange={draftChange} onCancelEdit={cancel} renderReview={(change,_close,batch)=><pre data-testid="batch-review">{JSON.stringify(batch ?? [change])}</pre>} /></>)).not.toThrow();
   expect(screen.getByRole('alert').textContent).toMatch(/primary or selected source operation is no longer available/i);
   fireEvent.click(screen.getByRole('button',{name:'Close source editor'}));
   expect(cancel).toHaveBeenCalledOnce();expect(screen.queryByTestId('batch-review')).toBeNull();
+});
+
+it('ignores a stale field-navigation callback without invalidating the preview', () => {
+  const editActionRef: { current: ((stepId: string) => void) | undefined } = { current: undefined };
+  const fieldEditActionRef: { current: ((stepId: string, fieldId: string) => void) | undefined } = { current: undefined };
+  const onDraftChange = vi.fn();
+  const importedSource = { steps: [
+    { id: 'primary', kind: 'FIELD_GROUP', title: 'Primary fields', summary: 'Primary fields', enabled: true, editable: true,
+      parameters: { fieldGroup: { fields: [{ fieldId: 'primary-id', enabled: true, name: 'id', expr: { select: 'root.id' } }] } } },
+    { id: 'dependent', kind: 'FIELD_GROUP', title: 'Dependent fields', summary: 'Dependent fields', enabled: true, editable: true,
+      parameters: { fieldGroup: { fields: [{ fieldId: 'dependent-id', enabled: true, name: 'patient_id', expr: { select: 'root.patient_id' } }] } } },
+  ] } satisfies NonNullable<ExplorerBuilderDocument['importedSource']>;
+  renderSourceSteps({ importedSource, navigatorOnly: true, editActionRef, fieldEditActionRef, onDraftChange,
+    renderReview: (change, _close, batch) => <pre data-testid="field-navigation-batch">{JSON.stringify(batch ?? [change])}</pre> });
+  act(() => editActionRef.current?.('primary'));
+  const previewBefore = screen.getByTestId('field-navigation-batch').textContent;
+  act(() => fieldEditActionRef.current?.('dependent', 'removed-field-id'));
+  expect(screen.getByTestId('field-navigation-batch').textContent).toBe(previewBefore);
+  expect(onDraftChange).not.toHaveBeenCalled();
+});
+
+it('rejects an unavailable generated-output key before opening a source edit', () => {
+  const outputEditActionRef: { current: ((stepId: string, outputKey: string) => void) | undefined } = { current: undefined };
+  const onBeginEdit = vi.fn(() => true);
+  const importedSource = { steps: [{ id: 'catalog', kind: 'CATALOG_PROJECTION', title: 'Patient fields', summary: 'FHIR fields', enabled: true, editable: true,
+    parameters: { catalog: { name: 'Patient fields' } } }] } satisfies NonNullable<ExplorerBuilderDocument['importedSource']>;
+  renderSourceSteps({ navigatorOnly: true, importedSource, outputEditActionRef, onBeginEdit, catalogOutputsForStep: () => [] });
+
+  act(() => outputEditActionRef.current?.('catalog', 'removed.field.path'));
+  expect(onBeginEdit).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('imported-source-step-editor')).toBeNull();
 });
 
 it('browses all recipe operations in order and disables inclusion at the 128-operation batch limit', () => {
@@ -259,20 +276,16 @@ it('browses all recipe operations in order and disables inclusion at the 128-ope
     summary: `Project fields for operation ${index}`, enabled: true, editable: true,
     parameters: { fieldGroup: { fields: [{ fieldId: `field-${index}`, enabled: true, name: `field_${index}`, expr: { select: 'root.id' } }] } },
   }));
+  const navigation = <nav aria-label="Existing traversal operations">{steps.map((step, index) =>
+    <button key={step.id} type="button" aria-label={`Navigate ${step.title}`} onClick={() => editActionRef.current?.(step.id)}>{index + 1}</button>)}</nav>;
   renderSourceSteps({ importedSource: { steps }, navigatorOnly: true, editActionRef,
-    renderReview: (change, _close, batch) => <pre>{JSON.stringify(batch ?? [change])}</pre> });
-  act(() => editActionRef.current?.('operation-0'));
-  const operations = screen.getByRole('list', { name: 'Existing recipe operations' });
-  const rows = within(operations).getAllByRole('listitem');
-  expect(rows).toHaveLength(129);
-  expect(rows[0].textContent).toMatch(/1\.\s*Operation 0/);
-  expect(rows[128].textContent).toMatch(/129\.\s*Operation 128/);
-  for (let index = 1; index <= 127; index += 1) {
-    fireEvent.click(within(operations).getByRole('button', { name: `Include operation Operation ${index}` }));
-  }
-  expect(screen.getByRole('status').textContent).toContain('128-operation limit');
-  expect((within(operations).getByRole('button', { name: 'Include operation Operation 128' }) as HTMLButtonElement).disabled).toBe(true);
-  expect((within(operations).getByRole('button', { name: 'Edit operation Operation 0' }) as HTMLButtonElement).disabled).toBe(false);
+    renderReview: (change, _close, batch) => <pre data-testid="batch">{JSON.stringify(batch ?? [change])}</pre> }, navigation);
+  fireEvent.click(screen.getByRole('button', { name: 'Navigate Operation 0' }));
+  for (let index = 1; index <= 127; index += 1) fireEvent.click(screen.getByRole('button', { name: `Navigate Operation ${index}` }));
+  expect(JSON.parse(screen.getByTestId('batch').textContent!)).toHaveLength(128);
+  fireEvent.click(screen.getByRole('button', { name: 'Navigate Operation 128' }));
+  expect(screen.getByRole('alert').textContent).toContain('up to 128 source operations');
+  expect(screen.queryByRole('region', { name: 'Recipe operations' })).toBeNull();
 }, 15000);
 
 it('uses a review-owned Cancel once and retains an exit when invalid parameters hide the review', () => {
@@ -298,17 +311,17 @@ it('reselects the same field after internal focus navigation without resetting p
   try {
     act(()=>fieldEditActionRef.current?.('fields','first'));
     act(()=>frames.splice(0).forEach((callback)=>callback(0)));
-    const first=screen.getByRole('textbox',{name:'Field 1 name'});
+    const first=screen.getByRole('combobox',{name:'Field 1 value policy'});
     expect(document.activeElement).toBe(first);
-    fireEvent.change(first,{target:{value:'edited_first'}});
+    fireEvent.change(first,{target:{value:'ALL'}});
     const reviewed=screen.getByTestId('field-focus-review').textContent;
-    fireEvent.click(screen.getByText('2. second'));
-    act(()=>screen.getByRole('textbox',{name:'Field 2 name'}).focus());
+    fireEvent.click(screen.getByText('second'));
+    act(()=>screen.getByRole('combobox',{name:'Field 2 value policy'}).focus());
     expect(document.activeElement).not.toBe(first);
     act(()=>fieldEditActionRef.current?.('fields','first'));
     act(()=>frames.splice(0).forEach((callback)=>callback(0)));
     expect(document.activeElement).toBe(first);
-    expect((first as HTMLInputElement).value).toBe('edited_first');
+    expect((first as HTMLSelectElement).value).toBe('ALL');
     expect(screen.getByTestId('field-focus-review').textContent).toBe(reviewed);
     expect(begin).toHaveBeenCalledOnce();expect(changed).toHaveBeenCalledOnce();
   } finally {frame.mockRestore();}
@@ -329,7 +342,7 @@ it('loads legacy editable descriptors explicitly once and routes the returned st
   await waitFor(()=>expect(screen.queryByRole('button',{name:'Load editable source settings'})).toBeNull());
   expect(refresh).toHaveBeenCalledOnce();expect(apply).not.toHaveBeenCalled();
   act(()=>fieldEditActionRef.current?.('fields','stable-original-field'));
-  expect((screen.getByRole('textbox',{name:'Field 1 name'}) as HTMLInputElement).value).toBe('record_id');
+  expect((screen.getByRole('combobox',{name:'Field 1 value policy'}) as HTMLSelectElement).value).toBe('');
 });
 
 it('does not add a recovery action or request for already hydrated source settings', () => {
@@ -360,12 +373,10 @@ it('keeps an enabled-only primary available to edit after staging a parameterize
     sourcePlan.steps[0],
     { id: 'identity', kind: 'IDENTITY', title: 'Row identity', summary: 'Stable identity', enabled: true, editable: true, parameters: { identity: { name: 'id', expr: { select: 'root.id' } } } },
   ] } satisfies NonNullable<ExplorerBuilderDocument['importedSource']>;
-  renderSourceSteps({ importedSource, navigatorOnly: true, editActionRef, renderReview: (change, _close, batch) => <pre>{JSON.stringify(batch ?? [change])}</pre> });
+  const navigation=<nav aria-label="Existing traversal operations"><button type="button" onClick={()=>editActionRef.current?.('fields')}>Patient fields</button><button type="button" onClick={()=>editActionRef.current?.('identity')}>Row identity</button></nav>;
+  renderSourceSteps({ importedSource, navigatorOnly: true, editActionRef, renderReview: (change, _close, batch) => <pre>{JSON.stringify(batch ?? [change])}</pre> },navigation);
   act(() => editActionRef.current?.('fields'));
-  const operations = screen.getByRole('list', { name: 'Existing recipe operations' });
-  expect(within(operations).getAllByRole('listitem')).toHaveLength(2);
-  fireEvent.click(within(operations).getByRole('button', { name: /Include operation Row identity/ }));
-  expect((within(operations).getByRole('button', { name: /Edit operation Patient fields/ }) as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.click(within(operations).getByRole('button', { name: /Edit operation Patient fields/ }));
-  expect(screen.getByRole('checkbox', { name: /Run operation Patient fields/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Row identity' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Patient fields' }));
+  expect(screen.queryByRole('checkbox', { name: /Run operation/ })).toBeNull();
 });

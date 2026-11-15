@@ -6,7 +6,7 @@
 // Playwright registry entry.
 //
 // Legs (sibling of the filter journey; slice-1 contract from internal/explorer/lifecycle/derive_source.go):
-//   1 DISCOVERY   More actions -> Calculate entry enabled; editor optgroup "Dataset fields (not in output)"
+//   1 DISCOVERY   Calculate entry enabled; editor optgroup "Dataset fields (not in output)"
 //                 exposes the signed populated root scalar valueQuantity.value (decimal)
 //   2 CONFIGURE   guided ADD, left = signed option, right = literal 3 -> proposal READY
 //                 preview keeps all 6 rows (PROPAGATE_NULL row-preservation), derived == value + 3
@@ -258,11 +258,8 @@ try {
     await wait(300);
   };
   const openCalculateEditor = async () => {
-    if (!(await mounted('[data-testid="construction-action-calculate"]'))) {
-      await realClick('[data-testid="construction-more-actions"]');
-    }
     const entry = await until(() => evaluate(`(()=>{const e=document.querySelector('[data-testid="construction-action-calculate"]');return e?!e.disabled&&{aria:e.getAttribute('aria-label')}:null;})()`),
-      'Calculate entry present and enabled in More actions', 20000);
+      'Calculate entry present and enabled', 20000);
     await realClick('[data-testid="construction-action-calculate"]');
     await until(() => mounted('[data-testid="construction-calculate-editor"]'), 'calculate editor mounted', 20000);
     return entry;
@@ -383,7 +380,7 @@ try {
     }
   };
   const openEditorFromHistory = async (editorReady) => {
-    await until(() => mounted('[data-testid="construction-more-actions"]'), 'builder settled after reload', 25000);
+    await until(() => mounted('[data-testid="construction-action-keep-rows"]'), 'builder settled after reload', 25000);
     for (let round = 0; round < 3; round += 1) {
       const historyIds = await historyIdsOf();
       assert.ok(historyIds.length >= 2, `expected filter+derive history steps, got ${JSON.stringify(historyIds)}`);

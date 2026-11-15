@@ -1002,10 +1002,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
     : [];
   const columnOptionsAvailable = stage.columns.length > 0 || boundSourceVisible || sourceOptions.length > 0;
   const sourceUnavailableReason = sourceInput && !sourceInput.supported
-    ? [sourceInput.reasonCode, sourceInput.reason]
-      .map((part) => part?.trim() ?? '')
-      .filter((part) => part !== '')
-      .join(' · ')
+    ? sourceInput.reason?.trim() || sourceInput.reasonCode?.trim() || undefined
     : undefined;
   const valueKind = form.kind === 'comparison' || form.kind === 'membership'
     ? filterValueKindFor(inputStage.columns.find((column) => column.id === form.columnId)?.type)
@@ -1062,13 +1059,13 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
   return (
     <section aria-label="Filter output rows by condition" data-testid="construction-filter-editor" className="grid gap-3">
       <header>
-        <h3 className="font-semibold text-slate-900">Filter output rows</h3>
+        <h3 className="m-0 text-sm font-semibold text-slate-900">Filter output rows</h3>
         <p className="mt-1 text-xs text-slate-600">Rows must match every condition. Contributor rules still choose which records supply their values.</p>
       </header>
 
       {supportedSavedSteps.length > 0 ? (
-        <fieldset data-testid="construction-filter-condition-tree" className="rounded-lg border border-slate-200 p-3">
-          <legend className="px-1 text-sm font-semibold text-slate-800">Saved conditions</legend>
+        <fieldset data-testid="construction-filter-condition-tree" className="border-0 p-0">
+          <legend className="m-0 px-1 text-xs font-semibold text-slate-700">Saved conditions</legend>
           <ol className="grid gap-2">
             {supportedSavedSteps.map((step, index) => (
               <li key={step.id} className="flex items-center justify-between gap-3 rounded bg-slate-50 px-3 py-2 text-sm">
@@ -1091,8 +1088,8 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
       {form.kind === 'unsupported' ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{form.message}</p>
       ) : (
-        <div className="grid gap-3 rounded-lg border border-slate-200 p-3">
-          <p className="text-sm font-medium text-slate-800">{editingStep ? 'Edit this saved condition' : 'New condition'}</p>
+        <div className="grid gap-3">
+          <p className="m-0 text-xs font-semibold text-slate-700">{editingStep ? 'Edit this saved condition' : 'New condition'}</p>
           {!columnOptionsAvailable ? (
             <>
               <p role="status" className="text-sm text-slate-600">Loom returned no columns for this stage.</p>
@@ -1108,14 +1105,14 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
             </>
           ) : (
             <>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
+              <label className="grid gap-1 text-xs font-medium text-slate-700">
                 Column
                 <select
                   aria-label="Column"
                   value={form.columnId}
                   disabled={disabled}
                   onChange={(event) => chooseColumn(event.currentTarget.value)}
-                  className="rounded border border-slate-300 bg-white px-2 py-1.5"
+                  className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
                 >
                   {stage.columns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
                   {boundSourceVisible && boundBinding && boundChoice
@@ -1128,7 +1125,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
               </label>
 
               {sourceInput && !sourceInput.supported ? (
-                <p role="status" data-testid="construction-filter-source-unavailable" className="text-sm text-amber-900">
+                <p role="status" data-testid="construction-filter-source-unavailable" className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">
                   {sourceUnavailableReason && sourceUnavailableReason !== ''
                     ? sourceUnavailableReason
                     : 'Loom did not report why filtering on dataset fields is unavailable at this stage.'}
@@ -1145,7 +1142,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
                 />
               ) : null}
 
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
+              <label className="grid gap-1 text-xs font-medium text-slate-700">
                 Condition
                 <select
                   aria-label="Condition"
@@ -1167,7 +1164,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
               </label>
 
               {form.kind === 'comparison' && valueKind ? (
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                <label className="grid gap-1 text-xs font-medium text-slate-700">
                   Value
                   <FilterValueInput
                     kind={valueKind}
@@ -1261,15 +1258,12 @@ const FormulaOperand = (props: {
       }) === undefined)
     : [];
   const sourceUnavailableReason = props.sourceInput && !props.sourceInput.supported
-    ? [props.sourceInput.reasonCode, props.sourceInput.reason]
-      .map((part) => part?.trim() ?? '')
-      .filter((part) => part !== '')
-      .join(' · ')
+    ? props.sourceInput.reason?.trim() || props.sourceInput.reasonCode?.trim() || undefined
     : undefined;
   return (
-    <fieldset className="grid gap-2 rounded-lg border border-slate-200 p-3">
-      <legend className="px-1 text-sm font-semibold text-slate-800">{props.label}</legend>
-      <label className="grid gap-1 text-sm font-medium text-slate-700">
+    <fieldset className="grid gap-2 rounded border border-slate-200 p-2">
+      <legend className="px-1 text-xs font-semibold text-slate-700">{props.label}</legend>
+      <label className="grid gap-1 text-xs font-medium text-slate-700">
         Use
         <select
           aria-label={`${props.label} kind`}
@@ -1296,7 +1290,7 @@ const FormulaOperand = (props: {
                 props.onChange({ kind: 'unset' });
             }
           }}
-          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
         >
           <option value="unset">Choose a value</option>
           <option value="column" disabled={!firstNumeric && sourceOptions.length === 0}>Numeric column</option>
@@ -1305,7 +1299,7 @@ const FormulaOperand = (props: {
       </label>
 
       {props.value.kind === 'column' ? (
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
+        <label className="grid gap-1 text-xs font-medium text-slate-700">
           Column
           <select
             aria-label={`${props.label} column`}
@@ -1324,7 +1318,7 @@ const FormulaOperand = (props: {
               const columnId = materializedChoiceColumnId(choice) ?? existing?.columnId ?? createOpaqueId('derive-input');
               props.onSourceSelected(choice, columnId);
             }}
-            className="rounded border border-slate-300 bg-white px-2 py-1.5"
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
           >
             {props.columns.filter(isNumericColumn).map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type})</option>)}
             {sourceOptions.length > 0 ? <optgroup label="Dataset fields (not in output)">
@@ -1339,7 +1333,7 @@ const FormulaOperand = (props: {
       ) : null}
 
       {sourceUnavailableReason && sourceUnavailableReason !== '' ? (
-        <p role="status" data-testid={`construction-calculate-${props.slot}-source-unavailable`} className="text-xs text-amber-900">{sourceUnavailableReason}</p>
+        <p role="status" data-testid={`construction-calculate-${props.slot}-source-unavailable`} className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">{sourceUnavailableReason}</p>
       ) : null}
 
       {props.value.kind === 'literal' ? (
@@ -1690,7 +1684,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
           {editingStep ? 'Column name' : 'New column name'}
           <input aria-label="Output column name" value={form.outputName} disabled={disabled} onChange={(event) => updateForm({ ...form, outputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
         </label>
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
+        <label className="grid gap-1 text-xs font-medium text-slate-700">
           Column label
           <input aria-label="Output column label" value={form.outputLabel} disabled={disabled} onChange={(event) => updateForm({ ...form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
         </label>

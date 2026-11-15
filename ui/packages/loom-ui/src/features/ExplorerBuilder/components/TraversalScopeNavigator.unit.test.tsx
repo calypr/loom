@@ -14,15 +14,14 @@ const table: DraftTable = { outputId: 'subjects', tabId: 'subjects', title: 'Sub
   ] },
 } };
 const props = (): TraversalScopeNavigatorProps => ({ table, projectionKind: 'saved', selectedOccurrenceId: 'base',
-  onSelectScope: vi.fn(), onEditSourceStep: vi.fn(), onEditConstructionStep: vi.fn(), onEditColumn: vi.fn(), onEditSourceRows: vi.fn(),
-  onAddRelatedValues: vi.fn(), onExpandRelatedRows: vi.fn(), onGroupRows: vi.fn(),
+  onSelectScope: vi.fn(), onEditSourceStep: vi.fn(), onEditSourceOutput: vi.fn(), onEditConstructionStep: vi.fn(), onEditColumn: vi.fn(), onEditSourceRows: vi.fn(),
+  onExpandRelatedRows: vi.fn(), onGroupRows: vi.fn(),
 });
-it('exposes every actual authored field through progressive disclosure and exact field identities', () => {
-  const value = { ...props(), sourceFieldsByStep: new Map([['fields', Array.from({ length: 32 }, (_, index) => ({ fieldId: `field-${index}`, name: `Field ${index}`, valueMode: 'ALL' }))]]), onEditSourceField: vi.fn() }; render(<TraversalScopeNavigator {...value} />);
-  const group = screen.getByRole('list', { name: 'Fields in Selected source fields', hidden: true });
-  expect(within(group).getAllByRole('button', { hidden: true })).toHaveLength(32);
-  fireEvent.click(within(group).getByText('Field 31 · all values as a list'));
-  expect(value.onEditSourceField).toHaveBeenCalledExactlyOnceWith('fields', 'field-31');
+it('opens the source operation directly without listing every field as a shortcut', () => {
+  const value = props(); render(<TraversalScopeNavigator {...value} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit source operation 1: Selected source fields' }));
+  expect(value.onEditSourceStep).toHaveBeenCalledExactlyOnceWith('fields');
+  expect(screen.queryByRole('list', { name: /Fields in / })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Both editors' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Define a row' })).toBeNull();
 });
@@ -31,7 +30,6 @@ it('navigation selects an exact occurrence without changing an operation or anch
   fireEvent.click(within(screen.getByRole('navigation', { name: 'Authored traversal scopes' })).getByText('ResearchSubject → subject → Patient'));
   expect(value.onSelectScope).toHaveBeenCalledExactlyOnceWith('patient');
   expect(value.onEditSourceStep).not.toHaveBeenCalled(); expect(value.onEditConstructionStep).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Collect related values' })); expect(value.onAddRelatedValues).toHaveBeenCalledExactlyOnceWith('base');
   fireEvent.click(screen.getByRole('button', { name: 'Expand related records into rows' })); expect(value.onExpandRelatedRows).toHaveBeenCalledExactlyOnceWith('base');
 });
 it('does not replace a missing selected scope with root and disables new mutation for proposed data', () => {
@@ -39,8 +37,7 @@ it('does not replace a missing selected scope with root and disables new mutatio
   expect(screen.getByRole('status')).toHaveTextContent('unavailable or ambiguous');
   expect(screen.queryByRole('button', { name: 'Edit source rows' })).toBeNull();
   rerender(<TraversalScopeNavigator {...value} projectionKind="proposed" />);
-  expect(screen.getByRole('button', { name: 'Collect related values' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Collect related values' })); expect(value.onAddRelatedValues).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Expand related records into rows' })).toBeDisabled();
 });
 
 it('keeps scope editing available without duplicating the traversal bar navigation', () => {
@@ -53,9 +50,65 @@ it('keeps scope editing available without duplicating the traversal bar navigati
   expect(value.onSelectScope).not.toHaveBeenCalled();
 });
 
-it('field shortcuts cannot bypass a read-only source operation', () => {
-  const value = { ...props(), table: { ...table, document: { ...table.document, importedSource: { steps: table.document.importedSource!.steps.map(step => ({ ...step, editable: false })) } } },
-    sourceFieldsByStep: new Map([['fields', [{ fieldId: 'read-only', name: 'Read-only field' }]]]), onEditSourceField: vi.fn() };
+it('does not expose field shortcuts for a read-only source operation', () => {
+  const value = { ...props(), table: { ...table, document: { ...table.document, importedSource: { steps: table.document.importedSource!.steps.map(step => ({ ...step, editable: false })) } } } };
   render(<TraversalScopeNavigator {...value} />);
-  const field = screen.getByText('Read-only field'); expect(field).toBeDisabled(); fireEvent.click(field); expect(value.onEditSourceField).not.toHaveBeenCalled();
+  expect(screen.queryByText('Read-only field')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Edit source operation 1: Selected source fields' })).toBeDisabled();
+});
+
+it('allows only existing source-operation navigation inside its owning edit', () => {
+  const value = props();
+  const { rerender } = render(<TraversalScopeNavigator {...value} sourceStepEditOnly projectionKind="proposed" />);
+  const sourceOperations = () => within(screen.getByRole('list', { name: 'Source operations in selected scope' }));
+  expect(sourceOperations().getByRole('button', { name: 'Edit source operation 1: Selected source fields' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Expand related records into rows' })).toBeDisabled();
+  fireEvent.click(sourceOperations().getByRole('button', { name: 'Edit source operation 1: Selected source fields' }));
+  expect(value.onEditSourceStep).toHaveBeenCalledExactlyOnceWith('fields');
+  rerender(<TraversalScopeNavigator {...value} disabled sourceStepEditOnly sourceOperationNavigationDisabled />);
+  expect(sourceOperations().getByRole('button', { name: 'Edit source operation 1: Selected source fields' })).toBeDisabled();
+});
+
+it('edits a catalog output by compiler key and owning source operation', () => {
+  const generatedColumn = { columnId: 'generated-id', column: 'id', label: 'Patient ID', occurrenceId: 'patient', source: { kind: 'imported' as const, imported: { outputColumn: 'patient_id' } } };
+  const value = { ...props(),
+    selectedOccurrenceId: 'patient',
+    table: { ...table, document: { ...table.document, importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' },
+      importedSource: { steps: [...table.document.importedSource!.steps, { id: 'patient-fields', parentId: 'patient-step', kind: 'CATALOG_PROJECTION', title: 'Fields from Patient', summary: 'Patient fields', enabled: true, editable: true }] }, columns: [generatedColumn] } },
+    network: { owner: 'IMPORTED_SOURCE', outputId: 'subjects', sourceRows: table.document.rows, operations: [], occurrences: [],
+      bindings: [{ columnId: 'generated-id', occurrenceId: 'patient', sourceStepId: 'patient-fields', outputKey: 'identifier[].value', status: 'EXACT' as const }] },
+  };
+  render(<TraversalScopeNavigator {...value} />);
+
+  const sourceOperations = screen.getByRole('list', { name: 'Source operations in selected scope' });
+  const operation = within(sourceOperations).getByRole('button', { name: 'Edit source operation 3: Fields from Patient' });
+  expect(operation).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'Value policy for Patient ID' })).toBeNull();
+  expect(screen.queryByText('Operation details')).toBeNull();
+  const row = operation.closest('[data-operation-id]')!;
+  fireEvent.click(within(row).getByText('Outputs (1)'));
+  fireEvent.click(within(row).getByRole('button', { name: 'Edit output Patient ID' }));
+  expect(value.onEditSourceOutput).toHaveBeenCalledExactlyOnceWith('patient-fields', 'identifier[].value');
+  fireEvent.click(operation);
+  expect(value.onEditSourceStep).toHaveBeenCalledExactlyOnceWith('patient-fields');
+});
+
+it('edits a pivot output by its raw compiler key', () => {
+  const onEditSourceOutput = vi.fn();
+  const generatedColumn = { columnId: 'pivot-column', column: 'quantity', label: 'quantity', occurrenceId: 'patient', source: { kind: 'imported' as const, imported: { outputColumn: 'quantity' } } };
+  const importedTable: DraftTable = { ...table, document: { ...table.document,
+    importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' },
+    importedSource: { steps: [...table.document.importedSource!.steps, { id: 'measurement-pivot', parentId: 'patient-step', kind: 'PIVOT', title: 'Observation values', summary: 'Pivot values', enabled: true, editable: true }] },
+    columns: [generatedColumn],
+  } };
+  const network: NonNullable<TraversalScopeNavigatorProps['network']> = { owner: 'IMPORTED_SOURCE', outputId: 'subjects', sourceRows: table.document.rows,
+    occurrences: [], operations: [], bindings: [{ columnId: 'pivot-column', occurrenceId: 'patient', sourceStepId: 'measurement-pivot', outputKey: 'valueQuantity', status: 'EXACT' }] };
+  const value = { ...props(), table: importedTable, network, selectedOccurrenceId: 'patient', onEditSourceOutput };
+  render(<TraversalScopeNavigator {...value} />);
+
+  const sourceOperations = screen.getByRole('list', { name: 'Source operations in selected scope' });
+  const row = within(sourceOperations).getByRole('button', { name: 'Edit source operation 3: Observation values' }).closest('[data-operation-id]')!;
+  fireEvent.click(within(row).getByText('Outputs (1)'));
+  fireEvent.click(within(row).getByRole('button', { name: 'Edit output quantity' }));
+  expect(onEditSourceOutput).toHaveBeenCalledExactlyOnceWith('measurement-pivot', 'valueQuantity');
 });

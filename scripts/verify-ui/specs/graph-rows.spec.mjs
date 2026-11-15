@@ -272,7 +272,8 @@ async function studyInspector(page) {
 
 async function changeStudyMatch(page, mode) {
   const inspector = await studyInspector(page);
-  await inspector.getByRole('combobox', { name: /Match policy for .*ResearchStudy/ }).selectOption(mode);
+  const match = inspector.getByRole('checkbox', { name: /Match policy for .*ResearchStudy/ });
+  if (mode === 'REQUIRED') await match.uncheck(); else await match.check();
 }
 
 test('GRAPH-ROWS imported source add cancel apply edit remove reload and real stale draft', async ({ page, request, context }, testInfo) => {
@@ -400,12 +401,12 @@ test('GRAPH-ROWS imported source add cancel apply edit remove reload and real st
     await expect(cancelStaleOwner).toBeVisible();
     assert.deepEqual(draftIdentity(await run.state()), draftIdentity(winner));
     await cancelStaleOwner.click();
-    await expect((await studyInspector(competing)).getByRole('combobox', { name: /Match policy for .*ResearchStudy/ })).toBeEnabled();
+    await expect((await studyInspector(competing)).getByRole('checkbox', { name: /Match policy for .*ResearchStudy/ })).toBeEnabled();
     assert.deepEqual(draftIdentity(await run.state()), draftIdentity(winner), 'Stale Apply must preserve the winning saved draft');
     await competing.close();
     await page.bringToFront();
 
-    await (await studyInspector(page)).getByRole('button', { name: /^Remove .* relationship$/ }).click();
+    await page.getByTestId('authored-traversal-editor').getByRole('button', { name: /^Remove .* branch$/ }).last().click();
     review = await previewRelationship(page, run.action);
     await run.action('Remove Study relationship', async () => { await review.getByRole('button', { name: 'Apply relationship', exact: true }).click(); await expect(review).toHaveCount(0); });
     await run.action('Reload removed relationship', async () => { await page.reload({ waitUntil: 'domcontentloaded' }); await page.getByTestId('construction-table-ResearchSubject').click(); });
@@ -739,7 +740,7 @@ test('GRAPH-ROWS ordinary document route survives add required removal and reloa
     await studyNode.focus();
     await run.action('Add ordinary Study route', async () => {
       await studyNode.press('Enter');
-      await expect((await studyInspector(page)).getByRole('combobox', { name: /Match policy for .*ResearchStudy/ })).toHaveValue('OPTIONAL');
+      await expect((await studyInspector(page)).getByRole('checkbox', { name: /Match policy for .*ResearchStudy/ })).toBeChecked();
       await assertIDs(['rs-zero', 'rs-one', 'rs-many', 'rs-shared']);
     });
     const added = await run.state();
@@ -748,17 +749,17 @@ test('GRAPH-ROWS ordinary document route survives add required removal and reloa
     assert(occurrence.catalogEdgeId);
     await run.action('Reload ordinary route', async () => {
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await expect((await studyInspector(page)).getByRole('combobox', { name: /Match policy for .*ResearchStudy/ })).toHaveValue('OPTIONAL');
+      await expect((await studyInspector(page)).getByRole('checkbox', { name: /Match policy for .*ResearchStudy/ })).toBeChecked();
       assert.deepEqual((await run.state()).workspace.documents[0].route, added.workspace.documents[0].route);
     });
     await run.action('Require ordinary Study match', async () => {
       await changeStudyMatch(page, 'REQUIRED');
-      await expect((await studyInspector(page)).getByRole('combobox', { name: /Match policy for .*ResearchStudy/ })).toHaveValue('REQUIRED');
+      await expect((await studyInspector(page)).getByRole('checkbox', { name: /Match policy for .*ResearchStudy/ })).not.toBeChecked();
       await assertIDs(['rs-one', 'rs-many', 'rs-shared']);
     });
     page.once('dialog', dialog => dialog.accept());
     await run.action('Remove ordinary Study route', async () => {
-      await (await studyInspector(page)).getByRole('button', { name: /^Remove .* relationship$/ }).click();
+      await page.getByTestId('authored-traversal-editor').getByRole('button', { name: /^Remove .* branch$/ }).last().click();
       await expect(page.getByTestId('authored-traversal-editor').getByRole('navigation', { name: 'Authored occurrences', exact: true }).getByRole('button').filter({ hasText: 'ResearchStudy' })).toHaveCount(0);
     });
     await run.action('Reload removed ordinary route', async () => {

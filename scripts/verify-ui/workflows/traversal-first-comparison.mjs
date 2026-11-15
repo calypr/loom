@@ -48,8 +48,7 @@ export async function runTraversalFirstComparison({page,run,testInfo,composition
       await page.getByTestId(`construction-table-${outputId}`).click();
       const doc=baseline.workspace.documents.find(doc=>doc.output.id===outputId);assert(doc);
       assertDefaultTraversalPreview(doc,await run.preview());const expected=assertDefaultStepMetadata(doc);
-      const nav=page.getByTestId('traversal-scope-navigator');const complete=nav.getByRole('list',{name:'Complete ordered source plan',exact:true,hidden:true});
-      assert.deepEqual(await complete.locator(':scope > li').evaluateAll(nodes=>nodes.map(node=>node.dataset.operationId)),expected.map(x=>x.stepId));
+      const nav=page.getByTestId('traversal-scope-navigator');
       const buttons=nav.getByRole('navigation',{name:'Authored traversal scopes',exact:true}).locator('button[data-occurrence-id]');const count=await buttons.count();const seen=new Set(),fieldTargets=new Set();
       for(let i=0;i<count;i++) {
         await buttons.nth(i).click();const scoped=nav.getByRole('list',{name:'Source operations in selected scope',exact:true});
@@ -110,7 +109,6 @@ export async function runTraversalFirstComparison({page,run,testInfo,composition
     assertDefaultTraversalHistory(historyDocument,await run.preview());
     const list=navigator.getByRole('list',{name:'Ordered resulting-table operations',exact:true,hidden:true});
     await expect(list.locator('[data-operation-id]')).toHaveCount(100);
-    await list.locator('xpath=parent::details').locator('summary').first().click();
     const item=list.locator('[data-operation-id="stress_calc_099"]').getByRole('button',{name:/^Edit table operation 100:/});
     await item.scrollIntoViewIfNeeded();await item.focus();await item.press('Enter');
     await expect(page.getByTestId('construction-calculate-editor')).toHaveCount(1);

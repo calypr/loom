@@ -728,7 +728,7 @@ describe('ConstructionReshapeEditor', () => {
     cleanup();
     renderEditor({ initialKind: 'pivot' });
     expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Turn categories into columns' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pivot categories into columns' })).toBeInTheDocument();
   });
 
   it('groups row transformations into group and reshape choices', () => {
@@ -745,8 +745,8 @@ describe('ConstructionReshapeEditor', () => {
     openReshapeIntent('reshape');
     expect(screen.getByRole('heading', { name: 'Reshape table' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Group and summarize' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('construction-reshape-choice-pivot')).toHaveTextContent('Turn categories into columns');
-    expect(screen.getByTestId('construction-reshape-choice-unpivot')).toHaveTextContent('Turn columns into rows');
+    expect(screen.getByTestId('construction-reshape-choice-pivot')).toHaveTextContent('Pivot categories into columns');
+    expect(screen.getByTestId('construction-reshape-choice-unpivot')).toHaveTextContent('Unpivot columns into rows');
     expect(screen.queryByTestId('construction-reshape-choice-expand')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-reshape-choice-related-expand')).not.toBeInTheDocument();
   });
@@ -770,7 +770,7 @@ describe('ConstructionReshapeEditor', () => {
 
     cleanup();
     renderEditor({ initialKind: 'unpivot' });
-    expect(screen.getAllByRole('heading', { name: 'Turn columns into rows' })).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { name: 'Unpivot columns into rows' })).toHaveLength(1);
     expect(screen.getByTestId('construction-reshape-unpivot')).not.toHaveClass('rounded-lg');
     expect(screen.getByLabelText('Unpivot Site')).toBeInTheDocument();
     expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Choose single-value fields. Use the column menu or List column settings to split repeated values before stacking them.');

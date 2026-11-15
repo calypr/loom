@@ -236,7 +236,7 @@ export const ConstructionProposalPanel = ({
       data-proposal-draft-version={response?.draftVersion ?? ''}
       data-proposal-draft-digest={response?.draftDigest ?? ''}
       data-proposal-preview-status={response?.previewStatus ?? ''}
-      className="mt-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-sm"
+      className="mt-4 min-w-0 bg-white p-4"
     >
       {state.status === 'previewing' ? (
         <p role="status" data-testid="construction-proposal-loading" className="text-sm text-slate-700">

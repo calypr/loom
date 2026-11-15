@@ -17,7 +17,7 @@
 //                  /tmp/opencode/unpivot/probe10.log + probe12.log B) — deliberately not pinned
 //                  here; the named refusals fire before compilation so the negatives below stay
 //                  pristine-host honest.
-//   2 DISCOVERY    More actions -> Reshape entry enabled; intent "Reshape table" -> "Turn
+//   2 DISCOVERY    Reshape entry enabled; intent "Reshape table" -> "Turn
 //                  columns into rows" choice; melt-row editor exposes the family-consistent
 //                  "Fields from your data" dataset optgroup (source:<choiceId> options with the
 //                  fieldPath tooltip; testids per slice-2 receipt) and the add-source-field
@@ -448,7 +448,7 @@ try {
     }
   };
   const openEditorFromHistory = async (editorReady) => {
-    await until(() => mounted('[data-testid="construction-more-actions"]'), 'builder settled after reload', 25000);
+    await until(() => mounted('[data-testid="construction-action-keep-rows"]'), 'builder settled after reload', 25000);
     for (let round = 0; round < 3; round += 1) {
       const historyIds = await historyIdsOf();
       assert.ok(historyIds.length >= 2, `expected filter+melt history steps, got ${JSON.stringify(historyIds)}`);

@@ -127,9 +127,6 @@ const availabilityMessage = (
   if (response.sourceAvailability === 'unproven') {
     return 'Loom found concepts, but some declared resource collections could not be verified. Semantic search results may be incomplete.';
   }
-  if (response.sourceAvailability === 'unknown') {
-    return 'This concept list may be incomplete. If a concept is missing, check the Other fields tab.';
-  }
   return undefined;
 };
 
@@ -747,6 +744,7 @@ const ConceptCatalogContent = ({
   sourceNodeId,
   routeContext,
   layout = 'workspace',
+  dense = false,
   catalog,
   disabled = false,
   disabledReason,
@@ -779,6 +777,7 @@ const ConceptCatalogContent = ({
   readonly sourceNodeId?: string;
   readonly routeContext?: CatalogRouteContext;
   readonly layout?: 'workspace' | 'panel';
+  readonly dense?: boolean;
   readonly catalog: ExplorerBuilderCatalog;
   readonly disabled?: boolean;
   readonly disabledReason?: string;
@@ -1902,6 +1901,23 @@ const ConceptCatalogContent = ({
               ? query ? 'No populated dataset fields match this search.' : 'No populated dataset fields are available for this output.'
               : 'No fields match this search.'}
           </p>
+        ) : (view === 'fields' || view === 'all') && dense ? (
+          <div role="listbox" aria-label="Populated dataset fields" aria-multiselectable="true" className="max-h-56 overflow-y-auto rounded-md border border-slate-200">
+            {otherFieldItems.map((item) => {
+              const checked = selected.has(catalogItemKey(item));
+              const unavailable = !canAddCatalogItem(item) || !catalogItemAvailability(item).selectable;
+              const label = catalogItemLabel(item);
+              return <button key={catalogItemKey(item)} type="button" role="option" aria-selected={checked} aria-pressed={checked}
+                aria-label={item.kind === 'FIELD' ? `Select ${item.constructionChoice.source.resourceType}.${item.candidate.fieldPath.replace(/^root\./, '')}` : `Select ${catalogItemSelectionLabel(item, semanticSelectionMode)}`}
+                disabled={disabled || submitting || unavailable || (selected.size >= MAX_SELECTIONS && !checked)}
+                onClick={() => toggleSelection(item)}
+                className={`flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1 text-left text-xs last:border-b-0 ${checked ? 'bg-blue-50 font-medium text-blue-950' : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-50`}>
+                <span aria-hidden="true" className="w-3 shrink-0 text-blue-800">{checked ? '✓' : ''}</span>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {item.kind === 'FIELD' ? <span className="shrink-0 text-[10px] text-slate-500">{item.constructionChoice.source.resourceType} · {item.candidate.logicalType}</span> : null}
+              </button>;
+            })}
+          </div>
         ) : fieldGroups.map((group) => (
           <section key={group.nodeId} data-source-node-id={group.nodeId} className="py-2 first:pt-0">
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1986,8 +2002,8 @@ const ConceptCatalogContent = ({
   );
 
   return (
-    <section ref={catalogOwnerRef} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
-      <form className="flex gap-2 border-b border-slate-200 px-3 py-2" onSubmit={submitSearch}>
+    <section ref={catalogOwnerRef} className={dense ? "flex h-full min-h-0 min-w-0 flex-col bg-white" : "min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm"}>
+      <form className={dense ? "flex gap-2 px-3 py-2" : "flex gap-2 border-b border-slate-200 px-3 py-2"} onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">
             {view === 'fields' ? 'Search dataset fields by name or type' : 'Search coded values by code or label'}
           </label>
@@ -2117,7 +2133,33 @@ const ConceptCatalogContent = ({
         </div>
       ) : null}
 
-      <div className={`${layout === 'panel' ? 'grid min-h-[14rem]' : 'grid min-h-[24rem]'} ${selected.size > 0 ? 'pb-32 md:pb-0 md:pr-[20rem]' : ''}`}>
+      <div className={dense ? 'flex min-h-0 flex-1 flex-col' : `${layout === 'panel' ? 'grid min-h-[14rem]' : 'grid min-h-[24rem]'} ${selected.size > 0 ? 'pb-32 md:pb-0 md:pr-[20rem]' : ''}`}>
+        {dense ? (() => {
+          const items = [...otherFieldItems, ...semanticItems].filter((item) => {
+            const term = queryInput.trim().toLowerCase();
+            return !term || catalogItemLabel(item).toLowerCase().includes(term) || catalogItemSelectionLabel(item, semanticSelectionMode).toLowerCase().includes(term);
+          });
+          return <div role="listbox" aria-label="Available columns and coded values" aria-multiselectable="true" className="min-h-0 flex-1 overflow-y-auto px-2">
+            {items.map((item) => {
+              const checked = selected.has(catalogItemKey(item));
+              const unavailable = !canAddCatalogItem(item) || !catalogItemAvailability(item).selectable;
+              const label = catalogItemLabel(item);
+              const meta = item.kind === 'FIELD'
+                ? `${item.constructionChoice.source.resourceType} · ${item.candidate.logicalType}`
+                : `${item.item.resourceType} · coded value`;
+              return <button key={catalogItemKey(item)} type="button" role="option" aria-selected={checked} aria-pressed={checked}
+                aria-label={`${checked ? 'Remove' : 'Select'} ${catalogItemSelectionLabel(item, semanticSelectionMode)}`}
+                disabled={disabled || submitting || unavailable || (selected.size >= MAX_SELECTIONS && !checked)}
+                onClick={() => toggleSelection(item)}
+                className={`flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1.5 text-left text-xs last:border-b-0 ${checked ? 'bg-blue-50 font-medium text-blue-950' : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-50`}>
+                <span aria-hidden="true" className="w-3 shrink-0 text-blue-800">{checked ? '✓' : ''}</span>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <span className="shrink-0 text-[10px] text-slate-500">{meta}</span>
+              </button>;
+            })}
+            {items.length === 0 ? <p className="px-2 py-2 text-xs text-slate-500">No columns or coded values match this search.</p> : null}
+          </div>;
+        })() : (
         <div className={layout === 'panel'
           ? 'min-w-0 border-b border-slate-200 p-4'
           : 'min-w-0 border-b border-slate-200 p-4 sm:p-5'}>
@@ -2258,9 +2300,10 @@ const ConceptCatalogContent = ({
             </details>
           ) : null}
         </div>
+        )}
 
         {selected.size > 0 ? (
-          <aside aria-label="Selected feature action" className="fixed inset-x-4 bottom-4 z-30 grid w-auto gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(18rem,calc(100vw-2rem))] md:-translate-y-1/2 lg:translate-x-0">
+          <aside aria-label="Selected feature action" className={dense ? "grid shrink-0 gap-2 border-t border-slate-200 p-2" : "fixed inset-x-4 bottom-4 z-30 grid w-auto gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(18rem,calc(100vw-2rem))] md:-translate-y-1/2 lg:translate-x-0"}>
             <p className="m-0 text-sm font-medium text-slate-700" role="status">
               {selected.size} {selected.size === 1 ? 'feature' : 'features'} selected
             </p>

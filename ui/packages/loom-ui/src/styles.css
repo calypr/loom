@@ -187,15 +187,14 @@
   border: 1px solid #cbd5e1;
 }
 
-.loom-ui-root .construction-more-actions-menu,
 .loom-ui-root [data-testid="construction-table-actions-menu"] {
   border: 1px solid #e2e8f0;
   background-color: #ffffff;
 }
 
 .loom-ui-root .construction-preview-surface {
-  border: 1px solid #d5deea;
-  border-radius: 0.5rem;
+  border: 0;
+  border-radius: 0.25rem;
 }
 
 .loom-ui-root .construction-preview-header-row {
@@ -361,8 +360,8 @@
 .loom-ui-root .construction-active-editor,
 .loom-ui-root .construction-result-preview { min-width: 0; min-height: 0; }
 .loom-ui-root .construction-main-panel { display: flex; flex-direction: column; gap: .75rem; }
-.loom-ui-root .construction-side-panel { display: flex; flex-direction: column; gap: .75rem; overflow: hidden; border: 1px solid #dbe4ef; border-radius: .5rem; background: #fff; padding: .875rem; }
-.loom-ui-root .construction-scope-navigation { display: flex; flex: 1; flex-direction: column; gap: 1rem; overflow: auto; overscroll-behavior: contain; }
+.loom-ui-root .construction-side-panel { display: flex; flex-direction: column; gap: .5rem; overflow: hidden; border: 0; border-radius: .25rem; background: #fff; padding: 0 .75rem .75rem; }
+.loom-ui-root .construction-scope-navigation { display: flex; flex: 1; flex-direction: column; gap: 1rem; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 .loom-ui-root .construction-scope-navigation[hidden] { display: none; }
 .loom-ui-root .construction-fact-inspector { flex-shrink: 0; }
 .loom-ui-root .construction-controller-host { display: contents; }
@@ -372,7 +371,9 @@
 .loom-ui-root .construction-history-disclosure ol { display: grid; gap: .375rem; }
 .loom-ui-root .construction-history-disclosure .construction-history > header { display: none; }
 .loom-ui-root .construction-authored-region { display: flex; flex-direction: column; }
+.loom-ui-root .construction-active-editor { flex: 1 1 auto; min-height: 0; }
 .loom-ui-root .construction-authored-content { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; }
+.loom-ui-root .construction-authored-content > div { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 .loom-ui-root .construction-panel-controls {
   display: flex;
   flex: 0 0 2rem;
@@ -394,6 +395,21 @@
   line-height: 1;
 }
 .loom-ui-root .construction-panel-controls button:hover { background: #f1f5f9; }
+.loom-ui-root .construction-panel-controls button.construction-panel-back {
+  display: inline-flex;
+  width: auto;
+  height: 2rem;
+  padding: 0 .75rem;
+  align-items: center;
+  gap: .375rem;
+  border: 0;
+  border-radius: .375rem;
+  background: #0f172a;
+  color: #fff;
+  font-size: .75rem;
+  font-weight: 600;
+}
+.loom-ui-root .construction-panel-controls button.construction-panel-back:hover { background: #334155; }
 .loom-ui-root .construction-panel-controls button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .loom-ui-root .construction-authored-region[data-expanded="true"],
 .loom-ui-root [data-testid="construction-preview"][data-expanded="true"],
@@ -466,7 +482,7 @@
 .loom-ui-root .construction-side-panel[data-expanded="true"] > .construction-scope-navigation,
 .loom-ui-root .construction-side-panel[data-expanded="true"] > .construction-history-disclosure { flex: 1 1 auto; max-height: none; }
 .loom-ui-root .construction-side-panel[data-expanded="true"] .construction-active-editor,
-.loom-ui-root .construction-side-panel[data-expanded="true"] .construction-scope-navigation { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.loom-ui-root .construction-side-panel[data-expanded="true"] .construction-scope-navigation { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .loom-ui-root [data-testid="construction-preview"][data-expanded="true"] [data-testid="preview-table-scroll"] { max-height: none; }
 .loom-ui-root .construction-authored-region[data-expanded="true"] > .construction-panel-controls,
 .loom-ui-root [data-testid="construction-preview"][data-expanded="true"] .construction-panel-controls,
@@ -488,16 +504,32 @@
     grid-template-rows: minmax(0, 1fr);
     grid-template-areas: "main inspector";
   }
+  .loom-ui-root .construction-result-region[data-has-resize-handle="true"] {
+    grid-template-columns: minmax(0, 1fr) 6px var(--inspector-width, clamp(21rem, 28vw, 27rem));
+    grid-template-areas: "main handle inspector";
+  }
+  .loom-ui-root .construction-result-region[data-has-resize-handle="true"],
+  .loom-ui-root .construction-result-region[data-has-resize-handle="true"] .construction-main-panel { gap: 0; }
   .loom-ui-root .construction-main-panel { grid-area: main; overflow: auto; overscroll-behavior: contain; }
+  .loom-ui-root .construction-result-region[data-composition="inspector-right"] .construction-main-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+  }
+  .loom-ui-root .construction-result-region[data-composition="inspector-right"] .construction-authored-region { flex: 5 1 0; min-height: 0; }
+  .loom-ui-root .construction-result-region[data-composition="inspector-right"] [data-testid="construction-preview"] { flex: 2 1 0; min-height: 0; }
+
   .loom-ui-root .construction-result-region[data-composition="inspector-below"] {
-    grid-template-rows: auto minmax(12.5rem, 1fr);
+    gap: 0;
+    grid-template-rows: minmax(0, 5fr) minmax(0, 2fr);
     grid-template-areas: "graph graph" "preview inspector";
   }
   .loom-ui-root .construction-result-region[data-composition="inspector-below"] .construction-main-panel { display: contents; }
   .loom-ui-root .construction-result-region[data-composition="inspector-below"]:not([data-has-network="true"]) { grid-template-rows: minmax(0, 1fr); grid-template-areas: "preview inspector"; }
   .loom-ui-root .construction-side-panel { grid-area: inspector; }
   .loom-ui-root .construction-authored-region { grid-area: graph; flex-shrink: 0; }
-  .loom-ui-root .construction-active-editor { flex: 1; height: 100%; max-height: none; overflow: auto; background: #fff; }
+  .loom-ui-root .construction-active-editor { flex: 1; height: 100%; max-height: none; overflow-y: auto; overflow-x: hidden; background: #fff; }
   .loom-ui-root [data-testid="construction-preview"] {
     grid-area: preview;
     flex: 1 0 12.5rem;
@@ -543,4 +575,15 @@
 @media (min-width: 1100px) {
   .loom-ui-root .construction-inspector-portal-host { height: 100%; min-height: 0; overflow: hidden; }
   .loom-ui-root .construction-active-editor:has(> .construction-inspector-portal-host) { overflow: hidden; }
+}
+
+
+/* Split-pane resize handles */
+.loom-ui-root .construction-resize-handle { display: none; }
+@media (min-width: 1100px) {
+  .loom-ui-root .construction-resize-handle { display: block; touch-action: none; background: #e5e7eb; transition: background-color .12s ease; }
+  .loom-ui-root .construction-resize-handle:hover,
+  .loom-ui-root .construction-resize-handle:active { background: #94a3b8; }
+  .loom-ui-root .construction-resize-handle-vertical { grid-area: handle; align-self: stretch; width: 6px; cursor: col-resize; border-radius: 3px; }
+  .loom-ui-root .construction-resize-handle-horizontal { flex: 0 0 6px; height: 6px; cursor: row-resize; border-radius: 3px; }
 }
