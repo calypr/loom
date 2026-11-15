@@ -231,6 +231,23 @@ export const ImportedSourceSteps = ({
   });
   const sourceReview = selectedStep?.editable && renderReview && currentSourceStepChange && validMaxColumns && validDependentEdits && !(selectedStep.occurrenceId && removedOccurrences.has(selectedStep.occurrenceId))
     ? renderReview(currentSourceStepChange, closeEditor, dependentChanges.length ? [currentSourceStepChange, ...dependentChanges] : undefined) : null;
+  const stageOrSelectOperation = (stepId: string) => {
+    if (!editor || isDisabled) return;
+    const step = stepsById.get(stepId);
+    if (!step?.editable) return;
+    if (step.id === editor.stepId) {
+      openEditor(step.id);
+      return;
+    }
+    if (!step.parameters) return;
+    if (dependentEdits.some((change) => change.stepId === step.id)) {
+      openEditor(step.id);
+      return;
+    }
+    if (dependentEdits.length >= 127) return;
+    onDraftChange?.();
+    setEditor({ ...editor, activeStepId: step.id, dependentEdits: [...dependentEdits, editorStateFor(step)] });
+  };
   const updateActive = (patch: Partial<ImportedSourceStepEditorValues>) => {
     if (!editor || !activeStep) return;
     if (activeStep.id === editor.stepId) { onDraftChange?.(); setEditor({ ...editor, ...patch }); }
@@ -405,38 +422,39 @@ export const ImportedSourceSteps = ({
           }}
         >
           <div className="construction-inspector-body space-y-2 px-3 py-2">
-          {selectedStep && (dependentEdits.length || renderReview) ? <section aria-label="Staged source operations" className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
+          {selectedStep && (dependentEdits.length || renderReview) ? <section aria-label="Recipe operations" className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="m-0 text-sm font-semibold">Staged source operations</h3>
-              <span className="text-xs text-slate-600">One preview applies the selected edits together.</span>
+              <h3 className="m-0 text-sm font-semibold">Recipe operations</h3>
             </div>
-            <ol aria-label="Operations in this change" className="m-0 flex list-none flex-wrap gap-1 p-0">
-              {[{ step: selectedStep, label: sourceStepLabel(selectedStep), primary: true }, ...dependentEdits.flatMap((change) => {
-                const step = stepsById.get(change.stepId);
-                return step ? [{ step, label: sourceStepLabel({ ...step, parameters: change.parameters }), primary: false }] : [];
-              })].map(({ step, label, primary }) => <li key={step.id} className="flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1">
-                <button type="button" disabled={isDisabled} aria-label={`Edit operation ${label}`} aria-pressed={activeStep.id === step.id}
-                  className={`text-left text-xs ${activeStep.id === step.id ? 'font-semibold text-blue-900' : 'text-slate-700'}`}
-                  onClick={() => openEditor(step.id)}>{label}{primary ? ' · primary' : ''}</button>
-                {!primary ? <button type="button" aria-label={`Remove ${label} from this change`} disabled={isDisabled}
-                  className="text-xs text-blue-800 underline" onClick={() => {
-                    onDraftChange?.();
-                    const nextDependentEdits = dependentEdits.filter((entry) => entry.stepId !== step.id);
-                    setEditor({ ...editor, activeStepId: activeStep.id === step.id ? editor.stepId : editor.activeStepId, dependentEdits: nextDependentEdits });
-                  }}>Remove</button> : null}
-              </li>)}
+            <p className="m-0 text-xs text-slate-600">Select an existing operation to edit or include it in this preview.</p>
+            <ol aria-label="Existing recipe operations" className="m-0 max-h-48 space-y-1 overflow-auto list-none p-0">
+              {steps?.map((step, index) => ({ step, number: index + 1 }))
+                .filter(({ step }) => step.id === editor.stepId || (step.editable && step.parameters))
+                .map(({ step, number }) => {
+                const primary = step.id === editor.stepId;
+                const staged = primary || dependentEdits.some((change) => change.stepId === step.id);
+                const atBatchLimit = !staged && dependentEdits.length >= 127;
+                const current = primary ? { ...step, parameters: editor.parameters } : dependentEdits.find((change) => change.stepId === step.id)?.parameters
+                  ? { ...step, parameters: dependentEdits.find((change) => change.stepId === step.id)!.parameters }
+                  : step;
+                const label = sourceStepLabel(current);
+                return <li key={step.id} className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-2 py-1">
+                  <button type="button" disabled={isDisabled || atBatchLimit} title={atBatchLimit ? 'A preview can include up to 128 operations.' : undefined} aria-label={`${staged ? 'Edit' : 'Include'} operation ${label}`} aria-pressed={activeStep.id === step.id}
+                    className={`min-w-0 flex-1 truncate text-left text-xs ${activeStep.id === step.id ? 'font-semibold text-blue-900' : 'text-slate-700'}`}
+                    onClick={() => stageOrSelectOperation(step.id)}>
+                    <span className="mr-1 text-slate-500">{number}.</span>{label}
+                    <span className="ml-2 text-slate-500">{primary ? 'Primary' : staged ? 'In this change' : 'Available'}</span>
+                  </button>
+                  {staged && !primary ? <button type="button" aria-label={`Remove ${label} from this change`} disabled={isDisabled}
+                    className="shrink-0 text-xs text-blue-800 underline" onClick={() => {
+                      onDraftChange?.();
+                      const nextDependentEdits = dependentEdits.filter((entry) => entry.stepId !== step.id);
+                      setEditor({ ...editor, activeStepId: activeStep.id === step.id ? editor.stepId : editor.activeStepId, dependentEdits: nextDependentEdits });
+                    }}>Remove from change</button> : null}
+                </li>;
+              })}
             </ol>
-            {activeStep.editable && renderReview && activeStep.parameters ? <label className="grid max-w-xl gap-1 text-xs">Add a dependent operation<select aria-label="Add a dependent operation" value="" disabled={isDisabled || dependentEdits.length >= 127}
-              className="rounded border border-slate-300 bg-white px-2 py-1.5" onChange={(event) => {
-                const step = stepsById.get(event.currentTarget.value);
-                if (!step?.editable || !step.parameters || step.id === editor.stepId || dependentEdits.some((change) => change.stepId === step.id)) return;
-                onDraftChange?.();
-                setEditor({ ...editor, activeStepId: step.id, dependentEdits: [...dependentEdits, editorStateFor(step)] });
-              }}>
-              <option value="">Choose an operation to include…</option>
-              {steps?.filter((step) => step.editable && step.parameters && step.id !== editor.stepId && !dependentEdits.some((change) => change.stepId === step.id)).map((step) => <option key={step.id} value={step.id}>{sourceStepLabel(step)}</option>)}
-            </select></label> : null}
-            <p className="m-0 text-xs text-slate-600">Changing an alias does not rename dependent selectors. Select each related operation to update its references. Recipe order stays fixed.</p>
+            {dependentEdits.length >= 127 ? <p role="status" className="m-0 text-xs text-slate-600">This preview has reached the 128-operation limit.</p> : null}
           </section> : null}
           <section aria-label={`Operation settings for ${sourceStepLabel(activeStep)}`} className="space-y-2">
             <h3 className="m-0 text-sm font-semibold text-slate-900">{sourceStepLabel({ ...activeStep, parameters: activeValues.parameters })}</h3>
@@ -454,9 +472,9 @@ export const ImportedSourceSteps = ({
             {activeStep.editable ? <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
               <label className="flex items-center gap-2 text-sm text-slate-800">
                 <input type="checkbox" checked={activeValues.enabled} disabled={isDisabled || !canDisableSourceStep(activeStep)}
-                  onChange={(event) => updateActive({ enabled: event.currentTarget.checked })} />Enable this source step
+                  aria-label={`Run operation ${sourceStepLabel(activeStep)}`} onChange={(event) => updateActive({ enabled: event.currentTarget.checked })} />Run operation
               </label>
-              {!canDisableSourceStep(activeStep) ? <p className="text-xs text-slate-600">This operation defines the output rows or their identity. Edit its parameters; it cannot be disabled independently.</p> : null}
+              {!canDisableSourceStep(activeStep) ? <p className="text-xs text-slate-600">This operation defines the output rows or their identity, so it must stay enabled.</p> : <p className="text-xs text-slate-600">Turn this off to disable the recipe operation. Remove from change only unstages an edit.</p>}
               {activeStep.maxColumns !== undefined ? <label className="grid gap-1 text-sm text-slate-800">Maximum columns
                 <input type="number" min={1} step={1} value={activeValues.maxColumns} disabled={isDisabled} aria-invalid={!validActiveMaxColumns}
                   data-testid="imported-source-max-columns" onChange={(event) => updateActive({ maxColumns: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
