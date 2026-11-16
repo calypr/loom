@@ -312,7 +312,7 @@ test('GRAPH-ROWS imported source add cancel apply edit remove reload and real st
       const bounds = await page.getByTestId('construction-preview').boundingBox();
       assert(bounds && bounds.height >= 150 && bounds.y + 150 <= 900, 'Useful actual preview must remain visible at 1536x900');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'No page-level horizontal overflow');
-      await expect(page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit source rows: One row per ResearchSubject record', exact: true })).toBeVisible();
+      await expect(page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit row definition: One row per ResearchSubject record', exact: true })).toBeVisible();
     };
     await layout();
     await page.screenshot({ path: testInfo.outputPath('main-editor-1536x900.png') });
@@ -499,7 +499,7 @@ test('GRAPH-ROWS carry-in source step edit reload restore and native Group contr
       (run.report.groupPreviewKeyBindings ??= []).push({ receiptId: preview.receiptId, bindings });
       return bindings;
     };
-    await page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit source rows: One row per ResearchSubject record', exact: true }).click();
+    await page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit row definition: One row per ResearchSubject record', exact: true }).click();
     await page.getByTestId('construction-action-group-rows').click();
     const editor = page.getByTestId('construction-reshape-group');
     await expect(editor).toBeVisible();
@@ -526,7 +526,7 @@ test('GRAPH-ROWS carry-in source step edit reload restore and native Group contr
     // Reopen after the carry-in Cancel and complete the actual saved Group
     // lifecycle. Contributor selection is bound to the returned root occurrence
     // and stage capability, never to an arbitrary same-labelled graph node.
-    await page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit source rows: One row per ResearchSubject record', exact: true }).click();
+    await page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit row definition: One row per ResearchSubject record', exact: true }).click();
     await page.getByTestId('construction-action-group-rows').click();
     await expect(editor).toBeVisible();
     await editor.getByText('Add grouping field', { exact: true }).click();

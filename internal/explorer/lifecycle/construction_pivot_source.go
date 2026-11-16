@@ -53,8 +53,8 @@ func (s *Service) constructionPivotSourceCapability(
 	outputID, stageID string,
 ) (ConstructionPivotSourceCapability, error) {
 	result := ConstructionPivotSourceCapability{StageID: stageID, Choices: []ConstructionPivotSourceChoice{}}
-	if code, reason, unavailable := importedSourceChoiceUnavailable(base.document); unavailable {
-		result.ReasonCode, result.Reason = code, reason
+	if importedSourceChoiceUnavailable(base.document) {
+		result.Supported = true
 		return result, nil
 	}
 	stage, found := constructionReceiptStage(base.stages, stageID)

@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -25,7 +24,7 @@ func (s *Service) prepareDraftRevisionRestore(
 	command := &commands[0]
 	owner, err := s.getOwner(ctx, project, explorerID)
 	if err != nil {
-		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the Explorer draft changed; reload before restoring", nil, err)
+		return nil, persistenceFailure("commands", "the Explorer draft could not be loaded before restoring", err)
 	}
 	if owner == nil || owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
 		return nil, conflict("commands", "DRAFT_CONFLICT", "the Explorer draft changed; reload before restoring", nil, explorer.ErrDraftConflict)
@@ -38,7 +37,7 @@ func (s *Service) prepareDraftRevisionRestore(
 		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the requested draft revision is unavailable", nil, err)
 	}
 	if err != nil {
-		return nil, internal("commands", "DRAFT_REVISION_READ_FAILED", fmt.Sprintf("read prior draft revision: %v", err), err)
+		return nil, persistenceFailure("commands", "the prior draft revision could not be read", err)
 	}
 	if revision == nil || revision.ID != command.DraftRevisionID || projectid.Canonical(revision.Project) != projectid.Canonical(project) ||
 		revision.ExplorerID != explorerID || revision.DraftVersion != owner.DraftVersion-1 {
@@ -70,7 +69,7 @@ func (s *Service) prepareDraftRevisionRestore(
 		if owner.ActiveRevisionID != "" {
 			active, activeErr := s.store.ActiveRevision(ctx, project, explorerID)
 			if activeErr != nil {
-				return nil, conflict("commands", "DRAFT_REVISION_INVALID", "the prior workspace cannot be loaded", nil, activeErr)
+				return nil, persistenceFailure("commands", "the prior workspace could not be loaded", activeErr)
 			}
 			if active.SourceGeneration != currentSource.SourceGeneration {
 				return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the active source generation changed since the prior workspace", nil, nil)

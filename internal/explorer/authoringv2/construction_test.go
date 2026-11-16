@@ -487,7 +487,7 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 	if got := upgraded.Construction.Steps[0].Operation.Pivot.DuplicatePolicy; got != ConstructionPivotDuplicateMax {
 		t.Fatalf("pivot duplicate policy = %q", got)
 	}
-	if got := upgraded.Construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy; got != ConstructionPivotUnlistedExcludeWithEvidence {
+	if got := upgraded.Construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy; got != ConstructionPivotUnlistedError {
 		t.Fatalf("pivot unlisted policy = %q", got)
 	}
 	for _, column := range upgraded.Columns {
@@ -546,6 +546,31 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 	}
 }
 
+func TestConstructionRejectsExcludeWithEvidencePivotBeforeCompilation(t *testing.T) {
+	document := stagedConstructionDocument()
+	document.Construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy = ConstructionPivotUnlistedExcludeWithEvidence
+	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
+		t.Fatalf("document validation accepted an unsupported construction pivot policy: %v", err)
+	}
+}
+
+func TestUpgradeRejectsExcludeWithEvidenceTableShapeBeforeCompilation(t *testing.T) {
+	legacy := legacyPivotDocument()
+	legacy.TableShape.Reshape.Pivot.UnlistedCategoryPolicy = "EXCLUDE_WITH_EVIDENCE"
+	before := legacy
+	before.Columns = append([]Column(nil), legacy.Columns...)
+	before.TableShape, _ = cloneTableShape(legacy.TableShape)
+	if err := legacy.Validate(); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
+		t.Fatalf("document validation accepted an unupgradable tableShape pivot policy: %v", err)
+	}
+	if _, err := UpgradeDocumentToConstruction(legacy); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
+		t.Fatalf("upgrade accepted an unupgradable tableShape pivot policy: %v", err)
+	}
+	if !reflect.DeepEqual(legacy, before) || legacy.TableShape == nil || legacy.Construction != nil {
+		t.Fatal("failed upgrade changed the accepted legacy document")
+	}
+}
+
 func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
 	legacy := stagedConstructionDocument()
 	for i := range legacy.Columns {
@@ -555,7 +580,7 @@ func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
 	legacy.TableShape = &TableShape{Reshape: &TableReshape{Kind: "UNPIVOT", Unpivot: &UnpivotConstruction{
 		ConstructionID: "legacy_unpivot",
 		Inputs: []UnpivotInput{
-			{Column: "value", Key: stringScalar("one")},
+			{Column: "group_id", Key: stringScalar("one")},
 			{Column: "category", Key: stringScalar("two")},
 		},
 		KeyOutput:     ColumnOutput{Column: "metric", Label: "Metric"},
@@ -932,7 +957,7 @@ func legacyPivotDocument() Document {
 				{Key: stringScalar("A"), Output: ColumnOutput{Column: "amount_a", Label: "Amount A"}},
 				{Key: stringScalar("B"), Output: ColumnOutput{Column: "amount_b", Label: "Amount B"}},
 			},
-			DuplicatePolicy: "MAX", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "EXCLUDE_WITH_EVIDENCE",
+			DuplicatePolicy: "MAX", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
 		}},
 		Derived: []DerivedConstruction{
 			{

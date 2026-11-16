@@ -40,7 +40,7 @@ type importedRecipeResolution struct {
 
 func (r importedRecipeSources) load(ctx context.Context, project, name, version, digest string, authorized lifecycle.AuthorizedCapability, documents ...authoringv2.Document) (importedRecipeResolution, error) {
 	if r.registry == nil || r.engine == nil || name == "" || name != r.defaultName {
-		return importedRecipeResolution{}, fmt.Errorf("the imported recipe is not a configured dataframe source")
+		return importedRecipeResolution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
 	}
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
 		return importedRecipeResolution{}, capability.ErrStaleSnapshot
@@ -50,7 +50,7 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, name, version)
 	if err != nil {
-		return importedRecipeResolution{}, fmt.Errorf("load pinned dataframe recipe: %w", err)
+		return importedRecipeResolution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
 	}
 	bundle, err := entry.Bundle.CanonicalBundle()
 	if err != nil {
@@ -82,7 +82,7 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 		}
 		pristine, err := r.engine.ResolveBundle(ctx, bundle, bindings)
 		if err != nil {
-			return importedRecipeResolution{}, fmt.Errorf("verify pinned projection identity source: %w", err)
+			return importedRecipeResolution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe projection could not be compiled", Cause: err}
 		}
 		pinnedSchemas = map[string][]lower.CompiledOutputColumn{}
 		for _, output := range pristine.Compiled.Outputs {
@@ -138,7 +138,7 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 	}
 	resolved, err := r.engine.ResolveBundle(ctx, effective, bindings)
 	if err != nil {
-		return importedRecipeResolution{}, fmt.Errorf("resolve imported dataframe source: %w", err)
+		return importedRecipeResolution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the imported dataframe source could not be compiled", Cause: err}
 	}
 	resolved.Compiled.Outputs = append([]lower.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
 	for i := range resolved.Compiled.Outputs {

@@ -133,7 +133,7 @@ func TestPersistedExplorerRequiresExecutionVisibility(t *testing.T) {
 	}{
 		{"visible", nil, 0},
 		{"concealed", dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, ""), 404},
-		{"backend failure", dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, ""), 500},
+		{"backend failure", dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, ""), 503},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0

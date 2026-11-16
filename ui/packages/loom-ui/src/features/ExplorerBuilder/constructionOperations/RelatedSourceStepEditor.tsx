@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -341,6 +342,7 @@ export const RelatedSourceStepEditor = ({
     );
   const labelIsValid = Boolean(outputLabel.trim());
 
+  useEscapeToClose(true, onCancel);
   return (
     <section
       aria-label="Related source editor"

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type RefCallback } from 'react';
+import {useCallback, useRef, useState, type RefCallback} from 'react';
+import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 
 export interface VirtualRange {
   readonly start: number;
@@ -57,7 +58,7 @@ export const useVirtualViewport = <T extends HTMLElement>(
   const fallbackRef = useRef({ width: fallbackWidth, height: fallbackHeight });
   const ref = useCallback((mounted: T | null) => setElement(mounted), []);
 
-  useEffect(() => {
+  useCommitLifecycle(() => {
     if (!element) return undefined;
     const update = () => {
       const fallback = fallbackRef.current;

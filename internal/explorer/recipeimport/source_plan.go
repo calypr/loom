@@ -243,6 +243,9 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 			if err := step.Parameters.Validate(""); err != nil {
 				return recipe.Output{}, fmt.Errorf("source step %q: %w", step.ID, err)
 			}
+			if err := validateSourceParameterExpressionEdits(base.Parameters, step.Parameters); err != nil {
+				return recipe.Output{}, fmt.Errorf("source step %q: %w", step.ID, err)
+			}
 		}
 		if (step.Kind == "OUTPUT" || step.Kind == SourcePlanExpansion || step.Kind == SourcePlanIdentity) && !step.Enabled {
 			return recipe.Output{}, fmt.Errorf("source step %q cannot be disabled; edit its explicit row settings instead", step.ID)

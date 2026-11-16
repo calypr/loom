@@ -1,35 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { createLoomClient, type LoomClient } from './api';
-import type { SelectionRevision } from './selection';
 import BuilderWorkspace from './features/ExplorerBuilder/BuilderWorkspace';
-import { LoomProvider } from './react';
-
-type PopulationSelectionLoadState =
-  | { readonly requestId?: undefined; readonly status: 'idle' }
-  | { readonly requestId: string; readonly status: 'loading' }
-  | {
-      readonly requestId: string;
-      readonly status: 'ready';
-      readonly selection: SelectionRevision;
-    }
-  | {
-      readonly requestId: string;
-      readonly status: 'error';
-      readonly message: string;
-    };
-
-const idlePopulationSelection: PopulationSelectionLoadState = {
-  status: 'idle',
-};
-
-const populationSelectionForRequest = (
-  state: PopulationSelectionLoadState,
-  requestId: string | undefined,
-): PopulationSelectionLoadState => {
-  if (!requestId) return idlePopulationSelection;
-  if (state.requestId === requestId) return state;
-  return { requestId, status: 'loading' };
-};
+import { LoomProvider, useQuery } from './react';
 
 export interface LoomExplorerBuilderProps {
   readonly project: string;
@@ -65,57 +37,34 @@ export const LoomExplorerBuilder = ({
   featureFocus,
 }: LoomExplorerBuilderProps) => {
   const ownedClient = useMemo(() => client ?? createLoomClient(), [client]);
-  const [populationSelectionLoad, setPopulationSelectionLoad] =
-    useState<PopulationSelectionLoadState>(() =>
-      selectionRevisionId
-        ? { requestId: selectionRevisionId, status: 'loading' }
-        : idlePopulationSelection,
-    );
-  const currentPopulationSelection = populationSelectionForRequest(
-    populationSelectionLoad,
-    selectionRevisionId,
+  const populationSelectionQuery = useQuery(
+    (signal) => {
+      if (!selectionRevisionId) throw new Error('No saved selection was requested.');
+      const projectId = organization ? `${organization}/${project}` : project;
+      return ownedClient.getSelection({
+        project: projectId,
+        explorerId: !explorerId || explorerId === 'default' ? 'dataframe-default' : explorerId,
+        selectionRevision: selectionRevisionId,
+        limit: 1,
+        authResourcePath: organization ? `/programs/${organization}/projects/${project}` : undefined,
+      }, signal).then((page) => page.revision);
+    },
+    [explorerId, organization, ownedClient, project, selectionRevisionId],
+    Boolean(selectionRevisionId),
   );
-  useEffect(() => {
-    if (!selectionRevisionId) {
-      setPopulationSelectionLoad(idlePopulationSelection);
-      return;
-    }
-    const controller = new AbortController();
-    setPopulationSelectionLoad({
-      requestId: selectionRevisionId,
-      status: 'loading',
-    });
-    const projectId = organization ? `${organization}/${project}` : project;
-    void ownedClient.getSelection({
-      project: projectId,
-      explorerId: !explorerId || explorerId === 'default' ? 'dataframe-default' : explorerId,
-      selectionRevision: selectionRevisionId,
-      limit: 1,
-      authResourcePath: organization ? `/programs/${organization}/projects/${project}` : undefined,
-    }, controller.signal).then(
-      (page) => {
-        if (!controller.signal.aborted) {
-          setPopulationSelectionLoad({
-            requestId: selectionRevisionId,
-            status: 'ready',
-            selection: page.revision,
-          });
+  const currentPopulationSelection = !selectionRevisionId
+    ? { status: 'idle' }
+    : populationSelectionQuery.error
+      ? {
+          requestId: selectionRevisionId,
+          status: 'error',
+          message: populationSelectionQuery.error instanceof Error
+            ? populationSelectionQuery.error.message
+            : 'Loom could not load the saved selection.',
         }
-      },
-      (error: unknown) => {
-        if (!controller.signal.aborted) {
-          setPopulationSelectionLoad({
-            requestId: selectionRevisionId,
-            status: 'error',
-            message: error instanceof Error
-              ? error.message
-              : 'Loom could not load the saved selection.',
-          });
-        }
-      },
-    );
-    return () => controller.abort();
-  }, [explorerId, organization, ownedClient, project, selectionRevisionId]);
+      : populationSelectionQuery.data
+        ? { requestId: selectionRevisionId, status: 'ready', selection: populationSelectionQuery.data }
+        : { requestId: selectionRevisionId, status: 'loading' };
   return (
     <LoomProvider client={ownedClient}>
       <div className={['loom-ui-root', className].filter(Boolean).join(' ')}>

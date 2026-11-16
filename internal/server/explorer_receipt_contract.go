@@ -31,14 +31,14 @@ import (
 // row identity, and operation reasons are returned to lifecycle discovery.
 func compileConstructionSourceStage(ctx context.Context, request lifecycle.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine, importedSources ...importedRecipeSources) (explorer.ReceiptConstructionStage, error) {
 	if recipeEngine == nil {
-		return explorer.ReceiptConstructionStage{}, fmt.Errorf("recipe engine is required")
+		return explorer.ReceiptConstructionStage{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the construction source compiler is not configured"}
 	}
 	if request.Document.Output.ID != request.OutputID {
 		return explorer.ReceiptConstructionStage{}, fmt.Errorf("source-stage document output does not match requested output")
 	}
 	if request.Document.ImportedRecipe != nil {
 		if len(importedSources) == 0 {
-			return explorer.ReceiptConstructionStage{}, fmt.Errorf("imported dataframe source resolution is unavailable")
+			return explorer.ReceiptConstructionStage{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "construction-capabilities", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported dataframe source resolution is unavailable"}
 		}
 		return importedSources[0].SourceStage(ctx, request)
 	}
@@ -59,7 +59,7 @@ func compileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 	}
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
-		return explorer.ReceiptConstructionStage{}, fmt.Errorf("lower source projection: %w", err)
+		return explorer.ReceiptConstructionStage{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "construction-capabilities", Code: "CAPABILITY_UNAVAILABLE", Message: "the source projection could not be compiled", Cause: err}
 	}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name != request.OutputID {
@@ -130,7 +130,11 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		var err error
 		authorized, err = capabilityResolver.ResolveForCompilation(ctx, request.Project, request.SnapshotToken)
 		if err != nil {
-			return nil, err
+			var typed *lifecycle.Error
+			if errors.As(err, &typed) {
+				return nil, typed
+			}
+			return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "CAPABILITY_UNAVAILABLE", Message: "the capability snapshot could not be resolved", Cause: err}
 		}
 	} else if authorized.Snapshot.Identity.Project != projectid.Canonical(request.Project) || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
 		return nil, capability.ErrStaleSnapshot
@@ -158,7 +162,11 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if len(importedSources) > 0 {
 		sources, resolveErr := importedSources[0].Resolve(ctx, request.Project, workspace, authorized)
 		if resolveErr != nil {
-			return nil, resolveErr
+			var typed *lifecycle.Error
+			if errors.As(resolveErr, &typed) {
+				return nil, typed
+			}
+			return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported recipe sources could not be resolved", Cause: resolveErr}
 		}
 		request.ResolvedInputs.ImportedRecipes = sources
 	}
@@ -200,11 +208,15 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 			continue
 		}
 		if combineResolver == nil {
-			return nil, fmt.Errorf("resolve Combine output %q metadata: exact published input schema resolver is required", output.Name)
+			return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "COMBINE_INPUT_UNAVAILABLE", Message: "published Combine inputs are not configured"}
 		}
 		inputSchemas, err := combineResolver(ctx, output, bindings)
 		if err != nil {
-			return nil, fmt.Errorf("resolve Combine output %q metadata: %w", output.Name, err)
+			var typed *lifecycle.Error
+			if errors.As(err, &typed) {
+				return nil, typed
+			}
+			return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "COMBINE_INPUT_UNAVAILABLE", Message: fmt.Sprintf("published Combine inputs for output %q could not be resolved", output.Name), Cause: err}
 		}
 		combineInputSchemas[output.Name] = inputSchemas
 	}
@@ -283,7 +295,10 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	}
 	stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, explorer.ErrCorruptReceipt) {
+			return nil, err
+		}
+		return nil, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "compile", Code: "RECEIPT_STORE_UNAVAILABLE", Message: "the compilation receipt could not be stored", Cause: err}
 	}
 	validatePersistDuration = time.Since(validatePersistStarted)
 	if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
@@ -320,7 +335,7 @@ func classifyReceiptRecipeError(err error) error {
 	if errors.As(err, &reducerType) {
 		return &explorercompilation.Error{
 			Stage: "construction", Code: "PIVOT_REDUCER_REQUIRES_NUMERIC",
-			Message: "Choose a numeric value field for this Pivot duplicate rule, or choose Show an error.",
+			Message: "This Pivot duplicate rule needs a numeric value field. Choose Keep the smallest, Keep the largest, or Stop with an error.",
 			Details: map[string]any{"duplicatePolicy": reducerType.Policy, "valueColumn": reducerType.ValueColumn}, Cause: err,
 		}
 	}

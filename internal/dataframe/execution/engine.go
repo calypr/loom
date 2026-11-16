@@ -169,7 +169,6 @@ type OutputStream struct {
 	stream                   QueryRows
 	batchSize                int
 	rootPageRows             int
-	initialRootPageRows      int
 	page                     *compiler.CompiledOutputPage
 	physicalEngine           ir.PhysicalEngine
 	clickHouseCombine        *ir.PhysicalClickHouseCombine
@@ -180,6 +179,7 @@ type OutputStream struct {
 	withExecutionReadPins    WithExecutionReadPins
 	queryLimit               int
 	queryMemoryLimit         int64
+	sampledAggregate         bool
 	projectionDecisionKey    *groupPreviewRowsKey
 	projectionDecision       *groupPreviewProjectionDecision
 	recipeDigest             string
@@ -642,7 +642,9 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 			}
 		}
 	}
-	if rootPageRows > 0 && !wholeInput {
+	sampledAggregate := wholeInput && bindings.AllowSampledAggregatePreview
+	stream.sampledAggregate = sampledAggregate
+	if rootPageRows > 0 && (!wholeInput || sampledAggregate) {
 		pageBindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
 		pageBindings.PreviewLimit = limit
 		page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, pageBindings, rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
@@ -650,9 +652,6 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
 		}
 		stream.page = &page
-		if limit > 0 && relatedExpandRootPageOrder(output.Plan.StageSequence) {
-			stream.initialRootPageRows = 1
-		}
 		query.PlanDiagnostics = page.RowsDiagnostics
 		stream.planFingerprint = query.PlanDiagnostics.Fingerprint
 	}
@@ -1088,7 +1087,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			}
 		}
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: !stream.sampledAggregate, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
@@ -1396,9 +1395,6 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 	}
 	after := ""
 	pageRows := s.rootPageRows
-	if s.initialRootPageRows > 0 {
-		pageRows = s.initialRootPageRows
-	}
 	for {
 		keys := make([]string, 0, pageRows)
 		keyBinds := cloneBindVars(s.page.RootKeysBindVars)
@@ -1422,23 +1418,17 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		}
 		rowBinds := cloneBindVars(s.page.RowsBindVars)
 		rowBinds[compiler.RootPageKeysBind] = keys
-		emitted := 0
 		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, func(row map[string]any) error {
-			emitted++
 			return visit(row)
 		}); err != nil {
 			return err
 		}
+		if s.sampledAggregate {
+			return nil
+		}
 		after = keys[len(keys)-1]
 		if len(keys) < pageRows {
 			return nil
-		}
-		if s.initialRootPageRows > 0 {
-			if emitted == 0 {
-				pageRows = min(pageRows*2, s.rootPageRows)
-			} else {
-				pageRows = s.initialRootPageRows
-			}
 		}
 	}
 }

@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { LoomClient } from '../../../api';
 import type {
   TableShapeProposal as TableShapeProposalResult,
@@ -108,21 +109,6 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
   const contextKeyRef = useRef(contextKey);
   stateRef.current = state;
   contextKeyRef.current = contextKey;
-
-  useEffect(() => {
-    const session = currentSession(stateRef.current);
-    if (session && session.contextKey !== contextKey) {
-      epoch.current += 1;
-      const current = stateRef.current;
-      setState({
-        kind: 'stale',
-        session,
-        message: 'The table, snapshot, or draft changed. Reload settings before making another proposal.',
-        ...(currentIntent(current) ? { intent: currentIntent(current) } : {}),
-        ...(currentProposal(current) ? { proposal: currentProposal(current) } : {}),
-      });
-    }
-  }, [contextKey]);
 
   const isOperationCurrent = (operation: number, session: EditorSession): boolean =>
     epoch.current === operation && session.contextKey === contextKeyRef.current;
@@ -342,16 +328,27 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
   const session = currentSession(state);
   const intent = currentIntent(state);
   const proposal = currentProposal(state);
-  const editorIsBusy = state.kind === 'loading' || state.kind === 'resolving' || state.kind === 'proposing' || state.kind === 'review' || state.kind === 'applying' || state.kind === 'stale';
+  const stateIsStale = session !== undefined && session.contextKey !== contextKey;
+  const displayState: ControllerState = stateIsStale && session
+    ? {
+        kind: 'stale',
+        session,
+        message: 'The table, snapshot, or draft changed. Reload settings before making another proposal.',
+        ...(intent ? { intent } : {}),
+        ...(proposal ? { proposal } : {}),
+      }
+    : state;
+  const editorIsBusy = displayState.kind === 'loading' || displayState.kind === 'resolving' || displayState.kind === 'proposing' || displayState.kind === 'review' || displayState.kind === 'applying' || displayState.kind === 'stale';
   const editorDisabled = props.disabled || editorIsBusy || Boolean(session && session.contextKey !== contextKey);
 
+  useEscapeToClose(displayState.kind !== 'closed', cancel);
   return (
     <section aria-label="Table shape settings" data-testid="ui04-table-shape-settings" className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-2">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="m-0 text-xs text-slate-600">Pivot, unpivot, or add calculated columns. Loom previews the change before it reaches the saved draft.</p>
         </div>
-        {state.kind === 'closed' ? (
+        {displayState.kind === 'closed' ? (
           <button
             type="button"
             className="rounded bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:opacity-50"
@@ -364,13 +361,13 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
         ) : null}
       </div>
 
-      {state.kind !== 'closed' ? (
+      {displayState.kind !== 'closed' ? (
         <div role="dialog" aria-modal="false" aria-labelledby="ui04-table-shape-dialog-title" data-testid="ui04-table-shape-dialog" className="mt-2 grid gap-2 rounded-lg border border-indigo-200 bg-white p-2">
           <h3 id="ui04-table-shape-dialog-title" className="sr-only">Table shape settings</h3>
-          {state.kind === 'loading' ? <p role="status">Loading table-shape choices…</p> : null}
-          {state.kind === 'error' ? (
+          {displayState.kind === 'loading' ? <p role="status">Loading table-shape choices…</p> : null}
+          {displayState.kind === 'error' ? (
             <div className="grid gap-2">
-              <p role="alert" data-testid="ui04-table-shape-error">{state.message}</p>
+              <p role="alert" data-testid="ui04-table-shape-error">{displayState.message}</p>
               <div className="flex gap-2">
                 <button type="button" data-testid="ui04-reload-table-shape" onClick={() => void loadCatalog()}>Reload settings</button>
                 <button type="button" data-testid="ui04-close-table-shape" onClick={cancel}>Close</button>
@@ -382,26 +379,26 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
               {session.savedSupportNotice ? (
                 <p role="status" data-testid="ui04-saved-shape-support">The saved table shape needs review. {session.savedSupportNotice}</p>
               ) : null}
-              {state.kind === 'stale' ? (
+              {displayState.kind === 'stale' ? (
                 <div role="alert" data-testid="ui04-stale-table-shape" className="flex flex-wrap items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-                  <span>{state.message}</span>
+                  <span>{displayState.message}</span>
                   <button type="button" data-testid="ui04-reload-table-shape" onClick={() => void loadCatalog()}>Reload settings</button>
                 </div>
               ) : null}
               <TableShapeEditor
-                key={session.id}
+                key={`${session.id}:${session.scope.snapshotToken}:${session.scope.expectedDraftVersion}:${session.scope.expectedDraftDigest}:${session.catalogId}`}
                 savedProposalKey={`${session.scope.snapshotToken}:${session.scope.expectedDraftVersion}:${session.scope.expectedDraftDigest}:${session.catalogId}`}
                 savedProposalIntent={session.savedProposalIntent}
                 choices={session.choices}
-                recoverableError={state.kind === 'editing' ? state.recoverableError : undefined}
+                recoverableError={displayState.kind === 'editing' ? displayState.recoverableError : undefined}
                 disabled={editorDisabled}
                 onApply={(proposalIntent) => void resolveAndPropose(proposalIntent)}
                 onRequestCategoryDiscovery={(pair) => void requestCategoryDiscovery(pair)}
                 onCancel={cancel}
               />
-              {state.kind === 'resolving' || state.kind === 'proposing' || state.kind === 'applying' ? (
+              {displayState.kind === 'resolving' || displayState.kind === 'proposing' || displayState.kind === 'applying' ? (
                 <p role="status" data-testid="ui04-table-shape-progress">
-                  {state.kind === 'resolving' ? 'Checking the selected choices…' : state.kind === 'proposing' ? 'Building a before-and-after preview…' : 'Applying the reviewed table shape…'}
+                  {displayState.kind === 'resolving' ? 'Checking the selected choices…' : displayState.kind === 'proposing' ? 'Building a before-and-after preview…' : 'Applying the reviewed table shape…'}
                 </p>
               ) : null}
               {proposal ? (
@@ -412,7 +409,7 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
                   />
                   <div className="flex flex-wrap justify-end gap-2">
                     <button type="button" data-testid="ui04-cancel-table-shape-proposal" onClick={cancel}>Cancel</button>
-                    {state.kind === 'review' ? (
+                    {displayState.kind === 'review' ? (
                       <button
                         type="button"
                         className="rounded bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"

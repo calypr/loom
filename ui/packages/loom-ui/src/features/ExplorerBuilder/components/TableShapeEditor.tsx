@@ -1,4 +1,5 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import { ChoiceSelect } from './ChoiceSelect';
 import { DerivedColumnsEditor } from './DerivedColumnsEditor';
 import { GroupedPivotEditor } from './GroupedPivotEditor';
@@ -87,13 +88,7 @@ export const TableShapeEditor = ({
   latestChoices.current = choices;
   latestForm.current = form;
 
-  useLayoutEffect(() => {
-    setForm(proposalIntentToForm(savedProposalIntent));
-    pendingCategoryRequest.current = null;
-    setCategoryDiscovery(discoveryForReset(latestChoices.current.pivotCategoryDiscovery));
-  }, [savedProposalKey]);
-
-  useEffect(() => {
+  useCommitLifecycle(() => {
     const incoming = choices.pivotCategoryDiscovery;
     const request = pendingCategoryRequest.current;
     if (!request) return;

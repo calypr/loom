@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -139,11 +140,11 @@ type ConstructionGroupSourceChoice struct {
 	IsPopulated  bool   `json:"isPopulated"`
 }
 
-func importedSourceChoiceUnavailable(document authoringv2.Document) (string, string, bool) {
-	if document.ImportedRecipe == nil {
-		return "", "", false
-	}
-	return "IMPORTED_SOURCE_PROJECTION_UNAVAILABLE", "source-field choices from the live FHIR catalog are not applicable to this pinned recipe; use its resolved output columns", true
+func importedSourceChoiceUnavailable(document authoringv2.Document) bool {
+	// A pinned recipe resolves into ordinary stage columns. It has no live FHIR
+	// catalog route to enumerate extra source fields, but that does not make the
+	// source lane unavailable: builders should use the resolved output columns.
+	return document.ImportedRecipe != nil
 }
 
 func importedSourceRootChoiceInventoryMissing(base constructionBase) bool {
@@ -659,6 +660,9 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	var authorizedCodedPivotSteps map[string]bool
 	candidateConstruction, authorizedCodedPivotSteps, err = s.resolveConstructionCodedPivotChoices(ctx, base, request.OutputID, candidateConstruction)
 	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	if err := s.verifyConstructionProposalPivotCategories(ctx, request, candidateConstruction); err != nil {
 		return ConstructionProposalResponse{}, err
 	}
 	candidateDocument, impact, err := analyzeConstructionCandidateWithCascade(
@@ -1517,6 +1521,10 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 			Authorized: authorized.Clone(), SelectionMembersCollection: s.config.SelectionMembersCollection,
 		})
 		if err != nil {
+			var typed *Error
+			if errors.As(err, &typed) {
+				return constructionBase{}, typed
+			}
 			return constructionBase{}, unprocessable("construction-capabilities", "SOURCE_STAGE_DISCOVERY_FAILED", "the compiler could not resolve the empty source projection", err)
 		}
 		if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn == "" || len(stage.Columns) != 0 {

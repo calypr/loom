@@ -24,7 +24,7 @@ func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target
 			return lifecycle.Execution{}, fmt.Errorf("compilation receipt is required")
 		}
 		if target == nil {
-			return lifecycle.Execution{}, fmt.Errorf("Explorer publication is unavailable: %w", degradation)
+			return lifecycle.Execution{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "materialize", Code: "MATERIALIZATION_UNAVAILABLE", Message: "Explorer publication is not configured", Cause: degradation}
 		}
 		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
 		if err != nil {

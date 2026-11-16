@@ -91,7 +91,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 	queries := 0
 	service.config.ScanCategories = func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		if receipt == nil || receipt.Bundle.Outputs[0].Construction == nil || scan.StageID != "keep_positive" ||
-			scan.ColumnID != "pivot_category_id" || scan.ValueColumnID != "pivot_value_id" {
+			scan.ColumnID != "pivot_category_id" || scan.ValueColumnID != "pivot_value_id" || !scan.RequireValue {
 			t.Fatalf("lifecycle did not pass the exact filtered discovery pair: receipt=%#v scan=%#v", receipt, scan)
 		}
 		plan, err := semantic.BuildRecipePlan(receipt.Bundle, bindings)
@@ -106,7 +106,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 		if err != nil {
 			t.Fatalf("lower lifecycle receipt recipe: %v", err)
 		}
-		query, err := compiler.CompileCategoryScanStageWithPolicy(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := compiler.CompileCategoryScanStageRequiringValue(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile lifecycle category stage: %v", err)
 		}
@@ -115,9 +115,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			t.Fatalf("actual ordinary-probe compiler output did not prove source presence: %#v", query.Proof)
 		}
 		rows := []map[string]any{
-			{query.PresentColumn: true, query.ValueColumn: "final"},
-			{query.PresentColumn: true, query.ValueColumn: nil},
-			{query.PresentColumn: false, query.ValueColumn: nil},
+			{query.PresentColumn: true, query.ValueColumn: "final", "__loom_category_value_column": "final"},
 		}
 		queryRows := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			for _, row := range rows {
@@ -151,14 +149,11 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queries != 1 || !response.Complete || response.Outcome != constructionCategoryDiscoveryComplete || len(response.Categories) != 3 {
+	if queries != 1 || !response.Complete || response.Outcome != constructionCategoryDiscoveryComplete || len(response.Categories) != 1 {
 		t.Fatalf("filtered ordinary STRING probe discovery = %#v; actual compiler scans=%d", response, queries)
 	}
-	wantKinds := []authoringv2.TableScalarKind{authoringv2.TableScalarString, authoringv2.TableScalarNull, authoringv2.TableScalarMissing}
-	for index, want := range wantKinds {
-		if response.Categories[index].Key.Kind != want {
-			t.Fatalf("category %d kind = %q, want %q: %#v", index, response.Categories[index].Key.Kind, want, response.Categories)
-		}
+	if response.Categories[0].Key.Kind != authoringv2.TableScalarString {
+		t.Fatalf("category kind = %q, want %q: %#v", response.Categories[0].Key.Kind, authoringv2.TableScalarString, response.Categories)
 	}
 }
 

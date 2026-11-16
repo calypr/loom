@@ -87,7 +87,7 @@ export async function runGraphRowsComplementaryConnection({ run, page, request, 
       }
       await graph.getByRole('navigation', { name: 'Authored occurrences', exact: true }).getByRole('button').filter({ hasText: 'ResearchStudy' }).click();
       await expect(candidate).toHaveAttribute('data-preview-receipt-id', receipt);
-      await expect(expression.getByRole('button', { name: /^Edit source rows:/ })).toBeDisabled();
+      await expect(expression.getByRole('button', { name: /^Edit row definition:/ })).toBeDisabled();
       await expect(expression.getByRole('button', { name: 'Define related-record rows', exact: true })).toBeDisabled();
       assert.deepEqual(identity(await run.state()), identity(original));
     });

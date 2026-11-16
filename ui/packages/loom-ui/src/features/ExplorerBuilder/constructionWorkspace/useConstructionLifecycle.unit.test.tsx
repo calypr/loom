@@ -665,6 +665,52 @@ describe('useConstructionLifecycle', () => {
     });
     unmount();
   });
+
+  it('surfaces a no-values category outcome without offering an empty Pivot', async () => {
+    const message = 'No selected value is populated for any category in the current rows. Choose another value column or filter rows before pivoting.';
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs): Promise<ConstructionCategoryDiscoveryResponse> => ({
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        categoryColumnId: args.categoryColumnId,
+        valueColumnId: args.valueColumnId,
+        outcome: 'NO_VALUES' as const,
+        complete: false as const,
+        categories: [],
+        message,
+      })),
+      proposeConstruction: vi.fn(async () => proposalResponse()),
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, unmount } = renderHook(() => useConstructionLifecycle({
+      client,
+      capabilitiesRequest: request,
+    }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => result.current.onDiscoverCategories({
+      stageId: request.stageId,
+      categoryColumnId: 'category-id',
+      valueColumnId: 'value-id',
+    }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.pivotDiscovery).toMatchObject({
+      status: 'no-values',
+      reason: message,
+    });
+    unmount();
+  });
 });
 
 describe('shared recipe owner bridge', () => {
@@ -704,6 +750,26 @@ describe('shared recipe owner bridge', () => {
     act(() => result.current.cancel()); expect(result.current.proposal.status).toBe('applying');
     act(() => apply?.finish(true)); expect(attempt.finishApply).toHaveBeenCalledWith(true); expect(result.current.proposal.status).toBe('idle');
   });
+  it('keeps an applying proposal when the editor clears its candidate', async () => {
+    vi.useFakeTimers();
+    const attempt = { ready: vi.fn(() => true), failed: vi.fn(), cancel: vi.fn(() => false), beginApply: vi.fn(() => true), finishApply: vi.fn() };
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
+      proposeConstruction: vi.fn(async () => proposalResponse()), preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result } = renderHook(() => useConstructionLifecycle({ client, capabilitiesRequest: request, editingOwner: { onStart: () => attempt } }));
+    act(() => result.current.onCandidateChange({ candidateConstruction: { version: 1, steps: [] } }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    let apply: ReturnType<typeof result.current.beginApply>;
+    act(() => { apply = result.current.beginApply(); });
+    expect(result.current.proposal.status).toBe('applying');
+    act(() => result.current.onCandidateChange(undefined));
+    expect(result.current.proposal.status).toBe('applying');
+    act(() => apply?.finish(true));
+    expect(attempt.finishApply).toHaveBeenCalledWith(true);
+    expect(result.current.proposal.status).toBe('idle');
+  });
   it('does not authorize a candidate the shared owner rejects', async () => {
     vi.useFakeTimers();
     const attempt = { ready: vi.fn(() => false), failed: vi.fn(), cancel: vi.fn(() => true), beginApply: vi.fn(() => true), finishApply: vi.fn() };
@@ -715,6 +781,6 @@ describe('shared recipe owner bridge', () => {
     const { result } = renderHook(() => useConstructionLifecycle({ client, capabilitiesRequest: request, editingOwner: { onStart: () => attempt } }));
     act(() => result.current.onCandidateChange({ candidateConstruction: { version: 1, steps: [] } }));
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
-    expect(result.current.canApply).toBe(false); expect(result.current.proposal.status).toBe('error'); expect(attempt.failed).toHaveBeenCalledTimes(1);
+    expect(result.current.canApply).toBe(false); expect(result.current.proposal.status).toBe('idle'); expect(attempt.failed).not.toHaveBeenCalled();
   });
 });

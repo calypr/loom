@@ -65,7 +65,10 @@ func (s *Service) virtualDefaultDataframeOwner(ctx context.Context, project stri
 // persisted draft cannot be silently replaced by imported state.
 func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*explorer.Explorer, error) {
 	owner, err := s.store.Get(ctx, project, explorerID)
-	if err == nil || !errors.Is(err, explorer.ErrNotFound) || strings.TrimSpace(explorerID) != DefaultDataframeID {
+	if err != nil && !errors.Is(err, explorer.ErrNotFound) {
+		return nil, persistenceFailure("explorer", "the Explorer state could not be loaded", err)
+	}
+	if err == nil || strings.TrimSpace(explorerID) != DefaultDataframeID {
 		return owner, err
 	}
 	if s.config.Capability.Current == nil || s.config.Capability.Catalog == nil {
@@ -83,7 +86,10 @@ func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*ex
 
 func (s *Service) getOwnerWithSnapshot(ctx context.Context, project, explorerID string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot) (*explorer.Explorer, error) {
 	owner, err := s.store.Get(ctx, project, explorerID)
-	if err == nil || !errors.Is(err, explorer.ErrNotFound) || strings.TrimSpace(explorerID) != DefaultDataframeID {
+	if err != nil && !errors.Is(err, explorer.ErrNotFound) {
+		return nil, persistenceFailure("explorer", "the Explorer state could not be loaded", err)
+	}
+	if err == nil || strings.TrimSpace(explorerID) != DefaultDataframeID {
 		return owner, err
 	}
 	return s.virtualDefaultDataframeOwner(ctx, project, snapshot, catalog)

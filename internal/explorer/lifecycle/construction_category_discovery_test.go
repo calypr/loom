@@ -57,14 +57,15 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	incomplete := false
 	overflow := false
 	invalidProof := false
+	noValues := false
 	presenceTracked := true
 	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		calls++
 		if receipt == nil || bindings.Project != request.Project || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != request.OutputID {
 			t.Fatalf("scanner received unbound receipt or runtime bindings: %#v %#v", receipt, bindings)
 		}
-		if scan.Output != request.OutputID || scan.StageID != request.StageID || scan.ColumnID != request.CategoryColumnID || scan.ValueColumnID != request.ValueColumnID || scan.MaxValues != 256 {
-			t.Fatalf("scanner received a different stage or pair: %#v", scan)
+		if scan.Output != request.OutputID || scan.StageID != request.StageID || scan.ColumnID != request.CategoryColumnID || scan.ValueColumnID != request.ValueColumnID || scan.MaxValues != 256 || !scan.RequireValue {
+			t.Fatalf("scanner received a different stage, pair, or value policy: %#v", scan)
 		}
 		var category explorer.ReceiptConstructionStageColumn
 		for _, stage := range receipt.ConstructionStages[request.OutputID] {
@@ -89,6 +90,9 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 			proof.Fingerprint = ""
 		}
 		values := []dataframeexecution.CategoryValue{{Present: true, Value: "final"}}
+		if noValues {
+			values = nil
+		}
 		if includeNull {
 			values = append(values, dataframeexecution.CategoryValue{Present: true, Value: nil})
 		}
@@ -168,6 +172,12 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	}
 	invalidProof = false
 	overflow = false
+	noValues = true
+	empty, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil || empty.Outcome != constructionCategoryDiscoveryNoValues || empty.Complete || len(empty.Categories) != 0 || !strings.Contains(empty.Message, "No selected value is populated") {
+		t.Fatalf("no-value category discovery = %#v, error = %v", empty, err)
+	}
+	noValues = false
 	service.config.ScanCategories = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		return dataframeexecution.CategoryScanResult{}, context.DeadlineExceeded
 	}
@@ -180,7 +190,7 @@ func compilerCategoryScanProof(request ConstructionCategoryDiscoveryRequest, col
 	return compiler.CategoryScanProof{
 		Version: 2, Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
 		ValueColumnID: request.ValueColumnID, Column: column.Name, Kind: column.Type,
-		Cardinality: string(column.Cardinality), MaxValues: compiler.MaxCategoryScanValues,
+		Cardinality: string(column.Cardinality), MaxValues: compiler.MaxCategoryScanValues, ValuePresenceRequired: true,
 		OutputSchemaDigest: "schema", PlanFingerprint: "plan", QueryFingerprint: "query", Fingerprint: "proof",
 	}
 }

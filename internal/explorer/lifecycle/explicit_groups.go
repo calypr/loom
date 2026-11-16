@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -101,7 +100,7 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 
 	authorized, err := s.config.Capability.ForCompilation(ctx, project, snapshotToken)
 	if err != nil {
-		return result, err
+		return result, capabilityResolutionFailure("explicit-groups", "the explicit group capability snapshot is unavailable", err)
 	}
 	if strings.TrimSpace(authorized.Snapshot.Token) != snapshotToken {
 		return result, conflict("explicit-groups", "EXPLICIT_GROUP_STALE_SNAPSHOT", "the authorized dataset snapshot changed", nil, nil)
@@ -125,10 +124,10 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 		return result, conflict("explicit-groups", "EXPLICIT_GROUP_STALE_SOURCE", "the source selection is outside the active project, generation, or authorization scope", nil, explorer.ErrExplicitGroupRevisionStaleSource)
 	}
 	if digest, count, _, digestErr := s.store.DigestSelectionMembers(ctx, project, selectionID); digestErr != nil || digest != source.MembershipDigest || count != source.MemberCount {
-		if digestErr == nil {
-			digestErr = explorer.ErrExplicitGroupRevisionStaleSource
+		if digestErr != nil {
+			return result, persistenceFailure("explicit-groups", "the source selection membership could not be read", digestErr)
 		}
-		return result, conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_CORRUPT", "the source selection membership no longer matches its immutable header", nil, digestErr)
+		return result, conflict("explicit-groups", "EXPLICIT_GROUP_SOURCE_CORRUPT", "the source selection membership no longer matches its immutable header", nil, explorer.ErrExplicitGroupRevisionStaleSource)
 	}
 
 	refsByKey := make(map[string]explorer.ResourceRef, len(requestedByKey))
@@ -155,7 +154,7 @@ func (s *Service) CreateExplicitGroupRevision(ctx context.Context, request Expli
 			return nil
 		})
 		if visitErr != nil {
-			return result, conflict("explicit-groups", "EXPLICIT_GROUP_STALE_SOURCE", "the source selection membership could not be verified", nil, visitErr)
+			return result, persistenceFailure("explicit-groups", "the source selection membership could not be verified", visitErr)
 		}
 		if pageCount == 0 || pageCount < 1000 || next == after {
 			break
@@ -283,6 +282,6 @@ func normalizeExplicitGroupError(err error) error {
 	case errors.Is(err, explorer.ErrExplicitGroupRevisionNotFound):
 		return notFound("explicit-groups", "EXPLICIT_GROUP_NOT_FOUND", "explicit group revision was not found", err)
 	default:
-		return fmt.Errorf("explicit group authoring failed: %w", err)
+		return persistenceFailure("explicit-groups", "explicit group authoring failed", err)
 	}
 }

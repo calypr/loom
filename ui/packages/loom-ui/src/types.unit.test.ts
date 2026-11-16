@@ -10,6 +10,7 @@ import {
   columnValueTransformationCapabilitiesSchema,
   columnValueTransformationSchema,
   constructionCapabilitiesResponseSchema,
+  constructionCategoryDiscoveryResponseSchema,
   constructionInputsRequestSchema,
   constructionInputsResponseSchema,
   constructionProposalResponseSchema,
@@ -2023,14 +2024,40 @@ describe('explorerBuilderCommandSchema', () => {
     expect(explicitGroupRevisionSummarySchema.safeParse({ ...summary, debugSeed: true }).success).toBe(false);
   });
 
+  it('accepts the NO_VALUES construction category discovery outcome', () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'draft-digest-1',
+      outputId: 'output-1',
+      stageId: 'stage-1',
+      categoryColumnId: 'category-column-1',
+      valueColumnId: 'value-column-1',
+      outcome: 'NO_VALUES' as const,
+      complete: false,
+      categories: [],
+      message: 'No selected value is populated.',
+    };
+
+    expect(constructionCategoryDiscoveryResponseSchema.parse(response)).toEqual(response);
+    expect(constructionCategoryDiscoveryResponseSchema.safeParse({
+      ...response,
+      outcome: 'NO_VALUES',
+      categories: [{ key: { kind: 'STRING', string: 'alpha' }, label: 'Alpha' }],
+    }).success).toBe(false);
+  });
+
   it('keeps table-shape scalars and comparison presence/value evidence lossless and strict', () => {
     const scalars = [
       { kind: 'INTEGER', integer: 0 },
       { kind: 'DECIMAL', decimal: 0 },
       { kind: 'BOOLEAN', boolean: false },
       { kind: 'STRING', string: '' },
+      { kind: 'NULL' },
+      { kind: 'MISSING' },
     ] as const;
     scalars.forEach((value) => expect(tableShapeTaggedScalarSchema.parse(value)).toEqual(value));
+    expect(tableShapeTaggedScalarSchema.safeParse({ kind: 'NULL', string: 'x' }).success).toBe(false);
     expect(tableShapeTaggedScalarSchema.safeParse({ kind: 'INTEGER', integer: 0, resourceType: 'Patient' }).success).toBe(false);
 
     const comparison = {

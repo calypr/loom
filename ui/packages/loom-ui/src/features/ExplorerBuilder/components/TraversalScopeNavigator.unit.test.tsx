@@ -25,6 +25,26 @@ it('opens the source operation directly without listing every field as a shortcu
   expect(screen.queryByRole('button', { name: 'Both editors' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Define a row' })).toBeNull();
 });
+it('presents source and result operations as one continuously numbered recipe', () => {
+  const value = props();
+  render(<TraversalScopeNavigator {...value} />);
+  const steps = screen.getByTestId('traversal-recipe-steps');
+  expect(within(steps).getByText('Recipe steps · execution order')).toBeInTheDocument();
+  expect(within(steps).getByRole('button', { name: 'Edit source operation 1: Selected source fields' })).toBeInTheDocument();
+  expect(within(steps).getByText('Selected source fields')).toBeInTheDocument();
+});
+
+it('offers row-definition editing only for authored rows, not imported recipes', () => {
+  const authored = props(); const { rerender } = render(<TraversalScopeNavigator {...authored} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit row definition' }));
+  expect(authored.onEditSourceRows).toHaveBeenCalledOnce();
+
+  rerender(<TraversalScopeNavigator {...authored} table={{ ...table, document: { ...table.document,
+    importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' } } }} />);
+  expect(screen.queryByRole('button', { name: 'Edit row definition' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit source rows' })).toBeNull();
+});
+
 it('navigation selects an exact occurrence without changing an operation or anchor', () => {
   const value = props(); render(<TraversalScopeNavigator {...value} />);
   fireEvent.click(within(screen.getByRole('navigation', { name: 'Authored traversal scopes' })).getByText('ResearchSubject → subject → Patient'));
@@ -35,7 +55,7 @@ it('navigation selects an exact occurrence without changing an operation or anch
 it('does not replace a missing selected scope with root and disables new mutation for proposed data', () => {
   const value = props(); const { rerender } = render(<TraversalScopeNavigator {...value} selectedOccurrenceId="missing" />);
   expect(screen.getByRole('status')).toHaveTextContent('unavailable or ambiguous');
-  expect(screen.queryByRole('button', { name: 'Edit source rows' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit row definition' })).toBeNull();
   rerender(<TraversalScopeNavigator {...value} projectionKind="proposed" />);
   expect(screen.getByRole('button', { name: 'Expand related records into rows' })).toBeDisabled();
 });

@@ -370,8 +370,8 @@ func TestCreateExplorerLegacyArangoResponseClassification(t *testing.T) {
 				t.Fatalf("cause chain %v does not preserve the injected driver fault", err)
 			}
 			if test.wantStorage {
-				if legacy.status != http.StatusInternalServerError || legacy.code != faultInjectionAuthoringFaultCode {
-					t.Fatalf("query fault legacy status=%d code=%q; want 500 %q", legacy.status, legacy.code, faultInjectionAuthoringFaultCode)
+				if legacy.status != http.StatusServiceUnavailable || legacy.code != faultInjectionAuthoringFaultCode {
+					t.Fatalf("query fault legacy status=%d code=%q; want 503 %q", legacy.status, legacy.code, faultInjectionAuthoringFaultCode)
 				}
 				return
 			}
@@ -531,8 +531,8 @@ func TestCreateExplorerLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T) {
 		if !errors.As(err, &legacy) {
 			t.Fatalf("err=%v (%T); want *explorerLegacyOperationError", err, err)
 		}
-		if legacy.status != http.StatusInternalServerError {
-			t.Fatalf("storage fault legacy status=%d; want %d (named 500-class; the legacy route has no 503 arm)", legacy.status, http.StatusInternalServerError)
+		if legacy.status != http.StatusServiceUnavailable {
+			t.Fatalf("storage fault legacy status=%d; want %d", legacy.status, http.StatusServiceUnavailable)
 		}
 		if legacy.code != faultInjectionAuthoringFaultCode || legacy.message != "authorization backend unavailable" {
 			t.Fatalf("storage fault legacy code=%q message=%q; want named %q fault", legacy.code, legacy.message, faultInjectionAuthoringFaultCode)

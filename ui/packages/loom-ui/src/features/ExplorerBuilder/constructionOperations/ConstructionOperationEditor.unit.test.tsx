@@ -861,7 +861,7 @@ describe('ConstructionOperationEditor', () => {
       expect(screen.getByText('The saved condition column is no longer present in Loom’s predecessor stage.')).toBeInTheDocument();
       expect(screen.queryByRole('combobox', { name: 'Column' })).toBeNull();
       expect(screen.queryAllByRole('option').filter((option) => option.getAttribute('value') === '')).toHaveLength(0);
-      expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+      expect(onCandidateChange).not.toHaveBeenCalled();
     });
 
     it('saves a condition on an ordinary stage column without any source binding when choices are unmaterialized', () => {
@@ -931,7 +931,7 @@ describe('ConstructionOperationEditor', () => {
         onCandidateChange: savedOnCandidateChange,
       });
       expect(screen.getByText('The saved condition column is no longer present in Loom’s predecessor stage.')).toBeInTheDocument();
-      expect(savedOnCandidateChange).toHaveBeenLastCalledWith(undefined);
+      expect(savedOnCandidateChange).not.toHaveBeenCalled();
     });
   });
 

@@ -37,18 +37,41 @@ func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery
 		}
 		sort.SliceStable(selected, func(i, j int) bool { return selected[i].Path < selected[j].Path })
 		for _, candidate := range selected {
+			override, hasOverride := catalogOutputOverride(set.OutputOverrides, candidate.Path)
 			name := uniqueProjectionName(set, candidate.Path, seen)
 			seen[name] = struct{}{}
+			if hasOverride && !override.Enabled {
+				continue
+			}
+			if hasOverride && override.Name != "" {
+				name = override.Name
+			}
 			selectPath := strings.TrimPrefix(candidate.Path, ".")
 			if alias != "" && alias != "root" {
 				selectPath = alias + "." + selectPath
 			} else {
 				selectPath = "root." + selectPath
 			}
-			fields = append(fields, recipe.Field{Name: name, FieldRef: candidate.Path, ValueMode: set.ValueMode, Expr: recipe.Expression{Select: selectPath}, Discovered: true})
+			fields = append(fields, recipe.Field{Name: name, FieldRef: candidate.Path, ValueMode: set.ValueMode, Expr: recipe.Expression{Select: selectPath}, Discovered: true, SourceKey: set.Name})
 		}
 	}
+	usedNames := map[string]string{}
+	for _, field := range fields {
+		if previousPath, exists := usedNames[field.Name]; exists {
+			return nil, fmt.Errorf("catalog output name %q collides between field paths %q and %q", field.Name, previousPath, field.FieldRef)
+		}
+		usedNames[field.Name] = field.FieldRef
+	}
 	return fields, nil
+}
+
+func catalogOutputOverride(overrides []recipe.CatalogProjectionOutputOverride, fieldPath string) (recipe.CatalogProjectionOutputOverride, bool) {
+	for _, override := range overrides {
+		if override.FieldPath == fieldPath {
+			return override, true
+		}
+	}
+	return recipe.CatalogProjectionOutputOverride{}, false
 }
 
 func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resourceType, alias string, pivots []recipe.Pivot) ([]recipe.Pivot, error) {
@@ -56,6 +79,16 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 	for index := range pivots {
 		pivot := &pivots[index]
 		if pivot.Discovery == nil {
+			columns, aliases, err := applyPivotOutputOverrides(pivot.Name, pivot.Columns, pivot.ColumnAliases, pivot.OutputOverrides, true)
+			if err != nil {
+				return nil, fmt.Errorf("pivot %q: %w", pivot.Name, err)
+			}
+			pivot.Columns = columns
+			pivot.ColumnAliases = aliases
+			pivot.OutputOverrides = nil
+			if len(pivot.Columns) == 0 {
+				continue
+			}
 			resolved = append(resolved, *pivot)
 			continue
 		}
@@ -133,7 +166,12 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 		if len(columns) > pivot.Discovery.MaxColumns {
 			return nil, fmt.Errorf("pivot %q discovery found %d columns, exceeding maxColumns %d", pivot.Name, len(columns), pivot.Discovery.MaxColumns)
 		}
-		pivot.Columns = sortedValues(columns)
+		discoveredColumns := sortedValues(columns)
+		pivot.Columns, pivot.ColumnAliases, err = applyPivotOutputOverrides(pivot.Name, discoveredColumns, pivot.ColumnAliases, pivot.OutputOverrides, false)
+		if err != nil {
+			return nil, fmt.Errorf("pivot %q: %w", pivot.Name, err)
+		}
+		pivot.OutputOverrides = nil
 		if len(pivot.Columns) == 0 {
 			log.Printf("dataframe schema discovery: omit pivot %q for %s: no columns matched", pivot.Name, resourceType)
 			continue
@@ -167,6 +205,76 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 		resolved = append(resolved, *pivot)
 	}
 	return resolved, nil
+}
+
+func applyPivotOutputOverrides(family string, columns []string, aliases map[string]string, overrides []recipe.PivotOutputOverride, requireKnownKeys bool) ([]string, map[string]string, error) {
+	if len(overrides) == 0 {
+		return columns, aliases, nil
+	}
+	known := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		known[column] = struct{}{}
+	}
+	byKey := make(map[string]recipe.PivotOutputOverride, len(overrides))
+	for _, override := range overrides {
+		if _, exists := known[override.Key]; !exists && requireKnownKeys {
+			return nil, nil, fmt.Errorf("output override key %q is not a pinned pivot column", override.Key)
+		}
+		byKey[override.Key] = override
+	}
+	updated := make([]string, 0, len(columns))
+	updatedAliases := make(map[string]string, len(aliases))
+	for key, name := range aliases {
+		updatedAliases[key] = name
+	}
+	for _, key := range columns {
+		override, hasOverride := byKey[key]
+		if hasOverride && !override.Enabled {
+			delete(updatedAliases, key)
+			continue
+		}
+		if hasOverride && override.Name != nil {
+			if *override.Name == "" {
+				delete(updatedAliases, key)
+			} else {
+				updatedAliases[key] = *override.Name
+			}
+		}
+		updated = append(updated, key)
+	}
+	if len(updatedAliases) == 0 {
+		updatedAliases = nil
+	}
+	if len(updatedAliases) > 0 {
+		used := map[string]string{}
+		for _, key := range updated {
+			name := nativePivotOutputName(family, key, updatedAliases)
+			if previous, exists := used[name]; exists {
+				return nil, nil, fmt.Errorf("output name %q collides between pivot keys %q and %q", name, previous, key)
+			}
+			used[name] = key
+		}
+	}
+	return updated, updatedAliases, nil
+}
+
+// nativePivotOutputName mirrors lower.NativePivotColumnName without its common
+// traversal prefix. The prefix is identical for every key in one pivot, so it
+// cannot change whether two outputs collide.
+func nativePivotOutputName(family, key string, aliases map[string]string) string {
+	if alias, exists := aliases[key]; exists {
+		return alias
+	}
+	var sanitized strings.Builder
+	sanitized.Grow(len(key))
+	for _, r := range key {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			sanitized.WriteRune(r)
+		} else {
+			sanitized.WriteByte('_')
+		}
+	}
+	return family + "__" + sanitized.String()
 }
 
 func qualifyPivotSelector(alias, itemSource, selector string) string {
@@ -424,6 +532,36 @@ func hasCatalogDeclarations(bundle recipe.Bundle) bool {
 		}
 		for _, traversal := range output.Traversals {
 			if traversalHasCatalog(traversal) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasPivotOutputOverrides(bundle recipe.Bundle) bool {
+	var traversalHasOverrides func(recipe.Traversal) bool
+	traversalHasOverrides = func(traversal recipe.Traversal) bool {
+		for _, pivot := range traversal.Pivots {
+			if len(pivot.OutputOverrides) > 0 {
+				return true
+			}
+		}
+		for _, child := range traversal.Traversals {
+			if traversalHasOverrides(child) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, output := range bundle.Outputs {
+		for _, pivot := range output.Pivots {
+			if len(pivot.OutputOverrides) > 0 {
+				return true
+			}
+		}
+		for _, traversal := range output.Traversals {
+			if traversalHasOverrides(traversal) {
 				return true
 			}
 		}

@@ -124,7 +124,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 	if !ok {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("value column %q has unsupported scalar type %q", pivot.ValueColumn, valueColumn.Kind)
 	}
-	if pivot.DuplicatePolicy != recipe.PivotDuplicateError && valueType != "INTEGER" && valueType != "DECIMAL" {
+	if pivot.DuplicatePolicy == recipe.PivotDuplicateSum && valueType != "INTEGER" && valueType != "DECIMAL" {
 		return ir.PhysicalGroupedPivot{}, nil, nil, &PivotReducerTypeError{Policy: pivot.DuplicatePolicy, ValueColumn: pivot.ValueColumn}
 	}
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "reshape_construction")

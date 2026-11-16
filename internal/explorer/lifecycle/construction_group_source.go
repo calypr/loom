@@ -13,8 +13,8 @@ import (
 
 func (s *Service) constructionGroupSourceCapability(ctx context.Context, base constructionBase, outputID, stageID string) (ConstructionGroupSourceCapability, error) {
 	result := ConstructionGroupSourceCapability{StageID: stageID, Choices: []ConstructionGroupSourceChoice{}}
-	if code, reason, unavailable := importedSourceChoiceUnavailable(base.document); unavailable {
-		result.ReasonCode, result.Reason = code, reason
+	if importedSourceChoiceUnavailable(base.document) {
+		result.Supported = true
 		return result, nil
 	}
 	if stageID != recipe.ConstructionSourceProjectionID {

@@ -28,10 +28,11 @@ type SemanticNode struct {
 }
 
 type SemanticField struct {
-	Name     string
-	ColumnID string
-	Label    string
-	FieldRef string
+	Name      string
+	ColumnID  string
+	Label     string
+	FieldRef  string
+	SourceKey string
 	// Expr and Fallbacks are the checked semantic expressions that produced
 	// this field. Selectors are intentionally derived from these expressions
 	// at the physical boundary; keeping both representations here allowed the

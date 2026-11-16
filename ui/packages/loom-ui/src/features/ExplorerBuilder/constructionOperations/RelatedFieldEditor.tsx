@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useLoomClient } from '../../../react';
+import React, { useRef, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { useLoomClient, useQuery } from '../../../react';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -122,84 +123,75 @@ export const RelatedFieldEditor = ({
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
   const [query, setQuery] = useState('');
-  const [choices, setChoices] = useState<ReadonlyArray<FieldChoice>>([]);
-  const [cursor, setCursor] = useState<string | undefined>();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const requestVersion = useRef(0);
   const moreController = useRef<AbortController | undefined>(undefined);
-  const seenCursors = useRef(new Set<string>());
 
-  useEffect(() => () => moreController.current?.abort(), [stage.id]);
-  useEffect(() => {
-    if (!stage.activeRelatedRecord) return;
-    const controller = new AbortController();
-    const version = ++requestVersion.current;
-    seenCursors.current.clear();
-    setLoading(true);
-    setError('');
-    const timeout = globalThis.setTimeout(() => {
-      void (async () => {
-        const eligibleChoices = (items: ReadonlyArray<FieldChoice>) => items.filter((item) =>
-          item.source.nodeId === stage.activeRelatedRecord?.targetNodeId &&
-          item.source.resourceType === stage.activeRelatedRecord?.targetResourceType &&
-          (item.source.cardinality === 'optional_one' || item.source.cardinality === 'required_one'),
-        );
-        let response = await client.searchRelatedFieldChoices({
+  const queryKey = JSON.stringify([
+    snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest,
+    stage.id, stage.activeRelatedRecord?.targetNodeId, stage.activeRelatedRecord?.targetResourceType, query,
+  ]);
+  const choicesQuery = useQuery(
+    async (signal) => {
+      if (!stage.activeRelatedRecord) throw new Error('This table stage has no exact related record to read from.');
+      const eligibleChoices = (items: ReadonlyArray<FieldChoice>) => items.filter((item) =>
+        item.source.nodeId === stage.activeRelatedRecord?.targetNodeId &&
+        item.source.resourceType === stage.activeRelatedRecord?.targetResourceType &&
+        (item.source.cardinality === 'optional_one' || item.source.cardinality === 'required_one'),
+      );
+      let response = await client.searchRelatedFieldChoices({
+        project, explorerId, authResourcePath, snapshotToken, outputId,
+        expectedDraftVersion: capabilities.draftVersion,
+        expectedDraftDigest: capabilities.draftDigest,
+        stageId: stage.id, query: query.trim(), limit: 20,
+      }, signal);
+      if (!matchesRequest(response, snapshotToken, capabilities, outputId)) {
+        throw new Error('Available fields changed. Reload this table before adding a column.');
+      }
+      let available = eligibleChoices(response.choices);
+      let nextCursor = response.nextCursor;
+      const seenCursors = new Set<string>();
+      for (let page = 1; available.length === 0 && nextCursor && page < 3; page += 1) {
+        if (seenCursors.has(nextCursor)) {
+          return { choices: available, cursor: undefined, error: 'The field list stopped advancing. Change your search or reopen this editor.' };
+        }
+        seenCursors.add(nextCursor);
+        const next = await client.searchRelatedFieldChoices({
           project, explorerId, authResourcePath, snapshotToken, outputId,
           expectedDraftVersion: capabilities.draftVersion,
           expectedDraftDigest: capabilities.draftDigest,
-          stageId: stage.id, query: query.trim(), limit: 20,
-        }, controller.signal);
-        if (controller.signal.aborted || version !== requestVersion.current) return;
-        if (!matchesRequest(response, snapshotToken, capabilities, outputId)) {
+          stageId: stage.id, query: query.trim(), limit: 20, cursor: nextCursor,
+        }, signal);
+        if (!matchesRequest(next, snapshotToken, capabilities, outputId)) {
           throw new Error('Available fields changed. Reload this table before adding a column.');
         }
-        let available = eligibleChoices(response.choices);
-        let nextCursor = response.nextCursor;
-        setChoices(available);
-        setCursor(nextCursor);
-        // Sparse pages can contain no fields for the exact related record. Browse
-        // a small bounded number automatically so users see options without typing.
-        for (let page = 1; available.length === 0 && nextCursor && page < 3; page += 1) {
-          if (seenCursors.current.has(nextCursor)) {
-            setError('The field list stopped advancing. Change your search or reopen this editor.');
-            nextCursor = undefined;
-            break;
-          }
-          seenCursors.current.add(nextCursor);
-          const next = await client.searchRelatedFieldChoices({
-            project, explorerId, authResourcePath, snapshotToken, outputId,
-            expectedDraftVersion: capabilities.draftVersion,
-            expectedDraftDigest: capabilities.draftDigest,
-            stageId: stage.id, query: query.trim(), limit: 20, cursor: nextCursor,
-          }, controller.signal);
-          if (controller.signal.aborted || version !== requestVersion.current) return;
-          if (!matchesRequest(next, snapshotToken, capabilities, outputId)) {
-            throw new Error('Available fields changed. Reload this table before adding a column.');
-          }
-          available = eligibleChoices(next.choices);
-          nextCursor = next.nextCursor;
-          setChoices(available);
-          setCursor(nextCursor);
-        }
-        if (controller.signal.aborted || version !== requestVersion.current) return;
-        if (nextCursor && seenCursors.current.has(nextCursor)) {
-          setError('The field list stopped advancing. Change your search or reopen this editor.');
-          nextCursor = undefined;
-        }
-        setChoices(available);
-        setCursor(nextCursor);
-      })().catch((cause: unknown) => {
-        if (!controller.signal.aborted && version === requestVersion.current) {
-          setError(cause instanceof Error ? cause.message : 'Could not load fields from this record.');
-        }
-      }).finally(() => {
-        if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
-      });
-    }, query ? 180 : 0);
-    return () => { globalThis.clearTimeout(timeout); controller.abort(); };
-  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities, stage.id, stage.activeRelatedRecord, query]);
+        available = eligibleChoices(next.choices);
+        nextCursor = next.nextCursor;
+      }
+      if (nextCursor && seenCursors.has(nextCursor)) {
+        return { choices: available, cursor: undefined, error: 'The field list stopped advancing. Change your search or reopen this editor.' };
+      }
+      return { choices: available, cursor: nextCursor, error: '' };
+    },
+    [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities, stage.id, stage.activeRelatedRecord, query],
+    Boolean(stage.activeRelatedRecord),
+  );
+  const [moreChoices, setMoreChoices] = useState<{
+    readonly key: string;
+    readonly choices: ReadonlyArray<FieldChoice>;
+    readonly cursor?: string;
+    readonly loading: boolean;
+    readonly error: string;
+  }>({ key: '', choices: [], loading: false, error: '' });
+  const choices = [
+    ...(choicesQuery.data?.choices ?? []),
+    ...(moreChoices.key === queryKey ? moreChoices.choices : []),
+  ];
+  const cursor = moreChoices.key === queryKey ? moreChoices.cursor : choicesQuery.data?.cursor;
+  const loading = choicesQuery.isLoading || (moreChoices.key === queryKey && moreChoices.loading);
+  const error = choicesQuery.error
+    ? choicesQuery.error instanceof Error ? choicesQuery.error.message : 'Could not load fields from this record.'
+    : choicesQuery.data?.error
+      ? choicesQuery.data.error
+      : moreChoices.key === queryKey ? moreChoices.error : '';
 
   const emit = (nextChoice = choice, nextName = outputName, nextLabel = outputLabel) =>
     onCandidateChange(candidateFor(
@@ -212,9 +204,8 @@ export const RelatedFieldEditor = ({
     moreController.current?.abort();
     const controller = new AbortController();
     moreController.current = controller;
-    const version = requestVersion.current;
-    setLoading(true);
-    setError('');
+    const currentChoices = moreChoices.key === queryKey ? moreChoices.choices : [];
+    setMoreChoices({ key: queryKey, choices: currentChoices, cursor, loading: true, error: '' });
     try {
       const response = await client.searchRelatedFieldChoices({
         project, explorerId, authResourcePath, snapshotToken, outputId,
@@ -222,7 +213,7 @@ export const RelatedFieldEditor = ({
         expectedDraftDigest: capabilities.draftDigest,
         stageId: stage.id, query: query.trim(), limit: 20, cursor,
       }, controller.signal);
-      if (controller.signal.aborted || version !== requestVersion.current) return;
+      if (controller.signal.aborted) return;
       if (!matchesRequest(response, snapshotToken, capabilities, outputId)) {
         throw new Error('Available fields changed. Reload this table before adding a column.');
       }
@@ -231,20 +222,19 @@ export const RelatedFieldEditor = ({
         item.source.resourceType === stage.activeRelatedRecord?.targetResourceType &&
         (item.source.cardinality === 'optional_one' || item.source.cardinality === 'required_one'),
       );
-      seenCursors.current.add(cursor);
-      setChoices((current) => [...current, ...pageChoices]);
-      if (response.nextCursor && seenCursors.current.has(response.nextCursor)) {
-        setError('The field list stopped advancing. Change your search or reopen this editor.');
-        setCursor(undefined);
-        return;
-      }
-      setCursor(response.nextCursor);
+      setMoreChoices((current) => current.key === queryKey
+        ? {
+            key: queryKey, choices: [...current.choices, ...pageChoices],
+            cursor: response.nextCursor, loading: false,
+            error: response.nextCursor === cursor ? 'The field list stopped advancing. Change your search or reopen this editor.' : '',
+          }
+        : current);
     } catch (cause) {
-      if (!controller.signal.aborted && version === requestVersion.current) {
-        setError(cause instanceof Error ? cause.message : 'Could not load more fields.');
+      if (!controller.signal.aborted) {
+        setMoreChoices((current) => current.key === queryKey
+          ? { ...current, loading: false, error: cause instanceof Error ? cause.message : 'Could not load more fields.' }
+          : current);
       }
-    } finally {
-      if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
     }
   };
 
@@ -252,6 +242,7 @@ export const RelatedFieldEditor = ({
     return <p role="status" className="text-sm text-slate-700">This table stage has no exact related record to read from.</p>;
   }
 
+  useEscapeToClose(Boolean(onCancel), onCancel ?? (() => {}));
   return (
     <div
       className={presentation === 'standalone' ? 'grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4' : 'grid gap-4'}
@@ -266,12 +257,8 @@ export const RelatedFieldEditor = ({
       <label className="grid gap-1 text-sm font-medium text-slate-800">
         {presentation === 'standalone' ? 'Find a field' : 'Filter these fields (optional)'}
         <input value={query} disabled={disabled} onChange={(event) => {
-          requestVersion.current += 1;
           moreController.current?.abort();
           setQuery(event.target.value);
-          seenCursors.current.clear();
-          setChoices([]);
-          setCursor(undefined);
         }} placeholder="Search field name or path" className="rounded border border-slate-300 bg-white px-3 py-2 font-normal" />
       </label>
       {sourceControls}

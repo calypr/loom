@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -251,7 +252,7 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, project, record.SnapshotToken)
 	if err != nil {
-		return nil, record, forbidden("artifact", "current caller is not authorized for this artifact", err)
+		return nil, record, capabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
 	if err := validateReceiptCapability(receipt, snapshot); err != nil {
 		return nil, record, conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)
@@ -260,8 +261,14 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 		return nil, record, forbidden("artifact", "current caller is not authorized for this artifact", err)
 	}
 	revision, err := s.store.GetRevision(ctx, record.RevisionID)
-	if err != nil || revision == nil {
-		return nil, record, notFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", err)
+	if err != nil {
+		if errors.Is(err, explorer.ErrNotFound) {
+			return nil, record, notFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", err)
+		}
+		return nil, record, persistenceFailure("artifact", "artifact revision could not be loaded", err)
+	}
+	if revision == nil {
+		return nil, record, notFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", nil)
 	}
 	if err := validateArtifactRevisionIdentity(*record, *revision); err != nil {
 		return nil, record, conflict("artifact", "ARTIFACT_IDENTITY_CHANGED", "artifact no longer matches its immutable revision", nil, err)
@@ -278,8 +285,14 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 
 func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactRequest, project string) (*explorer.CompilationReceipt, *explorer.Revision, AuthorizedCapability, dataframepublished.Materialization, publication.QualityReport, error) {
 	revision, err := s.store.GetRevision(ctx, request.RevisionID)
-	if err != nil || revision == nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", err)
+	if err != nil {
+		if errors.Is(err, explorer.ErrNotFound) {
+			return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", err)
+		}
+		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, persistenceFailure("artifact", "published revision could not be loaded", err)
+	}
+	if revision == nil {
+		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", nil)
 	}
 	if projectid.Canonical(revision.Project) != project || revision.ExplorerID != request.ExplorerID || revision.ID != request.RevisionID {
 		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", explorer.ErrNotFound)
@@ -302,7 +315,7 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, project, receipt.SnapshotToken)
 	if err != nil {
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, forbidden("artifact", "current caller is not authorized for this artifact", err)
+		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, capabilityResolutionFailure("artifact", "the artifact capability is unavailable or unauthorized", err)
 	}
 	if err := validateReceiptCapability(receipt, snapshot); err != nil {
 		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, conflict("artifact", "RECEIPT_STALE", "the artifact receipt is no longer authorized", nil, err)

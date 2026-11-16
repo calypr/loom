@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
@@ -19,6 +18,8 @@ func (r *HTTPRoutes) ListExplorers(ctx context.Context, request loomapi.ListExpl
 		return loomapi.ListExplorers403JSONResponse{LegacyForbiddenJSONResponse: loomapi.LegacyForbiddenJSONResponse(legacy)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.ListExplorers500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(legacy)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.ListExplorers503JSONResponse{LegacyUnavailableJSONResponse: loomapi.LegacyUnavailableJSONResponse(legacy)}, nil
 	default:
 		return nil, unexpectedResponseStatus("listExplorers", status)
 	}
@@ -41,6 +42,8 @@ func (r *HTTPRoutes) CreateExplorer(ctx context.Context, request loomapi.CreateE
 		return loomapi.CreateExplorer422JSONResponse{LegacyUnprocessableJSONResponse: loomapi.LegacyUnprocessableJSONResponse(legacy)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.CreateExplorer500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(legacy)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.CreateExplorer503JSONResponse{LegacyUnavailableJSONResponse: loomapi.LegacyUnavailableJSONResponse(legacy)}, nil
 	default:
 		return nil, unexpectedResponseStatus("createExplorer", status)
 	}
@@ -59,6 +62,8 @@ func (r *HTTPRoutes) GetExplorer(ctx context.Context, request loomapi.GetExplore
 		return loomapi.GetExplorer404JSONResponse{LegacyNotFoundJSONResponse: loomapi.LegacyNotFoundJSONResponse(legacy)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.GetExplorer500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(legacy)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.GetExplorer503JSONResponse{LegacyUnavailableJSONResponse: loomapi.LegacyUnavailableJSONResponse(legacy)}, nil
 	default:
 		return nil, unexpectedResponseStatus("getExplorer", status)
 	}
@@ -89,18 +94,22 @@ func (r *HTTPRoutes) PublishRepositoryExplorerConfig(ctx context.Context, reques
 }
 
 func (r *HTTPRoutes) GetExplorerAuthoringCapability(ctx context.Context, request loomapi.GetExplorerAuthoringCapabilityRequestObject) (loomapi.GetExplorerAuthoringCapabilityResponseObject, error) {
+	var err error
 	if r == nil || r.explorer == nil {
-		_, value := authoringErrorForOpenAPI(ctx, "getExplorerAuthoringCapability", fmt.Errorf("Explorer authoring is not configured"))
-		return loomapi.GetExplorerAuthoringCapability500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(value)}, nil
-	}
-	value, err := r.explorer.getAuthoringCapabilityDirect(ctx, string(request.Project))
-	if err == nil {
-		return loomapi.GetExplorerAuthoringCapability200JSONResponse(value), nil
+		err = explorerUnavailable("capability", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured")
+	} else {
+		value, valueErr := r.explorer.getAuthoringCapabilityDirect(ctx, string(request.Project))
+		if valueErr == nil {
+			return loomapi.GetExplorerAuthoringCapability200JSONResponse(value), nil
+		}
+		err = valueErr
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerAuthoringCapability", err)
 	switch status {
 	case http.StatusForbidden:
 		return loomapi.GetExplorerAuthoringCapability403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.GetExplorerAuthoringCapability503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.GetExplorerAuthoringCapability500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
 	default:

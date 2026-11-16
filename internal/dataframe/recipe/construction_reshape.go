@@ -6,6 +6,33 @@ import (
 	"strings"
 )
 
+// CanonicalConstructionScalarLogicalType maps an authored or correlated
+// logical type to the canonical lower-case kind the table reshape lowerer
+// compiles. It returns false for every kind the physical table scalar layer
+// cannot represent, so construction validation and lowering share one gate.
+func CanonicalConstructionScalarLogicalType(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "string":
+		return "string", true
+	case "code":
+		return "code", true
+	case "uuid":
+		return "uuid", true
+	case "date":
+		return "date", true
+	case "date_time", "date-time", "datetime":
+		return "date_time", true
+	case "integer":
+		return "integer", true
+	case "decimal", "number":
+		return "decimal", true
+	case "boolean":
+		return "boolean", true
+	default:
+		return "", false
+	}
+}
+
 func validateConstructionGroup(group ConstructionGroup, input, output map[string]StageColumn, path string, constructionIDs map[string]bool, hasRowValues bool) error {
 	if err := validateConstructionID(group.ConstructionID, path+".group.constructionId", constructionIDs); err != nil {
 		return err
@@ -163,12 +190,19 @@ func validateConstructionCodedPivot(pivot ConstructionCodedPivot, input, output 
 	if source.SchemaVersion <= 0 || len(source.Route) != 0 {
 		return fmt.Errorf("%s codedPivot requires a positive schemaVersion and an empty direct-root route", path)
 	}
+	logicalType, ok := CanonicalConstructionScalarLogicalType(source.LogicalType)
+	if !ok {
+		return fmt.Errorf("%s codedPivot source logicalType %q is not a supported table scalar", path, source.LogicalType)
+	}
+	if pivot.DuplicatePolicy == PivotDuplicateSum && logicalType != "integer" && logicalType != "decimal" {
+		return fmt.Errorf("%s codedPivot duplicatePolicy SUM requires an INTEGER or DECIMAL source logicalType, got %q", path, source.LogicalType)
+	}
 	for index, fallback := range source.ValueFallbacks {
 		if strings.TrimSpace(fallback) == "" || fallback != strings.TrimSpace(fallback) {
 			return fmt.Errorf("%s codedPivot source valueFallbacks[%d] is empty or untrimmed", path, index)
 		}
 	}
-	if source.FallbackOnBlankString && (source.LogicalType != "string" || len(source.ValueFallbacks) == 0) {
+	if source.FallbackOnBlankString && (logicalType != "string" || len(source.ValueFallbacks) == 0) {
 		return fmt.Errorf("%s codedPivot blank-string fallback requires string values and at least one fallback selector", path)
 	}
 	if len(pivot.Categories) == 0 || len(pivot.Categories) > 50 {

@@ -50,15 +50,15 @@ func (r importedRecipeSources) editSources(ctx context.Context, project string, 
 			return authoringv2.Document{}, err
 		}
 	}
-	if document.ImportedRecipe == nil || r.registry == nil {
+	if document.ImportedRecipe == nil {
 		return authoringv2.Document{}, fmt.Errorf("an imported source is required")
 	}
 	ref := *document.ImportedRecipe
 	if err := ref.Validate(); err != nil {
 		return authoringv2.Document{}, err
 	}
-	if ref.Name != r.defaultName {
-		return authoringv2.Document{}, fmt.Errorf("the imported recipe is not a configured dataframe source")
+	if r.registry == nil || r.engine == nil || ref.Name != r.defaultName {
+		return authoringv2.Document{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "imported source recipes are not configured"}
 	}
 	if projectid.Canonical(project) != projectid.Canonical(authorized.Snapshot.Identity.Project) {
 		return authoringv2.Document{}, capability.ErrStaleSnapshot
@@ -68,7 +68,7 @@ func (r importedRecipeSources) editSources(ctx context.Context, project string, 
 	}
 	entry, err := r.registry.LoadRecipeVersion(ctx, ref.Name, ref.TranslationVersion)
 	if err != nil {
-		return authoringv2.Document{}, err
+		return authoringv2.Document{}, &lifecycle.Error{Class: lifecycle.ClassUnavailable, Stage: "imported-source", Code: "IMPORTED_SOURCE_UNAVAILABLE", Message: "the pinned dataframe recipe could not be loaded", Cause: err}
 	}
 	bundle, err := entry.Bundle.CanonicalBundle()
 	if err != nil {

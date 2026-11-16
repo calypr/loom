@@ -337,6 +337,7 @@ const renderSettings = (overrides: {
   inspectorHost?: HTMLElement | null;
   onOpenChange?: (open: boolean) => void;
   openActionRef?: { current: (() => void) | undefined };
+  closeActionRef?: { current: (() => void) | undefined };
   triggerLabel?: string;
   draftVersion?: number;
   draftDigest?: string;
@@ -396,6 +397,7 @@ const renderSettings = (overrides: {
       inspectorHost={overrides.inspectorHost}
       onOpenChange={overrides.onOpenChange}
       openActionRef={overrides.openActionRef}
+      closeActionRef={overrides.closeActionRef}
       operationInspectorPresentation={overrides.operationInspectorPresentation}
       presentation={overrides.presentation}
       triggerPresentation={overrides.triggerPresentation}
@@ -1126,9 +1128,13 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(within(dialog).getAllByRole('combobox', { name: 'Record type' })).toHaveLength(1);
   });
 
-  it('notifies the parent when a root preview automatically closes the row-intent session', async () => {
-    const { listRowDefinitionChoices, onCloseRowIntentSession } = renderSettings({ rootChangePreviewOpen: true });
+  it('closes the row-intent session when its owner requests close', async () => {
+    const closeActionRef: { current: (() => void) | undefined } = { current: undefined };
+    const { listRowDefinitionChoices, onCloseRowIntentSession } = renderSettings({ closeActionRef });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    await screen.findByRole('dialog', { name: 'Row definition settings' });
+
+    act(() => closeActionRef.current?.());
     await waitFor(() => expect(onCloseRowIntentSession).toHaveBeenCalledOnce());
 
     expect(listRowDefinitionChoices).toHaveBeenCalledOnce();

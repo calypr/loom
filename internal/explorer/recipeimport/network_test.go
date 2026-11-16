@@ -365,16 +365,29 @@ func TestCompiledNetworkRejectsAmbiguousLegacyCatalogOwners(t *testing.T) {
 	}
 }
 
+func TestCompiledNetworkCarriesCatalogOutputIdentityToSourceStep(t *testing.T) {
+	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "gender", Status: "UNKNOWN"}}}
+	columns := []lower.CompiledOutputColumn{{ID: "gender", Name: "gender", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "fields", SourceKind: SourcePlanCatalogProjection, SourceKey: "populated_fields", OutputKey: "gender"}}}
+	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "catalogProjections[0]", SourceKey: "populated_fields", Kind: SourcePlanCatalogProjection, Title: "Fields", Summary: "Pinned catalog projection", Enabled: true, Editable: true}}}
+	got, err := BindCompiledNetwork(network, columns, &plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Bindings[0].SourceStepID != "catalogProjections[0]" || got.Bindings[0].OutputKey != "gender" {
+		t.Fatalf("catalog output provenance = %+v", got.Bindings[0])
+	}
+}
+
 func TestCompiledNetworkFamilyKeysSurviveDiscoveryPruning(t *testing.T) {
 	network := authoringv2.AuthoringNetwork{Occurrences: []authoringv2.NetworkOccurrence{{OccurrenceID: "base"}}, Bindings: []authoringv2.NetworkColumnBinding{{ColumnID: "pivot_result", Status: "UNKNOWN"}}}
-	columns := []lower.CompiledOutputColumn{{ID: "pivot_result", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "pivots[0]", SourceKind: SourcePlanPivot, SourceKey: "second"}}}
+	columns := []lower.CompiledOutputColumn{{ID: "pivot_result", SourceOrigin: &lower.CompiledSourceOrigin{OccurrenceID: "base", SourcePath: "pivots[0]", SourceKind: SourcePlanPivot, SourceKey: "second", OutputKey: "urn:loinc|8480-6"}}}
 	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "pivots[0]", SourceKey: "first", Kind: SourcePlanPivot, Title: "First", Summary: "First", Enabled: true, Editable: true}, {ID: "pivots[1]", SourceKey: "second", Kind: SourcePlanPivot, Title: "Second", Summary: "Second", Enabled: true, Editable: true}}}
 	got, err := BindCompiledNetwork(network, columns, &plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Bindings[0].SourceStepID != "pivots[1]" {
-		t.Fatalf("pruned discovery retargeted pivot: %+v", got.Bindings)
+	if got.Bindings[0].SourceStepID != "pivots[1]" || got.Bindings[0].OutputKey != "urn:loinc|8480-6" {
+		t.Fatalf("pruned discovery retargeted pivot or changed raw key: %+v", got.Bindings)
 	}
 }
 

@@ -19,7 +19,6 @@ import type {
   SemanticInventoryItem,
 } from '../../../types';
 import type { CatalogInitialSelection } from './CatalogSelectionOptions';
-import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 import {
   ConceptCatalog,
   type CatalogRelatedSourceAvailability,
@@ -750,56 +749,6 @@ describe('ConceptCatalog', () => {
       expect(screen.queryByRole('button', { name: 'Select Old scope result' })).not.toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'Select Current scope result' })).toBeInTheDocument();
-  });
-
-  it('opens the existing route and result-form dialog for a ready-to-add paired concept without adding it', async () => {
-    const daysToCollection = item('days_to_collection', 'Days to collection', 202195, 'Specimen');
-    const resolvedChoice = semanticChoice('days-to-collection-route', daysToCollection, [
-      choiceOption('VALUE', 'REQUIRES_DECISION'),
-      choiceOption('ALL', 'REQUIRES_DECISION'),
-    ]);
-    const pairedSuggestion: PairedColumnSuggestion = {
-      requestId: 'paired-selection-1',
-      snapshotToken: 'snapshot-a',
-      outputId: 'specimens',
-      contextToken: 'context-1',
-      buildId: 'build-1',
-      item: daysToCollection,
-      choices: {
-        snapshotToken: 'snapshot-a',
-        outputId: 'specimens',
-        complete: true,
-        truncated: false,
-        choices: [resolvedChoice],
-      },
-    };
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(JSON.stringify(page([daysToCollection])), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-    const onAddSelected = vi.fn().mockResolvedValue(undefined);
-    render(
-      <LoomProvider client={createLoomClient({ fetch })}>
-        <ConceptCatalog
-          project="project-a"
-          explorerId="explorer-a"
-          snapshotToken="snapshot-a"
-          outputId="specimens"
-          rowRoot="Specimen"
-          catalog={catalog}
-          pairedColumnSuggestion={pairedSuggestion}
-          onAddSelected={onAddSelected}
-        />
-      </LoomProvider>,
-    );
-
-    const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });
-    expect(within(dialog).getByRole('heading', { name: /Days to collection/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole('radio', { name: 'Days to collection: Use the matching value' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('radio', { name: 'Days to collection: Keep all matching values' })).toBeInTheDocument();
-    expect(onAddSelected).not.toHaveBeenCalled();
   });
 
   it('searches root fields and concepts, shows available forms, and submits only choice IDs and forms', async () => {

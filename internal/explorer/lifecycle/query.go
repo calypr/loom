@@ -15,7 +15,7 @@ func (s *Service) List(ctx context.Context, project string) (ListResult, error) 
 	project = projectid.Canonical(project)
 	values, err := s.store.List(ctx, project)
 	if err != nil {
-		return ListResult{}, internal("list", "EXPLORER_READ_FAILED", err.Error(), err)
+		return ListResult{}, persistenceFailure("list", "Explorer list could not be loaded", err)
 	}
 	result := ListResult{Project: project, Summaries: make([]explorer.ExplorerSummaryV1, 0, len(values))}
 	for _, value := range values {
@@ -33,7 +33,7 @@ func (s *Service) Get(ctx context.Context, project, id string) (explorer.Explore
 		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_INTEGRITY_FAILURE", "active Explorer revision contains an invalid immutable projection", err)
 	}
 	if err != nil {
-		return explorer.ExplorerStateV1{}, internal("get", "EXPLORER_READ_FAILED", err.Error(), err)
+		return explorer.ExplorerStateV1{}, persistenceFailure("get", "Explorer state could not be loaded", err)
 	}
 	return state, nil
 }
@@ -72,7 +72,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (explorer.E
 		return explorer.ExplorerSummaryV1{}, conflict("create", "EXPLORER_EXISTS", "an Explorer with this name already exists", nil, err)
 	}
 	if err != nil {
-		return explorer.ExplorerSummaryV1{}, unprocessable("create", "INVALID_EXPLORER", err.Error(), err)
+		return explorer.ExplorerSummaryV1{}, persistenceFailure("create", "the Explorer could not be created", err)
 	}
 	return explorer.ExplorerSummaryV1{Project: project, ExplorerID: value.ExplorerID, Title: value.Title, Management: value.ManagementMode, UpdatedAt: value.UpdatedAt}, nil
 }
@@ -129,7 +129,7 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 	if request.ExplorerID != DefaultDataframeID && owner.ActiveRevisionID != "" && len(owner.DraftConfig) != 0 {
 		active, activeErr := s.store.ActiveRevision(ctx, request.Project, request.ExplorerID)
 		if activeErr != nil {
-			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision cannot be loaded as V2 authoring state", nil, activeErr)
+			return authoringv2.BuilderState{}, persistenceFailure("builder", "the active Explorer revision could not be loaded as V2 authoring state", activeErr)
 		}
 		if _, decodeErr := authoringv2.DecodeWorkspace(active.AuthoringBundle); decodeErr != nil {
 			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision has no valid V2 workspace", nil, decodeErr)
@@ -152,7 +152,7 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 	} else if owner.ActiveRevisionID != "" {
 		active, activeErr := s.store.ActiveRevision(ctx, request.Project, request.ExplorerID)
 		if activeErr != nil {
-			return authoringv2.BuilderState{}, conflict("builder", "AUTHORING_STATE_MISSING", "the active Explorer revision cannot be loaded as V2 authoring state", map[string]any{"revisionId": owner.ActiveRevisionID}, activeErr)
+			return authoringv2.BuilderState{}, persistenceFailure("builder", "the active Explorer revision could not be loaded as V2 authoring state", activeErr)
 		}
 		workspace, decodeErr := authoringv2.DecodeWorkspace(active.AuthoringBundle)
 		if decodeErr != nil {
@@ -200,7 +200,7 @@ func (s *Service) migrateLegacyConstructionSteps(ctx context.Context, owner *exp
 		return conflict("builder", "DRAFT_CONFLICT", "the Explorer draft changed while its construction encoding was being migrated; reload and retry", nil, err)
 	}
 	if err != nil {
-		return internal("builder", "DRAFT_MIGRATION_FAILED", "the saved Explorer draft could not be migrated", err)
+		return persistenceFailure("builder", "the saved Explorer draft could not be migrated", err)
 	}
 	*owner = *updated
 	return nil

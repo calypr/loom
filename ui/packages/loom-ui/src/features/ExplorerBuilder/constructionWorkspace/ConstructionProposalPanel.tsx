@@ -7,6 +7,7 @@ import type {
 import { formatPreviewCell } from '../components/PreviewTable';
 import { PreviewValueCoverage } from './PreviewValueCoverage';
 import { constructionHistorySteps } from './constructionHistory';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 export type ConstructionProposalViewState =
   | { readonly status: 'idle' }
@@ -225,6 +226,8 @@ export const ConstructionProposalPanel = ({
     ? changedStep.operation.relatedSource.form
     : undefined;
 
+  useEscapeToClose(true, onCancel);
+
   return (
     <section
       aria-label="Proposed change"
@@ -276,9 +279,13 @@ export const ConstructionProposalPanel = ({
           ) : null}
           <h3 className="font-semibold text-emerald-950">{removalSummary && !isEdit ? 'Removal preview' : 'Proposal preview'}</h3>
           <p className="mt-1 text-sm text-slate-700">
-            {state.preview.rowCount.toLocaleString()} {state.preview.rowCount === 1 ? 'row' : 'rows'} and {state.preview.columns.length} {state.preview.columns.length === 1 ? 'column' : 'columns'}
-            {' '}· checked in {state.response.previewDurationMs} ms.
+            Preview sample: {state.preview.rowCount.toLocaleString()} {state.preview.rowCount === 1 ? 'row' : 'rows'} · {state.preview.columns.length} {state.preview.columns.length === 1 ? 'column' : 'columns'} · computed in {state.response.previewDurationMs} ms.
           </p>
+          {state.preview.sampled ? (
+            <p className="mt-1 text-xs text-slate-600">
+              This preview uses a bounded sample of the input, so aggregate totals are not final. Apply validates the complete input.
+            </p>
+          ) : null}
           {expandOutcome ? (
             <div data-testid="construction-expand-outcome" className="mt-2 border-t border-slate-200 pt-2 text-xs text-slate-700">
               <p className="m-0">{expandOutcome.effect}</p>
@@ -329,16 +336,6 @@ export const ConstructionProposalPanel = ({
             onClick={onApply}
           >
             {removalSummary && !isEdit ? 'Apply removal' : 'Apply change'}
-          </button>
-        ) : null}
-        {state.status !== 'applying' ? (
-          <button
-            type="button"
-            data-testid="construction-cancel-proposal"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            onClick={onCancel}
-          >
-            Cancel
           </button>
         ) : null}
       </div>

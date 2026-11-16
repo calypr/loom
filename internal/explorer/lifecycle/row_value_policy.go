@@ -50,8 +50,11 @@ func (s *Service) validateRowValuePolicyCandidate(
 	}
 
 	executionAuth, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil || executionAuth.Snapshot.ValidateToken(receipt.SnapshotToken) != nil {
-		return conflict("commands", "RECEIPT_STALE", "the row-value policy candidate is no longer authorized for execution", nil, err)
+	if err != nil {
+		return receiptCapabilityFailure("commands", "the row-value policy candidate is no longer authorized for execution", err)
+	}
+	if executionAuth.Snapshot.ValidateToken(receipt.SnapshotToken) != nil {
+		return conflict("commands", "RECEIPT_STALE", "the row-value policy candidate is no longer authorized for execution", nil, nil)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, executionAuth); err != nil {
 		return conflict("commands", "RECEIPT_STALE", "the row-value policy candidate is no longer authorized for execution", nil, err)

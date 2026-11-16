@@ -825,6 +825,8 @@ export const tableShapeTaggedScalarSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
   z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
   z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
+  z.object({ kind: z.literal('NULL') }).strict(),
+  z.object({ kind: z.literal('MISSING') }).strict(),
 ]);
 export type TableShapeTaggedScalar = z.infer<typeof tableShapeTaggedScalarSchema>;
 
@@ -2189,6 +2191,12 @@ export const constructionCategoryDiscoveryResponseSchema = z.discriminatedUnion(
     categories: z.array(constructionDiscoveredCategorySchema).length(0),
     message: z.string().min(1),
   }).strict(),
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('NO_VALUES'),
+    complete: z.literal(false),
+    categories: z.array(constructionDiscoveredCategorySchema).length(0),
+    message: z.string().min(1),
+  }).strict(),
 ]);
 export type ConstructionCategoryDiscoveryResponse = z.infer<typeof constructionCategoryDiscoveryResponseSchema>;
 
@@ -2255,7 +2263,7 @@ export const authoringNetworkSchema = z.object({
     relationship: z.string().optional(), storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
     matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(), enabled: z.boolean(), preservesRowIdentity: z.boolean(), canExcludeRows: z.boolean(),
   }).strict()),
-  bindings: z.array(z.object({ columnId: opaqueIdSchema, occurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(), valueMode: z.string().optional(), status: z.enum(['EXACT', 'UNKNOWN']) }).strict()),
+  bindings: z.array(z.object({ columnId: opaqueIdSchema, occurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(), outputKey: z.string().min(1).max(2048).optional(), valueMode: z.string().optional(), status: z.enum(['EXACT', 'UNKNOWN']) }).strict()),
   operations: z.array(z.object({ operationId: opaqueIdSchema, kind: z.string().min(1), inputStepIds: z.array(opaqueIdSchema), anchorColumnId: opaqueIdSchema.optional() }).strict()),
 }).strict();
 export const rowIdentityPlanSchema = z.object({

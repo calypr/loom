@@ -95,6 +95,7 @@ type WorkspaceOutputSource struct {
 // boundary. Paths are structural recipe paths, never inferred display labels.
 type CompiledSourceOrigin struct {
 	SourceKey    string
+	OutputKey    string
 	SourceKind   string
 	OccurrenceID string
 	SourcePath   string
@@ -314,6 +315,22 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 	return result, nil
 }
 
+func pruneUnmaterializedDynamicColumns(metadata []DynamicColumnMetadata, schema []CompiledOutputColumn) []DynamicColumnMetadata {
+	if len(metadata) == 0 {
+		return metadata
+	}
+	for _, column := range schema {
+		if column.Name == "__loom_dynamic_runtime_keys" {
+			return metadata
+		}
+	}
+	// A reshape or aggregate can consume dynamic source columns without
+	// carrying the hidden runtime-key inventory. In that case the final row no
+	// longer has metadata to validate, and keeping the checks would reject an
+	// otherwise valid derived output.
+	return nil
+}
+
 func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBindings, resolvedColumns map[string][]semantic.ResolvedColumn, policy ir.PhysicalOptimizationPolicy, workspaceOutputSchemas map[string][]CompiledOutputColumn) (CompiledRecipeOutput, error) {
 	composedCohort := output.GroupRows != nil && output.Construction != nil && len(output.Construction.Steps) > 0
 	identity, ok := spec.DefaultRowIdentity(spec.RowGrain(output.RowGrain))
@@ -462,6 +479,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 			})
 		}
 	}
+	dynamicMetadata = pruneUnmaterializedDynamicColumns(dynamicMetadata, outputSchema)
 	scopeEvidence, scopeEvidenceIdentity, err := issueWholeRelationScopeEvidence(output.Name, physical, outputSchema)
 	if err != nil {
 		return CompiledRecipeOutput{}, err

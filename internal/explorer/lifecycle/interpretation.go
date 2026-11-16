@@ -33,13 +33,13 @@ func (s *Service) resolveWorkspaceInterpretations(ctx context.Context, project s
 		return explorercompilation.ResolvedInputs{}, nil
 	}
 	if s.config.InterpretationRepository == nil {
-		return explorercompilation.ResolvedInputs{}, fmt.Errorf("interpretation repository is required when workspace contains pinned revisions")
+		return explorercompilation.ResolvedInputs{}, unavailable("interpretation", "INTERPRETATION_UNAVAILABLE", "interpretation revisions are not configured", nil)
 	}
 	revisions := make(map[explorer.InterpretationRevisionID]explorer.InterpretationRevision, len(ids))
 	for id := range ids {
 		revision, err := s.config.InterpretationRepository.GetInterpretationRevision(ctx, projectid.Canonical(project), id)
 		if err != nil {
-			return explorercompilation.ResolvedInputs{}, fmt.Errorf("load interpretation revision %q: %w", id, err)
+			return explorercompilation.ResolvedInputs{}, unavailable("interpretation", "INTERPRETATION_UNAVAILABLE", fmt.Sprintf("load interpretation revision %q", id), err)
 		}
 		if revision == nil {
 			return explorercompilation.ResolvedInputs{}, fmt.Errorf("load interpretation revision %q: repository returned nil", id)

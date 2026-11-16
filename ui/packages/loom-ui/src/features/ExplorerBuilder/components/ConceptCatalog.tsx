@@ -42,7 +42,6 @@ import {
   type GroupedRowValuePolicyControl,
   type RouteCoverage,
 } from './CatalogSelectionOptions';
-import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 
 const PAGE_SIZE = 50;
 const ROUTE_PAGE_SIZE = 10;
@@ -759,9 +758,7 @@ const ConceptCatalogContent = ({
   semanticSelectionMode,
   initialSelection,
   initialFieldSource,
-  pairedColumnSuggestion,
   groupedRowValuePolicy,
-  onPairedColumnSuggestionHandled,
   onAddSelected,
   onPreviewSelected,
   onInspectRouteCoverage,
@@ -792,9 +789,7 @@ const ConceptCatalogContent = ({
   readonly semanticSelectionMode?: SemanticInventorySelectionMode;
   readonly initialSelection?: CatalogInitialSelection;
   readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
-  readonly pairedColumnSuggestion?: PairedColumnSuggestion;
   readonly groupedRowValuePolicy?: GroupedRowValuePolicyControl;
-  readonly onPairedColumnSuggestionHandled?: (requestId: string) => void;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<'preview-ready' | 'preview-pending' | void>;
@@ -888,7 +883,6 @@ const ConceptCatalogContent = ({
     readonly client: typeof client;
     readonly value?: { readonly contextToken: string; readonly buildId: string };
   }>({ scopeKey: '', client });
-  const handledSuggestionRequests = useRef<Set<string>>(new Set());
   const cancelLoadMoreRoutes = () => {
     activeMoreRouteRequest.current?.controller.abort();
     activeMoreRouteRequest.current = undefined;
@@ -1322,66 +1316,6 @@ const ConceptCatalogContent = ({
   const focusedIdentityKey = focusedPresentation?.scopeKey === presentationScopeKey
     ? semanticInventoryIdentityKey(focusedPresentation.identity)
     : undefined;
-  useEffect(() => {
-    const suggestion = pairedColumnSuggestion;
-    if (view === 'fields' || !suggestion || handledSuggestionRequests.current.has(suggestion.requestId)) return;
-    handledSuggestionRequests.current.add(suggestion.requestId);
-    onPairedColumnSuggestionHandled?.(suggestion.requestId);
-
-    if (
-      suggestion.snapshotToken !== snapshotToken ||
-      suggestion.outputId !== outputId ||
-      suggestion.choices.snapshotToken !== snapshotToken ||
-      suggestion.choices.outputId !== outputId
-    ) {
-      setActionMessage('The table changed. Choose the paired concept again for the current table.');
-      return;
-    }
-
-    const choices = suggestion.choices.choices.filter((choice) =>
-      choice.source.kind === 'SEMANTIC' &&
-      choice.source.conceptId === suggestion.item.conceptId &&
-      choice.source.bindingId === suggestion.item.bindingId &&
-      choice.source.resourceType === suggestion.item.resourceType &&
-      choice.options.some((option) => option.support === 'SUPPORTED'),
-    );
-    const firstChoice = choices[0];
-    if (!firstChoice || !catalogItemAvailability({
-      kind: 'SEMANTIC',
-      item: suggestion.item,
-      constructionChoice: firstChoice,
-    }).selectable) {
-      setActionMessage('Loom no longer provides a supported route and result form for this paired concept.');
-      return;
-    }
-
-    const item: CatalogItem = {
-      kind: 'SEMANTIC',
-      item: suggestion.item,
-      constructionChoice: firstChoice,
-    };
-    setSelected(new Map([[catalogItemKey(item), item]]));
-    setPendingSelection([{
-      item,
-      choices,
-      complete: suggestion.choices.complete,
-      truncated: suggestion.choices.truncated,
-      ...(suggestion.choices.nextCursor ? { nextCursor: suggestion.choices.nextCursor } : {}),
-      semanticContext: {
-        contextToken: suggestion.contextToken,
-        buildId: suggestion.buildId,
-      },
-    }]);
-    setAdvancedOpen(true);
-    setActionMessage(undefined);
-  }, [
-    onPairedColumnSuggestionHandled,
-    outputId,
-    pairedColumnSuggestion,
-    setSelected,
-    snapshotToken,
-    view,
-  ]);
   const semanticItems = useMemo(
     () => {
       const inventoryItems = semanticCatalogItems(

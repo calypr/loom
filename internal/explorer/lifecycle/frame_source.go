@@ -102,7 +102,7 @@ func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFr
 		return result, conflict("frame-source-options", "STALE_CATALOG_SNAPSHOT", "reload the catalog before choosing a frame source", nil, err)
 	}
 	if err != nil {
-		return result, err
+		return result, capabilityResolutionFailure("frame-source-options", "reload the catalog before choosing a frame source", err)
 	}
 	snapshot := authorized.Snapshot.Clone()
 	if snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) || snapshot.Identity.Generation == "" {
@@ -151,7 +151,7 @@ func (s *Service) BrowseFrameSourceOptions(ctx context.Context, request BrowseFr
 			return BrowseFrameSourceOptionsResponse{}, conflict("frame-source-options", "STALE_FRAME_SOURCE_CURSOR", "restart frame source search with an empty cursor", nil, pageErr)
 		}
 		if pageErr != nil {
-			return BrowseFrameSourceOptionsResponse{}, pageErr
+			return BrowseFrameSourceOptionsResponse{}, persistenceFailure("frame-source-options", "frame source options could not be read", pageErr)
 		}
 		contextToken, tokenErr := semanticInventoryContextToken(snapshot, request.ExplorerID, document.RootResourceType, page.Build.BuildID)
 		if tokenErr != nil {

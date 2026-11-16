@@ -368,6 +368,9 @@ func (s *Service) ResolveTableShape(ctx context.Context, request TableShapeResol
 	}
 	if categoryScan != nil {
 		if err := tableshapecap.ValidateResolutionAgainstCategoryScan(catalog, *categoryScan, receipt); err != nil {
+			if errors.Is(err, tableshapecap.ErrUnlistedCategorySubset) {
+				return TableShapeResolutionResult{}, unprocessable("table-shape-resolution", "TABLE_PIVOT_UNLISTED_CATEGORY", "the pivot omits discovered categories while the unlisted-category policy is ERROR; include all discovered categories or choose EXCLUDE_WITH_EVIDENCE", err)
+			}
 			return TableShapeResolutionResult{}, unprocessable("table-shape-resolution", "INVALID_CATEGORY_SELECTION", "the selected pivot categories are not from the bound complete discovery receipt", err)
 		}
 	}
@@ -509,12 +512,17 @@ func (s *Service) scanTableShapeCategoryPair(ctx context.Context, base tableShap
 	if err != nil {
 		return tableshapecap.CategoryScanReceipt{}, unprocessable("table-shape-category-discovery", "INVALID_CHOICE_ID", "the category column choice is not available in this catalog", err)
 	}
-	if _, err := catalog.FindColumn(tableshapecap.RolePivotValue, valueChoiceID); err != nil {
+	valueChoice, err := catalog.FindColumn(tableshapecap.RolePivotValue, valueChoiceID)
+	if err != nil {
 		return tableshapecap.CategoryScanReceipt{}, unprocessable("table-shape-category-discovery", "INVALID_CHOICE_ID", "the value column choice is not available in this catalog", err)
 	}
 	column := findPublicColumn(catalog, category.ColumnKey)
 	if column == nil {
 		return tableshapecap.CategoryScanReceipt{}, conflict("table-shape-category-discovery", "INVALID_TABLE_SHAPE_CAPABILITY", "the category choice has no compiler-owned output column", nil, nil)
+	}
+	valueColumn := findPublicColumn(catalog, valueChoice.ColumnKey)
+	if valueColumn == nil {
+		return tableshapecap.CategoryScanReceipt{}, conflict("table-shape-category-discovery", "INVALID_TABLE_SHAPE_CAPABILITY", "the value choice has no compiler-owned output column", nil, nil)
 	}
 	if s.config.ScanCategories == nil {
 		return tableshapecap.CategoryScanReceipt{}, unprocessable("table-shape-category-discovery", "CATEGORY_SCAN_UNAVAILABLE", "complete pivot categories cannot be discovered", nil)
@@ -525,7 +533,10 @@ func (s *Service) scanTableShapeCategoryPair(ctx context.Context, base tableShap
 		OutputNames: []string{catalog.Binding.OutputID},
 	}
 	applyAuthorizedScope(&bindings, base.authorized, false)
-	scan, err := s.config.ScanCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{Output: catalog.Binding.OutputID, Column: column.Key, MaxValues: maxPivotCategories})
+	scan, err := s.config.ScanCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{
+		Output: catalog.Binding.OutputID, Column: column.Key, ValueColumn: valueColumn.Key,
+		MaxValues: maxPivotCategories, RequireValue: true,
+	})
 	if err != nil {
 		code := "CATEGORY_SCAN_REFUSED"
 		if refusal, ok := compiler.CategoryScanRefusalCodeOf(err); ok {
@@ -534,8 +545,11 @@ func (s *Service) scanTableShapeCategoryPair(ctx context.Context, base tableShap
 		return tableshapecap.CategoryScanReceipt{}, unprocessable("table-shape-category-discovery", code, "complete compiler-owned pivot categories are unavailable for this column", err)
 	}
 	proof := scan.Proof
-	if !scan.Complete || scan.Overflow || len(scan.Values) > maxPivotCategories || proof.Version != 1 || proof.Output != catalog.Binding.OutputID || proof.Column != column.Key || proof.MaxValues != maxPivotCategories || strings.TrimSpace(proof.Kind) == "" || strings.TrimSpace(proof.Cardinality) == "" || strings.TrimSpace(proof.OutputSchemaDigest) == "" || strings.TrimSpace(proof.PlanFingerprint) == "" || strings.TrimSpace(proof.QueryFingerprint) == "" || strings.TrimSpace(proof.Fingerprint) == "" {
+	if !scan.Complete || scan.Overflow || len(scan.Values) > maxPivotCategories || proof.Version != 1 || proof.Output != catalog.Binding.OutputID || proof.Column != column.Key || proof.ValueColumnID != valueColumn.Key || !proof.ValuePresenceRequired || proof.MaxValues != maxPivotCategories || strings.TrimSpace(proof.Kind) == "" || strings.TrimSpace(proof.Cardinality) == "" || strings.TrimSpace(proof.OutputSchemaDigest) == "" || strings.TrimSpace(proof.PlanFingerprint) == "" || strings.TrimSpace(proof.QueryFingerprint) == "" || strings.TrimSpace(proof.Fingerprint) == "" {
 		return tableshapecap.CategoryScanReceipt{}, unprocessable("table-shape-category-discovery", "CATEGORY_SCAN_INCOMPLETE", "pivot categories require a complete compiler scan within the supported limit", nil)
+	}
+	if len(scan.Values) == 0 {
+		return tableshapecap.CategoryScanReceipt{}, unprocessable("table-shape-category-discovery", "PIVOT_NO_VALUES", "no selected value is populated for any category in the current rows; choose another value column or filter rows before pivoting", nil)
 	}
 	values := make([]tableshapecap.Scalar, 0, len(scan.Values))
 	for _, item := range scan.Values {

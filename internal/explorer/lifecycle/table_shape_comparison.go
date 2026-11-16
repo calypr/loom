@@ -24,11 +24,14 @@ func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableSh
 		return TableShapeComparison{}, unavailable("table-shape-proposal", "PREVIEW_UNAVAILABLE", "table shape preview execution is not configured", nil)
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil ||
+	if err != nil {
+		return TableShapeComparison{}, receiptCapabilityFailure("table-shape-proposal", "the proposal receipts are no longer authorized for preview", err)
+	}
+	if authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil ||
 		projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) ||
 		authorized.Snapshot.Identity.Generation != snapshot.Identity.Generation ||
 		authorized.Snapshot.Identity.ShapeDigest != snapshot.Identity.ShapeDigest {
-		return TableShapeComparison{}, conflict("table-shape-proposal", "RECEIPT_STALE", "the proposal receipts are no longer authorized for preview", nil, err)
+		return TableShapeComparison{}, conflict("table-shape-proposal", "RECEIPT_STALE", "the proposal receipts are no longer authorized for preview", nil, nil)
 	}
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return TableShapeComparison{}, conflict("table-shape-proposal", "RECEIPT_STALE", "the proposal receipts are no longer authorized for preview", nil, err)

@@ -62,6 +62,7 @@ const renderEditor = (args: {
   readonly onFormKindChange?: ConstructionReshapeEditorProps['onFormKindChange'];
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
   readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
+  readonly pivotDiscovery?: ConstructionReshapeEditorProps['pivotDiscovery'];
   readonly codedPivotContext?: ConstructionReshapeEditorProps['codedPivotContext'];
   readonly relatedExpandContext?: ConstructionReshapeEditorProps['relatedExpandContext'];
   readonly disabled?: boolean;
@@ -80,6 +81,7 @@ const renderEditor = (args: {
       selectedColumns={args.selectedColumns}
       onFormKindChange={args.onFormKindChange}
       onDiscoverCategories={args.onDiscoverCategories}
+      pivotDiscovery={args.pivotDiscovery}
       codedPivotContext={args.codedPivotContext}
       relatedExpandContext={args.relatedExpandContext}
       disabled={args.disabled ?? false}
@@ -107,23 +109,31 @@ const completePivotDiscovery = (
   categories: CompletePivotDiscovery['categories'],
 ): CompletePivotDiscovery => ({ ...request, status: 'complete', categories });
 
-const openReshapeIntent = (intent: 'group' | 'reshape') => {
-  const intentButton = screen.queryByTestId(`construction-reshape-intent-${intent}`);
-  if (intentButton) fireEvent.click(intentButton);
-};
+const openReshapeIntent = (_intent: 'group' | 'reshape') => {};
 
 const openGroupFieldBrowser = () => {
-  const browser = screen.getByTestId('construction-group-by-browser');
-  if (!browser.hasAttribute('open')) fireEvent.click(within(browser).getByText('Add grouping field'));
+  screen.getByTestId('construction-group-by-browser');
 };
 
 const openGroupContributorValueBrowser = () => {
-  const browser = screen.getByTestId('construction-group-add-columns-browser');
-  if (!browser.hasAttribute('open')) fireEvent.click(within(browser).getByText('Add contributor value'));
+  screen.getByTestId('construction-group-add-columns-browser');
+};
+
+const openGroupTab = (tab: 'group' | 'summaries' | 'contributors') => {
+  fireEvent.click(screen.getByTestId(`construction-group-tab-${tab}`));
+};
+
+const addGroupSummary = () => {
+  openGroupTab('summaries');
+  fireEvent.change(screen.getByLabelText('Add summary'), { target: { value: 'COUNT_ROWS' } });
 };
 
 const chooseReshapeOperation = (intent: 'group' | 'reshape', operation: string) => {
   openReshapeIntent(intent);
+  if (intent === 'reshape') {
+    fireEvent.click(screen.getByTestId(`construction-reshape-tab-${operation === 'unpivot' ? 'unpivot' : 'pivot'}`));
+    return;
+  }
   fireEvent.click(screen.getByTestId(`construction-reshape-choice-${operation}`));
 };
 
@@ -152,7 +162,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected a supported public scalar list column');
     expect(entry.form.inputColumnId).toBe('tags-id');
-    expect(entry.candidateIntent.candidateConstruction.steps.at(-1)?.id).toBe(entry.form.stepId);
+    expect(entry.candidateIntent!.candidateConstruction.steps.at(-1)?.id).toBe(entry.form.stepId);
 
     const onCandidateChange = vi.fn();
     const { view } = renderEditor({
@@ -193,18 +203,7 @@ describe('ConstructionReshapeEditor', () => {
     });
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'group') throw new Error('Expected a supported standard GROUP entry');
-    const initialStep = entry.candidateIntent.candidateConstruction.steps.at(-1);
-    expect(initialStep?.id).toBe(entry.form.stepId);
-    expect(initialStep?.operation).toEqual({
-      kind: 'GROUP',
-      group: {
-        constructionId: entry.form.stepId,
-        missingKeyPolicy: 'GROUP',
-        keys: [],
-        aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: entry.form.aggregates[0]?.outputColumnId }],
-      },
-    });
-    expect(constructionSchema.parse(entry.candidateIntent.candidateConstruction)).toEqual(entry.candidateIntent.candidateConstruction);
+    expect(entry.candidateIntent).toBeUndefined();
 
     const onCandidateChange = vi.fn();
     const { view } = renderEditor({
@@ -213,8 +212,11 @@ describe('ConstructionReshapeEditor', () => {
       initialEntry: entry,
       onCandidateChange,
     });
+    openGroupTab('summaries');
+    expect(screen.queryByLabelText('Summary 1')).not.toBeInTheDocument();
+    addGroupSummary();
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
-    expect(onCandidateChange).not.toHaveBeenCalled();
+    expect(onCandidateChange).toHaveBeenCalledOnce();
 
     view.rerender(
       <ConstructionReshapeEditor
@@ -227,10 +229,10 @@ describe('ConstructionReshapeEditor', () => {
         onEditStep={vi.fn()}
       />,
     );
-    expect(onCandidateChange).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Total fixture rows' } });
     expect(onCandidateChange).toHaveBeenCalledOnce();
+
+    fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'total_fixture_rows' } });
+    expect(onCandidateChange).toHaveBeenCalledTimes(2);
     const updatedIntent = onCandidateChange.mock.lastCall?.[0];
     expect(updatedIntent?.candidateConstruction.steps.at(-1)?.id).toBe(entry.form.stepId);
     expect(updatedIntent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
@@ -272,10 +274,7 @@ describe('ConstructionReshapeEditor', () => {
     });
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'group') throw new Error('Expected an empty-key Group entry');
-    expect(entry.candidateIntent.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
-      kind: 'GROUP',
-      group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] },
-    });
+    expect(entry.candidateIntent).toBeUndefined();
 
     const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
     const onHistorySelect = vi.fn<(selection: ConstructionHistorySelection) => void>();
@@ -310,9 +309,11 @@ describe('ConstructionReshapeEditor', () => {
 
     render(<RowIntentHost />);
     expect(onCandidateChange).not.toHaveBeenCalled();
+    addGroupSummary();
+    expect(onCandidateChange).toHaveBeenCalledOnce();
     const groupBrowser = screen.getByTestId('construction-group-by-browser');
     expect(groupBrowser).not.toHaveAttribute('open');
-    expect(screen.getByLabelText('Search fields to group by').closest('details')).toBe(groupBrowser);
+    expect(screen.getByLabelText('Search fields to group by').closest('[data-testid="construction-group-by-browser"]')).toBe(groupBrowser);
     openGroupFieldBrowser();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Subject reference' }));
@@ -320,7 +321,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-reshape-editor')).toBeInTheDocument();
     expect(controlChecked('Group by Subject reference')).toBe(true);
     expect(onHistorySelect).not.toHaveBeenCalled();
-    expect(onCandidateChange).toHaveBeenCalledOnce();
+    expect(onCandidateChange).toHaveBeenCalledTimes(2);
     const scalarIntent = onCandidateChange.mock.lastCall?.[0];
     expect(scalarIntent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
       kind: 'GROUP',
@@ -328,7 +329,7 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Specimen type' }));
-    expect(onCandidateChange).toHaveBeenCalledTimes(2);
+    expect(onCandidateChange).toHaveBeenCalledTimes(3);
     const semanticIntent = onCandidateChange.mock.lastCall?.[0];
     expect(semanticIntent?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
       kind: 'GROUP',
@@ -376,11 +377,10 @@ describe('ConstructionReshapeEditor', () => {
 
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, initialKind: 'group', initialEntry: entry, onCandidateChange });
+    addGroupSummary();
     openGroupFieldBrowser();
 
     expect(screen.getByRole('group', { name: 'Group by' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Summaries' })).toBeInTheDocument();
-    expect(screen.getByText('Advanced options')).toBeInTheDocument();
     expect(controlChecked('Group by Site')).toBe(true);
     expect(screen.getByText('Some coded fields may be missing from this list; search only covers the fields currently available.')).toBeInTheDocument();
 
@@ -530,7 +530,7 @@ describe('ConstructionReshapeEditor', () => {
     const uniqueSavedSemanticOption = screen.getByTestId('construction-group-semantic-option');
     expect(within(uniqueSavedSemanticOption).getByRole('checkbox')).toHaveAttribute('aria-label', 'Group by Condition category');
     expect(within(uniqueSavedSemanticOption).getByRole('checkbox')).toHaveProperty('checked', true);
-    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Input rows' } });
+    fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'input_rows' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
@@ -609,7 +609,7 @@ describe('ConstructionReshapeEditor', () => {
     }
   });
 
-  it('shows duplicate handling beside Pivot values, defaults to ERROR, and gates aggregations by value type', () => {
+  it('shows duplicate handling beside Pivot values, defaults numeric values to SUM, and gates aggregations by value type', () => {
     const stage = {
       ...sourceStage,
       capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
@@ -637,18 +637,20 @@ describe('ConstructionReshapeEditor', () => {
       ['MAX', 'Keep the largest'],
     ]);
     expect(controlValue('Pivot values field')).toBe('age-id');
-    expect(controlValue('Pivot duplicate policy')).toBe('ERROR');
+    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
     expect(advanced).toHaveAttribute('open');
     for (const policy of ['SUM', 'MIN', 'MAX']) {
       expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeEnabled();
     }
 
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'site-id' } });
-    for (const policy of ['SUM', 'MIN', 'MAX']) {
-      expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeDisabled();
-    }
+    expect(controlValue('Pivot duplicate policy')).toBe('MIN');
+    expect(duplicatePolicy.querySelector('option[value="SUM"]')).toBeDisabled();
+    expect(duplicatePolicy.querySelector('option[value="MIN"]')).toBeEnabled();
+    expect(duplicatePolicy.querySelector('option[value="MAX"]')).toBeEnabled();
 
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
     for (const policy of ['SUM', 'MIN', 'MAX']) {
       expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeEnabled();
     }
@@ -691,7 +693,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(entry?.form.kind).toBe('expand');
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected a seeded Expand entry');
     expect(entry.form.inputColumnId).toBe('second-tags-id');
-    expect(entry.candidateIntent.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+    expect(entry.candidateIntent!.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
       kind: 'EXPAND',
       expand: { inputColumnId: 'second-tags-id' },
     });
@@ -719,36 +721,30 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByLabelText('Pivot category field')).toBeDisabled();
   });
 
+  it('gates record values on a grouping key or summary', () => {
+    renderEditor({ initialKind: 'group' });
+    expect(screen.getByRole('tab', { name: /^Summaries/ })).toBeInTheDocument();
+    expect(screen.queryByText('Values from contributing records')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Site' }));
+    expect(screen.getByText('Values from contributing records')).toBeInTheDocument();
+  });
+
   it('opens the requested row operation without another choice click', () => {
     renderEditor({ initialKind: 'group' });
     expect(screen.getByRole('region', { name: 'Summarize into groups' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
-    openReshapeIntent('reshape');
-    expect(screen.getByTestId('construction-reshape-choice-pivot')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change row operation' })).not.toBeInTheDocument();
     cleanup();
     renderEditor({ initialKind: 'pivot' });
     expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Pivot categories into columns' })).toBeInTheDocument();
   });
 
-  it('groups row transformations into group and reshape choices', () => {
+  it('opens Pivot directly with Pivot and Unpivot tabs', () => {
     renderEditor({});
-    expect(screen.getByRole('region', { name: 'Group or reshape this table' })).toBeInTheDocument();
-    expect(screen.getByTestId('construction-reshape-intent-group')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-reshape-intent-reshape')).toBeInTheDocument();
-    expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-reshape-choice-pivot')).not.toBeInTheDocument();
-    openReshapeIntent('group');
-    expect(screen.getByRole('heading', { name: 'Group and summarize' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Reshape table' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Back to row operations' }));
-    openReshapeIntent('reshape');
-    expect(screen.getByRole('heading', { name: 'Reshape table' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Group and summarize' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('construction-reshape-choice-pivot')).toHaveTextContent('Pivot categories into columns');
-    expect(screen.getByTestId('construction-reshape-choice-unpivot')).toHaveTextContent('Unpivot columns into rows');
-    expect(screen.queryByTestId('construction-reshape-choice-expand')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-reshape-choice-related-expand')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-tab-pivot')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-reshape-tab-unpivot'));
+    expect(screen.getByTestId('construction-reshape-tab-unpivot')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('region', { name: 'Unpivot columns into rows' })).toBeInTheDocument();
   });
 
   it('keeps Expand, Unpivot, and source-group editors inline under one operation heading', () => {
@@ -770,10 +766,10 @@ describe('ConstructionReshapeEditor', () => {
 
     cleanup();
     renderEditor({ initialKind: 'unpivot' });
-    expect(screen.getAllByRole('heading', { name: 'Unpivot columns into rows' })).toHaveLength(1);
+    expect(screen.getByRole('region', { name: 'Unpivot columns into rows' })).toBeInTheDocument();
     expect(screen.getByTestId('construction-reshape-unpivot')).not.toHaveClass('rounded-lg');
     expect(screen.getByLabelText('Unpivot Site')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Choose single-value fields. Use the column menu or List column settings to split repeated values before stacking them.');
+    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Choose single-value fields. Split list columns before stacking.');
 
     cleanup();
     const sourceChoice = {
@@ -800,8 +796,8 @@ describe('ConstructionReshapeEditor', () => {
     expect(onFormKindChange).toHaveBeenLastCalledWith('pivot');
     fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
     expect(onFormKindChange).toHaveBeenLastCalledWith('choose');
-    chooseReshapeOperation('group', 'group');
-    expect(onFormKindChange).toHaveBeenLastCalledWith('group');
+    chooseReshapeOperation('reshape', 'pivot');
+    expect(onFormKindChange).toHaveBeenLastCalledWith('pivot');
   });
 
   it('keeps Pivot role fields empty by default, preserves selected Rows, and explains repeated fields', () => {
@@ -937,12 +933,20 @@ describe('ConstructionReshapeEditor', () => {
         : choice) },
     } satisfies ConstructionReshapeEditorProps['capabilities'];
     const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const savedPivotSources = [{ choiceId: 'empty-list', columnId: 'saved-list-column' }];
     renderEditor({
       construction: { version: 1, steps: [savedStep] },
       capabilities: savedCapabilities,
       editingStep: savedStep,
       onCandidateChange,
       onDiscoverCategories: vi.fn(),
+      pivotDiscovery: {
+        stageId: savedCapabilities.selectedStage.id,
+        categoryColumnId: 'saved-list-column', valueColumnId: 'age-id',
+        pivotStepId: savedStep.id, groupKeyIds: ['site-id'], pivotSources: savedPivotSources,
+        status: 'complete',
+        categories: [{ key: { kind: 'STRING', string: 'baseline' }, label: 'Baseline' }],
+      },
     });
 
     const savedCategoryOption = screen.getByLabelText('Pivot category field').querySelector('option[value="saved-list-column"]');
@@ -967,8 +971,8 @@ describe('ConstructionReshapeEditor', () => {
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
     const capabilities = capabilitiesFor([codedStage], codedStage);
     const onCandidateChange = vi.fn();
-    renderEditor({ capabilities, onCandidateChange });
-    chooseReshapeOperation('group', 'coded-group');
+    renderEditor({ capabilities, initialKind: 'coded-group', onCandidateChange });
+    fireEvent.change(screen.getByTestId('construction-coded-group-path'), { target: { value: 'type.coding[]' } });
     const first = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
     expect(first?.operation.kind).toBe('CODED_GROUP');
     if (first?.operation.kind !== 'CODED_GROUP') throw new Error('Expected coded grouping');
@@ -1004,105 +1008,6 @@ describe('ConstructionReshapeEditor', () => {
     expect(step?.operation.kind).toBe('CODED_GROUP');
     expect(step?.operation.codedGroup.source.codingPath).toBe('type.coding[]');
     expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
-  });
-  it('keeps table Group controls separate from the source-field grouping path', () => {
-    const tableStage = sourceStage;
-    const capabilities = {
-      ...capabilitiesFor([tableStage], tableStage),
-      sourceInput: {
-        supported: true,
-        stageId: 'source_projection',
-        choices: [
-          { choiceId: 'status-choice', occurrenceId: 'root-1', fieldPath: 'status', label: 'Status', fhirType: 'code', logicalType: 'string', valueType: 'string', isIdentifier: false, isReference: false, isPopulated: true },
-          { choiceId: 'gender-choice', occurrenceId: 'root-1', fieldPath: 'gender', label: 'Gender', fhirType: 'code', logicalType: 'string', valueType: 'string', isIdentifier: false, isReference: false, isPopulated: true },
-        ],
-      },
-    } satisfies ConstructionReshapeEditorProps['capabilities'];
-    const directGroupEntry = createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'group' });
-    expect(directGroupEntry).toBeDefined();
-    if (!directGroupEntry || directGroupEntry.form.kind !== 'group') throw new Error('Expected direct Group entry to retain the empty-key row-count proposal');
-    expect(directGroupEntry.form.keys).toEqual([]);
-    expect(directGroupEntry.candidateIntent.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
-      kind: 'GROUP',
-      group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] },
-    });
-    const seededGroupEntry = createReshapeEditorEntry({ construction: capabilities.baseConstruction, capabilities, kind: 'group', selectedColumns: ['site-id'] });
-    expect(seededGroupEntry?.form.kind).toBe('group');
-    if (!seededGroupEntry || seededGroupEntry.form.kind !== 'group') throw new Error('Expected the selected table field to seed Group by');
-    expect(seededGroupEntry.form.keys.map((key) => key.inputColumnId)).toEqual(['site-id']);
-    expect(seededGroupEntry.candidateIntent.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
-      kind: 'GROUP',
-      group: { keys: [{ inputColumnId: 'site-id' }], aggregates: [{ operation: 'COUNT_ROWS' }] },
-    });
-    const relatedExpandContext = {
-      project: 'project-1', explorerId: 'explorer-1', snapshotToken: 'snapshot-1', outputId: 'table-1',
-      catalog: { availability: { fields: [
-        { resourceType: 'Specimen', path: 'status', examples: ['active', 'complete', 'in-progress', 'ignored'], observedShapeKind: 'scalar', pathObservedDocumentCount: 1, examplesTruncated: false, semanticObservations: [] },
-        { resourceType: 'Patient', path: 'gender', examples: ['wrong-resource'], observedShapeKind: 'scalar', pathObservedDocumentCount: 1, examplesTruncated: false, semanticObservations: [] },
-        { resourceType: 'Specimen', path: 'wrong', examples: ['wrong-path'], observedShapeKind: 'scalar', pathObservedDocumentCount: 1, examplesTruncated: false, semanticObservations: [] },
-      ] } },
-    } as unknown as NonNullable<ConstructionReshapeEditorProps['relatedExpandContext']>;
-    const codedPivotContext = { rowRoot: 'Specimen' } as NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
-    const onCandidateChange = vi.fn();
-    renderEditor({ capabilities, initialKind: 'choose', selectedColumns: ['site-id'], relatedExpandContext, codedPivotContext, onCandidateChange });
-    openReshapeIntent('group');
-    expect(screen.getByTestId('construction-reshape-choice-group')).toHaveTextContent('Group by selected fields');
-    const advancedGroupModes = screen.getByTestId('construction-reshape-advanced-grouping');
-    expect(advancedGroupModes).not.toHaveAttribute('open');
-    expect(within(advancedGroupModes).getByRole('region', { name: 'Available dataset fields', hidden: true })).toBeInTheDocument();
-    fireEvent.click(within(advancedGroupModes).getByText('Advanced grouping modes'));
-    expect(advancedGroupModes).toHaveAttribute('open');
-    expect(screen.getByText('Status')).toBeInTheDocument();
-    expect(screen.getByText('Gender')).toBeInTheDocument();
-    expect(screen.getByText('Examples: active · complete · in-progress')).toBeInTheDocument();
-    expect(screen.queryByText(/ignored|wrong-resource|wrong-path/)).not.toBeInTheDocument();
-    chooseReshapeOperation('group', 'group');
-    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
-    expect(screen.queryByTestId('construction-reshape-source-field-choices')).not.toBeInTheDocument();
-    expect(controlChecked('Group by Site')).toBe(true);
-    openGroupFieldBrowser();
-    expect(screen.getByRole('checkbox', { name: 'Group by Age' })).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Group by Tags' })).not.toBeInTheDocument();
-    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
-    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
-      kind: 'GROUP',
-      group: { keys: [{ inputColumnId: 'site-id' }], aggregates: [{ operation: 'COUNT_ROWS' }] },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
-    openReshapeIntent('group');
-    fireEvent.click(within(screen.getByTestId('construction-reshape-advanced-grouping')).getByText('Advanced grouping modes'));
-    expect(screen.getByTestId('construction-reshape-source-field-choices')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Group by Gender' }));
-    expect(screen.getByTestId('construction-reshape-source-group')).toBeInTheDocument();
-    expect(controlChecked('Group by Gender')).toBe(true);
-    expect(onCandidateChange.mock.lastCall?.[0]?.groupSources).toEqual([{ rowChoiceId: 'gender-choice', columnId: expect.any(String) }]);
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Status' }));
-    const intent = onCandidateChange.mock.lastCall?.[0];
-    expect(intent?.groupSources?.map((source: { rowChoiceId: string }) => source.rowChoiceId)).toEqual(['gender-choice', 'status-choice']);
-    expect(intent?.candidateConstruction.steps[0]?.inputs).toEqual([{ kind: 'SOURCE_PROJECTION' }]);
-    expect(intent?.candidateConstruction.steps[0]?.operation.group.keys).toHaveLength(2);
-    expect(intent?.candidateConstruction.steps[0]?.outputs.map((column: { label: string }) => column.label)).toEqual(['Gender', 'Status', 'Source records']);
-    expect(screen.getByTestId('construction-source-group-summary')).toHaveTextContent('Gender and Status');
-
-    cleanup();
-    const groupPreview = vi.fn();
-    renderEditor({ capabilities, initialKind: 'group', selectedColumns: ['site-id'], relatedExpandContext, codedPivotContext, onCandidateChange: groupPreview });
-    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Available dataset fields' })).not.toBeInTheDocument();
-    expect(controlChecked('Group by Site')).toBe(true);
-    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
-    expect(screen.getByTestId('construction-group-by-browser')).not.toHaveAttribute('open');
-    expect(groupPreview.mock.lastCall?.[0]).toBeUndefined();
-
-    cleanup();
-    const savedGroup: ConstructionReshapeStep = {
-      id: 'saved-group', inputs: [{ kind: 'SOURCE_PROJECTION' }],
-      operation: { kind: 'GROUP', group: { constructionId: 'saved-group', missingKeyPolicy: 'GROUP', keys: [], aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'saved-count' }] } },
-      outputs: [{ id: 'saved-count', name: 'count', label: 'Count', type: 'integer' }],
-    };
-    renderEditor({ capabilities, construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, relatedExpandContext, codedPivotContext });
-    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Available dataset fields' })).not.toBeInTheDocument();
   });
   it('does not offer unavailable or non-populated source choices', () => {
     const noPopulatedChoices = {
@@ -1170,10 +1075,8 @@ describe('ConstructionReshapeEditor', () => {
       ),
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
     const onCandidateChange = vi.fn();
-    renderEditor({ capabilities: capabilitiesFor([unsupportedStage], unsupportedStage), onCandidateChange });
+    renderEditor({ capabilities: capabilitiesFor([unsupportedStage], unsupportedStage), initialKind: 'group', onCandidateChange });
 
-    openReshapeIntent('group');
-    expect(screen.getByTestId('construction-reshape-choice-group')).toBeDisabled();
     expect(screen.getByText('GROUP was rejected for this stage.')).toBeInTheDocument();
     expect(screen.queryByTestId('construction-reshape-choice-expand')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-reshape-choice-related-expand')).not.toBeInTheDocument();
@@ -1264,6 +1167,7 @@ describe('ConstructionReshapeEditor', () => {
     renderEditor({
       capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext, onCandidateChange,
     });
+    addGroupSummary();
 
     const codedChoice = await screen.findByRole('checkbox', { name: 'Group by coded value: Specimen type' });
     expect(browseSemanticInventory.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
@@ -1352,6 +1256,7 @@ describe('ConstructionReshapeEditor', () => {
       expect.any(AbortSignal),
     );
     expect(browseFrameSourceOptions).not.toHaveBeenCalled();
+    addGroupSummary();
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
 
     openGroupFieldBrowser();
@@ -1474,7 +1379,7 @@ describe('ConstructionReshapeEditor', () => {
     renderEditor({ capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext });
 
     expect(screen.getByText('Checking coded-value availability…')).toBeInTheDocument();
-    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
+    expect(screen.queryByLabelText('Summary 1')).not.toBeInTheDocument();
     expect(browseFrameSourceOptions).not.toHaveBeenCalled();
 
     releaseReadiness({
@@ -1500,7 +1405,7 @@ describe('ConstructionReshapeEditor', () => {
     renderEditor({ capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'group', codedPivotContext });
 
     expect(await screen.findByRole('alert')).toHaveTextContent('409 Semantic inventory unavailable');
-    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
+    expect(screen.queryByLabelText('Summary 1')).not.toBeInTheDocument();
     expect(browseFrameSourceOptions).not.toHaveBeenCalled();
   });
 
@@ -1917,24 +1822,29 @@ describe('ConstructionReshapeEditor', () => {
     expect(base.steps).toEqual([]);
   });
 
+  it('organizes Group editing into explicit tabs without an advanced options section', () => {
+    renderEditor({ initialKind: 'group', onCandidateChange: vi.fn() });
+
+    expect(screen.getByRole('tab', { name: /^Group by/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText('Advanced options')).not.toBeInTheDocument();
+    openGroupTab('summaries');
+    expect(screen.getByRole('tab', { name: /^Summaries/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: /^Summaries/ })).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-group-tab-contributors')).not.toBeInTheDocument();
+  });
+
   it('builds a whole-table group summary with editable stable outputs', () => {
     const onCandidateChange = vi.fn();
-    renderEditor({ onCandidateChange });
+    renderEditor({ initialKind: 'group', onCandidateChange });
 
-    chooseReshapeOperation('group', 'group');
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Change row operation' })).toBeInTheDocument();
     expect(screen.getByTestId('construction-group-by-browser')).not.toHaveAttribute('open');
     openGroupFieldBrowser();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
+    addGroupSummary();
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
-    const advanced = screen.getByTestId('construction-reshape-group-advanced');
-    expect(advanced).not.toHaveAttribute('open');
     expect(screen.getByLabelText('Summary output name 1')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Advanced options'));
-    expect(advanced).toHaveAttribute('open');
     fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'participant_count' } });
-    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Participant count' } });
 
     assertCandidateMatchesSchemaAnd(onCandidateChange, {
       kind: 'GROUP',
@@ -1969,6 +1879,7 @@ describe('ConstructionReshapeEditor', () => {
     const onDiscoverCategories = vi.fn();
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, initialKind: 'group', onCandidateChange, onDiscoverCategories });
+    addGroupSummary();
     openGroupFieldBrowser();
 
     expect(screen.getByTestId('construction-group-by-field-list')).toBeInTheDocument();
@@ -2048,6 +1959,7 @@ describe('ConstructionReshapeEditor', () => {
     });
     const onCandidateChange = vi.fn();
     renderEditor({ capabilities, initialKind: 'group', onCandidateChange });
+    addGroupSummary();
     openGroupFieldBrowser();
 
     const fieldList = screen.getByTestId('construction-group-by-field-list');
@@ -2112,6 +2024,7 @@ describe('ConstructionReshapeEditor', () => {
       matchedOutputKeyId: 'matched-related-coding-count-choice',
     });
     renderEditor({ capabilities: codingCapabilities, initialKind: 'group', selectedColumns: ['site-id'] });
+    addGroupSummary();
     expect(screen.getByText('Counts every input row.')).toBeInTheDocument();
     openGroupFieldBrowser();
     fireEvent.click(screen.getByTestId(`construction-group-field-choice-${codingChoice.fieldSource.choiceId}`));
@@ -2128,12 +2041,13 @@ describe('ConstructionReshapeEditor', () => {
       matchedOutputKeyId: 'matched-related-scalar-count-choice',
     });
     renderEditor({ capabilities: scalarCapabilities, initialKind: 'group', selectedColumns: ['site-id'] });
+    addGroupSummary();
     openGroupFieldBrowser();
     fireEvent.click(screen.getByTestId(`construction-group-field-choice-${scalarChoice.fieldSource.choiceId}`));
     expect(screen.getByText('Counts each matching related record; kept empty rows also count.')).toBeInTheDocument();
   });
 
-  it('preserves a saved stage-bound field BINDING while editing names and hides its exact CHOICE duplicate', () => {
+  it('preserves a saved stage-bound field BINDING and hides its exact CHOICE duplicate', () => {
     const fieldSource = {
       kind: 'BINDING' as const,
       valueKind: 'SCALAR' as const,
@@ -2192,8 +2106,7 @@ describe('ConstructionReshapeEditor', () => {
     const savedChoice = screen.getByTestId('construction-group-field-source-option');
     expect(within(savedChoice).getByRole('checkbox')).toHaveProperty('checked', true);
     expect(screen.queryByTestId('construction-group-field-choice-same-status-choice')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText('Advanced options'));
-    fireEvent.change(screen.getByLabelText('Group source output name 1'), { target: { value: 'status_key' } });
+    fireEvent.change(screen.getByLabelText('Missing group key policy'), { target: { value: 'EXCLUDE' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
@@ -2203,7 +2116,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(edited?.operation.kind).toBe('GROUP');
     if (edited?.operation.kind !== 'GROUP') throw new Error('Expected saved GROUP operation');
     expect(edited.operation.group.keys).toEqual([{ fieldSource, outputColumnId: 'status-group-id' }]);
-    expect(edited.outputs.find((column) => column.id === 'status-group-id')).toMatchObject({ name: 'status_key', label: 'Status group' });
+    expect(edited.outputs.find((column) => column.id === 'status-group-id')).toMatchObject({ name: 'status_group', label: 'Status group' });
   });
 
   it('shows owner, role, and path for saved nested current-stage and related Group bindings', () => {
@@ -2515,7 +2428,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-group-add-columns')).toBeInTheDocument();
     const contributorBrowser = screen.getByTestId('construction-group-add-columns-browser');
     expect(contributorBrowser).not.toHaveAttribute('open');
-    expect(screen.getByLabelText('Search fields to add').closest('details')).toBe(contributorBrowser);
+    expect(screen.getByLabelText('Search fields to add').closest('[data-testid="construction-group-add-columns-browser"]')).toBe(contributorBrowser);
     openGroupContributorValueBrowser();
     expect(screen.getByRole('checkbox', { name: 'Add column Component value' })).toBeEnabled();
     const candidateCallsBeforeSearch = onCandidateChange.mock.calls.length;
@@ -2711,6 +2624,7 @@ describe('ConstructionReshapeEditor', () => {
     const capabilities = capabilitiesFor([stage], stage);
     const onCandidateChange = vi.fn();
     renderEditor({ initialKind: 'group', capabilities, onCandidateChange });
+    addGroupSummary();
     openGroupFieldBrowser();
 
     expect(screen.getByTestId('construction-reshape-group')).toHaveClass('construction-reshape-group-editor');
@@ -2736,27 +2650,19 @@ describe('ConstructionReshapeEditor', () => {
 
   it('uses selected scalar columns as group keys and restricts numeric summaries by type', () => {
     const onCandidateChange = vi.fn();
-    renderEditor({ selectedColumns: ['site-id'], onCandidateChange });
-    chooseReshapeOperation('group', 'group');
+    renderEditor({ selectedColumns: ['site-id'], initialKind: 'group', onCandidateChange });
 
     expect(controlChecked('Group by Site')).toBe(true);
+    addGroupSummary();
+    openGroupTab('summaries');
     expect(screen.getByLabelText('Summary 1')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
-      'those rows stay together in one missing-key group',
-    );
-    const advanced = screen.getByTestId('construction-reshape-group-advanced');
-    expect(advanced).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('Advanced options'));
+    openGroupTab('group');
     expect(controlValue('Missing group key policy')).toBe('GROUP');
     fireEvent.change(screen.getByLabelText('Missing group key policy'), { target: { value: 'EXCLUDE' } });
-    expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
-      'rows with any missing key are excluded before summaries run',
-    );
     openGroupFieldBrowser();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText('Advanced options'));
+    openGroupTab('summaries');
     fireEvent.change(screen.getByLabelText('Summary 1'), { target: { value: 'MEAN' } });
-    expect(advanced).not.toHaveAttribute('open');
     expect(screen.getByLabelText('Summary field 1')).toBeInTheDocument();
     const summaryRow = screen.getByTestId('construction-reshape-aggregate-0');
     for (const control of [
@@ -2765,9 +2671,8 @@ describe('ConstructionReshapeEditor', () => {
       screen.getByLabelText('Summary output name 1'),
       screen.getByRole('button', { name: 'Remove summary 1' }),
     ]) expect(summaryRow.contains(control)).toBe(true);
-    fireEvent.click(screen.getByText('Advanced options'));
     fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'mean_age' } });
-    fireEvent.click(screen.getByTestId('construction-reshape-add-summary'));
+    fireEvent.change(screen.getByLabelText('Add summary'), { target: { value: 'SUM' } });
     fireEvent.change(screen.getByLabelText('Summary 2'), { target: { value: 'SUM' } });
     fireEvent.change(screen.getByLabelText('Summary output name 2'), { target: { value: 'total_age' } });
     fireEvent.change(screen.getByLabelText('Summary field 2'), { target: { value: 'age-id' } });
@@ -2808,19 +2713,19 @@ describe('ConstructionReshapeEditor', () => {
       construction,
       capabilities: capabilitiesFor([sourceStage, filteredStage], filteredStage),
       selectedColumns: ['site-id'],
+      initialKind: 'group',
       onCandidateChange,
     });
 
-    chooseReshapeOperation('group', 'group');
-    fireEvent.click(screen.getByText('Advanced options'));
-    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Specimen rows' } });
+    addGroupSummary();
+    fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'specimen_rows' } });
     const firstIntent = onCandidateChange.mock.lastCall?.[0];
     expect(firstIntent).toBeDefined();
     if (!firstIntent) throw new Error('Expected a group proposal candidate');
     const firstGroup = firstIntent.candidateConstruction.steps.at(-1);
     expect(firstGroup?.inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: priorStep.id }]);
 
-    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Updated specimen rows' } });
+    fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'updated_specimen_rows' } });
     const editedIntent = onCandidateChange.mock.lastCall?.[0];
     expect(editedIntent).toBeDefined();
     if (!editedIntent) throw new Error('Expected an updated group proposal candidate');
@@ -2834,17 +2739,27 @@ describe('ConstructionReshapeEditor', () => {
       },
     });
     expect(editedGroup?.outputs.map((column) => column.id)).toEqual(firstGroup?.outputs.map((column) => column.id));
-    expect(editedGroup?.outputs.at(-1)?.label).toBe('Updated specimen rows');
+    expect(editedGroup?.outputs.at(-1)?.name).toBe('updated_specimen_rows');
   });
 
-  it('requires a summary before proposing a group with no calculated outputs', () => {
+  it('requires a grouping field or a summary before proposing a group', () => {
     const onCandidateChange = vi.fn();
-    renderEditor({ onCandidateChange });
-    chooseReshapeOperation('group', 'group');
-    fireEvent.click(screen.getByRole('button', { name: 'Remove summary 1' }));
+    renderEditor({ initialKind: 'group', onCandidateChange });
 
-    expect(screen.getByText('Add at least one summary before proposing this group.')).toBeInTheDocument();
-    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+    expect(screen.queryByTestId('construction-group-grain-summary')).not.toBeInTheDocument();
+    expect(onCandidateChange).not.toHaveBeenCalled();
+  });
+
+  it('groups by fields without requiring a summary', () => {
+    const onCandidateChange = vi.fn();
+    renderEditor({ selectedColumns: ['site-id'], initialKind: 'group', onCandidateChange });
+
+    expect(screen.getByRole('tab', { name: /^Summaries/ })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Missing group key policy'), { target: { value: 'EXCLUDE' } });
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: { keys: [{ inputColumnId: 'site-id' }], aggregates: [] },
+    });
   });
 
   it('reopens and edits a saved group without replacing its step or output identities', () => {
@@ -2874,19 +2789,13 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     expect(controlChecked('Group by Site')).toBe(true);
-    expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
-      'rows with any missing key are excluded before summaries run',
-    );
-    expect(screen.getByTestId('construction-reshape-group-advanced')).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('Advanced options'));
     expect(controlValue('Missing group key policy')).toBe('EXCLUDE');
-    expect(controlValue('Group output name 1')).toBe('study_site');
-    expect(controlValue('Group output label 1')).toBe('Study site');
+    openGroupTab('summaries');
     expect(controlValue('Summary 1')).toBe('COUNT_NON_NULL');
     expect(controlValue('Summary field 1')).toBe('age-id');
     expect(controlValue('Summary output name 1')).toBe('recorded_age_count');
-    expect(controlValue('Summary output label 1')).toBe('Recorded age count');
-    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Populated ages' } });
+    expect(controlValue('Summary output name 1')).toBe('recorded_age_count');
+    fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'populated_ages' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
@@ -2904,7 +2813,7 @@ describe('ConstructionReshapeEditor', () => {
       },
     });
     expect(editedGroup?.outputs).toContainEqual(expect.objectContaining({ id: 'site-group-id', name: 'study_site', label: 'Study site' }));
-    expect(editedGroup?.outputs).toContainEqual(expect.objectContaining({ id: 'age-count-id', name: 'recorded_age_count', label: 'Populated ages' }));
+    expect(editedGroup?.outputs).toContainEqual(expect.objectContaining({ id: 'age-count-id', name: 'populated_ages', label: 'Recorded age count' }));
   });
 
   it('disables primary and advanced group controls when editing is disabled', () => {
@@ -2932,15 +2841,12 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     expect(screen.getByLabelText('Group by Site')).toBeDisabled();
+    expect(screen.getByLabelText('Missing group key policy')).toBeDisabled();
+    openGroupTab('summaries');
     expect(screen.getByLabelText('Summary 1')).toBeDisabled();
     expect(screen.getByLabelText('Summary field 1')).toBeDisabled();
     expect(screen.getByTestId('construction-reshape-add-summary')).toBeDisabled();
-    fireEvent.click(screen.getByText('Advanced options'));
-    expect(screen.getByLabelText('Missing group key policy')).toBeDisabled();
-    expect(screen.getByLabelText('Group output name 1')).toBeDisabled();
-    expect(screen.getByLabelText('Group output label 1')).toBeDisabled();
     expect(screen.getByLabelText('Summary output name 1')).toBeDisabled();
-    expect(screen.getByLabelText('Summary output label 1')).toBeDisabled();
   });
 
   it('renders the event-owned expansion form for the current cohort member ID list', () => {
@@ -2972,7 +2878,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlValue('Repeated field')).toBe('cohort-member-ids');
     expect(onCandidateChange).not.toHaveBeenCalled();
 
-    const step = entry.candidateIntent.candidateConstruction.steps.at(-1);
+    const step = entry.candidateIntent!.candidateConstruction.steps.at(-1);
     expect(step?.inputs).toEqual([{ kind: 'SOURCE_PROJECTION' }]);
     expect(step?.operation).toMatchObject({
       kind: 'EXPAND',
@@ -3058,7 +2964,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlValue('Repeated field')).toBe('tags-id');
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected an initialized expansion entry');
-    const firstExpand = entry.candidateIntent.candidateConstruction.steps.at(-1);
+    const firstExpand = entry.candidateIntent!.candidateConstruction.steps.at(-1);
     expect(firstExpand?.inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: priorStep.id }]);
     const firstExpandOutputId = firstExpand?.operation.kind === 'EXPAND'
       ? firstExpand.operation.expand.outputColumnId
@@ -3291,7 +3197,7 @@ describe('ConstructionReshapeEditor', () => {
 
     chooseReshapeOperation('reshape', 'unpivot');
     expect(screen.getByTestId('construction-unpivot-advanced')).not.toHaveAttribute('open');
-    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Rows with missing values stay in the table.');
+    expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Missing values keep their row.');
     const operation = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0]?.operation;
     expect(operation?.kind).toBe('UNPIVOT');
     if (operation?.kind !== 'UNPIVOT') throw new Error('Expected an Unpivot candidate');
@@ -3575,7 +3481,7 @@ describe('ConstructionReshapeEditor', () => {
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
     renderEditor({ capabilities: capabilitiesFor([configuredStage], configuredStage), initialKind: 'unpivot' });
 
-    expect(screen.getByText('Choose single-value fields. Use the column menu or List column settings to split repeated values before stacking them.')).toBeInTheDocument();
+    expect(screen.getByText('Choose single-value fields. Split list columns before stacking.')).toBeInTheDocument();
     expect(screen.getByTestId('construction-reshape-list-column-settings')).not.toHaveAttribute('open');
     fireEvent.click(screen.getByText('List column settings'));
     expect(screen.getByRole('button', { name: 'Expand Specimen type' })).toBeEnabled();
@@ -3903,6 +3809,276 @@ describe('ConstructionReshapeEditor', () => {
     expect(restored?.operation).toMatchObject({ kind: 'PIVOT', pivot: { categories: [{ outputColumnId: 'old-category' }] } });
     expect(restored?.outputs.find(column => column.id === 'old-category')).toMatchObject({ name: 'old_category', label: 'Site A' });
 
+  });
+
+  it('reselects discovered categories after a manual opt-out and a field-pair change', async () => {
+    const stage = {
+      ...sourceStage,
+      columns: [...sourceStage.columns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
+      capabilities: sourceStage.capabilities.map(capability => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [] }, capabilities: capabilitiesFor([stage], stage),
+      initialKind: 'pivot', disabled: false, onCandidateChange, onEditStep: vi.fn(), onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const request = onDiscoverCategories.mock.lastCall?.[0];
+    if (!request) throw new Error('Expected discovery for the initial Pivot pair');
+    const discovery = completePivotDiscovery(request, [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+    ]);
+    act(() => onDiscoverCategories.mock.lastCall?.[1]?.(discovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories: Site A, Site B');
+
+    fireEvent.click(screen.getByText('Change selected categories'));
+    fireEvent.click(screen.getByLabelText('Include category Site A'));
+    fireEvent.click(screen.getByLabelText('Include category Site B'));
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 0 of 2 categories: none');
+
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'sex-id' } });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories: Site A, Site B');
+    fireEvent.click(screen.getByLabelText('Pivot group Sex'));
+    expect(onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      candidateConstruction: expect.objectContaining({
+        steps: [expect.objectContaining({ operation: expect.objectContaining({
+          kind: 'PIVOT', pivot: expect.objectContaining({ categories: expect.arrayContaining([
+            { key: { kind: 'STRING', string: 'site-a' }, outputColumnId: expect.any(String) },
+            { key: { kind: 'STRING', string: 'site-b' }, outputColumnId: expect.any(String) },
+          ]) }),
+        }) })],
+      }),
+    }));
+  });
+
+  it('requires matching source-backed discovery after a saved Pivot row-key change', async () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map(capability => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const choices = [
+      { choiceId: 'cat-choice', occurrenceId: 'base', fieldPath: 'category', label: 'Category', fhirType: 'string', logicalType: 'string', valueType: 'VALUE' as const, isIdentifier: false, isReference: false, isPopulated: true, columnId: 'cat-col' },
+      { choiceId: 'val-choice', occurrenceId: 'base', fieldPath: 'value', label: 'Value', fhirType: 'string', logicalType: 'string', valueType: 'VALUE' as const, isIdentifier: false, isReference: false, isPopulated: true, columnId: 'val-col' },
+    ];
+    const step: ConstructionReshapeStep = {
+      id: 'saved-source-pivot', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'PIVOT', pivot: {
+        constructionId: 'saved-source-pivot', groupKeyIds: ['site-id'], categoryColumnId: 'cat-col', valueColumnId: 'val-col',
+        categories: [{ key: { kind: 'STRING', string: 'site-a' }, outputColumnId: 'old-category' }],
+        duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL', unlistedCategoryPolicy: 'ERROR',
+      } },
+      outputs: [
+        { id: 'site-id', name: 'site', label: 'Site', type: 'string' },
+        { id: 'old-category', name: 'site_a', label: 'Site A', type: 'string' },
+      ],
+    };
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [step] },
+      capabilities: { ...capabilitiesFor([stage], stage), pivotSourceInput: { supported: true, stageId: stage.id, choices } },
+      editingStep: step, disabled: false, onCandidateChange, onEditStep: vi.fn(), onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const request = onDiscoverCategories.mock.lastCall?.[0];
+    const complete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!request || !complete) throw new Error('Expected discovery for the saved source-backed Pivot');
+    expect(request.groupKeyIds).toEqual(['site-id']);
+    const discovery = completePivotDiscovery(request, [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }]);
+    act(() => complete(discovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
+    expect(onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({ candidateConstruction: expect.any(Object) }));
+
+    fireEvent.click(screen.getByLabelText('Pivot group Age'));
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+    expect(onDiscoverCategories.mock.lastCall?.[0]).toMatchObject({
+      stageId: stage.id,
+      groupKeyIds: ['site-id', 'age-id'],
+    });
+  });
+
+  it('preserves category edits and manual opt-outs when only row-key discovery identity changes', async () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map(capability => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const choices = [
+      { choiceId: 'cat-choice', occurrenceId: 'base', fieldPath: 'category', label: 'Category', fhirType: 'string', logicalType: 'string', valueType: 'VALUE' as const, isIdentifier: false, isReference: false, isPopulated: true, columnId: 'cat-col' },
+      { choiceId: 'val-choice', occurrenceId: 'base', fieldPath: 'value', label: 'Value', fhirType: 'string', logicalType: 'string', valueType: 'VALUE' as const, isIdentifier: false, isReference: false, isPopulated: true, columnId: 'val-col' },
+    ];
+    const step: ConstructionReshapeStep = {
+      id: 'saved-source-pivot', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'PIVOT', pivot: {
+        constructionId: 'saved-source-pivot', groupKeyIds: ['site-id'], categoryColumnId: 'cat-col', valueColumnId: 'val-col',
+        categories: [
+          { key: { kind: 'STRING', string: 'site-a' }, outputColumnId: 'old-a' },
+          { key: { kind: 'STRING', string: 'site-b' }, outputColumnId: 'old-b' },
+        ],
+        duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL', unlistedCategoryPolicy: 'ERROR',
+      } },
+      outputs: [
+        { id: 'site-id', name: 'site', label: 'Site', type: 'string' },
+        { id: 'old-a', name: 'site_a', label: 'Site A', type: 'string', table: { pinned: true } },
+        { id: 'old-b', name: 'site_b', label: 'Site B', type: 'string' },
+      ],
+    };
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [step] },
+      capabilities: { ...capabilitiesFor([stage], stage), pivotSourceInput: { supported: true, stageId: stage.id, choices } },
+      editingStep: step, disabled: false, onCandidateChange, onEditStep: vi.fn(), onDiscoverCategories,
+    };
+    const categories = [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+    ] satisfies CompletePivotDiscovery['categories'];
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const firstRequest = onDiscoverCategories.mock.lastCall?.[0];
+    const firstComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!firstRequest || !firstComplete) throw new Error('Expected discovery for the saved source-backed Pivot');
+    const firstDiscovery = completePivotDiscovery(firstRequest, categories);
+    act(() => firstComplete(firstDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={firstDiscovery} />);
+
+    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.change(screen.getByLabelText('Pivot output name site-a'), { target: { value: 'site_a_custom' } });
+    fireEvent.change(screen.getByLabelText('Pivot output label site-a'), { target: { value: 'Custom Site A' } });
+    fireEvent.click(screen.getByText('Change selected categories'));
+    fireEvent.click(screen.getByLabelText('Include category Site B'));
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(false);
+
+    fireEvent.click(screen.getByLabelText('Pivot group Age'));
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+    const secondRequest = onDiscoverCategories.mock.lastCall?.[0];
+    const secondComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!secondRequest || !secondComplete) throw new Error('Expected discovery after the row-key change');
+    expect(secondRequest.groupKeyIds).toEqual(['site-id', 'age-id']);
+    const secondDiscovery = completePivotDiscovery(secondRequest, categories);
+    act(() => secondComplete(secondDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={secondDiscovery} />);
+
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(false);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 2 categories: Site A');
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected a candidate after the row-key discovery completed');
+    const pivotStep = constructionSchema.parse(intent.candidateConstruction).steps[0];
+    expect(pivotStep?.operation).toMatchObject({
+      kind: 'PIVOT',
+      pivot: {
+        groupKeyIds: ['site-id', 'age-id'],
+        categories: [{ key: { kind: 'STRING', string: 'site-a' }, outputColumnId: 'old-a' }],
+      },
+    });
+    expect(pivotStep?.outputs.find((output) => output.id === 'old-a')).toEqual({
+      id: 'old-a',
+      name: 'site_a_custom',
+      label: 'Custom Site A',
+      type: 'string',
+      table: { pinned: true },
+    });
+  });
+
+  it('preserves category edits and manual opt-outs when a row key is added through the source-field selector', async () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map(capability => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const choices = [
+      { choiceId: 'cat-choice', occurrenceId: 'base', fieldPath: 'category', label: 'Category', fhirType: 'string', logicalType: 'string', valueType: 'VALUE' as const, isIdentifier: false, isReference: false, isPopulated: true, columnId: 'cat-col' },
+      { choiceId: 'val-choice', occurrenceId: 'base', fieldPath: 'value', label: 'Value', fhirType: 'string', logicalType: 'string', valueType: 'VALUE' as const, isIdentifier: false, isReference: false, isPopulated: true, columnId: 'val-col' },
+      { choiceId: 'group-choice', occurrenceId: 'base', fieldPath: 'age', label: 'Age', fhirType: 'integer', logicalType: 'integer', valueType: 'VALUE' as const, isIdentifier: false, isReference: false, isPopulated: true, columnId: 'age-id' },
+    ];
+    const step: ConstructionReshapeStep = {
+      id: 'saved-source-pivot', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'PIVOT', pivot: {
+        constructionId: 'saved-source-pivot', groupKeyIds: ['site-id'], categoryColumnId: 'cat-col', valueColumnId: 'val-col',
+        categories: [
+          { key: { kind: 'STRING', string: 'site-a' }, outputColumnId: 'old-a' },
+          { key: { kind: 'STRING', string: 'site-b' }, outputColumnId: 'old-b' },
+        ],
+        duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL', unlistedCategoryPolicy: 'ERROR',
+      } },
+      outputs: [
+        { id: 'site-id', name: 'site', label: 'Site', type: 'string' },
+        { id: 'old-a', name: 'site_a', label: 'Site A', type: 'string', table: { pinned: true } },
+        { id: 'old-b', name: 'site_b', label: 'Site B', type: 'string' },
+      ],
+    };
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [step] },
+      capabilities: { ...capabilitiesFor([stage], stage), pivotSourceInput: { supported: true, stageId: stage.id, choices } },
+      editingStep: step, disabled: false, onCandidateChange, onEditStep: vi.fn(), onDiscoverCategories,
+    };
+    const categories = [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+    ] satisfies CompletePivotDiscovery['categories'];
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const firstRequest = onDiscoverCategories.mock.lastCall?.[0];
+    const firstComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!firstRequest || !firstComplete) throw new Error('Expected discovery for the saved source-backed Pivot');
+    const firstDiscovery = completePivotDiscovery(firstRequest, categories);
+    act(() => firstComplete(firstDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={firstDiscovery} />);
+
+    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.change(screen.getByLabelText('Pivot output name site-a'), { target: { value: 'site_a_custom' } });
+    fireEvent.change(screen.getByLabelText('Pivot output label site-a'), { target: { value: 'Custom Site A' } });
+    fireEvent.click(screen.getByText('Change selected categories'));
+    fireEvent.click(screen.getByLabelText('Include category Site B'));
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(false);
+
+    fireEvent.change(screen.getByLabelText('Add pivot group field'), { target: { value: 'source:group-choice' } });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+    const secondRequest = onDiscoverCategories.mock.lastCall?.[0];
+    const secondComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!secondRequest || !secondComplete) throw new Error('Expected discovery after the source-field row-key change');
+    expect(secondRequest.groupKeyIds).toHaveLength(2);
+    expect(secondRequest.groupKeyIds).toContain('site-id');
+    const secondDiscovery = completePivotDiscovery(secondRequest, categories);
+    act(() => secondComplete(secondDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={secondDiscovery} />);
+
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(false);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 2 categories: Site A');
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected a candidate after the row-key discovery completed');
+    const pivotStep = constructionSchema.parse(intent.candidateConstruction).steps[0];
+    expect(pivotStep?.operation).toMatchObject({
+      kind: 'PIVOT',
+      pivot: {
+        categories: [{ key: { kind: 'STRING', string: 'site-a' }, outputColumnId: 'old-a' }],
+      },
+    });
+    expect(pivotStep?.outputs.find((output) => output.id === 'old-a')).toEqual({
+      id: 'old-a',
+      name: 'site_a_custom',
+      label: 'Custom Site A',
+      type: 'string',
+      table: { pinned: true },
+    });
   });
 
   it('requests stage-scoped pivot discovery and defaults every complete result', async () => {

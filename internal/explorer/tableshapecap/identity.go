@@ -4,9 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 )
+
+// ErrUnlistedCategorySubset reports a pivot that selects only part of a
+// complete category discovery while its unlisted-category policy is ERROR.
+var ErrUnlistedCategorySubset = errors.New("pivot omits discovered categories while the unlisted-category policy is ERROR; include all discovered categories or choose EXCLUDE_WITH_EVIDENCE")
 
 const (
 	catalogIDPrefix      = "tsc_"
@@ -302,6 +307,15 @@ func ValidateResolutionAgainstCategoryScan(catalog CatalogReceipt, scan Category
 		value, ok := discovered[category.ChoiceID]
 		if !ok || !sameScalar(value, category.Value) {
 			return invalid("pivot category is not selected from its complete category discovery receipt")
+		}
+	}
+	if scan.Proof.Complete && len(pivot.Categories) < len(scan.Categories) {
+		policy, err := catalog.findPolicy(RolePolicyUnlisted, pivot.UnlistedPolicyChoiceID)
+		if err != nil {
+			return invalid("pivot unlisted-category policy is not in parent catalog")
+		}
+		if policy.PolicyID == "ERROR" {
+			return ErrUnlistedCategorySubset
 		}
 	}
 	return nil

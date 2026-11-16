@@ -81,8 +81,8 @@ func (s *Service) constructionFilterSourceCapability(
 	outputID, stageID string,
 ) (ConstructionFilterSourceCapability, error) {
 	result := ConstructionFilterSourceCapability{StageID: stageID, Choices: []ConstructionFilterSourceChoice{}}
-	if code, reason, unavailable := importedSourceChoiceUnavailable(base.document); unavailable {
-		result.ReasonCode, result.Reason = code, reason
+	if importedSourceChoiceUnavailable(base.document) {
+		result.Supported = true
 		return result, nil
 	}
 	if _, found := constructionReceiptStage(base.stages, stageID); !found {

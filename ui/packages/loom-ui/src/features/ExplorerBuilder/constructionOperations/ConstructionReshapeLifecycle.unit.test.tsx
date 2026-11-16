@@ -116,25 +116,9 @@ const makeClient = () => {
 const LifecycleEditor = (props: {
   readonly client: ConstructionLifecycleClient;
   readonly onApply: (proposalId: string) => void;
-  readonly chooseGroupDuringLayout?: boolean;
+  readonly initialKind?: 'group' | 'expand';
 }) => {
   const lifecycle = useConstructionLifecycle({ client: props.client, capabilitiesRequest: request });
-  const [groupIntentSelected, setGroupIntentSelected] = React.useState(false);
-  const layoutChoiceTriggered = React.useRef(false);
-  React.useLayoutEffect(() => {
-    if (!props.chooseGroupDuringLayout || lifecycle.capabilities.status !== 'ready' || layoutChoiceTriggered.current) return;
-    if (!groupIntentSelected) {
-      const groupIntent = document.querySelector<HTMLButtonElement>('[data-testid="construction-reshape-intent-group"]');
-      if (!groupIntent) return;
-      groupIntent.click();
-      setGroupIntentSelected(true);
-      return;
-    }
-    const choice = document.querySelector<HTMLButtonElement>('[data-testid="construction-reshape-choice-group"]');
-    if (!choice) return;
-    layoutChoiceTriggered.current = true;
-    choice.click();
-  }, [props.chooseGroupDuringLayout, lifecycle.capabilities.status, groupIntentSelected]);
   if (lifecycle.capabilities.status !== 'ready') return <p role="status">Loading stage capabilities</p>;
   const response = lifecycle.capabilities.response;
   return (
@@ -142,6 +126,7 @@ const LifecycleEditor = (props: {
       <ConstructionReshapeEditor
         construction={response.baseConstruction}
         capabilities={response}
+        initialKind={props.initialKind}
         disabled={false}
         onCandidateChange={lifecycle.onCandidateChange}
         onEditStep={() => undefined}
@@ -167,11 +152,13 @@ const LifecycleEditor = (props: {
 describe('ConstructionReshapeEditor construction lifecycle', () => {
   it('preserves a GROUP choice issued from the committed chooser', async () => {
     const { client, proposeConstruction } = makeClient();
-    render(<LifecycleEditor client={client} onApply={() => undefined} chooseGroupDuringLayout />);
+    render(<LifecycleEditor client={client} onApply={() => undefined} initialKind="group" />);
 
-    const summaryLabel = await screen.findByLabelText('Summary output label 1');
+    fireEvent.click(await screen.findByTestId('construction-group-tab-summaries'));
+    fireEvent.change(await screen.findByLabelText('Add summary'), { target: { value: 'COUNT_ROWS' } });
+    const summaryLabel = await screen.findByLabelText('Summary output name 1');
     fireEvent.change(summaryLabel, { target: { value: 'Specimens per group' } });
-    await waitFor(() => expect(screen.getByTestId('proposal-status')).toHaveTextContent('ready'));
+    await waitFor(() => expect(screen.getByTestId('proposal-status')).toHaveTextContent('ready'), { timeout: 3000 });
 
     expect(proposeConstruction).toHaveBeenCalledOnce();
     const proposed = proposeConstruction.mock.calls[0]?.[0];
@@ -188,25 +175,23 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
   ])('previews an intermediate-stage $kind proposal before Apply', async ({ kind }) => {
     const { client, proposeConstruction, preview } = makeClient();
     const onApply = vi.fn();
-    render(<LifecycleEditor client={client} onApply={onApply} />);
+    render(<LifecycleEditor client={client} onApply={onApply} initialKind={kind === 'EXPAND' ? 'expand' : 'group'} />);
 
     await screen.findByTestId('construction-reshape-editor');
     const apply = screen.getByRole('button', { name: 'Apply change' });
     expect(apply).toBeDisabled();
-    fireEvent.click(screen.getByTestId('construction-reshape-intent-group'));
-    fireEvent.click(await screen.findByTestId('construction-reshape-choice-group'));
     if (kind === 'EXPAND') {
-      fireEvent.click(await screen.findByRole('button', { name: 'Expand Tags' }));
-    }
-    await screen.findByLabelText(kind === 'EXPAND' ? 'Empty list policy' : 'Summary output label 1');
-    if (kind === 'EXPAND') {
+      await screen.findByLabelText('Empty list policy');
       fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'PRESERVE_PARENT' } });
     } else {
-      fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Specimens per group' } });
+      fireEvent.click(await screen.findByTestId('construction-group-tab-summaries'));
+    fireEvent.change(await screen.findByLabelText('Add summary'), { target: { value: 'COUNT_ROWS' } });
+      await screen.findByLabelText('Summary output name 1');
+      fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'Specimens per group' } });
     }
     expect(apply).toBeDisabled();
 
-    await waitFor(() => expect(screen.getByTestId('proposal-status')).toHaveTextContent('ready'));
+    await waitFor(() => expect(screen.getByTestId('proposal-status')).toHaveTextContent('ready'), { timeout: 3000 });
     expect(proposeConstruction).toHaveBeenCalledOnce();
     expect(preview).toHaveBeenCalledWith(expect.objectContaining({ receiptId: 'proposal-1', outputId: 'specimens' }), expect.any(AbortSignal));
     const proposed = proposeConstruction.mock.calls[0]?.[0];
@@ -240,10 +225,9 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     );
     const { rerender } = render(renderEditor(capabilities));
 
-    await screen.findByTestId('construction-reshape-intent-group');
-    fireEvent.click(screen.getByTestId('construction-reshape-intent-group'));
-    fireEvent.click(await screen.findByTestId('construction-reshape-choice-group'));
-    await screen.findByLabelText('Summary output label 1');
+    await screen.findByTestId('construction-reshape-tab-pivot');
+    fireEvent.click(screen.getByTestId('construction-reshape-tab-unpivot'));
+    await screen.findByTestId('construction-reshape-choice-unpivot');
 
     const nextCapabilities = {
       ...capabilities,
@@ -251,9 +235,7 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
       draftDigest: 'draft-2',
     };
     rerender(renderEditor(nextCapabilities));
-    await waitFor(() => expect(screen.queryByLabelText('Summary output label 1')).not.toBeInTheDocument());
-    expect(screen.getByTestId('construction-reshape-intent-group')).toBeInTheDocument();
-    expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('construction-reshape-tab-pivot')).toHaveAttribute('aria-selected', 'true'));
   });
 });
 

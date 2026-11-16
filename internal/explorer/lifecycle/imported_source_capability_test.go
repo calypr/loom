@@ -44,11 +44,17 @@ func TestImportedEmptyRootSkipsSourceChoicesButKeepsStageOperations(t *testing.T
 	ordinaryOperations := append([]explorer.ReceiptConstructionOperationChoice(nil), stage.Capabilities...)
 	service := &Service{}
 	coded, err := constructionCodedGroupChoices(base, "MedicationAdministration", stage)
-	if err != nil { t.Fatalf("coded-group choices on empty imported root: %v", err) }
+	if err != nil {
+		t.Fatalf("coded-group choices on empty imported root: %v", err)
+	}
 	semantic, incomplete, err := service.constructionSemanticGroupChoices(context.Background(), base, "MedicationAdministration", stage)
-	if err != nil { t.Fatalf("semantic group choices on empty imported root: %v", err) }
+	if err != nil {
+		t.Fatalf("semantic group choices on empty imported root: %v", err)
+	}
 	group, groupIncomplete, err := service.constructionGroupFieldChoices(context.Background(), base, "MedicationAdministration", stage, semantic, incomplete, "", "")
-	if err != nil { t.Fatalf("Group field choices on empty imported root: %v", err) }
+	if err != nil {
+		t.Fatalf("Group field choices on empty imported root: %v", err)
+	}
 	if len(coded) != 0 || len(semantic) != 0 || len(group) != 0 || groupIncomplete || groupIncomplete != incomplete {
 		t.Fatalf("empty imported root returned invented source choices: coded=%#v semantic=%#v group=%#v incomplete=(%t,%t)", coded, semantic, group, incomplete, groupIncomplete)
 	}
@@ -121,8 +127,8 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 			if err != nil {
 				t.Fatalf("capability helper: %v", err)
 			}
-			if supported || code != "IMPORTED_SOURCE_PROJECTION_UNAVAILABLE" || reason == "" || choices != 0 {
-				t.Fatalf("imported capability = supported %t code %q reason %q choices %d", supported, code, reason, choices)
+			if !supported || code != "" || reason != "" || choices != 0 {
+				t.Fatalf("imported capability = supported %t code %q reason %q choices %d, want supported with no live-catalog choices", supported, code, reason, choices)
 			}
 			if planner.calls != 0 {
 				t.Fatalf("generic row-choice planner calls = %d, want 0", planner.calls)

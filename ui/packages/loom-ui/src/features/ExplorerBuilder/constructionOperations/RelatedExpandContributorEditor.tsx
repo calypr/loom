@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import { ZodError } from 'zod';
 import { useLoomClient } from '../../../react';
 import type { RelatedExpandContributorSearchResponse } from '../../../types';
@@ -118,8 +119,7 @@ export const RelatedExpandContributorEditor = ({
     onChange({ kind: 'ALL' });
   };
 
-  useEffect(() => () => moreController.current?.abort(), [routeChoiceId]);
-  useEffect(() => {
+  useCommitLifecycle(() => {
     if (condition.kind === 'ALL') return;
     const controller = new AbortController();
     const version = ++requestVersion.current;

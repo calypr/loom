@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import {useState} from 'react';
+import { useCommitLifecycle } from './useBrowserSubscription';
 
 export const useTraversalOverflow = (
   graphHostRef: React.RefObject<HTMLDivElement | null>,
@@ -7,7 +8,7 @@ export const useTraversalOverflow = (
 ): boolean => {
   const [overflowing, setOverflowing] = useState(false);
 
-  useEffect(() => {
+  useCommitLifecycle(() => {
     const graphHost = graphHostRef.current;
     const traversal = traversalRef.current;
     if (!graphHost || !traversal) return undefined;

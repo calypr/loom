@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import {useState} from 'react';
+import { useCommitLifecycle } from './useBrowserSubscription';
 import {
   layoutDatasetGraph,
   type GraphLayoutEdge,
@@ -20,7 +21,7 @@ export const useGraphLayout = (
     positions: new Map(),
   });
 
-  useEffect(() => {
+  useCommitLifecycle(() => {
     let active = true;
     setLayout({ positions: new Map() });
     void layoutDatasetGraph(nodes, edges)

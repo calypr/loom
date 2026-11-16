@@ -151,7 +151,7 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 		service := newTestService(t, &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: draft, DraftVersion: 7, DraftDigest: digest}}, Config{
 			InterpretationRepository: repository,
 			Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
-				return AuthorizedCapability{}, errors.New("snapshot expired")
+				return AuthorizedCapability{}, capability.ErrStaleSnapshot
 			}},
 		})
 		_, err := service.ConfiguredColumnContext(context.Background(), request)

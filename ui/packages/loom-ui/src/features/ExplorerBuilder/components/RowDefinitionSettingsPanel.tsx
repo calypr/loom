@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
@@ -18,6 +19,7 @@ import type {
 import type { SelectionRevision } from '../../../selection';
 import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
 import { ExplicitGroupAuthoring } from './ExplicitGroupAuthoring';
+import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 import { TraversalPath } from '../constructionWorkspace/TraversalPath';
 
 const rowChangingOperationKinds = new Set<ConstructionStep['operation']['kind']>([
@@ -376,7 +378,7 @@ export const RowDefinitionSettingsPanel = ({
   triggerPresentation,
   inspectorHost, onOpenChange,
   triggerLabel,
-  openActionRef,
+  openActionRef, closeActionRef,
   onBeginProposal, onCancelProposal, onBeginRootProposal, onCancelRootProposal,
   replacementPresentation = 'dialog', replacementInspectorHost, operationInspectorPresentation = 'dialog',
   client,
@@ -426,6 +428,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly onBeginProposal?: () => { ready: (proposal: RowDefinitionProposal, preview: import('../../../types').ExplorerBuilderPreviewResult) => boolean; failed: (message: string) => void } | undefined;
   readonly onCancelProposal?: () => void;
   readonly openActionRef?: { current: (() => void) | undefined };
+  readonly closeActionRef?: { current: (() => void) | undefined };
   readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'> &
     Partial<Pick<LoomClient, 'assessRowChange' | 'preview'>>;
   readonly project: string;
@@ -512,7 +515,19 @@ export const RowDefinitionSettingsPanel = ({
     replacementRequestEpoch.current += 1;
   };
 
-  useEffect(() => () => {
+  const closeSettings = () => {
+    if (settings.kind === 'closed') return;
+    settingsRequestEpoch.current += 1;
+    cancelPendingPreview();
+    cancelReplacementRequest();
+    setProposalState({ kind: 'none' });
+    setReplacementState({ kind: 'idle' });
+    setGroupAuthoringOpen(false);
+    setSettings({ kind: 'closed' });
+    onCloseRowIntentSession?.();
+  };
+
+  useBrowserSubscription((_onStoreChange) => () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
     proposalController.current?.abort();
     proposalRequestEpoch.current += 1;
@@ -520,7 +535,12 @@ export const RowDefinitionSettingsPanel = ({
     replacementRequestEpoch.current += 1;
   }, [table.outputId, snapshotToken, draftVersion, draftDigest]);
 
-  useEffect(() => {
+  const [staleCheck, setStaleCheck] = useState({ table, snapshotToken, draftVersion, draftDigest });
+  if (staleCheck.table !== table ||
+      staleCheck.snapshotToken !== snapshotToken ||
+      staleCheck.draftVersion !== draftVersion ||
+      staleCheck.draftDigest !== draftDigest) {
+    setStaleCheck({ table, snapshotToken, draftVersion, draftDigest });
     setReplacementState((current) => {
       if (current.kind === 'assessing') return { kind: 'stale', rootNodeId: current.rootNodeId };
       if ((current.kind === 'loading-preview' || current.kind === 'ready' || current.kind === 'applying') &&
@@ -529,9 +549,6 @@ export const RowDefinitionSettingsPanel = ({
       }
       return current;
     });
-  }, [table, snapshotToken, draftVersion, draftDigest]);
-
-  useEffect(() => {
     setProposalState((current) => {
       if (current.kind === 'fresh' && !isCurrentProposal(
         current.proposal, table, snapshotToken, draftVersion, draftDigest,
@@ -542,10 +559,11 @@ export const RowDefinitionSettingsPanel = ({
       )) return { kind: 'stale', selection: current.selection };
       return current;
     });
-  }, [table, snapshotToken, draftVersion, draftDigest]);
+  }
 
   const openSettings = async () => {
     if (inspectorMode && settings.kind !== 'closed') { onOpenChange?.(true); return; }
+    if (settings.kind !== 'closed') return;
     onOpenChange?.(true);
     if (compact && triggerRef.current) {
       const bounds = triggerRef.current.getBoundingClientRect();
@@ -592,25 +610,6 @@ export const RowDefinitionSettingsPanel = ({
       });
     }
   };
-
-  useEffect(() => {
-    if (inspectorMode || rootChangeState.kind === 'idle') return;
-    if (settings.kind === 'closed') void openSettings();
-  }, [rootChangeState.kind, rootChangeState.kind === 'idle' ? -1 : rootChangeState.identity.epoch,
-    settings.kind, inspectorMode]);
-
-  useEffect(() => {
-    if (rootChangePreviewOpen && settings.kind !== 'closed') {
-      settingsRequestEpoch.current += 1;
-      cancelPendingPreview();
-      cancelReplacementRequest();
-      setProposalState({ kind: 'none' });
-      setReplacementState({ kind: 'idle' });
-      setGroupAuthoringOpen(false);
-      setSettings({ kind: 'closed' });
-      onCloseRowIntentSession?.();
-    }
-  }, [rootChangePreviewOpen, settings.kind]);
 
   const propose = async (selected: RowDefinitionSelection) => {
     const ownership = onBeginProposal?.();
@@ -928,7 +927,9 @@ export const RowDefinitionSettingsPanel = ({
               </div>
   ) : null;
 
+  useEscapeToClose(settingsOpen && replacementState.kind === 'idle', cancel);
   if (openActionRef) openActionRef.current = () => { void openSettings(); };
+  if (closeActionRef) closeActionRef.current = closeSettings;
 
   return (
     <div ref={controllerRef} className={compact ? 'relative inline-block min-w-0' : undefined} onKeyDown={(event) => {

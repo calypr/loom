@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -103,6 +104,10 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		updated, err = s.config.EditImportedRelationship(ctx, request.Project, authorized, *document, request.Change)
 	}
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return fail, typed
+		}
 		return fail, unprocessable("source-relationship-proposal", "INVALID_IMPORTED_RELATIONSHIP", err.Error(), err)
 	}
 	command := authoringv2.Command{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: request.OutputID, ProposalID: "candidate-preview"}
@@ -138,6 +143,10 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	}
 	candidateNetwork, err := s.config.AuthoringNetwork(ctx, request.Project, authorized, *candidateDocument)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return fail, typed
+		}
 		return fail, unprocessable("source-relationship-proposal", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
 	if candidateNetwork.OutputID != request.OutputID {

@@ -106,6 +106,7 @@ describe('construction filter proposal wiring', () => {
       status: 'error', message: 'The policy has no matches.', retryable: false,
     }} canApply={false} onApply={() => undefined} onCancel={() => undefined} onRetry={onRetry} />);
     expect(screen.queryByRole('button', { name: 'Retry preview' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
 
     rerender(<ConstructionProposalPanel state={{
       status: 'error', message: 'The database is temporarily unavailable.', retryable: true,
@@ -144,9 +145,7 @@ describe('construction filter proposal wiring', () => {
       .toContain('Remove Patient expansion and its dependent Observation and Medication expansions.');
     for (const step of construction.steps) expect(screen.getByTestId(`construction-removal-step-${step.id}`)).toBeInTheDocument();
     expect(onApply).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(onCancel).toHaveBeenCalledOnce();
-    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Apply removal' }));
     expect(onApply).toHaveBeenCalledOnce();
     const editedResponse: ConstructionProposalResponse = {
@@ -422,7 +421,7 @@ describe('construction filter proposal wiring', () => {
     await waitFor(() => expect(proposeConstruction).toHaveBeenCalledOnce());
     expect(await screen.findByTestId('construction-proposal-error')).toHaveTextContent('no matching related records');
     expect(screen.queryByRole('button', { name: 'Retry preview' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
     expect(valueInput).toBeEnabled();
 
     fireEvent.change(valueInput, { target: { value: 'male' } });

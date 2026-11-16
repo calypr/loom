@@ -137,7 +137,8 @@ func lifecycleTableShapeService(t *testing.T, saved *authoringv2.TableShape) (*S
 			return dataframeexecution.CategoryScanResult{Complete: true, Overflow: true}, nil
 		}
 		proof := compiler.CategoryScanProof{
-			Version: 1, Output: request.Output, Column: request.Column, Kind: "STRING", Cardinality: "optional_one",
+			Version: 1, Output: request.Output, Column: request.Column, ValueColumnID: request.ValueColumn,
+			Kind: "STRING", Cardinality: "optional_one", ValuePresenceRequired: request.RequireValue,
 			MaxValues: request.MaxValues, OutputSchemaDigest: "schema-proof", PlanFingerprint: "plan-proof",
 			QueryFingerprint: "query-proof", Fingerprint: "scan-proof",
 		}
@@ -391,7 +392,7 @@ func TestTableShapeCatalogDiscoveryPivotAndDerivedReceipts(t *testing.T) {
 		CategoryColumnChoiceID: pair.CategoryColumnChoiceID, ValueColumnChoiceID: pair.ValueColumnChoiceID,
 		DuplicatePolicyChoiceID: catalogPolicyChoice(t, catalog, tableshapecap.RolePolicyDuplicate, "ERROR"),
 		MissingPolicyChoiceID:   catalogPolicyChoice(t, catalog, tableshapecap.RolePolicyMissing, "NULL"),
-		UnlistedPolicyChoiceID:  catalogPolicyChoice(t, catalog, tableshapecap.RolePolicyUnlisted, "ERROR"),
+		UnlistedPolicyChoiceID:  catalogPolicyChoice(t, catalog, tableshapecap.RolePolicyUnlisted, "EXCLUDE_WITH_EVIDENCE"),
 	}
 	for index, category := range discovery.Categories[:2] {
 		selection.Categories = append(selection.Categories, TableShapePivotCategorySelection{ChoiceID: category.ID, OutputColumn: fmt.Sprintf("bucket_%d", index+1), OutputLabel: category.Label})
@@ -457,7 +458,12 @@ func TestTableShapeCatalogDiscoveryPivotAndDerivedReceipts(t *testing.T) {
 func TestTableShapeSavedPivotReloadUsesDetachedBaseCatalog(t *testing.T) {
 	shape := &authoringv2.TableShape{Reshape: &authoringv2.TableReshape{Kind: "PIVOT", Pivot: &authoringv2.PivotConstruction{
 		ConstructionID: "pivot_saved", GroupKeys: []string{"patient_id"}, CategoryColumn: "category", ValueColumn: "value",
-		Categories:      []authoringv2.PivotCategory{{Key: authoringv2.TableScalar{Kind: "STRING", String: tableShapeTestPtr("")}, Output: authoringv2.ColumnOutput{Column: "empty_bucket", Label: "Empty bucket"}}},
+		Categories: []authoringv2.PivotCategory{
+			{Key: authoringv2.TableScalar{Kind: "STRING", String: tableShapeTestPtr("")}, Output: authoringv2.ColumnOutput{Column: "empty_bucket", Label: "Empty bucket"}},
+			{Key: authoringv2.TableScalar{Kind: "STRING", String: tableShapeTestPtr("alpha")}, Output: authoringv2.ColumnOutput{Column: "alpha_bucket", Label: "Alpha bucket"}},
+			{Key: authoringv2.TableScalar{Kind: "NULL"}, Output: authoringv2.ColumnOutput{Column: "null_bucket", Label: "Null bucket"}},
+			{Key: authoringv2.TableScalar{Kind: "MISSING"}, Output: authoringv2.ColumnOutput{Column: "missing_bucket", Label: "Missing bucket"}},
+		},
 		DuplicatePolicy: "ERROR", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
 	}}}
 	service, store, snapshot, _, _ := lifecycleTableShapeService(t, shape)
@@ -468,8 +474,13 @@ func TestTableShapeSavedPivotReloadUsesDetachedBaseCatalog(t *testing.T) {
 	if result.SavedProposal.Kind != "GROUPED_PIVOT" || result.SavedProposal.Support.State != tableshapecap.AvailabilitySupported || result.SavedProposal.Pivot == nil {
 		t.Fatalf("saved pivot did not reload as editable intent: %#v", result.SavedProposal)
 	}
-	if result.SavedProposal.Pivot.PivotResolutionID == "" || len(result.SavedProposal.Pivot.Categories) != 1 || result.SavedProposal.Pivot.Categories[0].ChoiceID == "" {
+	if result.SavedProposal.Pivot.PivotResolutionID == "" || len(result.SavedProposal.Pivot.Categories) != 4 {
 		t.Fatalf("saved pivot reload lacks opaque category/context receipts: %#v", result.SavedProposal.Pivot)
+	}
+	for _, category := range result.SavedProposal.Pivot.Categories {
+		if category.ChoiceID == "" {
+			t.Fatalf("saved pivot reload lacks opaque category/context receipts: %#v", result.SavedProposal.Pivot)
+		}
 	}
 	foundRemovedBaseColumn := false
 	for _, column := range result.Columns {

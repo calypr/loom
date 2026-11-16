@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -35,8 +36,11 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 		return CellTraceResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
-		return CellTraceResult{}, conflict("cellTrace", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
+	if err != nil {
+		return CellTraceResult{}, receiptCapabilityFailure("cellTrace", "the receipt's capability snapshot is no longer authorized or retained", err)
+	}
+	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
+		return CellTraceResult{}, conflict("cellTrace", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return CellTraceResult{}, conflict("cellTrace", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
@@ -62,6 +66,13 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 	if err != nil {
 		if errors.Is(err, dataframeexecution.ErrCellTraceRowNotFound) {
 			return CellTraceResult{}, notFound("cellTrace", "PREVIEW_ROW_NOT_FOUND", "rowId does not exist in the receipt output", err)
+		}
+		var typed *Error
+		if errors.As(err, &typed) {
+			return CellTraceResult{}, typed
+		}
+		if userErr, ok := dataframeerrors.AsUserError(err); ok {
+			return CellTraceResult{}, failureDetails(ClassUnprocessable, "cellTrace", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
 		}
 		return CellTraceResult{}, err
 	}

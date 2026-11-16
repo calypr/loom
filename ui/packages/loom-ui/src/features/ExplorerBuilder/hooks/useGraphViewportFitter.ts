@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useBrowserSubscription } from './useBrowserSubscription';
 import { useNodesInitialized, useReactFlow } from '@xyflow/react';
 
 export interface GraphViewportBounds {
@@ -29,10 +29,10 @@ export const useGraphViewportFitter = ({
   const boundsWidth = fitBounds?.width;
   const boundsHeight = fitBounds?.height;
 
-  useEffect(() => {
+  useBrowserSubscription((_onStoreChange) => {
     const host = hostRef.current;
     if (!host || !nodesInitialized || !viewportInitialized || nodeCount === 0)
-      return undefined;
+      return () => {};
 
     let firstFrame = 0;
     let secondFrame = 0;
@@ -81,5 +81,5 @@ export const useGraphViewportFitter = ({
     boundsY,
     boundsWidth,
     boundsHeight,
-  ]);
+  ], Boolean(hostRef.current && nodesInitialized && viewportInitialized && nodeCount > 0));
 };

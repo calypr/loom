@@ -402,14 +402,14 @@
   padding: 0 .75rem;
   align-items: center;
   gap: .375rem;
-  border: 0;
+  border: 1px solid #cbd5e1;
   border-radius: .375rem;
-  background: #0f172a;
-  color: #fff;
+  background: #fff;
+  color: #334155;
   font-size: .75rem;
   font-weight: 600;
 }
-.loom-ui-root .construction-panel-controls button.construction-panel-back:hover { background: #334155; }
+.loom-ui-root .construction-panel-controls button.construction-panel-back:hover { background: #f1f5f9; }
 .loom-ui-root .construction-panel-controls button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .loom-ui-root .construction-authored-region[data-expanded="true"],
 .loom-ui-root [data-testid="construction-preview"][data-expanded="true"],

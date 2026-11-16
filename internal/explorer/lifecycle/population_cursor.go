@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+var ErrPopulationMappingCursorUnavailable = errors.New("population mapping cursor codec is not configured")
 
 // PopulationMappingCursor is the complete, non-sensitive binding carried by
 // a population report page cursor. It is signed as one payload so callers
@@ -50,7 +53,7 @@ func NewHMACPopulationMappingCursorCodec(secret string) (*HMACPopulationMappingC
 
 func (c *HMACPopulationMappingCursorCodec) Encode(cursor PopulationMappingCursor) (string, error) {
 	if c == nil || len(c.key) == 0 {
-		return "", fmt.Errorf("population mapping cursor codec is not configured")
+		return "", ErrPopulationMappingCursorUnavailable
 	}
 	if err := validatePopulationMappingCursor(cursor); err != nil {
 		return "", err
@@ -65,7 +68,7 @@ func (c *HMACPopulationMappingCursorCodec) Encode(cursor PopulationMappingCursor
 
 func (c *HMACPopulationMappingCursorCodec) Decode(value string) (PopulationMappingCursor, error) {
 	if c == nil || len(c.key) == 0 {
-		return PopulationMappingCursor{}, fmt.Errorf("population mapping cursor codec is not configured")
+		return PopulationMappingCursor{}, ErrPopulationMappingCursorUnavailable
 	}
 	parts := strings.Split(value, ".")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {

@@ -173,7 +173,7 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 	// here would allow a stale snapshot to create a new selection.
 	authorized, err := s.config.Capability.ForCompilation(ctx, req.Project, snapshotToken)
 	if err != nil {
-		return SelectionCreateResult{}, err
+		return SelectionCreateResult{}, capabilityResolutionFailure("selection", "the selection capability snapshot is unavailable", err)
 	}
 	if snapshotToken == "" || authorized.Snapshot.Token != snapshotToken {
 		return SelectionCreateResult{}, selectionStale(fmt.Errorf("selection snapshot is stale"))
@@ -213,8 +213,11 @@ func (s *Service) createSelectionIntent(ctx context.Context, req SelectionIntent
 		if req.Source.Resources != nil {
 			return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published output source cannot include resource refs"))
 		}
-		if resolver == nil || req.Source.PublishedOutput == nil {
-			return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published selection resolver is required"))
+		if req.Source.PublishedOutput == nil {
+			return SelectionCreateResult{}, selectionMalformed(fmt.Errorf("published selection source is required"))
+		}
+		if resolver == nil {
+			return SelectionCreateResult{}, unavailable("selection", "PUBLISHED_SELECTION_UNAVAILABLE", "published selection sources are not configured", nil)
 		}
 		intent := req.Source.PublishedOutput
 		revision, err := s.store.GetRevision(ctx, intent.RevisionID)
@@ -601,7 +604,7 @@ func (s *Service) readSelectionIntent(ctx context.Context, req SelectionReadInte
 	project := projectid.Canonical(req.Project)
 	current, err := s.config.Capability.Current(ctx, project, req.ExplorerID, "")
 	if err != nil {
-		return SelectionReadResult{}, err
+		return SelectionReadResult{}, capabilityResolutionFailure("selection", "the current capability snapshot is unavailable", err)
 	}
 	currentToken := strings.TrimSpace(current.Token)
 	if currentToken == "" {
@@ -609,7 +612,7 @@ func (s *Service) readSelectionIntent(ctx context.Context, req SelectionReadInte
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, project, currentToken)
 	if err != nil {
-		return SelectionReadResult{}, err
+		return SelectionReadResult{}, capabilityResolutionFailure("selection", "the selection capability snapshot is unavailable", err)
 	}
 	return s.readSelectionResolved(ctx, selectionReadRequest{Project: project, ExplorerID: req.ExplorerID, RevisionID: req.RevisionID, Generation: authorized.Snapshot.Identity.Generation, Cursor: req.Cursor, Limit: req.Limit, Scope: authorized.Scope, ScopeDigest: authorized.Snapshot.Identity.AuthorizationScopeDigest})
 }
@@ -642,7 +645,7 @@ func normalizeSelectionError(err error) error {
 	case errors.Is(err, explorer.ErrNotFound), errors.Is(err, explorer.ErrSelectionNotFound), errors.Is(err, bundlepublication.ErrBundleNotFound):
 		return notFound("selection", "SELECTION_NOT_FOUND", "selection source or revision was not found", err)
 	default:
-		return err
+		return persistenceFailure("selection", "the selection operation could not be completed", err)
 	}
 }
 

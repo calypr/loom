@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { LoomClient } from '../../../api';
 import type {
   ExplorerBuilderCommand,
@@ -63,6 +64,7 @@ export function SourceRelationshipReview(props: Props) {
     if (props.requestControllerRef && props.requestControllerRef.current === controller) props.requestControllerRef.current = undefined;
     props.onCancel();
   };
+  useEscapeToClose(!busy, cancel);
   const preview = async () => {
     const ownership = props.onPreviewStart?.();
     if (props.onPreviewStart && !ownership) return;

@@ -237,6 +237,9 @@ func validateGroupedPivot(pivot GroupedPivot) error {
 		if outputs[category.Output] {
 			return fmt.Errorf("grouped pivot output %q is duplicated", category.Output)
 		}
+		if seenColumns[category.Output] || category.Output == pivot.CategoryColumn || category.Output == pivot.ValueColumn {
+			return fmt.Errorf("grouped pivot output %q collides with a group key, category, or value column", category.Output)
+		}
 		outputs[category.Output] = true
 	}
 	switch pivot.DuplicatePolicy {

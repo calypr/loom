@@ -68,7 +68,7 @@ func TestCreateInterpretationRevisionClassifiesRepositoryFailureAsInternal(t *te
 		Rules: parent.Rules, Explanation: parent.Explanation, Author: parent.Author,
 	})
 	var lifecycleErr *Error
-	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassInternal || lifecycleErr.Code != "INTERPRETATION_REVISION_CREATE_FAILED" {
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Class != ClassUnavailable || lifecycleErr.Code != "PERSISTENCE_UNAVAILABLE" {
 		t.Fatalf("repository failure = %v", err)
 	}
 }

@@ -503,4 +503,12 @@ describe('TableShapeSettingsPanel receipt-driven controller', () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-1'));
     expect(screen.queryByTestId('ui04-table-shape-dialog')).toBeNull();
   });
+
+  it('closes the settings dialog on Escape', async () => {
+    renderPanel(makeClient());
+    await open();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('ui04-table-shape-dialog')).toBeNull());
+  });
+
 });

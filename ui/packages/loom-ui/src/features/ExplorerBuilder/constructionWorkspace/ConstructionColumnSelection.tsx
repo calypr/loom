@@ -25,10 +25,24 @@ export const ConstructionColumnSelection = ({
     !search || column.label.toLowerCase().includes(search) || (column.type ?? '').toLowerCase().includes(search));
 
   return (
-    <section aria-label="Operation input columns" data-testid="construction-column-selection" className="px-0 py-1">
-      <div className="mb-1 flex items-center gap-2">
-        <h3 className="text-xs font-semibold text-slate-700">Choose input columns</h3>
-        <span className="text-xs text-slate-500">{hasSelection ? `${selectedColumnIds.length} selected` : 'Select the fields this operation uses'}</span>
+    <section aria-label="Operation input columns" data-testid="construction-column-selection" className="grid gap-3">
+      <div>
+        <h3 className="m-0 text-sm font-semibold text-slate-900">Choose input columns</h3>
+        <p className="m-0 mt-1 text-xs text-slate-600">
+          {hasSelection ? `${selectedColumnIds.length} selected. These fields supply the operation.` : 'Select the fields this operation uses.'}
+        </p>
+      </div>
+      <div className="grid gap-2">
+        <label className="grid gap-1 text-xs font-medium text-slate-700">
+          Search fields
+          <input
+            aria-label="Search input columns"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            placeholder="Search columns"
+            className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+          />
+        </label>
         {hasSelection ? (
           <button
             type="button"
@@ -36,23 +50,12 @@ export const ConstructionColumnSelection = ({
             data-testid="construction-clear-selection"
             disabled={disabled}
             onClick={onClear}
-            className="ml-auto rounded px-1.5 py-0.5 text-xs text-slate-500 hover:bg-white disabled:opacity-50"
+            className="justify-self-start text-xs font-medium text-blue-800 hover:underline disabled:opacity-50"
           >
             Clear
           </button>
         ) : null}
-      </div>
-      <div className="mt-2">
-        <div className="border-b border-slate-100 p-1.5">
-          <input
-            aria-label="Search input columns"
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder="Search columns"
-            className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
-          />
-        </div>
-        <div role="listbox" aria-label="Available input columns" aria-multiselectable="true" className="max-h-44 overflow-y-auto p-1">
+        <div role="listbox" aria-label="Available input columns" aria-multiselectable="true" className="grid max-h-72 gap-x-3 overflow-y-auto sm:grid-cols-2">
           {filtered.map((column) => {
             const selected = selectedColumnIds.includes(column.id);
             return (
@@ -66,18 +69,17 @@ export const ConstructionColumnSelection = ({
                 data-testid={`construction-column-${column.id}`}
                 disabled={disabled}
                 onClick={() => onToggleColumn(column.id)}
-                className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs ${
-                  selected ? 'bg-emerald-50 font-medium text-emerald-950' : 'text-slate-700 hover:bg-slate-50'
-                } disabled:cursor-not-allowed disabled:opacity-50`}
+                className={`flex min-w-0 items-start gap-2 rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 ${selected ? 'font-medium text-blue-900' : ''}`}
               >
-                <span className="min-w-0 truncate">{column.label}{column.type ? <span className="ml-1 text-slate-500">· {column.type}</span> : null}</span>
-                {selected ? <span aria-hidden="true" className="shrink-0 text-emerald-700">✓</span> : null}
+                <span aria-hidden="true" className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-300 bg-white text-transparent'}`}>✓</span>
+                <span className="min-w-0 break-words">{column.label}{column.type ? <span className="ml-1 text-slate-500">· {column.type}</span> : null}</span>
               </button>
             );
           })}
-          {filtered.length === 0 ? <p className="px-2 py-1 text-xs text-slate-500">{columns.length === 0 ? 'No columns are available to this operation.' : 'No columns match this search.'}</p> : null}
         </div>
+        {filtered.length === 0 ? <p className="px-2 py-1 text-sm text-slate-500">{columns.length === 0 ? 'No columns are available to this operation.' : 'No columns match this search.'}</p> : null}
       </div>
     </section>
+
   );
 };

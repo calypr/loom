@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { ExplorerBuilderCandidate, ExplorerBuilderColumn } from '../../../types';
 import { rowValuePolicyLabel } from './rowRecipeProjection';
 
@@ -44,6 +45,7 @@ export function RecipeColumnPolicyInspector(props: RecipeColumnPolicyInspectorPr
   const proposedColumn = (): ExplorerBuilderColumn | undefined => source.kind === 'field' && selectedAllowed
     ? { ...column, source: { ...source, field: { ...source.field, projectionMode: selectedMode } } }
     : undefined;
+  useEscapeToClose(!props.cancelDisabled, props.onCancel);
   return <section aria-label={`Column value policy: ${column.label}`} data-testid="recipe-column-policy-inspector"
     data-column-id={column.columnId ?? column.column} className="space-y-2 rounded border bg-white p-2 text-xs">
     <h3 className="font-semibold">Include {column.label}</h3>

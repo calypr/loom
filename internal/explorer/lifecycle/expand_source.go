@@ -222,8 +222,8 @@ func (s *Service) constructionExpandSourceCapability(
 	outputID, stageID string,
 ) (ConstructionExpandSourceCapability, error) {
 	result := ConstructionExpandSourceCapability{StageID: stageID, Choices: []ConstructionExpandSourceChoice{}}
-	if code, reason, unavailable := importedSourceChoiceUnavailable(base.document); unavailable {
-		result.ReasonCode, result.Reason = code, reason
+	if importedSourceChoiceUnavailable(base.document) {
+		result.Supported = true
 		return result, nil
 	}
 	if _, found := constructionReceiptStage(base.stages, stageID); !found {

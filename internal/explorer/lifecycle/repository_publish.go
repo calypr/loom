@@ -20,17 +20,24 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		return RepositoryPublishResult{}, unavailable("repository_publish", "PUBLICATION_UNAVAILABLE", "repository V2 compilation is not configured", nil)
 	}
 	snapshot, err := s.config.Capability.Current(ctx, request.Project, "default", request.Generation)
-	if err != nil || !snapshot.Usable() || snapshot.Identity.Generation != request.Generation {
-		return RepositoryPublishResult{}, conflict("repository_publish", "RECEIPT_STALE", fmt.Sprintf("resolve repository V2 capability: %v", err), nil, err)
+	if err != nil {
+		return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 capability could not be resolved", err)
+	}
+	if !snapshot.Usable() || snapshot.Identity.Generation != request.Generation {
+		return RepositoryPublishResult{}, conflict("repository_publish", "RECEIPT_STALE", "repository V2 capability is stale or unusable", nil, nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, snapshot.Token)
 	if err != nil {
-		return RepositoryPublishResult{}, forbidden("repository_publish", fmt.Sprintf("authorize repository V2 compilation: %v", err), err)
+		return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 compilation could not be authorized", err)
 	}
 	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: "default", Workspace: request.Workspace, SnapshotToken: snapshot.Token, Authorized: authorized})
 	if err != nil || receipt == nil {
 		if err == nil {
-			err = errors.New("compiler returned no receipt")
+			return RepositoryPublishResult{}, unavailable("repository_publish", "COMPILATION_FAILED", "the compiler returned no receipt", nil)
+		}
+		var typed *Error
+		if errors.As(err, &typed) {
+			return RepositoryPublishResult{}, typed
 		}
 		return RepositoryPublishResult{}, unprocessable("repository_publish", "COMPILATION_FAILED", fmt.Sprintf("compile repository V2 workspace: %v", err), err)
 	}
@@ -40,22 +47,24 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	if s.config.Capability.ForExecution != nil {
 		authorized, err = s.config.Capability.ForExecution(ctx, request.Project, receipt.SnapshotToken)
 		if err != nil {
-			return RepositoryPublishResult{}, forbidden("repository_publish", fmt.Sprintf("authorize repository V2 materialization: %v", err), err)
+			return RepositoryPublishResult{}, capabilityResolutionFailure("repository_publish", "repository V2 materialization could not be authorized", err)
 		}
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: request.Generation, SelectionMembersCollection: s.config.SelectionMembersCollection}
 	applyAuthorizedScope(&bindings, authorized, true)
-	var execution Execution
 	if s.config.MaterializeReceipt == nil {
-		err = errors.New("repository V2 materialization is not configured")
-	} else {
-		execution, err = s.config.MaterializeReceipt(ctx, receipt, bindings)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "MATERIALIZATION_UNAVAILABLE", "repository V2 materialization is not configured", nil)
 	}
+	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return RepositoryPublishResult{}, typed
+		}
 		if classifiedErr := classifyMaterializationError("repository_publish", err); classifiedErr != nil {
 			return RepositoryPublishResult{}, classifiedErr
 		}
-		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", fmt.Sprintf("materialize repository V2 workspace: %v", err), err)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "MATERIALIZATION_FAILED", "repository V2 materialization is unavailable", err)
 	}
 	if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {
 		return RepositoryPublishResult{}, unprocessable("repository_publish", "MATERIALIZATION_FAILED", err.Error(), err)
@@ -68,7 +77,7 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 	publication := explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: request.Generation, ExecutionID: execution.ID, UpdatedAt: s.now()}
 	owner, revision, err := s.store.UpsertRepositoryV2(ctx, *receipt, request.Commit, request.Actor, materialized, datasetMetadata, execution.QualityReports, publication)
 	if err != nil {
-		return RepositoryPublishResult{}, internal("repository_publish", "PERSISTENCE_FAILED", fmt.Sprintf("persist Explorer lifecycle V2: %v", err), err)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "PERSISTENCE_UNAVAILABLE", "the published repository revision could not be saved", err)
 	}
 	if owner.ManagementMode != explorer.ManagementRepository {
 		return RepositoryPublishResult{}, conflict("repository_publish", "INVALID_MANAGEMENT_MODE", "default Explorer has invalid management mode", nil, nil)

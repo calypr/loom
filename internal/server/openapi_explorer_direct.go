@@ -120,6 +120,9 @@ func (r *explorerHTTPHandlers) listExplorers(ctx context.Context, rawProject str
 	project := projectid.Canonical(rawProject)
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizeRead(ctx, principal, project); err != nil {
+		if isAuthorizerStorageFault(err) {
+			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
+		}
 		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
 	}
 	value, err := r.application.List(ctx, project)
@@ -145,7 +148,7 @@ func (r *explorerHTTPHandlers) createExplorer(ctx context.Context, rawProject, a
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
 		if isAuthorizerStorageFault(err) {
-			return result, legacyOperationFailure(http.StatusInternalServerError, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
+			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
 		}
 		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
 	}
@@ -183,6 +186,9 @@ func (r *explorerHTTPHandlers) getExplorer(ctx context.Context, rawProject, rawI
 	project := projectid.Canonical(rawProject)
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizeRead(ctx, principal, project); err != nil {
+		if isAuthorizerStorageFault(err) {
+			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
+		}
 		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
 	}
 	value, err := r.application.Get(ctx, project, rawID)
@@ -198,6 +204,9 @@ func (r *explorerHTTPHandlers) getExplorer(ctx context.Context, rawProject, rawI
 			status, body := mapServiceError(err, ctx)
 			if status == http.StatusNotFound {
 				return result, legacyOperationFailure(status, "EXPLORER_NOT_FOUND", "Explorer not found", err)
+			}
+			if status == http.StatusServiceUnavailable {
+				return result, legacyOperationFailure(status, "EXPLORER_UNAVAILABLE", body.Error.Message, err)
 			}
 			return result, legacyOperationFailure(http.StatusInternalServerError, "EXPLORER_UNAVAILABLE", body.Error.Message, err)
 		}

@@ -1,4 +1,5 @@
-import React, { useEffect, useId, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import type { LoomClient } from '../../../api';
 import { useQuery } from '../../../react';
 import type {
@@ -104,8 +105,54 @@ const CodedPivotEditorBody = ({
   }) ?? []);
   const [duplicatePolicy, setDuplicatePolicy] = useState<'ERROR' | 'SUM' | 'MIN' | 'MAX'>(saved?.duplicatePolicy ?? 'ERROR');
   const [missingCellPolicy, setMissingCellPolicy] = useState<'NULL' | 'ERROR'>(saved?.missingCellPolicy ?? 'NULL');
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const duplicatePolicyRef = useRef(duplicatePolicy);
+  duplicatePolicyRef.current = duplicatePolicy;
+  const missingCellPolicyRef = useRef(missingCellPolicy);
+  missingCellPolicyRef.current = missingCellPolicy;
 
-  useEffect(() => {
+  const emitCandidate = (
+    nextSource: FrameSourceOption | undefined,
+    nextSelected: ReadonlyArray<Category>,
+    nextDuplicatePolicy = duplicatePolicyRef.current,
+    nextMissingCellPolicy = missingCellPolicyRef.current,
+  ) => {
+    if (!nextSource || nextSelected.length === 0 || disabled) {
+      onCandidateChange(undefined);
+      return;
+    }
+    const step: ConstructionStep = {
+      id: stepId,
+      inputs: editingStep?.inputs ?? [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'CODED_PIVOT',
+        codedPivot: {
+          constructionId: stepId,
+          sourceChoiceId: nextSource.choiceId,
+          categories: nextSelected.map((category) => category.choiceId
+            ? { choiceId: category.choiceId, outputColumnId: category.outputColumnId }
+            : { system: category.system, code: category.code, outputColumnId: category.outputColumnId }),
+          duplicatePolicy: nextDuplicatePolicy,
+          missingCellPolicy: nextMissingCellPolicy,
+        },
+      },
+      outputs: nextSelected.map((category) => ({
+        id: category.outputColumnId, name: category.name, label: category.label, type: 'INFER',
+      })),
+    };
+    const draft = constructionSchema.safeParse({
+      ...construction,
+      steps: editingStep
+        ? construction.steps.map((candidate) => candidate.id === editingStep.id ? step : candidate)
+        : [...construction.steps, step],
+    });
+    onCandidateChange(draft.success ? { candidateConstruction: draft.data, changedStepId: stepId } : undefined);
+  };
+
+  useCommitLifecycle(() => {
     const controller = new AbortController();
     setSourcesLoading(true);
     setSourceError(undefined);
@@ -118,9 +165,14 @@ const CodedPivotEditorBody = ({
       const direct = response.sources.filter((option) => option.route.length === 0 && option.resourceType === rowRoot);
       setSources((current) => sourceCursor ? [...current, ...direct] : direct);
       setSourceNextCursor(response.nextCursor);
-      setSource((current) => current
+      const currentSource = sourceRef.current;
+      const nextSource = currentSource
         ?? direct.find((option) => saved?.source?.family.bindingId === option.bindingId && saved.source.family.sourcePath === option.sourcePath)
-        ?? (direct.length === 1 ? direct[0] : undefined));
+        ?? (direct.length === 1 ? direct[0] : undefined);
+      if (nextSource !== currentSource) {
+        setSource(nextSource);
+        emitCandidate(nextSource, selectedRef.current);
+      }
     }).catch((error: unknown) => {
       if (!controller.signal.aborted) setSourceError(error instanceof Error ? error.message : 'Coded sources could not be loaded.');
     }).finally(() => { if (!controller.signal.aborted) setSourcesLoading(false); });
@@ -246,58 +298,34 @@ const CodedPivotEditorBody = ({
     ? [source, ...sources]
     : sources;
 
-  useEffect(() => {
-    if (!source || selected.length === 0 || disabled) { onCandidateChange(undefined); return; }
-    const step: ConstructionStep = {
-      id: stepId,
-      inputs: editingStep?.inputs ?? [{ kind: 'SOURCE_PROJECTION' }],
-      operation: {
-        kind: 'CODED_PIVOT',
-        codedPivot: {
-          constructionId: stepId,
-          sourceChoiceId: source.choiceId,
-          categories: selected.map((category) => category.choiceId
-            ? { choiceId: category.choiceId, outputColumnId: category.outputColumnId }
-            : { system: category.system, code: category.code, outputColumnId: category.outputColumnId }),
-          duplicatePolicy,
-          missingCellPolicy,
-        },
-      },
-      outputs: selected.map((category) => ({
-        id: category.outputColumnId, name: category.name, label: category.label, type: 'INFER',
-      })),
-    };
-    const draft = constructionSchema.safeParse({
-      ...construction,
-      steps: editingStep
-        ? construction.steps.map((candidate) => candidate.id === editingStep.id ? step : candidate)
-        : [...construction.steps, step],
-    });
-    onCandidateChange(draft.success ? { candidateConstruction: draft.data, changedStepId: stepId } : undefined);
-  }, [source?.choiceId, selected, duplicatePolicy, missingCellPolicy, disabled, construction, editingStep, stepId, onCandidateChange]);
-
   const chooseSource = (choiceId: string) => {
     const next = sources.find((option) => option.choiceId === choiceId);
     if (!next) return;
+    const nextSelected = next.choiceId !== source?.choiceId ? [] : selected;
     setSource(next);
-    if (next.choiceId !== source?.choiceId) setSelected([]);
+    setSelected(nextSelected);
     setCategoryQuery('');
     setCategoryCursor(undefined);
     setCategorySeed([]);
+    emitCandidate(next, nextSelected);
   };
   const toggleCategory = (item: SemanticInventoryItem) => {
     const key = categoryKey(item.system, item.code);
     if (selected.some((category) => category.key === key)) {
-      setSelected((current) => current.filter((category) => category.key !== key));
+      const nextSelected = selected.filter((category) => category.key !== key);
+      setSelected(nextSelected);
+      emitCandidate(source, nextSelected);
       return;
     }
     if (!item.constructionChoice || selected.length >= 50) return;
     const label = semanticConceptLabel(item);
     const name = columnName(label, new Set(selected.map((category) => category.name)));
-    setSelected((current) => [...current, {
+    const nextSelected = [...selected, {
       key, system: item.system, code: item.code, choiceId: item.constructionChoice!.choiceId,
       outputColumnId: newId('coded-column'), name, label,
-    }]);
+    }];
+    setSelected(nextSelected);
+    emitCandidate(source, nextSelected);
   };
 
   return (
@@ -405,7 +433,11 @@ const CodedPivotEditorBody = ({
         <details className="text-sm text-slate-700"><summary className="cursor-pointer font-medium">Advanced value handling</summary>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             <label>When several values match
-              <select value={duplicatePolicy} onChange={(event) => setDuplicatePolicy(event.target.value as typeof duplicatePolicy)}
+              <select value={duplicatePolicy} onChange={(event) => {
+                const next = event.target.value as typeof duplicatePolicy;
+                setDuplicatePolicy(next);
+                emitCandidate(source, selected, next);
+              }}
                 disabled={disabled} className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5">
                 <option value="ERROR">Stop if several values match</option>
                 {['integer', 'decimal', 'number'].includes(source.logicalType.toLowerCase()) ? <>
@@ -414,7 +446,11 @@ const CodedPivotEditorBody = ({
               </select>
             </label>
             <label>When a record has no value
-              <select value={missingCellPolicy} onChange={(event) => setMissingCellPolicy(event.target.value as typeof missingCellPolicy)}
+              <select value={missingCellPolicy} onChange={(event) => {
+                const next = event.target.value as typeof missingCellPolicy;
+                setMissingCellPolicy(next);
+                emitCandidate(source, selected, duplicatePolicy, next);
+              }}
                 disabled={disabled} className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5">
                 <option value="NULL">Leave the cell empty</option><option value="ERROR">Stop when a record has no value</option>
               </select>

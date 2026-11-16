@@ -118,6 +118,26 @@ func Resolve(ctx context.Context, bundle recipe.Bundle, scope Scope, discovery D
 		if hasCatalogDeclarations(bundle) {
 			return Resolved{}, fmt.Errorf("catalog-backed recipe requires schema discovery")
 		}
+		if hasPivotOutputOverrides(bundle) {
+			resolved, err := cloneBundle(bundle)
+			if err != nil {
+				return Resolved{}, err
+			}
+			for outputIndex := range resolved.Outputs {
+				if err := resolveOutput(ctx, &resolved.Outputs[outputIndex], scope, nil); err != nil {
+					return Resolved{}, fmt.Errorf("output %q: %w", resolved.Outputs[outputIndex].Name, err)
+				}
+			}
+			if err := resolved.Validate(); err != nil {
+				return Resolved{}, fmt.Errorf("resolved recipe: %w", err)
+			}
+			base.Bundle = resolved
+			base.ScopeDigest, base.ResolvedSchemaDigest, err = resolutionDigests(storedDigest, resolved, scope)
+			if err != nil {
+				return Resolved{}, err
+			}
+			return base, nil
+		}
 		base.Bundle = bundle
 		base.ScopeDigest, base.ResolvedSchemaDigest, err = resolutionDigests(storedDigest, bundle, scope)
 		if err != nil {

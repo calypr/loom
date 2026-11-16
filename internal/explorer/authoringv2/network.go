@@ -41,7 +41,10 @@ type NetworkColumnBinding struct {
 	ColumnID     string `json:"columnId"`
 	OccurrenceID string `json:"occurrenceId,omitempty"`
 	SourceStepID string `json:"sourceStepId,omitempty"`
-	ValueMode    string `json:"valueMode,omitempty"`
+	// OutputKey is the exact source field path or pivot key for generated
+	// outputs. It is absent when the compiler cannot prove a stable key.
+	OutputKey string `json:"outputKey,omitempty"`
+	ValueMode string `json:"valueMode,omitempty"`
 	// UNKNOWN is explicit when an older resolved schema lacks provenance. The
 	// base occurrence on imported columns is transport history, not provenance.
 	Status string `json:"status"`

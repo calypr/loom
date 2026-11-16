@@ -189,6 +189,49 @@ func TestKeylessGroupOneValuesAggregatesCurrentSourceScope(t *testing.T) {
 	}
 }
 
+func TestKeyedGroupWithoutSummariesCollectsKeysWithoutRetainingRows(t *testing.T) {
+	renderer := &physicalPlanRenderer{
+		bindVars:       map[string]any{"construction_id": "group"},
+		reservedVars:   map[string]struct{}{},
+		internalPrefix: "test_",
+	}
+	stage := ir.PhysicalConstructionStage{
+		InputRowVariable:  "input_row",
+		OutputRowVariable: "output_row",
+		InputProjections: []ir.PhysicalProjection{{
+			Name: "status", Value: ir.PhysicalValue{Variable: "input_row", Path: []string{"status"}},
+		}},
+		OutputColumns: []ir.PhysicalStageColumn{{ID: "status_group_id", Name: "status_group"}},
+		OutputProjections: []ir.PhysicalProjection{
+			{Name: "status", Value: ir.PhysicalValue{Variable: "group_key"}},
+		},
+		Group: &ir.PhysicalStageGroup{
+			GroupRowsVariable:          "group_rows",
+			DynamicRuntimeKeysVariable: "dynamic_keys",
+			IdentityVariable:           "row_id",
+			ConstructionIDBindKey:      "construction_id",
+			MissingKeyPolicy:           ir.PhysicalStageGroupMissingKeyGroup,
+			Keys: []ir.PhysicalStageGroupKey{{
+				InputColumn: "status", OutputColumn: "status_group", Kind: "STRING", Variable: "group_key",
+			}},
+		},
+	}
+	lines, err := renderer.renderConstructionGroupStage(stage, constructionGroupInput{RowsVariable: "input_rows"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := strings.Join(lines, "\n")
+	if !strings.Contains(query, "COLLECT group_key = input_row[@") {
+		t.Fatalf("keys-only Group did not collect the group key:\n%s", query)
+	}
+	if !strings.Contains(query, "AGGREGATE dynamic_keys = UNIQUE(input_row != null ? (input_row[\"__loom_dynamic_runtime_keys\"] != null ? input_row[\"__loom_dynamic_runtime_keys\"] : []) : [])") {
+		t.Fatalf("keys-only Group did not aggregate the dynamic-key inventory:\n%s", query)
+	}
+	if strings.Contains(query, " INTO ") || strings.Contains(query, "group_rows") {
+		t.Fatalf("keys-only Group retained contributing rows:\n%s", query)
+	}
+}
+
 func TestKeyedGroupOneRowValueStreamsDistinctValues(t *testing.T) {
 	renderer := &physicalPlanRenderer{
 		bindVars:       map[string]any{"construction_id": "group"},

@@ -111,7 +111,7 @@ func (s *Service) SearchSchemaFields(ctx context.Context, request SearchSchemaFi
 		return result, conflict("schema-fields", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing generated fields", nil, err)
 	}
 	if err != nil {
-		return result, err
+		return result, capabilityResolutionFailure("schema-fields", "reload the catalog before browsing generated fields", err)
 	}
 	snapshot := authorized.Snapshot
 	if snapshot.ValidateToken(request.SnapshotToken) != nil ||

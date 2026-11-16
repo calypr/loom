@@ -22,24 +22,39 @@ export const sourceRecipeExpressionSchema: z.ZodType<SourceRecipeExpression> = z
 }));
 const expressions = z.array(sourceRecipeExpressionSchema).max(4096);
 const paths = z.array(text).max(4096);
+const catalogOutputSchema = z.object({
+  fieldPath: z.string().trim().min(1).max(512),
+  enabled: z.boolean(),
+  name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+}).strict();
+const pivotOutputSchema = z.object({
+  key: z.string().max(2048).refine((key) => key.trim().length > 0, 'Pivot key cannot be blank'),
+  enabled: z.boolean(),
+  name: z.string().max(128).regex(/^$|^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+}).strict();
 export const importedSourceParametersSchema = z.object({
   output: z.object({ rowGrain: text.min(1), collisionPolicy: z.enum(['', 'error', 'overwrite', 'coalesce']).optional() }).strict().optional(),
   fieldGroup: z.object({ fields: z.array(z.object({
     fieldId: text.min(1), enabled: z.boolean(), name: text.min(1), label: text.optional(), expr: sourceRecipeExpressionSchema,
     fallbacks: expressions.optional(), valueMode: z.enum(['', 'AUTO', 'FIRST', 'ALL', 'DISTINCT']).optional(),
   }).strict()).max(4096) }).strict().optional(),
-  catalog: z.object({ name: text.min(1), includePaths: paths.optional(), excludePaths: paths.optional(), kinds: paths.optional(), naming: z.enum(['', 'PATH', 'PATH_SUFFIX']).optional() }).strict().optional(),
+  catalog: z.object({ name: text.min(1), includePaths: paths.optional(), excludePaths: paths.optional(), kinds: paths.optional(), naming: z.enum(['', 'PATH', 'PATH_SUFFIX']).optional(), outputs: z.array(catalogOutputSchema).max(4096).optional() }).strict().optional(),
   dynamic: z.object({ name: text.min(1), columnPrefix: text.optional(), source: sourceRecipeExpressionSchema, key: sourceRecipeExpressionSchema.optional(), value: sourceRecipeExpressionSchema.optional() }).strict().optional(),
   extension: z.object({ name: text.min(1), columnPrefix: text.optional(), source: sourceRecipeExpressionSchema }).strict().optional(),
   pivot: z.object({ name: text.min(1), discovery: z.object({ family: text.optional(), path: text.optional() }).strict().optional(),
     columnExpr: sourceRecipeExpressionSchema.optional(), valueExpr: sourceRecipeExpressionSchema.optional(), valueFallbacks: expressions.optional(),
     itemSource: sourceRecipeExpressionSchema.optional(), itemResourceType: text.optional(), columns: paths.optional(), columnAliases: z.record(z.string(), text).optional(),
+    outputs: z.array(pivotOutputSchema).max(256).optional(),
   }).strict().optional(),
   expansion: z.object({ from: sourceRecipeExpressionSchema, as: text.min(1), ordinality: text.optional(), emptyPolicy: z.enum(['', 'ERROR', 'EXCLUDE', 'PRESERVE_PARENT']).optional() }).strict().optional(),
   identity: z.object({ name: text.min(1), expr: sourceRecipeExpressionSchema }).strict().optional(),
   traversal: z.object({ name: text.min(1), toResourceType: text.min(1), alias: text.optional(), from: sourceRecipeExpressionSchema.optional() }).strict().optional(),
 }).strict().superRefine((value, context) => {
   if (Object.values(value).filter((entry) => entry !== undefined).length !== 1) context.addIssue({ code: 'custom', message: 'Source parameters must describe exactly one operation kind.' });
+  const outputPaths = value.catalog?.outputs?.map((output) => output.fieldPath) ?? [];
+  if (new Set(outputPaths).size !== outputPaths.length) context.addIssue({ code: 'custom', path: ['catalog', 'outputs'], message: 'Catalog output overrides must use unique field paths.' });
+  const pivotOutputKeys = value.pivot?.outputs?.map((output) => output.key) ?? [];
+  if (new Set(pivotOutputKeys).size !== pivotOutputKeys.length) context.addIssue({ code: 'custom', path: ['pivot', 'outputs'], message: 'Pivot output overrides must use unique raw keys.' });
 });
 export type ImportedSourceParameters = z.infer<typeof importedSourceParametersSchema>;
 

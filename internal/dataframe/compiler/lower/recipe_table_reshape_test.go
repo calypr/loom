@@ -269,13 +269,13 @@ func TestGroupedPivotNonnumericReducerHasTypedError(t *testing.T) {
 			ConstructionID: "pivot_reducer_type", GroupKeys: []string{"group"},
 			CategoryColumn: "category", ValueColumn: "keep",
 			Categories:      []recipe.GroupedPivotCategory{{Key: tableScalarInteger(0), Output: "out", Label: "Output"}},
-			DuplicatePolicy: recipe.PivotDuplicateMin, MissingCellPolicy: recipe.PivotMissingCellNull,
+			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 		},
 	}
 	_, err := compileDerivedTestBundle(t, tableReshapeTestOutput(reshape))
 	var reducerType *PivotReducerTypeError
-	if !errors.As(err, &reducerType) || reducerType.Policy != recipe.PivotDuplicateMin || reducerType.ValueColumn != "keep" {
+	if !errors.As(err, &reducerType) || reducerType.Policy != recipe.PivotDuplicateSum || reducerType.ValueColumn != "keep" {
 		t.Fatalf("compile error = %v, want typed Pivot reducer error", err)
 	}
 }

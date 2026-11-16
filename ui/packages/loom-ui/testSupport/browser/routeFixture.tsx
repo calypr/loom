@@ -46,6 +46,6 @@ export function RouteFixture() {
     <output data-testid="route-released">{released}</output>
     <RelatedExpandEditor key={`${saved.version}/${epoch}`} project="fixture/project" explorerId="browser-routes" snapshotToken={catalog.snapshotToken} outputId="patients" catalog={catalog} construction={saved.construction} capabilities={capabilities} step={saved.construction.steps[0] as Parameters<typeof RelatedExpandEditor>[0]['step']} disabled={false} onCandidateChange={lifecycle.onCandidateChange}/>
     <ConstructionProposalPanel state={lifecycle.proposal} canApply={lifecycle.canApply} baseConstruction={saved.construction} onApply={apply} onCancel={cancel} onRetry={lifecycle.retry}/>
-    <section data-testid="route-preview"><PreviewTable preview={shown} limit={25} onLimitChange={()=>undefined} onColumnChange={()=>undefined} onColumnsChange={()=>undefined}/></section>
+    <section data-testid="route-preview"><PreviewTable preview={shown} limit={25} onLimitChange={()=>undefined}/></section>
   </LoomProvider>;
 }

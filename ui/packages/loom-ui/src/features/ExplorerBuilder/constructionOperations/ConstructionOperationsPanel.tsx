@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLoomClient } from '../../../react';
+import React, { useMemo, useState } from 'react';
+import { useLoomClient, useQuery } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../api';
 import type {
   ExplorerBuilderCatalog,
@@ -288,7 +288,6 @@ const availabilityText = (availability: OperationAvailability): string | undefin
 
 export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelProps) => {
   const client = useLoomClient();
-  const [shapeState, setShapeState] = useState<ShapeCapabilitiesState>({ kind: 'not-needed' });
   const [selectedIntention, setSelectedIntention] = useState<ConstructionOperationIntent | null>(null);
   const sourceOptions = useMemo(
     () => catalogSourceOptions(props.catalog, props.rowRoot, props.routeContext?.nodeId),
@@ -297,7 +296,15 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
   const defaultSourceKey = sourceOptions.find(
     (source) => source.sourceNodeId === props.routeContext?.nodeId,
   )?.key ?? sourceOptions[0]?.key ?? '';
-  const [selectedSourceKey, setSelectedSourceKey] = useState(defaultSourceKey);
+  const sourceSelectionIdentity =
+    `${props.snapshotToken}\u0000${props.table.outputId}\u0000${defaultSourceKey}`;
+  const [sourceSelection, setSourceSelection] = useState(() => ({
+    identity: sourceSelectionIdentity,
+    key: defaultSourceKey,
+  }));
+  const selectedSourceKey = sourceSelection.identity === sourceSelectionIdentity
+    ? sourceSelection.key
+    : defaultSourceKey;
   const selectedSource = sourceOptions.find(
     (source) => source.key === selectedSourceKey,
   ) ?? sourceOptions[0];
@@ -305,48 +312,55 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
     ? props.routeContext
     : undefined;
   const constructionPresent = 'construction' in props.table.document && props.table.document.construction !== undefined;
-  useEffect(() => {
-    setSelectedSourceKey(defaultSourceKey);
-  }, [defaultSourceKey, props.snapshotToken, props.table.outputId]);
 
-  useEffect(() => {
-    setSelectedIntention(null);
-    if (props.family !== 'CALCULATE' && props.family !== 'RESHAPE') {
-      setShapeState({ kind: 'not-needed' });
-      return;
-    }
-    if (constructionPresent) {
-      setShapeState({ kind: 'not-needed' });
-      return;
-    }
-    if (!props.snapshotToken || !props.draftDigest || props.draftVersion < 1) {
-      setShapeState({ kind: 'error', message: 'The saved table version is not available yet. Reload the Builder to check operation choices.' });
-      return;
-    }
-
-    const controller = new AbortController();
-    setShapeState({ kind: 'loading' });
-    void client.getTableShapeCapabilities({
-      project: props.project,
-      explorerId: props.explorerId,
-      authResourcePath: props.authResourcePath,
-      snapshotToken: props.snapshotToken,
-      expectedDraftVersion: props.draftVersion,
-      expectedDraftDigest: props.draftDigest,
-      outputId: props.table.outputId,
-    }, controller.signal).then((capabilities) => {
-      if (controller.signal.aborted) return;
+  const shapeEnabled = (props.family === 'CALCULATE' || props.family === 'RESHAPE') &&
+    !constructionPresent &&
+    Boolean(props.snapshotToken && props.draftDigest && props.draftVersion >= 1);
+  const shapeQuery = useQuery(
+    async (signal) => {
+      const capabilities = await client.getTableShapeCapabilities({
+        project: props.project,
+        explorerId: props.explorerId,
+        authResourcePath: props.authResourcePath,
+        snapshotToken: props.snapshotToken,
+        expectedDraftVersion: props.draftVersion,
+        expectedDraftDigest: props.draftDigest,
+        outputId: props.table.outputId,
+      }, signal);
       if (capabilities.outputId !== props.table.outputId) {
-        setShapeState({ kind: 'error', message: 'Loom returned operation choices for another table. Reload the Builder and try again.' });
-        return;
+        throw new Error('Loom returned operation choices for another table. Reload the Builder and try again.');
       }
-      setShapeState({ kind: 'ready', capabilities });
-    }).catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      setShapeState({ kind: 'error', message: requestFailureMessage(error) });
-    });
-    return () => controller.abort();
-  }, [client, constructionPresent, props.authResourcePath, props.draftDigest, props.draftVersion, props.explorerId, props.family, props.project, props.snapshotToken, props.table.outputId]);
+      return capabilities;
+    },
+    [client, props.authResourcePath, props.draftDigest, props.draftVersion, props.explorerId,
+      props.project, props.snapshotToken, props.table.outputId],
+    shapeEnabled,
+  );
+  const shapeState: ShapeCapabilitiesState = props.family !== 'CALCULATE' && props.family !== 'RESHAPE'
+    ? { kind: 'not-needed' }
+    : constructionPresent
+      ? { kind: 'not-needed' }
+      : !props.snapshotToken || !props.draftDigest || props.draftVersion < 1
+        ? { kind: 'error', message: 'The saved table version is not available yet. Reload the Builder to check operation choices.' }
+        : shapeQuery.error
+          ? {
+              kind: 'error',
+              message: shapeQuery.error instanceof Error &&
+                shapeQuery.error.message === 'Loom returned operation choices for another table. Reload the Builder and try again.'
+                ? shapeQuery.error.message
+                : requestFailureMessage(shapeQuery.error),
+            }
+          : shapeQuery.data
+            ? { kind: 'ready', capabilities: shapeQuery.data }
+            : { kind: 'loading' };
+  const intentionIdentity = JSON.stringify([
+    props.family, props.table.outputId, props.snapshotToken, props.draftVersion, props.draftDigest, constructionPresent,
+  ]);
+  const [intentionIdentitySeen, setIntentionIdentitySeen] = useState(intentionIdentity);
+  if (intentionIdentitySeen !== intentionIdentity) {
+    setIntentionIdentitySeen(intentionIdentity);
+    setSelectedIntention(null);
+  }
 
   const intentions = intentionsFor({
     family: props.family,
@@ -454,7 +468,10 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
               id="construction-operation-source"
               data-testid="construction-operation-source"
               value={selectedSource?.key ?? ''}
-              onChange={(event) => setSelectedSourceKey(event.currentTarget.value)}
+              onChange={(event) => setSourceSelection({
+                identity: sourceSelectionIdentity,
+                key: event.currentTarget.value,
+              })}
               className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
             >
               {sourceOptions.map((source) => (

@@ -24,7 +24,7 @@ func (s *Service) resolveWorkspacePopulations(ctx context.Context, project strin
 		}
 		selection, err := s.store.GetSelection(ctx, project, population.SelectionRevisionID)
 		if err != nil {
-			return inputs, fmt.Errorf("population at documents[%d]: selection %q could not be resolved: %w", index, population.SelectionRevisionID, err)
+			return inputs, unavailable("population", "POPULATION_SELECTION_UNAVAILABLE", fmt.Sprintf("population at documents[%d]: selection %q could not be resolved", index, population.SelectionRevisionID), err)
 		}
 		if selection == nil {
 			return inputs, fmt.Errorf("population at documents[%d]: selection %q was not found", index, population.SelectionRevisionID)

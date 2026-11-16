@@ -997,6 +997,40 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 	return nil
 }
 
+func constructionPivotScalarKind(typeName string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(typeName)) {
+	case "string", "code", "uuid", "date", "date_time", "date-time", "datetime":
+		return "STRING", true
+	case "integer":
+		return "INTEGER", true
+	case "decimal":
+		return "DECIMAL", true
+	case "boolean":
+		return "BOOLEAN", true
+	default:
+		return "", false
+	}
+}
+
+// constructionPivotTypeIsScalar reports whether a declared stage type can be a
+// pivot operand. known is false when the schema only carries an unresolved hint
+// (empty or INFER), in which case the compiler remains the authority.
+func constructionPivotTypeIsScalar(typeName string) (scalar, known bool) {
+	normalized := strings.ToLower(strings.TrimSpace(typeName))
+	if normalized == "" || normalized == "infer" {
+		return true, false
+	}
+	if _, ok := constructionPivotScalarKind(normalized); ok {
+		return true, true
+	}
+	switch normalized {
+	case "array", "object", "record", "json", "list", "map":
+		return false, true
+	default:
+		return true, false
+	}
+}
+
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, rowValues []ConstructionRowValue, path string, constructionIDs map[string]bool) error {
 	rowValueIDs := make(map[string]bool, len(rowValues))
 	if len(rowValues) != 0 {
@@ -1079,17 +1113,47 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		if inputByID[pivot.CategoryColumnID].ID == "" || inputByID[pivot.ValueColumnID].ID == "" {
 			return fmt.Errorf("%s pivot category or value column is not in the input schema", path)
 		}
+		for _, id := range pivot.GroupKeyIDs {
+			if scalar, known := constructionPivotTypeIsScalar(inputByID[id].Type); known && !scalar {
+				return fmt.Errorf("%s pivot group key %q type %q is not a scalar", path, id, inputByID[id].Type)
+			}
+		}
+		for _, reference := range []struct{ field, id string }{
+			{field: "categoryColumnId", id: pivot.CategoryColumnID},
+			{field: "valueColumnId", id: pivot.ValueColumnID},
+		} {
+			if scalar, known := constructionPivotTypeIsScalar(inputByID[reference.id].Type); known && !scalar {
+				return fmt.Errorf("%s pivot %s column %q type %q is not a scalar", path, reference.field, reference.id, inputByID[reference.id].Type)
+			}
+		}
 		if !validPivotDuplicatePolicy(pivot.DuplicatePolicy) || !validPivotMissingPolicy(pivot.MissingCellPolicy) || !validPivotUnlistedPolicy(pivot.UnlistedCategoryPolicy) {
 			return fmt.Errorf("%s pivot policies are incomplete or unsupported", path)
+		}
+		categoryKind, categoryKindKnown := constructionPivotScalarKind(inputByID[pivot.CategoryColumnID].Type)
+		if pivot.DuplicatePolicy == PivotDuplicateSum {
+			valueKind, valueKindKnown := constructionPivotScalarKind(inputByID[pivot.ValueColumnID].Type)
+			if valueKindKnown && valueKind != "INTEGER" && valueKind != "DECIMAL" {
+				return fmt.Errorf("%s pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got %q", path, inputByID[pivot.ValueColumnID].Type)
+			}
 		}
 		expected := make(map[string]bool, len(pivot.GroupKeyIDs)+len(pivot.Categories))
 		for _, id := range pivot.GroupKeyIDs {
 			expected[id] = true
 		}
+		categoryKeys := make(map[string]bool, len(pivot.Categories))
 		for index, category := range pivot.Categories {
 			if err := category.Key.ValidatePivotCategoryKey(); err != nil {
 				return fmt.Errorf("%s pivot categories[%d].key: %w", path, index, err)
 			}
+			if categoryKindKnown && category.Key.Kind != TableScalarNull && category.Key.Kind != TableScalarMissing &&
+				string(category.Key.Kind) != categoryKind {
+				return fmt.Errorf("%s pivot categories[%d].key type %q does not match category column type %q", path, index, category.Key.Kind, inputByID[pivot.CategoryColumnID].Type)
+			}
+			identity := category.Key.identity()
+			if categoryKeys[identity] {
+				return fmt.Errorf("%s pivot category keys must be unique", path)
+			}
+			categoryKeys[identity] = true
 			if category.OutputColumnID == "" || expected[category.OutputColumnID] || inputByID[category.OutputColumnID].ID != "" {
 				return fmt.Errorf("%s pivot category output ID %q is empty, duplicated, or collides with input", path, category.OutputColumnID)
 			}
@@ -1705,5 +1769,5 @@ func validPivotMissingPolicy(policy PivotMissingCellPolicy) bool {
 }
 
 func validPivotUnlistedPolicy(policy PivotUnlistedCategoryPolicy) bool {
-	return policy == PivotUnlistedCategoryError || policy == PivotUnlistedCategoryExcludeWithEvidence
+	return policy == PivotUnlistedCategoryError
 }

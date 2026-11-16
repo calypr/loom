@@ -449,7 +449,7 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 	}
 	authorized, _, err := s.resolveCompilationCapability(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
-		return nil, conflict("capability", "STALE_CATALOG_SNAPSHOT", "the capability snapshot is stale or unavailable", map[string]any{"snapshotToken": request.SnapshotToken}, err)
+		return nil, capabilityResolutionFailure("capability", "the capability snapshot is stale or unavailable", err)
 	}
 	return s.compileAuthorized(ctx, request, authorized)
 }
@@ -470,10 +470,18 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 	}
 	resolvedInputs, err := s.resolveWorkspacePopulations(ctx, request.Project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return nil, typed
+		}
 		return nil, unprocessable("population", "INVALID_POPULATION", err.Error(), err)
 	}
 	resolvedInterpretations, err := s.resolveWorkspaceInterpretations(ctx, request.Project, workspace, snapshot)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return nil, typed
+		}
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
@@ -483,7 +491,11 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 		if errors.As(err, &compileErr) {
 			return nil, &Error{Class: ClassUnprocessable, Stage: compileErr.Stage, Code: compilationErrorCode(compileErr.Code), Message: compileErr.Message, Details: compileErr.Details, Cause: err}
 		}
-		return nil, err
+		var typed *Error
+		if errors.As(err, &typed) {
+			return nil, typed
+		}
+		return nil, unavailable("compile", "COMPILATION_UNAVAILABLE", "the Explorer workspace could not be compiled", err)
 	}
 	if receipt == nil || strings.TrimSpace(receipt.ID) == "" {
 		return nil, unavailable("compile", "COMPILATION_RECEIPT_STORE_FAILED", "compiled authoring receipt was not persisted", nil)

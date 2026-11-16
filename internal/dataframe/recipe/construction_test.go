@@ -37,6 +37,74 @@ func TestConstructionAllowsRootRelatedExpandFromIdentityOnlySource(t *testing.T)
 	}
 }
 
+func TestConstructionRejectsExcludeWithEvidencePivotPolicy(t *testing.T) {
+	category := "a"
+	construction := Construction{Version: 1, Steps: []ConstructionStep{{
+		ID:     "pivot",
+		Inputs: []ConstructionInputRef{{Kind: ConstructionSourceProjectionInput}},
+		Operation: ConstructionOperation{Kind: ConstructionPivotOp, Pivot: &ConstructionPivot{
+			ConstructionID: "pivot", GroupKeyIDs: []string{"group"},
+			CategoryColumnID: "category", ValueColumnID: "value",
+			Categories:      []ConstructionPivotCategory{{Key: TableScalar{Kind: TableScalarString, String: &category}, OutputColumnID: "amount_a"}},
+			DuplicatePolicy: PivotDuplicateError, MissingCellPolicy: PivotMissingCellNull,
+			UnlistedCategoryPolicy: PivotUnlistedCategoryError,
+		}},
+		Outputs: []StageColumn{
+			{ID: "group", Name: "group", Label: "Group", Type: "string"},
+			{ID: "amount_a", Name: "amount_a", Label: "Amount A", Type: "string"},
+		},
+	}}}
+	source := []Field{
+		{ColumnID: "group", Name: "group", Label: "Group"},
+		{ColumnID: "category", Name: "category", Label: "Category"},
+		{ColumnID: "value", Name: "value", Label: "Value"},
+	}
+	if err := construction.Validate(source); err != nil {
+		t.Fatalf("ERROR pivot policy rejected: %v", err)
+	}
+	construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy = PivotUnlistedCategoryExcludeWithEvidence
+	if err := construction.Validate(source); err == nil || !strings.Contains(err.Error(), "policies are incomplete or unsupported") {
+		t.Fatalf("EXCLUDE_WITH_EVIDENCE construction pivot policy validation = %v", err)
+	}
+}
+
+func TestConstructionRejectsDuplicatePivotCategoryKeysByIdentity(t *testing.T) {
+	category := "a"
+	construction := Construction{Version: 1, Steps: []ConstructionStep{{
+		ID:     "pivot",
+		Inputs: []ConstructionInputRef{{Kind: ConstructionSourceProjectionInput}},
+		Operation: ConstructionOperation{Kind: ConstructionPivotOp, Pivot: &ConstructionPivot{
+			ConstructionID: "pivot", GroupKeyIDs: []string{"group"},
+			CategoryColumnID: "category", ValueColumnID: "value",
+			Categories: []ConstructionPivotCategory{
+				{Key: TableScalar{Kind: TableScalarString, String: &category}, OutputColumnID: "amount_a"},
+				{Key: TableScalar{Kind: TableScalarString, String: &category}, OutputColumnID: "amount_b"},
+			},
+			DuplicatePolicy: PivotDuplicateError, MissingCellPolicy: PivotMissingCellNull,
+			UnlistedCategoryPolicy: PivotUnlistedCategoryError,
+		}},
+		Outputs: []StageColumn{
+			{ID: "group", Name: "group", Label: "Group", Type: "string"},
+			{ID: "amount_a", Name: "amount_a", Label: "Amount A", Type: "string"},
+			{ID: "amount_b", Name: "amount_b", Label: "Amount B", Type: "string"},
+		},
+	}}}
+	source := []Field{
+		{ColumnID: "group", Name: "group", Label: "Group"},
+		{ColumnID: "category", Name: "category", Label: "Category"},
+		{ColumnID: "value", Name: "value", Label: "Value"},
+	}
+	if err := construction.Validate(source); err == nil || !strings.Contains(err.Error(), "pivot category keys must be unique") {
+		t.Fatalf("duplicate scalar category keys validation = %v", err)
+	}
+
+	integer := int64(1)
+	construction.Steps[0].Operation.Pivot.Categories[1].Key = TableScalar{Kind: TableScalarInteger, Integer: &integer}
+	if err := construction.Validate(source); err != nil {
+		t.Fatalf("distinct typed category identities rejected: %v", err)
+	}
+}
+
 func TestConstructionValidatesTypedSourceChildIdentity(t *testing.T) {
 	child := lineage.SourceChild{
 		Kind: lineage.IndexedValueChild, ParentColumnIDs: []string{"source"}, OccurrenceID: "base",

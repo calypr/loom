@@ -864,6 +864,10 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("configure table-shape capability repository: %w", err)
 	}
+	var selectionSourceResolver lifecycle.SelectionSourceResolver
+	if materializationReader != nil {
+		selectionSourceResolver = published.SelectionSourceAdapter{Reader: materializationReader}
+	}
 	lifecycleConfig := lifecycle.Config{
 		DefaultDataframeWorkspace:          importedSources.DefaultWorkspace,
 		EditImportedSource:                 importedSources.Edit,
@@ -871,11 +875,12 @@ func run(ctx context.Context, serverConfig Config) error {
 		EditImportedRelationship:           importedSources.EditRelationship,
 		AuthoringNetwork:                   importedSources.Network,
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
+		SemanticCoverage:                   catalogStore.LookupSemanticCoverage,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
 		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
 		InterpretationRepository:           explorerStore,
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,
-		SelectionSourceResolver:            published.SelectionSourceAdapter{Reader: materializationReader},
+		SelectionSourceResolver:            selectionSourceResolver,
 		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
 		RowChoiceResolver:                  rowChoiceResolver,
 		RowChoicePlanner:                   rowChoiceResolver,
@@ -1018,8 +1023,12 @@ func run(ctx context.Context, serverConfig Config) error {
 		_, err := readRecipeExecution(ctx, id)
 		return err
 	}
+	var constructionInputsReader constructionInputsExactReader
+	if materializationReader != nil {
+		constructionInputsReader = materializationReader
+	}
 	explorerHandlers.constructionInputs = constructionInputsCatalog{
-		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
+		reader: constructionInputsReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
 	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits); err != nil {

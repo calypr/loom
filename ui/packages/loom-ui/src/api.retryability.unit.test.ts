@@ -202,4 +202,14 @@ describe('Loom requestError retryability', () => {
     expect(numericError.info.retryable).toBe(false);
     expect(numericError.retryable).toBe(false);
   });
+
+  it('explains a body-less 504 instead of reporting only the status', async () => {
+    const client = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response('', { status: 504 })),
+    });
+    const error = await rejectAsRequestError(client.listExplorers(projectArgs));
+    expect(error.info.status).toBe(504);
+    expect(error.info.message).toBe('Loom timed out before returning a result. Retry, or narrow the preview.');
+    expect(error.info.retryable).toBe(true);
+  });
 });

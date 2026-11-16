@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { LoomClient } from '../../../api';
+import { useQuery } from '../../../react';
 import type { ExplicitGroupRevisionSummary } from '../../../types';
 import type { SelectionPage, SelectionRevision } from '../../../selection';
 
@@ -74,19 +76,41 @@ export const ExplicitGroupAuthoring = ({
   readonly onCreated: (revision: ExplicitGroupRevisionSummary) => Promise<void>;
 }) => {
   const [state, setState] = useState<EditorState>({ kind: 'loading' });
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void readMembersPage(client, { project, explorerId, authResourcePath, selection }, controller.signal, undefined, 0).then(
-      (page) => setState({ kind: 'editing', members: page.members, groups: initialGroups(), idempotencyKey: opaqueID('explicit-groups'), nextCursor: page.nextCursor, cursors: [], loadingMore: false }),
-      (error: unknown) => {
-        if (!controller.signal.aborted) {
-          setState({ kind: 'editing', members: [], groups: initialGroups(), idempotencyKey: opaqueID('explicit-groups'), cursors: [], loadingMore: false, error: error instanceof Error ? error.message : 'Loom could not load the source selection.' });
-        }
-      },
-    );
-    return () => controller.abort();
-  }, [authResourcePath, client, explorerId, project, selection]);
+  const initialPageKey = JSON.stringify([
+    selection.id, selection.project, selection.generation, selection.resourceType,
+    selection.scopeDigest, selection.membershipDigest, selection.memberCount,
+  ]);
+  const initialQuery = useQuery(
+    (signal) => readMembersPage(
+      client,
+      { project, explorerId, authResourcePath, selection },
+      signal,
+      undefined,
+      0,
+    ),
+    [authResourcePath, client, explorerId, project, selection],
+  );
+  const [initializedPageKey, setInitializedPageKey] = useState<string | undefined>(undefined);
+  if (initializedPageKey !== initialPageKey) {
+    setInitializedPageKey(initialPageKey);
+    setState({ kind: 'loading' });
+  } else if (state.kind === 'loading') {
+    if (initialQuery.error) {
+      setState({
+        kind: 'editing', members: [], groups: initialGroups(),
+        idempotencyKey: opaqueID('explicit-groups'), cursors: [], loadingMore: false,
+        error: initialQuery.error instanceof Error
+          ? initialQuery.error.message
+          : 'Loom could not load the source selection.',
+      });
+    } else if (initialQuery.data) {
+      setState({
+        kind: 'editing', members: initialQuery.data.members, groups: initialGroups(),
+        idempotencyKey: opaqueID('explicit-groups'), nextCursor: initialQuery.data.nextCursor,
+        cursors: [], loadingMore: false,
+      });
+    }
+  }
 
   const updateGroup = (groupID: string, update: (group: GroupDraft) => GroupDraft) => {
     if (state.kind !== 'editing') return;
@@ -163,6 +187,7 @@ export const ExplicitGroupAuthoring = ({
   const groups = state.kind === 'loading' ? [] : state.groups;
   const error = state.kind === 'editing' ? state.error : undefined;
 
+  useEscapeToClose(state.kind !== 'saving', onCancel);
   return (
     <section aria-label="Create explicit groups" className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="flex items-start justify-between gap-3">

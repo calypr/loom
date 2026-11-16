@@ -29,7 +29,11 @@ func sourceParameters(output recipe.Output) map[string]*authoringv2.ImportedSour
 			result[sourcePath(parent, "fields")] = &authoringv2.ImportedSourceParameters{FieldGroup: f}
 		}
 		for i, x := range catalogs {
-			result[sourceIndexPath(parent, "catalogProjections", i)] = &authoringv2.ImportedSourceParameters{Catalog: &authoringv2.ImportedCatalogParameters{Name: x.Name, IncludePaths: x.IncludePaths, ExcludePaths: x.ExcludePaths, Kinds: x.Kinds, Naming: x.Naming}}
+			var outputs []authoringv2.ImportedCatalogOutput
+			for _, override := range x.OutputOverrides {
+				outputs = append(outputs, authoringv2.ImportedCatalogOutput{FieldPath: override.FieldPath, Enabled: override.Enabled, Name: override.Name})
+			}
+			result[sourceIndexPath(parent, "catalogProjections", i)] = &authoringv2.ImportedSourceParameters{Catalog: &authoringv2.ImportedCatalogParameters{Name: x.Name, IncludePaths: x.IncludePaths, ExcludePaths: x.ExcludePaths, Outputs: outputs, Kinds: x.Kinds, Naming: x.Naming}}
 		}
 		for i, x := range dynamics {
 			result[sourceIndexPath(parent, "dynamicColumns", i)] = &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source, Key: x.Key, Value: x.Value}}
@@ -38,7 +42,11 @@ func sourceParameters(output recipe.Output) map[string]*authoringv2.ImportedSour
 			result[sourceIndexPath(parent, "extensionColumns", i)] = &authoringv2.ImportedSourceParameters{Extension: &authoringv2.ImportedExtensionParameters{Name: x.Name, ColumnPrefix: x.ColumnPrefix, Source: x.Source}}
 		}
 		for i, x := range pivots {
-			p := &authoringv2.ImportedPivotParameters{Name: x.Name, ValueFallbacks: x.ValueFallbacks, ItemResourceType: x.ItemResourceType, Columns: x.Columns, ColumnAliases: x.ColumnAliases}
+			var outputs []authoringv2.ImportedPivotOutput
+			for _, override := range x.OutputOverrides {
+				outputs = append(outputs, authoringv2.ImportedPivotOutput{Key: override.Key, Enabled: override.Enabled, Name: cloneOptionalString(override.Name)})
+			}
+			p := &authoringv2.ImportedPivotParameters{Name: x.Name, ValueFallbacks: x.ValueFallbacks, ItemResourceType: x.ItemResourceType, Columns: x.Columns, ColumnAliases: x.ColumnAliases, Outputs: outputs}
 			if x.Discovery != nil {
 				p.Discovery = &authoringv2.ImportedPivotDiscoveryParameters{Family: x.Discovery.Family, Path: x.Discovery.Path}
 			}
@@ -124,6 +132,10 @@ func applyParameterOverrides(output *recipe.Output, steps map[string]authoringv2
 				catalogs[i].Name = x.Name
 				catalogs[i].IncludePaths = x.IncludePaths
 				catalogs[i].ExcludePaths = x.ExcludePaths
+				catalogs[i].OutputOverrides = nil
+				for _, override := range x.Outputs {
+					catalogs[i].OutputOverrides = append(catalogs[i].OutputOverrides, recipe.CatalogProjectionOutputOverride{FieldPath: override.FieldPath, Enabled: override.Enabled, Name: override.Name})
+				}
 				catalogs[i].Kinds = x.Kinds
 				catalogs[i].Naming = x.Naming
 			}
@@ -166,6 +178,10 @@ func applyParameterOverrides(output *recipe.Output, steps map[string]authoringv2
 				pivots[i].ItemResourceType = x.ItemResourceType
 				pivots[i].Columns = x.Columns
 				pivots[i].ColumnAliases = x.ColumnAliases
+				pivots[i].OutputOverrides = nil
+				for _, override := range x.Outputs {
+					pivots[i].OutputOverrides = append(pivots[i].OutputOverrides, recipe.PivotOutputOverride{Key: override.Key, Enabled: override.Enabled, Name: cloneOptionalString(override.Name)})
+				}
 				cap := 0
 				if pivots[i].Discovery != nil {
 					cap = pivots[i].Discovery.MaxColumns
@@ -193,6 +209,14 @@ func applyParameterOverrides(output *recipe.Output, steps map[string]authoringv2
 		return nil
 	}
 	return scope("", &output.Fields, output.CatalogProjections, output.DynamicColumns, output.ExtensionColumns, output.Pivots, output.Traversals)
+}
+
+func cloneOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 // ImportedFieldSlot is an exact original field location and its compiler naming

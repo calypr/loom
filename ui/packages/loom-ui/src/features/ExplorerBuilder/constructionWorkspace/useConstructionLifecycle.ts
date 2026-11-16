@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {useCallback, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import { resourceFor } from '../../../react';
 import type {
   DiscoverConstructionCategoriesArgs,
@@ -115,6 +116,9 @@ const errorIsRetryable = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && 'retryable' in error && Reflect.get(error, 'retryable') === true;
 
 const abortError = () => new DOMException('The construction proposal was canceled.', 'AbortError');
+const proposalInactiveError = () => new DOMException('This construction change is no longer active.', 'ConstructionProposalInactive');
+const errorIsProposalInactive = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && 'name' in error && Reflect.get(error, 'name') === 'ConstructionProposalInactive';
 
 const delayFor = (milliseconds: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
   if (signal.aborted) {
@@ -192,7 +196,9 @@ export const useConstructionLifecycle = ({
     : proposalSnapshot.loading
       ? { status: 'previewing' }
       : proposalSnapshot.error
-        ? { status: 'error', message: errorMessage(proposalSnapshot.error, 'Loom could not check this construction change.'), retryable: errorIsRetryable(proposalSnapshot.error) }
+        ? errorIsProposalInactive(proposalSnapshot.error)
+          ? { status: 'idle' }
+          : { status: 'error', message: errorMessage(proposalSnapshot.error, 'Loom could not check this construction change.'), retryable: errorIsRetryable(proposalSnapshot.error) }
         : proposalSnapshot.data ?? { status: 'error', message: 'Loom did not return a construction proposal.' };
   const activeProposal = proposalOverride && proposalOverride.ownerId === activeProposalOwner?.id
     ? proposalOverride.state
@@ -204,57 +210,59 @@ export const useConstructionLifecycle = ({
     pivotDiscoveryController.current = undefined;
   }, []);
 
-  useEffect(() => {
-    capabilitiesController.current?.abort();
-    capabilitiesController.current = undefined;
-    if (!requestKey) {
-      setCapabilitiesLoad({ key: '', state: { status: 'idle' } });
-      return;
-    }
-
-    const args = capabilitiesRequestRef.current;
-    if (!args) return;
-    const controller = new AbortController();
-    capabilitiesController.current = controller;
-    setCapabilitiesLoad({ key: requestKey, state: { status: 'loading' } });
-    void client.getConstructionCapabilities(args, controller.signal).then(
-      (response) => {
-        if (controller.signal.aborted) return;
-        const matchesRequest =
-          response.snapshotToken === args.snapshotToken &&
-          response.draftVersion === args.expectedDraftVersion &&
-          response.draftDigest === args.expectedDraftDigest &&
-          response.outputId === args.outputId &&
-          response.stageId === args.stageId;
-        setCapabilitiesLoad({
-          key: requestKey,
-          state: matchesRequest
-            ? { status: 'ready', response }
-            : {
-                status: 'error',
-                message: 'Loom returned capabilities for a different draft or table.',
-              },
-        });
-      },
-    ).catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      setCapabilitiesLoad({
-        key: requestKey,
-        state: {
-          status: 'error',
-          message: errorMessage(error, 'Loom could not load construction capabilities.'),
-        },
-      });
-    });
-
-    return () => controller.abort();
-  }, [client, requestKey]);
-
-  useEffect(() => {
+  useCommitLifecycle(() => {
     invalidatePivotDiscovery();
     setPivotDiscoveryLoad({ key: '', state: undefined });
-    return invalidatePivotDiscovery;
-  }, [invalidatePivotDiscovery, requestKey]);
+    capabilitiesController.current?.abort();
+    capabilitiesController.current = undefined;
+    let controller: AbortController | undefined;
+
+    if (!requestKey) {
+      setCapabilitiesLoad({ key: '', state: { status: 'idle' } });
+    } else {
+      const args = capabilitiesRequestRef.current;
+      if (args) {
+        const requestController = new AbortController();
+        controller = requestController;
+        capabilitiesController.current = requestController;
+        setCapabilitiesLoad({ key: requestKey, state: { status: 'loading' } });
+        void client.getConstructionCapabilities(args, requestController.signal).then(
+          (response) => {
+            if (requestController.signal.aborted) return;
+            const matchesRequest =
+              response.snapshotToken === args.snapshotToken &&
+              response.draftVersion === args.expectedDraftVersion &&
+              response.draftDigest === args.expectedDraftDigest &&
+              response.outputId === args.outputId &&
+              response.stageId === args.stageId;
+            setCapabilitiesLoad({
+              key: requestKey,
+              state: matchesRequest
+                ? { status: 'ready', response }
+                : {
+                    status: 'error',
+                    message: 'Loom returned capabilities for a different draft or table.',
+                  },
+            });
+          },
+        ).catch((error: unknown) => {
+          if (requestController.signal.aborted) return;
+          setCapabilitiesLoad({
+            key: requestKey,
+            state: {
+              status: 'error',
+              message: errorMessage(error, 'Loom could not load construction capabilities.'),
+            },
+          });
+        });
+      }
+    }
+
+    return () => {
+      controller?.abort();
+      invalidatePivotDiscovery();
+    };
+  }, [client, invalidatePivotDiscovery, requestKey]);
 
   const invalidateProposalRequest = useCallback(() => {
     proposalGeneration.current += 1;
@@ -322,7 +330,7 @@ export const useConstructionLifecycle = ({
         if (!previewMatchesProposal(preview, proposalId, args.outputId)) {
           throw new Error('Loom did not return rows for this proposal receipt, so it cannot be applied yet.');
         }
-        if (editingAttempt && !editingAttempt.ready(response, preview)) throw abortError();
+        if (editingAttempt && !editingAttempt.ready(response, preview)) throw proposalInactiveError();
         return { status: 'ready', response, preview };
       } finally {
         resourceSignal.removeEventListener('abort', abortFromResource);
@@ -362,7 +370,7 @@ export const useConstructionLifecycle = ({
       if (outcome.status !== 'ready') throw new Error('This construction change needs repair before it can be applied.');
       return outcome;
     }).catch((error: unknown) => {
-      if (!abortController.signal.aborted && proposalGeneration.current === generation &&
+      if (!errorIsProposalInactive(error) && !abortController.signal.aborted && proposalGeneration.current === generation &&
           capabilitiesIdentity(capabilitiesRequestRef.current) === requestKey && proposalOwnerRef.current === owner) {
         editingAttempt?.failed(errorMessage(error, 'Loom could not check this construction change.'));
       }
@@ -372,6 +380,7 @@ export const useConstructionLifecycle = ({
 
   const onCandidateChange = useCallback((intent: ConstructionCandidateIntent | undefined) => {
     if (!intent) {
+      if (applyingOwnerRef.current) return;
       if (proposalOwnerRef.current?.editingAttempt?.cancel() === false) return;
       invalidateProposalRequest();
       candidateIntent.current = undefined;
@@ -393,11 +402,14 @@ export const useConstructionLifecycle = ({
   }, [requestKey, startCandidateProposal]);
 
   const cancel = useCallback(() => {
-    if (proposalOwnerRef.current?.editingAttempt?.cancel() === false) return;
+    if (applyingOwnerRef.current) return;
+    proposalOwnerRef.current?.editingAttempt?.cancel();
     applyingOwnerRef.current = undefined;
     invalidateProposalRequest();
+    invalidatePivotDiscovery();
+    setPivotDiscoveryLoad({ key: '', state: undefined });
     candidateIntent.current = undefined;
-  }, [invalidateProposalRequest]);
+  }, [invalidateProposalRequest, invalidatePivotDiscovery]);
 
   const onDiscoverCategories = useCallback((
     request: ConstructionReshapePivotDiscoveryRequest,
@@ -474,6 +486,8 @@ export const useConstructionLifecycle = ({
             ? { ...request, status: 'limit-exceeded', limit: response.limit, reason: response.message }
             : response.outcome === 'MISSING_UNSUPPORTED'
               ? { ...request, status: 'missing-unsupported', reason: response.message }
+            : response.outcome === 'NO_VALUES'
+              ? { ...request, status: 'no-values', reason: response.message }
             : response.outcome === 'COMPLETE' && response.complete && response.proofFingerprint.trim() !== ''
               ? { ...request, status: 'complete', categories: response.categories }
               : { ...request, status: 'failed', reason: 'Loom returned category values without a complete compiler proof.' };

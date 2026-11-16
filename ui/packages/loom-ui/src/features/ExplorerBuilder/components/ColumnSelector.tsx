@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import type {
   AggregateOperationCapability,
   ColumnTransformationChange,
@@ -95,7 +95,6 @@ const ConstructionOutputRow = ({
   readonly onChange: (column: ConstructionStageColumn) => void;
 }) => {
   const [label, setLabel] = useState(column.label);
-  useEffect(() => setLabel(column.label), [column.label]);
   const commitLabel = () => {
     const next = normalizedColumnLabel(label, column.label);
     if (next === column.label) {
@@ -555,7 +554,12 @@ export const ColumnSelector = ({
   readonly onEditInGraph?: (column: ExplorerBuilderColumn) => void;
   readonly showAvailable?: boolean;
 }) => {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(focusColumn ?? '');
+  const [queryFocus, setQueryFocus] = useState(focusColumn);
+  if (focusColumn !== undefined && queryFocus !== focusColumn) {
+    setQueryFocus(focusColumn);
+    setQuery(focusColumn);
+  }
   const [inspection, setInspection] = useState<{
     readonly column: string;
     readonly loading: boolean;
@@ -563,9 +567,6 @@ export const ColumnSelector = ({
     readonly error?: string;
   }>();
   const inspectionGeneration = useRef(0);
-  useEffect(() => {
-    if (focusColumn) setQuery(focusColumn);
-  }, [focusColumn]);
   const [availableDisplayNames, setAvailableDisplayNames] = useState<Readonly<Record<string, string>>>({});
   const { viewport, ref: candidateScrollRef } =
     useVirtualViewport<HTMLDivElement>();
@@ -1024,6 +1025,7 @@ export const ColumnSelector = ({
                         />
                       ) : row.kind === 'construction' ? (
                         <ConstructionOutputRow
+                          key={`${row.column.id}:${row.column.label}`}
                           column={row.column}
                           disabled={disabled || !onConstructionOutputChange}
                           onChange={(column) =>

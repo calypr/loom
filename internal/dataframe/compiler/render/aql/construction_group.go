@@ -283,6 +283,21 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			lines = append(lines, fmt.Sprintf("  LET %s = (%s != null ? %s : %s[2])", group.CodingKey.LabelVariable, codingDisplayAggregateVariable, codingDisplayAggregateVariable, group.CodingKey.TupleVariable))
 		}
 		lines = append(lines, rowValueVariables...)
+	} else if len(group.Aggregates) == 0 && len(group.RowValues) == 0 && group.RootContributorInputColumn == "" {
+		// A keyed Group with no summaries or retained values needs only distinct
+		// keys and the tiny dynamic-key inventory. Collecting every full input
+		// row into group members makes the query retain and deduplicate the
+		// entire source payload per group.
+		if len(collectKeys) == 0 {
+			return nil, fmt.Errorf("keyed Group has no collect keys")
+		}
+		collect := "  COLLECT " + strings.Join(collectKeys, ", ")
+		if group.DynamicRuntimeKeysVariable != "" {
+			collect += fmt.Sprintf(" AGGREGATE %s = UNIQUE(%s != null ? (%s[\"__loom_dynamic_runtime_keys\"] != null ? %s[\"__loom_dynamic_runtime_keys\"] : []) : [])", group.DynamicRuntimeKeysVariable, inputRowVariable, inputRowVariable, inputRowVariable)
+		}
+		lines = append(lines, collect)
+		lines = append(lines, keyTypeAssertions...)
+		lines = append(lines, "  SORT "+strings.Join(sortKeys, ", "))
 	} else {
 		groupMembers := fmt.Sprintf("{row: %s, present: %s != null}", inputRowVariable, inputRowVariable)
 		if group.SemanticKey != nil {

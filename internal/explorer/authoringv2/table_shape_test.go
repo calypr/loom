@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -214,6 +215,62 @@ func TestTableScalarIdentityDistinguishesAllSixKinds(t *testing.T) {
 	}
 }
 
+func TestTableScalarIdentityCanonicalizesDecimalZeroSign(t *testing.T) {
+	positiveZero := 0.0
+	negativeZero := math.Copysign(0, -1)
+	if positiveZero != negativeZero || math.Signbit(positiveZero) || !math.Signbit(negativeZero) {
+		t.Fatal("test setup requires equal but sign-distinct decimal zeroes")
+	}
+	positive := TableScalar{Kind: TableScalarDecimal, Decimal: &positiveZero}
+	negative := TableScalar{Kind: TableScalarDecimal, Decimal: &negativeZero}
+	if positive.identity() != negative.identity() {
+		t.Fatalf("decimal +0 identity %q != -0 identity %q", positive.identity(), negative.identity())
+	}
+	if got, want := positive.identity(), `{"kind":"DECIMAL","decimal":0}`; got != want {
+		t.Fatalf("decimal zero canonical identity = %q, want %q", got, want)
+	}
+
+	nonzero := TableScalar{Kind: TableScalarDecimal, Decimal: ptrFloat(1.5)}
+	otherNonzero := TableScalar{Kind: TableScalarDecimal, Decimal: ptrFloat(-1.5)}
+	if nonzero.identity() == otherNonzero.identity() {
+		t.Fatal("non-zero decimal values share an identity after zero canonicalization")
+	}
+	if nonzero.identity() == positive.identity() {
+		t.Fatal("non-zero decimal shares the zero decimal identity")
+	}
+}
+
+func TestTableShapePivotDuplicateCategoryKeysCanonicalizeDecimalZeroSign(t *testing.T) {
+	columns := []Column{{Column: "group"}, {Column: "category"}, {Column: "measure"}}
+	positiveZero := 0.0
+	negativeZero := math.Copysign(0, -1)
+	shape := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
+		Categories: []PivotCategory{
+			{Key: TableScalar{Kind: TableScalarDecimal, Decimal: &positiveZero}, Output: ColumnOutput{Column: "zero_a", Label: "Zero A"}},
+			{Key: TableScalar{Kind: TableScalarDecimal, Decimal: &negativeZero}, Output: ColumnOutput{Column: "zero_b", Label: "Zero B"}},
+		},
+		DuplicatePolicy: "ERROR", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
+	}}}
+	if err := shape.Validate(columns); err == nil || !strings.Contains(err.Error(), "duplicate pivot category key") {
+		t.Fatalf("duplicate decimal +0/-0 category key error = %v", err)
+	}
+
+	distinct := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
+		Categories: []PivotCategory{
+			{Key: TableScalar{Kind: TableScalarDecimal, Decimal: &positiveZero}, Output: ColumnOutput{Column: "zero", Label: "Zero"}},
+			{Key: TableScalar{Kind: TableScalarDecimal, Decimal: ptrFloat(1.5)}, Output: ColumnOutput{Column: "one_five", Label: "One point five"}},
+		},
+		DuplicatePolicy: "ERROR", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
+	}}}
+	if err := distinct.Validate(columns); err != nil {
+		t.Fatalf("distinct decimal category keys rejected: %v", err)
+	}
+}
+
+func ptrFloat(value float64) *float64 { return &value }
+
 func TestTableScalarSentinelsAreValidOnlyAsPivotCategoryKeys(t *testing.T) {
 	columns := []Column{{Column: "group"}, {Column: "category"}, {Column: "measure"}}
 	sentinels := []TableScalar{{Kind: TableScalarNull}, {Kind: TableScalarMissing}}
@@ -394,6 +451,21 @@ func TestDecodeWorkspaceRejectsInvalidTableShapeReferencesAndPolicies(t *testing
 			name:  "empty group key list",
 			shape: strings.Replace(validPivotTableShapeJSON(), `"groupKeys":["group"]`, `"groupKeys":[]`, 1),
 			want:  "groupKeys must be non-empty",
+		},
+		{
+			name:  "category column equals value column",
+			shape: strings.Replace(validPivotTableShapeJSON(), `"valueColumn":"measure"`, `"valueColumn":"category"`, 1),
+			want:  "pivot category and value columns must differ",
+		},
+		{
+			name:  "group key equals category column",
+			shape: strings.Replace(validPivotTableShapeJSON(), `"groupKeys":["group"]`, `"groupKeys":["category"]`, 1),
+			want:  "pivot categoryColumn \"category\" cannot also be a group key",
+		},
+		{
+			name:  "group key equals value column",
+			shape: strings.Replace(validPivotTableShapeJSON(), `"groupKeys":["group"]`, `"groupKeys":["measure"]`, 1),
+			want:  "pivot valueColumn \"measure\" cannot also be a group key",
 		},
 	}
 	for _, test := range tests {

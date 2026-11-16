@@ -435,6 +435,20 @@ func TestConstructionInputsDirectHandlerChecksProjectReadBeforeCatalog(t *testin
 	}
 }
 
+func TestConstructionInputsWithoutReaderIsUnavailable(t *testing.T) {
+	service, _, _, _, _ := newConstructionInputsFixture(t, authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	service.reader = nil
+	_, err := service.list(context.Background(), "project-a", "builder-a", constructionInputsRequest{
+		SnapshotToken: "snapshot", ExpectedDraftVersion: 1, ExpectedDraftDigest: "digest",
+	})
+	var authoringErr *explorer.AuthoringError
+	if !errors.As(err, &authoringErr) || authoringErr.Status != 503 ||
+		authoringErr.Diagnostic.Code != "AUTHORING_UNAVAILABLE" ||
+		authoringErr.Diagnostic.Message != "published construction inputs are not configured" {
+		t.Fatalf("nil construction inputs reader = %#v, want 503 AUTHORING_UNAVAILABLE not configured", err)
+	}
+}
+
 func newConstructionInputsFixture(t *testing.T, scope authscope.ReadScope) (constructionInputsCatalog, *constructionInputsReaderFixture, *constructionInputsCatalogFixture, capability.Snapshot, string) {
 	t.Helper()
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", scope)

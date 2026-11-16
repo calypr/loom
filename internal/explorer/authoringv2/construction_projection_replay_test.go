@@ -59,7 +59,11 @@ func projectionPublicColumns() []Column {
 func projectionColumns(ids ...string) []StageColumn {
 	out := make([]StageColumn, 0, len(ids))
 	for _, id := range ids {
-		out = append(out, StageColumn{ID: id, Name: id, Label: "Col " + id, Type: "integer"})
+		typ := "integer"
+		if id == "category_id" {
+			typ = "string"
+		}
+		out = append(out, StageColumn{ID: id, Name: id, Label: "Col " + id, Type: typ})
 	}
 	return out
 }

@@ -93,6 +93,7 @@ const (
 	constructionCategoryDiscoveryComplete           = "COMPLETE"
 	constructionCategoryDiscoveryLimitExceeded      = "LIMIT_EXCEEDED"
 	constructionCategoryDiscoveryMissingUnsupported = "MISSING_UNSUPPORTED"
+	constructionCategoryDiscoveryNoValues           = "NO_VALUES"
 )
 
 func (s *Service) compileConstructionCategoryCandidate(
@@ -169,19 +170,7 @@ func (s *Service) compileConstructionCategoryCandidate(
 	// Keep the Pivot as the owner of its hidden input columns, but stop its
 	// downstream chain and replace its categories with one compiler-valid probe.
 	candidate.Steps = append([]authoringv2.ConstructionStep(nil), candidate.Steps[:pivotIndex+1]...)
-	owners := make(map[string]bool, len(candidate.Steps))
-	for _, step := range candidate.Steps {
-		if step.Operation.Kind == authoringv2.ConstructionOperationPivot {
-			owners[step.ID] = true
-		}
-	}
-	projections := candidate.SourceProjections[:0]
-	for _, projection := range candidate.SourceProjections {
-		if projection.OwnerStepID == "" || owners[projection.OwnerStepID] {
-			projections = append(projections, projection)
-		}
-	}
-	candidate.SourceProjections = projections
+	candidate.SourceProjections = pruneConstructionCategorySourceProjections(candidate.SourceProjections, candidate.Steps)
 	pivotStep := &candidate.Steps[pivotIndex]
 	inputStageID := constructionStepInputStageID(*pivotStep)
 	inputColumns, err := constructionAuthoringStageColumns(base, candidate.Steps, inputStageID, candidate.SourceProjections)
@@ -268,6 +257,35 @@ func (s *Service) compileConstructionCategoryCandidate(
 	}
 	base.receipt, base.stages = receipt, stages
 	return base, inputStageID, nil
+}
+
+// pruneConstructionCategorySourceProjections keeps every projection owned by a
+// step that survives the truncated candidate, mirroring authoringv2's pruning.
+// Earlier Filter, Derive, Unpivot, Expand, or Group steps remain upstream of the
+// Pivot and require their owned source projections to compile.
+func pruneConstructionCategorySourceProjections(
+	projections []authoringv2.ConstructionSourceProjection,
+	steps []authoringv2.ConstructionStep,
+) []authoringv2.ConstructionSourceProjection {
+	owners := make(map[string]bool, len(steps))
+	for _, step := range steps {
+		switch step.Operation.Kind {
+		case authoringv2.ConstructionOperationPivot,
+			authoringv2.ConstructionOperationGroup,
+			authoringv2.ConstructionOperationFilter,
+			authoringv2.ConstructionOperationDerive,
+			authoringv2.ConstructionOperationUnpivot,
+			authoringv2.ConstructionOperationExpand:
+			owners[step.ID] = true
+		}
+	}
+	pruned := projections[:0]
+	for _, projection := range projections {
+		if projection.OwnerStepID == "" || owners[projection.OwnerStepID] {
+			pruned = append(pruned, projection)
+		}
+	}
+	return pruned
 }
 
 func constructionPivotSourcePaths(construction authoringv2.Construction, pivotID string) map[string]string {
@@ -397,7 +415,7 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 	applyAuthorizedScope(&bindings, base.authorized, false)
 	scan, err := s.config.ScanCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{
 		Output: request.OutputID, StageID: request.StageID, ColumnID: request.CategoryColumnID,
-		ValueColumnID: request.ValueColumnID, MaxValues: compiler.MaxCategoryScanValues,
+		ValueColumnID: request.ValueColumnID, MaxValues: compiler.MaxCategoryScanValues, RequireValue: true,
 	})
 	if err != nil {
 		return ConstructionCategoryDiscoveryResponse{}, classifyConstructionCategoryScanError(ctx, err)
@@ -408,7 +426,7 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		proof.Version != 2 || proof.Output != request.OutputID || proof.StageID != request.StageID ||
 		proof.ColumnID != request.CategoryColumnID || proof.ValueColumnID != request.ValueColumnID ||
 		proof.Column != category.Name || proof.MaxValues != compiler.MaxCategoryScanValues ||
-		proof.Kind != category.Type || proof.Cardinality != string(category.Cardinality) ||
+		proof.Kind != category.Type || proof.Cardinality != string(category.Cardinality) || !proof.ValuePresenceRequired ||
 		strings.TrimSpace(proof.OutputSchemaDigest) == "" || strings.TrimSpace(proof.PlanFingerprint) == "" ||
 		strings.TrimSpace(proof.QueryFingerprint) == "" || strings.TrimSpace(proof.Fingerprint) == "" ||
 		(scan.ConclusiveMissing && (strings.TrimSpace(proof.OverflowWitnessFingerprint) == "" || proof.PresenceTracked)) {
@@ -443,6 +461,15 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 			return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", "CATEGORY_SCAN_INVALID", "the compiler returned a category value outside the selected column type", err)
 		}
 		categories = append(categories, ConstructionDiscoveredCategory{Key: key, Label: constructionCategoryLabel(key)})
+	}
+	if len(categories) == 0 {
+		return ConstructionCategoryDiscoveryResponse{
+			SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+			OutputID: request.OutputID, StageID: responseStageID, CategoryColumnID: request.CategoryColumnID,
+			ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryNoValues,
+			Categories: []ConstructionDiscoveredCategory{},
+			Message:    "No selected value is populated for any category in the current rows. Choose another value column or filter rows before pivoting.",
+		}, nil
 	}
 	return ConstructionCategoryDiscoveryResponse{
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,

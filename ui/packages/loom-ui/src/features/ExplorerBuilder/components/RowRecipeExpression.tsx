@@ -51,8 +51,8 @@ export function RowRecipeExpression(props: RowRecipeExpressionProps) {
     {props.disabledReason ? <p role="status">{props.disabledReason}</p> : null}
     <div data-term-kind="source-rows" data-stage-id="source_projection" className="flex flex-wrap items-center gap-2">
       <strong>Source rows:</strong>
-      <button type="button" className={editClass} disabled={disabled} onClick={props.onEditSourceRows}
-        aria-label={`Edit source rows: ${sourceRowExpression(table.document)}`}>{sourceRowExpression(table.document)}</button>
+      {table.document.importedRecipe ? <span>{sourceRowExpression(table.document)}</span> : <button type="button" className={editClass} disabled={disabled} onClick={props.onEditSourceRows}
+        aria-label={`Edit row definition: ${sourceRowExpression(table.document)}`}>{sourceRowExpression(table.document)}</button>}
     </div>
     <div><strong>Connected records:</strong>
       <ul aria-label="Row recipe connections" className="max-h-28 space-y-1 overflow-auto">

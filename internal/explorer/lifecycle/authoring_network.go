@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/projectid"
@@ -64,6 +65,10 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	}
 	network, err := s.config.AuthoringNetwork(ctx, request.Project, authorized, *document)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return empty, typed
+		}
 		return empty, unprocessable("authoring-network", "INVALID_AUTHORING_NETWORK", err.Error(), err)
 	}
 	rowIdentity := rowIdentityForNetwork(*document, network)

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useLoomClient, useQuery } from '../../../react';
 import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../types';
 import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../catalogItems';
@@ -261,6 +262,12 @@ export const FrameSourcePanel = ({
     | { readonly kind: 'replace'; readonly frameId: string; readonly source: FrameSourceOption; readonly form: FrameDefinition['form'] }
   >();
 
+  useEscapeToClose(Boolean(editingFrame || sourcePickerOpen || pendingNewFrame), () => {
+    setEditingFrame(undefined);
+    setSourcePickerOpen(false);
+    setPendingNewFrame(undefined);
+    setPendingImpact(undefined);
+  });
   const sourceSearchKey = JSON.stringify([
     project, explorerId, authResourcePath ?? '', snapshotToken, outputId, rowRoot, query,
   ]);

@@ -185,8 +185,8 @@ func (s *Service) constructionUnpivotSourceCapability(
 	outputID, stageID string,
 ) (ConstructionUnpivotSourceCapability, error) {
 	result := ConstructionUnpivotSourceCapability{StageID: stageID, Choices: []ConstructionUnpivotSourceChoice{}}
-	if code, reason, unavailable := importedSourceChoiceUnavailable(base.document); unavailable {
-		result.ReasonCode, result.Reason = code, reason
+	if importedSourceChoiceUnavailable(base.document) {
+		result.Supported = true
 		return result, nil
 	}
 	if _, found := constructionReceiptStage(base.stages, stageID); !found {

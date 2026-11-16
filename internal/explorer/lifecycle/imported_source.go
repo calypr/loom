@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
@@ -23,6 +24,10 @@ func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID
 	}
 	updated, err := s.config.EditImportedSource(ctx, project, authorized, *document, command.SourceStep)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return nil, typed
+		}
 		return nil, unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
 	if err := command.ResolveImportedDocument(updated); err != nil {

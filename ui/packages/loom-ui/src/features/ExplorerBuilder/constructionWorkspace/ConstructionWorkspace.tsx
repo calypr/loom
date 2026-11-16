@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDismissibleLayer } from '../components/useDismissibleLayer';
+import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 
 export type ConstructionOperationFamily =
   | 'ADD_COLUMNS'
@@ -91,22 +92,26 @@ export const ConstructionActionBar = ({
   activeFamily,
   disabled = false,
   addColumnsDisabled = false,
+  addColumnsReason,
   combineDisabled = false,
   calculateAvailable = false,
   calculateUnavailableReason = 'Calculation is unavailable for the current table stage.',
   variant = 'default',
+  families,
   onSelect,
 }: {
   readonly activeFamily?: ConstructionOperationFamily;
   readonly disabled?: boolean;
   readonly addColumnsDisabled?: boolean;
+  readonly addColumnsReason?: string;
   readonly combineDisabled?: boolean;
   readonly calculateAvailable?: boolean;
   readonly calculateUnavailableReason?: string;
   readonly variant?: 'default' | 'compact';
+  readonly families?: ReadonlyArray<ConstructionOperationFamily>;
   readonly onSelect: (family: ConstructionOperationFamily) => void;
 }) => {
-  const compactButtonClass = 'rounded border border-slate-300 bg-white px-2 py-1 text-left text-xs text-blue-900 disabled:opacity-50';
+  const compactButtonClass = 'rounded border border-slate-300 bg-white px-2 py-1 text-left text-xs text-slate-700 disabled:opacity-50';
   const renderAction = (family: ConstructionOperationFamily) => {
     const operation = allOperationFamilies.find((candidate) => candidate.family === family);
     if (!operation) return null;
@@ -120,9 +125,11 @@ export const ConstructionActionBar = ({
         data-testid={`construction-action-${family.toLowerCase().replace('_', '-')}`}
         disabled={disabled || (family === 'ADD_COLUMNS' && addColumnsDisabled) || (family === 'COMBINE' && combineDisabled) || (family === 'CALCULATE' && !calculateAvailable)}
         onClick={() => onSelect(family)}
-        title={family === 'CALCULATE' && !calculateAvailable ? calculateUnavailableReason : description}
+        title={family === 'ADD_COLUMNS' && addColumnsReason
+          ? addColumnsReason
+          : family === 'CALCULATE' && !calculateAvailable ? calculateUnavailableReason : description}
         className={variant === 'compact'
-          ? `${compactButtonClass} ${activeFamily === family ? 'bg-blue-100' : 'hover:bg-blue-50'}`
+          ? `${compactButtonClass} ${activeFamily === family ? 'bg-blue-100 text-slate-950' : 'hover:bg-blue-50'}`
           : `h-8 min-w-0 rounded-md px-3 text-left text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
             activeFamily === family
               ? 'bg-blue-100 text-blue-950'
@@ -136,7 +143,7 @@ export const ConstructionActionBar = ({
 
   return (
     <nav aria-label="Table actions" className={`flex flex-wrap items-center ${variant === 'compact' ? 'gap-1' : 'gap-1.5'}`}>
-      {allOperationFamilies.map(({ family }) => renderAction(family))}
+      {(families ?? allOperationFamilies.map(({ family }) => family)).map(renderAction)}
     </nav>
   );
 };
@@ -168,10 +175,10 @@ export const ConstructionTableNavigation = ({
     readonly top: number;
     readonly right: number;
   }>();
-  useEffect(() => {
+  useBrowserSubscription((_onStoreChange) => {
     if (!tableActionsOpen) {
       setTableActionsPosition(undefined);
-      return undefined;
+      return () => {};
     }
     const updatePosition = () => {
       const button = tableActionsButtonRef.current;
@@ -193,7 +200,7 @@ export const ConstructionTableNavigation = ({
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [tableActionsOpen]);
+  }, [tableActionsOpen], tableActionsOpen);
   return (
   <nav aria-label="Tables" className="construction-table-tabs flex min-w-0 flex-wrap items-center gap-3 py-1">
     <h2 className="sr-only">Tables</h2>
@@ -489,6 +496,7 @@ export const ConstructionWorkspace = ({
   actionsDisabled,
   activeFamily,
   addColumnsDisabled = false,
+  addColumnsReason,
   combineDisabled = false,
   calculateAvailable = false,
   calculateUnavailableReason,
@@ -524,6 +532,7 @@ export const ConstructionWorkspace = ({
   readonly actionsDisabled?: boolean;
   readonly activeFamily?: ConstructionOperationFamily;
   readonly addColumnsDisabled?: boolean;
+  readonly addColumnsReason?: string;
   readonly combineDisabled?: boolean;
   readonly calculateAvailable?: boolean;
   readonly calculateUnavailableReason?: string;
@@ -753,7 +762,7 @@ export const ConstructionWorkspace = ({
           <div hidden={Boolean(editor) && !showNavigationDuringEditor} className="construction-scope-navigation">
             {navigation ?? (!editor ? <ConstructionActionBar
               activeFamily={activeFamily} disabled={actionsDisabled}
-              addColumnsDisabled={addColumnsDisabled} combineDisabled={combineDisabled}
+              addColumnsDisabled={addColumnsDisabled} addColumnsReason={addColumnsReason} combineDisabled={combineDisabled}
               calculateAvailable={calculateAvailable} calculateUnavailableReason={calculateUnavailableReason}
               onSelect={onSelectFamily}
             /> : null)}

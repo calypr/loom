@@ -113,7 +113,7 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []lower.C
 			}
 			sourceStep = eligible[index].ID
 		}
-		bound[column.ID] = authoringv2.NetworkColumnBinding{ColumnID: column.ID, OccurrenceID: occurrence.OccurrenceID, SourceStepID: sourceStep, ValueMode: authoringValueMode(origin.ValueMode), Status: "EXACT"}
+		bound[column.ID] = authoringv2.NetworkColumnBinding{ColumnID: column.ID, OccurrenceID: occurrence.OccurrenceID, SourceStepID: sourceStep, OutputKey: origin.OutputKey, ValueMode: authoringValueMode(origin.ValueMode), Status: "EXACT"}
 	}
 	for i, b := range network.Bindings {
 		if exact, ok := bound[b.ColumnID]; ok {

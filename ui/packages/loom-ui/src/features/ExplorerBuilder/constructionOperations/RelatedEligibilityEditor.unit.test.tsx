@@ -6,9 +6,14 @@ import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog } from '.
 import { RelatedEligibilityEditor } from './RelatedEligibilityEditor';
 
 const searchRelatedExpandChoices = vi.fn();
-vi.mock('../../../react', () => ({
-  useLoomClient: () => ({ searchRelatedExpandChoices }),
-}));
+const loomClient = { searchRelatedExpandChoices };
+vi.mock('../../../react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../react')>();
+  return {
+    ...actual,
+    useLoomClient: () => loomClient,
+  };
+});
 
 const route = [{
   edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node',

@@ -60,8 +60,10 @@ func TestDefaultSourceParameterCoverageAndAtomicEdits(t *testing.T) {
 		{"catalog", "ResearchSubject", "catalogProjections[0]", func(p *authoringv2.ImportedSourceParameters) {
 			p.Catalog.IncludePaths = []string{"status"}
 			p.Catalog.Naming = recipe.ColumnNamingPathSuffix
+			p.Catalog.Outputs = []authoringv2.ImportedCatalogOutput{{FieldPath: "status", Enabled: true, Name: "study_status"}}
 		}, func(o recipe.Output) bool {
-			return reflect.DeepEqual(o.CatalogProjections[0].IncludePaths, []string{"status"}) && o.CatalogProjections[0].Naming == recipe.ColumnNamingPathSuffix
+			projection := o.CatalogProjections[0]
+			return reflect.DeepEqual(projection.IncludePaths, []string{"status"}) && projection.Naming == recipe.ColumnNamingPathSuffix && reflect.DeepEqual(projection.OutputOverrides, []recipe.CatalogProjectionOutputOverride{{FieldPath: "status", Enabled: true, Name: "study_status"}})
 		}},
 		{"dynamic", "DocumentReference", "dynamicColumns[0]", func(p *authoringv2.ImportedSourceParameters) {
 			p.Dynamic.Key = &recipe.Expression{Select: "item.system"}
@@ -71,8 +73,12 @@ func TestDefaultSourceParameterCoverageAndAtomicEdits(t *testing.T) {
 			return o.DynamicColumns[0].Key.Select == "item.system" && *o.DynamicColumns[0].ColumnPrefix == "ident_"
 		}},
 		{"extension", "DocumentReference", "extensionColumns[1]", func(p *authoringv2.ImportedSourceParameters) { p.Extension.Source.Select = "root.extension[]" }, func(o recipe.Output) bool { return o.ExtensionColumns[1].Source.Select == "root.extension[]" }},
-		{"pivot", "ResearchSubject", "traversals[0].traversals[0].pivots[0]", func(p *authoringv2.ImportedSourceParameters) { p.Pivot.Discovery.Path = "component[].code" }, func(o recipe.Output) bool {
-			return o.Traversals[0].Traversals[0].Pivots[0].Discovery.Path == "component[].code"
+		{"pivot", "ResearchSubject", "traversals[0].traversals[0].pivots[0]", func(p *authoringv2.ImportedSourceParameters) {
+			p.Pivot.Discovery.Path = "component[].code"
+			p.Pivot.Outputs = []authoringv2.ImportedPivotOutput{{Key: "http://loinc.org|8480-6", Enabled: false}}
+		}, func(o recipe.Output) bool {
+			pivot := o.Traversals[0].Traversals[0].Pivots[0]
+			return pivot.Discovery.Path == "component[].code" && reflect.DeepEqual(pivot.OutputOverrides, []recipe.PivotOutputOverride{{Key: "http://loinc.org|8480-6", Enabled: false}})
 		}},
 		{"traversal", "ResearchSubject", "traversals[0]", func(p *authoringv2.ImportedSourceParameters) { p.Traversal.Alias = "person" }, func(o recipe.Output) bool { return o.Traversals[0].Alias == "person" }},
 		{"expansion", "GroupMember", "expand", func(p *authoringv2.ImportedSourceParameters) {
@@ -157,3 +163,88 @@ func TestRenamedSourceFamilyUsesEffectiveNameWithoutChangingOriginalStepID(t *te
 		t.Fatal("mutable family name changed original operation identity")
 	}
 }
+
+func TestCatalogOutputOverrideDisableReloadAndReenableByFieldPath(t *testing.T) {
+	output := recipe.Output{
+		Name: "Patient", RootResourceType: "Patient", RootOccurrenceID: "base", RowGrain: "resource",
+		CatalogProjections: []recipe.CatalogProjection{{Name: "populated_fields", IncludePaths: []string{"*"}, MaxColumns: 4}},
+	}
+	plan := SourcePlan(output)
+	if err := updateSourcePlanStep(&plan, "catalogProjections[0]", func(step *authoringv2.ImportedSourceStep) {
+		step.Parameters.Catalog.Outputs = []authoringv2.ImportedCatalogOutput{{FieldPath: "gender", Enabled: false}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := ApplySourcePlan(output, &plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(disabled.CatalogProjections[0].OutputOverrides) != 1 || disabled.CatalogProjections[0].OutputOverrides[0].Enabled {
+		t.Fatalf("disable was not applied: %#v", disabled.CatalogProjections[0].OutputOverrides)
+	}
+	reloaded, err := HydrateSourcePlan(output, &plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, ok := sourcePlanStep(reloaded, "catalogProjections[0]")
+	if !ok || len(step.Parameters.Catalog.Outputs) != 1 || step.Parameters.Catalog.Outputs[0].FieldPath != "gender" || step.Parameters.Catalog.Outputs[0].Enabled {
+		t.Fatalf("disabled output identity was lost on reload: %+v", step)
+	}
+	if err := updateSourcePlanStep(&reloaded, "catalogProjections[0]", func(step *authoringv2.ImportedSourceStep) {
+		step.Parameters.Catalog.Outputs[0].Enabled = true
+		step.Parameters.Catalog.Outputs[0].Name = "patient_gender"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reenabled, err := ApplySourcePlan(output, &reloaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := recipe.CatalogProjectionOutputOverride{FieldPath: "gender", Enabled: true, Name: "patient_gender"}
+	if !reflect.DeepEqual(reenabled.CatalogProjections[0].OutputOverrides, []recipe.CatalogProjectionOutputOverride{want}) {
+		t.Fatalf("re-enabled output changed identity: %#v", reenabled.CatalogProjections[0].OutputOverrides)
+	}
+}
+
+func TestDiscoveredPivotOutputOverridePersistsThroughReloadAndReenable(t *testing.T) {
+	output := recipe.Output{
+		Name: "Observation", RootResourceType: "Observation", RootOccurrenceID: "base", RowGrain: "resource",
+		Pivots: []recipe.Pivot{{Name: "observation_values", Discovery: &recipe.PivotDiscovery{Family: "observation_code_value", MaxColumns: 8}}},
+	}
+	plan := SourcePlan(output)
+	if err := updateSourcePlanStep(&plan, "pivots[0]", func(step *authoringv2.ImportedSourceStep) {
+		step.Parameters.Pivot.Outputs = []authoringv2.ImportedPivotOutput{{Key: "http://loinc.org|8480-6", Enabled: false, Name: stringPointer("systolic")}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := ApplySourcePlan(output, &plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(disabled.Pivots[0].OutputOverrides) != 1 || disabled.Pivots[0].OutputOverrides[0].Enabled || disabled.Pivots[0].OutputOverrides[0].Name == nil || *disabled.Pivots[0].OutputOverrides[0].Name != "systolic" {
+		t.Fatalf("pivot output disable = %#v", disabled.Pivots[0].OutputOverrides)
+	}
+	reloaded, err := HydrateSourcePlan(output, &plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, ok := sourcePlanStep(reloaded, "pivots[0]")
+	if !ok || len(step.Parameters.Pivot.Outputs) != 1 || step.Parameters.Pivot.Outputs[0].Key != "http://loinc.org|8480-6" || step.Parameters.Pivot.Outputs[0].Enabled || step.Parameters.Pivot.Outputs[0].Name == nil || *step.Parameters.Pivot.Outputs[0].Name != "systolic" {
+		t.Fatalf("disabled pivot output identity was lost on reload: %+v", step)
+	}
+	if err := updateSourcePlanStep(&reloaded, "pivots[0]", func(step *authoringv2.ImportedSourceStep) {
+		step.Parameters.Pivot.Outputs[0].Enabled = true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reenabled, err := ApplySourcePlan(output, &reloaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reenabled.Pivots[0].OutputOverrides[0]
+	if got.Key != "http://loinc.org|8480-6" || !got.Enabled || got.Name == nil || *got.Name != "systolic" {
+		t.Fatalf("re-enabled raw key or alias changed: %#v", got)
+	}
+}
+
+func stringPointer(value string) *string { return &value }

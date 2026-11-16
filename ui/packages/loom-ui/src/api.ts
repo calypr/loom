@@ -919,7 +919,11 @@ const diagnosticsFrom = (value: unknown): ReadonlyArray<ExplorerAuthoringDiagnos
       code: item.code,
       message: item.message,
       ...(typeof item.stage === 'string' ? { stage: item.stage } : {}),
-      ...(typeof item.path === 'string' || item.path === null ? { path: item.path } : {}),
+      ...(typeof item.path === 'string' || item.path === null
+        ? { path: item.path }
+        : typeof item.jsonPath === 'string' || item.jsonPath === null
+          ? { path: item.jsonPath }
+          : {}),
       ...(typeof item.fieldPath === 'string' || item.fieldPath === null ? { fieldPath: item.fieldPath } : {}),
       ...(typeof item.requestId === 'string' ? { requestId: item.requestId } : {}),
     }];
@@ -935,7 +939,11 @@ const requestError = async (
   const code = typeof nested.code === 'string' ? nested.code : undefined;
   const message = typeof nested.message === 'string'
     ? nested.message
-    : `Loom request failed (${response.status}).`;
+    : response.status === 504
+      ? 'Loom timed out before returning a result. Retry, or narrow the preview.'
+      : response.status >= 500
+        ? `Loom could not complete this request (HTTP ${response.status}). Retry and include the request ID if it continues.`
+        : `Loom request failed (${response.status}).`;
   const responseRequestId = response.headers.get('x-request-id') ?? response.headers.get('request-id');
   const payloadRequestId = typeof nested.requestId === 'string'
     ? nested.requestId
@@ -946,7 +954,7 @@ const requestError = async (
     status: response.status,
     code,
     message,
-    diagnostics: diagnosticsFrom(nested.diagnostics),
+    diagnostics: diagnosticsFrom(record.diagnostics ?? nested.diagnostics),
     requestId: responseRequestId?.trim() || payloadRequestId?.trim() || callerRequestId,
     details,
     retryable: explicitRetryable ?? (response.status === 408 || response.status === 429 || response.status >= 500),

@@ -116,7 +116,12 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			if field.Discovered {
 				kind = "CATALOG_PROJECTION"
 			}
-			origins[name] = &CompiledSourceOrigin{SourceKind: kind, OccurrenceID: node.OccurrenceID, SourcePath: sourcePath + "fields", ValueMode: string(field.Projection)}
+			origin := &CompiledSourceOrigin{SourceKind: kind, OccurrenceID: node.OccurrenceID, SourcePath: sourcePath + "fields", ValueMode: string(field.Projection)}
+			if field.Discovered {
+				origin.SourceKey = field.SourceKey
+				origin.OutputKey = field.FieldRef
+			}
+			origins[name] = origin
 		}
 		for _, aggregate := range node.Aggregates {
 			name := aggregate.Name
@@ -156,7 +161,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			}
 			for _, column := range pivot.Columns {
 				name := NativePivotColumnName(prefix, pivot.Name, column, pivot.ColumnAliases)
-				origins[name] = &CompiledSourceOrigin{SourceKey: pivot.Name, SourceKind: "PIVOT", OccurrenceID: node.OccurrenceID, SourcePath: fmt.Sprintf("%spivots[%d]", sourcePath, pivotIndex), ValueMode: pivot.ProjectionMode}
+				origins[name] = &CompiledSourceOrigin{SourceKey: pivot.Name, OutputKey: column, SourceKind: "PIVOT", OccurrenceID: node.OccurrenceID, SourcePath: fmt.Sprintf("%spivots[%d]", sourcePath, pivotIndex), ValueMode: pivot.ProjectionMode}
 				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(cardinality), true, pivot.Discovered, nil)
 			}
 		}

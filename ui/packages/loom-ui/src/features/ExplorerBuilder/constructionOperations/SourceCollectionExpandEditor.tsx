@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { LoomRequestError, type LoomClient } from '../../../api';
 import type {
   ExplorerRowDefinition,
@@ -112,6 +113,7 @@ export const SourceCollectionExpandEditor = ({
     setState({ kind: 'closed' });
   };
 
+  useEscapeToClose(state.kind !== 'closed', close);
   const open = async () => {
     const current = latestContext.current;
     if (!current || disabled || current.rowsKind === 'GROUPS') return;

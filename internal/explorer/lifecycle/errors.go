@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 // ErrorClass lets transports map application failures to their own response
@@ -67,6 +68,13 @@ func unavailable(stage, code, message string, cause error) error {
 }
 
 func conflict(stage, code, message string, details map[string]any, cause error) error {
+	if code == "STALE_CATALOG_SNAPSHOT" && cause != nil && !errors.Is(cause, capability.ErrStaleSnapshot) && !errors.Is(cause, capability.ErrSnapshotUnavailable) && !errors.Is(cause, capability.ErrNotFound) {
+		return failureDetails(ClassUnavailable, stage, "CAPABILITY_UNAVAILABLE", message, details, cause)
+	}
+	var typed *Error
+	if errors.As(cause, &typed) && typed.Class == ClassUnavailable {
+		return typed
+	}
 	return failureDetails(ClassConflict, stage, code, message, details, cause)
 }
 
@@ -84,6 +92,17 @@ func unprocessable(stage, code, message string, cause error) error {
 
 func internal(stage, code, message string, cause error) error {
 	return failure(ClassInternal, stage, code, message, cause)
+}
+
+func persistenceFailure(stage, message string, err error) error {
+	var typed *Error
+	if errors.As(err, &typed) {
+		return typed
+	}
+	if errors.Is(err, explorer.ErrNotFound) {
+		return notFound(stage, "NOT_FOUND", message, err)
+	}
+	return unavailable(stage, "PERSISTENCE_UNAVAILABLE", message, err)
 }
 
 func wrapReceiptLookup(stage string, err error) error {

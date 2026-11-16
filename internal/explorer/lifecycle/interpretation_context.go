@@ -149,7 +149,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 
 	libraries, err := repository.ListInterpretationLibraries(ctx, project)
 	if err != nil {
-		return result, internal("interpretation-context", "INTERPRETATION_LIBRARY_READ_FAILED", err.Error(), err)
+		return result, persistenceFailure("interpretation-context", "interpretation libraries could not be loaded", err)
 	}
 	if len(libraries) > maxInterpretationContextLibraries {
 		return result, unprocessable("interpretation-context", "INTERPRETATION_CONTEXT_LIMIT", fmt.Sprintf("the project has %d interpretation libraries; the limit is %d", len(libraries), maxInterpretationContextLibraries), nil)
@@ -259,7 +259,7 @@ func loadInterpretationContextRevisions(ctx context.Context, repository explorer
 			return nil, conflict("interpretation-context", "INTERPRETATION_REVISION_MISSING", "a referenced interpretation revision is no longer available", nil, err)
 		}
 		if err != nil {
-			return nil, internal("interpretation-context", "INTERPRETATION_REVISION_READ_FAILED", err.Error(), err)
+			return nil, persistenceFailure("interpretation-context", "an interpretation revision could not be loaded", err)
 		}
 		if revision == nil || revision.ID != id || revision.Project != project {
 			return nil, internal("interpretation-context", "INTERPRETATION_REVISION_INTEGRITY", "interpretation revision crossed project scope", nil)

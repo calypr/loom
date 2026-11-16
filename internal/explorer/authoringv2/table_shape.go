@@ -267,7 +267,12 @@ func (s TableScalar) ValidatePivotCategoryKey() error {
 }
 
 func (s TableScalar) identity() string {
-	raw, _ := json.Marshal(s)
+	canonical := s
+	if s.Kind == TableScalarDecimal && s.Decimal != nil && *s.Decimal == 0 {
+		zero := 0.0
+		canonical.Decimal = &zero
+	}
+	raw, _ := json.Marshal(canonical)
 	return string(raw)
 }
 
@@ -283,9 +288,11 @@ func (s *TableShape) Validate(columns []Column) error {
 	}
 
 	known := make(map[string]bool, len(columns)+len(s.Derived))
+	columnByName := make(map[string]Column, len(columns))
 	publicNames := make(map[string]bool, len(columns)+len(s.Derived))
 	for _, column := range columns {
 		known[column.Column] = true
+		columnByName[column.Column] = column
 		publicNames[column.Column] = true
 	}
 	constructionIDs := map[ConstructionID]bool{}
@@ -335,6 +342,9 @@ func (s *TableShape) Validate(columns []Column) error {
 				if seenGroups[column] {
 					return fmt.Errorf("groupKeys contains duplicate column %q", column)
 				}
+				if scalar, known := constructionPivotTypeIsScalar(columnByName[column].LogicalType); known && !scalar {
+					return fmt.Errorf("pivot group key %q type %q is not a scalar", column, columnByName[column].LogicalType)
+				}
 				seenGroups[column] = true
 			}
 			if !known[pivot.CategoryColumn] {
@@ -342,6 +352,32 @@ func (s *TableShape) Validate(columns []Column) error {
 			}
 			if !known[pivot.ValueColumn] {
 				return fmt.Errorf("unknown value column %q", pivot.ValueColumn)
+			}
+			for _, reference := range []struct{ field, column string }{
+				{field: "categoryColumn", column: pivot.CategoryColumn},
+				{field: "valueColumn", column: pivot.ValueColumn},
+			} {
+				if scalar, known := constructionPivotTypeIsScalar(columnByName[reference.column].LogicalType); known && !scalar {
+					return fmt.Errorf("pivot %s column %q type %q is not a scalar", reference.field, reference.column, columnByName[reference.column].LogicalType)
+				}
+			}
+			for _, column := range pivot.GroupKeys {
+				if column == pivot.CategoryColumn {
+					return fmt.Errorf("pivot categoryColumn %q cannot also be a group key", column)
+				}
+				if column == pivot.ValueColumn {
+					return fmt.Errorf("pivot valueColumn %q cannot also be a group key", column)
+				}
+			}
+			if pivot.CategoryColumn == pivot.ValueColumn {
+				return fmt.Errorf("pivot category and value columns must differ")
+			}
+			categoryKind, categoryKindKnown := constructionPivotScalarKind(columnByName[pivot.CategoryColumn].LogicalType)
+			if pivot.DuplicatePolicy == "SUM" {
+				valueColumn := columnByName[pivot.ValueColumn]
+				if valueKind, known := constructionPivotScalarKind(valueColumn.LogicalType); known && valueKind != "INTEGER" && valueKind != "DECIMAL" {
+					return fmt.Errorf("pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got %q", valueColumn.LogicalType)
+				}
 			}
 			if len(pivot.Categories) == 0 {
 				return fmt.Errorf("pivot categories must be non-empty")
@@ -353,6 +389,10 @@ func (s *TableShape) Validate(columns []Column) error {
 			for index, category := range pivot.Categories {
 				if err := category.Key.ValidatePivotCategoryKey(); err != nil {
 					return fmt.Errorf("categories[%d].key: %w", index, err)
+				}
+				if categoryKindKnown && category.Key.Kind != TableScalarNull && category.Key.Kind != TableScalarMissing &&
+					string(category.Key.Kind) != categoryKind {
+					return fmt.Errorf("pivot categories[%d].key type %q does not match category column type %q", index, category.Key.Kind, columnByName[pivot.CategoryColumn].LogicalType)
 				}
 				key := category.Key.identity()
 				if seenKeys[key] {
@@ -369,8 +409,8 @@ func (s *TableShape) Validate(columns []Column) error {
 			if !oneOf(pivot.MissingCellPolicy, "NULL", "ERROR") {
 				return fmt.Errorf("missingCellPolicy must be NULL or ERROR")
 			}
-			if !oneOf(pivot.UnlistedCategoryPolicy, "ERROR", "EXCLUDE_WITH_EVIDENCE") {
-				return fmt.Errorf("unlistedCategoryPolicy must be ERROR or EXCLUDE_WITH_EVIDENCE")
+			if !oneOf(pivot.UnlistedCategoryPolicy, "ERROR") {
+				return fmt.Errorf("unlistedCategoryPolicy must be ERROR; EXCLUDE_WITH_EVIDENCE cannot be upgraded to a construction sequence")
 			}
 		case "UNPIVOT":
 			if s.Reshape.Unpivot == nil || s.Reshape.Pivot != nil {

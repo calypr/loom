@@ -928,8 +928,9 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 
 	store.publishErr = errors.New("revision write failed")
 	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, Actor: "alice"})
-	if err == nil || !strings.Contains(err.Error(), "revision write failed") {
-		t.Fatalf("publish failure=%v", err)
+	var persistenceFailure *Error
+	if !errors.As(err, &persistenceFailure) || persistenceFailure.Class != ClassUnavailable || persistenceFailure.Code != "PERSISTENCE_UNAVAILABLE" || !errors.Is(err, store.publishErr) {
+		t.Fatalf("publish failure=%v, want unavailable PERSISTENCE_UNAVAILABLE", err)
 	}
 
 	store.publishErr = dataset.ErrReleaseActivationConflict

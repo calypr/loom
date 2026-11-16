@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { ImportedSourceParameters, SourceRecipeExpression } from '../../types';
 import { moveExpressionItem, SourceExpressionEditor } from './SourceExpressionEditor';
 
-const controlClass = 'min-w-0 rounded border border-slate-300 bg-white px-2 py-1 text-sm';
+const controlClass = 'min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs';
 type CatalogOutputOverride = { fieldPath: string; enabled: boolean; name?: string };
 type PivotOutputOverride = { key: string; enabled: boolean; name?: string };
 type EditorSourceParameters = Omit<ImportedSourceParameters, 'catalog' | 'pivot'> & {
@@ -69,7 +69,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
   });
   const fieldFocusKey = JSON.stringify([selectedFieldId, fieldFocusRequest]);
   const outputFocusKey = JSON.stringify([selectedOutputKey, outputFocusRequest]);
-  return <fieldset disabled={disabled} aria-label="Source step parameters" className="min-w-0 space-y-3 border-t border-slate-200 py-2">
+  return <fieldset disabled={disabled} aria-label="Source step parameters" className="min-w-0 space-y-2 py-1">
     {'output' in parameters && parameters.output ? <>
       <label className="grid gap-1 text-xs">Column collision policy<select aria-label="Column collision policy" className={controlClass} value={parameters.output.collisionPolicy ?? ''} onChange={(event) => onChange({ ...parameters, output: { ...parameters.output!, collisionPolicy: (event.currentTarget.value || undefined) as NonNullable<ImportedSourceParameters['output']>['collisionPolicy'] } })}><option value="">Recipe default</option><option value="error">Report an error</option><option value="overwrite">Overwrite earlier column</option><option value="coalesce">Coalesce values</option></select></label>
     </> : null}

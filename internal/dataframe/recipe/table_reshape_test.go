@@ -206,6 +206,39 @@ func TestGroupedPivotRejectsDuplicateSentinelCategoryKeys(t *testing.T) {
 	}
 }
 
+func TestGroupedPivotRejectsCategoryOutputCollidingWithInputColumns(t *testing.T) {
+	stringKey := func(value string) TableScalar {
+		return TableScalar{Kind: TableScalarString, String: &value}
+	}
+	for _, collision := range []string{"group", "category", "value"} {
+		t.Run(collision, func(t *testing.T) {
+			pivot := GroupedPivot{
+				ConstructionID: "shape_collision", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
+				Categories: []GroupedPivotCategory{
+					{Key: stringKey("a"), Output: collision, Label: "Collision"},
+				},
+				DuplicatePolicy: PivotDuplicateError, MissingCellPolicy: PivotMissingCellNull,
+				UnlistedCategoryPolicy: PivotUnlistedCategoryError,
+			}
+			if err := validateGroupedPivot(pivot); err == nil || !strings.Contains(err.Error(), "collides with a group key, category, or value column") {
+				t.Fatalf("category output %q collision validation = %v", collision, err)
+			}
+		})
+	}
+
+	valid := GroupedPivot{
+		ConstructionID: "shape_valid", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
+		Categories: []GroupedPivotCategory{
+			{Key: stringKey("a"), Output: "amount_a", Label: "Amount A"},
+		},
+		DuplicatePolicy: PivotDuplicateError, MissingCellPolicy: PivotMissingCellNull,
+		UnlistedCategoryPolicy: PivotUnlistedCategoryError,
+	}
+	if err := validateGroupedPivot(valid); err != nil {
+		t.Fatalf("distinct category output rejected: %v", err)
+	}
+}
+
 func TestUnpivotRejectsNullAndMissingKeys(t *testing.T) {
 	for _, kind := range []TableScalarKind{TableScalarNull, TableScalarMissing} {
 		t.Run(string(kind), func(t *testing.T) {

@@ -1186,7 +1186,7 @@ func (s *Service) currentWorkspace(ctx context.Context, project, explorerID stri
 		return authoringv2.Workspace{}, notFound("construction-choices", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
 	if err != nil {
-		return authoringv2.Workspace{}, internal("construction-choices", "EXPLORER_READ_FAILED", "the current Explorer workspace could not be loaded", err)
+		return authoringv2.Workspace{}, persistenceFailure("construction-choices", "the current Explorer workspace could not be loaded", err)
 	}
 	if len(owner.DraftConfig) != 0 {
 		workspace, decodeErr := authoringv2.DecodeWorkspace(owner.DraftConfig)
@@ -1198,7 +1198,7 @@ func (s *Service) currentWorkspace(ctx context.Context, project, explorerID stri
 	if owner.ActiveRevisionID != "" {
 		active, activeErr := s.store.ActiveRevision(ctx, project, explorerID)
 		if activeErr != nil {
-			return authoringv2.Workspace{}, conflict("construction-choices", "AUTHORING_STATE_MISSING", "the active Explorer workspace cannot be loaded", nil, activeErr)
+			return authoringv2.Workspace{}, persistenceFailure("construction-choices", "the active Explorer workspace could not be loaded", activeErr)
 		}
 		workspace, decodeErr := authoringv2.DecodeWorkspace(active.AuthoringBundle)
 		if decodeErr != nil {

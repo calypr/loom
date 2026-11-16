@@ -168,6 +168,7 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1627,6 +1628,7 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/LegacyForbidden'}
         '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
     post:
       operationId: createExplorer
       summary: Create an interactive Explorer.
@@ -1649,6 +1651,7 @@ paths:
         '409': {$ref: '#/components/responses/LegacyConflict'}
         '422': {$ref: '#/components/responses/LegacyUnprocessable'}
         '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1666,6 +1669,7 @@ paths:
         '403': {$ref: '#/components/responses/LegacyForbidden'}
         '404': {$ref: '#/components/responses/LegacyNotFound'}
         '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
   /api/v1/projects/{project}/generations/{generation}/explorer-config:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2899,6 +2903,7 @@ components:
         columnId: {type: string, minLength: 1}
         occurrenceId: {type: string, minLength: 1}
         sourceStepId: {type: string, minLength: 1}
+        outputKey: {type: string, minLength: 1}
         valueMode: {type: string, minLength: 1}
         status: {type: string, minLength: 1}
     NetworkOperation:
@@ -3710,6 +3715,17 @@ components:
           items:
             type: string
             maxLength: 2048
+        outputs:
+          type: array
+          maxItems: 512
+          items:
+            type: object
+            additionalProperties: false
+            required: [fieldPath, enabled]
+            properties:
+              fieldPath: {type: string, minLength: 1, maxLength: 512}
+              enabled: {type: boolean}
+              name: {type: string, minLength: 1, maxLength: 128}
         kinds:
           type: array
           maxItems: 4096
@@ -3812,6 +3828,17 @@ components:
           additionalProperties:
             type: string
             maxLength: 2048
+        outputs:
+          type: array
+          maxItems: 256
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, enabled]
+            properties:
+              key: {type: string, minLength: 1, maxLength: 2048}
+              enabled: {type: boolean}
+              name: {type: string, maxLength: 128}
       x-go-type: authoringv2.ImportedPivotParameters
       x-go-type-import:
         name: authoringv2
@@ -4770,7 +4797,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION]}
+        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION, WORKSPACE_OUTPUT]}
         stepId: {type: string, minLength: 1}
         tableId: {type: string, minLength: 1}
         revisionId: {type: string, minLength: 1}
@@ -4945,7 +4972,7 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionPivotCategory'}
         duplicatePolicy: {type: string, enum: [ERROR, SUM, MIN, MAX]}
-        missingCellPolicy: {type: string, enum: [NULL, ERROR]}
+        missingCellPolicy: {type: string, enum: ["NULL", ERROR]}
         unlistedCategoryPolicy: {type: string, enum: [ERROR, EXCLUDE_WITH_EVIDENCE]}
     ConstructionPivotCategory:
       type: object
@@ -4968,7 +4995,7 @@ components:
           maxItems: 50
           items: {$ref: '#/components/schemas/ConstructionCodedPivotCategory'}
         duplicatePolicy: {type: string, enum: [ERROR, SUM, MIN, MAX]}
-        missingCellPolicy: {type: string, enum: [NULL, ERROR]}
+        missingCellPolicy: {type: string, enum: ["NULL", ERROR]}
     ConstructionCodedPivotSource:
       type: object
       additionalProperties: false
@@ -4995,7 +5022,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, NULL, MISSING]}
+        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, "NULL", MISSING]}
         string: {type: string}
         integer: {type: integer, format: int64}
         decimal: {type: number}
@@ -5011,7 +5038,7 @@ components:
         left: {$ref: '#/components/schemas/ConstructionOperand'}
         right: {$ref: '#/components/schemas/ConstructionOperand'}
         missingInputPolicy: {type: string, enum: [PROPAGATE_NULL, ERROR]}
-        divisionByZeroPolicy: {type: string, enum: [NULL, ERROR]}
+        divisionByZeroPolicy: {type: string, enum: ["NULL", ERROR]}
     ConstructionOperand:
       type: object
       additionalProperties: false
@@ -5426,15 +5453,15 @@ components:
         stageId: {type: string, minLength: 1}
         categoryColumnId: {type: string, minLength: 1}
         valueColumnId: {type: string, minLength: 1}
-        outcome: {type: string, enum: [COMPLETE, LIMIT_EXCEEDED, MISSING_UNSUPPORTED], description: COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.}
+        outcome: {type: string, enum: [COMPLETE, LIMIT_EXCEEDED, MISSING_UNSUPPORTED, NO_VALUES], description: COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL; NO_VALUES means no category has a non-null value for the selected value column.}
         complete: {type: boolean, description: True only when the full category set was returned.}
         proofFingerprint: {type: string, minLength: 1, description: Present only for COMPLETE.}
         categories:
           type: array
           items: {$ref: '#/components/schemas/ConstructionDiscoveredCategory'}
-          description: Empty for LIMIT_EXCEEDED and MISSING_UNSUPPORTED; partial or unsupported category values are never returned.
+          description: "Empty for LIMIT_EXCEEDED, MISSING_UNSUPPORTED, and NO_VALUES; partial or unsupported category values are never returned."
         limit: {type: integer, minimum: 1, description: Present only for LIMIT_EXCEEDED; maximum supported number of categories.}
-        message: {type: string, minLength: 1, description: Present for LIMIT_EXCEEDED or MISSING_UNSUPPORTED; user-facing recovery guidance.}
+        message: {type: string, minLength: 1, description: "Present for LIMIT_EXCEEDED, MISSING_UNSUPPORTED, or NO_VALUES; user-facing recovery guidance."}
     ConstructionOperationCapability:
       type: object
       additionalProperties: false
@@ -6024,7 +6051,7 @@ components:
       required: [choiceId, form]
       properties:
         choiceId: {type: string, minLength: 1, maxLength: 16384}
-        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS, COUNT, PRESENCE]}
         frameId: {type: string, minLength: 1}
         rowValuePolicy: {type: string, enum: [ALL, ONE]}
         title: {type: string}
@@ -6452,7 +6479,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, NULL, MISSING]}
+        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, "NULL", MISSING]}
         string: {type: string}
         integer: {type: integer, format: int64}
         decimal: {type: number, format: double}
@@ -7054,7 +7081,7 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionRouteStep'}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
-        zeroPolicy: {type: string, enum: [NULL, EMPTY_LIST]}
+        zeroPolicy: {type: string, enum: ["NULL", EMPTY_LIST]}
         manyPolicy: {type: string, enum: [INVALID_MULTIPLE_VALUES, FIRST, ALL, DISTINCT]}
     SemanticFrameFamily:
       type: object
@@ -7136,7 +7163,7 @@ components:
       required: [form, zeroPolicy, manyPolicy, decision]
       properties:
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
-        zeroPolicy: {type: string, enum: [NULL, EMPTY_LIST]}
+        zeroPolicy: {type: string, enum: ["NULL", EMPTY_LIST]}
         manyPolicy: {type: string, enum: [INVALID_MULTIPLE_VALUES, FIRST, ALL, DISTINCT]}
         decision: {type: string, enum: [DEFAULT, REQUIRES_DECISION]}
     ConstructionChoicePresentation:

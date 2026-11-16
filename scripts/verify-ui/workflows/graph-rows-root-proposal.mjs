@@ -19,7 +19,7 @@ export async function runGraphRowsRootProposal({ run, page }) {
   const oracle = validateGraphRowsFixture();
   const choosePatient = async () => {
     await page.getByRole('navigation', { name: 'Recipe presentation', exact: true }).getByRole('button', { name: 'Both editors', exact: true }).click();
-    await page.getByTestId('row-recipe-expression').getByRole('button', { name: /^Edit source rows:/ }).click();
+    await page.getByTestId('row-recipe-expression').getByRole('button', { name: /^Edit row definition:/ }).click();
     const settings = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
     await settings.getByTestId('construction-row-intent-records').click();
     const root = settings.getByRole('combobox', { name: 'Record type', exact: true });

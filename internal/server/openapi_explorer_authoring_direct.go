@@ -37,6 +37,9 @@ func (h *explorerHTTPHandlers) authoringReadDirect(ctx context.Context, project 
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := h.authorizeRead(ctx, principal, project); err != nil {
+		if isAuthorizerStorageFault(err) {
+			return &explorer.AuthoringError{Status: http.StatusServiceUnavailable, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: authoringBackendUnavailableCode, Message: authoringBackendUnavailableMessage}, Cause: err}
+		}
 		return &explorer.AuthoringError{Status: http.StatusForbidden, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: "FORBIDDEN", Message: "forbidden"}, Cause: err}
 	}
 	return nil
@@ -567,10 +570,10 @@ func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, pro
 }
 
 func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody) (loomapi.PreviewResponse, error) {
-	return h.previewAuthoringDirectWithTimeout(ctx, project, explorerID, body, explorerPreviewTimeout)
+	return h.previewAuthoringDirectWithTimeout(ctx, project, explorerID, body, explorerPreviewTimeout, false)
 }
 
-func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody, timeout time.Duration) (loomapi.PreviewResponse, error) {
+func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody, timeout time.Duration, allowSampledAggregate bool) (loomapi.PreviewResponse, error) {
 	var result loomapi.PreviewResponse
 	if err := h.authoringReadDirect(ctx, project); err != nil {
 		return result, err
@@ -588,7 +591,7 @@ func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Con
 	previewCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var encoder *previewResponseEncoder
-	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, AllowSampledAggregatePreview: allowSampledAggregate, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		var encoderErr error
 		encoder, encoderErr = newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {

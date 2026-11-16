@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -515,7 +516,11 @@ func (s *Service) resolveExplicitGroupRevision(ctx context.Context, request Expl
 	}
 	proof, err := s.config.ExplicitGroupResolver.ResolveExplicitGroupRevision(ctx, request)
 	if err != nil {
-		return ExplicitGroupRevisionProof{}, conflict("row-definition-proposal", "STALE_EXPLICIT_GROUP_REVISION", "the explicit group revision is stale or unavailable", nil, err)
+		var typed *Error
+		if errors.As(err, &typed) {
+			return ExplicitGroupRevisionProof{}, typed
+		}
+		return ExplicitGroupRevisionProof{}, persistenceFailure("row-definition-proposal", "the explicit group revision could not be loaded", err)
 	}
 	if err := validateExplicitGroupRevisionProof(proof, request); err != nil {
 		return ExplicitGroupRevisionProof{}, conflict("row-definition-proposal", "STALE_EXPLICIT_GROUP_REVISION", "the explicit group revision does not match the current project, snapshot, or table", nil, err)

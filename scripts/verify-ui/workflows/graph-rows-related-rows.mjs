@@ -21,7 +21,7 @@ export async function runGraphRowsRelatedRows({run,page,existingList,onExpanded,
   const open = async () => {
     const rowSettings = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
     if (await rowSettings.isVisible()) await rowSettings.getByRole('button', { name: 'Back to table', exact: true }).click();
-    await page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit source rows: One row per ResearchSubject record', exact: true }).click();
+    await page.getByTestId('row-recipe-expression').getByRole('button', { name: 'Edit row definition: One row per ResearchSubject record', exact: true }).click();
     await page.getByTestId('construction-action-related-rows').click();
     await expect(editor).toBeVisible();
     const capabilities = [...run.capabilityResponses].reverse().find(response => response.outputId === 'ResearchSubject' && response.draftVersion === original.draftVersion);

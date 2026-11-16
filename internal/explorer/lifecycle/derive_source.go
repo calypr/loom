@@ -124,8 +124,8 @@ func (s *Service) constructionDeriveSourceCapability(
 	outputID, stageID string,
 ) (ConstructionDeriveSourceCapability, error) {
 	result := ConstructionDeriveSourceCapability{StageID: stageID, Choices: []ConstructionDeriveSourceChoice{}}
-	if code, reason, unavailable := importedSourceChoiceUnavailable(base.document); unavailable {
-		result.ReasonCode, result.Reason = code, reason
+	if importedSourceChoiceUnavailable(base.document) {
+		result.Supported = true
 		return result, nil
 	}
 	if _, found := constructionReceiptStage(base.stages, stageID); !found {

@@ -158,6 +158,9 @@ type Field struct {
 	Fallbacks  []Expression `json:"fallbacks,omitempty"`
 	ValueMode  ValueMode    `json:"valueMode,omitempty"`
 	Discovered bool         `json:"-"`
+	// SourceKey identifies the pinned catalog projection that generated this
+	// resolved field. It is compiler provenance, not authored recipe syntax.
+	SourceKey string `json:"-"`
 }
 
 // ValueMode controls how a checked selector contributes values to one row.
@@ -285,6 +288,9 @@ type Pivot struct {
 	// output name. Correlated pivots use this explicit mapping so a public
 	// column may remain stable when the selected terminology code changes.
 	ColumnAliases map[string]string `json:"columnAliases,omitempty"`
+	// OutputOverrides edits one exact raw output key without changing its
+	// identity. It also retains disabled discovered keys across schema loads.
+	OutputOverrides []PivotOutputOverride `json:"outputOverrides,omitempty"`
 	// ProjectionMode is the lookup's declared reduction policy. Empty is the
 	// legacy FIRST default; correlated pivots preserve ALL, DISTINCT, VALUE,
 	// and FIRST through physical lowering.
@@ -300,6 +306,12 @@ type Pivot struct {
 	// is mutually exclusive with Correlation and legacy selector expressions.
 	ExtensionCorrelation *fhirschema.ExtensionBinding `json:"extensionCorrelation,omitempty"`
 	Discovered           bool                         `json:"-"`
+}
+
+type PivotOutputOverride struct {
+	Key     string  `json:"key"`
+	Enabled bool    `json:"enabled"`
+	Name    *string `json:"name,omitempty"`
 }
 
 // OwnerRecordProjection preserves each repeated owner selected by a checked
@@ -354,6 +366,7 @@ func (p Pivot) MarshalJSON() ([]byte, error) {
 		ItemResourceType     string                        `json:"itemResourceType,omitempty"`
 		Columns              []string                      `json:"columns"`
 		ColumnAliases        map[string]string             `json:"columnAliases,omitempty"`
+		OutputOverrides      []PivotOutputOverride         `json:"outputOverrides,omitempty"`
 		ProjectionMode       string                        `json:"projectionMode,omitempty"`
 		Discovery            *PivotDiscovery               `json:"discovery,omitempty"`
 		Correlation          *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
@@ -362,7 +375,7 @@ func (p Pivot) MarshalJSON() ([]byte, error) {
 		CorrelationVersion   string                        `json:"correlationVersion,omitempty"`
 		ExtensionCorrelation *fhirschema.ExtensionBinding  `json:"extensionCorrelation,omitempty"`
 	}
-	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, CorrelationVersion: p.CorrelationVersion, ExtensionCorrelation: p.ExtensionCorrelation}
+	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, OutputOverrides: p.OutputOverrides, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, CorrelationVersion: p.CorrelationVersion, ExtensionCorrelation: p.ExtensionCorrelation}
 	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
 		value := p.ColumnExpr
 		wire.ColumnExpr = &value
@@ -657,13 +670,23 @@ type ExtensionColumnMapping struct {
 // is storage-neutral; the scoped schema resolver turns it into concrete typed
 // recipe fields before semantic compilation.
 type CatalogProjection struct {
-	Name         string       `json:"name"`
-	IncludePaths []string     `json:"includePaths,omitempty"`
-	ExcludePaths []string     `json:"excludePaths,omitempty"`
-	Kinds        []string     `json:"kinds,omitempty"`
-	Naming       ColumnNaming `json:"naming,omitempty"`
-	ValueMode    ValueMode    `json:"valueMode,omitempty"`
-	MaxColumns   int          `json:"maxColumns"`
+	Name         string   `json:"name"`
+	IncludePaths []string `json:"includePaths,omitempty"`
+	ExcludePaths []string `json:"excludePaths,omitempty"`
+	// OutputOverrides edits one discovered field by its exact FHIR path. It
+	// keeps user-authored output names and enablement independent of discovery
+	// ordering and of the projection's naming strategy.
+	OutputOverrides []CatalogProjectionOutputOverride `json:"outputOverrides,omitempty"`
+	Kinds           []string                          `json:"kinds,omitempty"`
+	Naming          ColumnNaming                      `json:"naming,omitempty"`
+	ValueMode       ValueMode                         `json:"valueMode,omitempty"`
+	MaxColumns      int                               `json:"maxColumns"`
+}
+
+type CatalogProjectionOutputOverride struct {
+	FieldPath string `json:"fieldPath"`
+	Enabled   bool   `json:"enabled"`
+	Name      string `json:"name,omitempty"`
 }
 
 type ColumnNaming string
@@ -690,6 +713,10 @@ type RuntimeBindings struct {
 	// population constraints. It is never serialized into a recipe digest.
 	SelectionMembersCollection string
 	PreviewLimit               int
+	// AllowSampledAggregatePreview bounds the root documents read for a
+	// builder-only aggregate preview. It is never used for apply or publication
+	// validation, where aggregation must see the complete input.
+	AllowSampledAggregatePreview bool
 	// IncludeAuthResourcePath is set only for ClickHouse publication streams.
 	// It keeps the reserved row-level authorization field out of ordinary
 	// dataframe previews while ensuring published rows carry their source path.

@@ -709,3 +709,40 @@ func TestCompileCategoryScanTracksPresenceThroughExpandForDiscoveryProbe(t *test
 		t.Fatalf("Expand category query omitted presence companion %q:\n%s", companion, scanned.Query)
 	}
 }
+
+func TestCompileCategoryScanRequiringValueFiltersEmptyPivotColumns(t *testing.T) {
+	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	scanned, err := CompileCategoryScanStageRequiringValue(output, "derive_total", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scanned.Proof.ValuePresenceRequired {
+		t.Fatalf("requiring-value proof did not record its value policy: %#v", scanned.Proof)
+	}
+	if !strings.Contains(scanned.Query, "FILTER __loom_category_row[@__loom_category_value_column] != null") {
+		t.Fatalf("requiring-value category scan omitted its non-null value filter:\n%s", scanned.Query)
+	}
+	if got := scanned.BindVars["__loom_category_value_column"]; got != "total" {
+		t.Fatalf("requiring-value category scan bound value column to %#v, want total", got)
+	}
+	if strings.Contains(scanned.Query, "__loom_category_nonnull") {
+		t.Fatalf("requiring-value category scan used the category-only indexed shortcut:\n%s", scanned.Query)
+	}
+	if scanned.OverflowWitness != nil {
+		t.Fatalf("requiring-value category scan emitted a category-only overflow witness: %+v", scanned.OverflowWitness)
+	}
+	projected := map[string]bool{}
+	for key, value := range scanned.BindVars {
+		if !strings.Contains(key, "projection") {
+			continue
+		}
+		name, ok := value.(string)
+		if !ok || !strings.Contains(scanned.Query, "[@"+key+"]") {
+			continue
+		}
+		projected[name] = true
+	}
+	if !projected["total"] || !projected["status"] {
+		t.Fatalf("requiring-value terminal projection = %v, want both category status and value total by name:\n%s", projected, scanned.Query)
+	}
+}

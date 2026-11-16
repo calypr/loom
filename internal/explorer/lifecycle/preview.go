@@ -2,8 +2,10 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"strings"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
@@ -33,8 +35,11 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 		return PreviewResult{}, err
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, receipt.Project, receipt.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
-		return PreviewResult{}, conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
+	if err != nil {
+		return PreviewResult{}, receiptCapabilityFailure("preview", "the receipt's capability snapshot is no longer authorized or retained", err)
+	}
+	if authorized.Snapshot.ValidateToken(receipt.SnapshotToken) != nil || strings.TrimSpace(authorized.Snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
+		return PreviewResult{}, conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, nil)
 	}
 	if err := validateAuthorizedReceiptExecution(receipt, authorized); err != nil {
 		return PreviewResult{}, conflict("preview", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)
@@ -46,6 +51,7 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 		Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project),
 		DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection,
 		PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true, IncludeSourceIdentity: true,
+		AllowSampledAggregatePreview: request.AllowSampledAggregatePreview,
 	}
 	applyAuthorizedScope(&bindings, authorized, false)
 	columns := emittedColumnsForOutput(receipt, request.OutputID)
@@ -59,6 +65,13 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 	}
 	result.Summary, err = s.config.PreviewReceipt(ctx, receipt, bindings, sink)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) {
+			return PreviewResult{}, typed
+		}
+		if userErr, ok := dataframeerrors.AsUserError(err); ok {
+			return PreviewResult{}, failureDetails(ClassUnprocessable, "preview", userErr.Code(), dataframeerrors.PublicMessage(err), userErr.Details(), err)
+		}
 		return PreviewResult{}, err
 	}
 	return result, nil

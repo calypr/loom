@@ -54,7 +54,7 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 	default:
 		return fmt.Errorf("unsupported duplicate policy %q", pivot.DuplicatePolicy)
 	}
-	if pivot.DuplicatePolicy != "ERROR" && pivot.ValueType != "INTEGER" && pivot.ValueType != "DECIMAL" {
+	if pivot.DuplicatePolicy == "SUM" && pivot.ValueType != "INTEGER" && pivot.ValueType != "DECIMAL" {
 		return fmt.Errorf("duplicate reducer %q requires a numeric value type", pivot.DuplicatePolicy)
 	}
 	switch pivot.MissingCellPolicy {
@@ -302,11 +302,11 @@ func validatePhysicalGroupedCodedPivot(pivot PhysicalGroupedPivot, projectionNam
 
 func physicalCodedPivotTableType(logicalType string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(logicalType)) {
-	case "string", "code", "uuid", "date", "datetime":
+	case "string", "code", "uuid", "date", "date_time", "date-time", "datetime":
 		return "STRING", true
 	case "integer":
 		return "INTEGER", true
-	case "decimal":
+	case "decimal", "number":
 		return "DECIMAL", true
 	case "boolean":
 		return "BOOLEAN", true

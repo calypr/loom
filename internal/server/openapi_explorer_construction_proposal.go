@@ -168,7 +168,7 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 	started := time.Now()
 	preview, err := h.previewAuthoringDirectWithTimeout(previewCtx, project, explorerID, &loomapi.PreviewExplorerJSONRequestBody{
 		ReceiptId: *result.ProposalId, OutputId: body.OutputId, Limit: &limit,
-	}, previewTimeout)
+	}, previewTimeout, true)
 	result.PreviewDurationMs = time.Since(started).Milliseconds()
 	if err != nil {
 		return result, err

@@ -289,7 +289,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		return result, conflict("catalog", "STALE_CATALOG_SNAPSHOT", "reload the catalog before browsing", nil, err)
 	}
 	if err != nil {
-		return result, err
+		return result, capabilityResolutionFailure("catalog", "reload the catalog before browsing", err)
 	}
 	snapshot := authorized.Snapshot
 	if snapshot.ValidateToken(req.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(req.Project) || snapshot.Identity.Generation == "" {
@@ -434,7 +434,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		return result, conflict("catalog", "STALE_CATALOG_CURSOR", "restart catalog search with an empty cursor", nil, err)
 	}
 	if err != nil {
-		return result, err
+		return result, persistenceFailure("catalog", "semantic inventory could not be read", err)
 	}
 	result.ContextToken, err = semanticInventoryContextToken(snapshot, req.ExplorerID, req.RowRoot, page.Build.BuildID)
 	if err != nil {
@@ -660,7 +660,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return nil, nil, unavailable("catalog", "FIELD_PRESENTATION_LOOKUP_INTERRUPTED", "semantic field coverage lookup was interrupted", err)
 		}
-		return nil, nil, internal("catalog", "FIELD_PRESENTATION_LOOKUP_FAILED", "semantic field coverage could not be read", err)
+		return nil, nil, persistenceFailure("catalog", "semantic field coverage could not be read", err)
 	}
 	if lookup.State != catalogarango.SemanticCoverageBuildComplete && lookup.State != catalogarango.SemanticCoverageBuildPartial {
 		reason := FieldPresentationCoverageUnavailable
@@ -1050,7 +1050,7 @@ func (s *Service) resolveFieldPresentationReplacements(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return nil, false, unavailable("catalog", "FIELD_PRESENTATION_REPLACEMENT_READ_INTERRUPTED", "semantic replacement resolution was interrupted", err)
 		}
-		return nil, false, internal("catalog", "FIELD_PRESENTATION_REPLACEMENT_READ_FAILED", "authorized semantic replacements could not be read", err)
+		return nil, false, persistenceFailure("catalog", "authorized semantic replacements could not be read", err)
 	}
 	if resolved.State != catalog.SemanticInventoryComplete || resolved.Build.State != catalog.SemanticInventoryComplete || resolved.Build.BuildID != buildID {
 		return items, false, nil
@@ -1209,7 +1209,7 @@ func (s *Service) fieldPresentationCurrentContext(
 		return current, notFound("catalog", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}
 	if err != nil {
-		return current, internal("catalog", "EXPLORER_READ_FAILED", "the current Explorer draft could not be loaded", err)
+		return current, persistenceFailure("catalog", "the current Explorer draft could not be loaded", err)
 	}
 	if owner == nil || owner.ExplorerID != request.ExplorerID || projectid.Canonical(owner.Project) != projectid.Canonical(request.Project) {
 		return current, notFound("catalog", "EXPLORER_NOT_FOUND", "Explorer not found", explorer.ErrNotFound)

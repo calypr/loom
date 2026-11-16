@@ -1,3 +1,4 @@
+import { admitAuthoringRequest } from './authoring/admission';
 import { reconcileAcceptance } from './authoring/reconcileAcceptance';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -60,12 +61,12 @@ import { RecipeColumnPolicyInspector } from './components/RecipeColumnPolicyInsp
 import { ConceptCatalog, type ConceptCatalogView } from './components/ConceptCatalog';
 import {
   PreviewTable,
-  type PreviewTablePresentationChange,
 } from './components/PreviewTable';
 import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangePreviewPanel } from './components/RowChangePreviewPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel, rowScopeLabel } from './components/RowDefinitionSettingsPanel';
+import { useBrowserSubscription } from './hooks/useBrowserSubscription';
 import { FrameSourcePanel } from './constructionWorkspace/FrameSourcePanel';
 import { TableShapeSettingsPanel } from './components/TableShapeSettingsPanel';
 import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
@@ -166,30 +167,6 @@ import type {
   ConstructionCombineStep,
 } from './constructionOperations/combineEditorTypes';
 
-const previewPresentationCommand = (
-  outputId: string,
-  change: PreviewTablePresentationChange,
-): ExplorerBuilderCommand => {
-  if (change.kind === 'AUTHORED_COLUMN') {
-    return {
-      type: 'UPDATE_COLUMN',
-      outputId,
-      column: change.column.column,
-      columnValue: change.column,
-    };
-  }
-  return {
-    type: 'UPDATE_CONSTRUCTION_OUTPUT',
-    outputId,
-    constructionOutput: {
-      stepId: change.stepId,
-      columnId: change.column.id,
-      label: change.column.label,
-      table: change.column.table,
-    },
-  };
-};
-
 const receiptContainsOutputIds = (
   receipt: ExplorerBuilderCompileResult | undefined,
   outputIds: ReadonlyArray<string>,
@@ -238,19 +215,22 @@ type ColumnSelectionState =
       readonly columnIds: ReadonlyArray<string>;
     };
 
+const suppressedBuilderDiagnostic = (diagnostic: ExplorerAuthoringDiagnostic): boolean =>
+  diagnostic.code === 'CONSTRUCTION_PREVIEW_FAILED';
+
 const diagnosticsFromError = (
   error: unknown,
 ): ReadonlyArray<ExplorerAuthoringDiagnostic> => {
   const value = error as ExplorerAuthoringApiError | undefined;
-  if (value?.diagnostics?.length) return value.diagnostics;
-  return [
-    {
-      severity: 'error',
-      code: value?.code ?? 'EXPLORER_AUTHORING_FAILED',
-      message: value?.message ?? 'Loom could not process the Builder request.',
-      requestId: value?.requestId,
-    },
-  ];
+  const diagnostics = value?.diagnostics?.length
+    ? value.diagnostics
+    : [{
+        severity: 'error' as const,
+        code: value?.code ?? 'EXPLORER_AUTHORING_FAILED',
+        message: value?.message ?? 'Loom could not process the Builder request.',
+        requestId: value?.requestId,
+      }];
+  return diagnostics.filter((diagnostic) => !suppressedBuilderDiagnostic(diagnostic));
 };
 const isUnsupportedUnknownSourceProjectionDiagnostic = (
   diagnostic: ExplorerAuthoringDiagnostic,
@@ -505,6 +485,11 @@ const BuilderWorkspaceContent = ({
     authResourcePath,
   };
   const builder = useGetExplorerBuilderStateV2Query(builderQueryArgs);
+  if (selectedExplorerId === 'dataframe-default' &&
+      (builder.error as { code?: string } | undefined)?.code === 'DEFAULT_DATAFRAME_UNAVAILABLE') {
+    const fallback = (explorers.data ?? []).find((candidate) => candidate.explorerId !== 'dataframe-default' && candidate.explorerId !== 'default');
+    if (fallback) setSelectedExplorerId(fallback.explorerId);
+  }
   const refetchBuilder = builder.refetch;
   const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
   const [createExplorer, createStatus] = useCreateExplorerAuthoringMutation();
@@ -636,6 +621,7 @@ const BuilderWorkspaceContent = ({
   const sourceFieldEditAction = useRef<((stepId: string, fieldId: string) => void) | undefined>(undefined);
   const sourceOutputEditAction = useRef<((stepId: string, outputKey: string) => void) | undefined>(undefined);
   const rowSettingsOpenAction = useRef<(() => void) | undefined>(undefined);
+  const rowSettingsCloseAction = useRef<(() => void) | undefined>(undefined);
   const recipeEditToken = useRef<RecipeEditToken | undefined>(undefined);
   const [candidateInspection, setCandidateInspection] = useState<{ key: string; occurrenceId: string }>();
   const [sourceProposal, setSourceProposal] = useState<{ owner: string; proposal: SourceProposalOwnerCandidate; preview: ExplorerBuilderPreviewResult }>();
@@ -861,6 +847,11 @@ const BuilderWorkspaceContent = ({
       admitCommand?: () => boolean,
     ) => {
       if (!commandRecipeAdmission.current(commands)) return Promise.resolve(undefined);
+      const admission = admitAuthoringRequest(latestState.current.tables, { kind: 'commands', commands });
+      if (admission.kind === 'refused') {
+        setMessage(admission.refusal.message);
+        return Promise.resolve(undefined);
+      }
       cancelAutomaticPreview();
       const applyPreviewEpoch = constructionApplyIdentity
         ? automaticPreviewGeneration.current
@@ -877,6 +868,11 @@ const BuilderWorkspaceContent = ({
           await queryOwner?.pauseAndDrain();
           if (!commandRecipeAdmission.current(commands) || (admitCommand && !admitCommand())) return undefined;
           const current = latestState.current;
+          const queuedAdmission = admitAuthoringRequest(current.tables, { kind: 'commands', commands });
+          if (queuedAdmission.kind === 'refused') {
+            setMessage(queuedAdmission.refusal.message);
+            return undefined;
+          }
           const commandId = proposedCommandId ?? window.crypto.randomUUID();
           const draftIdentity = commandDraftIdentity(current, serverDraft.current);
           const value = await applyBuilderCommands({
@@ -961,10 +957,8 @@ const BuilderWorkspaceContent = ({
             return undefined;
           }
           if (apiError.code !== 'CLIENT_CANCELLED') {
-            dispatch({
-              type: 'repair',
-              diagnostics: diagnosticsFromError(apiError),
-            });
+            const diagnostics = diagnosticsFromError(apiError);
+            if (diagnostics.length > 0) dispatch({ type: 'repair', diagnostics });
           }
           return undefined;
         } finally {
@@ -1180,58 +1174,60 @@ const BuilderWorkspaceContent = ({
     const [candidateId] = candidateIds;
     return state.catalog.candidates?.find((candidate) => candidate.candidateId === candidateId);
   };
-  useEffect(() => {
-    const currentIdentity: RootChangeRequestIdentity | undefined = table ? {
-      epoch: rowChangeRequestEpoch.current,
-      project: projectId,
-      ...(authResourcePath ? { authResourcePath } : {}),
-      explorerId: state.explorerId,
-      outputId: table.outputId,
-      snapshotToken: state.catalog.snapshotToken,
-      draftVersion: serverDraft.current.version,
-      draftDigest: serverDraft.current.digest,
-    } : undefined;
+  const rootIdentityKey = currentRootChangeIdentity
+    ? JSON.stringify([
+        currentRootChangeIdentity.project,
+        currentRootChangeIdentity.authResourcePath ?? '',
+        currentRootChangeIdentity.explorerId,
+        currentRootChangeIdentity.outputId,
+        currentRootChangeIdentity.snapshotToken,
+        currentRootChangeIdentity.draftVersion,
+        currentRootChangeIdentity.draftDigest,
+      ])
+    : 'none';
+  const [handledRootIdentityKey, setHandledRootIdentityKey] = useState(rootIdentityKey);
+  if (handledRootIdentityKey !== rootIdentityKey) {
+    setHandledRootIdentityKey(rootIdentityKey);
     const active = rootChangeStateRef.current;
     const pendingPreview = pendingRowChangePreview;
     const activeIsStale = active.kind !== 'idle' && (
-      currentIdentity === undefined ||
-      !sameRootChangeRequestIdentity(active.identity, currentIdentity)
+      currentRootChangeIdentity === undefined ||
+      !sameRootChangeRequestIdentity(active.identity, currentRootChangeIdentity)
     );
     const previewIsStale = pendingPreview !== undefined && (
-      currentIdentity === undefined ||
-      !sameRootChangeRequestIdentity(pendingPreview.identity, currentIdentity)
+      currentRootChangeIdentity === undefined ||
+      !sameRootChangeRequestIdentity(pendingPreview.identity, currentRootChangeIdentity)
     );
-    if (!activeIsStale && !previewIsStale) return;
+    if (activeIsStale || previewIsStale) {
+      rowChangeAssessmentRequest.current?.abort();
+      rowChangeAssessmentRequest.current = undefined;
+      rowChangePreviewRequest.current?.abort();
+      rowChangePreviewRequest.current = undefined;
+      rowChangeRequestEpoch.current += 1;
+      setPendingRowChangePreview(undefined);
 
-    rowChangeAssessmentRequest.current?.abort();
-    rowChangeAssessmentRequest.current = undefined;
-    rowChangePreviewRequest.current?.abort();
-    rowChangePreviewRequest.current = undefined;
-    rowChangeRequestEpoch.current += 1;
-    setPendingRowChangePreview(undefined);
-
-    if (activeIsStale) {
-      const sameExplorerOutput = active.identity.project === projectId &&
-        active.identity.authResourcePath === authResourcePath &&
-        active.identity.explorerId === state.explorerId &&
-        active.identity.outputId === table?.outputId;
-      setRootChangeState(sameExplorerOutput
-        ? {
-            kind: 'failed',
-            reason: 'stale',
-            selection: active.selection,
-            resolution: active.resolution,
-            identity: active.identity,
-            message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
-          }
-        : { kind: 'idle' });
+      if (activeIsStale) {
+        const sameExplorerOutput = active.identity.project === projectId &&
+          active.identity.authResourcePath === authResourcePath &&
+          active.identity.explorerId === state.explorerId &&
+          active.identity.outputId === table?.outputId;
+        setRootChangeState(sameExplorerOutput
+          ? {
+              kind: 'failed',
+              reason: 'stale',
+              selection: active.selection,
+              resolution: active.resolution,
+              identity: active.identity,
+              message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
+            }
+          : { kind: 'idle' });
+      }
+      if (previewIsStale) {
+        setMessage('The table changed while Loom prepared the row preview. Review the change again.');
+      }
     }
-    if (previewIsStale) {
-      setMessage('The table changed while Loom prepared the row preview. Review the change again.');
-    }
-  }, [authResourcePath, projectId, state.explorerId, state.catalog.snapshotToken,
-    state.draftVersion, state.draftDigest, table?.outputId, pendingRowChangePreview]);
-  useEffect(() => {
+  }
+  useBrowserSubscription((_onStoreChange) => () => {
     addColumnsRequest.current?.abort();
     addColumnsRequest.current = undefined;
   }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
@@ -1439,12 +1435,16 @@ const BuilderWorkspaceContent = ({
   );
   const constructionProposalBusy = constructionLifecycle.proposal.status === 'previewing' ||
     constructionLifecycle.proposal.status === 'applying';
-  useEffect(() => {
+  const selectionOwnerIdentity = `${ownerKey}\u0000${state.explorerId}\u0000${table?.outputId ?? ''}`;
+  const [selectionOwner, setSelectionOwner] = useState(selectionOwnerIdentity);
+  if (selectionOwner !== selectionOwnerIdentity) {
+    setSelectionOwner(selectionOwnerIdentity);
     setColumnSelection({ kind: 'empty' });
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setRowIntentSession(false);
-  }, [ownerKey, state.explorerId, table?.outputId]);
+    setSourceRowsOpen(false);
+  }
   const tablePreview =
     state.preview?.outputId === table?.outputId ? state.preview : undefined;
   const previewIsCurrent = Boolean(
@@ -1508,17 +1508,24 @@ const BuilderWorkspaceContent = ({
       || (featureFocus.label !== undefined && candidate.label === featureFocus.label));
     return targetTable && column ? { table: targetTable, column } : undefined;
   }, [featureFocus, state.tables]);
-  useEffect(() => {
-    if (!focusedFeature || reviewFocusTarget) return;
-    if (state.selectedOutputId !== focusedFeature.table.outputId) {
-      setActiveConstructionSelection(undefined);
-      dispatch({ type: 'selectTable', outputId: focusedFeature.table.outputId });
-      return;
+  const lastFocusAttempt = useRef<string | undefined>(undefined);
+  if (focusedFeature && !reviewFocusTarget) {
+    const attemptKey = [
+      focusedFeature.table.outputId,
+      focusedFeature.column.occurrenceId,
+      state.selectedOutputId,
+      state.selectedOccurrenceId,
+    ].join('\u0000');
+    if (lastFocusAttempt.current !== attemptKey) {
+      lastFocusAttempt.current = attemptKey;
+      if (state.selectedOutputId !== focusedFeature.table.outputId) {
+        setActiveConstructionSelection(undefined);
+        dispatch({ type: 'selectTable', outputId: focusedFeature.table.outputId });
+      } else if (state.selectedOccurrenceId !== focusedFeature.column.occurrenceId) {
+        dispatch({ type: 'selectOccurrence', occurrenceId: focusedFeature.column.occurrenceId });
+      }
     }
-    if (state.selectedOccurrenceId !== focusedFeature.column.occurrenceId) {
-      dispatch({ type: 'selectOccurrence', occurrenceId: focusedFeature.column.occurrenceId });
-    }
-  }, [dispatch, focusedFeature, reviewFocusTarget, state.selectedOccurrenceId, state.selectedOutputId]);
+  }
   const focusDatasetReviewTarget = useCallback((target: DatasetReviewTarget) => {
     if (target.kind === 'new-table') {
       setReviewOpen(false);
@@ -1541,8 +1548,8 @@ const BuilderWorkspaceContent = ({
       setFeatureMode('catalog');
     }
   }, [dispatch, selectTableFromUser]);
-  useEffect(() => {
-    if (!reviewFocusTarget || state.selectedOutputId !== reviewFocusTarget.outputId) return;
+  useBrowserSubscription((_onStoreChange) => {
+    if (!reviewFocusTarget || state.selectedOutputId !== reviewFocusTarget.outputId) return () => {};
     const focusTarget = reviewFocusTarget;
     const timer = window.setTimeout(() => {
       if (focusTarget.kind === 'column') {
@@ -1569,7 +1576,7 @@ const BuilderWorkspaceContent = ({
       control?.focus();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [reviewFocusTarget, state.selectedOutputId, state.tables]);
+  }, [reviewFocusTarget, state.selectedOutputId, state.tables], Boolean(reviewFocusTarget && state.selectedOutputId === reviewFocusTarget.outputId));
   const handedOffPopulationSelectionID = populationSelection?.id;
   const cohortRevisionID = table && table.document.rows.kind === 'GROUPS' &&
     table.document.rows.groups.source.kind === 'EXPLICIT'
@@ -1729,7 +1736,7 @@ const BuilderWorkspaceContent = ({
       ?.querySelector<HTMLButtonElement>(`[data-view="${nextView}"]`)
       ?.focus();
   };
-  useEffect(() => {
+  useBrowserSubscription((_onStoreChange) => () => {
     addColumnsRequest.current?.abort();
     addColumnsRequest.current = undefined;
   }, [selectedAddSource?.key, activeConstructionFamily]);
@@ -1880,6 +1887,8 @@ const BuilderWorkspaceContent = ({
       if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
         throw new Error('The current table is still loading.');
       }
+      const admission = admitAuthoringRequest(current.tables, { kind: 'add-columns-proposal', outputId: table.outputId });
+      if (admission.kind === 'refused') throw new Error(admission.refusal.message);
       const response = await loomClient.proposeConstructionChoices({
         project: projectId,
         explorerId: current.explorerId,
@@ -2031,6 +2040,7 @@ const BuilderWorkspaceContent = ({
         setActiveConstructionFamily(undefined);
         setConstructionHistorySelection({ kind: 'source' });
         setEditingConstructionStepId(undefined);
+        setRowIntentSession(false);
       }
     } else if (!applied && settledCurrentOwner && fromColumnPicker) {
       constructionLifecycle.cancel();
@@ -2088,6 +2098,8 @@ const BuilderWorkspaceContent = ({
     if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {
       throw new Error('The current table is still loading. Try adding the columns again.');
     }
+    const admission = admitAuthoringRequest(current.tables, { kind: 'add-columns-proposal', outputId: table.outputId });
+    if (admission.kind === 'refused') throw new Error(admission.refusal.message);
     addColumnsRequest.current?.abort();
     const controller = new AbortController();
     addColumnsRequest.current = controller;
@@ -2286,6 +2298,7 @@ const BuilderWorkspaceContent = ({
     async (selection: RootChangeSelection, resolution: RootChangeResolution = {}) => {
       const rootOwnership = rootRecipeActions.current?.begin(selection.nodeId, 'PRESERVE');
       if (!rootOwnership) return;
+      rowSettingsOpenAction.current?.();
       abortRootChangeRequests();
       rowChangeRequestEpoch.current += 1;
       const epoch = rowChangeRequestEpoch.current;
@@ -2386,6 +2399,7 @@ const BuilderWorkspaceContent = ({
             return;
           }
           setPendingRowChangePreview({ ...context, status: 'ready', preview: candidatePreview });
+          rowSettingsCloseAction.current?.();
           setRootChangeState({ kind: 'idle' });
         } catch (error) {
           if (controller.signal.aborted || !isCurrentAttempt()) return;
@@ -3243,6 +3257,12 @@ const BuilderWorkspaceContent = ({
       : 'The automatic preview request failed.';
   const addColumnsPreviewPending = automaticPreviewQuery.isLoading &&
     outputAvailability.hasAnyOutputColumn;
+  const addColumnsAdmission = table
+    ? admitAuthoringRequest(state.tables, { kind: 'add-columns-proposal', outputId: table.outputId })
+    : { kind: 'admitted' as const };
+  const addColumnsReason = addColumnsAdmission.kind === 'refused'
+    ? addColumnsAdmission.refusal.message
+    : undefined;
   const busy =
     pendingCommands > 0 ||
     reconcileStatus.isLoading ||
@@ -3252,12 +3272,6 @@ const BuilderWorkspaceContent = ({
     publishing ||
     createStatus.isLoading ||
     deleteStatus.isLoading;
-  const applyPresentationChanges = (changes: ReadonlyArray<PreviewTablePresentationChange>) => {
-    if (!table || changes.length === 0) return;
-    void applyCommandsWithResult(changes.map((change) =>
-      previewPresentationCommand(table.outputId, change),
-    ));
-  };
   const executePublish = useCallback(
     async (receiptId: string) => {
       let activeReceiptId = receiptId;
@@ -3537,7 +3551,14 @@ const BuilderWorkspaceContent = ({
     rememberOperationFocus();
     const willOpen = activeConstructionFamily !== family;
     setRowIntentSession(false);
-    if (family === 'ADD_COLUMNS' && willOpen) selectAddColumnsView('fields');
+    if (family === 'ADD_COLUMNS' && willOpen) {
+      const admission = admitAuthoringRequest(state.tables, { kind: 'add-columns-proposal', outputId: table?.outputId ?? '' });
+      if (admission.kind === 'refused') {
+        setMessage(admission.refusal.message);
+        return;
+      }
+      selectAddColumnsView('fields');
+    }
     if (family === 'COMBINE' && willOpen) {
       if (!canStartCombine) return;
       void startCombine();
@@ -3623,7 +3644,8 @@ const BuilderWorkspaceContent = ({
     setReshapeFormKind(kind === 'categories' ? 'choose' : kind === 'expand-signed' ? 'expand' : kind);
     const nextEntry = reshapeEntry + 1;
     if (entry && entryStageId) {
-      constructionLifecycle.onCandidateChange(entry.candidateIntent);
+      if (entry.candidateIntent) constructionLifecycle.onCandidateChange(entry.candidateIntent);
+      else constructionLifecycle.cancel();
       setReshapeInitialEntry({
         editorKey: reshapeEditorKeyFor(nextEntry, editorKind, entryStageId),
         entry,
@@ -3670,7 +3692,19 @@ const BuilderWorkspaceContent = ({
     setEditingConstructionStepId(stepId);
     setActiveConstructionFamily(family);
     if (family === 'RESHAPE') setReshapeFormKind('choose');
+    setReshapeInitialEntry(undefined);
   };
+  const closeConstructionWorkspace = () => {
+    constructionLifecycle.cancel();
+    cancelCombineCatalogRequest();
+    setEditingConstructionStepId(undefined);
+    setActiveConstructionFamily(undefined);
+    setRowIntentSession(false);
+    setReshapeEntryKind('choose');
+    setReshapeFormKind('choose');
+    setReshapeInitialEntry(undefined);
+  };
+  const cancelConstructionEditor = closeConstructionWorkspace;
   const switchRowIntent = (_intent: 'records' | 'reshape') => {
     if (!rowIntentSession) return;
     constructionLifecycle.cancel();
@@ -3683,6 +3717,7 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionFamily(undefined);
   };
   const closeRowIntentSession = () => {
+    setSourceRowsOpen(false);
     if (!rowIntentSession) return;
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
@@ -3731,11 +3766,11 @@ const BuilderWorkspaceContent = ({
     (candidate) => candidate.family === activeConstructionFamily,
   );
   const activeReshapeEditorKey = table && constructionLifecycle.capabilities.status === 'ready'
-    ? reshapeEditorKeyFor(
+    ? `${reshapeEditorKeyFor(
         reshapeEntry,
         reshapeEntryKind,
         constructionLifecycle.capabilities.response.selectedStage.id,
-      )
+      )}:${!editingConstructionStep && (reshapeFormKind === 'choose' || reshapeFormKind === 'pivot' || reshapeFormKind === 'unpivot') ? selectedColumnIds.join(',') : ''}`
     : undefined;
   const activeReshapeInitialEntry = reshapeInitialEntry && reshapeInitialEntry.editorKey === activeReshapeEditorKey
     ? reshapeInitialEntry.entry
@@ -3747,10 +3782,9 @@ const BuilderWorkspaceContent = ({
   const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry && reshapeFormKind !== 'expand'
     ? 'choose'
     : reshapeEntryKind;
-  const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && (
-    (reshapeFormKind !== 'choose' && reshapeFormKind !== 'unsupported')
-    || Boolean(editingConstructionStep && editableConstructionFamily(editingConstructionStep.operation) === 'RESHAPE')
-  );
+  const showReshapeColumnSelection = activeOperation?.family === 'RESHAPE' &&
+    (reshapeFormKind === 'choose' || reshapeFormKind === 'pivot' || reshapeFormKind === 'unpivot' || reshapeFormKind === 'coded-pivot');
+  const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && !showReshapeColumnSelection;
   const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
     ? editingConstructionStep as RelatedSourceStep
     : undefined;
@@ -3849,11 +3883,6 @@ const BuilderWorkspaceContent = ({
   const tablePivotAvailability = constructionLifecycle.capabilities.status === 'ready' && constructionLifecycle.capabilities.response.pivotSourceInput?.supported
     ? { supported: true } : reshapeAvailabilityFor('PIVOT');
   const expandCapability = capabilityStage?.capabilities.find((candidate) => candidate.kind === 'EXPAND');
-  const expandableColumnIds = new Set(
-    previewIsCurrent && capabilityIsForAppendStage && expandCapability?.supported
-      ? publicScalarListColumnIds(capabilityStage)
-      : [],
-  );
   const signedExpandAvailable = constructionLifecycle.capabilities.status === 'ready'
     && previewIsCurrent && capabilityIsForAppendStage
     && (constructionLifecycle.capabilities.response.expandSourceInput?.supported ?? false)
@@ -4144,21 +4173,16 @@ const BuilderWorkspaceContent = ({
             type="button"
             aria-label="Close operation editor"
             data-testid="construction-close-operation-editor"
-            onClick={() => {
-              constructionLifecycle.cancel();
-              cancelCombineCatalogRequest();
-              setActiveConstructionFamily(undefined);
-              setEditingConstructionStepId(undefined);
-              setRowIntentSession(false);
-            }}
+            onClick={closeConstructionWorkspace}
             className="inline-flex shrink-0 items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
           >
             <span aria-hidden="true">←</span> Back to table
           </button>
         </div>
-        {hideGenericReshapeSelection ? null : activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' || activeOperation.family === 'RESHAPE' ? (
+        {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' || showReshapeColumnSelection ? (
           <div className="mt-3">
             <ConstructionColumnSelection
+              key={`${activeConstructionFamily}:${currentStage?.id ?? ''}:${selectableColumns.map((column) => column.id).join(',')}`}
               columns={selectableColumns}
               selectedColumnIds={selectedColumnIds}
               disabled={pendingCommands > 0 || !currentStage}
@@ -4193,6 +4217,7 @@ const BuilderWorkspaceContent = ({
                 disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
                 onCandidateChange={constructionLifecycle.onCandidateChange}
                 onEditStep={editConstructionStep}
+                onCancel={cancelConstructionEditor}
               />
             ) : null}
             {rowValuesSupported ? (
@@ -4310,6 +4335,7 @@ const BuilderWorkspaceContent = ({
                 disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
                 onCandidateChange={constructionLifecycle.onCandidateChange}
                 onEditStep={editConstructionStep}
+                onCancel={cancelConstructionEditor}
               />
             ) : <ConstructionOperationEditor
               family="CALCULATE"
@@ -4342,6 +4368,7 @@ const BuilderWorkspaceContent = ({
               initialEntry={activeReshapeInitialEntry}
               hideChangeRowOperation={rowIntentSession}
               selectedColumns={selectedColumnIds}
+              useExternalColumnSelection={showReshapeColumnSelection}
               onFormKindChange={setReshapeFormKind}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
@@ -4366,6 +4393,7 @@ const BuilderWorkspaceContent = ({
               disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
               onCandidateChange={constructionLifecycle.onCandidateChange}
               onEditStep={editConstructionStep}
+              onCancel={cancelConstructionEditor}
             />
           ) : (
             null
@@ -4424,6 +4452,7 @@ const BuilderWorkspaceContent = ({
         <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
       ) : constructionLifecycle.capabilities.status === 'ready' ? (
         <RelatedSourceStepEditor
+          key={`${table.outputId}:${editingRelatedSourceStep.id}`}
           project={projectId}
           explorerId={state.explorerId}
           authResourcePath={authResourcePath}
@@ -4484,12 +4513,7 @@ const BuilderWorkspaceContent = ({
       onApply={() => void applyConstructionProposal()}
       onCancel={() => {
         const queryOwner = relatedExpandQueryOwnerRef.current;
-        const closeProposal = () => {
-          constructionLifecycle.cancel();
-          cancelCombineCatalogRequest();
-          setActiveConstructionFamily(undefined);
-          setEditingConstructionStepId(undefined);
-        };
+        const closeProposal = closeConstructionWorkspace;
         if (!queryOwner) {
           closeProposal();
           return;
@@ -5029,12 +5053,24 @@ const BuilderWorkspaceContent = ({
                     onSelectScope={selectTraversalScope} onEditSourceStep={(stepId) => sourceStepEditAction.current?.(stepId)}
                     onEditSourceOutput={(stepId, outputKey) => { setActiveSourceStepId(stepId); sourceOutputEditAction.current?.(stepId, outputKey); }}
                     onEditConstructionStep={editConstructionStep} onEditColumn={editTraversalColumn} onEditSourceRows={editTraversalRows}
+                    onRemoveSourceStep={(stepId) => {
+                      if (!recipeMutationAllowed()) return;
+                      void applyCommands([{ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId: table.outputId, sourceStep: { stepId, enabled: false } }]);
+                    }}
+                    onRemoveConstructionStep={removeConstructionStep}
                     onExpandRelatedRows={() => chooseRelatedRows()} onGroupRows={() => chooseReshapeRows('group')}
                     resultActions={<ConstructionActionBar variant="compact" activeFamily={activeConstructionFamily}
+                      families={['ADD_COLUMNS', 'KEEP_ROWS', 'CALCULATE', 'RESHAPE']}
                       disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
-                      addColumnsDisabled={addColumnsPreviewPending} combineDisabled={!canStartCombine}
+                      addColumnsDisabled={addColumnsPreviewPending || Boolean(addColumnsReason)}
+                      addColumnsReason={addColumnsReason}
                       calculateAvailable={Boolean(capabilityIsForAppendStage && capabilityStage?.capabilities.some((candidate) => candidate.kind === 'DERIVE' && candidate.supported))}
-                      calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />} />
+                      calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />}
+                    combineActions={<ConstructionActionBar variant="compact" activeFamily={activeConstructionFamily}
+                      families={['COMBINE']}
+                      disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
+                      combineDisabled={!canStartCombine}
+                      onSelect={selectConstructionFamily} />} />
                 </div> : undefined}
                 tables={state.tables.map((candidate) => ({
                   outputId: candidate.outputId,
@@ -5062,11 +5098,12 @@ const BuilderWorkspaceContent = ({
                 onRenameTable={renameTableById}
                 rowSetup={(
                   <RowDefinitionSettingsPanel
-                    key={table.outputId}
+                    key={`${table.outputId}:${state.catalog.snapshotToken}:${builder.data?.draftVersion ?? ''}:${builder.data?.draftDigest ?? ''}`}
                     inspectorHost={sourceRowsInspectorHost}
                     onOpenChange={setSourceRowsOpen}
                     operationInspectorPresentation="workspace"
                     openActionRef={rowSettingsOpenAction}
+                    closeActionRef={rowSettingsCloseAction}
                     replacementPresentation="shared" replacementInspectorHost={rootReplacementInspectorHost}
                     onBeginRootProposal={(nodeId) => rootRecipeActions.current?.begin(nodeId, 'REPLACE')}
                     onCancelRootProposal={cancelRootChange}
@@ -5244,7 +5281,8 @@ const BuilderWorkspaceContent = ({
                   Boolean(pendingRowChangePreview) ||
                   constructionLifecycle.proposal.status === 'applying'
                 }
-                addColumnsDisabled={addColumnsPreviewPending}
+                addColumnsDisabled={addColumnsPreviewPending || Boolean(addColumnsReason)}
+                addColumnsReason={addColumnsReason}
                 combineDisabled={!canStartCombine}
                 calculateAvailable={Boolean(
                   capabilityIsForAppendStage &&
@@ -5278,31 +5316,7 @@ const BuilderWorkspaceContent = ({
                         onLimitChange={(limit) => {
                           setPreviewLimit(limit);
                         }}
-                        onColumnChange={(change) => applyPresentationChanges([change])}
-                        onColumnsChange={applyPresentationChanges}
-                        expandableColumnIds={expandableColumnIds}
-                        onExpandColumn={(columnId) => chooseReshapeRows('expand', [columnId])}
-                        candidateForColumn={candidateForPreviewColumn}
-                        onTransformationChange={(column, transformationChange) =>
-                          table &&
-                          void applyCommands([{
-                            type: 'UPDATE_COLUMN_TRANSFORMATION',
-                            outputId: table.outputId,
-                            column,
-                            transformationChange,
-                          }])
-                        }
-                        onRowValuePolicyChange={(physicalColumn, rowValuePolicy) =>
-                          table &&
-                          void applyCommands([{
-                            type: 'UPDATE_COLUMN_ROW_VALUE_POLICY',
-                            outputId: table.outputId,
-                            column: physicalColumn,
-                            rowValuePolicy,
-                          }])
-                        }
                         disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                        onRemoveColumn={(column) => void applyCommands([{ type: 'REMOVE_COLUMN', outputId: table.outputId, column }])}
                         onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({
                           project: projectId,
                           explorerId: state.explorerId,

@@ -1,7 +1,6 @@
 package authoringv2
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"reflect"
@@ -38,11 +37,17 @@ type ImportedFieldParameters struct {
 	ValueMode recipe.ValueMode    `json:"valueMode,omitempty"`
 }
 type ImportedCatalogParameters struct {
-	Name         string              `json:"name"`
-	IncludePaths []string            `json:"includePaths,omitempty"`
-	ExcludePaths []string            `json:"excludePaths,omitempty"`
-	Kinds        []string            `json:"kinds,omitempty"`
-	Naming       recipe.ColumnNaming `json:"naming,omitempty"`
+	Name         string                  `json:"name"`
+	IncludePaths []string                `json:"includePaths,omitempty"`
+	ExcludePaths []string                `json:"excludePaths,omitempty"`
+	Outputs      []ImportedCatalogOutput `json:"outputs,omitempty"`
+	Kinds        []string                `json:"kinds,omitempty"`
+	Naming       recipe.ColumnNaming     `json:"naming,omitempty"`
+}
+type ImportedCatalogOutput struct {
+	FieldPath string `json:"fieldPath"`
+	Enabled   bool   `json:"enabled"`
+	Name      string `json:"name,omitempty"`
 }
 type ImportedDynamicParameters struct {
 	Name         string             `json:"name"`
@@ -70,6 +75,12 @@ type ImportedPivotParameters struct {
 	ItemResourceType string                            `json:"itemResourceType,omitempty"`
 	Columns          []string                          `json:"columns,omitempty"`
 	ColumnAliases    map[string]string                 `json:"columnAliases,omitempty"`
+	Outputs          []ImportedPivotOutput             `json:"outputs,omitempty"`
+}
+type ImportedPivotOutput struct {
+	Key     string  `json:"key"`
+	Enabled bool    `json:"enabled"`
+	Name    *string `json:"name,omitempty"`
 }
 type ImportedExpansionParameters struct {
 	From        recipe.Expression           `json:"from"`
@@ -137,32 +148,11 @@ func (p *ImportedSourceParameters) Validate(kind string) error {
 			if nodes > 4096 {
 				return fmt.Errorf("source parameters exceed 4096 expression nodes")
 			}
-			if e.Document != nil {
-				return fmt.Errorf("source parameters cannot reference other documents")
-			}
 			if _, err := e.MarshalJSON(); err != nil {
 				return err
 			}
-			if e.Call != "" && kind == "" {
-				switch e.Call {
-				case "first", "all", "reference_id", "last_segment", "coalesce", "coalesce_string", "join", "concat", "uuid5":
-				default:
-					return fmt.Errorf("source expression function %q is unsupported", e.Call)
-				}
-			}
-			if kind == "" && len(e.Literal) > 4096 {
+			if len(e.Literal) > 4096 {
 				return fmt.Errorf("source literal exceeds 4096 bytes")
-			}
-			if kind == "" && len(e.Literal) > 0 {
-				var literal any
-				if err := json.Unmarshal(e.Literal, &literal); err != nil {
-					return err
-				}
-				switch literal.(type) {
-				case nil, bool, string, float64:
-				default:
-					return fmt.Errorf("source literals must be primitive values")
-				}
 			}
 			for _, a := range e.Args {
 				if err := visit(reflect.ValueOf(a), depth+1); err != nil {
@@ -222,6 +212,33 @@ func (p *ImportedSourceParameters) Validate(kind string) error {
 			seen[f.FieldID] = true
 			if !f.ValueMode.Valid() {
 				return fmt.Errorf("invalid field value mode")
+			}
+		}
+	}
+	if p.Catalog != nil {
+		seen := map[string]bool{}
+		for _, output := range p.Catalog.Outputs {
+			if output.FieldPath == "" || output.FieldPath != strings.TrimSpace(output.FieldPath) || seen[output.FieldPath] {
+				return fmt.Errorf("catalog output field paths must be nonempty, trimmed, and unique")
+			}
+			seen[output.FieldPath] = true
+			if output.Name != strings.TrimSpace(output.Name) {
+				return fmt.Errorf("catalog output %q name must be trimmed", output.FieldPath)
+			}
+		}
+	}
+	if p.Pivot != nil {
+		if len(p.Pivot.Outputs) > 256 {
+			return fmt.Errorf("pivot outputs must contain at most 256 entries")
+		}
+		seen := map[string]bool{}
+		for _, output := range p.Pivot.Outputs {
+			if strings.TrimSpace(output.Key) == "" || len(output.Key) > 2048 || seen[output.Key] {
+				return fmt.Errorf("pivot output keys must be nonempty and unique")
+			}
+			seen[output.Key] = true
+			if output.Name != nil && *output.Name != strings.TrimSpace(*output.Name) {
+				return fmt.Errorf("pivot output %q name must be trimmed", output.Key)
 			}
 		}
 	}

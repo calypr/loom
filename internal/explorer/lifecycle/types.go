@@ -291,6 +291,9 @@ type PreviewRequest struct {
 	ReceiptID  string
 	OutputID   string
 	Limit      int
+	// AllowSampledAggregatePreview permits a bounded builder preview for
+	// aggregate operations. Apply-time validation leaves this false.
+	AllowSampledAggregatePreview bool
 	// SinkFactory is supplied by the transport adapter. It receives the
 	// validated receipt and emitted columns and returns a row sink for native
 	// streaming previews. Lifecycle never sees the response encoder itself.

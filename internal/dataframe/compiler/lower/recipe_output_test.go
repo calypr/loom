@@ -1237,3 +1237,14 @@ func TestCompileResolvedRecipePlanLowersRequiredTraversalFilter(t *testing.T) {
 		t.Fatal("required traversal filter did not reach physical plan")
 	}
 }
+
+func TestPruneUnmaterializedDynamicColumnsRequiresRuntimeInventory(t *testing.T) {
+	metadata := []DynamicColumnMetadata{{Name: "researchstudy__identifier_by_system", DynamicName: "researchstudy__identifier", ValueType: "STRING"}}
+	if got := pruneUnmaterializedDynamicColumns(metadata, []CompiledOutputColumn{{Name: "researchstudy__identifier_by_system"}}); len(got) != 0 {
+		t.Fatalf("derived output without runtime inventory kept checks: %#v", got)
+	}
+	schema := []CompiledOutputColumn{{Name: "researchstudy__identifier_by_system"}, {Name: "__loom_dynamic_runtime_keys"}}
+	if got := pruneUnmaterializedDynamicColumns(metadata, schema); len(got) != 1 {
+		t.Fatalf("output with runtime inventory dropped checks: %#v", got)
+	}
+}

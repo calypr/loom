@@ -1144,7 +1144,7 @@ func resolveProposalPivot(t *testing.T, service *Service, request TableShapeProp
 		MissingPolicyChoiceID:   catalogPolicyChoice(t, catalog, tableshapecap.RolePolicyMissing, "NULL"),
 		UnlistedPolicyChoiceID:  catalogPolicyChoice(t, catalog, tableshapecap.RolePolicyUnlisted, "ERROR"),
 	}
-	for index, category := range discovery.Categories[:2] {
+	for index, category := range discovery.Categories {
 		selection.Categories = append(selection.Categories, TableShapePivotCategorySelection{
 			ChoiceID: category.ID, OutputColumn: fmt.Sprintf("bucket_%d", index+1), OutputLabel: fmt.Sprintf("Bucket %d", index+1),
 		})

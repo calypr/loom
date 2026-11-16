@@ -210,6 +210,28 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		}
 		aliases[alias] = key
 	}
+	if len(p.OutputOverrides) > maxPivotColumns {
+		return validationError("too_many_output_overrides", path+".outputOverrides", fmt.Sprintf("must contain at most %d entries", maxPivotColumns))
+	}
+	overrideKeys := map[string]bool{}
+	for i, override := range p.OutputOverrides {
+		overridePath := fmt.Sprintf("%s.outputOverrides[%d]", path, i)
+		if strings.TrimSpace(override.Key) == "" || len(override.Key) > 2048 {
+			return validationError("invalid_output_key", overridePath+".key", "must be a nonempty key of at most 2048 bytes")
+		}
+		if overrideKeys[override.Key] {
+			return validationError("duplicate_output_key", overridePath+".key", "pivot output key is repeated")
+		}
+		overrideKeys[override.Key] = true
+		if p.Discovery == nil && !seen[override.Key] {
+			return validationError("unknown_output_override", overridePath+".key", fmt.Sprintf("key %q is not a pinned pivot column", override.Key))
+		}
+		if override.Name != nil && *override.Name != "" {
+			if err := validateRecipeName(*override.Name, overridePath+".name"); err != nil {
+				return err
+			}
+		}
+	}
 	if p.Correlation != nil && p.ExtensionCorrelation != nil {
 		return validationError("ambiguous_correlation", path, "pivot cannot carry both terminology and extension correlation")
 	}
@@ -291,6 +313,25 @@ func (p CatalogProjection) validateAt(path string) error {
 	}
 	if !p.ValueMode.Valid() {
 		return validationError("invalid_value_mode", path+".valueMode", fmt.Sprintf("unsupported value mode %q", p.ValueMode))
+	}
+	if len(p.OutputOverrides) > maxCatalogProjectionColumns {
+		return validationError("too_many_output_overrides", path+".outputOverrides", fmt.Sprintf("must contain at most %d entries", maxCatalogProjectionColumns))
+	}
+	overridePaths := map[string]struct{}{}
+	for i, override := range p.OutputOverrides {
+		overridePath := fmt.Sprintf("%s.outputOverrides[%d]", path, i)
+		if override.FieldPath == "" || override.FieldPath != strings.TrimSpace(override.FieldPath) || len(override.FieldPath) > 512 {
+			return validationError("invalid_field_path", overridePath+".fieldPath", "must be a nonempty trimmed path of at most 512 bytes")
+		}
+		if _, exists := overridePaths[override.FieldPath]; exists {
+			return validationError("duplicate_field_path", overridePath+".fieldPath", "field path is repeated")
+		}
+		overridePaths[override.FieldPath] = struct{}{}
+		if override.Name != "" {
+			if err := validateRecipeName(override.Name, overridePath+".name"); err != nil {
+				return err
+			}
+		}
 	}
 	seen := map[string]struct{}{}
 	for i, kind := range p.Kinds {

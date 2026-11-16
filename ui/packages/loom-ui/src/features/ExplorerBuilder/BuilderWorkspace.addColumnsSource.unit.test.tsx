@@ -2436,10 +2436,10 @@ describe('BuilderWorkspace Add columns source selection', () => {
       'patient-row-key', proposedSteps[1]?.outputs[1]?.id, proposedSteps[2]?.outputs[2]?.id,
     ]);
     expect(screen.getByTestId('construction-proposal-ready')).toHaveTextContent(
-      '1 row and 3 columns · checked in 7 ms.',
+      'Preview sample: 1 row · 3 columns · computed in 7 ms.',
     );
 
-    fireEvent.click(screen.getByTestId('construction-cancel-proposal'));
+    fireEvent.keyDown(window, { key: 'Escape' });
     expect(applyExplorerCommands).not.toHaveBeenCalled();
     expect(savedWorkspace.documents[0]?.construction).toEqual(construction);
     await waitFor(() => expect(screen.queryByTestId('construction-proposal-ready')).not.toBeInTheDocument());

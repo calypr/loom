@@ -1,4 +1,5 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useId, useState } from 'react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -107,6 +108,7 @@ export interface ConstructionOperationEditorProps {
   readonly onCandidateChange: (candidate: CandidateIntent | undefined) => void;
   /** The host loads the predecessor-stage capabilities and reopens this step. */
   readonly onEditStep: (stepId: string) => void;
+  readonly onCancel?: () => void;
 }
 
 const createOpaqueId = (prefix: string): string => {
@@ -973,12 +975,6 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
   const publicCarriers = publicFieldCarriersForStage(capabilities);
   const [stepId, setStepId] = useState(() => createOpaqueId('filter'));
   const [form, setForm] = useState(() => filterFormFromStep(editingStep, stage, selectedColumns, sourceChoices));
-  const contextKey = editorContextKey(capabilities, editingStep);
-  useEffect(() => {
-    setStepId(createOpaqueId('filter'));
-    setForm(filterFormFromStep(editingStep, stage, selectedColumns, sourceChoices));
-    props.onCandidateChange(undefined);
-  }, [contextKey]);
 
   const support = operationSupport(stage, 'FILTER');
   const supportedSavedSteps = filterSteps(construction);
@@ -1387,24 +1383,20 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
   const deriveSourceChoices = deriveSourceInput?.choices ?? [];
   const [stepId, setStepId] = useState(() => createOpaqueId('derive'));
   const [outputColumnId, setOutputColumnId] = useState(() => createOpaqueId('column'));
-  const [form, setForm] = useState(() => calculationFormFromStep(editingStep, stage, deriveSourceChoices));
-  const contextKey = editorContextKey(capabilities, editingStep);
-  useEffect(() => {
-    const numericSelected = stage.columns.find((column) => selectedColumns.includes(column.id) && isNumericColumn(column));
+  const [form, setForm] = useState(() => {
     const initial = calculationFormFromStep(editingStep, stage, deriveSourceChoices);
-    setForm(numericSelected && !editingStep
+    const numericSelected = stage.columns.find((column) =>
+      selectedColumns.includes(column.id) && isNumericColumn(column));
+    return numericSelected && !editingStep
       ? {
           ...initial,
           expression: {
-            kind: 'guided',
-            draft: { ...expressionDraftFor(initial.expression), left: { kind: 'column', columnId: numericSelected.id } },
+            kind: 'guided' as const,
+            draft: { ...expressionDraftFor(initial.expression), left: { kind: 'column' as const, columnId: numericSelected.id } },
           },
         }
-      : initial);
-    setStepId(createOpaqueId('derive'));
-    setOutputColumnId(createOpaqueId('column'));
-    props.onCandidateChange(undefined);
-  }, [contextKey]);
+      : initial;
+  });
 
   const support = operationSupport(stage, 'DERIVE');
   const expressionStep = editingStep?.operation.kind === 'DERIVE' ? editingStep : undefined;
@@ -1700,6 +1692,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
 const isPhysicalColumnName = (value: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 
 export const ConstructionOperationEditor = (props: ConstructionOperationEditorProps) => {
+  useEscapeToClose(Boolean(props.onCancel), props.onCancel ?? (() => {}));
   const id = useId();
   return props.family === 'KEEP_ROWS'
     ? <KeepRowsEditor key={`${id}:filter:${editorContextKey(props.capabilities, props.editingStep)}`} {...props} />
