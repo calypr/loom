@@ -69,7 +69,7 @@ func applyColumnSource(workspace *Workspace, catalog CatalogSnapshot, commandID 
 
 func validateResolvedConstructionChoiceSource(document Document, catalog CatalogSnapshot, command Command, source ColumnSource) error {
 	validate := func(candidateSource ColumnSource) error {
-		return validateEditableSource(document, catalog, command.OccurrenceID, candidateSource)
+		return validateEditableSourcePolicy(document, catalog, command.OccurrenceID, candidateSource, true)
 	}
 	selection, resolved := command.ConstructionChoice, command.ResolvedChoice
 	if selection == nil || resolved == nil || selection.Form != capability.ConstructionChoiceAll ||

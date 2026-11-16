@@ -1884,7 +1884,15 @@ func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, o
 }
 
 func validateEditableSource(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource) error {
-	if document.ImportedRecipe != nil || source.Kind == SourceImported {
+	return validateEditableSourcePolicy(document, catalog, occurrenceID, source, false)
+}
+
+// validateEditableSourcePolicy distinguishes direct source-column edits from
+// additive columns. A pinned imported recipe cannot rewrite its own imported
+// source columns, but it can still gain related, semantic, or calculated
+// columns whose source is outside the imported projection.
+func validateEditableSourcePolicy(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, allowImportedRecipe bool) error {
+	if source.Kind == SourceImported || (!allowImportedRecipe && document.ImportedRecipe != nil) {
 		return fmt.Errorf("imported recipe source columns are immutable")
 	}
 	occurrence := findRoute(&document.Route, occurrenceID)

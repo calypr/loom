@@ -54,6 +54,38 @@ func TestConstructionChoiceRequestAcceptsOnlyBoundedChoiceBatches(t *testing.T) 
 	}
 }
 
+func TestConstructionChoiceAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.ImportedRecipe = &ImportedRecipeRef{
+		Name: "default", TranslationVersion: "v1", Output: "patients", Digest: strings.Repeat("a", 64),
+	}
+	workspace := constructionWorkspace(document)
+	command := Command{
+		Type: CommandApplyConstructionChoice, OutputID: "patients", OccurrenceID: RootOccurrenceID,
+		ConstructionChoice: &ConstructionChoiceSelection{ChoiceID: "resolved", Form: capability.ConstructionChoiceValue},
+	}
+	_, err := applyColumnSource(&workspace, commandCatalog(), "imported-additive", 0, command,
+		ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, "string", "TABLE")
+	if err != nil {
+		t.Fatalf("additive construction column on imported recipe was rejected: %v", err)
+	}
+	if len(workspace.Documents[0].Columns) != 2 {
+		t.Fatalf("columns = %d, want the existing imported column plus one additive column", len(workspace.Documents[0].Columns))
+	}
+}
+
+func TestDirectSourceEditStillRejectsImportedRecipe(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.ImportedRecipe = &ImportedRecipeRef{
+		Name: "default", TranslationVersion: "v1", Output: "patients", Digest: strings.Repeat("a", 64),
+	}
+	err := validateEditableSource(document, commandCatalog(), RootOccurrenceID,
+		ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}})
+	if err == nil || !strings.Contains(err.Error(), "imported recipe source columns are immutable") {
+		t.Fatalf("direct imported source edit error = %v, want immutable-source refusal", err)
+	}
+}
+
 func TestConstructionChoiceAddsMemberFieldToExplicitCohort(t *testing.T) {
 	document := workspaceDocument("patients")
 	document.Columns = nil

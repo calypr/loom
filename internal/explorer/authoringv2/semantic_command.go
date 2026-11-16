@@ -79,7 +79,7 @@ func applySemanticSelections(workspace *Workspace, catalogSnapshot CatalogSnapsh
 		if err := source.validate("semantic selection source"); err != nil {
 			return CommandResult{}, err
 		}
-		if err := validateEditableSource(*document, catalogSnapshot, occurrenceID, source); err != nil {
+		if err := validateEditableSourcePolicy(*document, catalogSnapshot, occurrenceID, source, true); err != nil {
 			return CommandResult{}, err
 		}
 		columnID := commandGeneratedID("col_", "semantic-selection/v1", command.OutputID, selection.ConceptID, selection.BindingID, strings.Join(selection.RouteEdgeIDs, "\x00"), source.Lookup.ProjectionMode)
