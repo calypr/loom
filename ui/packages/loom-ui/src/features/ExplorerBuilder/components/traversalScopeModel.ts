@@ -89,7 +89,10 @@ export function traversalScopeModel(document: ExplorerBuilderDocument,
   }));
   const columns = document.columns.map((column): ScopedColumn => {
     const id = column.columnId ?? column.column;
-    if (!document.importedRecipe) {
+    // Additive columns on an imported recipe are authored sources, not pinned
+    // imported fields. Resolve them through their own occurrence instead of
+    // demanding an imported exact-source binding.
+    if (!document.importedRecipe || column.source.kind !== 'imported') {
       const resolved = resolveOccurrence(column.occurrenceId);
       return { id, label: column.label || column.column, scopeId: resolved.scopeId, unavailableReason: resolved.scopeReason };
     }

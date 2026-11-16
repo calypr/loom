@@ -50,6 +50,19 @@ describe('actual traversal/source ownership', () => {
     actual.outputId = 'other';
     expect(traversalScopeModel(value, actual).columns[0].scopeId).toBeUndefined();
   });
+
+  it('resolves authored additive columns on imported recipes by their authored occurrence', () => {
+    const value = document();
+    value.columns = [
+      { columnId: 'authored', column: 'status', label: 'Status', logicalType: 'string', occurrenceId: 'observations', source: { kind: 'field', field: { path: 'status', projectionMode: 'VALUE' } } },
+      { columnId: 'imported', column: 'id', label: 'ID', logicalType: 'string', occurrenceId: 'base', source: { kind: 'imported', imported: { outputColumn: 'id' } } },
+    ];
+    const model = traversalScopeModel(value, network());
+    expect(model.columns[0]).toMatchObject({ scopeId: 'observations' });
+    expect(model.columns[0].unavailableReason).toBeUndefined();
+    expect(model.columns[1].unavailableReason).toBe('The imported field has no unique exact source binding.');
+  });
+
   it('never mutates saved order or inputs when projecting the construction sequence', () => {
     const value = document(); value.construction = { version: 1, steps: [filter('earlier'), filter('later', 'earlier')] };
     const before = JSON.stringify(value); const model = traversalScopeModel(value);
