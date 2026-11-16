@@ -157,7 +157,7 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     fireEvent.click(await screen.findByTestId('construction-group-tab-summaries'));
     fireEvent.change(await screen.findByLabelText('Add summary'), { target: { value: 'COUNT_ROWS' } });
     const summaryLabel = await screen.findByLabelText('Summary output name 1');
-    fireEvent.change(summaryLabel, { target: { value: 'Specimens per group' } });
+    fireEvent.change(summaryLabel, { target: { value: 'specimens_per_group' } });
     await waitFor(() => expect(screen.getByTestId('proposal-status')).toHaveTextContent('ready'), { timeout: 3000 });
 
     expect(proposeConstruction).toHaveBeenCalledOnce();
@@ -166,7 +166,7 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
       kind: 'GROUP',
       group: { aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: expect.any(String) }] },
     });
-    expect(proposed?.candidateConstruction.steps.at(-1)?.outputs.filter((column) => column.label === 'Specimens per group')).toHaveLength(1);
+    expect(proposed?.candidateConstruction.steps.at(-1)?.outputs.filter((column) => column.name === 'specimens_per_group')).toHaveLength(1);
   });
 
   it.each([
@@ -181,13 +181,14 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     const apply = screen.getByRole('button', { name: 'Apply change' });
     expect(apply).toBeDisabled();
     if (kind === 'EXPAND') {
-      await screen.findByLabelText('Empty list policy');
+      await screen.findByLabelText('Repeated field');
+      fireEvent.change(screen.getByLabelText('Repeated field'), { target: { value: 'tags-id' } });
       fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'PRESERVE_PARENT' } });
     } else {
       fireEvent.click(await screen.findByTestId('construction-group-tab-summaries'));
-    fireEvent.change(await screen.findByLabelText('Add summary'), { target: { value: 'COUNT_ROWS' } });
+      fireEvent.change(await screen.findByLabelText('Add summary'), { target: { value: 'COUNT_ROWS' } });
       await screen.findByLabelText('Summary output name 1');
-      fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'Specimens per group' } });
+      fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'specimens_per_group' } });
     }
     expect(apply).toBeDisabled();
 
@@ -204,7 +205,7 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
         kind: 'GROUP',
         group: { aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: expect.any(String) }] },
       });
-      expect(proposed?.candidateConstruction.steps.at(-1)?.outputs.filter((column) => column.label === 'Specimens per group')).toHaveLength(1);
+      expect(proposed?.candidateConstruction.steps.at(-1)?.outputs.filter((column) => column.name === 'specimens_per_group')).toHaveLength(1);
     }
     expect(apply).toBeEnabled();
 
@@ -227,7 +228,7 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
 
     await screen.findByTestId('construction-reshape-tab-pivot');
     fireEvent.click(screen.getByTestId('construction-reshape-tab-unpivot'));
-    await screen.findByTestId('construction-reshape-choice-unpivot');
+    await waitFor(() => expect(screen.getByTestId('construction-reshape-tab-unpivot')).toHaveAttribute('aria-selected', 'true'));
 
     const nextCapabilities = {
       ...capabilities,
@@ -236,6 +237,7 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     };
     rerender(renderEditor(nextCapabilities));
     await waitFor(() => expect(screen.getByTestId('construction-reshape-tab-pivot')).toHaveAttribute('aria-selected', 'true'));
+    expect(screen.getByTestId('construction-reshape-tab-unpivot')).toHaveAttribute('aria-selected', 'false');
   });
 });
 

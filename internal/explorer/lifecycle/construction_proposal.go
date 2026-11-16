@@ -662,7 +662,12 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	if err := s.verifyConstructionProposalPivotCategories(ctx, request, candidateConstruction); err != nil {
+	var resolvedDiscoverySteps map[string]bool
+	candidateConstruction, resolvedDiscoverySteps, err = s.resolveConstructionPivotDiscoveries(ctx, base, request, candidateConstruction)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	if err := s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidateConstruction, resolvedDiscoverySteps); err != nil {
 		return ConstructionProposalResponse{}, err
 	}
 	candidateDocument, impact, err := analyzeConstructionCandidateWithCascade(
@@ -1503,6 +1508,10 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	}
 	if upgraded.Construction == nil {
 		return constructionBase{}, conflict("construction-capabilities", "INVALID_CONSTRUCTION_BASE", "the source projection has no construction contract", nil, nil)
+	}
+	if stepID := constructionUnresolvedPivotDiscovery(upgraded.Construction); stepID != "" {
+		return constructionBase{}, unprocessable("construction-capabilities", "PIVOT_DISCOVERY_UNRESOLVED",
+			fmt.Sprintf("Pivot %s declares category discovery but has no resolved categories. Propose the Pivot against the current rows to freeze its observed categories before previewing or loading this output.", stepID), nil)
 	}
 	workspace.Documents[documentIndex] = upgraded
 	workspace = workspace.NormalizePresentationOrders()

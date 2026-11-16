@@ -1250,7 +1250,10 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	if pivot.CategoryColumnID == pivot.ValueColumnID {
 		return fmt.Errorf("pivot category and value columns must differ")
 	}
-	if len(pivot.Categories) == 0 {
+	if pivot.Discovery != nil && len(pivot.Categories) != 0 {
+		return fmt.Errorf("pivot cannot combine explicit categories with discovery")
+	}
+	if pivot.Discovery == nil && len(pivot.Categories) == 0 {
 		return fmt.Errorf("pivot categories must be non-empty")
 	}
 	if !oneOf(string(pivot.DuplicatePolicy), "ERROR", "SUM", "MIN", "MAX") {
@@ -1277,6 +1280,18 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	}
 	if !oneOf(string(pivot.UnlistedCategoryPolicy), "ERROR") {
 		return fmt.Errorf("pivot unlistedCategoryPolicy must be ERROR; EXCLUDE_WITH_EVIDENCE is not available inside a construction sequence")
+	}
+	if pivot.Discovery != nil {
+		if pivot.Discovery.MaxCategories <= 0 || pivot.Discovery.MaxCategories > maxPivotCategories {
+			return fmt.Errorf("pivot discovery maxCategories must be 1..%d", maxPivotCategories)
+		}
+		if _, known := constructionPivotScalarKind(input[pivot.CategoryColumnID].Type); !known {
+			return fmt.Errorf("pivot discovery category column %q type %q is not a supported scalar pair", pivot.CategoryColumnID, input[pivot.CategoryColumnID].Type)
+		}
+		if _, known := constructionPivotScalarKind(input[pivot.ValueColumnID].Type); !known {
+			return fmt.Errorf("pivot discovery value column %q type %q is not a supported scalar pair", pivot.ValueColumnID, input[pivot.ValueColumnID].Type)
+		}
+		return validateDeclaredOutputIDs(step.Outputs, pivot.GroupKeyIDs)
 	}
 	seenKeys, outputIDs := map[string]bool{}, map[string]bool{}
 	for i, category := range pivot.Categories {

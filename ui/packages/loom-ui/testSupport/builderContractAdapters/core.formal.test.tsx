@@ -319,9 +319,9 @@ describe('core proposal lifecycle action IDs', () => {
     expect(applied).not.toHaveBeenCalled();
   });
 
-  it('clicks Cancel proposal only for the local cancel action', async () => {
+  it('clicks the current editor Close control only for the local cancel action', async () => {
     const cancelled = vi.fn();
-    render(<button type="button" data-testid="construction-cancel-proposal" onClick={cancelled}>Cancel proposal</button>);
+    render(<button type="button" data-testid="construction-close-operation-editor" onClick={cancelled}>Back to table</button>);
 
     await lifecycleAdapter.drive({
       uiAction: {
@@ -353,7 +353,7 @@ describe('core proposal lifecycle action IDs', () => {
 
   it('does not treat another local action as Cancel proposal', async () => {
     const cancelled = vi.fn();
-    render(<button type="button" data-testid="construction-cancel-proposal" onClick={cancelled}>Cancel proposal</button>);
+    render(<button type="button" data-testid="construction-close-operation-editor" onClick={cancelled}>Back to table</button>);
 
     let caught: unknown;
     try {

@@ -254,7 +254,9 @@ const requestFailureMessage = (error: unknown): string => {
   const serverMessage = typeof apiError?.message === 'string' &&
     typeof status === 'number' &&
     apiError.message.trim() !== '' &&
-    !/^Loom request failed \(\d+\)\.$/.test(apiError.message.trim())
+    !/^Loom request failed \(\d+\)\.$/.test(apiError.message.trim()) &&
+    !/^Loom timed out before returning a result\./.test(apiError.message.trim()) &&
+    !/^Loom could not complete this request \(HTTP \d+\)\./.test(apiError.message.trim())
     ? sanitizeReasonText(apiError.message)
     : undefined;
   const statusCopy = status === 401

@@ -343,14 +343,25 @@ type ConstructionCombineProjection struct {
 }
 
 type ConstructionPivot struct {
-	ConstructionID         string                                  `json:"constructionId"`
-	GroupKeyIDs            []string                                `json:"groupKeyIds"`
-	CategoryColumnID       string                                  `json:"categoryColumnId"`
-	ValueColumnID          string                                  `json:"valueColumnId"`
-	Categories             []ConstructionPivotCategory             `json:"categories"`
+	ConstructionID   string                      `json:"constructionId"`
+	GroupKeyIDs      []string                    `json:"groupKeyIds"`
+	CategoryColumnID string                      `json:"categoryColumnId"`
+	ValueColumnID    string                      `json:"valueColumnId"`
+	Categories       []ConstructionPivotCategory `json:"categories"`
+	// Discovery freezes the value-bearing categories observed for this exact
+	// category/value pair instead of persisting an arbitrary list. It is
+	// mutually exclusive with Categories. ResolveConstructionPivotDiscovery
+	// materializes the concrete categories and stage outputs before lowering.
+	Discovery              *ConstructionPivotDiscovery             `json:"discovery,omitempty"`
 	DuplicatePolicy        ConstructionPivotDuplicatePolicy        `json:"duplicatePolicy"`
 	MissingCellPolicy      ConstructionPivotMissingCellPolicy      `json:"missingCellPolicy"`
 	UnlistedCategoryPolicy ConstructionPivotUnlistedCategoryPolicy `json:"unlistedCategoryPolicy"`
+}
+
+// ConstructionPivotDiscovery bounds the number of value-bearing categories a
+// saved PIVOT may adopt. The pair itself remains CategoryColumnID/ValueColumnID.
+type ConstructionPivotDiscovery struct {
+	MaxCategories int `json:"maxCategories"`
 }
 
 type ConstructionPivotDuplicatePolicy string

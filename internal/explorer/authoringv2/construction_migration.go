@@ -60,6 +60,8 @@ func migrateTableShapeSteps(outputID string, shape *TableShape, source []StageCo
 		switch shape.Reshape.Kind {
 		case "PIVOT":
 			pivot := shape.Reshape.Pivot
+			// Legacy PIVOT always carries explicit categories. Leave Discovery nil
+			// so migration preserves the accepted byte-level behavior.
 			operation := ConstructionPivot{
 				ConstructionID:         string(pivot.ConstructionID),
 				GroupKeyIDs:            make([]string, 0, len(pivot.GroupKeys)),

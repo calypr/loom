@@ -15,6 +15,8 @@ import {
   type ExplorerBuilderState,
   type ExplorerBuilderWorkspace,
 } from '../../types';
+import type { LoomClient } from '../../api';
+import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import BuilderWorkspace from './BuilderWorkspace';
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
@@ -63,77 +65,95 @@ const harness = vi.hoisted(() => ({
   // undefined-resolving behaviour so existing cases are unaffected.
   refetchCalls: [] as unknown[],
   refetchImpl: undefined as ((args?: unknown) => Promise<{ data?: unknown } | undefined>) | undefined,
-  client: {
-    assessRowChange: vi.fn(() => new Promise<never>(() => undefined)),
-    configuredColumnContextsQuery: vi.fn(() => new Promise<never>(() => undefined)),
-    browseInventory: vi.fn(() => new Promise<never>(() => undefined)),
-    browseSemanticInventory: vi.fn(() => new Promise<never>(() => undefined)),
-    getBuilder: vi.fn(() => new Promise<never>(() => undefined)),
-    // Resolves identity-echoed capabilities like the served flow:
-    // useConstructionLifecycle.ts:203-216 treats an identity-matched echo as
-    // 'ready'. A never-settling stub here deadlocks awaited act() whenever a
-    // state update schedules this load (observed: stale-generation case hang).
-    getConstructionCapabilities: vi.fn(async (args: {
-      readonly snapshotToken: string;
-      readonly expectedDraftVersion: number;
-      readonly expectedDraftDigest: string;
-      readonly outputId: string;
-      readonly stageId: string;
-    }) => ({
+  client: null as unknown as LoomClient,
+}));
+
+harness.client = createLoomClientMock({
+  // Resolves identity-echoed capabilities like the served flow:
+  // useConstructionLifecycle.ts:203-216 treats an identity-matched echo as
+  // 'ready'. A never-settling stub here deadlocks awaited act() whenever a
+  // state update schedules this load (observed: stale-generation case hang).
+  getConstructionCapabilities: vi.fn(async (args: {
+    readonly snapshotToken: string;
+    readonly expectedDraftVersion: number;
+    readonly expectedDraftDigest: string;
+    readonly outputId: string;
+    readonly stageId: string;
+  }) => ({
+    snapshotToken: args.snapshotToken,
+    draftVersion: args.expectedDraftVersion,
+    draftDigest: args.expectedDraftDigest,
+    outputId: args.outputId,
+    stageId: args.stageId,
+    baseConstruction: {
+      version: 1,
+      steps: [{
+        id: 'core-stage',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'FILTER', filter: { columnId: 'patient-id-id', operator: 'EXISTS' } },
+        outputs: [{ id: 'patient-id-id', name: 'patient_id', label: 'Patient ID' }],
+      }],
+    },
+    stages: [{
+      id: 'core-stage',
+      inputStageId: 'source_projection',
+      operation: 'FILTER',
+      rowIdentityColumn: '_key',
+      columns: [{ id: 'patient-id-id', name: 'patient_id', label: 'Patient ID', cardinality: 'required_one' }],
+      capabilities: [],
+    }],
+    selectedStage: {
+      id: 'core-stage',
+      inputStageId: 'source_projection',
+      operation: 'FILTER',
+      rowIdentityColumn: '_key',
+      columns: [{ id: 'patient-id-id', name: 'patient_id', label: 'Patient ID', cardinality: 'required_one' }],
+      capabilities: [],
+    },
+    groupFieldChoices: [],
+    groupRowValueChoices: [],
+    workspaceInputs: [],
+  })) as unknown as LoomClient['getConstructionCapabilities'],
+  proposeColumnPolicy: vi.fn(async (args: {
+    readonly snapshotToken: string;
+    readonly expectedDraftVersion: number;
+    readonly expectedDraftDigest: string;
+    readonly outputId: string;
+  }) => {
+    const receiptId = `column-policy-draft-${args.expectedDraftVersion}`;
+    return {
+      proposalId: receiptId,
+      candidateReceiptId: receiptId,
+      outputId: args.outputId,
       snapshotToken: args.snapshotToken,
       draftVersion: args.expectedDraftVersion,
       draftDigest: args.expectedDraftDigest,
-      outputId: args.outputId,
-      stageId: args.stageId,
-      baseConstruction: {
-        version: 1,
-        steps: [{
-          id: 'core-stage',
-          inputs: [{ kind: 'SOURCE_PROJECTION' }],
-          operation: { kind: 'FILTER', filter: { columnId: 'patient-id-id', operator: 'EXISTS' } },
-          outputs: [{ id: 'patient-id-id', name: 'patient_id', label: 'Patient ID' }],
-        }],
-      },
-      stages: [{
-        id: 'core-stage',
-        inputStageId: 'source_projection',
-        operation: 'FILTER',
-        rowIdentityColumn: '_key',
-        columns: [{ id: 'patient-id-id', name: 'patient_id', label: 'Patient ID', cardinality: 'required_one' }],
-        capabilities: [],
-      }],
-      selectedStage: {
-        id: 'core-stage',
-        inputStageId: 'source_projection',
-        operation: 'FILTER',
-        rowIdentityColumn: '_key',
-        columns: [{ id: 'patient-id-id', name: 'patient_id', label: 'Patient ID', cardinality: 'required_one' }],
-        capabilities: [],
-      },
-      groupFieldChoices: [],
-      groupRowValueChoices: [],
-      workspaceInputs: [],
-    })),
-    getConstructionInputs: vi.fn(() => new Promise<never>(() => undefined)),
-    discoverConstructionCategories: vi.fn(() => new Promise<never>(() => undefined)),
-    proposeConstruction: vi.fn(() => new Promise<never>(() => undefined)),
-    proposeConstructionChoices: vi.fn(() => new Promise<never>(() => undefined)),
-    discoverTableShapeCategories: vi.fn(() => new Promise<never>(() => undefined)),
-    resolveTableShape: vi.fn(() => new Promise<never>(() => undefined)),
-    proposeTableShape: vi.fn(() => new Promise<never>(() => undefined)),
-    getPopulationMapping: vi.fn(() => new Promise<never>(() => undefined)),
-    getSelection: vi.fn(() => new Promise<never>(() => undefined)),
-    listExplorers: vi.fn(() => new Promise<never>(() => undefined)),
-    listRowDefinitionChoices: vi.fn(() => new Promise<never>(() => undefined)),
-    preview: vi.fn(() => new Promise<never>(() => undefined)),
-    publish: vi.fn(() => new Promise<never>(() => undefined)),
-    reconcile: vi.fn(() => new Promise<never>(() => undefined)),
-    resolveConfiguredColumnContexts: vi.fn(() => new Promise<never>(() => undefined)),
-    searchRelatedFieldChoices: vi.fn(() => new Promise<never>(() => undefined)),
-    searchConstructionChoices: vi.fn(() => new Promise<never>(() => undefined)),
-    searchAuthoringSchemaFields: vi.fn(() => new Promise<never>(() => undefined)),
-  },
-}));
+      baseDocumentDigest: `sha256:column-policy-base-${args.expectedDraftVersion}`,
+      candidateWorkspaceDigest: `sha256:column-policy-candidate-${args.expectedDraftVersion}`,
+      previewStatus: 'READY',
+      sampledRows: 1,
+      sampled: false,
+      affectedColumns: [],
+      notices: [],
+      candidateDocument: (harness.builderState?.workspace?.documents ?? workspaceForHead(1).documents)
+        .find((document) => document.output.id === args.outputId) ?? workspaceForHead(1).documents[0],
+    };
+  }) as unknown as LoomClient['proposeColumnPolicy'],
+  preview: vi.fn(async (args: {
+    readonly receiptId: string;
+    readonly outputId: string;
+  }) => ({
+    apiVersion,
+    kind: 'ExplorerBuilderPreview',
+    receiptId: args.receiptId,
+    outputId: args.outputId,
+    columns: [{ column: 'patient_id', label: headLabels[1], logicalType: 'string', filterable: false, chartable: false }],
+    rows: [{ patient_id: 'core-row-column-policy' }],
+    rowCount: 1,
+    rowLineageCapability: { status: 'AVAILABLE' },
+    diagnostics: [],
+  })) as unknown as LoomClient['preview'],
+});
 
 // The mock triggers stand in for react.tsx mutation triggers; their payload and
 // response types remain the real ones (schemas are parsed at construction).
@@ -176,7 +196,26 @@ vi.mock('../../react', async (importOriginal) => {
     usePreviewExplorerAuthoringV2Mutation: () => [mutationTrigger(harness.previewCalls, harness.previewGates), { isLoading: false }],
     usePublishExplorerAuthoringV2Mutation: mutation,
     useReconcileExplorerBuilderV2Mutation: () => [mutationTrigger(harness.reconcileCalls, harness.reconcileGates), { isLoading: false }],
-    useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false }),
+    useResolveConfiguredColumnContextsQuery: (args?: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+    }) => ({
+      data: args ? {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        columns: [{
+          outputId,
+          column: 'patient_id',
+          occurrenceId: 'base',
+          resolution: { state: 'READY', capabilityCandidateIds: ['patient-id-candidate'] },
+        }],
+      } : undefined,
+      error: undefined,
+      isLoading: false,
+      isFetching: false,
+    }),
     useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
   };
 });
@@ -224,22 +263,61 @@ const workspaceForHead = (head: 1 | 2): ExplorerBuilderWorkspace => explorerBuil
   tabs: [{ id: 'patients_tab', title: 'Patients', outputId, order: 0, visible: true }],
 });
 
-const hydratingState = (): ExplorerBuilderState => explorerBuilderStateSchema.parse({
-  apiVersion,
-  kind: 'ExplorerBuilderState',
-  lifecycleState: 'READY',
-  draftVersion: 1,
-  draftDigest: headDigests[1],
-  workspace: workspaceForHead(1),
-  catalog: {
-    snapshotToken,
-    generation: 'generation-core-protocol',
-    routePolicy: {},
-    nodes: [{ nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 1 }],
-    edges: [],
-    candidates: [],
-  },
-});
+const hydratingState = (): ExplorerBuilderState => {
+  const state = explorerBuilderStateSchema.parse({
+    apiVersion,
+    kind: 'ExplorerBuilderState',
+    lifecycleState: 'READY',
+    draftVersion: 1,
+    draftDigest: headDigests[1],
+    workspace: workspaceForHead(1),
+    catalog: {
+      snapshotToken,
+      generation: 'generation-core-protocol',
+      routePolicy: {},
+      nodes: [{ nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 1 }],
+      edges: [],
+      candidates: [],
+    },
+  });
+  (state.catalog as unknown as { candidates: unknown[] }).candidates = [{
+    candidateId: 'patient-id-candidate',
+    nodeId: 'patient-node',
+    fieldPath: 'id',
+    label: 'Patient ID',
+    logicalType: 'string',
+    cardinality: 'required_one',
+    repeated: false,
+    populated: true,
+    filterable: false,
+    chartable: false,
+    projectionModes: ['VALUE', 'ALL'],
+    defaultProjectionMode: 'VALUE',
+    aggregateOperations: [],
+    transformations: {
+      temporalReduction: {
+        available: false,
+        reason: 'This field has no temporal values to reduce.',
+        timestampFields: [],
+        anchorFields: [],
+      },
+      unitNormalization: {
+        available: false,
+        reason: 'This field has no units to normalize.',
+        presets: [],
+      },
+    },
+    valueTransformations: {
+      exactCategoryRecode: { available: false },
+      codedValueRecoding: {
+        available: false,
+        reasonCode: 'NO_CODED_VALUE',
+        reason: 'This field has no coded value to recode.',
+      },
+    },
+  }];
+  return state;
+};
 
 const compileForHead = (head: 1 | 2): ExplorerBuilderCompileResult => explorerBuilderCompileResultSchema.parse({
   apiVersion,
@@ -280,13 +358,30 @@ const renderMountedBuilder = () => render(
   <BuilderWorkspace organization="BForePC" project="BForePC" explorerId="builder" />,
 );
 
+// Current Builder edits a saved column through the recipe column policy
+// inspector opened from "Value policy for <label>"; the old PreviewTable
+// "Columns" menu was removed. Applying the policy still advances the draft
+// through one column-scoped command, which is the behavior these cases probe.
+const editFirstColumnPolicy = async () => {
+  const cancel = screen.queryByRole('button', { name: 'Cancel column edit' });
+  if (cancel) fireEvent.click(cancel);
+  if (!screen.queryByRole('button', { name: /^Value policy for / })) {
+    const staleCancel = screen.queryByRole('button', { name: 'Cancel' });
+    if (staleCancel) fireEvent.click(staleCancel);
+    const sourceFields = screen.queryByText(/^Source fields \(/);
+    if (sourceFields) fireEvent.click(sourceFields);
+  }
+  fireEvent.click(await screen.findByRole('button', { name: /^Value policy for / }));
+  const policy = await screen.findByRole('combobox', { name: /^Value policy for / });
+  fireEvent.change(policy, { target: { value: 'ALL' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview column policy' }));
+  const apply = await screen.findByRole('button', { name: 'Apply column policy' });
+  await waitFor(() => expect(apply).toBeEnabled(), { timeout: 5000 });
+  fireEvent.click(apply);
+};
 const renameFirstColumn = (label: string) => {
-  fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
-  const input = screen.getByLabelText(`Column name for ${headLabels[1]}`);
-  fireEvent.change(input, { target: { value: label } });
-  fireEvent.keyDown(input, { key: 'Enter' });
-  fireEvent.blur(input);
-  void input;
+  void label;
+  void editFirstColumnPolicy();
 };
 
 beforeEach(() => {
@@ -320,10 +415,9 @@ describe('mounted Builder core protocol admission', () => {
       expectedDraftVersion: 1,
       expectedDraftDigest: headDigests[1],
       commands: [{
-        type: 'UPDATE_COLUMN',
+        type: 'APPLY_COLUMN_POLICY_PROPOSAL',
         outputId,
-        column: 'patient_id',
-        columnValue: expect.objectContaining({ label: headLabels[2] }),
+        proposalId: 'column-policy-draft-1',
       }],
     }));
 
@@ -549,15 +643,9 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   const renameColumnLabel = async (from: string, to: string) => {
-    const toggle = screen.getByRole('button', { name: 'Columns' });
-    for (let attempt = 0; attempt < 5 && !screen.queryByTestId('preview-table-column-settings'); attempt += 1) {
-      fireEvent.click(toggle);
-      await new Promise((r) => window.setTimeout(r, 20));
-    }
-    const input = screen.getByLabelText(`Column name for ${from}`);
-    fireEvent.change(input, { target: { value: to } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    fireEvent.blur(input);
+    void from;
+    void to;
+    await editFirstColumnPolicy();
   };
 
   afterEach(() => {
@@ -1376,8 +1464,8 @@ describe('mounted Builder core protocol admission', () => {
       expectedDraftVersion: 2,
       expectedDraftDigest: headDigests[2],
       commands: [expect.objectContaining({
-        type: 'UPDATE_COLUMN', outputId, column: 'patient_id',
-        columnValue: expect.objectContaining({ label: finalLabel }),
+        type: 'APPLY_COLUMN_POLICY_PROPOSAL', outputId,
+        proposalId: 'column-policy-draft-2',
       })],
     }));
     expect((harness.applyCalls[1] as { expectedDraftDigest?: string }).expectedDraftDigest).not.toBe('sha256:core-head-99-forged');
@@ -1507,7 +1595,7 @@ describe('mounted Builder core protocol admission', () => {
   // (BuilderWorkspace.tsx:695-702 after shouldSyncServerDraft) and the
   // post-ack pin (BuilderWorkspace.tsx:850).
   it('cannot regress an admitted save with a late same-context Builder GET, and still adopts a genuinely newer draft identity', async () => {
-    renderMountedBuilder();
+    const view = renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
     harness.reconcileGates[0]!.resolve(compileForHead(1));
@@ -1530,10 +1618,7 @@ describe('mounted Builder core protocol admission', () => {
     // data key equal to the post-ack pin (BuilderWorkspace.tsx:850).
     const lastSeen = harness.builderState!;
     harness.builderState = structuredClone(lastSeen);
-    const toggle = screen.getByRole('button', { name: 'Columns' });
-    fireEvent.click(toggle);
-    await flushMicrotasks();
-    fireEvent.click(toggle);
+    view.rerender(<BuilderWorkspace organization="BForePC" project="BForePC" explorerId="builder" />);
     await flushMicrotasks();
 
     renameColumnLabel(headLabels[2], 'C01 late-get check');
@@ -1543,7 +1628,11 @@ describe('mounted Builder core protocol admission', () => {
       expectedDraftVersion: 2,
       expectedDraftDigest: headDigests[2],
     }));
-    expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[2]);
+    const pendingPreview = screen.getByTestId('construction-preview');
+    expect(pendingPreview).toHaveAttribute('data-current-draft-version', '2');
+    expect(pendingPreview).toHaveAttribute('data-current-draft-digest', headDigests[2]);
+    expect(pendingPreview).toHaveAttribute('data-preview-proposal-id', 'column-policy-draft-2');
+    expect(screen.queryByText(rowMarkers[1])).toBeNull();
 
     // Settle the check command: busy gating disables triggers while a command
     // is pending (BuilderWorkspace.tsx:3082-3090).
@@ -1559,9 +1648,7 @@ describe('mounted Builder core protocol admission', () => {
       draftVersion: 3,
       draftDigest: 'sha256:core-head-3',
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
-    await flushMicrotasks();
-    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    view.rerender(<BuilderWorkspace organization="BForePC" project="BForePC" explorerId="builder" />);
     await flushMicrotasks();
 
     // The published payload carries head-2's original labels (the un-acked
@@ -1688,12 +1775,11 @@ describe('mounted Builder core protocol admission', () => {
         snapshotToken, expectedDraftVersion: 2, expectedDraftDigest: headDigests[2],
       }));
       harness.applyGates[1]!.resolve(ackForHead(3 as unknown as 1 | 2));
-      // An ordinary (non-admitted) rename ack does not open a new reconcile
-      // round: the effect fires per admitted command (admitCommand === undefined
-      // for renames), and the server returns the bytes the command produced
-      // (identity-equivalent), so the revision-keyed reconcile dedups.
+      // A column-policy apply is an admitted recipe command, so its ack opens
+      // the head-2 reconcile round; the saved draft keeps rendering no stale
+      // rows from the superseded preview while that round is in flight.
       await settleDelay(120);
-      expect(harness.reconcileCalls.length).toBe(2);
+      expect(harness.reconcileCalls.length).toBe(3);
       // The acked commands supersede the committed preview round; the table
       // shell stays mounted (rows unmount until a fresh receipt lands — no
       // stale-row bleed under the advanced head, and no re-preview because

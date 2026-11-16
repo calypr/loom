@@ -32,6 +32,13 @@ type ConstructionCategoryDiscoveryRequest struct {
 	PivotStepID           string                             `json:"pivotStepId,omitempty"`
 	PivotSources          []ConstructionPivotSourceSelection `json:"pivotSources,omitempty"`
 	CandidateConstruction *authoringv2.Construction          `json:"candidateConstruction,omitempty"`
+
+	// compileCandidate lets proposal verification probe a candidate Pivot that
+	// is not the changed step. PivotSources alone trigger candidate compilation
+	// because they only apply to the edited Pivot; an unchanged Pivot must keep
+	// its existing owned input chain while still compiling against the candidate
+	// upstream stages.
+	compileCandidate bool
 }
 
 func (r ConstructionCategoryDiscoveryRequest) Validate() error {
@@ -192,6 +199,10 @@ func (s *Service) compileConstructionCategoryCandidate(
 	}
 	probeID := "pivot_probe_" + strings.TrimPrefix(constructionPivotSourceHelperID(request.PivotStepID, "category-discovery"), "pivot_source_")
 	pivotPayload := pivotStep.Operation.Pivot
+	// The temporary probe replaces a discovery declaration with one explicit
+	// category. Discovery is mutually exclusive with explicit categories, so the
+	// declaration must be cleared before the probe candidate is validated.
+	pivotPayload.Discovery = nil
 	pivotPayload.Categories = []authoringv2.ConstructionPivotCategory{{Key: key, OutputColumnID: probeID}}
 	pivotPayload.DuplicatePolicy = authoringv2.ConstructionPivotDuplicateError
 	pivotPayload.MissingCellPolicy = authoringv2.ConstructionPivotMissingNull
@@ -365,7 +376,7 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		return ConstructionCategoryDiscoveryResponse{}, unavailable("construction-category-discovery", "CATEGORY_SCAN_UNAVAILABLE", "compiler-owned category discovery is not configured", nil)
 	}
 	responseStageID := request.StageID
-	if len(request.PivotSources) != 0 {
+	if len(request.PivotSources) != 0 || request.compileCandidate {
 		var scanStageID string
 		base, scanStageID, err = s.compileConstructionCategoryCandidate(ctx, base, request)
 		if err != nil {

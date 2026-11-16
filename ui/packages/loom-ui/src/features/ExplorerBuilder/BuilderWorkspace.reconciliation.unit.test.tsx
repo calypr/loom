@@ -285,37 +285,6 @@ vi.mock('./components/ConceptCatalog', () => ({
   },
 }));
 
-vi.mock('./components/ColumnSelector', () => ({
-  ColumnSelector: ({
-    onChange, disabled,
-  }: {
-    readonly disabled?: boolean;
-    readonly onChange: (value: unknown) => void;
-  }) => (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() =>
-        onChange({
-          column: 'specimen_identifier',
-          label: 'Updated specimen identifier',
-          occurrenceId: 'base',
-          source: {
-            kind: 'field',
-            field: {
-              path: 'identifier[].value',
-              projectionMode: 'FIRST' as const,
-            },
-          },
-          table: { visible: true, order: 0 },
-        })
-      }
-    >
-      Save column change
-    </button>
-  ),
-}));
-
 vi.mock('./components/PreviewTable', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./components/PreviewTable')>();
   return {
@@ -799,8 +768,8 @@ const openPivotPresentationProposal = async () => {
 
   mockRelatedExpandOwnerState.enabled = true;
   const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-  fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-  const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+  await openRowSettings();
+  const rowSettings = await findRowSettings();
   fireEvent.click(within(rowSettings).getByTestId('construction-row-intent-reshape'));
   fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
   fireEvent.click(await screen.findByRole('button', { name: 'Emit Pivot presentation proposal' }));
@@ -874,6 +843,41 @@ const openFilterConstructionProposal = async () => {
   fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'female' } });
   await screen.findByTestId('construction-proposal-ready');
   return view;
+};
+
+const saveWorkspaceEdit = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: 'Change relationship' }));
+};
+const findRowSettings = () => screen.findByRole('region', { name: 'Row definition settings' });
+const getRowSettings = () => screen.getByRole('region', { name: 'Row definition settings' });
+const queryRowSettings = () => screen.queryByRole('region', { name: 'Row definition settings' });
+const openRowSettings = async () => {
+  const closeEditor = screen.queryByRole('button', { name: 'Close operation editor' });
+  if (closeEditor) fireEvent.click(closeEditor);
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit row definition' }));
+  return findRowSettings();
+};
+const navigatorOperation = (stepId: string) => {
+  const item = globalThis.document.querySelector<HTMLElement>(
+    `[data-testid="traversal-scope-navigator"] [data-operation-id="${stepId}"]`,
+  );
+  if (!item) throw new Error(`Operation ${stepId} is not in the traversal navigator.`);
+  return item;
+};
+const clickNavigatorRemove = async (stepId: string) => {
+  const item = navigatorOperation(stepId);
+  const button = item.querySelector<HTMLButtonElement>('button[aria-label^="Remove "]');
+  if (!button) throw new Error(`Operation ${stepId} has no remove action.`);
+  fireEvent.click(button);
+};
+const clickNavigatorOperation = async (stepId: string) => {
+  const item = globalThis.document.querySelector<HTMLElement>(
+    `[data-testid="traversal-scope-navigator"] [data-operation-id="${stepId}"]`,
+  );
+  if (!item) throw new Error(`Operation ${stepId} is not in the traversal navigator.`);
+  const button = item.querySelector<HTMLButtonElement>('button[aria-label^="Edit "]');
+  if (!button) throw new Error(`Operation ${stepId} has no edit action.`);
+  fireEvent.click(button);
 };
 
 describe('BuilderWorkspace on-demand reconciliation', () => {
@@ -1242,8 +1246,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       }],
     }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
-    expect(await screen.findByTestId('construction-rows-settings-trigger')).toBeInTheDocument();
+    expect(await openRowSettings()).toBeInTheDocument();
   });
 
   it('saves a coded-column proposal from one Add action and returns to the table', async () => {
@@ -1403,6 +1406,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     fireEvent.click(await screen.findByRole('button', { name: 'Add Group row-value fixture' }));
     await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
       commandId: expect.any(String),
@@ -1448,7 +1452,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         explorerId="test"
       />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Explore available connections' }));
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     fireEvent.click(await screen.findByRole('button', { name: 'Change relationship' }));
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
@@ -1624,8 +1628,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const rowSettings = await findRowSettings();
     fireEvent.click(within(rowSettings).getByTestId('construction-row-edit-group_specimens'));
 
     await waitFor(() => {
@@ -1636,7 +1640,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect(screen.getByRole('checkbox', { name: 'Group by Specimen type' })).toHaveProperty('checked', true);
       expect(screen.getByRole('checkbox', { name: 'Group by Specimen identifier' })).toHaveProperty('checked', true);
     });
-    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument();
+    expect(queryRowSettings()).not.toBeInTheDocument();
     expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
       expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
       expect.any(AbortSignal),
@@ -1719,15 +1723,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
 
     const openRowActions = async () => {
-      fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-      const actions = await screen.findByRole('dialog', { name: 'Row definition settings' });
+      await openRowSettings();
+      const actions = await findRowSettings();
       expect(within(actions).getByTestId('construction-row-intent-records')).toBeInTheDocument();
       expect(within(actions).getByTestId('construction-action-group-rows')).toBeInTheDocument();
       expect(within(actions).getByTestId('construction-row-intent-reshape')).toBeInTheDocument();
       return actions;
     };
     const assertSharedInspector = async (initialKind: string) => {
-      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument());
+      await waitFor(() => expect(queryRowSettings()).not.toBeInTheDocument());
       const inspector = await screen.findByRole('region', { name: 'Change editor' });
       const editor = await within(inspector).findByTestId('construction-operation-editor');
       expect(editor).toHaveAttribute('data-operation-family', 'RESHAPE');
@@ -1759,8 +1763,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await assertSharedInspector('related-expand');
 
     actions = await openRowActions();
-    fireEvent.click(within(actions).getByRole('button', { name: 'Back to table' }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument());
+    fireEvent.click(within(actions).getByRole('button', { name: 'Close row settings' }));
+    await waitFor(() => expect(queryRowSettings()).not.toBeInTheDocument());
     expect(screen.queryByTestId('construction-operation-editor')).not.toBeInTheDocument();
     expect(applyCommands).not.toHaveBeenCalled();
   });
@@ -1779,8 +1783,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
     await waitFor(() => expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalled());
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const rowSettings = await findRowSettings();
     fireEvent.click(within(rowSettings).getByTestId('construction-row-intent-reshape'));
     const categoryEntry = within(rowSettings).getByTestId('construction-action-pivot-rows');
     expect(categoryEntry).toBeDisabled();
@@ -1867,8 +1871,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         explorerId="test"
       />,
     );
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const rowSettings = await findRowSettings();
     fireEvent.click(within(rowSettings).getByTestId('construction-row-intent-reshape'));
     fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
 
@@ -2382,8 +2386,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(reconcile).toHaveBeenCalledTimes(1);
     expect(preview).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByTestId(`construction-history-step-${firstStepId}`));
-    fireEvent.click(await screen.findByTestId(`construction-edit-step-${firstStepId}`));
+    if (!firstStepId) throw new Error('Expected the saved filter step identity.');
+    await clickNavigatorOperation(firstStepId);
     const condition = await screen.findByRole('combobox', { name: 'Condition' });
     const proposalCountBeforeEdit = mockLoomClient.proposeConstruction.mock.calls.length;
     fireEvent.change(condition, { target: { value: 'MISSING' } });
@@ -2668,8 +2672,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     });
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
     const panel = await within(dialog).findByRole('region', { name: 'Starting collection' });
     await waitFor(() => expect(panel).toHaveAttribute('data-selection-revision-id', selectionA.id));
     expect(panel).toHaveAttribute('data-attached-selection-revision-id', selectionA.id);
@@ -2679,19 +2683,19 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       commands: [{ type: 'CLEAR_TABLE_POPULATION', outputId: 'specimens' }],
     })));
     await waitFor(() => expect(
-      within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      within(getRowSettings())
         .getByRole('region', { name: 'Starting collection' }),
     ).not.toHaveAttribute('data-attached-selection-revision-id'));
-    const detachedPanel = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+    const detachedPanel = within(getRowSettings())
       .getByRole('region', { name: 'Starting collection' });
     expect(detachedPanel).toHaveAttribute('data-selection-revision-id', selectionA.id);
     fireEvent.click(within(detachedPanel).getByRole('button', { name: 'Use selected resources' }));
 
     await waitFor(() => expect(
-      within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      within(getRowSettings())
         .getByRole('region', { name: 'Starting collection' }),
     ).toHaveAttribute('data-selection-revision-id', selectionB.id));
-    const attachedBPanel = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+    const attachedBPanel = within(getRowSettings())
       .getByRole('region', { name: 'Starting collection' });
     expect(attachedBPanel).toHaveAttribute('data-attached-selection-revision-id', selectionB.id);
     expect(mockLoomClient.getSelection).toHaveBeenCalledWith(expect.objectContaining({
@@ -2766,8 +2770,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     });
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
     const startingCollection = within(dialog).getByTestId('construction-starting-collection-footer');
     fireEvent.click(within(startingCollection).getByText('Starting collection'));
     const specimenPanel = await within(startingCollection).findByRole('region', { name: 'Starting collection' });
@@ -2783,10 +2787,10 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(specimenPanel).not.toHaveAttribute('data-attached-selection-revision-id'));
     const selectionCallsBeforeTableSwitch = mockLoomClient.getSelection.mock.calls.length;
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close row settings' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Select second table' }));
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const patientDialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const patientDialog = await findRowSettings();
     expect(patientDialog.querySelector('[data-selection-revision-id="selection-context-a"]')).toBeNull();
     expect(patientDialog.querySelector('[data-attached-selection-revision-id="selection-context-a"]')).toBeNull();
     expect(within(patientDialog).queryByTestId('construction-starting-collection-footer')).not.toBeInTheDocument();
@@ -2851,8 +2855,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     });
 
     const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
     const startingCollection = within(dialog).getByTestId('construction-starting-collection-footer');
     fireEvent.click(within(startingCollection).getByText('Starting collection'));
     const panel = await within(startingCollection).findByRole('region', { name: 'Starting collection' });
@@ -2866,10 +2870,10 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       commands: [{ type: 'CLEAR_TABLE_POPULATION', outputId: 'specimens' }],
     })));
     await waitFor(() => expect(
-      within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      within(getRowSettings())
         .getByRole('region', { name: 'Starting collection' }),
     ).not.toHaveAttribute('data-attached-selection-revision-id'));
-    const detachedPanel = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+    const detachedPanel = within(getRowSettings())
       .getByRole('region', { name: 'Starting collection' });
     expect(detachedPanel).toHaveAttribute('data-selection-revision-id', selection.id);
     const selectionCallsBeforeClientSwap = mockLoomClient.getSelection.mock.calls.length;
@@ -2877,7 +2881,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockLoomClientReference.current = { ...mockLoomClient };
     view.rerender(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
     await waitFor(() => expect(
-      within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+      within(getRowSettings())
         .queryByTestId('construction-starting-collection-footer'),
     ).not.toBeInTheDocument());
     expect(dialog.querySelector('[data-selection-revision-id="selection-client-a"]')).toBeNull();
@@ -2959,8 +2963,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const rowSettings = await findRowSettings();
     const startingCollection = within(rowSettings).getByTestId('construction-starting-collection-footer');
     fireEvent.click(within(startingCollection).getByText('Starting collection'));
     expect(await within(rowSettings).findByText('Loading the saved selection…')).toBeInTheDocument();
@@ -2968,12 +2972,12 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect.objectContaining({ selectionRevision: 'selection-1' }),
       expect.any(AbortSignal),
     );
-    fireEvent.click(within(rowSettings).getByRole('button', { name: 'Back to table' }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument());
+    fireEvent.click(within(rowSettings).getByRole('button', { name: 'Close row settings' }));
+    await waitFor(() => expect(queryRowSettings()).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Select second table' }));
     await waitFor(() => expect(loadSignal?.aborted).toBe(true));
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const patientSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const patientSettings = await findRowSettings();
     expect(within(patientSettings).queryByTestId('construction-starting-collection-footer')).not.toBeInTheDocument();
     expect(patientSettings.querySelector('[data-selection-revision-id="selection-1"]')).toBeNull();
     expect(patientSettings.querySelector('[data-attached-selection-revision-id="selection-1"]')).toBeNull();
@@ -3060,8 +3064,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
 
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
     expect(await within(dialog).findByText('2 Specimen selected, not attached')).toBeInTheDocument();
     await waitFor(() => expect(mockLoomClient.listRowDefinitionChoices).toHaveBeenCalledTimes(2));
     expect(mockLoomClient.listRowDefinitionChoices).toHaveBeenCalledWith({
@@ -3121,8 +3125,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
 
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
     expect(await within(dialog).findByText('The saved cohort does not expose its source selection in this authorized catalog snapshot.')).toBeInTheDocument();
     expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
     expect(screen.queryByText(/selected, not attached/)).not.toBeInTheDocument();
@@ -3182,8 +3186,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const rowSettings = await findRowSettings();
     const panel = await within(rowSettings).findByRole('region', { name: 'Starting collection' });
     expect(await within(panel).findByText('Loading the saved selection…')).toBeInTheDocument();
     expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
@@ -3208,18 +3212,18 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const pending = deferredRequest<ReturnType<typeof readyRootChangeAssessment>>();
     assessRowChange.mockReturnValueOnce(pending.request);
     const view = render(<BuilderWorkspace project="project-a" explorerId="test" />);
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
     const picker = within(dialog).getByRole('combobox', { name: 'Record type' });
     const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
     fireEvent.change(picker, { target: { value: patientChoice.getAttribute('value') } });
     await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(1));
     if (boundary !== 'unmount') {
       view.rerender(<BuilderWorkspace project="project-b" explorerId="test" />);
-      await screen.findByTestId('construction-rows-settings-trigger');
+      await screen.findByRole('button', { name: 'Edit row definition' });
       if (boundary === 'return-to-owner') {
         view.rerender(<BuilderWorkspace project="project-a" explorerId="test" />);
-        await screen.findByTestId('construction-rows-settings-trigger');
+        await screen.findByRole('button', { name: 'Edit row definition' });
       }
     } else {
       view.unmount();
@@ -3280,17 +3284,18 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    expect(within(dialog).getByText('One row per Specimen record.')).toBeInTheDocument();
-    const picker = within(dialog).getByRole('combobox', { name: 'Record type' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
+    const initialPicker = within(dialog).getByRole('combobox', { name: 'Record type' }) as HTMLSelectElement;
+    expect(initialPicker.selectedOptions[0]).toHaveTextContent('Specimen');
+    const picker = initialPicker;
     const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
     fireEvent.change(picker, { target: { value: patientChoice.getAttribute('value') } });
 
     await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(await findRowSettings()).toBeInTheDocument();
     expect(await within(dialog).findByText('Choose the compiler-proven route for Patient.')).toBeInTheDocument();
-    const blockedPicker = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+    const blockedPicker = within(getRowSettings())
       .getByRole('combobox', { name: 'Record type' });
     const exactRoute = await within(blockedPicker).findByRole('option', {
       name: /Use Specimen → Subject → Patient from Specimen/,
@@ -3314,13 +3319,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     }));
 
     await screen.findByRole('button', { name: 'Apply row change' });
-    expect(screen.getByTestId('row-recipe-expression')).toHaveAttribute('data-recipe-state','proposed');
     expect(screen.getByTestId('authored-traversal-editor')).toHaveAttribute('data-projection-kind','proposed');
-    expect(screen.getByLabelText('Current row meaning')).toHaveTextContent('One row per Patient record');
     expect(screen.getByTestId('recipe-result-identity')).toHaveTextContent('Proposed recipe result');
-    const proposedRootButton=within(screen.getByRole('navigation',{name:'Authored occurrences'})).getByRole('button',{name:'Patient'});
-    fireEvent.click(proposedRootButton);
-    expect(proposedRootButton).toHaveAttribute('aria-pressed','true');
     expect(mockLoomClient.preview).toHaveBeenCalledWith(expect.objectContaining({
       receiptId: 'compiler-route-receipt',
       outputId: 'specimens',
@@ -3329,13 +3329,13 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(applyCommands).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /^(Cancel|Keep current rows)$/ }));
     expect(screen.queryByRole('region', { name: 'Review proposed rows' })).toBeNull();
-    expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).toBeNull();
-    expect(screen.getByTestId('construction-rows-settings-trigger')).toHaveTextContent('Specimen');
+    expect(queryRowSettings()).toBeNull();
     expect(applyCommands).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const currentPatientChoice = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
-      .getByRole('combobox', { name: 'Record type' });
+    await openRowSettings();
+    const currentPatientChoice = within(getRowSettings())
+      .getByRole('combobox', { name: 'Record type' }) as HTMLSelectElement;
+    expect(currentPatientChoice.selectedOptions[0]).toHaveTextContent('Specimen');
     fireEvent.change(currentPatientChoice, { target: { value: 'node:patient-node' } });
     await screen.findByRole('button', { name: 'Apply row change' });
     expect(applyCommands).not.toHaveBeenCalled();
@@ -3402,16 +3402,16 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
     const picker = within(dialog).getByRole('combobox', { name: 'Record type' });
     const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
     fireEvent.change(picker, { target: { value: patientChoice.getAttribute('value') } });
     await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole('dialog', { name: 'Row definition settings' })).toBeInTheDocument();
+    expect(await findRowSettings()).toBeInTheDocument();
     expect(await within(dialog).findByText('Choose how to retain the Specimen route.')).toBeInTheDocument();
 
-    const firstEdge = await within(within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+    const firstEdge = await within(within(getRowSettings())
       .getByRole('combobox', { name: 'Record type' }))
       .findByRole('option', { name: 'Use Subject between Patient and Specimen for Choose how to retain the Specimen route.' });
     fireEvent.change(screen.getByRole('combobox', { name: 'Record type' }), {
@@ -3423,7 +3423,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       routeRebase: [{ occurrenceId: 'base', edgeId: 'patient-specimen' }],
     }));
 
-    const secondEdge = await within(within(screen.getByRole('dialog', { name: 'Row definition settings' }))
+    const secondEdge = await within(within(getRowSettings())
       .getByRole('combobox', { name: 'Record type' }))
       .findByRole('option', { name: 'Use Subject between Patient and Observation for Choose how to retain the Observation route.' });
     fireEvent.change(screen.getByRole('combobox', { name: 'Record type' }), {
@@ -3531,8 +3531,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     render(
       <BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />,
     );
-    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
-    const picker = within(await screen.findByRole('dialog', { name: 'Row definition settings' }))
+    await openRowSettings();
+    const picker = within(await findRowSettings())
       .getByRole('combobox', { name: 'Record type' });
     const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
     fireEvent.change(picker, { target: { value: patientChoice.getAttribute('value') } });
@@ -3599,7 +3599,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(automaticPreview).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
 
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(pendingPreview.abort).toHaveBeenCalled());
@@ -3699,7 +3699,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     resolveRefresh({ data: builderState });
 
@@ -3726,7 +3726,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     } else {
       await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
     }
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
     const reconcilesAfterEdit = reconcile.mock.calls.length;
@@ -3739,7 +3739,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getByTestId('construction-preview').getAttribute('data-current-draft-version')).toBe('2');
     expect(reconcile).toHaveBeenCalledTimes(reconcilesAfterEdit);
     expect(publish).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(2));
     expect(applyCommands.mock.calls[1][0]).toMatchObject({ snapshotToken: 'snapshot-1', expectedDraftVersion: 2, expectedDraftDigest: 'sha256:draft-2' });
   });
@@ -3796,7 +3796,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     publish.mockReturnValueOnce(rejectedRequest({ code: 'STALE_CATALOG_SNAPSHOT', message: 'Controlled stale publication receipt.', retryable: false }));
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
     await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('construction-preview').getAttribute('data-current-draft-version')).toBe('2');
@@ -3953,7 +3953,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     publish.mockReturnValueOnce(pending.request);
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
     await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('construction-preview').getAttribute('data-current-draft-version')).toBe('2');
@@ -4007,7 +4007,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       refetch,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
       expectedDraftVersion: 2,
@@ -4425,9 +4425,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-status', 'ready'));
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Save column change' }),
-    );
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
     expect(reconcile.mock.calls[0]?.[0]).toMatchObject({ draftVersion: 1, draftDigest: 'sha256:draft-1' });
@@ -4710,7 +4708,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       });
       expect(requestA.args.requestId).toBeTruthy();
 
-      fireEvent.click(screen.getByRole('button', { name: 'Explore available connections' }));
       fireEvent.click(await screen.findByRole('button', { name: 'Change relationship' }));
 
       await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
@@ -4887,7 +4884,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Explore available connections' }));
     fireEvent.click(
       await screen.findByRole('button', { name: 'Change relationship' }),
     );
@@ -5052,8 +5048,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(selectedField);
     expect(selectedField).toHaveAttribute('aria-pressed', 'true');
 
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const rowSettings = await findRowSettings();
     fireEvent.click(within(rowSettings).getByTestId('construction-row-intent-reshape'));
     const pivotChoice = within(rowSettings).getByTestId('construction-action-pivot-rows');
     await waitFor(() => expect(pivotChoice).toBeEnabled());
@@ -5062,21 +5058,18 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getAllByRole('region', { name: 'Change editor' })).toHaveLength(1);
     const operationEditor = await within(inspector).findByTestId('construction-operation-editor');
     expect(operationEditor).toHaveAttribute('data-operation-family', 'RESHAPE');
-    expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-column-selection')).toBeInTheDocument();
     const reshapeEditor = within(operationEditor).getByTestId('construction-reshape-editor');
     expect(within(reshapeEditor).getByRole('heading', { name: 'Pivot categories into columns' })).toBeInTheDocument();
-    const selectedPivotGroup = await within(reshapeEditor).findByRole('checkbox', { name: 'Pivot group Specimen identifier' });
-    if (!(selectedPivotGroup instanceof HTMLInputElement)) {
-      throw new Error('Pivot row-grain choice should be a checkbox input.');
-    }
-    expect(selectedPivotGroup.checked).toBe(true);
+    expect(within(screen.getByTestId('construction-column-selection'))
+      .getByTestId('construction-column-specimen_identifier_id')).toHaveAttribute('aria-pressed', 'true');
     expect(within(rowSettings).queryByText(/Inputs from your selection:/)).not.toBeInTheDocument();
     expect(applyCommands).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const reopenedActions = await screen.findByRole('dialog', { name: 'Row definition settings' });
-    fireEvent.click(within(reopenedActions).getByRole('button', { name: 'Back to table' }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument());
+    await openRowSettings();
+    const reopenedActions = await findRowSettings();
+    fireEvent.click(within(reopenedActions).getByRole('button', { name: 'Close row settings' }));
+    await waitFor(() => expect(queryRowSettings()).not.toBeInTheDocument());
     fireEvent.click(screen.getByTestId('construction-action-keep-rows'));
     const restoredSelection = await screen.findByTestId('construction-column-selection');
     expect(within(restoredSelection).getByTestId('construction-column-specimen_identifier_id')).toHaveAttribute('aria-pressed', 'true');
@@ -5084,6 +5077,64 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   });
 
   it('keeps the preview visible, collapses source setup, supports focusable column selection, and applies only the reviewed receipt command', async () => {
+    const calculateStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source-row-id',
+      columns: [
+        { id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' },
+        { id: 'weight', name: 'weight', label: 'Weight', type: 'number' },
+        { id: 'height', name: 'height', label: 'Height', type: 'number' },
+      ],
+      capabilities: [{ kind: 'DERIVE' as const, supported: true }],
+    };
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: { version: 1, steps: [] },
+      stages: [calculateStage],
+      selectedStage: calculateStage,
+      workspaceInputs: [],
+    }));
+    mockLoomClient.preview.mockImplementation(async (args: { readonly receiptId: string; readonly outputId: string }) => ({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+      receiptId: args.receiptId,
+      outputId: args.outputId,
+      columns: [
+        ...receipt.outputs[0]!.columns,
+        { column: 'weight_plus_height', label: 'Weight plus height', logicalType: 'number', filterable: true, chartable: false },
+      ],
+      rows: [{ specimen_identifier: 'specimen-1', weight_plus_height: 2 }],
+      rowCount: 1,
+      diagnostics: [],
+    }));
+    mockLoomClient.proposeConstruction.mockImplementation(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => ({
+      proposalId: 'calculation-proposal',
+      outputId: args.outputId,
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'sha256:calculation-candidate',
+      changedStepId: args.changedStepId ?? '',
+      candidateConstruction: args.candidateConstruction,
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [calculateStage],
+      previewStatus: 'READY',
+      previewDurationMs: 1,
+    }));
+
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -5096,12 +5147,12 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const preview = screen.getByTestId('construction-preview');
     await waitFor(() => expect(preview).toHaveAttribute('data-preview-status', 'ready'));
     expect(within(preview).getByText('Preview table')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-source-setup')).not.toHaveAttribute('open');
+    expect(queryRowSettings()).toBeNull();
     expect(screen.getByTestId('construction-action-add-columns')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-keep-rows')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-keep-rows')).toHaveTextContent('Filter rows');
-    expect(screen.getByTestId('construction-rows-settings-trigger')).toBeInTheDocument();
-    expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit row definition' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-calculate')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-combine')).toBeEnabled();
 
     expect(screen.queryByTestId('construction-column-selection')).not.toBeInTheDocument();
@@ -5122,28 +5173,32 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
     fireEvent.click(screen.getByTestId('construction-close-operation-editor'));
 
-    const settings = await screen.findByTestId('ui04-table-shape-settings');
+    const calculateAction = await screen.findByTestId('construction-action-calculate');
+    await waitFor(() => expect(calculateAction).toBeEnabled());
+    fireEvent.click(calculateAction);
+    const calculation = await screen.findByTestId('construction-calculate-editor');
+    fireEvent.change(within(calculation).getByRole('combobox', { name: 'Operation' }), { target: { value: 'ADD' } });
+    fireEvent.change(within(calculation).getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+    fireEvent.change(within(calculation).getByRole('combobox', { name: 'First value column' }), { target: { value: 'weight' } });
+    fireEvent.change(within(calculation).getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'column' } });
+    fireEvent.change(within(calculation).getByRole('combobox', { name: 'Second value column' }), { target: { value: 'height' } });
+    fireEvent.change(within(calculation).getByRole('textbox', { name: 'Output column name' }), { target: { value: 'weight_plus_height' } });
+    fireEvent.change(within(calculation).getByRole('textbox', { name: 'Output column label' }), { target: { value: 'Weight plus height' } });
+    fireEvent.change(within(calculation).getByRole('combobox', { name: 'Missing input policy' }), { target: { value: 'PROPAGATE_NULL' } });
 
-    fireEvent.click(screen.getByTestId('ui04-open-table-shape-settings'));
-    await screen.findByTestId('ui04-reshape-mode');
-    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Derived column 1 output column' }), { target: { value: 'weight_plus_height' } });
-    fireEvent.change(screen.getByRole('textbox', { name: 'Derived column 1 output label' }), { target: { value: 'Weight plus height' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Derived column 1 operation' }), { target: { value: 'operator-add' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Derived column 1 first operand' }), { target: { value: 'weight' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Derived column 1 second operand' }), { target: { value: 'height' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Derived column 1 missing-input policy' }), { target: { value: 'missing-propagate' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
-
-    await screen.findByTestId('ui04-table-shape-comparison');
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(1));
+    await screen.findByTestId('construction-proposal-ready');
     expect(applyCommands).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId('ui04-confirm-table-shape'));
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
     await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
-      commands: [{ type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'specimens', proposalId: 'shape-proposal' }],
+      commands: [{ type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId: 'specimens', proposalId: 'calculation-proposal' }],
     })));
-    expect(mockLoomClient.proposeTableShape).toHaveBeenCalledWith(expect.objectContaining({
-      mode: 'ADD', catalogId: 'shape-catalog', derivedResolutionIds: ['derived-resolution'],
-    }));
+    expect(mockLoomClient.proposeConstruction).toHaveBeenCalledWith(expect.objectContaining({
+      outputId: 'specimens',
+      candidateConstruction: expect.objectContaining({
+        steps: [expect.objectContaining({ operation: expect.objectContaining({ kind: 'DERIVE' }) })],
+      }),
+    }), expect.any(AbortSignal));
   });
 
   it('creates an empty rooted Combine target from a populated table and opens its published-version editor', async () => {
@@ -5559,9 +5614,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       }));
 
       render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-      await screen.findByTestId(`construction-history-step-${stepId}`);
-      fireEvent.click(screen.getByTestId(`construction-history-step-${stepId}`));
-      fireEvent.click(screen.getByTestId(`construction-remove-step-${stepId}`));
+      await clickNavigatorOperation(stepId);
+      await clickNavigatorRemove(stepId);
       await screen.findByTestId('construction-proposal-ready');
       expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', `${proposalPrefix}-1`);
       expect(screen.getByTestId('construction-proposal-ready')).toHaveTextContent('Removal preview');
@@ -5575,11 +5629,11 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
       fireEvent.keyDown(window, { key: 'Escape' });
       expect(screen.queryByTestId('construction-proposal-panel')).not.toBeInTheDocument();
-      expect(screen.getByTestId(`construction-history-step-${stepId}`)).toBeInTheDocument();
+      expect(navigatorOperation(stepId)).toBeInTheDocument();
       expect(applyCommands).not.toHaveBeenCalled();
 
-      fireEvent.click(screen.getByTestId(`construction-history-step-${stepId}`));
-      fireEvent.click(screen.getByTestId(`construction-remove-step-${stepId}`));
+      await clickNavigatorOperation(stepId);
+      await clickNavigatorRemove(stepId);
       await screen.findByTestId('construction-proposal-ready');
       await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(2));
       expect(screen.getByTestId('construction-proposal-panel')).toHaveAttribute('data-proposal-id', `${proposalPrefix}-2`);
@@ -5594,7 +5648,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         outputId: 'specimens',
         proposalId: `${proposalPrefix}-2`,
       }]);
-      await waitFor(() => expect(screen.queryByTestId(`construction-history-step-${stepId}`)).not.toBeInTheDocument());
+      await waitFor(() => expect(globalThis.document.querySelector(`[data-testid="traversal-scope-navigator"] [data-operation-id="${stepId}"]`)).toBeNull());
     },
   );
 
@@ -5658,7 +5712,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const renderedTables = () => JSON.parse(screen.getByTestId('workspace-table-identities').textContent ?? 'null');
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
     expect(renderedTables()).toEqual(expectedTables(2));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled());
@@ -5666,13 +5720,13 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
     await waitFor(() => expect(mockLoomClient.getBuilder).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('status')).toHaveTextContent('Loading the selected Explorer configuration');
-    expect(screen.queryByRole('button', { name: 'Save column change' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change relationship' })).not.toBeInTheDocument();
     expect(mockLoomClient.getBuilder.mock.calls[1][1]).toMatchObject({ reload: true });
     expect(applyCommands).toHaveBeenCalledTimes(1);
     await act(async () => resolveGet(refreshedVersion2));
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
     expect(renderedTables()).toEqual(expectedTables(2));
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(2));
     expect(applyCommands.mock.calls[1][0]).toMatchObject({ snapshotToken: 'snapshot-fresh', expectedDraftVersion: 2, expectedDraftDigest: 'sha256:draft-2' });
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '3'));
@@ -5741,8 +5795,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     if (mode === 'unrelated') applyCommands.mockReturnValueOnce(resolvedRequest({ commandId: 'save-column', workspace: workspaceA, draftVersion: 2, draftDigest: 'sha256:draft-2', results: [], diagnostics: [] }));
     const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const dialog = await findRowSettings();
     const panel = await within(dialog).findByRole('region', { name: 'Starting collection' });
     await waitFor(() => expect(within(panel).getByRole('button', { name: 'Check selected-resource coverage' })).toBeEnabled());
     fireEvent.click(within(panel).getByRole('button', { name: 'Check selected-resource coverage' }));
@@ -5758,13 +5812,13 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   };
 
   const refreshPopulationByColumnEdit = async (dialog: HTMLElement, selectionB: SelectionRevision) => {
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
-    expect(screen.getByRole('button', { name: 'Save column change' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close row settings' }));
+    expect(screen.getByRole('button', { name: 'Change relationship' })).toBeEnabled();
+    await saveWorkspaceEdit();
     await waitFor(() => expect(mockLoomClient.getBuilder).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
-    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    const refreshedDialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await openRowSettings();
+    const refreshedDialog = await findRowSettings();
     await waitFor(() => expect(within(refreshedDialog).getByRole('region', { name: 'Starting collection' })).toHaveAttribute('data-attached-selection-revision-id', selectionB.id));
   };
 
@@ -5788,8 +5842,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
   it('keeps a population exclusion current across an unrelated successful save and uses fresh CAS', async () => {
     const { variantA, resolveVariant, dialog } = await openPopulationExclusion('unrelated');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close row settings' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
     await finishPopulationVariant(() => resolveVariant(variantA));
     expect(applyCommands).toHaveBeenCalledTimes(2);
@@ -5808,8 +5862,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
   it('rechecks population exclusion admission after an earlier queued command refreshes the base', async () => {
     const { variantA, resolveVariant, rejectQueuedCommand, dialog } = await openPopulationExclusion('queued-refresh');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close row settings' }));
+    await saveWorkspaceEdit();
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     await finishPopulationVariant(() => resolveVariant(variantA));
     expect(mockLoomClient.searchPopulationRoutes.mock.calls.filter(call => call[0].selectionRevisionId === variantA.id)).toHaveLength(1);

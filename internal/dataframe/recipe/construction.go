@@ -225,14 +225,26 @@ type ConstructionRelatedRouteStep struct {
 }
 
 type ConstructionPivot struct {
-	ConstructionID         string                      `json:"constructionId"`
-	GroupKeyIDs            []string                    `json:"groupKeyIds"`
-	CategoryColumnID       string                      `json:"categoryColumnId"`
-	ValueColumnID          string                      `json:"valueColumnId"`
-	Categories             []ConstructionPivotCategory `json:"categories"`
+	ConstructionID   string                      `json:"constructionId"`
+	GroupKeyIDs      []string                    `json:"groupKeyIds"`
+	CategoryColumnID string                      `json:"categoryColumnId"`
+	ValueColumnID    string                      `json:"valueColumnId"`
+	Categories       []ConstructionPivotCategory `json:"categories"`
+	// Discovery asks a prepared candidate to freeze the value-bearing
+	// categories observed for this exact category/value pair. Categories must be
+	// empty while Discovery is present; the resolver replaces the declaration
+	// with concrete Categories before this compiler contract validates.
+	Discovery              *ConstructionPivotDiscovery `json:"discovery,omitempty"`
 	DuplicatePolicy        PivotDuplicatePolicy        `json:"duplicatePolicy"`
 	MissingCellPolicy      PivotMissingCellPolicy      `json:"missingCellPolicy"`
 	UnlistedCategoryPolicy PivotUnlistedCategoryPolicy `json:"unlistedCategoryPolicy"`
+}
+
+// ConstructionPivotDiscovery bounds a category discovery declaration. It does
+// not carry the category list; evidence for the pivot's category/value pair is
+// resolved before compilation.
+type ConstructionPivotDiscovery struct {
+	MaxCategories int `json:"maxCategories"`
 }
 
 type ConstructionPivotCategory struct {
@@ -1096,6 +1108,15 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		pivot := operation.Pivot
 		if err := validateConstructionID(pivot.ConstructionID, path+".pivot.constructionId", constructionIDs); err != nil {
 			return err
+		}
+		if pivot.Discovery != nil {
+			if len(pivot.Categories) != 0 {
+				return fmt.Errorf("%s pivot cannot combine explicit categories with discovery", path)
+			}
+			if pivot.Discovery.MaxCategories <= 0 || pivot.Discovery.MaxCategories > maxPivotColumns {
+				return fmt.Errorf("%s pivot discovery maxCategories must be 1..%d", path, maxPivotColumns)
+			}
+			return fmt.Errorf("%s pivot discovery must be resolved to concrete categories before compilation", path)
 		}
 		if len(pivot.GroupKeyIDs) == 0 || len(pivot.Categories) == 0 || len(pivot.Categories) > maxPivotColumns {
 			return fmt.Errorf("%s pivot requires group keys and 1..%d categories", path, maxPivotColumns)

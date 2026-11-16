@@ -271,18 +271,23 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 			if err != nil {
 				return CompiledCategoryScanQuery{}, fmt.Errorf("compile indexed root category scan: %w", err)
 			}
+		} else if requireValue && physical.StageSequence != nil && column.PresenceCompanionName == "" {
+			// A value-bearing stage scan needs both the complete final row for
+			// the selected value and the category marker carried separately
+			// through the stage prefix. A materialized null category can no
+			// longer be distinguished from an absent field from the terminal
+			// row alone, so bind the value-bearing rows to the marked presence
+			// rows by category identity.
+			query, bindVars, err = categoryScanStageRequiringValueQuery(physical, column, valueColumn, presenceMarkerColumn, maxValues, categoryIndex)
+			if err != nil {
+				return CompiledCategoryScanQuery{}, err
+			}
 		} else {
 			var rendered aql.RenderedPhysicalPlan
 			if column.PresenceCompanionName != "" && !streamRootCategories {
 				rendered, err = aql.RenderPhysicalPlan(physical)
-			} else if physical.StageSequence != nil && !requireValue {
-				rendered, err = aql.RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(physical, column.Name, presenceMarkerColumn)
 			} else if physical.StageSequence != nil {
-				// A value-bearing scan must keep the selected value column in the
-				// terminal projection. The full physical plan preserves every
-				// final column; the distinct query derives category presence from
-				// the returned row object instead of a category-only marker.
-				rendered, err = aql.RenderPhysicalPlan(physical)
+				rendered, err = aql.RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(physical, column.Name, presenceMarkerColumn)
 			} else {
 				rendered, err = aql.RenderPhysicalPlanWithCategoryScanPresenceMarker(physical, column.Name, presenceMarkerColumn)
 			}
@@ -314,9 +319,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 				}
 			}
 			var streamed bool
-			if requireValue && physical.StageSequence != nil && column.PresenceCompanionName == "" {
-				query, streamed = categoryScanDistinctQueryRequiringValue(rendered.Query, categoryColumnBind, valueColumnBind, categoryLimitBind)
-			} else if column.PresenceCompanionName != "" && !streamRootCategories {
+			if column.PresenceCompanionName != "" && !streamRootCategories {
 				presenceColumnBind = "__loom_category_presence_column"
 				if _, exists := bindVars[presenceColumnBind]; exists {
 					return CompiledCategoryScanQuery{}, fmt.Errorf("category presence bind %q is already defined", presenceColumnBind)
@@ -370,11 +373,12 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan query: %w", err)
 	}
+	presenceTracked := requireValue || column.PresenceCompanionName != "" || relatedEligible || categoryScanDirectRootSource(physical, column)
 	proof := CategoryScanProof{
 		Version: 1, Output: output.Name, Column: column.Name, Kind: column.Kind,
 		Cardinality: column.Cardinality, MaxValues: maxValues,
 		OutputSchemaDigest: schemaDigest, PlanFingerprint: diagnostics.Fingerprint,
-		QueryFingerprint: queryDigest, PresenceTracked: column.PresenceCompanionName != "" || relatedEligible || categoryScanDirectRootSource(physical, column),
+		QueryFingerprint: queryDigest, PresenceTracked: presenceTracked,
 	}
 	if overflowWitness != nil {
 		proof.OverflowWitnessFingerprint, err = categoryQueryFingerprint(overflowWitness.Query, overflowWitness.BindVars)
@@ -400,6 +404,134 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		Proof: proof, Diagnostics: diagnostics, CategoryIndex: categoryIndex,
 		PreviewCoveringIndex: previewCoveringIndex, OverflowWitness: overflowWitness,
 	}, nil
+}
+
+func categoryScanStageRequiringValueQuery(
+	physical ir.PhysicalPlan,
+	category, value lower.CompiledOutputColumn,
+	presenceMarkerColumn string,
+	maxValues int,
+	categoryIndex *PreviewCoveringIndexSpec,
+) (string, map[string]any, error) {
+	valueRendered, err := aql.RenderPhysicalPlan(physical)
+	if err != nil {
+		return "", nil, fmt.Errorf("render value-bearing category scan plan: %w", err)
+	}
+	presenceRendered, err := aql.RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(physical, category.Name, presenceMarkerColumn)
+	if err != nil {
+		return "", nil, fmt.Errorf("render category presence plan: %w", err)
+	}
+	if categoryIndex != nil {
+		root, _, ok := previewCoveringIndexSource(physical)
+		if !ok {
+			return "", nil, fmt.Errorf("category index requires one direct root scan")
+		}
+		valueRendered.Query, ok = categoryScanWithRootIndexHint(valueRendered.Query, root.Variable, root.CollectionBindKey, categoryIndex.Name)
+		if !ok {
+			return "", nil, fmt.Errorf("category index hint could not be attached to the value-bearing root scan")
+		}
+		presenceRendered.Query, ok = categoryScanWithRootIndexHint(presenceRendered.Query, root.Variable, root.CollectionBindKey, categoryIndex.Name)
+		if !ok {
+			return "", nil, fmt.Errorf("category index hint could not be attached to the presence root scan")
+		}
+	}
+	presenceQuery, presenceBinds, err := renameCategoryScanBindKeys(presenceRendered.Query, presenceRendered.BindVars, valueRendered.BindVars)
+	if err != nil {
+		return "", nil, err
+	}
+	bindVars, err := mergeCategoryScanBindVars(valueRendered.BindVars, presenceBinds)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, key := range []string{categoryColumnBind, categoryLimitBind, "__loom_category_value_column"} {
+		if _, exists := bindVars[key]; exists {
+			return "", nil, fmt.Errorf("category scan bind %q is already defined", key)
+		}
+	}
+	queries := []string{valueRendered.Query, presenceRendered.Query}
+	valueRows := categoryScanUniqueQueryVariable(queries, "__loom_category_value_rows")
+	valueRow := categoryScanUniqueQueryVariable(queries, "__loom_category_value_row")
+	valueKey := categoryScanUniqueQueryVariable(queries, "__loom_category_value_key")
+	valueKeys := categoryScanUniqueQueryVariable(queries, "__loom_category_value_keys")
+	presenceRow := categoryScanUniqueQueryVariable(queries, "__loom_category_presence_row")
+	present := categoryScanUniqueQueryVariable(queries, "__loom_category_present")
+	categoryValue := categoryScanUniqueQueryVariable(queries, "__loom_category_value")
+	groupPresent := categoryScanUniqueQueryVariable(queries, "__loom_category_group_present")
+	groupValue := categoryScanUniqueQueryVariable(queries, "__loom_category_group_value")
+	query := "LET " + valueRows + " = (\n" + valueRendered.Query + "\n)\n" +
+		"LET " + valueKeys + " = (\n" +
+		"  FOR " + valueRow + " IN " + valueRows + "\n" +
+		"  FILTER " + valueRow + "[@" + "__loom_category_value_column" + "] != null\n" +
+		"  COLLECT " + valueKey + " = " + valueRow + "[@" + categoryColumnBind + "]\n" +
+		"  RETURN " + valueKey + "\n" +
+		")\n" +
+		"LET " + valueRows + "_presence = (\n" + presenceQuery + "\n)\n" +
+		"FOR " + presenceRow + " IN " + valueRows + "_presence\n" +
+		"FILTER " + presenceRow + "[@" + categoryColumnBind + "] IN " + valueKeys + "\n" +
+		"LET " + present + " = " + presenceRow + fmt.Sprintf("[%q]\n", presenceMarkerColumn) +
+		"LET " + categoryValue + " = " + present + " ? " + presenceRow + "[@" + categoryColumnBind + "] : null\n" +
+		"COLLECT " + groupPresent + " = " + present + ", " + groupValue + " = " + categoryValue + "\n" +
+		"SORT " + groupPresent + " ASC, TYPENAME(" + groupValue + ") ASC, " + groupValue + " ASC\n" +
+		"LIMIT @" + categoryLimitBind + "\n" +
+		"RETURN { present: " + groupPresent + ", value: " + groupValue + " }"
+	bindVars[categoryColumnBind] = category.Name
+	bindVars["__loom_category_value_column"] = value.Name
+	bindVars[categoryLimitBind] = maxValues + 1
+	return query, bindVars, nil
+}
+
+func renameCategoryScanBindKeys(query string, binds map[string]any, reserved map[string]any) (string, map[string]any, error) {
+	keys := make([]string, 0, len(binds))
+	for key := range binds {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
+	renamed := make(map[string]any, len(binds))
+	for _, oldKey := range keys {
+		candidate := "__loom_presence_" + strings.TrimPrefix(oldKey, "@")
+		if strings.HasPrefix(oldKey, "@") {
+			candidate = "@" + candidate
+		}
+		for {
+			if _, exists := reserved[candidate]; !exists {
+				if _, exists := renamed[candidate]; !exists {
+					break
+				}
+			}
+			candidate = "_" + candidate
+		}
+		query = strings.ReplaceAll(query, "@"+oldKey, "@"+candidate)
+		renamed[candidate] = binds[oldKey]
+	}
+	return query, renamed, nil
+}
+
+func mergeCategoryScanBindVars(left, right map[string]any) (map[string]any, error) {
+	merged := cloneCategoryScanBinds(left)
+	for key, value := range right {
+		if existing, exists := merged[key]; exists && !reflect.DeepEqual(existing, value) {
+			return nil, fmt.Errorf("category scan bind %q has conflicting values", key)
+		}
+		merged[key] = value
+	}
+	return merged, nil
+}
+
+func categoryScanUniqueQueryVariable(queries []string, base string) string {
+	candidate := base
+	for suffix := 1; ; suffix++ {
+		collides := false
+		for _, query := range queries {
+			if strings.Contains(query, candidate) {
+				collides = true
+				break
+			}
+		}
+		if !collides {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s_%d", base, suffix)
+	}
 }
 
 // categoryScanPreservesSourceCategories proves that complete distinct values
@@ -1041,37 +1173,6 @@ func categoryScanDistinctQuery(sourceQuery, presenceMarkerColumn, categoryColumn
 	return "LET " + variables["rows"] + " = (\n" + sourceQuery + "\n)\n" +
 		"FOR " + variables["row"] + " IN " + variables["rows"] + "\n" +
 		categoryScanDistinctSuffix(variables, presenceMarkerColumn, categoryColumnBind, valueColumnBind, categoryLimitBind), true
-}
-
-// categoryScanDistinctQueryRequiringValue consumes a full physical-plan row that
-// carries the selected category and value columns by name. Presence comes from
-// the returned row object, so the scan needs no category-only marker column and
-// no category-only overflow witness.
-func categoryScanDistinctQueryRequiringValue(sourceQuery, categoryColumnBind, valueColumnBind, categoryLimitBind string) (string, bool) {
-	variables := make(map[string]string, 6)
-	for _, role := range []struct{ key, base string }{
-		{key: "row", base: "__loom_category_row"},
-		{key: "rows", base: "__loom_category_rows"},
-		{key: "present", base: "__loom_category_present"},
-		{key: "value", base: "__loom_category_value"},
-		{key: "groupPresent", base: "__loom_category_group_present"},
-		{key: "groupValue", base: "__loom_category_group_value"},
-	} {
-		variable := role.base
-		for suffix := 1; strings.Contains(sourceQuery, variable) || variablesContain(variables, variable); suffix++ {
-			variable = fmt.Sprintf("%s_%d", role.base, suffix)
-		}
-		variables[role.key] = variable
-	}
-	return "LET " + variables["rows"] + " = (\n" + sourceQuery + "\n)\n" +
-		"FOR " + variables["row"] + " IN " + variables["rows"] + "\n" +
-		"FILTER " + variables["row"] + "[@" + valueColumnBind + "] != null\n" +
-		"LET " + variables["present"] + " = HAS(" + variables["row"] + ", @" + categoryColumnBind + ")\n" +
-		"LET " + variables["value"] + " = " + variables["present"] + " ? " + variables["row"] + "[@" + categoryColumnBind + "] : null\n" +
-		"COLLECT " + variables["groupPresent"] + " = " + variables["present"] + ", " + variables["groupValue"] + " = " + variables["value"] + "\n" +
-		"SORT " + variables["groupPresent"] + " ASC, TYPENAME(" + variables["groupValue"] + ") ASC, " + variables["groupValue"] + " ASC\n" +
-		"LIMIT @" + categoryLimitBind + "\n" +
-		"RETURN { present: " + variables["groupPresent"] + ", value: " + variables["groupValue"] + " }", true
 }
 
 func categoryScanDistinctQueryFromPresenceColumn(sourceQuery, presenceColumnBind, categoryColumnBind, valueColumnBind, categoryLimitBind string) (string, bool) {

@@ -1061,28 +1061,33 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
           }));
           await act(async () => { await flushMicrotasks(); });
           traceInitialObservation(result);
-          const ready = async (index: number, proposalId: string) => {
+          const startReady = async (index: number, proposalId: string, beforeResolve?: () => void) => {
             const pending = startAttempt(result, `step-${index}`);
             await advanceProposalDelay();
             const call = controlled.proposals[index];
             if (!call) throw new Error('Expected real proposal request');
             traceAction('StartProposal', result, 'propose-construction', undefined, proposalOwner(call.attempt));
+            beforeResolve?.();
             await deliver(() => call.transport.resolve(proposalFor(call.args, proposalId)));
             const settled = await pending;
             if (settled.kind !== 'resolved') throw new Error('Expected reviewed proposal');
             traceEmbeddedPreviewAccepted(result, proposalOwner(call.attempt), 'ProposalComplete');
+            return { call, settled: settled.value };
+          };
+          const begin = (ready: { call: ProposalCall; settled: ReadyProposal }, proposalId: string) => {
             let apply: ReturnType<typeof result.current.beginApply>;
-            act(() => { apply = result.current.beginApply(settled.value); });
+            act(() => { apply = result.current.beginApply(ready.settled); });
             expect(apply?.proposalId).toBe(proposalId);
             if (!apply) throw new Error('Expected Apply handle');
-            traceAction('BeginApply', result, 'begin-apply', undefined, { kind: 'apply', attempt: call.attempt });
-            return { call, apply };
+            traceAction('BeginApply', result, 'begin-apply', undefined, { kind: 'apply', attempt: ready.call.attempt });
+            return apply;
           };
           try {
-            const old = await ready(0, 'apply-A');
+            const oldReady = await startReady(0, 'apply-A');
+            const old = { call: oldReady.call, apply: begin(oldReady, 'apply-A') };
             act(() => { result.current.cancel(); });
-            traceAction('CancelDuringApply', result, 'cancel', 'Old Apply promise is still outstanding');
-            const current = await ready(1, reuseReceipt ? 'apply-A' : 'apply-B');
+            traceAction('CancelDuringApply', result, 'cancel', 'Old Apply promise is still outstanding; a new Apply must wait for it to release ownership');
+            const currentProposalId = reuseReceipt ? 'apply-A' : 'apply-B';
             const finishOld = () => {
               const before = result.current.proposal;
               let accepted: boolean | undefined;
@@ -1093,7 +1098,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
               act(() => { expect(old.apply.finish(!applied)).toBe(false); });
               expect(result.current.proposal).toEqual(before);
             };
-            const finishCurrent = () => {
+            const finishCurrent = (current: { call: ProposalCall; apply: NonNullable<ReturnType<typeof result.current.beginApply>> }) => {
               let accepted: boolean | undefined;
               act(() => { accepted = current.apply.finish(applied); });
               traceApplyCompletion(result, { kind: 'apply', attempt: current.call.attempt }, accepted === true, 'Current caller settles its own Apply');
@@ -1102,8 +1107,15 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
               act(() => { expect(current.apply.finish(!applied)).toBe(false); });
               expect(result.current.proposal.status).toBe(applied ? 'idle' : 'error');
             };
-            if (order === 'old-first') { finishOld(); finishCurrent(); }
-            else { finishCurrent(); finishOld(); }
+            if (order === 'old-first') {
+              const currentReady = await startReady(1, currentProposalId, finishOld);
+              finishCurrent({ call: currentReady.call, apply: begin(currentReady, currentProposalId) });
+            } else {
+              const currentReady = await startReady(1, currentProposalId);
+              act(() => { expect(result.current.beginApply(currentReady.settled)).toBeUndefined(); });
+              finishOld();
+              finishCurrent({ call: currentReady.call, apply: begin(currentReady, currentProposalId) });
+            }
           } finally {
             unmount();
           }

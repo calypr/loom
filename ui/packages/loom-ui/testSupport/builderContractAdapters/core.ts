@@ -151,10 +151,22 @@ const openConstructionFamily = async (
   const testId = `construction-action-${family.toLocaleLowerCase().replace('_', '-')}`;
   let button = screen.queryByTestId(testId);
   if (!button && family === 'CALCULATE') {
-    const moreActions = await screen.findByTestId('construction-more-actions');
-    if (moreActions.getAttribute('aria-expanded') !== 'true') fireEvent.click(moreActions);
-    button = await screen.findByTestId(testId);
+    const moreActions = screen.queryByTestId('construction-more-actions');
+    if (moreActions) {
+      if (moreActions.getAttribute('aria-expanded') !== 'true') fireEvent.click(moreActions);
+      button = await screen.findByTestId(testId);
+    }
   }
+  if (!button) throw new CoreAdapterGapError(input.uiAction.affordanceId, `the mounted ${family} action is unavailable.`);
+  // Capability-derived action state arrives asynchronously after the workspace
+  // mounts. Wait for the action to leave its initial disabled state instead of
+  // treating the first paint as a permanent adapter gap.
+  await waitFor(() => {
+    button = screen.getByTestId(testId);
+    if (button.hasAttribute('disabled') || button.getAttribute('aria-disabled') === 'true') {
+      throw new Error(`${family} action is not enabled yet.`);
+    }
+  });
   if (!button) throw new CoreAdapterGapError(input.uiAction.affordanceId, `the mounted ${family} action is unavailable.`);
   failIfUnavailable(input, button, `${family} action`);
   if (button.getAttribute('aria-pressed') !== 'true') fireEvent.click(button);
@@ -435,7 +447,9 @@ const driveProposalLifecycle = async (input: CoreAdapterInput): Promise<void> =>
   const values = valuesOf(input);
   const actionId = input.requestStep?.actionId;
   if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {
-    await clickTestId(input, 'construction-cancel-proposal', 'Cancel proposal');
+    // The current recipe editor discards the reviewed change through its
+    // "Back to table" control; the standalone proposal Cancel button was removed.
+    await clickTestId(input, 'construction-close-operation-editor', 'Close operation editor');
     return;
   }
   switch (actionId) {

@@ -11,9 +11,9 @@ import { RowRecipeExpression, type RowRecipeExpressionProps } from './RowRecipeE
 // Exercise the actual workspace callback through a real source-column term.
 // Outputs of row-preserving steps are inventories, not proof of column ownership.
 const workspaceSource = readFileSync(resolve(process.cwd(), 'src/features/ExplorerBuilder/BuilderWorkspace.tsx'), 'utf8');
-const marker = 'onEditColumn={(columnId) => {';
+const marker = 'const editTraversalColumn = (columnId: string) => {';
 const callbackStart = workspaceSource.indexOf(marker) + marker.length;
-const callbackEnd = workspaceSource.indexOf('\n                  }}', callbackStart);
+const callbackEnd = workspaceSource.indexOf('\n  };', callbackStart);
 if (callbackStart < marker.length || callbackEnd < callbackStart) throw new Error('Row source-column callback was not found.');
 const makeColumnEditor = new Function('table', 'editConstructionStep', 'savedNetwork', 'relationshipOwner', 'sourceStepEditAction',
   'recipeMutationAllowed', 'rememberRecipeFocus', 'recipeOwner', 'recipeEditToken', 'setEditingRecipeColumn',
@@ -56,6 +56,6 @@ it('keeps downstream operations editable through their own ordered terms', () =>
   render(<RowRecipeExpression table={table} catalog={catalog} projectionKind="saved" onEditColumn={vi.fn()} onEditOperation={edit}
     onEditSourceRows={vi.fn()} onAddConnection={vi.fn()} onSetMatchMode={vi.fn()} onEditImportedSourceStep={vi.fn()}
     onAddRelatedValues={vi.fn()} onAddRelatedRows={vi.fn()} onAddGroup={vi.fn()} />);
-  fireEvent.click(screen.getByRole('button', {name: /^Edit operation 2: derive:/}));
+  fireEvent.click(screen.getByRole('button', {name: 'Edit operation 2: Calculate: Calculated score'}));
   expect(edit).toHaveBeenCalledWith('derive-step');
 });

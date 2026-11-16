@@ -1634,6 +1634,9 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
         key: constructionTableScalarSchema,
         outputColumnId: opaqueIdSchema,
       }).strict()),
+      discovery: z.object({
+        maxCategories: z.number().int().min(1).max(256),
+      }).strict().optional(),
       duplicatePolicy: z.enum(['ERROR', 'SUM', 'MIN', 'MAX']),
       missingCellPolicy: z.enum(['NULL', 'ERROR']),
       unlistedCategoryPolicy: z.enum(['ERROR', 'EXCLUDE_WITH_EVIDENCE']),

@@ -160,6 +160,56 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 	}
 }
 
+func TestCompileCategoryScanRequiringValueBindsPresencePolicyAndStageSchema(t *testing.T) {
+	output := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	ordinary, err := CompileCategoryScanStageWithPolicy(output, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	valueAware, err := CompileCategoryScanStageRequiringValue(output, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valueAware.Proof.PresenceTracked || !valueAware.Proof.ValuePresenceRequired {
+		t.Fatalf("value-aware proof = %+v, want tracked presence and required-value policy", valueAware.Proof)
+	}
+	if ordinary.Proof.ValuePresenceRequired || ordinary.Proof.Fingerprint == valueAware.Proof.Fingerprint {
+		t.Fatalf("value-presence policy did not change the proof fingerprint: ordinary=%+v value-aware=%+v", ordinary.Proof, valueAware.Proof)
+	}
+	if !strings.Contains(valueAware.Query, "FILTER __loom_category_value_row[@__loom_category_value_column] != null") ||
+		!strings.Contains(valueAware.Query, "__loom_category_scan_presence") {
+		t.Fatalf("value-aware query did not filter the value and carry category presence from the source projection:\n%s", valueAware.Query)
+	}
+	stage, found := compiledStageByID(output.Stages, "keep_positive")
+	if !found {
+		t.Fatal("compiled output lost the scanned stage schema")
+	}
+	wantSchemaDigest, err := categoryHash(stage.Columns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valueAware.Proof.OutputSchemaDigest != wantSchemaDigest {
+		t.Fatalf("value-aware proof schema digest = %q, want input stage schema digest %q", valueAware.Proof.OutputSchemaDigest, wantSchemaDigest)
+	}
+
+	changed := output
+	changed.Stages = append([]lower.CompiledStageDescriptor(nil), output.Stages...)
+	for index := range changed.Stages {
+		if changed.Stages[index].ID != "keep_positive" {
+			continue
+		}
+		changed.Stages[index].Columns = append([]lower.CompiledOutputColumn(nil), changed.Stages[index].Columns...)
+		changed.Stages[index].Columns[0].SemanticPath += ":changed"
+	}
+	changedScan, err := CompileCategoryScanStageRequiringValue(changed, "keep_positive", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedScan.Proof.OutputSchemaDigest == valueAware.Proof.OutputSchemaDigest || changedScan.Proof.Fingerprint == valueAware.Proof.Fingerprint {
+		t.Fatalf("value-aware proof was not bound to the input stage schema: before=%+v after=%+v", valueAware.Proof, changedScan.Proof)
+	}
+}
+
 func TestCompileCategoryScanTracksPresenceThroughFilterForOrdinaryDiscoveryProbe(t *testing.T) {
 	output := categoryScanConstructionRecipeOutput()
 	output.Fields = append(output.Fields, recipe.Field{Name: "group", ColumnID: "group_id", Expr: recipe.Expression{Select: "root.id"}})
@@ -719,8 +769,11 @@ func TestCompileCategoryScanRequiringValueFiltersEmptyPivotColumns(t *testing.T)
 	if !scanned.Proof.ValuePresenceRequired {
 		t.Fatalf("requiring-value proof did not record its value policy: %#v", scanned.Proof)
 	}
-	if !strings.Contains(scanned.Query, "FILTER __loom_category_row[@__loom_category_value_column] != null") {
+	if !strings.Contains(scanned.Query, "FILTER __loom_category_value_row[@__loom_category_value_column] != null") {
 		t.Fatalf("requiring-value category scan omitted its non-null value filter:\n%s", scanned.Query)
+	}
+	if !scanned.Proof.PresenceTracked {
+		t.Fatalf("requiring-value category scan did not bind category presence: %#v", scanned.Proof)
 	}
 	if got := scanned.BindVars["__loom_category_value_column"]; got != "total" {
 		t.Fatalf("requiring-value category scan bound value column to %#v, want total", got)

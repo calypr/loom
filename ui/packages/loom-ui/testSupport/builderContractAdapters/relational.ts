@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 
 const GROUP_FIELD_AFFORDANCE = 'builder.reshape.group_field';
 const GROUP_EDIT_RUNNER_ACTION = 'builder.group-field.edit-aggregate';
@@ -102,7 +102,20 @@ const editSavedGroupAggregate = async (input: AdapterInput): Promise<void> => {
     throw new Error(`${operation} requires a summary input column.`);
   }
 
-  fireEvent.click(screen.getByTestId(`construction-history-step-${groupStepId}`));
+  // The traversal-first workspace exposes saved construction operations through
+  // the recipe-step navigator rather than the old dataframe history list.
+  const operationControl = await waitFor(() => {
+    const item = [...document.querySelectorAll<HTMLElement>('[data-operation-id]')]
+      .find((candidate) => candidate.getAttribute('data-operation-id') === groupStepId);
+    const button = item?.querySelector('button');
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error(`The mounted recipe navigator does not offer saved construction step ${groupStepId}.`);
+    }
+    return button;
+  });
+  if (operationControl.disabled) throw new Error(`Saved construction step ${groupStepId} is disabled.`);
+  fireEvent.click(operationControl);
+  await screen.findByTestId('construction-reshape-editor');
   await selectValue(`Summary ${aggregateIndex + 1}`, operation);
   if (inputColumnId) {
     await selectValue(`Summary field ${aggregateIndex + 1}`, inputColumnId);

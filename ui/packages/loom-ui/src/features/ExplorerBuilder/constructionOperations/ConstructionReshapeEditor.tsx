@@ -198,6 +198,8 @@ type PivotCategoryMemory = {
   readonly excluded: Set<string>;
 };
 
+const PIVOT_DISCOVERY_MAX_CATEGORIES = 256;
+
 type PivotForm = {
   readonly pivotSources?: ConstructionProposalRequest['pivotSources'];
   readonly kind: 'pivot';
@@ -206,6 +208,7 @@ type PivotForm = {
   readonly categoryColumnId: string;
   readonly valueColumnId: string;
   readonly categories: ReadonlyArray<PivotCategoryForm>;
+  readonly discovery?: { readonly maxCategories: number };
   readonly duplicatePolicy: 'ERROR' | 'SUM' | 'MIN' | 'MAX';
   readonly missingCellPolicy: 'NULL' | 'ERROR';
   readonly unlistedCategoryPolicy: 'ERROR' | 'EXCLUDE_WITH_EVIDENCE';
@@ -868,7 +871,7 @@ const pivotOutputsFor = (form: PivotForm, stage: ReshapeStage): ConstructionStep
     return [saved ?? { id: column.id, name: column.name, label: column.label, ...(column.type ? { type: column.type } : {}) }];
   });
   const valueType = stage.columns.find((column) => column.id === form.valueColumnId)?.type;
-  const categoryOutputs = form.categories.map((category) => {
+  const categoryOutputs = form.discovery ? [] : form.categories.map((category) => {
     const saved = savedById.get(category.outputColumnId);
     const type = saved?.type ?? valueType;
     return {
@@ -889,7 +892,10 @@ const pivotOperationFor = (form: PivotForm): PivotOperation => ({
     groupKeyIds: [...form.groupKeyIds],
     categoryColumnId: form.categoryColumnId,
     valueColumnId: form.valueColumnId,
-    categories: form.categories.map(({ key, outputColumnId }) => ({ key, outputColumnId })),
+    categories: form.discovery
+      ? []
+      : form.categories.map(({ key, outputColumnId }) => ({ key, outputColumnId })),
+    ...(form.discovery ? { discovery: { maxCategories: form.discovery.maxCategories } } : {}),
     duplicatePolicy: form.duplicatePolicy,
     missingCellPolicy: form.missingCellPolicy,
     unlistedCategoryPolicy: form.unlistedCategoryPolicy,
@@ -1307,7 +1313,7 @@ const pivotStepFromForm = (args: {
   const outputIDs = [...form.groupKeyIds, ...form.categories.map((category) => category.outputColumnId)];
   const keyIDs = form.categories.map((category) => scalarIdentity(category.key));
   const outputs = pivotOutputsFor(form, stage);
-  if (form.groupKeyIds.length === 0 || form.categories.length === 0 || !categoryColumn || !valueColumn) return undefined;
+  if (form.groupKeyIds.length === 0 || (!form.discovery && form.categories.length === 0) || !categoryColumn || !valueColumn) return undefined;
   if (form.duplicatePolicy === 'SUM' && !isNumericColumn(valueColumn)) return undefined;
   if (groupIDs.size !== form.groupKeyIds.length || groupIDs.has(form.categoryColumnId) || groupIDs.has(form.valueColumnId)) return undefined;
   if (form.groupKeyIds.some((id) => !scalarColumnsFor(stage).some((column) => column.id === id))) return undefined;
@@ -1625,6 +1631,7 @@ const initialPivotForm = (
           label: output?.label ?? scalarLabel(category.key),
         };
       }),
+      ...(operation.discovery ? { discovery: { maxCategories: operation.discovery.maxCategories } } : {}),
       duplicatePolicy,
       missingCellPolicy: operation.missingCellPolicy,
       unlistedCategoryPolicy: operation.unlistedCategoryPolicy,
@@ -2079,7 +2086,7 @@ const candidateFor = (args: {
     return step ? candidateIntentFor({ construction, editingStep, step, expandSources: form.expandSources }) : { kind: 'incomplete' };
   }
   if (form.kind === 'pivot') {
-    if (!pivotCategoriesKnown) return { kind: 'incomplete' };
+    if (!pivotCategoriesKnown && !form.discovery) return { kind: 'incomplete' };
     const step = pivotStepFromForm({ stage: pivotInputStage(stage, form, capabilities.pivotSourceInput?.choices ?? []), editingStep, form });
     return step ? candidateIntentFor({ construction, editingStep, step, pivotSources: form.pivotSources }) : { kind: 'incomplete' };
   }
@@ -2215,8 +2222,11 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const schedulePivotDiscoveryRef = useRef<((next: PivotForm) => void) | undefined>(undefined);
   const currentPivotDiscoveryRef = useRef<ConstructionReshapePivotDiscovery | undefined>(undefined);
   currentPivotDiscoveryRef.current = formContextKey === contextKey ? props.pivotDiscovery : undefined;
+  const reportInitialStateRef = useRef<(() => void) | undefined>(undefined);
+  const reportedInitialContextKey = useRef<string | undefined>(undefined);
   const pivotDiscoveryRootRef = useCallback((element: HTMLElement | null) => {
     if (element) {
+      reportInitialStateRef.current?.();
       pivotDiscoveryRootMounted.current = true;
       pivotDiscoveryActivationTimer.current = window.setTimeout(() => {
         pivotDiscoveryActivationTimer.current = undefined;
@@ -2245,7 +2255,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     if (identityChanged) {
       pivotDiscoveryRevision.current += 1;
     }
-  }, [contextKey, disabled, props.onDiscoverCategories, stage.id]);
+  }, [contextKey, disabled, props.initialEntry, props.onDiscoverCategories, stage.id]);
   const [reshapeTab, setReshapeTab] = useState<'pivot' | 'unpivot'>('pivot');
   const [groupPurpose, setGroupPurpose] = useState<'group' | 'summarize' | undefined>();
   if (formContextKey !== contextKey) {
@@ -2294,6 +2304,35 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     return !pivotDiscoveryMatches(form, stage.id, pivotDiscovery) || pivotDiscovery.status === 'loading';
   })();
 
+  reportInitialStateRef.current = () => {
+    if (props.initialEntry) {
+      reportedInitialContextKey.current = undefined;
+      return;
+    }
+    if (reportedInitialContextKey.current === contextKey) return;
+    reportedInitialContextKey.current = contextKey;
+    const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
+    props.onFormKindChange?.(initialForm.kind);
+    const initialCandidate = (!editingStep
+      && (initialForm.kind === 'coded-group' && codedGroupSupport.supported
+        || initialForm.kind === 'source-group' && sourceGroupSupported
+        || initialForm.kind === 'unpivot' && unpivotSupport.supported))
+      || (editingStep !== undefined && initialForm.kind === 'expand' && editingStep.operation.kind === 'EXPAND'
+        && (expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)))
+      ? candidateFor({
+          form: initialForm,
+          construction,
+          capabilities,
+          stage: groupStage,
+          editingStep,
+          pivotCategoriesKnown: false,
+        })
+      : undefined;
+    const reportInitialCandidate = editingStep !== undefined || initialForm.kind !== 'group';
+    if (initialCandidate?.kind === 'ready') onCandidateChange(initialCandidate.intent);
+    else if (reportInitialCandidate) onCandidateChange(undefined);
+  };
+
   const capabilityForForm = (next: ReshapeForm) => {
     switch (next.kind) {
       case 'group': return groupCodedValuesSupported ? { supported: true, reason: '' } : groupSupport;
@@ -2337,6 +2376,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     pivot: PivotForm,
     discovery: ConstructionReshapePivotDiscovery | undefined,
   ): PivotForm => {
+    if (pivot.discovery) return pivot;
     if (formContextKey !== contextKey
         || pivotOriginalPairApplies(pivot)
         || !pivotDiscoveryMatches(pivot, stage.id, discovery)
@@ -2463,6 +2503,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const requestPivotCategories = (pivot: PivotForm, force = false) => {
     const owner = props.onDiscoverCategories;
     if (!owner || disabled || formContextKey !== contextKey || !pivotSupport.supported
+        || pivot.discovery
         || (pivot.pivotSources?.length && pivot.groupKeyIds.length === 0)
         || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
 
@@ -2499,6 +2540,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const schedulePivotDiscovery = (pivot: PivotForm) => {
     const owner = props.onDiscoverCategories;
     if (!owner || disabled || formContextKey !== contextKey || !pivotSupport.supported
+        || pivot.discovery
         || (pivot.pivotSources?.length && pivot.groupKeyIds.length === 0)
         || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
 
@@ -2573,7 +2615,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         </div>
       ) : null}
 
-      {!props.rowValuesOnly && form.kind !== 'choose' && form.kind !== 'unsupported' && form.kind !== 'group' && form.kind !== 'pivot' && form.kind !== 'unpivot' && form.kind !== 'coded-pivot' ? (
+      {!props.rowValuesOnly && form.kind !== 'choose' && form.kind !== 'unsupported' && form.kind !== 'group' ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           <h2 className="m-0 font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</h2>
           {!editingStep && !props.hideChangeRowOperation ? <button type="button" disabled={disabled} onClick={() => updateForm(initialPivotForm(stage, props.selectedColumns ?? []))}
@@ -4491,9 +4533,11 @@ const PivotEditor = (props: {
   const repeatedColumns = props.stage.columns.filter((column) => column.cardinality === 'many');
   const discoveryMatches = pivotDiscoveryMatches(props.form, props.stage.id, props.discovery);
   const discoveryComplete = discoveryMatches && props.discovery.status === 'complete';
+  const discoveryMode = props.form.discovery !== undefined;
   const pairUnchanged = pivotOriginalPairApplies(props.form);
-  const categoriesKnown = pairUnchanged || discoveryComplete;
-  const discoveryEligible = props.canDiscover
+  const categoriesKnown = !discoveryMode && (pairUnchanged || discoveryComplete);
+  const discoveryEligible = !discoveryMode
+    && props.canDiscover
     && props.supported
     && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0)
     && props.form.categoryColumnId !== ''
@@ -4733,14 +4777,37 @@ const PivotEditor = (props: {
           <p data-testid="construction-reshape-pivot-role-summary" className="text-sm text-slate-600">
             {roleSummary}
           </p>
+          <div className="grid gap-1 rounded border border-slate-200 p-3">
+            <label className="flex items-start gap-2 text-sm font-medium text-slate-800">
+              <input
+                type="checkbox"
+                aria-label="Keep categories in sync with data"
+                checked={discoveryMode}
+                disabled={props.disabled || !props.supported}
+                onChange={(event) => props.onChange({
+                  ...props.form,
+                  discovery: event.currentTarget.checked ? { maxCategories: PIVOT_DISCOVERY_MAX_CATEGORIES } : undefined,
+                  categories: event.currentTarget.checked ? [] : props.form.categories,
+                  categoriesPair: event.currentTarget.checked ? undefined : props.form.categoriesPair,
+                  originalPair: event.currentTarget.checked ? undefined : props.form.originalPair,
+                })}
+              />
+              <span>Use discovered categories automatically</span>
+            </label>
+            <p className="m-0 text-xs text-slate-600">
+              {discoveryMode
+                ? `Categories are resolved from the data when the pivot runs, up to ${PIVOT_DISCOVERY_MAX_CATEGORIES}. Manual category selection is unavailable while this is on.`
+                : 'Choose categories manually from the values found in New column names.'}
+            </p>
+          </div>
           {repeatedColumns.length > 0 ? (
             <details className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
               <summary className="cursor-pointer">{repeatedColumns.length} {repeatedColumns.length === 1 ? 'column contains a list' : 'columns contain lists'}</summary>
               <p className="mt-1">Use “Make one row per list value” to expand these columns before choosing Pivot fields.</p>
             </details>
           ) : null}
-          {!props.canDiscover && !categoriesKnown ? <p role="status" className="text-sm text-amber-900">Category discovery is unavailable for this stage.</p> : null}
-          {props.canDiscover && props.supported && !categoriesKnown && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0) && (props.form.categoryColumnId === '' || props.form.valueColumnId === '') ? <p role="status" className="text-sm text-slate-600">Choose fields for New column names and Cell values to find categories.</p> : null}
+          {!discoveryMode && !props.canDiscover && !categoriesKnown ? <p role="status" className="text-sm text-amber-900">Category discovery is unavailable for this stage.</p> : null}
+          {!discoveryMode && props.canDiscover && props.supported && !categoriesKnown && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0) && (props.form.categoryColumnId === '' || props.form.valueColumnId === '') ? <p role="status" className="text-sm text-slate-600">Choose fields for New column names and Cell values to find categories.</p> : null}
           {discoveryPending ? (
             <div
               role="status"

@@ -826,8 +826,7 @@ if (contractPhase === 'inventory') {
   it('opens the real Group editor and captures the exact serialized proposal request', async () => {
     const actionSequence = ['open saved Group step', 'select MEAN in Summary 1'];
     render(<BuilderWorkspace organization="HTAN_INT" project={project} explorerId={explorerId} />);
-    fireEvent.click(await screen.findByTestId(`construction-history-step-${groupStepId}`));
-    await screen.findByTestId('construction-reshape-editor');
+    await openSavedGroupStep();
     fireEvent.change(screen.getByRole('combobox', { name: 'Summary 1' }), { target: { value: 'MEAN' } });
 
     await waitFor(() => expect(capture.request).toBeDefined(), { timeout: 5000 });
@@ -847,6 +846,21 @@ if (contractPhase === 'inventory') {
 
   const commandRequests = () => harness.requests.filter(request =>
     new URL(request.url, 'https://ui-contract-capture.invalid').pathname.endsWith('/commands'));
+
+  const savedGroupStepControl = () => waitFor(() => {
+    const item = [...document.querySelectorAll<HTMLElement>('[data-operation-id]')]
+      .find((candidate) => candidate.getAttribute('data-operation-id') === groupStepId);
+    const button = item?.querySelector('button');
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error(`The mounted recipe navigator does not offer saved construction step ${groupStepId}.`);
+    }
+    return button;
+  });
+
+  const openSavedGroupStep = async () => {
+    fireEvent.click(await savedGroupStepControl());
+    await screen.findByTestId('construction-reshape-editor');
+  };
 
   const editGroup = async (operation: 'SUM' | 'MEAN' = 'MEAN') => {
     harness.proposalStatus = 'READY';
@@ -884,7 +898,7 @@ if (contractPhase === 'inventory') {
 
   it('rejects an unsupported aggregate before the adapter changes the editor or sends a request', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project={project} explorerId={explorerId} />);
-    await screen.findByTestId(`construction-history-step-${groupStepId}`);
+    await savedGroupStepControl();
     await expect(relationalAdapters['builder.reshape.group_field'].drive({
       uiAction: { affordanceId: 'builder.reshape.group_field', runnerActionId: 'builder.group-field.edit-aggregate',
         values: { groupStepId, operation: 'NOT_AN_AGGREGATE' } }, requestStep: null,
@@ -903,7 +917,7 @@ if (contractPhase === 'inventory') {
     await waitFor(() => expect(screen.queryByTestId('construction-proposal-ready')).toBeNull());
     expect(harness.applyCommands).not.toHaveBeenCalled();
     expect(commandRequests()).toHaveLength(0);
-    fireEvent.click(screen.getByTestId(`construction-history-step-${groupStepId}`));
+    await openSavedGroupStep();
     expect((await screen.findByRole('combobox', { name: 'Summary 1' }) as HTMLSelectElement).value).toBe('COUNT_ROWS');
   });
 
@@ -929,7 +943,7 @@ if (contractPhase === 'inventory') {
     harness.proposalStatus = 'READY';
     harness.mismatchProposalSnapshot = true;
     render(<BuilderWorkspace organization="HTAN_INT" project={project} explorerId={explorerId} />);
-    fireEvent.click(await screen.findByTestId(`construction-history-step-${groupStepId}`));
+    await openSavedGroupStep();
     fireEvent.change(await screen.findByRole('combobox', { name: 'Summary 1' }), { target: { value: 'MEAN' } });
     await screen.findByTestId('construction-proposal-error');
     expect(capture.requestArgs?.snapshotToken).toBe('snapshot-ui-contract-capture');

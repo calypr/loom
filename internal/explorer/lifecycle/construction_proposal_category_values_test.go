@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -45,20 +46,20 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 			wantCode:    "PIVOT_NO_OBSERVED_CATEGORIES",
 		},
 		{
-			name:         "limit exceeded with authored categories preserves prior behavior",
+			name:         "valid category refuses when the limit blocks its proof",
 			categories:   []authoringv2.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
 			scanValues:   nil,
 			scanEnabled:  true,
 			scanOverflow: true,
-			wantSaved:    true,
+			wantCode:     "PIVOT_CATEGORIES_UNVERIFIABLE",
 		},
 		{
-			name:                  "missing unsupported with authored categories preserves prior behavior",
+			name:                  "valid category refuses when missing presence blocks its proof",
 			categories:            []authoringv2.ConstructionPivotCategory{{Key: observed, OutputColumnID: "pivot_final"}},
 			scanValues:            nil,
 			scanEnabled:           true,
 			scanConclusiveMissing: true,
-			wantSaved:             true,
+			wantCode:              "PIVOT_CATEGORIES_UNVERIFIABLE",
 		},
 		{
 			name:       "scan unavailable path is unchanged",
@@ -138,6 +139,63 @@ func TestProposeConstructionPivotCategoryValues(t *testing.T) {
 				t.Fatalf("scan unavailable path ran %d scans", scans)
 			}
 		})
+	}
+}
+
+func TestVerifyConstructionProposalPivotCategoriesChecksUnchangedPivot(t *testing.T) {
+	service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
+	scans := 0
+	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+		scans++
+		if scan.StageID != recipe.ConstructionSourceProjectionID || !scan.RequireValue {
+			t.Fatalf("unchanged Pivot scan request = %#v", scan)
+		}
+		var category explorer.ReceiptConstructionStageColumn
+		for _, stage := range receipt.ConstructionStages["patients"] {
+			if stage.ID != scan.StageID {
+				continue
+			}
+			for _, column := range stage.Columns {
+				if column.ID == scan.ColumnID {
+					category = column
+				}
+			}
+		}
+		proof := compilerCategoryScanProof(ConstructionCategoryDiscoveryRequest{
+			OutputID: scan.Output, StageID: scan.StageID,
+			CategoryColumnID: scan.ColumnID, ValueColumnID: scan.ValueColumnID,
+		}, category)
+		return dataframeexecution.CategoryScanResult{
+			Values:   []dataframeexecution.CategoryValue{{Present: true, Value: "final"}},
+			Complete: true, Proof: proof,
+		}, nil
+	}
+	request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("ZZZ"), OutputColumnID: "pivot_final"}})
+	request.ChangedStepID = "unrelated_step"
+	candidate := request.CandidateConstruction
+	if err := service.verifyConstructionProposalPivotCategories(context.Background(), request, candidate); lifecycleErrorCode(err) != "PIVOT_CATEGORY_HAS_NO_VALUES" {
+		t.Fatalf("unchanged Pivot verification error = %v, want PIVOT_CATEGORY_HAS_NO_VALUES", err)
+	}
+	if scans != 1 {
+		t.Fatalf("unchanged Pivot verification scans = %d, want 1", scans)
+	}
+}
+
+func TestVerifyConstructionProposalPivotCategoriesPreservesBehaviorWhenUnchangedPivotProbeFails(t *testing.T) {
+	service, store, snapshot, _, _ := constructionProposalPivotFixture(t)
+	scans := 0
+	service.config.ScanCategories = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+		scans++
+		return dataframeexecution.CategoryScanResult{}, errors.New("probe unavailable")
+	}
+	request := constructionProposalPivotRequest(store.created, snapshot, []authoringv2.ConstructionPivotCategory{{Key: lifecycleTestStringScalar("ZZZ"), OutputColumnID: "pivot_final"}})
+	request.ChangedStepID = "unrelated_step"
+	candidate := request.CandidateConstruction
+	if err := service.verifyConstructionProposalPivotCategories(context.Background(), request, candidate); err != nil {
+		t.Fatalf("unverifiable unchanged Pivot should preserve prior behavior, got %v", err)
+	}
+	if scans != 1 {
+		t.Fatalf("unchanged Pivot probe scans = %d, want 1", scans)
 	}
 }
 

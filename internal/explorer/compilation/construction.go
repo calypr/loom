@@ -54,6 +54,15 @@ func recipeConstruction(authored *authoringv2.Construction, columns []authoringv
 		}
 		construction.Steps = append(construction.Steps, mapped)
 	}
+	for index, step := range construction.Steps {
+		if step.Operation.Kind == recipe.ConstructionPivotOp &&
+			step.Operation.Pivot != nil && step.Operation.Pivot.Discovery != nil {
+			return nil, fail("construction", "PIVOT_DISCOVERY_UNRESOLVED",
+				fmt.Sprintf("$.construction.steps[%d]", index),
+				fmt.Sprintf("pivot %q discovery must be resolved to concrete categories before compilation", step.ID),
+				map[string]any{"stepId": step.ID}, nil)
+		}
+	}
 	return construction, nil
 }
 
@@ -332,6 +341,9 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			MissingCellPolicy:      recipe.PivotMissingCellPolicy(pivot.MissingCellPolicy),
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryPolicy(pivot.UnlistedCategoryPolicy),
 			Categories:             make([]recipe.ConstructionPivotCategory, 0, len(pivot.Categories)),
+		}
+		if pivot.Discovery != nil {
+			mapped.Discovery = &recipe.ConstructionPivotDiscovery{MaxCategories: pivot.Discovery.MaxCategories}
 		}
 		for index, category := range pivot.Categories {
 			key, err := recipeTableScalar(category.Key, tableScalarPivotCategoryKey)

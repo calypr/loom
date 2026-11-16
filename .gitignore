@@ -51,3 +51,11 @@ META/
 /verification/builder-interactions/report.md
 /verification/builder-interactions/http-500-audit.json
 /docs/verification/playwright/source-conversion-manifest.md
+
+# Local tool/runtime artifacts and external import data
+/.opencode/
+/.openshell-transfer-*
+/GDC-FHIR/
+/error.log
+/ticket-backlog-*/
+/node_modules/

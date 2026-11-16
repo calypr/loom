@@ -6,6 +6,7 @@ import type { ExplorerBuilderCatalog } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { AuthoredTraversalEditor } from './AuthoredTraversalEditor';
 import { authoredStages, authoredTraversal } from './authoredTraversal';
+import { traversalScopeModel } from './traversalScopeModel';
 import { TraversalScopeNavigator } from './TraversalScopeNavigator';
 
 vi.mock('@xyflow/react', () => ({
@@ -112,11 +113,14 @@ describe('authored traversal correspondence', () => {
     ], construction: { version: 1, steps: [{ id: 'group1', inputs: [{ kind: 'SOURCE_PROJECTION' }], operation: { kind: 'GROUP', group: { constructionId: 'g', keys: [{ inputColumnId: 'gender', outputColumnId: 'g' }, { inputColumnId: 'status', outputColumnId: 's' }], missingKeyPolicy: 'GROUP' } }, rowValues: [{ inputColumnId: 'status', outputColumnId: 'values', policy: 'ALL' }], outputs: [{ id: 'g', name: 'g', label: 'Gender', type: 'string' }, { id: 's', name: 's', label: 'Status', type: 'string' }, { id: 'values', name: 'values', label: 'Statuses', type: 'list<string>' }] }] } } };
     const actions = callbacks(); render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={grouped} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(grouped, actions)} /></>);
     const stage = within(screen.getByRole('list', { name: 'Ordered resulting-table operations' }));
-    expect(stage.getByText(/Group rows by Gender, Status/)).toHaveTextContent('Statuses retains all contributor values');
-    expect(stage.getByText('Inputs: Source projection')).toBeTruthy();
-    fireEvent.click(stage.getByRole('button', { name: 'Edit table operation 1: Group by Gender, Status' }));
+    const groupButton = stage.getByRole('button', { name: 'Edit table operation 1: Group by Gender, Status' });
+    expect(groupButton).toHaveTextContent('Group by Gender, Status');
+    expect(groupButton.closest('[data-operation-id]')).toHaveAttribute('data-operation-id', 'group1');
+    fireEvent.click(groupButton);
     expect(actions.onInspectOperation).toHaveBeenCalledWith('group1');
     expect(authoredStages(grouped).map((item) => item.id)).toEqual(['group1']);
+    expect(authoredStages(grouped)[0]).toMatchObject({ id: 'group1', input: 'Source' });
+    expect(authoredStages(grouped)[0].summary).toContain('Statuses retains all contributor values');
   });
   it('projects construction-authored relationships at their original stage and preserves list policy explanations', () => {
     const expanded: DraftTable = { ...table, document: { ...table.document, construction: { version: 1, steps: [{
@@ -129,8 +133,8 @@ describe('authored traversal correspondence', () => {
     const actions = callbacks();
     render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={expanded} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(expanded,actions)} /></>);
     const stages = screen.getByRole('list', { name: 'Ordered resulting-table operations' });
-    expect(stages).toHaveTextContent('Inputs: Source projection');
-    fireEvent.click(within(stages).getByRole('button'));
+    expect(stages).toHaveTextContent('Rows from Observation');
+    fireEvent.click(within(stages).getByRole('button', { name: 'Edit table operation 1: Rows from Observation' }));
     expect(actions.onInspectOperation).toHaveBeenCalledExactlyOnceWith('pairs');
     expect(authoredTraversal(expanded, catalog)).toHaveLength(3);
     expect(authoredStages(expanded)[0]).toMatchObject({ id: 'pairs', edgeIds: ['patient-observation'], anchorColumnId: 'subject-id',
@@ -176,7 +180,7 @@ it('keeps exact source policy editing in the traversal navigator across proposed
   const exact=within(sourceList).getByRole('button',{name:'Edit source operation 2: Patient fields'});
   fireEvent.click(exact);expect(values.onEditSourceStep).toHaveBeenCalledExactlyOnceWith('patient_fields');
   expect(exact.closest('[data-operation-id]')).toHaveAttribute('data-operation-id','patient_fields');
-  expect(exact.closest('li')).toHaveTextContent('all values as a list');
+  expect(traversalScopeModel(imported.document, network).sourceOperations.find(operation => operation.id === 'patient_fields')?.sourceStep?.valueMode).toBe('ALL');
   expect(within(screen.getByTestId('authored-traversal-editor')).queryByLabelText('Shared source policies')).toBeNull();
   const before=structuredClone(imported.document);
   view.rerender(<><AuthoredTraversalEditor {...graph} projectionKind="proposed"/><TraversalScopeNavigator {...values} projectionKind="proposed"/></>);

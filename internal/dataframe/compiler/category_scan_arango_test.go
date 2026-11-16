@@ -110,7 +110,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 			},
 		}
 	}
-	compileScan := func(output recipe.Output, stageID string) CompiledCategoryScanQuery {
+	compileScan := func(output recipe.Output, stageID string, requireValue bool) CompiledCategoryScanQuery {
 		t.Helper()
 		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
@@ -126,7 +126,12 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		categoryScan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		var categoryScan CompiledCategoryScanQuery
+		if requireValue {
+			categoryScan, err = CompileCategoryScanStageRequiringValue(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		} else {
+			categoryScan, err = CompileCategoryScanStageWithPolicy(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +160,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 		}
 	}
 
-	equalityScan := compileScan(makeOutput("construction_category_presence_equality", "keep_active_equality", recipe.FilterEquals), "keep_active_equality")
+	equalityScan := compileScan(makeOutput("construction_category_presence_equality", "keep_active_equality", recipe.FilterEquals), "keep_active_equality", false)
 	rootFilter := "FILTER root.payload.active == @construction_filter_value"
 	stageFilter := "FILTER __loom_construction_input_1.active == @construction_filter_value"
 	if !strings.Contains(equalityScan.Query, rootFilter) || !strings.Contains(equalityScan.Query, stageFilter) {
@@ -166,7 +171,19 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 	}
 	assertMissingAndNull(equalityScan)
 
-	existsScan := compileScan(makeOutput("construction_category_presence_exists", "keep_active_exists", recipe.FilterExists), "keep_active_exists")
+	valueScan := compileScan(makeOutput("construction_category_presence_value", "keep_active_value", recipe.FilterEquals), "keep_active_value", true)
+	if !valueScan.Proof.PresenceTracked || !valueScan.Proof.ValuePresenceRequired {
+		t.Fatalf("value-aware category scan proof = %+v, want tracked presence and required value policy", valueScan.Proof)
+	}
+	if !strings.Contains(valueScan.Query, "HAS(") || !strings.Contains(valueScan.Query, "@__loom_category_value_column") {
+		t.Fatalf("value-aware category scan did not carry source presence and filter the selected value:\n%s", valueScan.Query)
+	}
+	// MISSING categories with a non-null pivot value are preserved as their own
+	// present=false category; the value filter only removes rows whose pivot
+	// value is null.
+	assertMissingAndNull(valueScan)
+
+	existsScan := compileScan(makeOutput("construction_category_presence_exists", "keep_active_exists", recipe.FilterExists), "keep_active_exists", false)
 	if strings.Contains(existsScan.Query, "FILTER root.payload.active") || !strings.Contains(existsScan.Query, "FILTER __loom_construction_input_1.active != null") {
 		t.Fatalf("ineligible EXISTS scan must keep its original staged filter without source pushdown:\n%s", existsScan.Query)
 	}

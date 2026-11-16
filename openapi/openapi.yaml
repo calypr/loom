@@ -4971,9 +4971,16 @@ components:
         categories:
           type: array
           items: {$ref: '#/components/schemas/ConstructionPivotCategory'}
+        discovery: {$ref: '#/components/schemas/ConstructionPivotDiscovery'}
         duplicatePolicy: {type: string, enum: [ERROR, SUM, MIN, MAX]}
         missingCellPolicy: {type: string, enum: ["NULL", ERROR]}
         unlistedCategoryPolicy: {type: string, enum: [ERROR, EXCLUDE_WITH_EVIDENCE]}
+    ConstructionPivotDiscovery:
+      type: object
+      additionalProperties: false
+      required: [maxCategories]
+      properties:
+        maxCategories: {type: integer, minimum: 1, maximum: 256}
     ConstructionPivotCategory:
       type: object
       additionalProperties: false

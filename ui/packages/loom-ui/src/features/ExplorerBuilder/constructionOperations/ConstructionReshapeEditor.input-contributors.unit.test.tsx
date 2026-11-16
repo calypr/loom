@@ -38,13 +38,13 @@ afterEach(cleanup);
 it('retains an exact projected input when imported source has no raw-field context', async () => {
   const onCandidateChange = vi.fn();
   render(<ConstructionReshapeEditor {...propsFor(capabilities(), onCandidateChange)} />);
-  fireEvent.click(screen.getByText('Add contributor value', { exact: true }));
-  const input = screen.getByTestId('construction-group-add-column-input-source-subject-id');
-  expect(input).toHaveAttribute('value', 'source-subject-id');
   expect(screen.queryByRole('checkbox', { name: 'Add column Status' })).toBeNull();
   expect(screen.queryByRole('checkbox', { name: 'Add column Private identity' })).toBeNull();
   expect(screen.queryByRole('checkbox', { name: 'Add column Repeated values' })).toBeNull();
   expect(screen.queryByRole('checkbox', { name: 'Add column Object value' })).toBeNull();
+  fireEvent.change(screen.getByTestId('construction-group-add-columns-search'), { target: { value: 'Subject ID' } });
+  const input = screen.getByTestId('construction-group-add-column-input-source-subject-id');
+  expect(input).toHaveAttribute('value', 'source-subject-id');
   fireEvent.click(input);
   await waitFor(() => expect(onCandidateChange.mock.lastCall?.[0]).toBeDefined());
   const candidate = constructionSchema.parse(onCandidateChange.mock.lastCall?.[0].candidateConstruction);
@@ -65,7 +65,6 @@ it('does not duplicate a projected input already offered as an exact signed fiel
     ownerOccurrenceId: 'base', ownerResourceType: 'ResearchSubject', canonicalPath: 'id',
   };
   render(<ConstructionReshapeEditor {...propsFor(capabilities([choice]))} />);
-  fireEvent.click(screen.getByText('Add contributor value', { exact: true }));
   expect(screen.getAllByRole('checkbox', { name: 'Add column Subject ID' })).toHaveLength(1);
   expect(screen.getByTestId('construction-group-add-column-choice-signed-subject-id')).toBeEnabled();
   expect(screen.queryByTestId('construction-group-add-column-input-source-subject-id')).toBeNull();
@@ -76,7 +75,6 @@ it('does not offer replacement-stage inputs to a saved Group while its input cap
     operation: 'DERIVE', columns: [{ id: 'other-column', name: 'other', label: 'Other stage value', type: 'string', cardinality: 'required_one' }] };
   const caps: Capabilities = { ...capabilities(), stageId: otherStage.id, selectedStage: otherStage, stages: [sourceStage, otherStage] };
   render(<ConstructionReshapeEditor {...propsFor(caps)} />);
-  fireEvent.click(screen.getByText('Add contributor value', { exact: true }));
   expect(screen.queryByTestId('construction-group-add-column-input-source-subject-id')).toBeNull();
   expect(screen.queryByRole('checkbox', { name: 'Add column Other stage value' })).toBeNull();
 });
@@ -108,7 +106,6 @@ it('blocks a coded-capable source from retargeting an existing downstream Group'
     baseConstruction: { version: 1, steps: [derive, group] } };
   const onCandidateChange = vi.fn();
   render(<ConstructionReshapeEditor {...propsFor(caps, onCandidateChange)} editingStep={group} />);
-  fireEvent.click(screen.getByText('Add contributor value', { exact: true }));
   expect(screen.queryByTestId('construction-group-add-column-input-source-subject-id')).toBeNull();
   expect(onCandidateChange.mock.calls.every(([intent]) => intent === undefined)).toBe(true);
 });
@@ -119,7 +116,7 @@ it('edits contributors on the correct derived input without changing the Group a
     stages: [root, derivedStage], baseConstruction: { version: 1, steps: [derive, group] } };
   const onCandidateChange = vi.fn();
   render(<ConstructionReshapeEditor {...propsFor(caps, onCandidateChange)} editingStep={group} />);
-  fireEvent.click(screen.getByText('Add contributor value', { exact: true }));
+  fireEvent.change(screen.getByTestId('construction-group-add-columns-search'), { target: { value: 'Subject ID' } });
   fireEvent.click(screen.getByTestId('construction-group-add-column-input-source-subject-id'));
   await waitFor(() => expect(onCandidateChange.mock.lastCall?.[0]).toBeDefined());
   const candidate = constructionSchema.parse(onCandidateChange.mock.lastCall?.[0].candidateConstruction);

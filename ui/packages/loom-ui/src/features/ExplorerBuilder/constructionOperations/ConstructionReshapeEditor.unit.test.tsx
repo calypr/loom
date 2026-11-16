@@ -795,9 +795,9 @@ describe('ConstructionReshapeEditor', () => {
 
     expect(onFormKindChange).toHaveBeenLastCalledWith('pivot');
     fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
-    expect(onFormKindChange).toHaveBeenLastCalledWith('choose');
-    chooseReshapeOperation('reshape', 'pivot');
     expect(onFormKindChange).toHaveBeenLastCalledWith('pivot');
+    chooseReshapeOperation('reshape', 'unpivot');
+    expect(onFormKindChange).toHaveBeenLastCalledWith('unpivot');
   });
 
   it('keeps Pivot role fields empty by default, preserves selected Rows, and explains repeated fields', () => {

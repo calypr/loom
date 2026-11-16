@@ -139,7 +139,7 @@ export function traversalScopeModel(document: ExplorerBuilderDocument,
       const matches = scopes.filter(scope => scope.parentId === current && scope.edgeId === edge.edgeId &&
         scope.resourceType === edge.toResourceType && (!scope.relationship || scope.relationship === edge.relationship) &&
         (!scope.storageDirection || scope.storageDirection === edge.storageDirection));
-      if (matches.length !== 1) return { scopeReason: '' };
+      if (matches.length !== 1) return { scopeReason: 'The saved route has no unique matching occurrence or stage provenance.' };
       current = matches[0].id;
       catalogNodeId = edge.toNodeId;
     }

@@ -1894,6 +1894,9 @@ func lowerConstructionRelatedSource(
 }
 
 func constructionSemanticPivot(pivot recipe.ConstructionPivot, input map[string]CompiledOutputColumn, output map[string]recipe.StageColumn) (semanticPivot semantic.SemanticGroupedPivot, outputNames map[string]string, err error) {
+	if pivot.Discovery != nil {
+		return semanticPivot, nil, fmt.Errorf("pivot %q discovery must be resolved to concrete categories before compilation", pivot.ConstructionID)
+	}
 	name := func(id string) (string, error) {
 		column, ok := input[id]
 		if !ok || column.Internal {

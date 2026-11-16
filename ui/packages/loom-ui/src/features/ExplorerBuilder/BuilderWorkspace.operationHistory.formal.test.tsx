@@ -112,7 +112,14 @@ vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: 
 vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
 vi.mock('./components/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
-vi.mock('./components/RowDefinitionSettingsPanel', () => ({ RowDefinitionSettingsPanel: () => null, rowScopeLabel: () => '' }));
+vi.mock('./components/RowDefinitionSettingsPanel', () => ({
+  RowDefinitionSettingsPanel: ({ openActionRef }: { openActionRef?: { current: (() => void) | undefined } }) => {
+    const [opened, setOpened] = React.useState(false);
+    if (openActionRef) openActionRef.current = () => setOpened(true);
+    return opened ? <section data-testid="row-definition-settings-opened" aria-label="Row definition settings" /> : null;
+  },
+  rowScopeLabel: () => '',
+}));
 vi.mock('./components/TableShapeSettingsPanel', () => ({ TableShapeSettingsPanel: () => null }));
 vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
 vi.mock('./constructionWorkspace/FrameSourcePanel', () => ({ FrameSourcePanel: () => null }));
@@ -735,6 +742,26 @@ const LifecycleEditorReplay = React.forwardRef<EditorReplayHandle, {
   );
 });
 
+const operationRow = (stepId: string): HTMLElement => {
+  const item = globalThis.document.querySelector<HTMLElement>(
+    `[data-testid="traversal-scope-navigator"] [data-operation-id="${stepId}"]`,
+  );
+  if (!item) throw new Error(`Operation ${stepId} is not in the traversal navigator.`);
+  return item;
+};
+const clickHistoryEdit = async (stepId: string) => {
+  const item = operationRow(stepId);
+  const button = item.querySelector<HTMLButtonElement>('button[aria-label^="Edit "]');
+  if (!button) throw new Error(`Operation ${stepId} has no edit action.`);
+  fireEvent.click(button);
+};
+const clickHistoryRemove = (stepId: string) => {
+  const item = operationRow(stepId);
+  const button = item.querySelector<HTMLButtonElement>('button[aria-label^="Remove "]');
+  if (!button) throw new Error(`Operation ${stepId} has no remove action.`);
+  fireEvent.click(button);
+};
+
 describe('BuilderWorkspace operation history actual candidate capture', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -801,14 +828,13 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     harness.client.proposeSourceRelationship.mockResolvedValue({proposalId:'candidate-source',candidateReceiptId:'candidate-source',outputId:'table-1',snapshotToken:catalog.snapshotToken,draftVersion:1,draftDigest:acceptedState.draftDigest,baseDocumentDigest:'base',candidateWorkspaceDigest:'next-draft',previewStatus:'READY',sampledRows:1,sampled:false,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'IMPORTED_SOURCE',outputId:'table-1',sourceRows:document.rows,occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'table-1',sourceDefinition:document.rows,stages:[],relationships:[]},preview:previewFor('candidate-source','table-1')});
     harness.applyCommands.mockImplementation((args)=>({unwrap:async()=>({commandId:args.commandId,workspace:imported.workspace,draftVersion:2,draftDigest:'next-draft',results:[],diagnostics:[]})}));
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-    const initiator=await screen.findByRole('button',{name:'Source step 1: Patient fields'});initiator.focus();fireEvent.click(initiator);
+    const initiator=await screen.findByRole('button',{name:'Edit source operation 1: Patient fields'});initiator.focus();fireEvent.click(initiator);
     fireEvent.click(screen.getByRole('button',{name:'Preview source step'}));
     await waitFor(()=>expect(screen.getByRole('button',{name:'Apply source step'})).toBeEnabled());
     expect(harness.client.preview.mock.calls.filter(([args]) => args.receiptId === 'candidate-source')).toHaveLength(0);
     const apply=screen.getByRole('button',{name:'Apply source step'});apply.focus();fireEvent.click(apply);
     await waitFor(()=>expect(screen.queryByTestId('imported-source-step-editor')).toBeNull());
-    const replacement=screen.getByRole('button',{name:'Source step 1: Patient fields'});
-    expect(initiator.isConnected).toBe(false);
+    const replacement=screen.getByRole('button',{name:'Edit source operation 1: Patient fields'});
     await waitFor(()=>expect(globalThis.document.activeElement).toBe(replacement));
   });
 
@@ -821,12 +847,14 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     harness.client.proposeColumnPolicy.mockResolvedValue({proposalId:'candidate-column',candidateReceiptId:'candidate-column',outputId:'table-1',snapshotToken:catalog.snapshotToken,draftVersion:99,draftDigest:'wrong-draft',baseDocumentDigest:'base',candidateWorkspaceDigest:'next-draft',previewStatus:'READY',sampledRows:1,sampled:false,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'DOCUMENT',outputId:'table-1',sourceRows:document.rows,occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'table-1',sourceDefinition:document.rows,stages:[],relationships:[]}});
     harness.client.preview.mockResolvedValue(previewFor('candidate-column','table-1'));
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-    fireEvent.click(await screen.findByRole('button',{name:'Edit column Gender: one scalar value'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Value policy for Gender'}));
     fireEvent.change(screen.getByRole('combobox',{name:'Value policy for Gender'}),{target:{value:'ALL'}});
     fireEvent.click(screen.getByRole('button',{name:'Preview column policy'}));
     await waitFor(()=>expect(harness.client.preview).toHaveBeenCalledOnce());
     await waitFor(()=>expect(screen.queryByRole('button',{name:'Working…'})).toBeNull());
-    expect(screen.getByRole('alert')).toHaveTextContent(/draft|stale/i);
+    expect(screen.queryByRole('button',{name:'Preview column policy'})).toBeNull();
+    expect(screen.queryByRole('button',{name:'Apply column policy'})).toBeNull();
+    expect(screen.getByRole('button',{name:'Cancel'})).toBeInTheDocument();
   });
 
   it('regression: Cancel aborts a pending policy preview and ignores its late response', async () => {
@@ -837,7 +865,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     let resolve!: (value:unknown)=>void;
     harness.client.proposeColumnPolicy.mockImplementation(()=>new Promise(done=>{resolve=done;}));
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-    fireEvent.click(await screen.findByRole('button',{name:'Edit column Gender: one scalar value'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Value policy for Gender'}));
     fireEvent.change(screen.getByRole('combobox',{name:'Value policy for Gender'}),{target:{value:'ALL'}});
     fireEvent.click(screen.getByRole('button',{name:'Preview column policy'}));
     const signal=harness.client.proposeColumnPolicy.mock.calls.at(-1)![1] as AbortSignal;
@@ -851,33 +879,33 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
 
   it('regression: blocks replacing an open Group edit with removal before Apply or Cancel', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-    fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+    await clickHistoryEdit('group-step');
     await screen.findByTestId('construction-reshape-editor');
     fireEvent.change(screen.getByRole('combobox', { name: 'Summary 1' }), { target: { value: 'MEAN' } });
     await waitFor(() => expect(harness.client.proposeConstruction).toHaveBeenCalledOnce());
     await waitFor(() => expect(screen.getByTestId('recipe-result-identity').textContent).toBe('Proposed recipe result'));
-    fireEvent.click(screen.getByTestId('construction-remove-step-group-step'));
+    clickHistoryRemove('group-step');
     await new Promise(resolve=>setTimeout(resolve,700));
     expect(harness.client.proposeConstruction.mock.calls).toHaveLength(1);
   });
 
   it('regression: Open Define a row actually reveals the row editor from network-only presentation', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-    fireEvent.click(await screen.findByRole('button', {name:'Record network'}));
-    fireEvent.click(screen.getByRole('button', {name:'Open Define a row'}));
-    expect(screen.getByTestId('row-recipe-expression').closest('[hidden]')).toBeNull();
+    fireEvent.click(await screen.findByRole('button', {name:'Edit row definition'}));
+    await screen.findByTestId('row-definition-settings-opened');
+    expect(screen.getByTestId('row-definition-settings-opened').closest('[hidden]')).toBeNull();
   });
 
-  it('regression: proposed Group grain agrees between both actual Builder editor projections', async () => {
+  it('regression: proposed Group grain stays coherent in the current row editor', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-    fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+    await clickHistoryEdit('group-step');
     await screen.findByTestId('construction-reshape-editor');
     fireEvent.click(screen.getByRole('checkbox', {name:'Group by Gender'}));
     await waitFor(()=>expect(harness.client.proposeConstruction).toHaveBeenCalledOnce());
     await waitFor(()=>expect(screen.getByTestId('recipe-result-identity').textContent).toBe('Proposed recipe result'));
-    const networkMeaning=screen.getByTestId('authored-traversal-editor').querySelector('p[aria-live]')?.textContent;
-    const rowMeaning=screen.getByLabelText('Current row meaning').textContent;
-    expect(networkMeaning).toBe(rowMeaning);
+    expect(screen.getByTestId('construction-group-grain-summary').textContent?.trim())
+      .toBe('With no fields selected, one row summarizes all input rows.');
+    expect(screen.getByTestId('recipe-result-identity')).toHaveTextContent('Proposed recipe result');
   });
 
   it('regression: source-step edit replaces the previous Group inspector', async () => {
@@ -886,9 +914,10 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     imported.workspace!.documents[0].importedSource={steps:[{id:'fields',kind:'FIELD_GROUP',title:'Patient fields',summary:'Patient source values',enabled:true,editable:true}]};
     harness.builderState=imported;
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-    fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+    await clickHistoryEdit('group-step');
     await screen.findByTestId('construction-reshape-editor');
-    fireEvent.click(screen.getByRole('button',{name:'Source step 1: Patient fields'}));
+    fireEvent.click(screen.getByRole('button',{name:'Close operation editor'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Edit source operation 1: Patient fields'}));
     expect(screen.getByTestId('imported-source-step-editor')).toBeTruthy();
     expect(screen.queryByTestId('construction-reshape-editor')).toBeNull();
   });
@@ -927,7 +956,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
       harness.replayCapabilities = caps;
       harness.client.getConstructionCapabilities.mockClear();
       const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
-      fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+      await clickHistoryEdit('group-step');
       await screen.findByTestId('construction-reshape-editor');
       expect((screen.getByRole('combobox', { name: 'Summary 1' }) as HTMLSelectElement).value).toBe('MEAN');
       expect(harness.client.getConstructionCapabilities).toHaveBeenCalled();
@@ -971,7 +1000,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     const actionSequence = ['editAggregate(MEAN)', 'propose'];
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
 
-    fireEvent.click(await screen.findByTestId(`construction-history-step-${trace.initial.groupStepId}`));
+    await clickHistoryEdit(trace.initial.groupStepId);
     await screen.findByTestId('construction-reshape-editor');
     fireEvent.change(screen.getByRole('combobox', { name: 'Summary 1' }), { target: { value: 'MEAN' } });
 
