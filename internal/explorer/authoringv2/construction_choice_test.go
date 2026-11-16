@@ -74,6 +74,20 @@ func TestConstructionChoiceAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
 	}
 }
 
+func TestDocumentValidationAllowsAdditiveColumnOnImportedRecipe(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.ImportedRecipe = &ImportedRecipeRef{
+		Name: "default", TranslationVersion: "v1", Output: "patients", Digest: strings.Repeat("a", 64),
+	}
+	document.Columns = append(document.Columns, Column{
+		Column: "additive_id", Label: "Additive ID", OccurrenceID: RootOccurrenceID,
+		Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+	})
+	if err := document.Validate(); err != nil {
+		t.Fatalf("additive column on imported recipe failed validation: %v", err)
+	}
+}
+
 func TestDirectSourceEditStillRejectsImportedRecipe(t *testing.T) {
 	document := workspaceDocument("patients")
 	document.ImportedRecipe = &ImportedRecipeRef{

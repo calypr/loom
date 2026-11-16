@@ -456,7 +456,10 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("bootstrap dataset lifecycle store: %w", err)
 	}
 	if err := lifecycleClient.Bootstrap(ctx, arangostore.BootstrapSpec{
-		Collections: []arangostore.CollectionSpec{{Name: catalog.FieldCatalogCollection}},
+		Collections: []arangostore.CollectionSpec{
+			{Name: catalog.FieldCatalogCollection},
+			catalogarango.SemanticCoverageCollectionSpec(),
+		},
 	}); err != nil {
 		return fmt.Errorf("bootstrap authorization catalog: %w", err)
 	}

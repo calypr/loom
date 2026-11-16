@@ -898,7 +898,7 @@ func (d Document) validateSemantic() error {
 		if err := column.Source.validate(path + ".source"); err != nil {
 			return err
 		}
-		if (column.Source.Kind == SourceImported) != (d.ImportedRecipe != nil) {
+		if column.Source.Kind == SourceImported && d.ImportedRecipe == nil {
 			return fmt.Errorf("%s imported source requires a matching importedRecipe reference", path)
 		}
 		if column.Source.Aggregate != nil && column.Source.Aggregate.ContributorWindow != nil && column.OccurrenceID == RootOccurrenceID {
