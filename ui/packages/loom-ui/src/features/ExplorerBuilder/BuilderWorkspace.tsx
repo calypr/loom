@@ -3255,8 +3255,6 @@ const BuilderWorkspaceContent = ({
     : automaticPreviewFailure?.message
       ? `${automaticPreviewFailure.message}${automaticPreviewFailure.code ? ` (${automaticPreviewFailure.code})` : ''}`
       : 'The automatic preview request failed.';
-  const addColumnsPreviewPending = automaticPreviewQuery.isLoading &&
-    outputAvailability.hasAnyOutputColumn;
   const addColumnsAdmission = table
     ? admitAuthoringRequest(state.tables, { kind: 'add-columns-proposal', outputId: table.outputId })
     : { kind: 'admitted' as const };
@@ -5062,7 +5060,7 @@ const BuilderWorkspaceContent = ({
                     resultActions={<ConstructionActionBar variant="compact" activeFamily={activeConstructionFamily}
                       families={['ADD_COLUMNS', 'KEEP_ROWS', 'CALCULATE', 'RESHAPE']}
                       disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
-                      addColumnsDisabled={addColumnsPreviewPending || Boolean(addColumnsReason)}
+                      addColumnsDisabled={Boolean(addColumnsReason)}
                       addColumnsReason={addColumnsReason}
                       calculateAvailable={Boolean(capabilityIsForAppendStage && capabilityStage?.capabilities.some((candidate) => candidate.kind === 'DERIVE' && candidate.supported))}
                       calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />}
@@ -5281,7 +5279,7 @@ const BuilderWorkspaceContent = ({
                   Boolean(pendingRowChangePreview) ||
                   constructionLifecycle.proposal.status === 'applying'
                 }
-                addColumnsDisabled={addColumnsPreviewPending || Boolean(addColumnsReason)}
+                addColumnsDisabled={Boolean(addColumnsReason)}
                 addColumnsReason={addColumnsReason}
                 combineDisabled={!canStartCombine}
                 calculateAvailable={Boolean(

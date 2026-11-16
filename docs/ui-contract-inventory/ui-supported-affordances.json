@@ -18,7 +18,7 @@
       "sha256": "66bac0db1db9006f58f415224b02d987a21748317263590235362efa02fc58ec"
     }
   ],
-  "expandedSha256": "c0b25602a5ca2d3c5ffbeaa10d55f28e42d648ca05af25d0f0e62d6b7415c871",
+  "expandedSha256": "fa53a729c04d6c238a39cf4c9f648132b23b1ebaf9780d1f618dadce8a2b4281",
   "metadata": {
     "schemaVersion": 1,
     "status": "source-backed-provisional; model-and-adapter-coverage-pending",
@@ -92,7 +92,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "sha256": "3dc095f17dfd0e6a34ff5881b9469cf0905321133c030e7e1a1167dc0c89cd86"
+          "sha256": "79cf2f8477db48fef93e153fb453ec0023dabf320a8ffd25d948d9682248d122"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/ImportedSourceSteps.tsx",
@@ -108,7 +108,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/admission.ts",
-          "sha256": "1a78e42b476d0929bf9b202364d2656952688c86961f49a7a67882baf29d8695"
+          "sha256": "fe06b5feb817477829caf7a57bd03b39a6a37b4c021c18de5d54f006cb267e13"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.ts",

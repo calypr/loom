@@ -22,13 +22,11 @@ const updateSource = (outputId: string, sourceKind = 'field'): ExplorerBuilderCo
 } as ExplorerBuilderCommand);
 
 describe('admitAuthoringRequest', () => {
-  it('refuses add-columns proposals on imported recipes', () => {
-    const admission = admitAuthoringRequest([table('patients', true)], {
+  it('admits add-columns proposals on imported recipes', () => {
+    expect(admitAuthoringRequest([table('patients', true)], {
       kind: 'add-columns-proposal',
       outputId: 'patients',
-    });
-    expect(admission.kind).toBe('refused');
-    if (admission.kind === 'refused') expect(admission.refusal.outputId).toBe('patients');
+    })).toEqual({ kind: 'admitted' });
   });
 
   it('admits add-columns proposals on ordinary tables', () => {

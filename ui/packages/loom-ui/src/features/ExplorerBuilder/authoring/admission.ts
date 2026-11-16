@@ -50,15 +50,13 @@ const tableForOutput = (
   ? tables.find((table) => table.outputId === outputId)
   : undefined;
 
+// Add columns can bring related fields or calculations onto an imported-recipe
+// table without rewriting its immutable source columns. Source writes are
+// still refused per command below, where the concrete command is known.
 const admitAddColumnsProposal = (
-  tables: ReadonlyArray<DraftTable>,
-  outputId: string,
-): Admission => {
-  const table = tableForOutput(tables, outputId);
-  return table?.document.importedRecipe
-    ? refused(outputId, importedRecipeMessage)
-    : { kind: 'admitted' };
-};
+  _tables: ReadonlyArray<DraftTable>,
+  _outputId: string,
+): Admission => ({ kind: 'admitted' });
 
 const admitCommand = (
   tables: ReadonlyArray<DraftTable>,

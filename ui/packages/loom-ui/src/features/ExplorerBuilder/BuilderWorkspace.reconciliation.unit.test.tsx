@@ -2482,7 +2482,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(preview).toHaveBeenCalledTimes(1);
   });
 
-  it('waits for automatic compilation before Add columns but leaves row filters available', async () => {
+  it('keeps Add columns and row filters available while automatic compilation is pending', async () => {
     const pendingCompile = deferredRequest<ExplorerBuilderCompileResult>();
     reconcile.mockReturnValueOnce(pendingCompile.request);
 
@@ -2501,7 +2501,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const filterRows = screen.getByRole('button', {
       name: 'Filter rows: Choose which rows appear in the table output.',
     });
-    expect(addColumns).toBeDisabled();
+    expect(addColumns).toBeEnabled();
     expect(filterRows).toBeEnabled();
     fireEvent.click(filterRows);
     const filterEditor = await screen.findByTestId('construction-filter-editor');
