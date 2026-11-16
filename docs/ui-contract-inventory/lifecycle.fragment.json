@@ -215,7 +215,7 @@
           "ui/packages/loom-ui/src/api.ts:1390",
           "ui/packages/loom-ui/src/api.ts:1410",
           "ui/packages/loom-ui/src/api.ts:1418",
-          "ui/packages/loom-ui/src/Builder.tsx:119",
+          "ui/packages/loom-ui/src/Builder.tsx:71",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:427",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:455"
         ],
@@ -285,7 +285,7 @@
           }
         ],
         "entryPath": [
-          "ui/packages/loom-ui/src/Builder.tsx:119",
+          "ui/packages/loom-ui/src/Builder.tsx:71",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:398"
         ]
       },
@@ -2298,8 +2298,8 @@
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4218",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4222",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4456",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:794",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:387",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:421",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts:23",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:3",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:32",
@@ -2400,7 +2400,7 @@
         "entryPath": [
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2831",
           "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4456",
-          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760"
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:387"
         ]
       },
       "prose": {

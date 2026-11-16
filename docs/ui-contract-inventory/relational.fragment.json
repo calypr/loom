@@ -574,7 +574,7 @@
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3488-3496",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3253-3285",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:729-738",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:356-365",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3400-3455",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3665-3677"
           ]
@@ -610,7 +610,7 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3488-3496",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4466-4468",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:549-560",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:729-738",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:356-365",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:668-713",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1220-1232",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3962-3977",
@@ -1672,8 +1672,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx:91-109",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx:528-540"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx:91-109"
           ]
         }
       ],

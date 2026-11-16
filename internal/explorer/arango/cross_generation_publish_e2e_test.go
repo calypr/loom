@@ -12,10 +12,10 @@ package arango
 // The publish preflight does not compare receipt.SourceGeneration to the active
 // generation pointer. The release CAS now supplies that transactional check.
 //
-//   - internal/explorer/lifecycle/publish.go:33 only checks the receipt's
+//   - internal/explorer/lifecycle/publish.go:36 only checks the receipt's
 //     capability snapshot is self-consistent with receipt.SourceGeneration,
 //     never the active pointer.
-//   - internal/explorer/lifecycle/publish.go:58 validates only that
+//   - internal/explorer/lifecycle/publish.go:61 validates only that
 //     receipt.SourceGeneration is a staged manifest (ValidateReleaseGeneration
 //     -> ReadManifest(...).IsStaged), never that it is the active generation.
 //   - internal/dataset/arango/release_store.go:153-179 (activateReleaseAQL) is
@@ -79,9 +79,9 @@ type cgpCitation struct {
 }
 
 var cgpCitations = []cgpCitation{
-	{"internal/explorer/lifecycle/publish.go", 33, `if err != nil || strings.TrimSpace(snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {`},
-	{"internal/explorer/lifecycle/publish.go", 58, `if err := s.config.ValidateReleaseGeneration(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration); err != nil {`},
-	{"internal/explorer/lifecycle/publish.go", 87, `release, expectedReleaseRevision, err := s.config.PrepareRelease(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration, selectorsForBundle(receipt.Bundle))`},
+	{"internal/explorer/lifecycle/publish.go", 36, `if strings.TrimSpace(snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {`},
+	{"internal/explorer/lifecycle/publish.go", 61, `if err := s.config.ValidateReleaseGeneration(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration); err != nil {`},
+	{"internal/explorer/lifecycle/publish.go", 97, `release, expectedReleaseRevision, err := s.config.PrepareRelease(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration, selectorsForBundle(receipt.Bundle))`},
 	{"internal/explorer/arango/publication.go", 57, `if _, err := datasetarango.CompareAndSwapPublishRelease(txCtx, tx, release, expectedReleaseRevision); err != nil {`},
 	{"internal/dataset/arango/release_store.go", 178, `LET generationPointer = DOCUMENT(@@lifecycle_collection, @active_key)`},
 	{"internal/dataset/arango/release_store.go", 193, `  AND generationPointer.dataset.generation == @generation`},

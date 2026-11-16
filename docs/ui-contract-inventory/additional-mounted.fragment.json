@@ -1423,8 +1423,7 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:583",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:590",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:700",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:703",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:715",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:342",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4478",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4481"
       ],
@@ -1467,9 +1466,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:703",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:715",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:716"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:342",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:343"
           ]
         }
       ],
@@ -1892,13 +1890,13 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4489",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4490",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4497",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:889",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:895",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:903",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:934",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:939",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1001",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1027",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:516",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:522",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:530",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:561",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:566",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:628",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:654",
         "ui/packages/loom-ui/src/api.ts:1710"
       ],
       "request": {
@@ -1918,9 +1916,9 @@
           "when": "preview row has COMPOSITE source and preview.rowLineageCapability.status=AVAILABLE",
           "effect": "Opening its identity panel starts contributor lookup; later pages use returned nextOffset.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:903",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1001",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1027"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:530",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:628",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:654"
           ]
         }
       ],
@@ -1940,9 +1938,9 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:871",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:889",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:895"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:498",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:516",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:522"
           ]
         },
         {
@@ -1966,8 +1964,8 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1027",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1029"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:654",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:656"
           ]
         },
         {
@@ -1994,9 +1992,9 @@
           "status": "observed-ui",
           "statement": "A row without a nonempty identity has no identity-inspection button; unsupported or incomplete lineage is reported as unavailable/incomplete rather than complete.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:889",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:911",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:1005"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:516",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:538",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:632"
           ]
         }
       ],
@@ -2008,8 +2006,8 @@
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4490",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4495",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4497",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:933",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:939"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:560",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:566"
           ]
         }
       ],
@@ -2353,8 +2351,8 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:353",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:355",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:359",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:740",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:745",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:367",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:372",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4739",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4742",
         "ui/packages/loom-ui/src/api.ts:1457"
@@ -2694,8 +2692,8 @@
       "evidence": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:552",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:555",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:729",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:732",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:356",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:359",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4467"
       ],
       "request": {
@@ -2734,9 +2732,9 @@
         "open dataset review; reconcile if current receipt/reconciliation is unresolved"
       ],
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:768",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:772",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:387",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:395",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:399",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4461",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2831",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2849",
@@ -2764,9 +2762,9 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:763",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:772",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:776"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:390",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:399",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:403"
           ]
         }
       ],

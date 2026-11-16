@@ -127,7 +127,7 @@ it('edits a pivot output by its raw compiler key', () => {
   render(<TraversalScopeNavigator {...value} />);
 
   const sourceOperations = screen.getByRole('list', { name: 'Source operations in selected scope' });
-  const row = within(sourceOperations).getByRole('button', { name: 'Edit source operation 3: Observation values' }).closest('[data-operation-id]')!;
+  const row = within(sourceOperations).getByRole('button', { name: 'Edit source operation 3: Observation values' }).closest('[data-operation-id]') as HTMLElement;
   fireEvent.click(within(row).getByText('Outputs (1)'));
   fireEvent.click(within(row).getByRole('button', { name: 'Edit output quantity' }));
   expect(onEditSourceOutput).toHaveBeenCalledExactlyOnceWith('measurement-pivot', 'valueQuantity');
