@@ -36,6 +36,18 @@ describe('admitAuthoringRequest', () => {
     })).toEqual({ kind: 'admitted' });
   });
 
+
+  it('admits additive construction choices on imported recipes', () => {
+    expect(admitAuthoringRequest([table('patients', true)], {
+      kind: 'commands',
+      commands: [{
+        type: 'APPLY_CONSTRUCTION_CHOICE',
+        outputId: 'patients',
+        constructionChoice: { choiceId: 'field-choice', form: 'VALUE' },
+      }],
+    })).toEqual({ kind: 'admitted' });
+  });
+
   it('refuses source writes on imported recipes with the command index', () => {
     const admission = admitAuthoringRequest([table('patients', true)], {
       kind: 'commands',

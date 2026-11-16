@@ -1966,6 +1966,7 @@ export const constructionCapabilitiesRequestSchema = z.object({
   outputId: opaqueIdSchema,
   stageId: opaqueIdSchema,
   groupStepId: opaqueIdSchema.optional(),
+  includeGroupChoices: z.boolean().optional(),
 }).strict();
 export type ConstructionCapabilitiesRequest = z.infer<typeof constructionCapabilitiesRequestSchema>;
 

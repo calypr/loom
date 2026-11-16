@@ -5421,6 +5421,7 @@ components:
         outputId: {type: string, minLength: 1}
         stageId: {type: string, minLength: 1}
         groupStepId: {type: string, minLength: 1}
+        includeGroupChoices: {type: boolean}
     ConstructionCategoryDiscoveryRequest:
       type: object
       additionalProperties: false

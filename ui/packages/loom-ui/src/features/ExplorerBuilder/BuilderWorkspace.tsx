@@ -1237,6 +1237,9 @@ const BuilderWorkspaceContent = ({
   const editingConstructionStep = construction?.steps.find(
     (step) => step.id === editingConstructionStepId,
   );
+  const needsSemanticGroupChoices = editingConstructionStep?.operation.kind === 'GROUP' ||
+    (activeConstructionFamily === 'RESHAPE' &&
+      (reshapeFormKind === 'group' || reshapeFormKind === 'source-group' || reshapeFormKind === 'coded-group'));
   const capabilitiesRequest = firstTableProgress.kind !== 'running' &&
     !hasUnsupportedSavedSourceColumns && table?.document.rootResourceType &&
     state.catalog.snapshotToken &&
@@ -1254,6 +1257,7 @@ const BuilderWorkspaceContent = ({
         stageId: editingConstructionStep
           ? constructionInputStageFor(construction, editingConstructionStep.id)
           : constructionAppendStageFor(construction, table?.document.rows),
+        includeGroupChoices: needsSemanticGroupChoices,
       }
     : undefined;
   const constructionLifecycle = useConstructionLifecycle({

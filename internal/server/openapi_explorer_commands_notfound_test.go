@@ -186,7 +186,7 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 	basePath := "/api/v1/projects/project-a/explorers/observation-explorer/authoring/v2"
 
 	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection","includeGroupChoices":true}`,
 		snapshot.Token, digest,
 	))
 	if capabilitiesResponse.StatusCode != http.StatusOK {

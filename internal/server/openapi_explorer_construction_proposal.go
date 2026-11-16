@@ -27,6 +27,7 @@ func (h *explorerHTTPHandlers) getConstructionCapabilitiesDirect(ctx context.Con
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
 		ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
 		OutputID: body.OutputId, StageID: body.StageId, GroupStepID: groupStepID,
+		IncludeGroupChoices: body.IncludeGroupChoices != nil && *body.IncludeGroupChoices,
 	})
 	if err != nil {
 		return result, err

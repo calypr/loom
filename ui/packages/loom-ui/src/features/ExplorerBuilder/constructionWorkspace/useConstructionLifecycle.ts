@@ -106,6 +106,7 @@ const capabilitiesIdentity = (
       args.outputId,
       args.stageId,
       args.groupStepId ?? '',
+      args.includeGroupChoices === true,
     ])
   : '';
 

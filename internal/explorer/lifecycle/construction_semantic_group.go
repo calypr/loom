@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -164,27 +165,40 @@ func semanticGroupFamilyReady(family catalog.SemanticInventoryFamily) bool {
 	return plan.Readiness.Addable() && plan.Source != nil && plan.Source.Lookup != nil && plan.Source.Lookup.Binding != nil && plan.Source.Lookup.Key != nil
 }
 
+var semanticGroupCodingPathSets sync.Map // root resource type -> map[string]bool
+
 func constructionSemanticGroupCodingPath(rootResourceType string, family catalog.SemanticInventoryFamily) (string, bool) {
 	if family.ResourceType != rootResourceType || family.Source.Type != rootResourceType || family.Source.Path == "" {
 		return "", false
 	}
 	path := strings.TrimPrefix(family.Source.Path, rootResourceType+".")
-	index, err := fhirschema.GeneratedIndex()
+	pathSet, err := constructionSemanticGroupCodingPathSet(rootResourceType)
 	if err != nil {
 		return "", false
+	}
+	return path, pathSet[path]
+}
+
+func constructionSemanticGroupCodingPathSet(rootResourceType string) (map[string]bool, error) {
+	if cached, ok := semanticGroupCodingPathSets.Load(rootResourceType); ok {
+		return cached.(map[string]bool), nil
+	}
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		return nil, err
 	}
 	paths, err := index.RepeatedCodingPaths(fhirschema.DefinitionName(rootResourceType))
 	if err != nil {
-		return "", false
+		return nil, err
 	}
-	for _, candidate := range paths {
-		if candidate == path {
-			facts, resolveErr := index.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
-			return path, resolveErr == nil && facts.CanonicalPath == path && facts.FHIRType == "Coding" &&
-				facts.Cardinality == fhirschema.RowCardinalityMany && facts.Shape == fhirschema.RowPathArray && !facts.Reference
-		}
+	pathSet := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		facts, resolveErr := index.ResolveRowPath(fhirschema.DefinitionName(rootResourceType), path)
+		pathSet[path] = resolveErr == nil && facts.CanonicalPath == path && facts.FHIRType == "Coding" &&
+			facts.Cardinality == fhirschema.RowCardinalityMany && facts.Shape == fhirschema.RowPathArray && !facts.Reference
 	}
-	return "", false
+	actual, _ := semanticGroupCodingPathSets.LoadOrStore(rootResourceType, pathSet)
+	return actual.(map[string]bool), nil
 }
 
 func (s *Service) resolveConstructionGroupSemanticCategories(

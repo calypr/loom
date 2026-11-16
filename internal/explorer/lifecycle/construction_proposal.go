@@ -33,6 +33,7 @@ type ConstructionCapabilitiesRequest struct {
 	OutputID             string
 	StageID              string
 	GroupStepID          string
+	IncludeGroupChoices  bool
 }
 
 type ConstructionCapabilitiesResponse struct {
@@ -402,15 +403,22 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile coded-group choices: %w", err)
 	}
 	selected.CodedGroupChoices = choices
-	semanticGroupChoices, semanticGroupChoicesIncomplete, err := s.constructionSemanticGroupChoices(ctx, base, request.OutputID, *selected)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile semantic group choices: %w", err)
-	}
-	groupFieldChoices, groupFieldChoicesIncomplete, err := s.constructionGroupFieldChoices(
-		ctx, base, request.OutputID, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "", request.GroupStepID,
-	)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group field choices: %w", err)
+	includeGroupChoices := request.IncludeGroupChoices || request.GroupStepID != ""
+	semanticGroupChoices := []ConstructionSemanticGroupChoice{}
+	groupFieldChoices := []ConstructionGroupFieldChoice{}
+	groupFieldChoicesIncomplete := false
+	semanticGroupChoicesIncomplete := false
+	if includeGroupChoices {
+		semanticGroupChoices, semanticGroupChoicesIncomplete, err = s.constructionSemanticGroupChoices(ctx, base, request.OutputID, *selected)
+		if err != nil {
+			return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile semantic group choices: %w", err)
+		}
+		groupFieldChoices, groupFieldChoicesIncomplete, err = s.constructionGroupFieldChoices(
+			ctx, base, request.OutputID, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "", request.GroupStepID,
+		)
+		if err != nil {
+			return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group field choices: %w", err)
+		}
 	}
 	var (
 		groupRowValueChoices []ConstructionGroupFieldChoice
@@ -1247,6 +1255,13 @@ func constructionCodedGroupChoices(
 	if err != nil {
 		return nil, err
 	}
+	populatedPaths := make(map[string]struct{})
+	for _, candidate := range base.snapshot.Candidates {
+		if candidate.NodeID == occurrence.NodeID && candidate.ResourceType == occurrence.ResourceType &&
+			candidate.Observed && candidate.Populated && candidate.ObservedDocumentCount > 0 {
+			populatedPaths[candidate.FieldPath] = struct{}{}
+		}
+	}
 	choices := make([]explorer.ReceiptConstructionCodedGroupChoice, 0, len(paths))
 	for _, path := range paths {
 		facts, err := index.ResolveRowPath(fhirschema.DefinitionName(base.document.RootResourceType), path)
@@ -1254,7 +1269,7 @@ func constructionCodedGroupChoices(
 			facts.Shape != fhirschema.RowPathArray || facts.Reference {
 			continue
 		}
-		if !constructionCodedGroupPathPopulated(base.snapshot, occurrence, path) {
+		if _, populated := populatedPaths[path+".code"]; !populated {
 			continue
 		}
 		choice, err := capability.NewConstructionCodedGroupChoice(base.snapshot, outputID, stage.ID, occurrence, capability.RowChoiceFacts{
@@ -1271,21 +1286,6 @@ func constructionCodedGroupChoices(
 		})
 	}
 	return choices, nil
-}
-
-func constructionCodedGroupPathPopulated(
-	snapshot capability.Snapshot,
-	occurrence capability.RowChoiceOccurrence,
-	codingPath string,
-) bool {
-	wantPath := codingPath + ".code"
-	for _, candidate := range snapshot.Candidates {
-		if candidate.NodeID == occurrence.NodeID && candidate.ResourceType == occurrence.ResourceType &&
-			candidate.FieldPath == wantPath && candidate.Observed && candidate.Populated && candidate.ObservedDocumentCount > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func reauthorizeConstructionCodedGroup(
