@@ -95,7 +95,7 @@ it('edits a catalog output by compiler key and owning source operation', () => {
     selectedOccurrenceId: 'patient',
     table: { ...table, document: { ...table.document, importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' },
       importedSource: { steps: [...table.document.importedSource!.steps, { id: 'patient-fields', parentId: 'patient-step', kind: 'CATALOG_PROJECTION', title: 'Fields from Patient', summary: 'Patient fields', enabled: true, editable: true }] }, columns: [generatedColumn] } },
-    network: { owner: 'IMPORTED_SOURCE', outputId: 'subjects', sourceRows: table.document.rows, operations: [], occurrences: [],
+    network: { owner: 'IMPORTED_SOURCE' as const, outputId: 'subjects', sourceRows: table.document.rows, operations: [], occurrences: [],
       bindings: [{ columnId: 'generated-id', occurrenceId: 'patient', sourceStepId: 'patient-fields', outputKey: 'identifier[].value', status: 'EXACT' as const }] },
   };
   render(<TraversalScopeNavigator {...value} />);
@@ -105,7 +105,7 @@ it('edits a catalog output by compiler key and owning source operation', () => {
   expect(operation).toBeEnabled();
   expect(screen.queryByRole('button', { name: 'Value policy for Patient ID' })).toBeNull();
   expect(screen.queryByText('Operation details')).toBeNull();
-  const row = operation.closest('[data-operation-id]')!;
+  const row = operation.closest('[data-operation-id]') as HTMLElement;
   fireEvent.click(within(row).getByText('Outputs (1)'));
   fireEvent.click(within(row).getByRole('button', { name: 'Edit output Patient ID' }));
   expect(value.onEditSourceOutput).toHaveBeenCalledExactlyOnceWith('patient-fields', 'identifier[].value');
