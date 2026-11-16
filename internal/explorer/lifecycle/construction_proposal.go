@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -409,33 +411,77 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group field choices: %w", err)
 	}
-	groupRowValueChoices, err := s.constructionGroupRowValueChoices(ctx, base, request.OutputID, *selected, request.GroupStepID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group row-value choices: %w", err)
+	var (
+		groupRowValueChoices []ConstructionGroupFieldChoice
+		sourceInput          ConstructionGroupSourceCapability
+		pivotSourceInput     ConstructionPivotSourceCapability
+		filterSourceInput    ConstructionFilterSourceCapability
+		deriveSourceInput    ConstructionDeriveSourceCapability
+		unpivotSourceInput   ConstructionUnpivotSourceCapability
+		expandSourceInput    ConstructionExpandSourceCapability
+	)
+	builders := []func(context.Context) error{
+		func(ctx context.Context) error {
+			var err error
+			groupRowValueChoices, err = s.constructionGroupRowValueChoices(ctx, base, request.OutputID, *selected, request.GroupStepID)
+			if err != nil {
+				return fmt.Errorf("compile Group row-value choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			sourceInput, err = s.constructionGroupSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile scalar group source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			pivotSourceInput, err = s.constructionPivotSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile pivot source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			filterSourceInput, err = s.constructionFilterSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile filter source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			deriveSourceInput, err = s.constructionDeriveSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile derive source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			unpivotSourceInput, err = s.constructionUnpivotSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile unpivot source choices: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
+			var err error
+			expandSourceInput, err = s.constructionExpandSourceCapability(ctx, base, request.OutputID, selected.ID)
+			if err != nil {
+				return fmt.Errorf("compile expand source choices: %w", err)
+			}
+			return nil
+		},
 	}
-	sourceInput, err := s.constructionGroupSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile scalar group source choices: %w", err)
-	}
-	pivotSourceInput, err := s.constructionPivotSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile pivot source choices: %w", err)
-	}
-	filterSourceInput, err := s.constructionFilterSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile filter source choices: %w", err)
-	}
-	deriveSourceInput, err := s.constructionDeriveSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile derive source choices: %w", err)
-	}
-	unpivotSourceInput, err := s.constructionUnpivotSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile unpivot source choices: %w", err)
-	}
-	expandSourceInput, err := s.constructionExpandSourceCapability(ctx, base, request.OutputID, selected.ID)
-	if err != nil {
-		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile expand source choices: %w", err)
+	for _, buildErr := range runConstructionCapabilityBuilders(ctx, 4, builders) {
+		if buildErr != nil {
+			return ConstructionCapabilitiesResponse{}, buildErr
+		}
 	}
 	sourceProjectionAvailability := constructionSourceProjectionAvailability(base.construction, selected.ID)
 	workspaceInputs, err := constructionWorkspaceInputs(base, request.OutputID)
@@ -457,6 +503,26 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		SemanticGroupChoicesIncomplete: semanticGroupChoicesIncomplete,
 		SourceProjectionAvailability:   &sourceProjectionAvailability, WorkspaceInputs: workspaceInputs,
 	}, nil
+}
+
+// runConstructionCapabilityBuilders runs independent builders with a bounded
+// errgroup. Errors are returned in declaration order so the caller reports the
+// same first contextual error as the previous sequential implementation. A
+// plain Group (not WithContext) is used so one builder's failure does not
+// cancel the others and turn its own error into a context cancellation.
+func runConstructionCapabilityBuilders(ctx context.Context, limit int, builders []func(context.Context) error) []error {
+	errs := make([]error, len(builders))
+	group := new(errgroup.Group)
+	group.SetLimit(limit)
+	for index, build := range builders {
+		index, build := index, build
+		group.Go(func() error {
+			errs[index] = build(ctx)
+			return errs[index]
+		})
+	}
+	_ = group.Wait()
+	return errs
 }
 
 func constructionSourceProjectionAvailability(construction authoringv2.Construction, stageID string) ConstructionSourceProjectionAvailability {
@@ -1469,61 +1535,134 @@ func reauthorizeConstructionRelatedSource(ctx context.Context, base construction
 }
 
 func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBase, error) {
+	validation, err := s.validateConstructionBase(ctx, project, explorerID, snapshotToken, draftVersion, draftDigest, outputID)
+	if err != nil {
+		return constructionBase{}, err
+	}
+	key := constructionBaseCacheKey{
+		Format:                   constructionBaseCacheFormatVersion,
+		Project:                  projectid.Canonical(validation.project),
+		ExplorerID:               validation.explorerID,
+		DraftVersion:             validation.owner.DraftVersion,
+		DraftDigest:              validation.owner.DraftDigest,
+		SnapshotToken:            validation.snapshot.Token,
+		Generation:               validation.snapshot.Identity.Generation,
+		SchemaDigest:             validation.snapshot.Identity.SchemaDigest,
+		ShapeDigest:              validation.snapshot.Identity.ShapeDigest,
+		ResourceInventoryDigest:  validation.snapshot.Identity.ResourceInventoryDigest,
+		RelationshipDigest:       validation.snapshot.Identity.RelationshipDigest,
+		FieldDigest:              validation.snapshot.Identity.FieldDigest,
+		ProtocolVersion:          validation.snapshot.Identity.ProtocolVersion,
+		CompilerVersion:          validation.snapshot.Identity.CompilerVersion,
+		TraversalPolicyVersion:   validation.snapshot.Identity.TraversalPolicyVersion,
+		ProjectionPolicyVersion:  validation.snapshot.Identity.ProjectionPolicyVersion,
+		CacheVersion:             validation.snapshot.Identity.CacheVersion,
+		OutputID:                 validation.outputID,
+		AuthorizationScopeDigest: validation.snapshot.Identity.AuthorizationScopeDigest,
+	}
+	if s.constructionBaseCache != nil {
+		if cached, ok := s.constructionBaseCache.Get(key); ok {
+			return validation.base(cached.receipt, cached.stages), nil
+		}
+	}
+	compiled, err := s.compileConstructionBase(ctx, validation)
+	if err != nil {
+		return constructionBase{}, err
+	}
+	if s.constructionBaseCache != nil {
+		s.constructionBaseCache.Put(key, constructionBaseCacheValue{receipt: compiled.receipt, stages: compiled.stages})
+	}
+	return validation.base(compiled.receipt, compiled.stages), nil
+}
+
+type constructionBaseValidation struct {
+	project         string
+	explorerID      string
+	snapshotToken   string
+	outputID        string
+	authorized      AuthorizedCapability
+	snapshot        capability.Snapshot
+	catalog         authoringv2.CatalogSnapshot
+	owner           *explorer.Explorer
+	workspace       authoringv2.Workspace
+	document        authoringv2.Document
+	upgraded        authoringv2.Document
+	baseDocumentSHA string
+}
+
+type constructionBaseCompilation struct {
+	receipt *explorer.CompilationReceipt
+	stages  []explorer.ReceiptConstructionStage
+}
+
+func (v constructionBaseValidation) base(receipt *explorer.CompilationReceipt, stages []explorer.ReceiptConstructionStage) constructionBase {
+	return constructionBase{
+		owner: v.owner, explorerID: v.explorerID, workspace: v.workspace, document: v.document,
+		construction: *v.upgraded.Construction, snapshot: v.snapshot, authorized: v.authorized.Clone(), catalog: v.catalog,
+		receipt: receipt, stages: stages, baseDocumentSHA: v.baseDocumentSHA,
+	}
+}
+
+// validateConstructionBase resolves the token and read scope, reads the owner,
+// and verifies the draft CAS and saved workspace. It never reads a cache entry,
+// so a stale draft, stale token, or changed scope still fails before any
+// compiled base can be served.
+func (s *Service) validateConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBaseValidation, error) {
 	if s.config.Capability.ForCompilation == nil {
-		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
+		return constructionBaseValidation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
 	}
 	if s.config.Capability.Catalog == nil {
-		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "construction authoring catalog is not configured", nil)
+		return constructionBaseValidation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "construction authoring catalog is not configured", nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, project, snapshotToken)
 	if err != nil {
-		return constructionBase{}, conflict("construction-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
 	snapshot := authorized.Snapshot.Clone()
 	if snapshot.ValidateToken(snapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) {
-		return constructionBase{}, conflict("construction-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
 	}
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return constructionBase{}, conflict("construction-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
 	authorized.Snapshot = snapshot.Clone()
 	catalogSnapshot := s.config.Capability.Catalog(snapshot, explorerID)
 	owner, err := s.getOwner(ctx, project, explorerID)
 	if err != nil {
-		return constructionBase{}, err
+		return constructionBaseValidation{}, err
 	}
 	if owner == nil || owner.ExplorerID != explorerID || projectid.Canonical(owner.Project) != projectid.Canonical(project) {
-		return constructionBase{}, notFound("construction-capabilities", "EXPLORER_NOT_FOUND", "the Explorer was not found", explorer.ErrNotFound)
+		return constructionBaseValidation{}, notFound("construction-capabilities", "EXPLORER_NOT_FOUND", "the Explorer was not found", explorer.ErrNotFound)
 	}
 	if owner.DraftVersion != draftVersion || owner.DraftDigest != draftDigest {
-		return constructionBase{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting construction capabilities", nil, explorer.ErrDraftConflict)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting construction capabilities", nil, explorer.ErrDraftConflict)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
-		return constructionBase{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be compiled", nil, err)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be compiled", nil, err)
 	}
 	actualDigest, err := workspace.Digest()
 	if err != nil || actualDigest != owner.DraftDigest {
-		return constructionBase{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
 	documentIndex := constructionDocumentIndex(workspace, outputID)
 	if documentIndex < 0 {
-		return constructionBase{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
+		return constructionBaseValidation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
 	document := workspace.Documents[documentIndex]
 	baseDocumentSHA, err := documentDigest(document)
 	if err != nil {
-		return constructionBase{}, fmt.Errorf("digest construction base document: %w", err)
+		return constructionBaseValidation{}, fmt.Errorf("digest construction base document: %w", err)
 	}
 	upgraded, err := authoringv2.UpgradeDocumentToConstruction(document)
 	if err != nil {
-		return constructionBase{}, unprocessable("construction-capabilities", "INVALID_CONSTRUCTION_BASE", err.Error(), err)
+		return constructionBaseValidation{}, unprocessable("construction-capabilities", "INVALID_CONSTRUCTION_BASE", err.Error(), err)
 	}
 	if upgraded.Construction == nil {
-		return constructionBase{}, conflict("construction-capabilities", "INVALID_CONSTRUCTION_BASE", "the source projection has no construction contract", nil, nil)
+		return constructionBaseValidation{}, conflict("construction-capabilities", "INVALID_CONSTRUCTION_BASE", "the source projection has no construction contract", nil, nil)
 	}
 	if stepID := constructionUnresolvedPivotDiscovery(upgraded.Construction); stepID != "" {
-		return constructionBase{}, unprocessable("construction-capabilities", "PIVOT_DISCOVERY_UNRESOLVED",
+		return constructionBaseValidation{}, unprocessable("construction-capabilities", "PIVOT_DISCOVERY_UNRESOLVED",
 			fmt.Sprintf("Pivot %s declares category discovery but has no resolved categories. Propose the Pivot against the current rows to freeze its observed categories before previewing or loading this output.", stepID), nil)
 	}
 	workspace.Documents[documentIndex] = upgraded
@@ -1532,11 +1671,22 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind,
 		Workspace: &workspace, Catalog: catalogSnapshot,
 	}).Validate(); err != nil {
-		return constructionBase{}, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
+		return constructionBaseValidation{}, unprocessable("intent", workspaceValidationCode(err), err.Error(), err)
 	}
+	return constructionBaseValidation{
+		project: project, explorerID: explorerID, snapshotToken: snapshotToken, outputID: outputID,
+		authorized: authorized, snapshot: snapshot, catalog: catalogSnapshot, owner: owner,
+		workspace: workspace, document: document, upgraded: upgraded, baseDocumentSHA: baseDocumentSHA,
+	}, nil
+}
+
+func (s *Service) compileConstructionBase(ctx context.Context, validation constructionBaseValidation) (constructionBaseCompilation, error) {
+	project, explorerID, snapshotToken, outputID := validation.project, validation.explorerID, validation.snapshotToken, validation.outputID
+	authorized, snapshot := validation.authorized, validation.snapshot
+	workspace, document, upgraded := validation.workspace, validation.document, validation.upgraded
 	if len(upgraded.Columns) == 0 && len(upgraded.Construction.Steps) == 0 {
 		if s.config.ConstructionSourceStage == nil {
-			return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "compiler-resolved source-stage discovery is not configured", nil)
+			return constructionBaseCompilation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "compiler-resolved source-stage discovery is not configured", nil)
 		}
 		stage, err := s.config.ConstructionSourceStage(ctx, ConstructionSourceStageRequest{
 			Project: project, ExplorerID: explorerID, OutputID: outputID, Document: document,
@@ -1545,74 +1695,63 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 		if err != nil {
 			var typed *Error
 			if errors.As(err, &typed) {
-				return constructionBase{}, typed
+				return constructionBaseCompilation{}, typed
 			}
-			return constructionBase{}, unprocessable("construction-capabilities", "SOURCE_STAGE_DISCOVERY_FAILED", "the compiler could not resolve the empty source projection", err)
+			return constructionBaseCompilation{}, unprocessable("construction-capabilities", "SOURCE_STAGE_DISCOVERY_FAILED", "the compiler could not resolve the empty source projection", err)
 		}
 		if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn == "" || len(stage.Columns) != 0 {
-			return constructionBase{}, conflict("construction-capabilities", "INVALID_SOURCE_STAGE_DESCRIPTOR", "the compiler returned an invalid zero-column source-stage descriptor", nil, nil)
+			return constructionBaseCompilation{}, conflict("construction-capabilities", "INVALID_SOURCE_STAGE_DESCRIPTOR", "the compiler returned an invalid zero-column source-stage descriptor", nil, nil)
 		}
+		stages := []explorer.ReceiptConstructionStage{stage}
 		if len(workspace.Documents) > 1 {
 			if s.config.CompileReceipt == nil {
-				return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
+				return constructionBaseCompilation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
 			}
 			compileWorkspace, err := constructionCapabilitiesWorkspace(workspace, outputID)
 			if err != nil {
-				return constructionBase{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
+				return constructionBaseCompilation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
 			}
 			receipt, err := s.compile(ctx, compileRequest{
 				Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 				RequestID: "construction-capabilities",
 			})
 			if err != nil {
-				return constructionBase{}, err
+				return constructionBaseCompilation{}, err
 			}
 			if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &compileWorkspace); err != nil {
-				return constructionBase{}, err
+				return constructionBaseCompilation{}, err
 			}
 			if err := validateReceiptOutputContract(receipt, outputID); err != nil {
-				return constructionBase{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
+				return constructionBaseCompilation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
 			}
-			return constructionBase{
-				owner: owner, explorerID: explorerID, workspace: workspace, document: document,
-				construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
-				receipt: receipt, stages: []explorer.ReceiptConstructionStage{stage}, baseDocumentSHA: baseDocumentSHA,
-			}, nil
+			return constructionBaseCompilation{receipt: receipt, stages: stages}, nil
 		}
-		return constructionBase{
-			owner: owner, explorerID: explorerID, workspace: workspace, document: document,
-			construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
-			stages: []explorer.ReceiptConstructionStage{stage}, baseDocumentSHA: baseDocumentSHA,
-		}, nil
+		return constructionBaseCompilation{stages: stages}, nil
 	}
 	if s.config.CompileReceipt == nil {
-		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
+		return constructionBaseCompilation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
 	}
 	compileWorkspace, err := constructionCapabilitiesWorkspace(workspace, outputID)
 	if err != nil {
-		return constructionBase{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
+		return constructionBaseCompilation{}, conflict("construction-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be projected for selected-output capabilities", nil, err)
 	}
 	receipt, err := s.compile(ctx, compileRequest{
 		Project: project, ExplorerID: explorerID, Workspace: compileWorkspace, SnapshotToken: snapshotToken,
 		RequestID: "construction-capabilities",
 	})
 	if err != nil {
-		return constructionBase{}, err
+		return constructionBaseCompilation{}, err
 	}
 	if _, err := s.verifyProposalReceipt(ctx, "construction-capabilities", receipt, project, explorerID, snapshotToken, snapshot, &compileWorkspace); err != nil {
-		return constructionBase{}, err
+		return constructionBaseCompilation{}, err
 	}
 	if err := validateReceiptOutputContract(receipt, outputID); err != nil {
-		return constructionBase{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
+		return constructionBaseCompilation{}, unprocessable("construction-capabilities", "OUTPUT_NOT_FOUND", "outputId is not in the compiler output contract", nil)
 	}
 	if len(receipt.ConstructionStages[outputID]) == 0 {
-		return constructionBase{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
+		return constructionBaseCompilation{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
 	}
-	return constructionBase{
-		owner: owner, explorerID: explorerID, workspace: workspace, document: document,
-		construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
-		receipt: receipt, stages: receipt.ConstructionStages[outputID], baseDocumentSHA: baseDocumentSHA,
-	}, nil
+	return constructionBaseCompilation{receipt: receipt, stages: receipt.ConstructionStages[outputID]}, nil
 }
 
 func constructionDocumentIndex(workspace authoringv2.Workspace, outputID string) int {

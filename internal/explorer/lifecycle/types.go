@@ -193,6 +193,10 @@ type Config struct {
 	ArtifactTTL      time.Duration
 	ArtifactMaxRows  int64
 	ArtifactMaxBytes int64
+	// ConstructionBaseCacheTTL and ConstructionBaseCacheEntries bound the
+	// compiled construction-base cache. Zero values use lifecycle defaults.
+	ConstructionBaseCacheTTL     time.Duration
+	ConstructionBaseCacheEntries int
 
 	ValidateReleaseGeneration GenerationValidator
 	ActivateRelease           ReleaseActivator
