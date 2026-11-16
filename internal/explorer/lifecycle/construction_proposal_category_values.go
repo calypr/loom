@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -15,28 +16,40 @@ import (
 //
 // Every Pivot in the candidate is checked, not only the changed step. An
 // unchanged Pivot keeps its existing owned input chain and is probed against the
-// candidate prefix. When that probe cannot be compiled safely, the unchanged
-// Pivot is left to the later proposal validation so a change elsewhere is not
-// rejected for an unrelated saved step.
+// candidate prefix. When that probe cannot produce a complete proof, the
+// unchanged Pivot is reported as a non-fatal diagnostic so a change elsewhere is
+// not rejected for an unrelated saved step.
 func (s *Service) verifyConstructionProposalPivotCategories(
 	ctx context.Context,
 	request ConstructionProposalRequest,
 	candidate authoringv2.Construction,
-) error {
-	return s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, nil)
+) ([]ConstructionProposalDiagnostic, error) {
+	return s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, nil, nil)
 }
 
 // verifyConstructionProposalPivotCategoriesExcept skips steps whose categories
 // were just frozen from a complete discovery scan. Re-scanning them would repeat
 // the same value-bearing proof and reject only on a racing row change.
+//
+// A failure on the changed Pivot remains fatal. The same failure on an unchanged
+// Pivot becomes a ConstructionProposalDiagnostic: the caller learns that one
+// saved Pivot category proof was skipped without losing the unrelated edit.
 func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 	ctx context.Context,
 	request ConstructionProposalRequest,
 	candidate authoringv2.Construction,
+	base *authoringv2.Construction,
 	skip map[string]bool,
-) error {
+) ([]ConstructionProposalDiagnostic, error) {
 	if s.config.ScanCategories == nil {
-		return nil
+		return nil, nil
+	}
+	var diagnostics []ConstructionProposalDiagnostic
+	baseByID := make(map[string]authoringv2.ConstructionStep, len(candidate.Steps))
+	if base != nil {
+		for _, step := range base.Steps {
+			baseByID[step.ID] = step
+		}
 	}
 	removed := make(map[string]struct{}, len(request.RemoveStepIDs))
 	for _, stepID := range request.RemoveStepIDs {
@@ -54,6 +67,10 @@ func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 			continue
 		}
 		changed := step.ID == request.ChangedStepID
+		if !changed && base != nil {
+			prior, exists := baseByID[step.ID]
+			changed = !exists || !reflect.DeepEqual(prior.Inputs, step.Inputs) || !reflect.DeepEqual(prior.Operation, step.Operation)
+		}
 		discoveryRequest := ConstructionCategoryDiscoveryRequest{
 			Project: request.Project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
 			ExpectedDraftVersion: request.ExpectedDraftVersion, ExpectedDraftDigest: request.ExpectedDraftDigest,
@@ -73,32 +90,58 @@ func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 		discovery, err := s.DiscoverConstructionCategories(ctx, discoveryRequest)
 		if err != nil {
 			if changed {
-				return err
+				return nil, err
 			}
+			diagnostics = append(diagnostics, constructionProposalPivotProbeDiagnostic(step.ID, "PROBE_ERROR",
+				fmt.Sprintf("Pivot %s categories were not verified because the category probe failed: %v", step.ID, err)))
 			continue
 		}
 		// LIMIT_EXCEEDED and MISSING_UNSUPPORTED cannot prove an authored
-		// category absent. Refuse rather than admit an unverified category; this
-		// intentionally rejects otherwise-valid saved Pivots whose scan cannot
-		// produce a complete value-bearing proof until the operator narrows the
-		// rows, category field, or authored category set.
+		// category absent. For the changed Pivot, refuse rather than admit an
+		// unverified category. For an unchanged Pivot, skip the proof and report
+		// it so an unrelated saved step does not reject the edit.
 		switch discovery.Outcome {
 		case constructionCategoryDiscoveryComplete:
 			if len(discovery.Categories) == 0 {
-				return unprocessable("construction-proposal", "PIVOT_NO_OBSERVED_CATEGORIES",
+				if !changed {
+					diagnostics = append(diagnostics, constructionProposalPivotProbeDiagnostic(step.ID, "NO_OBSERVED_CATEGORIES",
+						fmt.Sprintf("Pivot %s categories were not verified because the current rows have no observed values that can produce cells for the selected category and value columns", step.ID)))
+					continue
+				}
+				return nil, unprocessable("construction-proposal", "PIVOT_NO_OBSERVED_CATEGORIES",
 					fmt.Sprintf("Pivot %s has no observed values that can produce cells for the selected category and value columns", step.ID), nil)
 			}
 		case constructionCategoryDiscoveryNoValues:
-			return unprocessable("construction-proposal", "PIVOT_NO_OBSERVED_CATEGORIES",
+			if !changed {
+				diagnostics = append(diagnostics, constructionProposalPivotProbeDiagnostic(step.ID, "NO_OBSERVED_CATEGORIES",
+					fmt.Sprintf("Pivot %s categories were not verified because the current rows have no observed values that can produce cells for the selected category and value columns", step.ID)))
+				continue
+			}
+			return nil, unprocessable("construction-proposal", "PIVOT_NO_OBSERVED_CATEGORIES",
 				fmt.Sprintf("Pivot %s has no observed values that can produce cells for the selected category and value columns", step.ID), nil)
 		case constructionCategoryDiscoveryLimitExceeded:
-			return unprocessable("construction-proposal", "PIVOT_CATEGORIES_UNVERIFIABLE",
+			if !changed {
+				diagnostics = append(diagnostics, constructionProposalPivotProbeDiagnostic(step.ID, "LIMIT_EXCEEDED",
+					fmt.Sprintf("Pivot %s categories were not verified because this category field has more than 256 values in the current rows.", step.ID)))
+				continue
+			}
+			return nil, unprocessable("construction-proposal", "PIVOT_CATEGORIES_UNVERIFIABLE",
 				"The Pivot categories cannot be verified because this category field has more than 256 values in the current rows. Choose another category field, filter rows before pivoting, or reduce the number of categories, then retry.", nil)
 		case constructionCategoryDiscoveryMissingUnsupported:
-			return unprocessable("construction-proposal", "PIVOT_CATEGORIES_UNVERIFIABLE",
+			if !changed {
+				diagnostics = append(diagnostics, constructionProposalPivotProbeDiagnostic(step.ID, "MISSING_UNSUPPORTED",
+					fmt.Sprintf("Pivot %s categories were not verified because some rows have no category field and this scan cannot distinguish an absent field from a null value.", step.ID)))
+				continue
+			}
+			return nil, unprocessable("construction-proposal", "PIVOT_CATEGORIES_UNVERIFIABLE",
 				"The Pivot categories cannot be verified because some rows have no category field and this scan cannot distinguish an absent field from a null value. Filter rows where the category field is missing, or choose a field populated in every row, then retry.", nil)
 		default:
-			return unprocessable("construction-proposal", "PIVOT_CATEGORIES_UNVERIFIABLE",
+			if !changed {
+				diagnostics = append(diagnostics, constructionProposalPivotProbeDiagnostic(step.ID, "UNVERIFIABLE",
+					fmt.Sprintf("Pivot %s categories were not verified against a complete value-bearing scan.", step.ID)))
+				continue
+			}
+			return nil, unprocessable("construction-proposal", "PIVOT_CATEGORIES_UNVERIFIABLE",
 				"The Pivot categories could not be verified against a complete value-bearing scan. Refresh the preview and retry; if the problem persists, choose another category field or filter rows before pivoting.", nil)
 		}
 		observed := make(map[string]struct{}, len(discovery.Categories))
@@ -109,11 +152,25 @@ func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 			if _, exists := observed[constructionProposalCategoryKey(category.Key)]; exists {
 				continue
 			}
-			return unprocessable("construction-proposal", "PIVOT_CATEGORY_HAS_NO_VALUES",
+			if !changed {
+				diagnostics = append(diagnostics, constructionProposalPivotProbeDiagnostic(step.ID, "CATEGORY_HAS_NO_VALUES",
+					fmt.Sprintf("Pivot %s categories were not verified because category %s has no observed values for the selected category and value columns", step.ID, constructionCategoryLabel(category.Key))))
+				break
+			}
+			return nil, unprocessable("construction-proposal", "PIVOT_CATEGORY_HAS_NO_VALUES",
 				fmt.Sprintf("Pivot %s category %s has no observed values for the selected category and value columns", step.ID, constructionCategoryLabel(category.Key)), nil)
 		}
 	}
-	return nil
+	return diagnostics, nil
+}
+
+func constructionProposalPivotProbeDiagnostic(stepID, outcome, message string) ConstructionProposalDiagnostic {
+	return ConstructionProposalDiagnostic{
+		Code:    "PIVOT_CATEGORIES_UNVERIFIABLE",
+		Message: message,
+		StepID:  stepID,
+		Outcome: outcome,
+	}
 }
 
 // constructionProposalCategoryKey is the local canonical identity for a Pivot

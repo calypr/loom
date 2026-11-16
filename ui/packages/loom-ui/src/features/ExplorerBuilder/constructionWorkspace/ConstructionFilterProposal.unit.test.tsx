@@ -116,6 +116,52 @@ describe('construction filter proposal wiring', () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
+  it('surfaces non-fatal Pivot proof gaps without blocking Apply', () => {
+    const response: ConstructionProposalResponse = {
+      proposalId: preview.receiptId, outputId: preview.outputId,
+      snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-4',
+      baseDocumentDigest: 'document-4', candidateWorkspaceDigest: 'candidate-workspace', changedStepId: 'filter-1',
+      candidateConstruction: { version: 1, steps: [] },
+      dependencyImpact: { removedStepIds: [], affectedStepIds: [] },
+      stages: [], previewStatus: 'READY', previewDurationMs: 8,
+      diagnostics: [{
+        code: 'PIVOT_CATEGORIES_UNVERIFIABLE',
+        message: 'Pivot pivot-status categories were not verified because this category field has more than 256 values in the current rows.',
+        stepId: 'pivot-status',
+        outcome: 'LIMIT_EXCEEDED',
+      }],
+    };
+    render(<ConstructionProposalPanel state={{ status: 'ready', response, preview }}
+      canApply onApply={() => undefined} onCancel={() => undefined} onRetry={() => undefined} />);
+    const panel = screen.getByTestId('construction-proposal-diagnostics');
+    expect(panel.textContent).toContain('Some saved Pivot categories could not be verified.');
+    expect(panel.textContent).toContain('Pivot pivot-status categories were not verified');
+    expect(panel.textContent).toContain('The rest of this change can still be applied.');
+    expect(screen.getByRole('button', { name: 'Apply change' })).toBeEnabled();
+  });
+
+  it('does not claim a needs-repair proposal can be applied', () => {
+    const response: ConstructionProposalResponse = {
+      proposalId: '', outputId: preview.outputId,
+      snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-4',
+      baseDocumentDigest: 'document-4', candidateWorkspaceDigest: 'candidate-workspace', changedStepId: 'filter-1',
+      candidateConstruction: { version: 1, steps: [] },
+      dependencyImpact: { removedStepIds: [], affectedStepIds: [], missingInputs: [] },
+      stages: [], previewStatus: 'NEEDS_REPAIR', previewDurationMs: 0,
+      diagnostics: [{
+        code: 'PIVOT_CATEGORIES_UNVERIFIABLE',
+        message: 'Pivot pivot-status categories were not verified because this category field has more than 256 values in the current rows.',
+        stepId: 'pivot-status',
+        outcome: 'LIMIT_EXCEEDED',
+      }],
+    };
+    render(<ConstructionProposalPanel state={{ status: 'needs-repair', response }}
+      canApply={false} onApply={() => undefined} onCancel={() => undefined} onRetry={() => undefined} />);
+    expect(screen.getByTestId('construction-proposal-diagnostics').textContent)
+      .toContain('Repair the rest of this proposal before applying it.');
+    expect(screen.queryByRole('button', { name: 'Apply change' })).not.toBeInTheDocument();
+  });
+
   it('names every dependent removal before Apply and lets Cancel leave the proposal', () => {
     const construction: Construction = {
       version: 1,

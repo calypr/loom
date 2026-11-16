@@ -147,7 +147,10 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	catalog := authoringV2Catalog(snapshot, request.ExplorerID)
 	workspace, err := authoringv2.PrepareWorkspaceForCompilation(request.Workspace, catalog)
 	if err != nil {
-		return nil, fmt.Errorf("migrate legacy contributor predicates: %w", err)
+		return nil, &explorercompilation.Error{
+			Stage: "intent", Code: "LEGACY_CONTRIBUTOR_MIGRATION_FAILED", Path: "$.workspace",
+			Message: err.Error(), Cause: err,
+		}
 	}
 	intentDigest, err := workspace.Digest()
 	if err != nil {

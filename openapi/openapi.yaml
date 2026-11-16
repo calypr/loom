@@ -6014,6 +6014,15 @@ components:
       properties:
         rowChoiceId: {type: string, minLength: 1}
         columnId: {type: string, minLength: 1}
+    ConstructionProposalDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: {type: string, minLength: 1}
+        message: {type: string, minLength: 1}
+        stepId: {type: string, minLength: 1}
+        outcome: {type: string, minLength: 1}
     ConstructionProposalResponse:
       type: object
       additionalProperties: false
@@ -6036,6 +6045,9 @@ components:
         previewStatus: {type: string, enum: [READY, NEEDS_REPAIR]}
         previewDurationMs: {type: integer, format: int64, minimum: 0}
         preview: {$ref: '#/components/schemas/PreviewResponse'}
+        diagnostics:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionProposalDiagnostic'}
     ConstructionChoiceProposalRequest:
       type: object
       additionalProperties: false

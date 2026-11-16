@@ -262,6 +262,28 @@ export const ConstructionProposalPanel = ({
         </div>
       ) : null}
 
+      {response?.diagnostics?.length ? (
+        <div
+          role="status"
+          data-testid="construction-proposal-diagnostics"
+          className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-950"
+        >
+          <p className="text-sm font-semibold">Some saved Pivot categories could not be verified.</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+            {response.diagnostics.map((diagnostic) => (
+              <li key={`${diagnostic.stepId ?? ''}:${diagnostic.code}:${diagnostic.outcome ?? ''}`}>
+                {diagnostic.message}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs">
+            {isReady
+              ? 'The rest of this change can still be applied. Review the affected Pivot after applying.'
+              : 'Repair the rest of this proposal before applying it.'}
+          </p>
+        </div>
+      ) : null}
+
       {state.status === 'ready' ? (
         <div data-testid="construction-proposal-ready">
           {removalSummary ? (

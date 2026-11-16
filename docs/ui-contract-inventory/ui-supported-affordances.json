@@ -18,7 +18,7 @@
       "sha256": "66bac0db1db9006f58f415224b02d987a21748317263590235362efa02fc58ec"
     }
   ],
-  "expandedSha256": "4dbd271dd316df071b53bff54ae3942314a21ad05622763d93668eca594e2b46",
+  "expandedSha256": "c0b25602a5ca2d3c5ffbeaa10d55f28e42d648ca05af25d0f0e62d6b7415c871",
   "metadata": {
     "schemaVersion": 1,
     "status": "source-backed-provisional; model-and-adapter-coverage-pending",
@@ -368,7 +368,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-          "sha256": "3041acca238e13adf2f8817d90cdbec099da967337d18b293081beba1c5e9aa7"
+          "sha256": "bf0bd3e7c719f66305708d32f4147f8a5ccacdcf6208f7deb48df09527aeb391"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
@@ -424,7 +424,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
-          "sha256": "7e1cc879304c85f4e96f8d6848b8d0ae4ea4490530710e164734114e194f417f"
+          "sha256": "ba3f33093d6544df458c6f224a21056ae5162680fefcbb9dbb317a58a4d1c523"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPreview.tsx",
@@ -544,7 +544,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/types.ts",
-          "sha256": "32cdc160b5d55b8ccac97bf26aa68dfdddd3c6aa74e083170d9a17c2a118bf75"
+          "sha256": "c95046ab74850121fea5ff760688622edf4a778be46aac102e53e708a127e572"
         }
       ],
       "mountedOperationSources": [

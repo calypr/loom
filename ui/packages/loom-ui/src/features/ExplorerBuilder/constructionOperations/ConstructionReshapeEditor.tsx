@@ -4528,6 +4528,7 @@ const PivotEditor = (props: {
   readonly onForgetPairSelection: (previous: PivotForm, next: PivotForm) => void;
   readonly onChange: (form: PivotForm) => void;
 }) => {
+  const discoveryHelpId = useId();
   const [categorySearch, setCategorySearch] = useState('');
   const columns = scalarColumnsFor(props.stage);
   const repeatedColumns = props.stage.columns.filter((column) => column.cardinality === 'many');
@@ -4781,7 +4782,8 @@ const PivotEditor = (props: {
             <label className="flex items-start gap-2 text-sm font-medium text-slate-800">
               <input
                 type="checkbox"
-                aria-label="Keep categories in sync with data"
+                aria-label="Discover categories when proposing"
+                aria-describedby={discoveryHelpId}
                 checked={discoveryMode}
                 disabled={props.disabled || !props.supported}
                 onChange={(event) => props.onChange({
@@ -4792,12 +4794,12 @@ const PivotEditor = (props: {
                   originalPair: event.currentTarget.checked ? undefined : props.form.originalPair,
                 })}
               />
-              <span>Use discovered categories automatically</span>
+              <span>Discover categories when proposing</span>
             </label>
-            <p className="m-0 text-xs text-slate-600">
+            <p id={discoveryHelpId} className="m-0 text-xs text-slate-600">
               {discoveryMode
-                ? `Categories are resolved from the data when the pivot runs, up to ${PIVOT_DISCOVERY_MAX_CATEGORIES}. Manual category selection is unavailable while this is on.`
-                : 'Choose categories manually from the values found in New column names.'}
+                ? `Categories are discovered when this pivot is proposed, up to ${props.form.discovery?.maxCategories ?? PIVOT_DISCOVERY_MAX_CATEGORIES}. They freeze at that point, so turn discovery on and propose the pivot again after the data changes. Manual category selection is unavailable while this is on.`
+                : 'Choose categories manually from the values found in New column names. To refresh them from current data, turn on discovery and propose the pivot again.'}
             </p>
           </div>
           {repeatedColumns.length > 0 ? (

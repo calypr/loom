@@ -2225,6 +2225,14 @@ export const constructionProposalRequestSchema = z.object({
 }).strict();
 export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;
 
+export const constructionProposalDiagnosticSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  stepId: z.string().min(1).optional(),
+  outcome: z.string().min(1).optional(),
+}).strict();
+export type ConstructionProposalDiagnostic = z.infer<typeof constructionProposalDiagnosticSchema>;
+
 export const constructionProposalResponseSchema = z.object({
   proposalId: opaqueIdSchema.optional(),
   baseReceiptId: opaqueIdSchema.optional(),
@@ -2241,6 +2249,7 @@ export const constructionProposalResponseSchema = z.object({
   previewStatus: z.enum(['READY', 'NEEDS_REPAIR']),
   previewDurationMs: z.number().int().nonnegative(),
   preview: z.lazy(() => explorerBuilderPreviewResultSchema).optional(),
+  diagnostics: z.array(constructionProposalDiagnosticSchema).optional(),
 }).strict();
 export type ConstructionProposalResponse = z.infer<typeof constructionProposalResponseSchema>;
 

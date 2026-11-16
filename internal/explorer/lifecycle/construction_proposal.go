@@ -321,6 +321,16 @@ func (r ConstructionProposalRequest) Validate() error {
 type ConstructionDependencyIssue = authoringv2.ConstructionDependencyIssue
 type ConstructionDependencyImpact = authoringv2.ConstructionImpact
 
+// ConstructionProposalDiagnostic reports a non-fatal proof gap in a proposal.
+// Code is stable for machine handling; Outcome names the probe condition that
+// prevented verification. Diagnostics never reject a proposal on their own.
+type ConstructionProposalDiagnostic struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	StepID  string `json:"stepId,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
+}
+
 type ConstructionProposalResponse struct {
 	ProposalID               string                              `json:"proposalId,omitempty"`
 	BaseReceiptID            string                              `json:"baseReceiptId,omitempty"`
@@ -337,6 +347,7 @@ type ConstructionProposalResponse struct {
 	PreviewStatus            string                              `json:"previewStatus"`
 	PreviewDurationMS        int64                               `json:"previewDurationMs"`
 	Preview                  any                                 `json:"preview,omitempty"`
+	Diagnostics              []ConstructionProposalDiagnostic    `json:"diagnostics,omitempty"`
 }
 
 type constructionBase struct {
@@ -667,7 +678,8 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	if err := s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidateConstruction, resolvedDiscoverySteps); err != nil {
+	diagnostics, err := s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidateConstruction, &base.construction, resolvedDiscoverySteps)
+	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
 	candidateDocument, impact, err := analyzeConstructionCandidateWithCascade(
@@ -795,6 +807,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		ChangedStepID: request.ChangedStepID, CandidateConstruction: *candidateDocument.Construction,
 		DependencyImpact: impact, Stages: base.stages,
 		PreviewStatus: "NEEDS_REPAIR",
+		Diagnostics:   diagnostics,
 	}
 	if impact.HasMissingInputs() {
 		return baseResponse, nil

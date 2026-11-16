@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"slices"
 	"strings"
 	"time"
@@ -227,8 +228,14 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 		return nil, nil, malformed("artifact", "project, explorerId, and artifactId are required", nil)
 	}
 	record, err := s.config.ArtifactStore.Get(ctx, request.ArtifactID)
-	if err != nil || record == nil {
-		return nil, nil, notFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", err)
+	if err != nil {
+		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, notFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", err)
+		}
+		return nil, nil, unavailable("artifact", "ARTIFACT_STORE_UNAVAILABLE", "the artifact store is unavailable", err)
+	}
+	if record == nil {
+		return nil, nil, notFound("artifact", "ARTIFACT_NOT_FOUND", "artifact was not found", nil)
 	}
 	project := projectid.Canonical(request.Project)
 	if projectid.Canonical(record.Project) != project || record.ExplorerID != request.ExplorerID {
@@ -262,10 +269,10 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	}
 	revision, err := s.store.GetRevision(ctx, record.RevisionID)
 	if err != nil {
-		if errors.Is(err, explorer.ErrNotFound) {
+		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
 			return nil, record, notFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", err)
 		}
-		return nil, record, persistenceFailure("artifact", "artifact revision could not be loaded", err)
+		return nil, record, unavailable("artifact", "REVISION_STORE_UNAVAILABLE", "artifact revision could not be loaded", err)
 	}
 	if revision == nil {
 		return nil, record, notFound("artifact", "ARTIFACT_REVISION_NOT_FOUND", "artifact revision was not found", nil)
@@ -274,11 +281,11 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 		return nil, record, conflict("artifact", "ARTIFACT_IDENTITY_CHANGED", "artifact no longer matches its immutable revision", nil, err)
 	}
 	reader, opened, err := s.config.ArtifactStore.Open(ctx, request.ArtifactID)
-	if err != nil || reader == nil || opened == nil || opened.State != explorer.ArtifactComplete || !opened.ExpiresAt.After(s.now()) {
-		if err == nil {
-			err = fmt.Errorf("artifact store returned an incomplete or expired archive")
-		}
-		return nil, record, unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact is not available for download", err)
+	if err != nil {
+		return nil, record, unavailable("artifact", "ARTIFACT_STORE_UNAVAILABLE", "the artifact store could not open the archive", err)
+	}
+	if reader == nil || opened == nil || opened.State != explorer.ArtifactComplete || !opened.ExpiresAt.After(s.now()) {
+		return nil, record, unavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact is not available for download", fmt.Errorf("artifact store returned an incomplete or expired archive"))
 	}
 	return reader, opened, nil
 }
@@ -286,10 +293,10 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactRequest, project string) (*explorer.CompilationReceipt, *explorer.Revision, AuthorizedCapability, dataframepublished.Materialization, publication.QualityReport, error) {
 	revision, err := s.store.GetRevision(ctx, request.RevisionID)
 	if err != nil {
-		if errors.Is(err, explorer.ErrNotFound) {
+		if errors.Is(err, explorer.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
 			return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", err)
 		}
-		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, persistenceFailure("artifact", "published revision could not be loaded", err)
+		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, unavailable("artifact", "REVISION_STORE_UNAVAILABLE", "published revision could not be loaded", err)
 	}
 	if revision == nil {
 		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, notFound("artifact", "REVISION_NOT_FOUND", "published revision was not found", nil)

@@ -64,7 +64,7 @@ func (s *Service) constructionSemanticGroupChoices(
 		pageOptions.Cursor = cursor
 		page, err := s.config.SemanticInventory(ctx, pageOptions)
 		if err != nil {
-			return nil, false, fmt.Errorf("read exact semantic grouping families: %w", err)
+			return nil, false, unavailable("construction-proposal", "CATALOG_UNAVAILABLE", "semantic inventory could not be read for semantic Group choices", err)
 		}
 		if page.State != catalog.SemanticInventoryComplete || page.Build.State != catalog.SemanticInventoryComplete || page.Build.BuildID != expectedBuildID {
 			return []ConstructionSemanticGroupChoice{}, false, nil
@@ -72,7 +72,7 @@ func (s *Service) constructionSemanticGroupChoices(
 		if contextToken == "" {
 			contextToken, err = semanticInventoryContextToken(base.snapshot, base.explorerID, base.document.RootResourceType, page.Build.BuildID)
 			if err != nil {
-				return nil, false, err
+				return nil, false, internal("construction-proposal", "SEMANTIC_CONTEXT_FAILED", "the semantic inventory context token could not be built", err)
 			}
 		}
 		for _, family := range page.Families {
@@ -283,8 +283,11 @@ func (s *Service) resolveConstructionSemanticGroupChoice(
 	}
 	buildID := catalog.SemanticInventoryBuildID(projectid.Legacy(base.snapshot.Identity.Project), base.snapshot.Identity.Generation)
 	contextToken, err := semanticInventoryContextToken(base.snapshot, base.explorerID, base.document.RootResourceType, buildID)
-	if err != nil || identity.SemanticContextToken != contextToken || identity.BuildID != buildID {
-		return authoringv2.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload semantic Group choices for the current inventory", nil, err)
+	if err != nil {
+		return authoringv2.ConstructionGroupSemanticCategory{}, internal("construction-proposal", "SEMANTIC_CONTEXT_FAILED", "the semantic inventory context token could not be built", err)
+	}
+	if identity.SemanticContextToken != contextToken || identity.BuildID != buildID {
+		return authoringv2.ConstructionGroupSemanticCategory{}, conflict("construction-proposal", "STALE_SEMANTIC_CONTEXT", "reload semantic Group choices for the current inventory", nil, nil)
 	}
 	entry := semanticInventoryEntryForFamily(family)
 	expected, err := semanticCategoryConstructionChoiceForRoute(base.snapshot, contextToken, buildID, nil, family, candidate)

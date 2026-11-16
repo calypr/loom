@@ -79,10 +79,11 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
   it('emits empty categories with discovery.maxCategories when enabled', () => {
     const { onCandidateChange } = renderEditor({ onCandidateChange: vi.fn() });
 
-    const toggle = screen.getByLabelText('Keep categories in sync with data');
-    expect(isChecked('Keep categories in sync with data')).toBe(false);
+    const toggle = screen.getByLabelText('Discover categories when proposing');
+    expect(isChecked('Discover categories when proposing')).toBe(false);
     fireEvent.click(toggle);
-    expect(isChecked('Keep categories in sync with data')).toBe(true);
+    expect(isChecked('Discover categories when proposing')).toBe(true);
+    expect(screen.getByText(/They freeze at that point, so turn discovery on and propose the pivot again after the data changes/)).toBeInTheDocument();
     expect(screen.getByText(/Manual category selection is unavailable while this is on/)).toBeInTheDocument();
     expect(screen.queryByText('Change selected categories')).not.toBeInTheDocument();
 
@@ -123,7 +124,7 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
       onCandidateChange: vi.fn(),
     });
 
-    expect(isChecked('Keep categories in sync with data')).toBe(false);
+    expect(isChecked('Discover categories when proposing')).toBe(false);
     expect(screen.getByText('Change selected categories')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
     const pivot = pivotFrom(onCandidateChange.mock.lastCall?.[0]);
@@ -157,7 +158,8 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
       onCandidateChange: vi.fn(),
     });
 
-    expect(isChecked('Keep categories in sync with data')).toBe(true);
+    expect(isChecked('Discover categories when proposing')).toBe(true);
+    expect(screen.getByText(/up to 128/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
     const pivot = pivotFrom(onCandidateChange.mock.lastCall?.[0]);
     expect(pivot.categories).toEqual([]);
