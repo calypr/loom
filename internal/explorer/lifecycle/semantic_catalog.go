@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -1625,35 +1626,36 @@ func semanticHumanizeLabel(value string) string {
 	if value == "" {
 		return ""
 	}
-	var words []string
-	var current strings.Builder
-	for index, r := range value {
-		if r == '_' || r == '-' || r == '.' {
-			if current.Len() > 0 {
-				words = append(words, current.String())
-				current.Reset()
-			}
+	words := make([]string, 0)
+	for _, raw := range strings.FieldsFunc(value, func(r rune) bool {
+		return r == '_' || r == '-' || r == '.'
+	}) {
+		if raw == "" {
 			continue
 		}
-		if index > 0 && r >= 'A' && r <= 'Z' && current.Len() > 0 {
-			words = append(words, current.String())
-			current.Reset()
+		if raw == strings.ToUpper(raw) {
+			words = append(words, strings.ToLower(raw))
+			continue
 		}
-		current.WriteRune(r)
-	}
-	if current.Len() > 0 {
-		words = append(words, current.String())
-	}
-	for index, word := range words {
-		word = strings.ToLower(word)
-		if word != "" {
-			if index == 0 {
-				words[index] = strings.ToUpper(word[:1]) + word[1:]
-			} else {
-				words[index] = word
+		runes := []rune(raw)
+		start := 0
+		for index := 1; index < len(runes); index++ {
+			previous, current := runes[index-1], runes[index]
+			if !unicode.IsUpper(current) {
+				continue
+			}
+			nextLower := index+1 < len(runes) && unicode.IsLower(runes[index+1])
+			if unicode.IsLower(previous) || (unicode.IsUpper(previous) && nextLower) {
+				words = append(words, strings.ToLower(string(runes[start:index])))
+				start = index
 			}
 		}
+		words = append(words, strings.ToLower(string(runes[start:])))
 	}
+	if len(words) == 0 {
+		return ""
+	}
+	words[0] = strings.ToUpper(words[0][:1]) + words[0][1:]
 	return strings.Join(words, " ")
 }
 

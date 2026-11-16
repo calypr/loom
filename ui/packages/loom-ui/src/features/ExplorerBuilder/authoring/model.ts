@@ -187,6 +187,21 @@ export const nextRouteOccurrenceId = (
   return value;
 };
 
+const humanizeSystemKey = (value: string): string => {
+  const words = value.split(/[_.-]+/).filter(Boolean).map((word) => word.toLowerCase());
+  if (!words.length) return '';
+  words[0] = words[0]!.slice(0, 1).toUpperCase() + words[0]!.slice(1);
+  return words.join(' ');
+};
+
+const displayColumnLabel = (column: ExplorerBuilderDocument['columns'][number]): string => {
+  const parts = column.label.trim().split(/\s+/);
+  if (column.source.kind !== 'codedValue' || parts.length < 4 || parts.some((part) => part.length !== 1)) return column.label;
+  const system = column.source.lookup.key.system.trim().replace(/\/+$/, '');
+  const tail = system.slice(system.lastIndexOf('/') + 1);
+  return tail ? humanizeSystemKey(tail) || column.label : column.label;
+};
+
 const tableFromDocument = (
   document: ExplorerBuilderDocument,
   tab: ExplorerBuilderWorkspace['tabs'][number] | undefined,
@@ -195,7 +210,10 @@ const tableFromDocument = (
   tabId: tab?.id ?? document.output.id,
   title: tab?.title ?? document.output.title ?? document.output.id,
   visible: tab?.visible,
-  document,
+  document: {
+    ...document,
+    columns: document.columns.map((column) => ({ ...column, label: displayColumnLabel(column) })),
+  },
 });
 
 const tablesFromWorkspace = (
