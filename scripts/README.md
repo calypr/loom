@@ -36,6 +36,22 @@ mutation controls. `--out /tmp/loom-formal-review` retains evidence without
 checking generated reports into Git. Child checks have a 30-second timeout;
 `--models-only` explicitly skips mounted code and is not implementation proof.
 
+Reviewed Builder sources are pinned to committed git blobs. Check the pins or
+refresh them after an intentional review:
+
+```sh
+node scripts/review-builder-sources.mjs --check
+node scripts/review-builder-sources.mjs --refresh --note "why the reviewed sources moved"
+```
+
+`--check` reports every drifted file with the expected and actual pin plus a
+`git diff <baseline>..HEAD -- <path>` inspection command. `--refresh` refuses a
+dirty working tree, resolves `<commit>:<path>` blobs (default `HEAD`), and writes
+canonical JSON while preserving the manifest's review text and recording a
+`repin` note. Manifests without `pinFormat` remain legacy SHA-256 until refreshed.
+`node scripts/lib/formal-framework.test.mjs` covers clean pins, modification
+detection, refresh, dirty refusal, and legacy detection.
+
 The existing skill at
 `.codex/skills/builder-interaction-formal-verification/SKILL.md` records mappings,
 bounds, findings, and a generated Mermaid state diagram. Use pstack `/statechart`

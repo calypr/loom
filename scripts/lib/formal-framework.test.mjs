@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { prepareTraces } from './formal-implementation-conformance.mjs';
 import { transitionPaths, replayApplyPath, loadApplyImplementation } from './formal-apply-replay.mjs';
 import { scriptsDigest, root } from './formal-tools.mjs';
+import { reviewedSourceDrift, refreshReviewedSources } from './reviewed-sources.mjs';
 import { sourceProofs } from './formal-source-proofs.mjs';
 import { modelControls } from './formal-model-controls.mjs';
 import { state, step } from '../../verification/builder-interactions/statechart.view.mjs';
@@ -211,5 +212,82 @@ test('every remaining UI suite is attached exactly once to a feature', async () 
     else {
         assert.equal(doctor.status, 1);
         assert.match(doctor.stderr, /Install UI dependencies/);
+    }
+});
+
+function gitIn(cwd, args) {
+    const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return result.stdout.trim();
+}
+
+test('git-blob pins pass clean, fail on modification, and refresh after a commit', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'loom-reviewed-sources-'));
+    try {
+        gitIn(directory, ['init', '-q']);
+        gitIn(directory, ['config', 'user.email', 'reviewed-sources@example.test']);
+        gitIn(directory, ['config', 'user.name', 'Reviewed Sources']);
+        mkdirSync(join(directory, 'src'));
+        writeFileSync(join(directory, 'src/a.ts'), 'first\n');
+        gitIn(directory, ['add', '.']);
+        gitIn(directory, ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'first']);
+        const manifestPath = join(directory, 'reviewed-sources.json');
+        const firstCommit = gitIn(directory, ['rev-parse', 'HEAD']);
+        const firstBlob = gitIn(directory, ['rev-parse', 'HEAD:src/a.ts']);
+        writeFileSync(manifestPath, `${JSON.stringify({ baselineCommit: firstCommit, pinFormat: 'git-blob-sha1', review: 'retain this review', files: { 'src/a.ts': firstBlob } }, null, 2)}\n`);
+
+        const clean = reviewedSourceDrift(directory, JSON.parse(readFileSync(manifestPath, 'utf8')));
+        assert.equal(clean.clean, true);
+        assert.equal(clean.pinFormat, 'git-blob-sha1');
+        assert.equal(clean.drift.length, 0);
+
+        writeFileSync(join(directory, 'src/a.ts'), 'second\n');
+        const drifted = reviewedSourceDrift(directory, JSON.parse(readFileSync(manifestPath, 'utf8')));
+        assert.equal(drifted.clean, false);
+        assert.deepEqual(drifted.drift.map((row) => row.path), ['src/a.ts']);
+        assert.equal(drifted.drift[0].expected, firstBlob);
+        assert.equal(drifted.drift[0].actual, gitIn(directory, ['hash-object', '--', 'src/a.ts']));
+        assert.equal(drifted.drift[0].diff, `git diff ${firstCommit}..HEAD -- src/a.ts`);
+        assert.throws(() => refreshReviewedSources({ root: directory, manifestPath, note: 'dirty worker' }), /dirty/i);
+
+        gitIn(directory, ['-c', 'commit.gpgsign=false', 'commit', '-qam', 'second']);
+        const refreshed = refreshReviewedSources({ root: directory, manifestPath, note: 'reviewed second revision' });
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+        assert.equal(manifest.pinFormat, 'git-blob-sha1');
+        assert.equal(manifest.baselineCommit, gitIn(directory, ['rev-parse', 'HEAD']));
+        assert.equal(manifest.files['src/a.ts'], gitIn(directory, ['rev-parse', 'HEAD:src/a.ts']));
+        assert.equal(manifest.review, 'retain this review');
+        assert.equal(manifest.repin.commit, refreshed.baselineCommit);
+        assert.equal(manifest.repin.note, 'reviewed second revision');
+        assert.match(manifest.repin.at, /^\d{4}-\d{2}-\d{2}T/);
+        assert.equal(readFileSync(manifestPath, 'utf8'), `${JSON.stringify(manifest, null, 2)}\n`);
+        assert.equal(reviewedSourceDrift(directory, manifest).clean, true);
+    }
+    finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test('legacy sha256 reviewed pins still detect a modified working file', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'loom-reviewed-legacy-'));
+    try {
+        writeFileSync(join(directory, 'a.ts'), 'real code');
+        const expected = createHash('sha256').update('real code').digest('hex');
+        const manifest = { baselineCommit: 'a'.repeat(40), files: { 'a.ts': expected } };
+        const clean = reviewedSourceDrift(directory, manifest);
+        assert.equal(clean.pinFormat, 'sha256');
+        assert.equal(clean.clean, true);
+        writeFileSync(join(directory, 'a.ts'), 'changed code');
+        const drifted = reviewedSourceDrift(directory, manifest);
+        assert.equal(drifted.clean, false);
+        assert.equal(drifted.drift[0].path, 'a.ts');
+        assert.equal(drifted.drift[0].expected, expected);
+        assert.equal(drifted.drift[0].actual, createHash('sha256').update('changed code').digest('hex'));
+        assert.equal(drifted.drift[0].diff, `git diff ${'a'.repeat(40)}..HEAD -- a.ts`);
+        assert.throws(() => reviewedSourceDrift(directory, { ...manifest, pinFormat: 'unknown' }), /Unsupported/);
+        assert.throws(() => reviewedSourceDrift(directory, { ...manifest, files: {} }), /at least one file/);
+    }
+    finally {
+        rmSync(directory, { recursive: true, force: true });
     }
 });

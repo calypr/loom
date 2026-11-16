@@ -6,7 +6,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { root, digest, tools, lock } from './lib/formal-tools.mjs';
+import { root, tools, lock } from './lib/formal-tools.mjs';
+import { reviewedSourceDrift } from './lib/reviewed-sources.mjs';
 import { configuredModelRules, validateModelVerdict } from './lib/formal-verdict.mjs';
 import { modelControls } from './lib/formal-model-controls.mjs';
 import { runProcessPool } from './lib/formal-process-pool.mjs';
@@ -99,9 +100,19 @@ if (options.list) {
     process.exit(0);
 }
 const reviewed = JSON.parse(readFileSync(join(root, 'verification/builder-interactions/reviewed-sources.json'), 'utf8'));
-for (const [file, expected] of Object.entries(reviewed.files))
-    if (!['behavior', 'api', 'browser', 'journey'].includes(options.phase))
-        assert.equal(digest(join(root, file)), expected, `Review required: ${file}; baseline ${reviewed.baselineCommit}, reviewed working-tree hashes`);
+if (!['behavior', 'api', 'browser', 'journey'].includes(options.phase)) {
+    const review = reviewedSourceDrift(root, reviewed);
+    if (!review.clean) {
+        const details = review.drift.map((file) => [
+            `Review required: ${file.path}`,
+            `  expected ${file.expected}`,
+            `  actual   ${file.actual ?? '<missing>'}`,
+            ...(file.error ? [`  error    ${file.error}`] : []),
+            ...(file.diff ? [`  inspect  ${file.diff}`] : []),
+        ].join('\n')).join('\n');
+        assert.fail(`${details}\n${review.drift.length} reviewed source file(s) drifted from ${review.pinFormat} pin(s)${review.baselineCommit ? ` at baseline ${review.baselineCommit}` : ''}`);
+    }
+}
 const declared = (name) => [...readFileSync(join(root, `verification/builder-interactions/${name}.cfg`), 'utf8').matchAll(/^INVARIANT (\w+)$/gm)].map((match) => match[1]).filter((name) => name !== 'TypeOK');
 for (const name of groups.all) {
     assert.deepEqual([...new Set(modelControls[name].map((row) => row[0]))].sort(), declared(name).sort(), `Missing/extra model controls: ${name}`);

@@ -198,7 +198,7 @@ export const exclusionSourceProofs = [
         [workspaceFile, 'latestContext.bindingKey === exclusionContext.bindingKey &&', 'true &&'],
         [workspaceFile, 'populationBindingKey(latestTable) === exclusionContext.bindingKey &&', 'true &&'],
     ] },
-    { model: exclusionModel, property: exclusionProperties[0], kind: 'exclusion-replay', branch: 'queue-admission', edits: [[workspaceFile, 'if (admitCommand && !admitCommand()) return undefined;', '']] },
+    { model: exclusionModel, property: exclusionProperties[0], kind: 'exclusion-replay', branch: 'queue-admission', edits: [[workspaceFile, 'if (!commandRecipeAdmission.current(commands) || (admitCommand && !admitCommand())) return undefined;', 'if (!commandRecipeAdmission.current(commands)) return undefined;']] },
     { model: exclusionModel, property: exclusionProperties[0], kind: 'exclusion-replay', branch: 'context', edits: [[workspaceFile, 'latestContext.contextKey === exclusionContext.contextKey &&', 'true &&']] },
     { model: exclusionModel, property: exclusionProperties[0], kind: 'exclusion-replay', branch: 'detached-host', edits: [[workspaceFile, 'return workspaceAttached.current &&\n        latestContext.contextKey', 'return true &&\n        latestContext.contextKey']] },
     { model: exclusionModel, property: exclusionProperties[0], kind: 'exclusion-replay', branch: 'hydration-coherence', edits: [[workspaceFile, 'latest.draftVersion === serverDraft.current.version &&\n        latest.draftDigest === serverDraft.current.digest;', 'true;']] },
