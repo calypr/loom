@@ -90,7 +90,7 @@ export async function runArango(output) {
     const sc02 = 'loom_qa_semantic_cov_resource_20261016';
     const env = { ...process.env, GOTOOLCHAIN: 'local', GOMAXPROCS: '2' };
     for (const key of Object.keys(env)) if (/^LOOM_.*(ARANGO|PROFILE|FULL_CDA|PIVOT_PRESENCE)/.test(key)) delete env[key];
-    Object.assign(env, { LOOM_TEST_ARANGO_URL: url, LOOM_TEST_ARANGO_DATABASE: database, LOOM_C01_ARANGO_INTEGRATION: '1', LOOM_C01_ARANGO_URL: url, LOOM_C01_ARANGO_DATABASE: c01, LOOM_SC02_COVERAGE_ARANGO_INTEGRATION: '1', LOOM_SC02_COVERAGE_ARANGO_URL: url, LOOM_SC02_COVERAGE_ARANGO_DATABASE: sc02 });
+    Object.assign(env, { LOOM_TEST_ARANGO_URL: url, LOOM_SELECTOR_ARANGO_URL: url, LOOM_TEST_ARANGO_DATABASE: database, LOOM_C01_ARANGO_INTEGRATION: '1', LOOM_C01_ARANGO_URL: url, LOOM_C01_ARANGO_DATABASE: c01, LOOM_SC02_COVERAGE_ARANGO_INTEGRATION: '1', LOOM_SC02_COVERAGE_ARANGO_URL: url, LOOM_SC02_COVERAGE_ARANGO_DATABASE: sc02 });
     if (tool.executable === '/workspace/.loom-setup/go/bin/go') {
         if (!env.GOMODCACHE && existsSync('/workspace/.loom-setup/gomod')) env.GOMODCACHE = '/workspace/.loom-setup/gomod';
         if (!env.GOCACHE && existsSync('/workspace/loom/.gocache')) env.GOCACHE = '/workspace/loom/.gocache';
