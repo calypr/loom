@@ -660,6 +660,19 @@ func receiptConstructionStages(resolved *dataframeexecution.Resolved) (map[strin
 	return stagesByOutput, nil
 }
 
+func constructionColumnSourceKey(origin lower.CompiledSourceOrigin, semanticPath string) string {
+	if origin.OccurrenceID == "" || origin.ResourceType == "" {
+		return ""
+	}
+	path := strings.TrimPrefix(strings.TrimSpace(semanticPath), "root.")
+	path = strings.TrimPrefix(path, origin.ResourceType+".")
+	path = strings.TrimPrefix(path, ".")
+	if path == "" {
+		return ""
+	}
+	return origin.OccurrenceID + "|" + origin.ResourceType + "|" + path
+}
+
 func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescriptor) (explorer.ReceiptConstructionStage, error) {
 	stage := explorer.ReceiptConstructionStage{
 		ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: descriptor.Operation,
@@ -717,8 +730,12 @@ func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescri
 		if !cardinality.Valid() {
 			return explorer.ReceiptConstructionStage{}, fmt.Errorf("construction stage %q column %q has unsupported cardinality %q", descriptor.ID, column.ID, column.Cardinality)
 		}
+		sourceKey := ""
+		if column.SourceOrigin != nil {
+			sourceKey = constructionColumnSourceKey(*column.SourceOrigin, column.SemanticPath)
+		}
 		stage.Columns = append(stage.Columns, explorer.ReceiptConstructionStageColumn{
-			ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Kind, Cardinality: cardinality,
+			ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Kind, Cardinality: cardinality, SourceKey: sourceKey,
 		})
 	}
 	for _, capability := range descriptor.Capabilities {

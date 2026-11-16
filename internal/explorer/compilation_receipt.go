@@ -427,10 +427,11 @@ type ReceiptConstructionActiveRelatedRecord struct {
 }
 
 type ReceiptConstructionStageColumn struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Label string `json:"label"`
-	Type  string `json:"type,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Label     string `json:"label"`
+	Type      string `json:"type,omitempty"`
+	SourceKey string `json:"sourceKey,omitempty"`
 	// Cardinality is empty only on receipts created before stage cardinality was recorded.
 	Cardinality expression.Cardinality `json:"cardinality,omitempty"`
 }

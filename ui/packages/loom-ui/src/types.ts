@@ -1436,6 +1436,7 @@ export type ConstructionStageColumn = z.infer<typeof constructionStageColumnSche
 
 const constructionStageColumnDescriptorSchema = constructionStageColumnBaseSchema.extend({
   cardinality: z.enum(['required_one', 'optional_one', 'many']).optional(),
+  sourceKey: z.string().optional(),
 }).strict();
 export type ConstructionStageColumnDescriptor = z.infer<typeof constructionStageColumnDescriptorSchema>;
 
@@ -2134,6 +2135,7 @@ export const constructionCapabilitiesResponseSchema = z.object({
   groupRowValueChoices: z.array(constructionGroupFieldScalarChoiceSchema),
   groupFieldChoicesIncomplete: z.boolean().optional(),
   sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
+  nodeOccurrences: z.record(z.string(), z.string()).optional(),
   sourceInput: constructionScalarSourceInputSchema.optional(),
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),
   filterSourceInput: constructionFilterSourceInputSchema.optional(),

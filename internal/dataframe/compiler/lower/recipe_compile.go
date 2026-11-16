@@ -98,6 +98,7 @@ type CompiledSourceOrigin struct {
 	OutputKey    string
 	SourceKind   string
 	OccurrenceID string
+	ResourceType string
 	SourcePath   string
 	ValueMode    string
 }

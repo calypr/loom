@@ -27,6 +27,24 @@ export type CatalogItem =
       readonly constructionChoice?: ConstructionChoice;
     };
 
+
+export const canonicalCatalogSourcePath = (resourceType: string, path: string): string => {
+  let value = path.trim().replace(/^root\./, '');
+  if (resourceType && value.startsWith(`${resourceType}.`)) value = value.slice(resourceType.length + 1);
+  return value.replace(/^\./, '');
+};
+
+export const catalogItemSourceKey = (
+  item: CatalogItem,
+  nodeOccurrences: Readonly<Record<string, string>> | undefined,
+): string | undefined => {
+  const source = item.kind === 'FIELD' ? item.constructionChoice?.source : item.constructionChoice?.source;
+  if (!source || source.kind !== 'FIELD' || !source.nodeId || !source.path) return undefined;
+  const occurrenceId = nodeOccurrences?.[source.nodeId];
+  if (!occurrenceId) return undefined;
+  return `${occurrenceId}|${source.resourceType}|${canonicalCatalogSourcePath(source.resourceType, source.path)}`;
+};
+
 export type CatalogChoiceIntent = {
   readonly constructionChoice: ConstructionChoiceSelection;
   readonly title?: string;

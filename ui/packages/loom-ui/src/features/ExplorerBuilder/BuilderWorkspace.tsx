@@ -3795,6 +3795,19 @@ const BuilderWorkspaceContent = ({
   const sourceProjectionSummary = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.sourceProjectionAvailability
     : undefined;
+  const capabilityNodeOccurrences = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response.nodeOccurrences
+    : undefined;
+  const existingSourceKeys = useMemo(
+    () => constructionLifecycle.capabilities.status === 'ready'
+      ? new Set(
+          constructionLifecycle.capabilities.response.selectedStage.columns
+            .map((column) => column.sourceKey)
+            .filter((key): key is string => Boolean(key)),
+        )
+      : undefined,
+    [constructionLifecycle.capabilities],
+  );
   const selectedCapabilityStageId = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.selectedStage.id
     : undefined;
@@ -4268,6 +4281,8 @@ const BuilderWorkspaceContent = ({
                       presentationContext={fieldPresentationContext}
                       onSwitchView={selectAddColumnsView}
                       semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+                      existingSourceKeys={existingSourceKeys}
+                      nodeOccurrences={capabilityNodeOccurrences}
                         catalog={state.catalog}
                       sourceProjectionAvailability={sourceAvailability}
                       relatedSourceAvailability={relatedSourceAvailability}

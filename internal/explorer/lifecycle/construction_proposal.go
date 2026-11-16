@@ -56,6 +56,7 @@ type ConstructionCapabilitiesResponse struct {
 	SemanticGroupChoices           []ConstructionSemanticGroupChoice         `json:"semanticGroupChoices,omitempty"`
 	SemanticGroupChoicesIncomplete bool                                      `json:"semanticGroupChoicesIncomplete,omitempty"`
 	SourceProjectionAvailability   *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
+	NodeOccurrences                map[string]string                         `json:"nodeOccurrences,omitempty"`
 	WorkspaceInputs                []ConstructionWorkspaceInput              `json:"workspaceInputs"`
 }
 
@@ -501,8 +502,70 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		GroupRowValueChoices:           groupRowValueChoices,
 		SemanticGroupChoices:           semanticGroupChoices,
 		SemanticGroupChoicesIncomplete: semanticGroupChoicesIncomplete,
-		SourceProjectionAvailability:   &sourceProjectionAvailability, WorkspaceInputs: workspaceInputs,
+		SourceProjectionAvailability:   &sourceProjectionAvailability,
+		NodeOccurrences:                constructionNodeOccurrences(base.document.Route, base.snapshot),
+		WorkspaceInputs:                workspaceInputs,
 	}, nil
+}
+
+func constructionNodeOccurrences(route authoringv2.RouteNode, snapshot capability.Snapshot) map[string]string {
+	result := map[string]string{}
+	var root capability.Node
+	found := false
+	for _, node := range snapshot.Nodes {
+		if node.ResourceType == route.ResourceType && node.RowRootEligible {
+			root, found = node, true
+			break
+		}
+	}
+	if !found {
+		for _, node := range snapshot.Nodes {
+			if node.ResourceType == route.ResourceType {
+				root, found = node, true
+				break
+			}
+		}
+	}
+	if !found {
+		return result
+	}
+	result[root.ID] = route.OccurrenceID
+	var walk func(parent capability.Node, node authoringv2.RouteNode)
+	walk = func(parent capability.Node, node authoringv2.RouteNode) {
+		for _, child := range node.Children {
+			var target capability.Node
+			ok := false
+			if child.CatalogEdgeID != "" {
+				if edge, found := snapshot.Edge(child.CatalogEdgeID); found {
+					target, ok = snapshot.Node(edge.ToNodeID)
+				}
+			}
+			if !ok {
+				matches := 0
+				for _, edge := range snapshot.Edges {
+					if edge.FromNodeID != parent.ID || edge.BlockedReason != "" ||
+						(edge.Label != child.Relationship && edge.Label != child.Relationship+"_"+child.ResourceType) {
+						continue
+					}
+					candidate, candidateOK := snapshot.Node(edge.ToNodeID)
+					if !candidateOK || candidate.ResourceType != child.ResourceType {
+						continue
+					}
+					target, ok = candidate, true
+					matches++
+				}
+				if matches != 1 {
+					continue
+				}
+			}
+			if ok && target.ResourceType == child.ResourceType {
+				result[target.ID] = child.OccurrenceID
+				walk(target, child)
+			}
+		}
+	}
+	walk(root, route)
+	return result
 }
 
 // runConstructionCapabilityBuilders runs independent builders with a bounded

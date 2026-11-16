@@ -20,6 +20,7 @@ import {
   catalogItemKey,
   catalogItemLabel,
   catalogItemSelectionLabel,
+  catalogItemSourceKey,
   catalogItemTitle,
   catalogItemConstructionChoice,
   catalogSourceOptions,
@@ -756,6 +757,8 @@ const ConceptCatalogContent = ({
   sourceControls,
   suppressUnavailableNotices = false,
   semanticSelectionMode,
+  existingSourceKeys,
+  nodeOccurrences,
   initialSelection,
   initialFieldSource,
   groupedRowValuePolicy,
@@ -787,6 +790,8 @@ const ConceptCatalogContent = ({
   readonly sourceControls?: React.ReactNode;
   readonly suppressUnavailableNotices?: boolean;
   readonly semanticSelectionMode?: SemanticInventorySelectionMode;
+  readonly existingSourceKeys?: ReadonlySet<string>;
+  readonly nodeOccurrences?: Readonly<Record<string, string>>;
   readonly initialSelection?: CatalogInitialSelection;
   readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
   readonly groupedRowValuePolicy?: GroupedRowValuePolicyControl;
@@ -870,6 +875,8 @@ const ConceptCatalogContent = ({
   currentTableContextKey.current = tableContextKey;
   const canAddFromSourceProjection = sourceProjectionAvailability?.available ?? true;
   const canAddCatalogItem = (item: CatalogItem): boolean => {
+    const sourceKey = catalogItemSourceKey(item, nodeOccurrences);
+    if (sourceKey && existingSourceKeys?.has(sourceKey)) return false;
     if (view !== 'all' && item.kind === 'SEMANTIC' &&
       !semanticItemMatchesAnyRule(item.item, CODED_SEMANTIC_RULE_HINTS)) return false;
     if (relatedSourceAvailability && isRelatedFieldCatalogItem(item, rowRoot)) {
