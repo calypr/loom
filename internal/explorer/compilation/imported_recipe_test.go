@@ -214,3 +214,45 @@ func TestImportedRecipeCompilesAdditiveRelatedColumn(t *testing.T) {
 		t.Fatalf("resolved bundle was mutated across compiles: %#v", fields)
 	}
 }
+
+func TestImportedRecipeAdditiveRelatedColumnToleratesUnobservedOptionalEdge(t *testing.T) {
+	output := recipe.Output{
+		Name: "patients", RootResourceType: "Patient", RowGrain: "RECORD",
+		Fields:     []recipe.Field{{Name: "age", Expr: recipe.Expression{Select: "root.age"}}},
+		Traversals: []recipe.Traversal{{Name: "subject", OccurrenceID: "rel_obs", ToResourceType: "Observation", MatchMode: recipe.MatchOptional}},
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "seed", TranslationVersion: "v1", Outputs: []recipe.Output{output}}
+	digest, err := bundle.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
+	visible := true
+	importedColumn := recipe.StageColumn{ID: "resolved_age_id", Name: "age", Label: "Age", Type: "integer"}
+	document := authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: output.Name, Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "rel_obs", ResourceType: "Observation", Relationship: "subject", MatchMode: authoringv2.RouteMatchOptional}}},
+		Rows:  authoringv2.RecordsRowDefinition(), ImportedRecipe: &ref,
+		Columns: []authoringv2.Column{
+			{ColumnID: importedColumn.ID, Column: importedColumn.Name, Label: importedColumn.Label, LogicalType: "integer", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: importedColumn.Name}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{ColumnID: "additive_status", Column: "status", Label: "Observation status", LogicalType: "string", OccurrenceID: "rel_obs", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "status", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	wireCatalog := authoringv2.CatalogSnapshot{
+		Nodes:      []authoringv2.CatalogNode{{ID: "n-patient", ResourceType: "Patient"}, {ID: "n-obs", ResourceType: "Observation"}},
+		Candidates: []authoringv2.CatalogCandidate{{ID: "candidate-status", NodeID: "n-obs", FieldPath: "status", Label: "Status", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}}},
+	}
+	capabilitySnapshot := capability.Snapshot{
+		Status: capability.StatusReady, Complete: true,
+		Nodes:      []capability.Node{{ID: "n-patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "n-obs", ResourceType: "Observation"}},
+		Candidates: []capability.Candidate{{ID: "candidate-status", NodeID: "n-obs", ResourceType: "Observation", FieldPath: "status", Label: "Status", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}}},
+	}
+	resolved := ResolvedImportedRecipe{Reference: ref, Bundle: bundle, ResolvedBundle: bundle, SourceColumns: []ResolvedImportedSourceColumn{{Column: importedColumn, Cardinality: "required_one", Shape: "scalar", SemanticPath: "age"}}}
+	compiled, err := compileImportedDocument(context.Background(), "project", "explorer", document, wireCatalog, capabilitySnapshot, resolved)
+	if err != nil {
+		t.Fatalf("compileImportedDocument: %v", err)
+	}
+	if len(compiled.Bundle.Outputs[0].Traversals) != 1 || len(compiled.Bundle.Outputs[0].Traversals[0].Fields) != 1 {
+		t.Fatalf("additive related field was not compiled: %#v", compiled.Bundle.Outputs[0].Traversals)
+	}
+}

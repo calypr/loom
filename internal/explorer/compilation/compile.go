@@ -706,8 +706,10 @@ func compileImportedDocument(ctx context.Context, project, explorerID string, do
 			Rows:             document.Rows,
 			Columns:          additive,
 		}
+		compileSnapshot, compileRoute := importedCompileInputs(snapshot, document.Route)
+		synthetic.Route = compileRoute
 		var err error
-		additiveResult, err = compileSemanticDocument(ctx, project, explorerID, synthetic, snapshot, nil)
+		additiveResult, err = compileSemanticDocument(ctx, project, explorerID, synthetic, compileSnapshot, nil)
 		if err != nil {
 			return Result{}, fmt.Errorf("compile imported additive columns: %w", err)
 		}

@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 // mergeAdditiveOutput appends columns compiled by the normal semantic compiler
@@ -166,4 +168,92 @@ func cloneRecipeOutput(output recipe.Output) (recipe.Output, error) {
 		return recipe.Output{}, err
 	}
 	return clone, nil
+}
+
+// importedCompileInputs adapts an imported route to the normal compiler. Imported
+// routes can retain an optional relationship label without one observed catalog
+// edge, and later catalog changes can make a label ambiguous. The pinned route
+// already proved which occurrence the imported output uses, so the synthetic
+// compile gets one deterministic edge for that occurrence instead of failing
+// route resolution before additive columns are lowered.
+func importedCompileInputs(snapshot capability.Snapshot, route authoringv2.RouteNode) (capability.Snapshot, authoringv2.RouteNode) {
+	cloned := snapshot.Clone()
+	rootID := importedRootNode(&cloned, route.ResourceType)
+	walkImportedRoute(&cloned, rootID, &route)
+	return cloned, route
+}
+
+func importedRootNode(snapshot *capability.Snapshot, resourceType string) string {
+	chosen := ""
+	for index := range snapshot.Nodes {
+		if snapshot.Nodes[index].ResourceType != resourceType {
+			continue
+		}
+		if chosen == "" {
+			chosen = snapshot.Nodes[index].ID
+			snapshot.Nodes[index].RowRootEligible = true
+			continue
+		}
+		snapshot.Nodes[index].RowRootEligible = false
+	}
+	if chosen == "" {
+		chosen = "imported_node_" + shortHash(resourceType)
+		snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: chosen, ResourceType: resourceType, RowRootEligible: true})
+	}
+	return chosen
+}
+
+func importedChildNode(snapshot *capability.Snapshot, resourceType string) string {
+	for _, node := range snapshot.Nodes {
+		if node.ResourceType == resourceType {
+			return node.ID
+		}
+	}
+	id := "imported_node_" + shortHash(resourceType)
+	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: id, ResourceType: resourceType})
+	return id
+}
+
+func walkImportedRoute(snapshot *capability.Snapshot, parentID string, node *authoringv2.RouteNode) {
+	for index := range node.Children {
+		child := &node.Children[index]
+		childID := importedChildNode(snapshot, child.ResourceType)
+		if child.CatalogEdgeID == "" {
+			if matches := importedRouteEdges(*snapshot, parentID, child); len(matches) == 1 {
+				child.CatalogEdgeID = matches[0].ID
+			}
+		}
+		if child.CatalogEdgeID == "" || !importedEdgeExists(*snapshot, child.CatalogEdgeID) {
+			child.CatalogEdgeID = "imported_edge_" + shortHash(parentID+"\x00"+child.OccurrenceID+"\x00"+child.Relationship+"\x00"+childID)
+			snapshot.Edges = append(snapshot.Edges, capability.Edge{
+				ID: child.CatalogEdgeID, FromNodeID: parentID, ToNodeID: childID, Label: child.Relationship,
+				SourceResourceType: node.ResourceType, TargetResourceType: child.ResourceType,
+			})
+		}
+		walkImportedRoute(snapshot, childID, child)
+	}
+}
+
+func importedRouteEdges(snapshot capability.Snapshot, parentID string, child *authoringv2.RouteNode) []capability.Edge {
+	var matches []capability.Edge
+	for _, edge := range snapshot.Edges {
+		if edge.ID == "" || edge.FromNodeID != parentID || edge.Label != child.Relationship || edge.BlockedReason != "" {
+			continue
+		}
+		target, ok := snapshot.Node(edge.ToNodeID)
+		if !ok || target.ResourceType != child.ResourceType {
+			continue
+		}
+		matches = append(matches, edge)
+	}
+	return matches
+}
+
+func importedEdgeExists(snapshot capability.Snapshot, id string) bool {
+	for _, edge := range snapshot.Edges {
+		if edge.ID == id {
+			return true
+		}
+	}
+	return false
 }
