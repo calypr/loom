@@ -284,13 +284,12 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(builder, /id="first-table-name"/);
   assert.match(actionBar, /data-testid=\{`construction-action-\$\{family\.toLowerCase\(\)\.replace\('_', '-'\)\}`\}/);
   assert.match(builder, /aria-label=\{`\$\{activeOperation\.label\} editor`\}/);
-  assert.match(builder, /data-testid="construction-source-setup"/);
-  assert.match(builder, /Advanced source setup/);
+  assert.match(catalog, /advancedOpen \? 'Close advanced options' : 'Advanced options'/);
   assert.match(builder, /tablePreview\.rows !== null/);
   assert.match(builder, /state\.reconciliation === 'resolved'/);
   assert.match(builder, /tablePreview\.receiptId === state\.receipt\.receiptId/);
   assert.match(actionBar, /label: 'Add columns'/);
-  assert.match(builder, /Other fields/);
+  assert.match(catalog, /view !== 'fields' \? <section aria-label="Coded values">/);
   assert.match(catalog, /data-testid="feature-catalog-raw-fields"/);
   assert.match(selectionOptions, /role="region"/);
   assert.match(selectionOptions, /aria-label="Advanced route and form choices"/);
@@ -335,7 +334,7 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(ownerFlow, /const ownerApplyDeadline = Date\.now\(\) \+ 30000/);
   assert.match(ownerFlow, /while \(Date\.now\(\) < ownerApplyDeadline\)/);
   assert.match(ownerFlow, /input\.getAttribute\('aria-label'\) === \$\{JSON\.stringify\(configuredOwnerLabel\)\} && !input\.disabled/);
-  assert.match(builder, /!activeOperation && !workspaceEditor \? <details/);
+  assert.match(builder, /const workspaceEditor = operationEditor \|\| relatedSourceStepEditor/);
   assert.match(ownerFlow, /captureBuilderPreviewBaseline\(target, page, ownerRecordsExplorerId\)/);
   assert.match(ownerFlow, /waitForFreshBuilderPreview\(/);
   assert.match(ownerFlow, /readBuilderPreviewDOM\(page\)\)\.receiptId/);
