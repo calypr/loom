@@ -3798,16 +3798,13 @@ const BuilderWorkspaceContent = ({
   const capabilityNodeOccurrences = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.nodeOccurrences
     : undefined;
-  const existingSourceKeys = useMemo(
-    () => constructionLifecycle.capabilities.status === 'ready'
-      ? new Set(
-          constructionLifecycle.capabilities.response.selectedStage.columns
-            .map((column) => column.sourceKey)
-            .filter((key): key is string => Boolean(key)),
-        )
-      : undefined,
-    [constructionLifecycle.capabilities],
-  );
+  const existingSourceKeys = constructionLifecycle.capabilities.status === 'ready'
+    ? new Set(
+        constructionLifecycle.capabilities.response.selectedStage.columns
+          .map((column) => column.sourceKey)
+          .filter((key): key is string => Boolean(key)),
+      )
+    : undefined;
   const selectedCapabilityStageId = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.selectedStage.id
     : undefined;
