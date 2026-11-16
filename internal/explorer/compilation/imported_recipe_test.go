@@ -92,3 +92,53 @@ func TestImportedRecipePreservesConstructionOverlay(t *testing.T) {
 		t.Fatalf("filtered imported output contract does not match emitted schema: %v", err)
 	}
 }
+
+func TestImportedRecipeCompilesAdditiveRootColumn(t *testing.T) {
+	output := recipe.Output{Name: "patients", RootResourceType: "Patient", RowGrain: "RECORD", Fields: []recipe.Field{{Name: "age", Expr: recipe.Expression{Select: "root.age"}}}}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "seed", TranslationVersion: "v1", Outputs: []recipe.Output{output}}
+	digest, err := bundle.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name}
+	visible := true
+	importedColumn := recipe.StageColumn{ID: "resolved_age_id", Name: "age", Label: "Age", Type: "integer"}
+	document := authoringv2.Document{
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: output.Name, Title: "Patients"}, RootResourceType: output.RootResourceType,
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: output.RootResourceType},
+		Rows:  authoringv2.RecordsRowDefinition(), ImportedRecipe: &ref,
+		Columns: []authoringv2.Column{
+			{ColumnID: importedColumn.ID, Column: importedColumn.Name, Label: importedColumn.Label, LogicalType: "integer", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceImported, Imported: &authoringv2.ImportedSource{OutputColumn: importedColumn.Name}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{ColumnID: "additive_birth_date", Column: "birthDate", Label: "Birth date", LogicalType: "date", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{ColumnID: "additive_given_all", Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "ALL"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	catalog := authoringv2.CatalogSnapshot{
+		Nodes: []authoringv2.CatalogNode{{ID: "node-patient", ResourceType: "Patient"}},
+		Candidates: []authoringv2.CatalogCandidate{
+			{ID: "candidate-birth-date", NodeID: "node-patient", FieldPath: "birthDate", Label: "Birth date", LogicalType: "date", Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE"},
+			{ID: "candidate-given", NodeID: "node-patient", FieldPath: "name[].given[]", Label: "Given", LogicalType: "string", Cardinality: "many", Repeated: true, ProjectionModes: []string{"FIRST", "ALL", "DISTINCT"}, DefaultProjectionMode: "ALL"},
+		},
+	}
+	resolved := ResolvedImportedRecipe{Reference: ref, Bundle: bundle, ResolvedBundle: bundle, SourceColumns: []ResolvedImportedSourceColumn{{Column: importedColumn, Cardinality: "required_one", Shape: "scalar", SemanticPath: "age"}}}
+	compiled, err := compileImportedDocument(document, catalog, resolved)
+	if err != nil {
+		t.Fatalf("compileImportedDocument: %v", err)
+	}
+	got := compiled.Bundle.Outputs[0]
+	if len(got.Fields) != 3 || got.Fields[1].Name != "birthDate" || got.Fields[1].Expr.Select != "root.birthDate" || got.Fields[1].ColumnID != "additive_birth_date" {
+		t.Fatalf("additive root field was not compiled into the imported output: %#v", got.Fields)
+	}
+	if got.Fields[2].ValueMode != recipe.ValueModeAll || compiled.EmittedColumns[2].Shape != "array" || compiled.EmittedColumns[2].Cardinality != "many" {
+		t.Fatalf("additive repeated projection lost authored ALL intent: field=%#v emitted=%#v", got.Fields[2], compiled.EmittedColumns[2])
+	}
+	if len(compiled.OutputContract.Columns) != 3 || compiled.OutputContract.Columns[1].Column != "birthDate" || compiled.OutputContract.Columns[2].Cardinality != "many" {
+		t.Fatalf("additive root column missing from output contract: %#v", compiled.OutputContract.Columns)
+	}
+	if err := compiled.Bundle.Validate(); err != nil {
+		t.Fatalf("additive imported bundle is invalid: %v", err)
+	}
+	if err := compiled.OutputContract.ValidateAgainst(compiled.Bundle, compiled.EmittedColumns); err != nil {
+		t.Fatalf("additive imported output contract does not match emitted schema: %v", err)
+	}
+}

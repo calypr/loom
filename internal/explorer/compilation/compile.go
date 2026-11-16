@@ -647,6 +647,55 @@ func validateImportedSourceColumns(imported ResolvedImportedRecipe) error {
 	return nil
 }
 
+func importedRootFieldCandidate(catalog authoringv2.CatalogSnapshot, resourceType, fieldPath, logicalType string) (authoringv2.CatalogCandidate, bool) {
+	nodes := make(map[string]string, len(catalog.Nodes))
+	for _, node := range catalog.Nodes {
+		nodes[node.ID] = node.ResourceType
+	}
+	wantPath := strings.TrimPrefix(strings.TrimSpace(fieldPath), "root.")
+	var match *authoringv2.CatalogCandidate
+	for index := range catalog.Candidates {
+		candidate := &catalog.Candidates[index]
+		if nodes[candidate.NodeID] != resourceType || strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") != wantPath {
+			continue
+		}
+		if logicalType != "" && candidate.LogicalType != "" && candidate.LogicalType != logicalType {
+			continue
+		}
+		if match != nil && match.ID != candidate.ID {
+			return authoringv2.CatalogCandidate{}, false
+		}
+		match = candidate
+	}
+	if match == nil {
+		return authoringv2.CatalogCandidate{}, false
+	}
+	return *match, true
+}
+
+func additiveProjectionMode(column authoringv2.Column, candidate authoringv2.CatalogCandidate) string {
+	mode := strings.ToUpper(strings.TrimSpace(column.Source.ProjectionMode()))
+	if mode == "" {
+		mode = strings.ToUpper(strings.TrimSpace(candidate.DefaultProjectionMode))
+	}
+	if mode == "" {
+		if capability.IsRepeatedCardinality(candidate.Cardinality) {
+			mode = "FIRST"
+		} else {
+			mode = "VALUE"
+		}
+	}
+	if len(candidate.ProjectionModes) == 0 {
+		return mode
+	}
+	for _, advertised := range candidate.ProjectionModes {
+		if strings.EqualFold(strings.TrimSpace(advertised), mode) {
+			return mode
+		}
+	}
+	return ""
+}
+
 func compileImportedDocument(document authoringv2.Document, catalog authoringv2.CatalogSnapshot, imported ResolvedImportedRecipe) (Result, error) {
 	if imported.Reference != *document.ImportedRecipe {
 		return Result{}, fmt.Errorf("resolved pin does not match imported document")
@@ -672,19 +721,68 @@ func compileImportedDocument(document authoringv2.Document, catalog authoringv2.
 	if !reflect.DeepEqual(document.Route, expectedRoute) || document.RootResourceType != sourceOutput.RootResourceType {
 		return Result{}, fmt.Errorf("imported recipe route was edited")
 	}
-	if len(document.Columns) != len(imported.SourceColumns) {
-		return Result{}, fmt.Errorf("imported recipe source columns were added or removed")
+	resolvedOutput, ok := recipeOutput(imported.ResolvedBundle, imported.Reference.Output)
+	if !ok {
+		return Result{}, fmt.Errorf("resolved source output %q was not found", imported.Reference.Output)
 	}
 	publicColumns := make([]explorer.PublicOutputColumn, 0, len(document.Columns))
 	emittedColumns := make([]explorer.EmittedColumn, 0, len(document.Columns))
 	presentationColumns := make([]PresentationColumn, 0, len(document.Columns))
+	seenImported := 0
 	for index, authored := range document.Columns {
 		if authored.ValueTransformation != nil || authored.Contributor != nil || authored.Interpretation != nil || authored.Filter != nil || authored.Chart != nil {
 			return Result{}, fmt.Errorf("imported recipe column %d contains an unsupported semantic overlay", index)
 		}
-		if authored.Source.Kind != authoringv2.SourceImported || authored.Source.Imported == nil {
-			return Result{}, fmt.Errorf("imported recipe column %d source was edited", index)
+		visible, order := true, index
+		if authored.Table != nil {
+			if authored.Table.Visible != nil {
+				visible = *authored.Table.Visible
+			}
+			if authored.Table.Order != nil {
+				order = *authored.Table.Order
+			}
 		}
+		if authored.Source.Kind != authoringv2.SourceImported || authored.Source.Imported == nil {
+			// A pinned recipe can still gain additive root columns. Those are
+			// projected from the same root record under the imported output and
+			// do not rewrite any imported source column.
+			if authored.OccurrenceID != authoringv2.RootOccurrenceID || authored.Source.Kind != authoringv2.SourceField || authored.Source.Field == nil {
+				return Result{}, fmt.Errorf("imported recipe column %d is not an additive root field", index)
+			}
+			path := strings.TrimPrefix(strings.Trim(strings.TrimSpace(authored.Source.FieldPath()), "."), "root.")
+			if path == "" || path == "root" {
+				return Result{}, fmt.Errorf("imported recipe column %d additive field path is invalid", index)
+			}
+			candidate, found := importedRootFieldCandidate(catalog, document.RootResourceType, path, authored.LogicalType)
+			if !found {
+				return Result{}, fail("capability", "STALE_ADDITIVE_FIELD", fmt.Sprintf("$.columns[%d].source.field.path", index), "additive imported column does not match an authorized root field", map[string]any{"resourceType": document.RootResourceType, "fieldPath": path}, nil)
+			}
+			mode := additiveProjectionMode(authored, candidate)
+			if mode == "" {
+				return Result{}, fail("capability", "UNADVERTISED_ADDITIVE_PROJECTION", fmt.Sprintf("$.columns[%d].source.field.projectionMode", index), "additive imported column projection mode is not advertised for the root field", map[string]any{"fieldPath": path, "projectionMode": authored.Source.ProjectionMode(), "candidateId": candidate.ID}, nil)
+			}
+			if mode == "INDEXED" {
+				return Result{}, fail("capability", "UNSUPPORTED_ADDITIVE_PROJECTION", fmt.Sprintf("$.columns[%d].source.field.projectionMode", index), "indexed additive imported columns are not supported; choose a scalar, first, all, or distinct projection", map[string]any{"fieldPath": path}, nil)
+			}
+			for _, field := range resolvedOutput.Fields {
+				if field.Name == authored.Column {
+					return Result{}, fmt.Errorf("imported recipe column %d additive field %q collides with the imported output", index, authored.Column)
+				}
+			}
+			resolvedOutput.Fields = append(resolvedOutput.Fields, recipe.Field{Name: authored.Column, ColumnID: authored.ColumnID, Label: firstNonEmpty(authored.Label, candidate.Label, authored.Column), FieldRef: path, Expr: recipe.Expression{Select: "root." + path}, ValueMode: projectionValueMode(mode)})
+			shape := "scalar"
+			if mode == "ALL" || mode == "DISTINCT" {
+				shape = "array"
+			}
+			emission := explorer.EmittedColumn{EmissionID: authored.ColumnID, OutputID: document.Output.ID, OccurrenceID: authored.OccurrenceID, AuthoredColumns: []string{authored.Column}, PublicColumn: authored.Column, Label: firstNonEmpty(authored.Label, candidate.Label, authored.Column), LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, Nullable: candidate.Cardinality != "required_one", Shape: shape, SourcePath: path, StructuralSuitability: "requires-review", LossReasons: []string{"IMPORTED_RECIPE_QUALITY_UNASSESSED"}}
+			emittedColumns = append(emittedColumns, emission)
+			publicColumn := publicColumnContract(emission)
+			publicColumn.Cardinality = emission.Cardinality
+			publicColumns = append(publicColumns, publicColumn)
+			presentationColumns = append(presentationColumns, PresentationColumn{EmissionID: authored.ColumnID, PublicColumn: authored.Column, Label: emission.Label, Visible: visible, Order: order})
+			continue
+		}
+		seenImported++
 		var source *ResolvedImportedSourceColumn
 		for sourceIndex := range imported.SourceColumns {
 			if imported.SourceColumns[sourceIndex].Column.Name == authored.Source.Imported.OutputColumn {
@@ -696,15 +794,6 @@ func compileImportedDocument(document authoringv2.Document, catalog authoringv2.
 			return Result{}, fmt.Errorf("imported recipe column %d source identity was edited", index)
 		}
 		column := source.Column
-		visible, order := true, index
-		if authored.Table != nil {
-			if authored.Table.Visible != nil {
-				visible = *authored.Table.Visible
-			}
-			if authored.Table.Order != nil {
-				order = *authored.Table.Order
-			}
-		}
 		emission := explorer.EmittedColumn{EmissionID: column.ID, OutputID: document.Output.ID, OccurrenceID: authored.OccurrenceID, AuthoredColumns: []string{authored.Column}, PublicColumn: column.Name, Label: authored.Label, LogicalType: column.Type, Cardinality: source.Cardinality, Nullable: column.Nullable, Shape: source.Shape, SourcePath: source.SemanticPath, StructuralSuitability: "requires-review", LossReasons: []string{"IMPORTED_RECIPE_QUALITY_UNASSESSED"}}
 		emittedColumns = append(emittedColumns, emission)
 		publicColumn := publicColumnContract(emission)
@@ -712,9 +801,8 @@ func compileImportedDocument(document authoringv2.Document, catalog authoringv2.
 		publicColumns = append(publicColumns, publicColumn)
 		presentationColumns = append(presentationColumns, PresentationColumn{EmissionID: column.ID, PublicColumn: column.Name, Label: authored.Label, Visible: visible, Order: order})
 	}
-	resolvedOutput, ok := recipeOutput(imported.ResolvedBundle, imported.Reference.Output)
-	if !ok {
-		return Result{}, fmt.Errorf("resolved source output %q was not found", imported.Reference.Output)
+	if seenImported != len(imported.SourceColumns) {
+		return Result{}, fmt.Errorf("imported recipe source columns were added or removed")
 	}
 	resolvedOutput.Name = document.Output.ID
 	constructionIntent := document.Construction
