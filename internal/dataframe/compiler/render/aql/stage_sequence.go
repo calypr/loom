@@ -80,6 +80,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	if inlineGroupSourceRow != "" || !inlineSourceIntoFirstStage {
 		pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
 	}
+	if !inlineSourceIntoFirstStage {
+		pruneUnusedSourcePivotProjections(&sourcePlan, sequence, stages)
+	}
 	collectionKeys, err := collectionBindKeys(plan)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err

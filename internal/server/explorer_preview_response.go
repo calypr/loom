@@ -13,6 +13,7 @@ import (
 	explorerv2api "github.com/calypr/loom/generated/loomapi"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 const (
@@ -82,6 +83,10 @@ func previewRouteError(err error) error {
 		default:
 			return previewInternalError(err)
 		}
+	}
+	var applicationError *lifecycle.Error
+	if errors.As(err, &applicationError) {
+		return err
 	}
 	if errors.As(err, new(*receiptPreviewResolutionError)) {
 		return receiptPreviewConflict(err)

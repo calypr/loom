@@ -824,17 +824,22 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 	typed := false
 	var lifecycleErr *lifecycle.Error
 	var authoringErr *explorer.AuthoringError
-	if errors.As(err, &lifecycleErr) {
-		typed = true
-		status = lifecycleErrorStatus(lifecycleErr.Class)
-		code, message, stage, path, details, cause = lifecycleErr.Code, lifecycleErr.Message, lifecycleErr.Stage, lifecycleErr.Path, lifecycleErr.Details, lifecycleErr.Cause
-	} else if errors.As(err, &authoringErr) {
+	hasLifecycleError := errors.As(err, &lifecycleErr)
+	hasAuthoringError := errors.As(err, &authoringErr)
+	// A transport adapter may wrap a lifecycle error with a more precise
+	// transport status (for example PREVIEW_TIMEOUT/504). Honor that outer
+	// classification before inspecting its cause chain.
+	if hasAuthoringError && (!hasLifecycleError || errors.Is(authoringErr, lifecycleErr)) {
 		typed = true
 		status = authoringErr.Status
 		code, message, stage, path, details = authoringErr.Diagnostic.Code, authoringErr.Diagnostic.Message, authoringErr.Diagnostic.Stage, authoringErr.Diagnostic.JSONPath, authoringErr.Diagnostic.Details
 		if authoringErr.Cause != nil {
 			cause = authoringErr.Cause
 		}
+	} else if hasLifecycleError {
+		typed = true
+		status = lifecycleErrorStatus(lifecycleErr.Class)
+		code, message, stage, path, details, cause = lifecycleErr.Code, lifecycleErr.Message, lifecycleErr.Stage, lifecycleErr.Path, lifecycleErr.Details, lifecycleErr.Cause
 	} else if errors.Is(err, explorer.ErrNotFound) {
 		typed = true
 		status, code, message = http.StatusNotFound, "NOT_FOUND", "Explorer resource not found"

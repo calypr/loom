@@ -1026,6 +1026,18 @@ func TestNormalizePreviewErrorKeepsUnknownBackendFailuresRetryable(t *testing.T)
 	}
 }
 
+func TestNormalizePreviewErrorClassifiesDeadlineAsPreviewTimeout(t *testing.T) {
+	cause := fmt.Errorf("execute proposal preview: %w", context.DeadlineExceeded)
+	err := normalizePreviewError(cause, true)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodePreviewTimeout) || !userErr.Retryable() {
+		t.Fatalf("normalized error=%#v, want retryable PREVIEW_TIMEOUT", userErr)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("normalized error %v lost its deadline cause", err)
+	}
+}
+
 func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
 	valid := compiler.CompiledQuery{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}}
 	if err := validatePreviewPlan(valid, 2, ir.PhysicalEngineAQL); err != nil {

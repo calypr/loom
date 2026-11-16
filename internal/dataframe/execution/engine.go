@@ -1308,8 +1308,11 @@ func normalizePreviewError(err error, backend bool) error {
 	if userErr, ok := dataframeerrors.AsUserError(err); ok {
 		return userErr
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
 		return dataframeerrors.Normalize(err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodePreviewTimeout, dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.CodePreviewTimeout, "")), dataframeerrors.WithRetryable(true))
 	}
 	if backend {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
