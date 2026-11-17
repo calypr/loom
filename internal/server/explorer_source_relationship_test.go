@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -24,7 +26,22 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	registry := &importedSourceRegistry{entry: exec.Entry{Bundle: bundle, Digest: digest}}
-	resolver := importedRecipeSources{registry: registry, engine: &dataframeexecution.Engine{}, defaultName: bundle.Name}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry: registry, ScopeDigest: recipeScopeDigest,
+		ResolveBundle: recipeSchemaResolver(func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+			if options.ResourceType != "Patient" {
+				return nil, nil
+			}
+			return []catalog.PopulatedField{{ResourceType: "Patient", Path: "identifier[].system", Kind: "scalar", DistinctValues: []string{"fixture-system"}}}, nil
+		}, nil),
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			return errors.New("unexpected query during source editing")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := importedRecipeSources{registry: registry, engine: engine, defaultName: bundle.Name}
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := capability.NewSnapshot(capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: explorerScopeDigest(scope)}, capability.Policy{}, capability.StatusReady, true, false, []capability.Node{{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient", RowRootEligible: true}}, []capability.Edge{{ID: "subject", FromNodeID: "specimen", ToNodeID: "patient", Label: "subject_Patient", StorageDirection: "OUTBOUND"}}, []capability.Candidate{{ID: "patient-id", NodeID: "patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "required_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}}}, nil)
 	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
@@ -45,6 +62,68 @@ func TestImportedRelationshipAddMatchRemoveRoundTripPreservesPin(t *testing.T) {
 	if !strings.HasPrefix(relation.OccurrenceID, "project_") || relation.Fields[0].ValueMode != "ALL" {
 		t.Fatal("addition missing stable identity or explicit collection policy")
 	}
+	t.Run("identifier rule on Graph Connect occurrence", func(t *testing.T) {
+		key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
+		params := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+			Name: "patient_identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value,
+		}}
+		created, err := resolver.CreateSourceRule(ctx, "project-a", authorized, added, authoringv2.SourceRuleCreate{
+			Kind: "DYNAMIC_COLUMN", OccurrenceID: relation.OccurrenceID, Parameters: params,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		effective, err := recipeimport.ApplySourcePlan(output, created.ImportedSource)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(effective.DynamicColumns) != 0 || len(effective.Traversals) != 1 || len(effective.Traversals[0].DynamicColumns) != 1 ||
+			effective.Traversals[0].DynamicColumns[0].Source.Select != relation.OccurrenceID+".identifier[]" {
+			t.Fatalf("rule escaped its Graph Connect traversal: %#v", effective.Traversals)
+		}
+		if len(created.Columns) != len(added.Columns)+1 {
+			t.Fatalf("identifier rule did not generate a column: %#v", created.Columns)
+		}
+		hydrated, err := recipeimport.HydrateSourcePlan(output, created.ImportedSource)
+		if err != nil {
+			t.Fatal(err)
+		}
+		step := hydrated.Steps[len(hydrated.Steps)-1]
+		if step.OccurrenceID != relation.OccurrenceID || step.ParentID != "relationships."+relation.OccurrenceID {
+			t.Fatalf("rule step is not nested under its occurrence: %#v", step)
+		}
+		beforeIDs := map[string]bool{}
+		for _, column := range added.Columns {
+			beforeIDs[column.ColumnID] = true
+		}
+		var generatedID, generatedName string
+		for _, column := range created.Columns {
+			if !beforeIDs[column.ColumnID] {
+				generatedID, generatedName = column.ColumnID, column.Column
+			}
+		}
+		prefix := "external"
+		editedParams := copySourceParametersForTest(t, created, step.ID)
+		editedParams.Dynamic.ColumnPrefix = &prefix
+		edited, err := resolver.Edit(ctx, "project-a", authorized, created, &authoringv2.ImportedSourceStepChange{
+			StepID: step.ID, Enabled: true, Parameters: editedParams,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		retained := false
+		for _, column := range edited.Columns {
+			retained = retained || (column.ColumnID == generatedID && column.Column != generatedName)
+		}
+		if generatedID == "" || !retained {
+			t.Fatal("renaming the generated column changed its ID")
+		}
+		_, err = resolver.EditRelationship(ctx, "project-a", authorized, created, authoringv2.ImportedRelationshipChange{Action: "REMOVE", OccurrenceID: relation.OccurrenceID})
+		var unavailable *authoringv2.UnavailableSourceRuleOccurrence
+		if !errors.As(err, &unavailable) || unavailable.OccurrenceID != relation.OccurrenceID {
+			t.Fatalf("removed rule occurrence error = %v", err)
+		}
+	})
 	workspace.Documents[0] = added
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {

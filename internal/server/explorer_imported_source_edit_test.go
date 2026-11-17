@@ -320,7 +320,7 @@ func TestPinnedFieldBindingsCoverOriginalSlotsWithoutBorrowingCollisionWinner(t 
 	if err != nil || !reflect.DeepEqual(got, again) {
 		t.Fatal("shadowed identity is not deterministic")
 	}
-	if err := verifyPinnedFieldBindings([]authoringv2.ImportedSourceFieldBinding{{FieldID: "fields[0]", ColumnID: "dynamic_winner"}}, got); err == nil {
+	if err := recipeimport.VerifyPinnedFieldBindings([]authoringv2.ImportedSourceFieldBinding{{FieldID: "fields[0]", ColumnID: "dynamic_winner"}}, got); err == nil {
 		t.Fatal("shadowed operation borrowed collision winner identity")
 	}
 	columns = append(columns, columns[1])

@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useId, useState } from 'react';
+import { hasObservedCategoryCodings, observedExtensionPaths, observedIdentifierSystems, useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
+import { columnRulePresets, type ColumnRulePreset } from '../sourceColumnRule';
+import type { AddColumnsGraphSource, AddColumnsView } from '../authoring/useAddColumns';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { Construction, ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep, ExplorerBuilderCommand } from '../../../types';
 import type { LoomClient } from '../../../api';
 import type { BuilderAuthoringState } from '../authoring/model';
-import type { CatalogSourceOption } from '../catalogItems';
 import { sanitizeReasonText } from '../catalogItems';
 import type { ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
 import type { ConstructionSelectableColumn } from '../constructionWorkspace/ConstructionColumnSelection';
@@ -24,8 +27,69 @@ type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
 type CombineCatalog = ReturnType<typeof useCombineCatalog>;
 type CatalogProps = React.ComponentProps<typeof ConceptCatalog>;
 type ReshapeProps = React.ComponentProps<typeof ConstructionReshapeEditor>;
-type AddSourceOption = CatalogSourceOption | { readonly kind: 'EXACT_RELATED'; readonly key: string; readonly label: string; readonly resourceType: string; readonly sourceNodeId?: string };
 type FamilyOperation = { readonly family: ConstructionOperationFamily; readonly label: string };
+
+type RuleInventory = {
+  readonly systems: ReadonlyArray<string>;
+  readonly extensionPaths: ReadonlyArray<string>;
+  readonly loading: boolean;
+  readonly unavailable: boolean;
+};
+
+function inventoryRuleReason(inventory: { readonly isLoading: boolean; readonly error?: unknown }, observed: boolean, label: string) {
+  if (inventory.isLoading) return `Loading ${label}…`;
+  if (inventory.error) return `Observed ${label} are unavailable.`;
+  if (!observed) return `No ${label} were observed for this resource type.`;
+  return undefined;
+}
+
+function ColumnRulePicker({ client, inventoryScope, hasCatalogFields, unavailableReason, disabled, reviewing, renderRule }: {
+  readonly client: LoomClient;
+  readonly inventoryScope: ColumnRuleInventoryScope;
+  readonly hasCatalogFields: boolean;
+  readonly unavailableReason?: string;
+  readonly disabled: boolean;
+  readonly reviewing: boolean;
+  readonly renderRule?: (preset: ColumnRulePreset, inventory: RuleInventory) => React.ReactNode;
+}) {
+  const [selected, setSelected] = useState<ColumnRulePreset>();
+  const identifiers = useColumnRuleInventory(client, inventoryScope, 'identifier', !unavailableReason);
+  const extensions = useColumnRuleInventory(client, inventoryScope, 'extension', !unavailableReason);
+  const categories = useColumnRuleInventory(client, inventoryScope, 'category', !unavailableReason);
+  const inventory = {
+    systems: observedIdentifierSystems(identifiers.data ?? []),
+    extensionPaths: observedExtensionPaths(extensions.data ?? []),
+    loading: identifiers.isLoading,
+    unavailable: Boolean(identifiers.error),
+  };
+  const unavailableByPreset: Record<ColumnRulePreset['id'], string | undefined> = {
+    identifier: inventoryRuleReason(identifiers, inventory.systems.length > 0, 'identifier systems'),
+    extension: inventoryRuleReason(extensions, inventory.extensionPaths.length > 0, 'extension paths with values'),
+    categoryCoding: inventoryRuleReason(categories, hasObservedCategoryCodings(categories.data ?? []), 'category codings'),
+    catalog: hasCatalogFields ? undefined : 'No populated field paths are available for this occurrence.',
+  };
+  if (selected && !unavailableReason && !unavailableByPreset[selected.id] && renderRule) {
+    return <div className="grid gap-2">
+      <button type="button" disabled={disabled || reviewing} onClick={() => setSelected(undefined)}
+        className="justify-self-start px-3 text-sm font-medium text-blue-800">Back to column rules</button>
+      {renderRule(selected, inventory)}
+    </div>;
+  }
+  return (
+    <ul aria-label="Column rules" className="grid gap-2 px-3 pb-3">
+      {columnRulePresets.map(preset => {
+        const reason = unavailableReason ?? unavailableByPreset[preset.id];
+        return <li key={preset.id} className="rounded-md border border-slate-200 p-2">
+          <button type="button" disabled={disabled || Boolean(reason)}
+            className="text-sm font-semibold text-blue-800 disabled:text-slate-700"
+            onClick={() => setSelected(preset)}>{preset.label}</button>
+          <p className="text-xs text-slate-600">{preset.description}</p>
+          {reason ? <p className="text-xs text-slate-600">{reason}</p> : null}
+        </li>;
+      })}
+    </ul>
+  );
+}
 
 export interface OperationEditorHostProps {
   readonly table: Table;
@@ -48,14 +112,19 @@ export interface OperationEditorHostProps {
   readonly rowValuesSupported: boolean;
   readonly rowValuePolicy: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
   readonly setRowValuePolicy: (value: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>) => void;
-  readonly selectedAddSource?: AddSourceOption;
+  readonly graphSource?: AddColumnsGraphSource;
   readonly project: string;
   readonly authResourcePath?: string;
-  readonly addColumnsSourceControls?: React.ReactNode;
   readonly addSourceRouteContext: CatalogProps['routeContext'];
   readonly addColumnsViewRevision: number;
   readonly fieldPresentationContext: CatalogProps['presentationContext'];
-  readonly onSwitchAddColumnsView: NonNullable<CatalogProps['onSwitchView']>;
+  readonly addColumnsView: AddColumnsView;
+  readonly columnRulesUnavailableReason?: string;
+  readonly columnRuleInventoryScope: ColumnRuleInventoryScope;
+  readonly hasCatalogRuleFields: boolean;
+  readonly renderColumnRule?: (preset: ColumnRulePreset, inventory: RuleInventory) => React.ReactNode;
+  readonly reviewingAdvancedColumns?: boolean;
+  readonly onSwitchAddColumnsView: (view: AddColumnsView) => void;
   readonly existingSourceKeys: CatalogProps['existingSourceKeys'];
   readonly capabilityNodeOccurrences: CatalogProps['nodeOccurrences'];
   readonly sourceAvailability: CatalogProps['sourceProjectionAvailability'];
@@ -100,14 +169,19 @@ export const OperationEditorHost = ({
   rowValuesSupported,
   rowValuePolicy,
   setRowValuePolicy,
-  selectedAddSource,
+  graphSource,
   project: projectId,
   authResourcePath,
-  addColumnsSourceControls,
   addSourceRouteContext,
   addColumnsViewRevision,
   fieldPresentationContext,
-  onSwitchAddColumnsView: selectAddColumnsView,
+  addColumnsView: columnKind,
+  columnRulesUnavailableReason,
+  columnRuleInventoryScope,
+  hasCatalogRuleFields,
+  renderColumnRule,
+  reviewingAdvancedColumns,
+  onSwitchAddColumnsView: selectColumnKind,
   existingSourceKeys,
   capabilityNodeOccurrences,
   sourceAvailability,
@@ -130,6 +204,15 @@ export const OperationEditorHost = ({
   onCancelConstructionEditor: cancelConstructionEditor,
   onClose: closeConstructionWorkspace,
 }: OperationEditorHostProps) => {
+  useEscapeToClose(
+    activeOperation.family === 'CALCULATE' || activeOperation.family === 'COMBINE',
+    closeConstructionWorkspace,
+  );
+  const columnPickerId = useId();
+  const [showCodeValues, setShowCodeValues] = useState(false);
+  const advanced = columnKind === 'advanced' && !graphSource?.exactRelated;
+  const catalogView = graphSource?.exactRelated || columnKind === 'advanced' ? 'all' : columnKind;
+  const columnControlsDisabled = pendingCommands > 0 || state.reconciliation === 'pending' || publishing;
   return (
     <section
       aria-label={`${activeOperation.label} editor`}
@@ -141,7 +224,7 @@ export const OperationEditorHost = ({
       <header className={activeOperation.family === 'ADD_COLUMNS' ? "px-3 py-2" : rowIntentSession ? "px-0 py-1" : "border-b border-slate-200 px-3 py-2.5"}>
         <div className="flex items-center justify-between gap-3">
           <div>
-            {!rowIntentSession && activeOperation.family !== 'RESHAPE' ? <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2> : null}
+            {!rowIntentSession && activeOperation.family !== 'RESHAPE' ? <h2 className="text-base font-semibold text-slate-950" style={activeOperation.family === 'ADD_COLUMNS' ? { color: '#000' } : undefined}>{activeOperation.family === 'ADD_COLUMNS' && graphSource ? `Add columns from ${graphSource.resourceType}` : activeOperation.label}</h2> : null}
             {editingConstructionStep ? <p className="text-xs text-slate-500">Editing a saved step</p> : null}
           </div>
           <button
@@ -210,84 +293,124 @@ export const OperationEditorHost = ({
             ) : null}
             {table.document.rootResourceType ? (
               <>
-                {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
-                  <RelatedFieldEditor
-                    key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
-                    presentation="standalone"
-                    project={projectId}
-                    explorerId={state.explorerId}
-                    authResourcePath={authResourcePath}
-                    snapshotToken={state.catalog.snapshotToken}
-                    outputId={table.outputId}
-                    construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-                    capabilities={constructionLifecycle.capabilities.response}
-                    disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                    sourceControls={addColumnsSourceControls}
-                    onCandidateChange={constructionLifecycle.onCandidateChange}
-                  />
-                ) : (
-                  <>
-                    <ConceptCatalog
-                      key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}`}
-                      project={projectId}
-                      explorerId={state.explorerId}
-                      authResourcePath={authResourcePath}
-                      snapshotToken={state.catalog.snapshotToken}
-                      outputId={table.outputId}
-                      tableContextKey={`${state.draftVersion}:${state.draftDigest}`}
-                      rowRoot={table.document.rootResourceType}
-                      resourceType={selectedAddSource?.resourceType}
-                      sourceNodeId={selectedAddSource?.sourceNodeId}
-                      routeContext={addSourceRouteContext}
-                      layout="panel"
-                      dense
-                      view="all"
-                      viewRevision={addColumnsViewRevision}
-                      presentationContext={fieldPresentationContext}
-                      onSwitchView={selectAddColumnsView}
-                      semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
-                      existingSourceKeys={existingSourceKeys}
-                      nodeOccurrences={capabilityNodeOccurrences}
-                      catalog={state.catalog}
-                      sourceControls={addColumnsSourceControls}
-                      sourceProjectionAvailability={sourceAvailability}
-                      relatedSourceAvailability={relatedSourceAvailability}
-                      suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-                      disabledReason={sourceSelectionDisabledReason}
-                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      groupedRowValuePolicy={groupedRowValuePolicy}
-                      onAddSelected={addSelectedFeatures}
-                      onPreviewSelected={previewRelatedSourceColumns}
-                      onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                    />
-                  </>
-                )}
-                {table.document.frames?.length ? (
-                  <details className="rounded-md border border-slate-200 bg-white p-3">
-                    <summary className="cursor-pointer text-sm font-semibold text-slate-700">Manage saved coded-value sources</summary>
-                    <FrameSourcePanel
-                      key={`${table.outputId}:${state.catalog.snapshotToken}`}
-                      project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-                      snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
-                      rowRoot={table.document.rootResourceType} frames={table.document.frames ?? []}
-                      columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      allowNewSource={false}
-                      onSet={(choice, form) => applyCommands([{
-                        type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form,
-                      }])}
-                      onReplace={(frameId, choice, form) => applyCommands([{
-                        type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form,
-                      }])}
-                      onRemove={(frameId) => applyCommands([{
-                        type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
-                      }])}
-                      onAddSelected={addSelectedFeatures}
-                      onRemoveColumn={(column) => applyCommands([{
-                        type: 'REMOVE_COLUMN', outputId: table.outputId, column,
-                      }])}
-                    />
-                  </details>
+                {!graphSource?.exactRelated ? (
+                  <div role="tablist" aria-label="Column picker" className="flex gap-1 border-b border-slate-200 px-3"
+                    onKeyDown={(event) => {
+                      if (columnControlsDisabled || reviewingAdvancedColumns || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                      event.preventDefault();
+                      const next = event.key === 'Home' ? 'all' : event.key === 'End' || !advanced ? 'advanced' : 'all';
+                      selectColumnKind(next);
+                      event.currentTarget.querySelector<HTMLButtonElement>(`[data-column-tab="${next}"]`)?.focus();
+                    }}>
+                    {([{ view: 'all', label: 'Simple' }, { view: 'advanced', label: 'Advanced' }] as const).map(({ view, label }) => {
+                      const selected = advanced === (view === 'advanced');
+                      return <button key={view} type="button" role="tab"
+                        id={`${columnPickerId}-${view}`}
+                        aria-controls={`${columnPickerId}-panel`}
+                        aria-selected={selected}
+                        tabIndex={selected ? 0 : -1}
+                        disabled={columnControlsDisabled || (reviewingAdvancedColumns && !selected)}
+                        data-column-tab={view}
+                        onClick={() => selectColumnKind(view)}
+                        className="border-b-2 border-transparent px-3 py-2 text-sm font-medium text-slate-600 aria-selected:border-blue-700 aria-selected:text-blue-800">
+                        {label}
+                      </button>;
+                    })}
+                  </div>
                 ) : null}
+                <div role={graphSource?.exactRelated ? undefined : 'tabpanel'}
+                  id={`${columnPickerId}-panel`}
+                  aria-labelledby={graphSource?.exactRelated ? undefined : `${columnPickerId}-${advanced ? 'advanced' : 'all'}`}
+                  className="grid gap-3">
+                  {advanced ? <ColumnRulePicker
+                    key={`${ownerKey}:${graphSource?.occurrenceId ?? ''}`}
+                    client={loomClient} inventoryScope={columnRuleInventoryScope} hasCatalogFields={hasCatalogRuleFields}
+                    unavailableReason={columnRulesUnavailableReason} disabled={columnControlsDisabled}
+                    reviewing={Boolean(reviewingAdvancedColumns)} renderRule={renderColumnRule}
+                  /> : graphSource && !graphSource.isRoot && !graphSource.nodeId ? (
+                    <p role="status" className="px-3 text-sm text-amber-900">Columns are unavailable because this graph relationship could not be resolved.</p>
+                  ) : (
+                    <>
+                      {graphSource?.exactRelated && constructionLifecycle.capabilities.status === 'ready' ? (
+                        <RelatedFieldEditor
+                          key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}:${graphSource?.occurrenceId ?? ''}`}
+                          presentation="standalone"
+                          project={projectId}
+                          explorerId={state.explorerId}
+                          authResourcePath={authResourcePath}
+                          snapshotToken={state.catalog.snapshotToken}
+                          outputId={table.outputId}
+                          construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+                          capabilities={constructionLifecycle.capabilities.response}
+                          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                          onCandidateChange={constructionLifecycle.onCandidateChange}
+                        />
+                      ) : (
+                        <>
+                          <ConceptCatalog
+                            key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${graphSource?.occurrenceId ?? ''}:${advanced}`}
+                            project={projectId}
+                            explorerId={state.explorerId}
+                            authResourcePath={authResourcePath}
+                            snapshotToken={state.catalog.snapshotToken}
+                            outputId={table.outputId}
+                            tableContextKey={`${state.draftVersion}:${state.draftDigest}`}
+                            rowRoot={table.document.rootResourceType}
+                            resourceType={graphSource?.resourceType}
+                            sourceNodeId={graphSource?.nodeId}
+                            scopeToSource
+                            routeContext={addSourceRouteContext}
+                            layout="panel"
+                            dense
+                            view={catalogView}
+                            viewRevision={addColumnsViewRevision}
+                            presentationContext={fieldPresentationContext}
+                            onSwitchView={selectColumnKind}
+                            semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
+                            existingSourceKeys={existingSourceKeys}
+                            nodeOccurrences={capabilityNodeOccurrences}
+                            catalog={state.catalog}
+                            sourceProjectionAvailability={sourceAvailability}
+                            relatedSourceAvailability={relatedSourceAvailability}
+                            suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
+                            disabledReason={sourceSelectionDisabledReason}
+                            disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                            groupedRowValuePolicy={groupedRowValuePolicy}
+                            onAddSelected={addSelectedFeatures}
+                            onPreviewSelected={previewRelatedSourceColumns}
+                            onInspectRouteCoverage={inspectRelatedRouteCoverage}
+                          />
+                        </>
+                      )}
+                      {graphSource && !graphSource.exactRelated ? <div className="grid gap-2 px-3 pb-3">
+                        <button type="button" aria-expanded={showCodeValues}
+                          className="justify-self-start text-sm font-medium text-blue-800"
+                          onClick={() => setShowCodeValues(!showCodeValues)}>Add columns from code values</button>
+                        {showCodeValues ? <FrameSourcePanel
+                          key={`${table.outputId}:${state.catalog.snapshotToken}:${graphSource.occurrenceId}`}
+                          project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+                          snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
+                          rowRoot={table.document.rootResourceType} frames={table.document.frames ?? []}
+                          columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                          addSourceRoute={{ resourceType: graphSource.resourceType, edgeIds: graphSource.edgeIds ?? [] }}
+                          onSet={(choice, form) => applyCommands([{
+                            type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form,
+                          }])}
+                          onReplace={(frameId, choice, form) => applyCommands([{
+                            type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form,
+                          }])}
+                          onRemove={(frameId) => applyCommands([{
+                            type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
+                          }])}
+                          onAddSelected={addSelectedFeatures}
+                          onRemoveColumn={(column) => applyCommands([{
+                            type: 'REMOVE_COLUMN', outputId: table.outputId, column,
+                          }])}
+                        /> : null}
+                      </div> : null}
+                    </>
+                  )}
+                </div>
               </>
             ) : null}
           </div>

@@ -246,6 +246,20 @@ func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.Importe
 	return nil
 }
 
+func indexTraversalOccurrences(items []recipe.Traversal) map[string]*recipe.Traversal {
+	index := map[string]*recipe.Traversal{}
+	var visit func([]recipe.Traversal)
+	visit = func(items []recipe.Traversal) {
+		for i := range items {
+			traversal := &items[i]
+			index[traversal.OccurrenceID] = traversal
+			visit(traversal.Traversals)
+		}
+	}
+	visit(items)
+	return index
+}
+
 func applyRelationshipOverlay(output recipe.Output, overlay *authoringv2.ImportedRelationshipOverlay) (recipe.Output, error) {
 	if overlay == nil {
 		return output, nil
@@ -262,25 +276,18 @@ func applyRelationshipOverlay(output recipe.Output, overlay *authoringv2.Importe
 	for _, m := range overlay.MatchOverrides {
 		matches[m.OccurrenceID] = m.MatchMode
 	}
-	scopes := map[string]*[]recipe.Traversal{authoringv2.RootOccurrenceID: &output.Traversals}
-	found := map[string]bool{authoringv2.RootOccurrenceID: true}
-	var index func([]recipe.Traversal)
-	index = func(items []recipe.Traversal) {
-		for i := range items {
-			t := &items[i]
-			found[t.OccurrenceID] = true
-			scopes[t.OccurrenceID] = &t.Traversals
-			index(t.Traversals)
-		}
-	}
-	index(output.Traversals)
+	occurrences := indexTraversalOccurrences(output.Traversals)
 	for _, a := range overlay.Additions {
-		if found[a.OccurrenceID] {
+		if occurrences[a.OccurrenceID] != nil || a.OccurrenceID == authoringv2.RootOccurrenceID {
 			return recipe.Output{}, fmt.Errorf("relationship addition %q collides with an existing occurrence", a.OccurrenceID)
 		}
-		parent, ok := scopes[a.ParentOccurrenceID]
-		if !ok || removed[a.ParentOccurrenceID] {
-			return recipe.Output{}, fmt.Errorf("relationship parent %q is unavailable", a.ParentOccurrenceID)
+		parent := &output.Traversals
+		if a.ParentOccurrenceID != authoringv2.RootOccurrenceID {
+			traversal := occurrences[a.ParentOccurrenceID]
+			if traversal == nil || removed[a.ParentOccurrenceID] {
+				return recipe.Output{}, fmt.Errorf("relationship parent %q is unavailable", a.ParentOccurrenceID)
+			}
+			parent = &traversal.Traversals
 		}
 		// Pointers into slices can move after append. Reindex the complete tree
 		// after every addition; later additions can safely address an earlier one.
@@ -293,17 +300,15 @@ func applyRelationshipOverlay(output recipe.Output, overlay *authoringv2.Importe
 			t.Fields = append(t.Fields, recipe.Field{Name: f.Column, ColumnID: f.ColumnID, Label: f.Label, FieldRef: f.FieldPath, ValueMode: recipe.ValueMode(f.ValueMode), Expr: recipe.Expression{Select: a.OccurrenceID + "." + path}})
 		}
 		*parent = append(*parent, t)
-		found[a.OccurrenceID] = true
-		scopes = map[string]*[]recipe.Traversal{authoringv2.RootOccurrenceID: &output.Traversals}
-		index(output.Traversals)
+		occurrences = indexTraversalOccurrences(output.Traversals)
 	}
 	for id := range removed {
-		if !found[id] {
+		if id != authoringv2.RootOccurrenceID && occurrences[id] == nil {
 			return recipe.Output{}, fmt.Errorf("removed relationship %q is unavailable", id)
 		}
 	}
 	for id := range matches {
-		if !found[id] {
+		if id != authoringv2.RootOccurrenceID && occurrences[id] == nil {
 			return recipe.Output{}, fmt.Errorf("match override relationship %q is unavailable", id)
 		}
 	}

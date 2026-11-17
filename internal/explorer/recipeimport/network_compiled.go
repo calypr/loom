@@ -48,7 +48,7 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []lower.C
 			return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: compiled source column %q refers to unavailable occurrence %q", column.ID, origin.OccurrenceID)
 		}
 		sourceStep := ""
-		if addition, exists := additions[occurrence.OccurrenceID]; exists {
+		if addition, exists := additions[occurrence.OccurrenceID]; exists && (origin.SourceKind == SourcePlanFieldGroup || origin.SourceKind == "" && strings.HasPrefix(relative, "fields")) {
 			for _, field := range addition.Fields {
 				if field.ColumnID == column.ID {
 					sourceStep = "relationships." + addition.OccurrenceID

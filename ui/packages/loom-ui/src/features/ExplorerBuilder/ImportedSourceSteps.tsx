@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { useEscapeToClose } from './hooks/useEscapeToClose';
 import { createPortal } from 'react-dom';
+import { isIdentifierColumnRule } from './sourceColumnRule';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
 import type { ImportedSourceParameters, ExplorerBuilderCommand, ExplorerBuilderDocument, ProjectedField } from '../../types';
 
@@ -37,7 +38,8 @@ const sourceStepLabel = (step: ImportedSourceStep): string => {
   const parameters = step.parameters;
   if (parameters?.identity) return `Row identity · ${parameters.identity.name}`;
   if (parameters?.catalog) return `Catalog projection · ${parameters.catalog.name}`;
-  if (parameters?.dynamic) return `Dynamic columns · ${parameters.dynamic.name}`;
+  if (parameters?.dynamic && isIdentifierColumnRule(parameters.dynamic)) return `Columns from identifiers · ${parameters.dynamic.name}`;
+  if (parameters?.dynamic) return `Columns from source values · ${parameters.dynamic.name}`;
   if (parameters?.extension) return `Extension columns · ${parameters.extension.name}`;
   if (parameters?.pivot) return `Pivot · ${parameters.pivot.name}`;
   if (parameters?.expansion) return `Expand items as ${parameters.expansion.as}`;
@@ -104,6 +106,8 @@ interface ImportedSourceStepsProps {
   readonly editableProjectedFieldIds?: ReadonlySet<string>;
   readonly projectedFieldRemovalDisabledReason?: string;
   readonly outputRevision?: string;
+  readonly codedColumnsForStep?: (stepId: string) => ReadonlyArray<{ column: string; label: string }>;
+  readonly onRemoveCodedColumn?: (column: string) => void;
   readonly resourceTypeChoices?: ReadonlyArray<string>;
   readonly sourcePathChoices?: ReadonlyArray<string>;
   readonly fieldPathChoices?: ReadonlyArray<string>;
@@ -143,7 +147,7 @@ export const ImportedSourceSteps = ({
   onRefresh,
   onApply,
   renderReview,
-  editActionRef, cancelEditActionRef, switchOccurrenceActionRef, occurrenceForStep, onSuspendEdit, fieldEditActionRef, outputEditActionRef, catalogOutputsForStep, pivotOutputsForStep, projectedFieldsForStep, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, outputRevision, onBeginEdit, onActiveOperationChange, onCancelEdit, onDraftChange, editorHost, reviewHost, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices,
+  editActionRef, cancelEditActionRef, switchOccurrenceActionRef, occurrenceForStep, onSuspendEdit, fieldEditActionRef, outputEditActionRef, catalogOutputsForStep, pivotOutputsForStep, projectedFieldsForStep, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, outputRevision, codedColumnsForStep, onRemoveCodedColumn, onBeginEdit, onActiveOperationChange, onCancelEdit, onDraftChange, editorHost, reviewHost, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices,
 }: ImportedSourceStepsProps) => {
   const presentEditor = (node: ReactNode) => editorHost ? createPortal(node, editorHost) : node;
   const presentReview = (node: ReactNode) => reviewHost ? createPortal(node, reviewHost) : node;
@@ -200,6 +204,7 @@ export const ImportedSourceSteps = ({
   const activeValues = activeStepId === selectedStep?.id ? editor : activeDependent
     ?? (editor?.inspectedValues && editor.inspectedValues.stepId === activeStepId ? editor.inspectedValues : activeStep ? editorStateFor(activeStep) : undefined);
   const activeParent = activeStep?.parentId ? stepsById.get(activeStep.parentId) : undefined;
+  const editingAddedRule = importedSource?.ruleAdditions?.some(addition => addition.stepId === activeStep?.id) ?? false;
   const activeValueModes = activeStep ? valueModesForStep(activeStep) : undefined;
   const selectedParent = selectedStep?.parentId ? stepsById.get(selectedStep.parentId) : undefined;
   const valueModes = selectedStep ? valueModesForStep(selectedStep) : undefined;
@@ -403,7 +408,7 @@ export const ImportedSourceSteps = ({
         {relationships.removals?.length ? <p>{relationships.removals.length} source relationship(s) removed. Their pinned settings are retained for inspection.</p> : null}
       </section> : null}
       {actionError ? <p className="mb-2 text-sm text-red-700" role="alert">{actionError}</p> : null}
-      {navigatorOnly && (steps === undefined || steps.some((step) => !step.parameters)) ? <div className="mb-2">
+      {navigatorOnly && (steps === undefined || steps.some((step) => !step.parameters && !(step.kind === 'TRAVERSAL' && step.id.startsWith('relationships.')))) ? <div className="mb-2">
         <button type="button" data-testid="imported-source-refresh" disabled={isDisabled} onClick={() => void refresh()}
           className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-blue-800 disabled:opacity-50">
           {refreshing ? 'Loading editable source settings…' : 'Load editable source settings'}
@@ -535,8 +540,46 @@ export const ImportedSourceSteps = ({
               selectedOutputKey={activeValues.selectedOutputKey} outputFocusRequest={activeValues.outputFocusRequest}
               catalogOutputs={catalogOutputsForStep?.(activeStep.id) ?? []} pivotOutputs={pivotOutputsForStep?.(activeStep.id) ?? []}
               outputRevision={outputRevision}
+              structuredColumnRule={editingAddedRule}
               parameters={activeValues.parameters} disabled={isDisabled} resourceTypeChoices={resourceTypeChoices} sourcePathChoices={sourcePathChoices} fieldPathChoices={fieldPathChoices} fieldKindChoices={fieldKindChoices} onChange={(parameters) => updateActive({ parameters, parametersChanged: true })} /> : null}
+            {activeStep.kind === 'FIELD_GROUP' ? (() => {
+              const pivotSteps = steps?.filter((step) =>
+                step.kind === 'PIVOT' && step.parentId === activeStep.parentId && step.editable,
+              ) ?? [];
+              const codedColumns = codedColumnsForStep?.(activeStep.id) ?? [];
+              if (!pivotSteps.length && !codedColumns.length) return null;
+              const canLeave = !editor.parametersChanged && editor.enabled === selectedStep.enabled &&
+                !changedMaxColumns && editor.valueMode === editorStateFor(selectedStep).valueMode &&
+                dependentEdits.length === 0 && !isDisabled;
+              return <section aria-label="Configured code values" className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Configured code values</h4>
+                <ul className="divide-y divide-slate-100 border-y border-slate-200 bg-white text-xs">
+                  {codedColumns.map(({ column, label }) => (
+                    <li key={column} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50">
+                      <span className="min-w-0 flex-1 break-words text-slate-800">{label}</span>
+                      {onRemoveCodedColumn ? <button type="button" disabled={!canLeave}
+                        className="shrink-0 text-blue-800 underline disabled:opacity-50"
+                        aria-label={`Remove code value ${label}`}
+                        onClick={() => { closeEditor(); onRemoveCodedColumn(column); }}>Remove</button> : null}
+                    </li>
+                  ))}
+                  {pivotSteps.map((step) => (
+                    <li key={step.id} className="px-2 py-1.5">
+                      <button type="button" disabled={isDisabled} className="text-xs text-blue-800 underline"
+                        onClick={() => renderReview ? stageOrSelectOperation(step.id) : openEditor(step.id)}>
+                        {sourceStepLabel(step)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>;
+            })() : null}
             {activeStep.editable && activeStep.kind !== 'FIELD_GROUP' ? <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              {editingAddedRule ? <label className="flex items-center gap-2 text-xs text-slate-700">
+                <input type="checkbox" checked={activeValues.enabled} disabled={isDisabled}
+                  data-testid="imported-source-rule-enabled" onChange={(event) => updateActive({ enabled: event.currentTarget.checked })} />
+                Enable column rule
+              </label> : null}
               {activeStep.maxColumns !== undefined ? <label className="grid gap-0.5 text-xs text-slate-700">Maximum columns
                 <input type="number" min={1} step={1} value={activeValues.maxColumns} disabled={isDisabled} aria-invalid={!validActiveMaxColumns}
                   data-testid="imported-source-max-columns" onChange={(event) => updateActive({ maxColumns: event.currentTarget.value })} className="rounded-md border border-slate-300 px-2 py-1 text-xs" />

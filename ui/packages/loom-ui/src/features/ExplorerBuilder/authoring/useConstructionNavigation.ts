@@ -9,7 +9,7 @@ import type { useConstructionLifecycle } from '../constructionWorkspace/useConst
 import type { useCombineCatalog } from './useCombineCatalog';
 import type { useCommandQueue } from './useCommandQueue';
 import type { useRecipeEditingOwner } from '../recipeEditing/recipeEditingOwner';
-import type { ConceptCatalogView } from '../components/ConceptCatalog';
+import type { AddColumnsView } from './useAddColumns';
 
 type UseConstructionNavigationOptions = {
   readonly ownerKey: string;
@@ -30,7 +30,7 @@ type ConstructionNavigationActionsOptions = {
   readonly applyCommandsWithResult: ReturnType<typeof useCommandQueue>['applyCommandsWithResult'];
   readonly recipeMutationAllowed: () => boolean;
   readonly rememberOperationFocus: () => void;
-  readonly selectAddColumnsView: (view: Exclude<ConceptCatalogView, 'all'>) => void;
+  readonly selectAddColumnsView: (view: AddColumnsView) => void;
   readonly canStartCombine: boolean;
   readonly selectedColumnIds: ReadonlyArray<string>;
   readonly recipeOwner: Pick<ReturnType<typeof useRecipeEditingOwner>, 'state'>;
@@ -175,7 +175,7 @@ export const useConstructionNavigation = ({ ownerKey, state, latestState }: UseC
           setMessage(admission.refusal.message);
           return;
         }
-        selectAddColumnsView('fields');
+        selectAddColumnsView('all');
       }
       if (family === 'COMBINE' && willOpen) {
         if (!canStartCombine) return;

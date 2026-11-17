@@ -397,7 +397,7 @@ func bindPinnedFieldRemoval(
 		return nil
 	}
 	fieldColumnIDs, err := pinnedFieldBindingIDs(original, schema)
-	fieldSlotsExact := err == nil && verifyPinnedFieldBindings(plan.FieldBindings, fieldColumnIDs) == nil
+	fieldSlotsExact := err == nil && recipeimport.VerifyPinnedFieldBindings(plan.FieldBindings, fieldColumnIDs) == nil
 	steps := map[string]authoringv2.ImportedSourceStep{}
 	for _, step := range plan.Steps {
 		steps[step.ID] = step

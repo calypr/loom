@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/recipeimport"
+	"reflect"
 	"testing"
 )
 
@@ -269,6 +270,82 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 	if restored.DraftVersion != 3 || store.saveDraftCalls != 2 || !lifecycleSourceStepEnabled(t, restored.Workspace.Documents[0].ImportedSource, "fields") || *restored.Workspace.Documents[0].ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
 		t.Fatal("bounded source-step restore lost pin, settings, or revision")
+	}
+
+	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+		Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"},
+		Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"},
+	}}
+	service.config.CreateImportedSourceRule = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, rule authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
+		if rule.Kind != "DYNAMIC_COLUMN" || rule.Parameters.Dynamic.Name != "identifiers" {
+			t.Fatalf("unexpected source rule intent: %#v", rule)
+		}
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, authoringv2.CatalogSnapshot{}, recipeimport.PlanEdit{RuleCreate: &rule}, recipeimport.PlanEditInput{})
+		if err == nil {
+			document.ImportedSource = &plan
+		}
+		return document, err
+	}
+	ruleRequest := stepRequest
+	ruleRequest.ExpectedDraftVersion, ruleRequest.ExpectedDraftDigest = restored.DraftVersion, restored.DraftDigest
+	ruleRequest.SourceStep = nil
+	ruleRequest.SourceRule = &authoringv2.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: parameters}
+	rawBeforeRule := append([]byte(nil), store.created.DraftConfig...)
+	ruleProposal, err := service.ProposeSourceRelationship(ctx, ruleRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ruleProposal.AffectedColumns) != 0 || !bytes.Equal(rawBeforeRule, store.created.DraftConfig) {
+		t.Fatal("rule preview changed the draft or widened affected columns")
+	}
+	applyRule := func(version int64, digest, proposalID, commandID string) *authoringv2.ApplyCommandsResponse {
+		t.Helper()
+		result, err := service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{
+			CommandID: commandID, SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+			SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
+			Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: proposalID}},
+		}, "tester")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	savedRule := applyRule(restored.DraftVersion, restored.DraftDigest, ruleProposal.ProposalID, "create-rule")
+	additions := savedRule.Workspace.Documents[0].ImportedSource.RuleAdditions
+	if len(additions) != 1 || !additions[0].Enabled {
+		t.Fatal("Apply did not save the enabled rule")
+	}
+
+	service.config.EditImportedSource = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, authoringv2.CatalogSnapshot{}, recipeimport.PlanEdit{
+			StepChanges: []authoringv2.ImportedSourceStepChange{*change},
+		}, recipeimport.PlanEditInput{})
+		if err == nil {
+			document.ImportedSource = &plan
+		}
+		return document, err
+	}
+	editedParams := *parameters
+	editedDynamic := *parameters.Dynamic
+	prefix := "external"
+	editedDynamic.ColumnPrefix = &prefix
+	editedParams.Dynamic = &editedDynamic
+	editRequest := ruleRequest
+	editRequest.ExpectedDraftVersion, editRequest.ExpectedDraftDigest = savedRule.DraftVersion, savedRule.DraftDigest
+	editRequest.SourceRule = nil
+	editRequest.SourceStep = &authoringv2.ImportedSourceStepChange{StepID: additions[0].StepID, Enabled: true, Parameters: &editedParams}
+	rawBeforeEdit := append([]byte(nil), store.created.DraftConfig...)
+	editProposal, err := service.ProposeSourceRelationship(ctx, editRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rawBeforeEdit, store.created.DraftConfig) {
+		t.Fatal("rule edit preview changed the saved draft")
+	}
+	editedRule := applyRule(savedRule.DraftVersion, savedRule.DraftDigest, editProposal.ProposalID, "edit-rule")
+	got := editedRule.Workspace.Documents[0].ImportedSource.RuleAdditions
+	if len(got) != 1 || got[0].StepID != additions[0].StepID || !reflect.DeepEqual(got[0].Parameters.Dynamic.ColumnPrefix, &prefix) {
+		t.Fatalf("rule edit did not retain identity or save parameters: %#v", got)
 	}
 
 }

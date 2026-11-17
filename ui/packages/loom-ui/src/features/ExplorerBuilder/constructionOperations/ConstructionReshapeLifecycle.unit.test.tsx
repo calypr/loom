@@ -406,13 +406,11 @@ describe('ConstructionReshapeEditor pivot discovery lifecycle', () => {
     await waitFor(() => expect(screen.getByTestId('construction-reshape-pivot-category-summary'))
       .toHaveTextContent('Selected 2 of 2 categories: Female, Male'));
     expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
     fireEvent.change(screen.getByLabelText('Pivot output name female'), { target: { value: 'female_score' } });
-    fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
 
     await waitFor(() => expect(outputNames.at(-1)).toContain('female_score'));
     expect(screen.getByLabelText('Pivot output name female')).toHaveProperty('value', 'female_score');
-    expect(screen.getByLabelText('Pivot missing cell policy')).toHaveProperty('value', 'ERROR');
   });
 });
 

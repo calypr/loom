@@ -1,3 +1,4 @@
+import { fieldPickerList, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import { useId, useState } from 'react';
 import { createOpaqueId, normalizedName, uniqueName, type CodedPivotContext } from './editorShared';
 import { GroupCodedValuePicker } from './GroupCodedValuePicker';
@@ -170,11 +171,11 @@ const GroupRowValuesEditor = (props: {
             <button type="button" data-testid="construction-group-add-columns-clear-search" onClick={() => setRowValueSearch('')}
               className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
           ) : null}
-          <div data-testid="construction-group-add-columns-field-list" className="grid max-h-72 gap-x-3 overflow-y-auto sm:grid-cols-2">
+          <div data-testid="construction-group-add-columns-field-list" className={fieldPickerList}>
             {visibleRowValueChoices.map((choice) => {
               const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
               return (
-                <label key={`row-value:${choiceId}`} className="flex min-w-0 items-start gap-2 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50">
+                <label key={`row-value:${choiceId}`} className={fieldPickerToggleRow}>
                   <input
                     type="checkbox"
                     value={choiceId}
@@ -192,7 +193,7 @@ const GroupRowValuesEditor = (props: {
               );
             })}
             {visibleInputColumns.map((column) => (
-              <label key={`row-input:${column.id}`} className="flex min-w-0 items-start gap-2 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50">
+              <label key={`row-input:${column.id}`} className={fieldPickerToggleRow}>
                 <input type="checkbox" value={column.id}
                   data-testid={`construction-group-add-column-input-${column.id}`}
                   aria-label={`Add column ${column.label}`} checked={false}
@@ -372,7 +373,7 @@ export const GroupEditor = (props: {
     props.onChange({ ...props.form, fieldKeys: [...props.form.fieldKeys, key], keyOrder: [...props.form.keyOrder, key.outputColumnId] });
   };
   const renderScalarChoice = (column: ReshapeColumn, checked: boolean) => (
-    <label key={`scalar:${column.id}`} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+    <label key={`scalar:${column.id}`} className={fieldPickerToggleRow}>
       <input
         type="checkbox"
         value={column.id}
@@ -397,7 +398,7 @@ export const GroupEditor = (props: {
       props.form.codedCategories.length > 0 && !checked || Boolean(codingIdentityKey) && !checked || Boolean(semanticKey) && !checked;
     return (
       <div key={`semantic:${choice.choiceId}`} data-testid="construction-group-semantic-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
-        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
+        <label className={fieldPickerToggleRow}>
           <input
             type="checkbox"
             value={choice.choiceId}
@@ -441,7 +442,7 @@ export const GroupEditor = (props: {
       : key.scopeLabel;
     return (
       <div key={`field-source:${key.outputColumnId}`} data-testid="construction-group-field-source-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
-        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
+        <label className={fieldPickerToggleRow}>
           <input
             type="checkbox"
             value={key.outputColumnId}
@@ -485,7 +486,7 @@ export const GroupEditor = (props: {
     ].filter((id): id is string => Boolean(id)).join(' ') || undefined;
     return (
       <div key={`source-choice:${choiceId}`} data-testid="construction-group-field-source-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
-        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
+        <label className={fieldPickerToggleRow}>
           <input
             type="checkbox"
             value={choiceId}
@@ -526,7 +527,7 @@ export const GroupEditor = (props: {
       : undefined;
     return (
       <div data-testid="construction-group-semantic-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
-        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
+        <label className={fieldPickerToggleRow}>
           <input
             type="checkbox"
             value={semanticValue}
@@ -622,7 +623,7 @@ export const GroupEditor = (props: {
                 <button type="button" data-testid="construction-group-by-clear-search" onClick={() => setGroupSearch('')}
                   className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
               ) : null}
-              <div data-testid="construction-group-by-field-list" className="grid max-h-72 gap-x-3 overflow-y-auto sm:grid-cols-2">
+              <div data-testid="construction-group-by-field-list" className={fieldPickerList}>
                 {visibleScalarColumns.map((column) => renderScalarChoice(column, false))}
                 {visibleSourceFieldChoices.map(renderFieldChoice)}
                 {visibleSemanticChoices.map((choice) => renderSemanticChoice(choice, false))}

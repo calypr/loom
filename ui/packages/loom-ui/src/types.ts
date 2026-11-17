@@ -1831,6 +1831,14 @@ export const explorerBuilderDocumentSchema = z
     importedSource: z.object({
       fieldBindings: z.array(z.object({ fieldId: opaqueIdSchema, columnId: opaqueIdSchema }).strict()).optional(),
       relationships: importedRelationshipOverlaySchema.optional(),
+      ruleAdditions: z.array(z.object({
+        kind: z.enum(["DYNAMIC_COLUMN", "EXTENSION_COLUMN", "CATALOG_PROJECTION"]),
+        occurrenceId: opaqueIdSchema.optional(),
+        maxColumns: z.number().int().min(1).max(128).optional(),
+        stepId: opaqueIdSchema,
+        enabled: z.boolean(),
+        parameters: importedSourceParametersSchema,
+      }).strict()).optional(),
       steps: z.array(z.object({
         id: opaqueIdSchema,
         parentId: opaqueIdSchema.optional(),
@@ -2754,6 +2762,20 @@ export const sourceRelationshipChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('REMOVE'), occurrenceId: opaqueIdSchema }).strict(),
 ]);
 export type SourceRelationshipChange = z.infer<typeof sourceRelationshipChangeSchema>;
+const sourceRuleCreateSchema = z.object({
+  kind: z.enum(['DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'CATALOG_PROJECTION']),
+  occurrenceId: opaqueIdSchema.optional(),
+  maxColumns: z.number().int().min(1).max(128).optional(),
+  parameters: importedSourceParametersSchema,
+}).strict().superRefine((rule, context) => {
+  validateEditableSourceParameters(rule.parameters, context);
+  const arm = { DYNAMIC_COLUMN: 'dynamic', EXTENSION_COLUMN: 'extension', CATALOG_PROJECTION: 'catalog' } as const;
+  if (!rule.parameters[arm[rule.kind]]) {
+    context.addIssue({ code: 'custom', path: ['parameters'], message: 'Source rule parameters must match the rule kind.' });
+  }
+});
+export type SourceRuleCreate = z.infer<typeof sourceRuleCreateSchema>;
+
 export const sourceRelationshipProposalRequestSchema = z.object({
   snapshotToken: opaqueIdSchema,
   expectedDraftVersion: z.number().int().positive(),
@@ -2762,10 +2784,11 @@ export const sourceRelationshipProposalRequestSchema = z.object({
   includePreview: z.boolean().optional(),
   change: sourceRelationshipChangeSchema.optional(),
   sourceStep: importedSourceStepChangeSchema.optional(),
+  sourceRule: sourceRuleCreateSchema.optional(),
   sourceSteps: z.array(importedSourceStepChangeSchema).min(1).max(128).optional(),
   limit: z.number().int().min(1).max(1000).optional(),
 }).strict().superRefine((request, context) => {
-  if (Number(request.change !== undefined) + Number(request.sourceStep !== undefined) + Number(request.sourceSteps !== undefined) !== 1) context.addIssue({ code: 'custom', message: 'Choose one relationship change, source-step change, or atomic source-step batch.' });
+  if (Number(request.change !== undefined) + Number(request.sourceStep !== undefined) + Number(request.sourceSteps !== undefined) + Number(request.sourceRule !== undefined) !== 1) context.addIssue({ code: 'custom', message: 'Choose one relationship change, source-step change, atomic source-step batch, or column rule.' });
   if (request.sourceSteps && new Set(request.sourceSteps.map((step) => step.stepId)).size !== request.sourceSteps.length) context.addIssue({ code: 'custom', path: ['sourceSteps'], message: 'Choose each source operation only once.' });
 });
 export type SourceRelationshipProposalRequest = z.infer<typeof sourceRelationshipProposalRequestSchema>;

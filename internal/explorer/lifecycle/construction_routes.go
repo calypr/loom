@@ -65,6 +65,7 @@ type RelatedExpandChoiceSearchRequest struct {
 	TargetResourceType   string
 	Limit                int
 	Cursor               string
+	SavedGraphOnly       bool
 }
 
 type RelatedExpandRouteChoice struct {
@@ -636,26 +637,45 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 			targetNodeIDs = append(targetNodeIDs, node.ID)
 		}
 	}
-	if len(targetNodeIDs) == 0 {
+	if len(targetNodeIDs) == 0 && !request.SavedGraphOnly {
 		result.Complete = true
 		return result, nil
 	}
-	page, err := capability.PlanConstructionRoutes(capability.ConstructionRouteSearch{
-		Snapshot: base.snapshot, RootNodeID: anchor.NodeID, TargetNodeIDs: targetNodeIDs,
-		SourceKey: "related-resource:" + request.StageID + ":" + anchor.ColumnID + ":" + anchor.Kind + ":" + anchor.NodeID + ":" + request.TargetResourceType,
-		Cursor:    request.Cursor, Limit: request.Limit,
-	})
-	if err != nil {
-		return result, conflict("related-expand-choices", "STALE_OR_INVALID_ROUTE_CURSOR", "restart route search for this stage and resource type", nil, err)
+	var routes [][]capability.ConstructionRouteStep
+	if request.SavedGraphOnly {
+		if anchor.Kind == "root" || anchor.Kind == "rootContributors" {
+			routes = savedRelatedExpandRoutes(base.snapshot, base.document.Route, anchor, request.TargetResourceType)
+		}
+		cursor := savedRelatedExpandCursor{
+			Snapshot: request.SnapshotToken, Draft: request.ExpectedDraftDigest, Output: request.OutputID,
+			Stage: request.StageID, Anchor: request.AnchorColumnID, Target: request.TargetResourceType,
+		}
+		var pageErr error
+		routes, result.NextCursor, pageErr = pageSavedRelatedExpandRoutes(routes, cursor, request.Cursor, request.Limit)
+		if pageErr != nil {
+			return result, conflict("related-expand-choices", "STALE_OR_INVALID_ROUTE_CURSOR", "restart saved graph path search", nil, pageErr)
+		}
+		result.Complete = result.NextCursor == ""
+	} else {
+		page, err := capability.PlanConstructionRoutes(capability.ConstructionRouteSearch{
+			Snapshot: base.snapshot, RootNodeID: anchor.NodeID, TargetNodeIDs: targetNodeIDs,
+			SourceKey: "related-resource:" + request.StageID + ":" + anchor.ColumnID + ":" + anchor.Kind + ":" + anchor.NodeID + ":" + request.TargetResourceType,
+			Cursor:    request.Cursor, Limit: request.Limit,
+		})
+		if err != nil {
+			return result, conflict("related-expand-choices", "STALE_OR_INVALID_ROUTE_CURSOR", "restart route search for this stage and resource type", nil, err)
+		}
+		result.Complete, result.Truncated, result.NextCursor = page.Complete, page.Truncated, page.NextCursor
+		routes = page.Routes
 	}
-	result.Complete, result.Truncated, result.NextCursor = page.Complete, page.Truncated, page.NextCursor
-	for _, route := range page.Routes {
+	proofs := make(map[capability.ConstructionRouteStep]bool)
+	for _, route := range routes {
 		if len(route) == 0 {
 			continue
 		}
 		targetNodeID := route[len(route)-1].ToNodeID
 		resolved, routeErr := reauthorizeConstructionRouteFromAnchor(base.snapshot, anchor.NodeID, targetNodeID, route)
-		if routeErr != nil || !constructionRouteHasCompilerProof(ctx, base.authorized, resolved) {
+		if routeErr != nil || !constructionRouteHasCompilerProofCached(ctx, base.authorized, resolved, proofs) {
 			continue
 		}
 		choice, choiceErr := capability.NewConstructionRelatedResourceRouteChoiceFromAnchor(
@@ -673,6 +693,68 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 		})
 	}
 	return result, nil
+}
+
+type savedRelatedExpandCursor struct {
+	Snapshot, Draft, Output, Stage, Anchor, Target string
+	Offset                                         int
+}
+
+func pageSavedRelatedExpandRoutes(routes [][]capability.ConstructionRouteStep, scope savedRelatedExpandCursor, encoded string, limit int) ([][]capability.ConstructionRouteStep, string, error) {
+	offset := 0
+	if encoded != "" {
+		var cursor savedRelatedExpandCursor
+		value, err := base64.RawURLEncoding.DecodeString(encoded)
+		if err != nil || json.Unmarshal(value, &cursor) != nil {
+			return nil, "", errors.New("invalid saved graph route cursor")
+		}
+		offset = cursor.Offset
+		cursor.Offset = 0
+		if cursor != scope || offset <= 0 || offset >= len(routes) {
+			return nil, "", errors.New("saved graph route cursor has a stale scope or offset")
+		}
+	}
+	if limit <= 0 {
+		limit = 12
+	}
+	end := min(offset+min(limit, 50), len(routes))
+	if end == len(routes) {
+		return routes[offset:end], "", nil
+	}
+	scope.Offset = end
+	next, err := json.Marshal(scope)
+	if err != nil {
+		return nil, "", err
+	}
+	return routes[offset:end], base64.RawURLEncoding.EncodeToString(next), nil
+}
+
+func savedRelatedExpandRoutes(snapshot capability.Snapshot, root authoringv2.RouteNode, anchor resolvedRelatedExpandAnchor, target string) [][]capability.ConstructionRouteStep {
+	var routes [][]capability.ConstructionRouteStep
+	var visit func(authoringv2.RouteNode, string, []capability.ConstructionRouteStep)
+	visit = func(parent authoringv2.RouteNode, nodeID string, path []capability.ConstructionRouteStep) {
+		if snapshot.Policy.Route.MaxHops > 0 && len(path) >= snapshot.Policy.Route.MaxHops {
+			return
+		}
+		for _, child := range parent.Children {
+			edge, err := resolveCapabilityRouteEdge(snapshot, nodeID, parent, child)
+			if err != nil {
+				continue
+			}
+			next := append(slices.Clone(path), capability.ConstructionRouteStep{
+				EdgeID: edge.ID, FromNodeID: nodeID, ToNodeID: edge.ToNodeID,
+				FromResourceType: parent.ResourceType, ToResourceType: child.ResourceType,
+				Relationship: edge.Label, StorageDirection: strings.ToUpper(strings.TrimSpace(edge.StorageDirection)),
+				MatchMode: string(child.MatchMode.Normalized()),
+			})
+			if child.ResourceType == target {
+				routes = append(routes, next)
+			}
+			visit(child, edge.ToNodeID, next)
+		}
+	}
+	visit(root, anchor.NodeID, nil)
+	return routes
 }
 
 func constructionStageSupportsRelatedExpand(stage explorer.ReceiptConstructionStage) bool {
@@ -739,22 +821,33 @@ func resolveRelatedExpandAnchor(snapshot capability.Snapshot, stage explorer.Rec
 }
 
 func constructionRouteHasCompilerProof(ctx context.Context, authorized AuthorizedCapability, route []capability.ConstructionRouteStep) bool {
+	return constructionRouteHasCompilerProofCached(ctx, authorized, route, nil)
+}
+
+func constructionRouteHasCompilerProofCached(ctx context.Context, authorized AuthorizedCapability, route []capability.ConstructionRouteStep, proofs map[capability.ConstructionRouteStep]bool) bool {
 	if len(route) == 0 {
 		return false
 	}
 	for _, hop := range route {
-		matchMode := spec.TraversalMatchOptional
-		if hop.MatchMode == string(spec.TraversalMatchRequired) {
-			matchMode = spec.TraversalMatchRequired
+		proved, cached := proofs[hop]
+		if !cached {
+			matchMode := spec.TraversalMatchOptional
+			if hop.MatchMode == string(spec.TraversalMatchRequired) {
+				matchMode = spec.TraversalMatchRequired
+			}
+			proof, err := compilerprobe.ProbeTraversal(ctx, compilerprobe.TraversalRequest{
+				Scope: constructionCompilerScope(authorized), RootResourceType: hop.FromResourceType,
+				Traversal: compilerprobe.Traversal{
+					FromResourceType: hop.FromResourceType, EdgeLabel: hop.Relationship,
+					ToResourceType: hop.ToResourceType, MatchMode: matchMode,
+				},
+			})
+			proved = err == nil && proof.Traversal != nil && string(proof.Traversal.StorageDirection) == hop.StorageDirection
+			if proofs != nil {
+				proofs[hop] = proved
+			}
 		}
-		proof, err := compilerprobe.ProbeTraversal(ctx, compilerprobe.TraversalRequest{
-			Scope: constructionCompilerScope(authorized), RootResourceType: hop.FromResourceType,
-			Traversal: compilerprobe.Traversal{
-				FromResourceType: hop.FromResourceType, EdgeLabel: hop.Relationship,
-				ToResourceType: hop.ToResourceType, MatchMode: matchMode,
-			},
-		})
-		if err != nil || proof.Traversal == nil || string(proof.Traversal.StorageDirection) != hop.StorageDirection {
+		if !proved {
 			return false
 		}
 	}

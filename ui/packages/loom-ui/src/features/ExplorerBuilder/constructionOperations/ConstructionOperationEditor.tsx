@@ -729,14 +729,16 @@ const buildDeriveCandidate = (args: {
 }): CandidateIntent | undefined => {
   const { construction, stage, deriveSourceInput, editingStep, stepId, outputColumnId, form, expression } = args;
   if (editingStep && editingStep.operation.kind !== 'DERIVE') return undefined;
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(form.outputName) || !form.outputLabel.trim()) return undefined;
+  if (!form.outputLabel.trim()) return undefined;
   const deriveSources = liveDeriveSources(form);
   const inputStage = deriveSourceStage(stage, deriveSourceInput, deriveSources);
   const replacedOutputID = editingStep?.operation.kind === 'DERIVE'
     ? editingStep.operation.derive.outputColumnId
     : undefined;
+  const outputName = editingStep ? form.outputName : calculationOutputName(inputStage.columns);
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(outputName)) return undefined;
   const nameConflict = inputStage.columns.some((column) =>
-    column.name === form.outputName && column.id !== replacedOutputID,
+    column.name === outputName && column.id !== replacedOutputID,
   );
   if (nameConflict) return undefined;
 
@@ -766,7 +768,7 @@ const buildDeriveCandidate = (args: {
       };
   const output: DerivedOutput = {
     id: outputID,
-    name: form.outputName,
+    name: outputName,
     label: form.outputLabel.trim(),
   };
   const step = {
@@ -1181,7 +1183,6 @@ const FormulaOperand = (props: {
     <fieldset className="grid gap-2 rounded border border-slate-200 p-2">
       <legend className="px-1 text-xs font-semibold text-slate-700">{props.label}</legend>
       <label className="grid gap-1 text-xs font-medium text-slate-700">
-        Use
         <select
           aria-label={`${props.label} kind`}
           value={props.value.kind}
@@ -1217,7 +1218,7 @@ const FormulaOperand = (props: {
 
       {props.value.kind === 'column' ? (
         <label className="grid gap-1 text-xs font-medium text-slate-700">
-          Column
+          Numeric field
           <select
             aria-label={`${props.label} column`}
             value={props.value.columnId}
@@ -1447,18 +1448,14 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
     <section aria-label="Calculate a value" data-testid="construction-calculate-editor" className="grid gap-4">
       <header>
         <h3 className="font-semibold text-slate-900">Calculate a value</h3>
-        <p className="mt-1 text-sm text-slate-600">Build one arithmetic expression from numeric columns and numbers. Loom checks this candidate and returns the preview that determines whether it can be applied.</p>
+        <p className="mt-1 text-sm text-slate-600">Combine two numbers or numeric fields.</p>
       </header>
 
       {editingStep && output ? (
         <p role="status" data-testid="construction-calculate-replacement" className="rounded bg-blue-50 px-3 py-2 text-sm text-blue-950">
-          Editing saved calculation “{output.label}”. Applying this proposal replaces that calculation while keeping its column identity.
+          Editing “{output.label}”. Applying updates the existing column.
         </p>
-      ) : (
-        <p role="status" data-testid="construction-calculate-new-output" className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          This creates a new column by default.
-        </p>
-      )}
+      ) : null}
 
       <div role="group" aria-label="Expression editor" className="flex gap-2">
         <button
@@ -1557,7 +1554,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Missing input
+          If either value is missing
           <select
             aria-label="Missing input policy"
             value={form.missingInputPolicy}
@@ -1568,8 +1565,8 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
             }}
             className="rounded border border-slate-300 bg-white px-2 py-1.5"
           >
-            <option value="PROPAGATE_NULL">Leave the result missing</option>
-            <option value="ERROR">Treat missing input as an error</option>
+            <option value="PROPAGATE_NULL">Leave the result blank</option>
+            <option value="ERROR">Stop with an error</option>
           </select>
         </label>
         {expressionDraft.operation === 'DIVIDE' ? (
@@ -1585,32 +1582,20 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
               }}
               className="rounded border border-slate-300 bg-white px-2 py-1.5"
             >
-              <option value="NULL">Leave the result missing</option>
+              <option value="NULL">Leave the result blank</option>
               <option value="ERROR">Treat it as an error</option>
             </select>
           </label>
         ) : null}
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          {editingStep ? 'Column name' : 'New column name'}
-          <input aria-label="Output column name" value={form.outputName} disabled={disabled} onChange={(event) => updateForm({ ...form, outputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-        </label>
-        <label className="grid gap-1 text-xs font-medium text-slate-700">
-          Column label
-          <input aria-label="Output column label" value={form.outputLabel} disabled={disabled} onChange={(event) => updateForm({ ...form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-        </label>
-      </div>
-      {!isPhysicalColumnName(form.outputName) ? (
-        <p role="status" className="text-sm text-amber-900">Use a name that starts with a letter or underscore and contains only letters, numbers, and underscores.</p>
-      ) : null}
-      {output ? <p className="text-xs text-slate-500">The saved column keeps its stable ID: {output.id}</p> : null}
+      <label className="grid gap-1 text-sm font-medium text-slate-700">
+        Column label
+        <input aria-label="Output column label" value={form.outputLabel} disabled={disabled} onChange={(event) => updateForm({ ...form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+      </label>
     </section>
   );
 };
-
-const isPhysicalColumnName = (value: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 
 export const ConstructionOperationEditor = (props: ConstructionOperationEditorProps) => {
   useEscapeToClose(Boolean(props.onCancel), props.onCancel ?? (() => {}));

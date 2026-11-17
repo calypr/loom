@@ -1,8 +1,15 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { ImportedSourceParameters, ProjectedField, SourceRecipeExpression } from '../../types';
+import { isCategoryCodingRule, isIdentifierColumnRule } from './sourceColumnRule';
 import { moveExpressionItem, SourceExpressionEditor } from './SourceExpressionEditor';
 
 const controlClass = 'min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs';
+const fieldPolicies = { AUTO: 'Automatic', FIRST: 'First value', ALL: 'All values as a list', DISTINCT: 'Distinct values as a list' } as const;
+const inheritedFieldPolicy = (expression: SourceRecipeExpression): keyof typeof fieldPolicies => {
+  if (expression.call === 'first') return 'FIRST';
+  if (expression.call === 'all') return 'ALL';
+  return 'AUTO';
+};
 type CatalogOutputOverride = { fieldPath: string; enabled: boolean; name?: string };
 type PivotOutputOverride = { key: string; enabled: boolean; name?: string };
 type EditorSourceParameters = Omit<ImportedSourceParameters, 'catalog' | 'pivot'> & {
@@ -52,9 +59,29 @@ function OptionalExpression({ label, value, onChange, pathChoices }: { label: st
 }
 
 /** All edits are the canonical typed parameters of one pinned source step. */
-export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all' }: {
+function CatalogChoices({ action, options, values, onChange }: {
+  readonly action: string;
+  readonly options: ReadonlyArray<string>;
+  readonly values: ReadonlyArray<string>;
+  readonly onChange: (values: string[]) => void;
+}) {
+  return <fieldset className="grid gap-1 text-xs">
+    <legend className="font-medium">{action === 'Filter' ? 'Field kinds' : `${action} paths`}</legend>
+    <div className="grid max-h-32 gap-1 overflow-auto rounded border border-slate-200 px-2 py-1">
+      {options.map(option => <label key={option} className="flex items-start gap-2">
+        <input type="checkbox" aria-label={`${action} ${option}`} checked={values.includes(option)}
+          onChange={(event) => onChange(event.currentTarget.checked ? [...values, option] : values.filter(value => value !== option))} />
+        {option}
+      </label>)}
+    </div>
+  </fieldset>;
+}
+
+export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, extensionSourcePaths, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all', structuredColumnRule = false }: {
   readonly view?: 'all' | 'fields' | 'settings';
   readonly parameters: EditorSourceParameters;
+  readonly extensionSourcePaths?: ReadonlyArray<string>;
+  readonly structuredColumnRule?: boolean;
   readonly onChange: (parameters: ImportedSourceParameters) => void;
   readonly disabled?: boolean;
   readonly selectedFieldId?: string;
@@ -76,6 +103,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
   readonly editableProjectedFieldIds?: ReadonlySet<string>;
   readonly projectedFieldRemovalDisabledReason?: string;
 }) {
+  const fieldDisclosureGroup = useId();
   const focusedField = useRef<string | undefined>(undefined);
   const fieldFocusGeneration = useRef(0);
   const focusedOutput = useRef<string | undefined>(undefined);
@@ -120,6 +148,8 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
           {group.fields.map((field, index) => {
             const projectedField = projectedFields?.find((item) => item.sourceStepId === sourceStepId && item.sourceFieldId === field.fieldId);
             const displayLabel = projectedField?.label || field.label || field.name;
+            const inheritedMode = inheritedFieldPolicy(field.expr);
+            const policyLabel = field.valueMode ? fieldPolicies[field.valueMode] : `${fieldPolicies[inheritedMode]} (recipe default)`;
             return <li key={field.fieldId} data-field-id={field.fieldId} ref={(node) => {
             if (!node || field.fieldId !== selectedFieldId || focusedField.current === fieldFocusKey) return;
             focusedField.current = fieldFocusKey;
@@ -131,9 +161,10 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
               node.querySelector<HTMLElement>('select')?.focus();
             });
           }}>
-            <details open={field.fieldId === selectedFieldId ? true : undefined} className="rounded border border-slate-200 p-1.5">
+            <details name={fieldDisclosureGroup} open={field.fieldId === selectedFieldId ? true : undefined} className="rounded border border-slate-200 p-1.5">
               <summary className="flex cursor-pointer items-center justify-between gap-2 text-xs">
                 <span className="truncate">{displayLabel}{!field.enabled ? ' · disabled' : ''}</span>
+                <span className="shrink-0 text-[10px] text-slate-500">{policyLabel}</span>
                 {projectedField && onRenameProjectedField ? <ColumnLabelEditor field={projectedField} disabled={Boolean(projectedFieldRemovalDisabledReason)} onRename={onRenameProjectedField} /> : null}
                 <button type="button" aria-label={`${field.enabled ? 'Remove' : 'Restore'} ${displayLabel}`} title={field.enabled ? 'Remove field from the projection' : 'Restore field to the projection'}
                   className="shrink-0 rounded px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900"
@@ -145,10 +176,13 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
                   {field.enabled ? 'Remove' : 'Restore'}
                 </button>
               </summary>
-              <div className="space-y-2 pt-2">
-                <label className="grid gap-1 text-xs">Field value policy<select aria-label={`Field ${index + 1} value policy`} className={controlClass} value={field.valueMode ?? ''} onChange={(event) => update(index, { valueMode: (event.currentTarget.value || undefined) as typeof field.valueMode })}>
-                  <option value="">Recipe default</option>{(['AUTO', 'FIRST', 'ALL', 'DISTINCT'] as const).map((mode) => <option key={mode} value={mode}>{{AUTO:'Automatic',FIRST:'First value',ALL:'All values as a list',DISTINCT:'Distinct values as a list'}[mode]}</option>)}
-                </select></label>
+              <div className="bg-slate-50 px-2 py-2">
+                <select aria-label={`Field ${index + 1} value policy`} className={controlClass} value={field.valueMode ?? ''} onChange={(event) => update(index, { valueMode: (event.currentTarget.value || undefined) as typeof field.valueMode })}>
+                  <option value="">{`${fieldPolicies[inheritedMode]} (recipe default)`}</option>
+                  {(['AUTO', 'FIRST', 'ALL', 'DISTINCT'] as const)
+                    .filter((mode) => mode !== inheritedMode || field.valueMode === mode)
+                    .map((mode) => <option key={mode} value={mode}>{fieldPolicies[mode]}</option>)}
+                </select>
               </div>
             </details>
           </li>; })}
@@ -201,21 +235,69 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
           })}
         </ol>
       </fieldset> : null}
-      <Strings label="Included path" values={p.includePaths ?? []} options={fieldPathChoices} onChange={(includePaths) => update({ includePaths })} />
-      <Strings label="Excluded path" values={p.excludePaths ?? []} options={fieldPathChoices} onChange={(excludePaths) => update({ excludePaths })} />
-      <Strings label="Field kind" values={p.kinds ?? []} options={fieldKindChoices} onChange={(kinds) => update({ kinds })} />
+      {structuredColumnRule && fieldPathChoices ? <>
+        <CatalogChoices action="Include" options={fieldPathChoices} values={p.includePaths ?? []} onChange={(includePaths) => update({ includePaths })} />
+        <CatalogChoices action="Exclude" options={fieldPathChoices} values={p.excludePaths ?? []} onChange={(excludePaths) => update({ excludePaths })} />
+        <CatalogChoices action="Filter" options={['scalar', 'array', 'object']} values={p.kinds ?? []} onChange={(kinds) => update({ kinds })} />
+      </> : <>
+        <Strings label="Included path" values={p.includePaths ?? []} options={fieldPathChoices} onChange={(includePaths) => update({ includePaths })} />
+        <Strings label="Excluded path" values={p.excludePaths ?? []} options={fieldPathChoices} onChange={(excludePaths) => update({ excludePaths })} />
+        <Strings label="Field kind" values={p.kinds ?? []} options={fieldKindChoices} onChange={(kinds) => update({ kinds })} />
+      </>}
       <label className="grid gap-1 text-xs">Column naming<select aria-label="Column naming" className={controlClass} value={p.naming ?? ''} onChange={(event) => update({ naming: (event.currentTarget.value || undefined) as typeof p.naming })}><option value="">Recipe default</option><option value="PATH">Full path</option><option value="PATH_SUFFIX">Path suffix</option></select></label>
     </>; })() : null}
-    {view !== 'fields' && 'dynamic' in parameters && parameters.dynamic ? (() => { const p = parameters.dynamic; const update = (patch: Partial<typeof p>) => onChange({ ...parameters, dynamic: { ...p, ...patch } }); return <>
-      <OptionalText label="Dynamic column prefix" value={p.columnPrefix} onChange={(columnPrefix) => update({ columnPrefix })} />
-      <SourceExpressionEditor label="Dynamic item source" value={p.source} onChange={(source) => update({ source })} pathChoices={sourcePathChoices} />
-      <OptionalExpression label="Dynamic key" value={p.key} onChange={(key) => update({ key })} pathChoices={sourcePathChoices} />
-      <OptionalExpression label="Dynamic value" value={p.value} onChange={(value) => update({ value })} pathChoices={sourcePathChoices} />
-    </>; })() : null}
+    {view !== 'fields' && 'dynamic' in parameters && parameters.dynamic ? (() => {
+      const rule = parameters.dynamic;
+      const update = (patch: Partial<typeof rule>) => onChange({ ...parameters, dynamic: { ...rule, ...patch } });
+      const isIdentifier = isIdentifierColumnRule(rule);
+      const isCategoryCoding = isCategoryCodingRule(rule);
+      const expressions = <>
+        <SourceExpressionEditor label="Read items from" value={rule.source} onChange={(source) => update({ source })} pathChoices={sourcePathChoices} />
+        <OptionalExpression label="Column name expression" value={rule.key} onChange={(key) => update({ key })} pathChoices={sourcePathChoices} />
+        <OptionalExpression label="Cell value expression" value={rule.value} onChange={(value) => update({ value })} pathChoices={sourcePathChoices} />
+      </>;
+      return <>
+        {structuredColumnRule ? <Text label="Rule name" value={rule.name} onChange={(name) => update({ name })} /> : null}
+        <OptionalText label="Dynamic column prefix" value={rule.columnPrefix} onChange={(columnPrefix) => update({ columnPrefix })} />
+        {isIdentifier ? (
+          <>
+            <p className="text-xs text-slate-600">Use each identifier’s system to name a column and put that identifier’s value in the cell.</p>
+            {structuredColumnRule ? <p className="text-xs text-slate-600">If a record has several values for one column, Loom keeps the first in sorted order.</p> : null}
+            <label className="grid gap-1 text-xs">
+              Name columns using
+              <select className={controlClass} value={rule.key?.call === 'last_segment' ? 'suffix' : 'system'} onChange={(event) => {
+                update({ key: event.currentTarget.value === 'suffix'
+                  ? { call: 'last_segment', args: [{ select: 'item.system' }] }
+                  : { select: 'item.system' } });
+              }}>
+                <option value="suffix">Last part of the identifier system</option>
+                <option value="system">Full identifier system</option>
+              </select>
+            </label>
+            {rule.key?.call === 'last_segment' ? <p className="text-xs text-slate-600">Identifier systems with the same last part will share a column.</p> : null}
+          </>
+        ) : isCategoryCoding ? (
+          <p className="text-xs text-slate-600">Use the last part of each category coding’s system to name a column and put that coding’s display text in the cell.</p>
+        ) : null}
+        {!structuredColumnRule ? <details className="space-y-2 rounded border border-slate-200 p-2" open={!isIdentifier && !isCategoryCoding}>
+          <summary className="cursor-pointer text-xs font-medium">Advanced expressions</summary>
+          {expressions}
+        </details> : null}
+      </>;
+    })() : null}
     {view !== 'fields' && 'extension' in parameters && parameters.extension ? (() => { const p = parameters.extension; const update = (patch: Partial<typeof p>) => onChange({ ...parameters, extension: { ...p, ...patch } }); return <>
+      {structuredColumnRule ? <Text label="Extension column name" value={p.name} onChange={(name) => update({ name })} /> : null}
       {(() => {
-        const choices = ['root.extension[]', 'root.modifierExtension[]'];
         const current = typeof p.source.select === 'string' ? p.source.select : '';
+        if (structuredColumnRule) {
+          return <label className="grid gap-1 text-xs">Extension source path
+            <select aria-label="Extension source path" className={controlClass} value={current}
+              onChange={event => update({ source: { select: event.currentTarget.value } })}>
+              {(extensionSourcePaths ?? [current]).map(path => <option key={path} value={path}>{path}</option>)}
+            </select>
+          </label>;
+        }
+        const choices = ['root.extension[]', 'root.modifierExtension[]'];
         return <label className="grid gap-1 text-xs">Extension item source
           <select aria-label="Extension item source" className={controlClass} value={current}
             onChange={(event) => update({ source: { select: event.currentTarget.value } })}>

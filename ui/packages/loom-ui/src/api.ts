@@ -378,6 +378,7 @@ export interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateAr
   readonly targetResourceType: string;
   readonly limit?: number;
   readonly cursor?: string;
+  readonly savedGraphOnly?: boolean;
   readonly requestId?: string;
 }
 
@@ -1588,6 +1589,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       anchorColumnId: args.anchorColumnId,
       targetResourceType: args.targetResourceType,
       ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(args.savedGraphOnly ? { savedGraphOnly: true } : {}),
       ...(args.cursor ? { cursor: args.cursor } : {}),
     }, signal, args.requestId)).then((value) => relatedExpandChoiceSearchResponseSchema.parse(value));
   const searchRelatedFieldChoices = (args: SearchRelatedFieldChoicesArgs, signal?: AbortSignal) =>

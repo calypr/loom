@@ -1,3 +1,4 @@
+import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from '../components/fieldPickerStyles';
 import React, { useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useLoomClient, useQuery } from '../../../react';
@@ -256,7 +257,7 @@ export const RelatedFieldEditor = ({
       {sourceControls}
       {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
       {loading ? <p role="status" className="text-sm text-slate-600">Loading available fields…</p> : null}
-      <div role="group" aria-label="Fields from this related record" className="max-h-64 space-y-2 overflow-auto">
+      <div role="group" aria-label="Fields from this related record" className={fieldPickerList}>
         {choices.map((candidate) => (
           <button key={candidate.choiceId} type="button" disabled={disabled}
             aria-pressed={choice?.choiceId === candidate.choiceId}
@@ -270,9 +271,9 @@ export const RelatedFieldEditor = ({
               setOutputLabel(candidate.label);
               emit(candidate, name, candidate.label);
             }}
-            className={`block w-full rounded border p-3 text-left text-sm ${choice?.choiceId === candidate.choiceId ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
-            <span className="block font-medium text-slate-900">{candidate.label}</span>
-            <span className="block text-xs text-slate-600">{candidate.source.path} · {candidate.source.logicalType}</span>
+            className={`${fieldPickerRow} ${choice?.choiceId === candidate.choiceId ? fieldPickerSelected : ''} disabled:opacity-50`}>
+            <span className="min-w-0 flex-1 truncate">{candidate.label}</span>
+            <span className={`${fieldPickerMetadata} max-w-[45%] truncate`} title={candidate.source.path}>{candidate.source.path} · {candidate.source.logicalType}</span>
           </button>
         ))}
         {!loading && choices.length === 0 && !error ? <p className="text-sm text-slate-600">

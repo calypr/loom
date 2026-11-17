@@ -573,7 +573,7 @@ describe('ConstructionReshapeEditor', () => {
     }]);
   });
 
-  it('offers only compiler-supported scalar fields as pivot inputs', () => {
+  it('disables unsupported fields in pivot input selectors', () => {
     const stage = {
       ...sourceStage,
       columns: [
@@ -591,13 +591,13 @@ describe('ConstructionReshapeEditor', () => {
     for (const label of ['Pivot category field', 'Pivot values field']) {
       const select = screen.getByLabelText(label);
       if (!(select instanceof HTMLSelectElement)) throw new Error('Expected pivot input select');
-      expect([...select.options].map((option) => option.value)).not.toContain('object-id');
-      expect([...select.options].map((option) => option.value)).not.toContain('unknown-id');
-      expect([...select.options].map((option) => option.value)).not.toContain('tags-id');
+      expect([...select.options].find((option) => option.value === 'object-id')).toBeDisabled();
+      expect([...select.options].find((option) => option.value === 'unknown-id')).toBeDisabled();
+      expect([...select.options].find((option) => option.value === 'tags-id')).toBeDisabled();
     }
   });
 
-  it('shows duplicate handling beside Pivot values, defaults numeric values to SUM, and gates aggregations by value type', () => {
+  it('omits advanced policy controls from new pivots', () => {
     const stage = {
       ...sourceStage,
       capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
@@ -608,40 +608,10 @@ describe('ConstructionReshapeEditor', () => {
       onDiscoverCategories: vi.fn(),
     });
 
-    const advanced = screen.getByTestId('construction-reshape-pivot-advanced');
-    const duplicatePolicy = screen.getByLabelText('Pivot duplicate policy');
-    expect(duplicatePolicy.closest('details')).toBe(advanced);
-    expect(advanced).not.toHaveAttribute('open');
+    expect(screen.queryByText('Advanced settings')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pivot duplicate policy')).not.toBeInTheDocument();
     expect(controlValue('Pivot category field')).toBe('');
     expect(controlValue('Pivot values field')).toBe('');
-    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
-    fireEvent.click(screen.getByText('Advanced settings'));
-    expect(duplicatePolicy.closest('label')).toHaveTextContent('If a group has duplicate values');
-    if (!(duplicatePolicy instanceof HTMLSelectElement)) throw new Error('Expected Pivot duplicate policy select');
-    expect([...duplicatePolicy.options].map((option) => [option.value, option.textContent])).toEqual([
-      ['ERROR', 'Stop with an error'],
-      ['SUM', 'Add them together'],
-      ['MIN', 'Keep the smallest'],
-      ['MAX', 'Keep the largest'],
-    ]);
-    expect(controlValue('Pivot values field')).toBe('age-id');
-    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
-    expect(advanced).toHaveAttribute('open');
-    for (const policy of ['SUM', 'MIN', 'MAX']) {
-      expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeEnabled();
-    }
-
-    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'site-id' } });
-    expect(controlValue('Pivot duplicate policy')).toBe('MIN');
-    expect(duplicatePolicy.querySelector('option[value="SUM"]')).toBeDisabled();
-    expect(duplicatePolicy.querySelector('option[value="MIN"]')).toBeEnabled();
-    expect(duplicatePolicy.querySelector('option[value="MAX"]')).toBeEnabled();
-
-    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
-    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
-    for (const policy of ['SUM', 'MIN', 'MAX']) {
-      expect(duplicatePolicy.querySelector(`option[value="${policy}"]`)).toBeEnabled();
-    }
   });
 
   it('resolves the neutral categories entry to coded pivot when capabilities support it', () => {
@@ -694,7 +664,51 @@ describe('ConstructionReshapeEditor', () => {
     })).toBeUndefined();
   });
 
-  it('opens an unsupported table pivot and explains the capability limit inside the editor', () => {
+  it('connects a repeated Pivot input to its split proposal inline', () => {
+    const pivotStage = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'tags-item-existing', name: 'tags_item', label: 'Tags item', type: 'string', cardinality: 'optional_one' as const }],
+      capabilities: sourceStage.capabilities.map((capability) =>
+        capability.kind === 'PIVOT' ? { ...capability, supported: true } : capability),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onFormKindChange = vi.fn();
+    renderEditor({ initialKind: 'pivot', capabilities: capabilitiesFor([pivotStage], pivotStage), onCandidateChange, onFormKindChange });
+
+    const categoryField = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Pivot category field' });
+    const valueField = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Pivot values field' });
+    expect([...categoryField.options].some((option) => /Tags — List/.test(option.textContent ?? ''))).toBe(true);
+    expect([...valueField.options].some((option) => /Tags — List/.test(option.textContent ?? ''))).toBe(true);
+    expect(screen.queryByText('Repeated fields')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Split Tags into rows/ })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Pivot category field' }), { target: { value: 'tags-id' } });
+    expect(screen.getByRole('button', { name: 'Preview split' })).toBeInTheDocument();
+    expect(onCandidateChange.mock.lastCall?.[0]).toBeUndefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview split' }));
+
+    expect(screen.getByRole('region', { name: 'Split before pivoting' })).toBeInTheDocument();
+    expect(onFormKindChange.mock.lastCall?.[0]).toBe('pivot');
+    expect((screen.getByLabelText('Repeated field') as HTMLSelectElement).value).toBe('tags-id');
+    expect(screen.getByRole('button', { name: 'Back to pivot fields' })).toBeInTheDocument();
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'EXPAND',
+      expand: { inputColumnId: 'tags-id' },
+    });
+    const splitStep = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1);
+    const operation = splitStep?.operation;
+    if (!splitStep || operation?.kind !== 'EXPAND') throw new Error('Expected an Expand operation');
+    const generatedItemColumn = splitStep.outputs.find((output) => output.id === operation.expand.outputColumnId);
+    expect(generatedItemColumn).toBeDefined();
+    expect(generatedItemColumn?.name).not.toBe('tags_item');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to pivot fields' }));
+    expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
+    expect((screen.getByRole('combobox', { name: 'Pivot category field' }) as HTMLSelectElement).value).toBe('tags-id');
+    expect(screen.queryByRole('region', { name: 'Split before pivoting' })).not.toBeInTheDocument();
+  });
+
+  it('keeps repeated fields available for splitting when the table Pivot is unsupported', () => {
     const unsupportedPivotStage = {
       ...sourceStage,
       capabilities: sourceStage.capabilities.map((capability) => capability.kind === 'PIVOT'
@@ -705,10 +719,11 @@ describe('ConstructionReshapeEditor', () => {
 
     expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
     expect(screen.getByText(/No executable combination of row, category, and value fields/)).toBeInTheDocument();
-    expect(screen.queryByText(/public scalar/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Pivot category field')).toBeDisabled();
+    const categoryField = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Pivot category field' });
+    expect(categoryField.disabled).toBe(false);
+    expect([...categoryField.options].find((option) => option.value === 'site-id')?.disabled).toBe(true);
+    expect([...categoryField.options].find((option) => option.value === 'tags-id')?.disabled).toBe(false);
   });
-
   it('gates record values on a grouping key or summary', () => {
     renderEditor({ initialKind: 'group' });
     expect(screen.getByRole('tab', { name: /^Summaries/ })).toBeInTheDocument();
@@ -782,13 +797,13 @@ describe('ConstructionReshapeEditor', () => {
     renderEditor({ initialKind: 'pivot', onFormKindChange });
 
     expect(onFormKindChange).toHaveBeenLastCalledWith('pivot');
-    fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
-    expect(onFormKindChange).toHaveBeenLastCalledWith('pivot');
+    expect(screen.queryByRole('button', { name: 'Change row operation' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Pivot categories into columns' })).not.toBeInTheDocument();
     chooseReshapeOperation('reshape', 'unpivot');
     expect(onFormKindChange).toHaveBeenLastCalledWith('unpivot');
   });
 
-  it('keeps Pivot role fields empty by default, preserves selected Rows, and explains repeated fields', () => {
+  it('keeps Pivot role fields empty by default, preserves selected Rows, and omits the list warning', () => {
     const stage = {
       ...sourceStage,
       capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
@@ -803,10 +818,9 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlChecked('Pivot group Site')).toBe(true);
     expect(controlValue('Pivot category field')).toBe('');
     expect(controlValue('Pivot values field')).toBe('');
-    expect(screen.getByText('1 column contains a list')).toBeInTheDocument();
-    expect(screen.getByText(/Make one row per list value/)).toBeInTheDocument();
+    expect(screen.queryByText('1 column contains a list')).not.toBeInTheDocument();
     expect(screen.queryByText('Finding categories…')).not.toBeInTheDocument();
-    expect(screen.getByText('Choose fields for New column names and Cell values to find categories.')).toBeInTheDocument();
+    expect(screen.getByText('Select both pivot fields to see available categories.')).toBeInTheDocument();
   });
 
   it('preserves dotted current-column labels while keeping their technical names available', () => {
@@ -940,7 +954,7 @@ describe('ConstructionReshapeEditor', () => {
     const savedCategoryOption = screen.getByLabelText('Pivot category field').querySelector('option[value="saved-list-column"]');
     expect(savedCategoryOption).toHaveTextContent('Specimen · Collection Body Site Reference');
     expect(savedCategoryOption).toHaveAttribute('title', 'collection.bodySite.reference.reference');
-    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
     fireEvent.change(screen.getByLabelText('Pivot output label baseline'), { target: { value: 'Baseline reading' } });
     expect(onCandidateChange.mock.lastCall?.[0]?.pivotSources).toEqual([
       { choiceId: 'empty-list', columnId: 'saved-list-column' },
@@ -2896,7 +2910,8 @@ describe('ConstructionReshapeEditor', () => {
     fireEvent.click(screen.getByText('Advanced options'));
     expect(advanced).toHaveAttribute('open');
     fireEvent.click(screen.getByLabelText('Include item position'));
-    fireEvent.change(screen.getByLabelText('Expanded item name'), { target: { value: 'tag_item' } });
+    expect(screen.queryByLabelText('Expanded item name')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Expanded item label'), { target: { value: 'Tag value' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
@@ -2912,7 +2927,7 @@ describe('ConstructionReshapeEditor', () => {
         emptyPolicy: 'PRESERVE_PARENT',
       },
     });
-    expect(parsed.steps.at(-1)?.outputs).toContainEqual(expect.objectContaining({ name: 'tag_item' }));
+    expect(parsed.steps.at(-1)?.outputs).toContainEqual(expect.objectContaining({ name: 'tags_item', label: 'Tag value' }));
     fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'EXCLUDE' } });
     expect(screen.getByTestId('construction-reshape-expand-empty-effect')).toHaveTextContent('leave out the original row');
   });
@@ -3036,7 +3051,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlValue('Repeated field')).toBe('tags-id');
     expect(screen.getByTestId('construction-reshape-expand-advanced')).not.toHaveAttribute('open');
     fireEvent.click(screen.getByText('Advanced options'));
-    expect(controlValue('Expanded item name')).toBe('tag_value');
+    expect(screen.queryByLabelText('Expanded item name')).not.toBeInTheDocument();
     expect(controlValue('Position column name')).toBe('tag_position');
     expect(controlValue('Empty list policy')).toBe('PRESERVE_PARENT');
     expect(screen.queryByTestId('construction-reshape-history')).not.toBeInTheDocument();
@@ -3100,33 +3115,8 @@ describe('ConstructionReshapeEditor', () => {
     fireEvent.click(screen.getByText('Change selected categories'));
     expect(controlChecked('Keep saved category baseline')).toBe(true);
     expect(screen.queryByText('Not found in the latest category list')).not.toBeInTheDocument();
-    const advanced = screen.getByTestId('construction-reshape-pivot-advanced');
-    expect(advanced).not.toHaveAttribute('open');
-    const duplicatePolicy = screen.getByLabelText('Pivot duplicate policy');
-    expect(duplicatePolicy.closest('details')).toBe(advanced);
-    expect(screen.getByTestId('construction-reshape-pivot-policy-summary')).toHaveTextContent(
-      'Duplicate values: be added together. Empty cells: stay empty. Unselected categories: be skipped and reported.',
-    );
-    fireEvent.click(screen.getByText('Advanced settings'));
-    expect(screen.getByLabelText('Pivot duplicate policy').closest('details')).toBe(advanced);
-    expect(controlValue('Pivot duplicate policy')).toBe('SUM');
-    const duplicatePolicies = [
-      { policy: 'ERROR', effect: 'stop the pivot with an error' },
-      { policy: 'SUM', effect: 'be added together' },
-      { policy: 'MIN', effect: 'keep the smallest value' },
-      { policy: 'MAX', effect: 'keep the largest value' },
-    ];
-    for (const { policy, effect } of duplicatePolicies) {
-      fireEvent.change(screen.getByLabelText('Pivot duplicate policy'), { target: { value: policy } });
-      expect(controlValue('Pivot duplicate policy')).toBe(policy);
-      expect(screen.getByTestId('construction-reshape-pivot-policy-summary')).toHaveTextContent(`Duplicate values: ${effect}.`);
-      expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0]?.operation).toMatchObject({
-        kind: 'PIVOT',
-        pivot: { duplicatePolicy: policy },
-      });
-    }
-    expect(controlValue('Pivot missing cell policy')).toBe('NULL');
-    expect(controlValue('Pivot unlisted category policy')).toBe('EXCLUDE_WITH_EVIDENCE');
+    expect(screen.queryByText('Advanced settings')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
     expect(controlValue('Pivot output name baseline')).toBe('baseline_value');
     fireEvent.change(screen.getByLabelText('Pivot output label baseline'), { target: { value: 'Baseline result' } });
 
@@ -3140,7 +3130,7 @@ describe('ConstructionReshapeEditor', () => {
         categoryColumnId: 'kind-id',
         valueColumnId: 'value-id',
         categories: [{ key: { kind: 'STRING', string: 'baseline' }, outputColumnId: 'baseline-value-id' }],
-        duplicatePolicy: 'MAX',
+        duplicatePolicy: 'SUM',
         missingCellPolicy: 'NULL',
         unlistedCategoryPolicy: 'EXCLUDE_WITH_EVIDENCE',
       },
@@ -3364,7 +3354,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(operation?.kind).toBe('UNPIVOT');
   });
 
-  it('routes repeated configured fields through Expand before Unpivot or Group', () => {
+  it('routes repeated configured fields through Expand before Pivot, Unpivot, or Group', () => {
     const configuredStage = {
       ...sourceStage,
       id: 'source_projection',
@@ -3379,12 +3369,24 @@ describe('ConstructionReshapeEditor', () => {
       ],
       capabilities: sourceStage.capabilities.map((capability) => ({
         ...capability,
-        supported: ['GROUP', 'EXPAND', 'UNPIVOT'].includes(capability.kind),
+        supported: ['GROUP', 'EXPAND', 'UNPIVOT', 'PIVOT'].includes(capability.kind),
       })),
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
     const capabilities = capabilitiesFor([configuredStage], configuredStage);
     const configuredColumnIDs = configuredStage.columns.map((column) => column.id);
     const listFieldLabels = configuredStage.columns.filter((column) => column.cardinality === 'many').map((column) => column.label);
+
+    const pivotCandidate = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({ capabilities, initialKind: 'pivot', onCandidateChange: pivotCandidate });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Pivot category field' }), { target: { value: 'coding-code' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview split' }));
+    expect(screen.getByRole('region', { name: 'Split before pivoting' })).toBeInTheDocument();
+    expect(controlValue('Repeated field')).toBe('coding-code');
+    expect(pivotCandidate.mock.lastCall?.[0]?.candidateConstruction.steps.at(-1)?.operation).toMatchObject({
+      kind: 'EXPAND',
+      expand: { inputColumnId: 'coding-code' },
+    });
+    cleanup();
 
     const unpivotCandidate = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
     renderEditor({ capabilities, initialKind: 'unpivot', selectedColumns: configuredColumnIDs, onCandidateChange: unpivotCandidate });
@@ -3941,7 +3943,7 @@ describe('ConstructionReshapeEditor', () => {
     act(() => firstComplete(firstDiscovery));
     view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={firstDiscovery} />);
 
-    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
     fireEvent.change(screen.getByLabelText('Pivot output name site-a'), { target: { value: 'site_a_custom' } });
     fireEvent.change(screen.getByLabelText('Pivot output label site-a'), { target: { value: 'Custom Site A' } });
     fireEvent.click(screen.getByText('Change selected categories'));
@@ -4028,7 +4030,7 @@ describe('ConstructionReshapeEditor', () => {
     act(() => firstComplete(firstDiscovery));
     view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={firstDiscovery} />);
 
-    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
     fireEvent.change(screen.getByLabelText('Pivot output name site-a'), { target: { value: 'site_a_custom' } });
     fireEvent.change(screen.getByLabelText('Pivot output label site-a'), { target: { value: 'Custom Site A' } });
     fireEvent.click(screen.getByText('Change selected categories'));
@@ -4097,7 +4099,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(onDiscoverCategories).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     expect(onDiscoverCategories).not.toHaveBeenCalled();
-    expect(screen.getByText('Choose fields for New column names and Cell values to find categories.')).toBeInTheDocument();
+    expect(screen.getByText('Select both pivot fields to see available categories.')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalled());
     expect(onDiscoverCategories).toHaveBeenCalledWith(
@@ -4562,14 +4564,11 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent(
       'Selected 3 of 3 categories: Site A, site B, Skeletal tissue',
     );
-    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
     fireEvent.click(screen.getByText('Change selected categories'));
     const search = screen.getByLabelText('Search category values');
     const status = screen.getByTestId('construction-reshape-pivot-category-status');
     expect(status).toHaveTextContent('3 selected · Showing 3 of 3 category values');
-    expect(screen.getByText('If a row has an unselected category')).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Skip it and report it' })).toBeDisabled();
-    expect(screen.getByText(/New pivots require every category present in the rows to be selected/)).toBeInTheDocument();
     expect(screen.queryByText('Select every discovered category, or filter rows before pivoting.')).not.toBeInTheDocument();
 
     fireEvent.change(search, { target: { value: 'SKELETAL' } });
@@ -4890,9 +4889,8 @@ describe('pivot discovery availability state', () => {
     act(() => complete(discovery));
     view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
 
-    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
     fireEvent.change(screen.getByLabelText('Pivot output name site-a'), { target: { value: 'first_site' } });
-    fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
 
     const failedDiscovery = { ...request, status: 'failed', reason: 'Loom could not find category values for this pair.' } satisfies ConstructionReshapeEditorProps['pivotDiscovery'];
     view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={failedDiscovery} />);
@@ -4900,7 +4898,6 @@ describe('pivot discovery availability state', () => {
     expect(screen.getByText('Loom could not find category values for this pair.')).toBeInTheDocument();
     expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
     expect(controlValue('Pivot output name site-a')).toBe('first_site');
-    expect(controlValue('Pivot missing cell policy')).toBe('ERROR');
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry finding categories' }));
     expect(onDiscoverCategories).toHaveBeenCalledTimes(2);
@@ -4917,7 +4914,6 @@ describe('pivot discovery availability state', () => {
     expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
     expect(controlValue('Pivot output name site-a')).toBe('first_site');
-    expect(controlValue('Pivot missing cell policy')).toBe('ERROR');
   });
 
   it('surfaces a backend timeout from the host without inventing a retry promise', async () => {

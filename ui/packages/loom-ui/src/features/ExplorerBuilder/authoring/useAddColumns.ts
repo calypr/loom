@@ -1,11 +1,11 @@
-import { useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type React from 'react';
 import type { useLoomClient } from '../../../react';
 import type { Construction, ConstructionStep, ConstructionChoiceSelection, ConstructionCapabilitiesResponse, ExplorerBuilderCommand } from '../../../types';
 import type { BuilderAuthoringState, DraftTable } from './model';
 import { selectedTable } from './model';
 import { admitAuthoringRequest } from './admission';
-import { catalogSourceOptions, type CatalogChoiceIntent } from '../catalogItems';
+import type { CatalogChoiceIntent } from '../catalogItems';
 import { constructionAppendStageFor } from '../constructionWorkspace/constructionStages';
 import { relatedSourceOutputLabel } from '../constructionWorkspace/relatedSourceOutputLabel';
 import { sameConstructionRoute } from '../populationRoutes';
@@ -20,12 +20,22 @@ import type { PreviewLimit } from './previewRecovery';
 import type { AutomaticPreviewIdentity } from '../useAutomaticPreview';
 import type { AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
 
+export type AddColumnsView = ConceptCatalogView | 'advanced';
+
+export interface AddColumnsGraphSource {
+  readonly occurrenceId: string;
+  readonly nodeId?: string;
+  readonly resourceType: string;
+  readonly isRoot: boolean;
+  readonly exactRelated?: boolean;
+  readonly edgeIds?: readonly string[];
+}
+
 type UseAddColumnsOptions = {
   readonly state: BuilderAuthoringState;
   readonly table: DraftTable | undefined;
-  readonly selectedRouteContext: { readonly occurrenceId: string; readonly nodeId: string } | undefined;
+  readonly graphSource?: AddColumnsGraphSource;
   readonly constructionLifecycle: Pick<ReturnType<typeof useConstructionLifecycle>, 'capabilities' | 'beginApply' | 'cancel' | 'proposeCandidateAndWait'>;
-  readonly hasUnsupportedSavedSourceColumns: boolean;
   readonly editingConstructionStep: ConstructionStep | undefined;
   readonly activeConstructionFamily: ConstructionOperationFamily | undefined;
   readonly ownerKey: string;
@@ -51,9 +61,8 @@ type UseAddColumnsOptions = {
 export const useAddColumns = ({
   state,
   table,
-  selectedRouteContext,
+  graphSource,
   constructionLifecycle,
-  hasUnsupportedSavedSourceColumns,
   editingConstructionStep,
   activeConstructionFamily,
   ownerKey,
@@ -76,99 +85,21 @@ export const useAddColumns = ({
   opaqueId,
 }: UseAddColumnsOptions) => {
   const addColumnsRequest = useRef<AbortController | undefined>(undefined);
-  const [addColumnsView, setAddColumnsView] = useState<Exclude<ConceptCatalogView, 'all'>>('fields');
+  const [addColumnsView, setAddColumnsView] = useState<AddColumnsView>('all');
   const [addColumnsViewRevision, setAddColumnsViewRevision] = useState(0);
-  const [addColumnsSource, setAddColumnsSource] = useState<{
-    readonly context: string;
-    readonly key: string;
-  }>();
-
   useBrowserSubscription((_onStoreChange) => () => {
     addColumnsRequest.current?.abort();
     addColumnsRequest.current = undefined;
-  }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
-  const addSourceOptions = useMemo(() => {
-    const sources = catalogSourceOptions(
-      state.catalog,
-      table?.document.rootResourceType ?? '',
-      selectedRouteContext?.nodeId,
-    );
-    const current = constructionLifecycle.capabilities;
-    const currentStage = current.status === 'ready' ? current.response.selectedStage : undefined;
-    const appendStageIsCurrent = current.status === 'ready' && currentStage?.id ===
-      constructionAppendStageFor(current.response.baseConstruction, table?.document.rows);
-    const activeRelatedRecord = current.status === 'ready' &&
-      !hasUnsupportedSavedSourceColumns && !editingConstructionStep && appendStageIsCurrent &&
-      currentStage?.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)
-      ? currentStage.activeRelatedRecord
-      : undefined;
-    const relatedSourceSupported = !hasUnsupportedSavedSourceColumns && !editingConstructionStep && appendStageIsCurrent &&
-      currentStage?.rowIdentityColumn &&
-      currentStage.capabilities.some((capability) => capability.kind === 'RELATED_SOURCE' && capability.supported);
-    const visibleSources = addColumnsView === 'fields' && !relatedSourceSupported
-      ? sources.filter((source) => source.kind === 'ROOT')
-      : sources;
-    const exactRelatedOption = addColumnsView === 'fields' && activeRelatedRecord
-      ? {
-          kind: 'EXACT_RELATED' as const,
-          key: `exact:${currentStage?.id}:${activeRelatedRecord.targetNodeId}`,
-          label: `${activeRelatedRecord.targetResourceType} — current related record`,
-          resourceType: activeRelatedRecord.targetResourceType,
-          sourceNodeId: undefined,
-        }
-      : undefined;
-    const resourceSources = exactRelatedOption
-      ? visibleSources.filter((source) =>
-          source.kind !== 'RELATED' || source.sourceNodeId !== activeRelatedRecord?.targetNodeId)
-      : visibleSources;
-    const searchableSources = [{ kind: 'ALL' as const, key: 'all', label: 'All accessible resources' }, ...resourceSources];
-    return exactRelatedOption ? [...searchableSources, exactRelatedOption] : searchableSources;
-  }, [state.catalog, table?.document.rootResourceType, table?.document.rows, selectedRouteContext?.nodeId, constructionLifecycle.capabilities, addColumnsView, hasUnsupportedSavedSourceColumns, editingConstructionStep]);
-  const addSourceContext = JSON.stringify([
-    state.explorerId,
-    state.catalog.snapshotToken,
-    table?.outputId ?? '',
-    selectedRouteContext?.occurrenceId ?? '',
-  ]);
-  const storedAddSourceKey = addColumnsSource?.context === addSourceContext ? addColumnsSource.key : undefined;
-  const selectedAddSource = addSourceOptions.find(
-    (source) => source.kind !== 'ALL' && source.key === storedAddSourceKey,
-  ) ?? addSourceOptions.find((option) => option.kind === 'ROOT') ?? addSourceOptions[0];
-  const concreteAddSources = addSourceOptions.filter((source) => source.kind !== 'ALL');
-  const relatedSourceTypeCounts = addSourceOptions.reduce((counts, source) => {
-    if (source.kind === 'RELATED') {
-      counts.set(source.resourceType, (counts.get(source.resourceType) ?? 0) + 1);
-    }
-    return counts;
-  }, new Map<string, number>());
-  const addSourceOptionLabel = (source: (typeof concreteAddSources)[number]) =>
-    source.kind === 'RELATED' && (relatedSourceTypeCounts.get(source.resourceType) ?? 0) > 1
-      ? `${source.label} (${source.sourceNodeId})`
-      : source.label;
-  const selectAddColumnsView = (view: Exclude<ConceptCatalogView, 'all'>) => {
-    if (view === 'coded' && selectedAddSource?.kind === 'EXACT_RELATED') {
-      const rootSource = addSourceOptions.find((source) => source.kind === 'ROOT');
-      if (rootSource) setAddColumnsSource({ context: addSourceContext, key: rootSource.key });
-    }
+  }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest,
+    graphSource?.occurrenceId, activeConstructionFamily]);
+
+  const addSourceRouteContext = graphSource?.nodeId && !graphSource.isRoot && !graphSource.exactRelated
+    ? { occurrenceId: graphSource.occurrenceId, nodeId: graphSource.nodeId }
+    : undefined;
+  const selectAddColumnsView = (view: AddColumnsView) => {
     if (addColumnsView !== view) setAddColumnsViewRevision((revision) => revision + 1);
     setAddColumnsView(view);
   };
-  const handleAddColumnsTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    event.preventDefault();
-    const nextView = event.currentTarget.dataset.view === 'coded' ? 'fields' : 'coded';
-    selectAddColumnsView(nextView);
-    event.currentTarget.parentElement
-      ?.querySelector<HTMLButtonElement>(`[data-view="${nextView}"]`)
-      ?.focus();
-  };
-  useBrowserSubscription((_onStoreChange) => () => {
-    addColumnsRequest.current?.abort();
-    addColumnsRequest.current = undefined;
-  }, [selectedAddSource?.key, activeConstructionFamily]);
-  const addSourceRouteContext = selectedAddSource?.sourceNodeId !== undefined && selectedAddSource.sourceNodeId === selectedRouteContext?.nodeId
-    ? selectedRouteContext
-    : undefined;
   const buildRelatedSourceCandidate = (
     selection: CatalogChoiceIntent,
     previous?: { readonly construction: Construction; readonly step: ConstructionStep },
@@ -591,18 +522,13 @@ export const useAddColumns = ({
     ? addColumnsAdmission.refusal.message
     : undefined;
   return {
-    selectedAddSource,
-    panel: { view: addColumnsView, source: addColumnsSource },
-    restorePanel: (panel: { view: typeof addColumnsView; source: typeof addColumnsSource } | undefined) => {
+    panel: { view: addColumnsView },
+    restorePanel: (panel: { view: typeof addColumnsView } | undefined) => {
       setAddColumnsView(panel?.view ?? 'fields');
-      setAddColumnsSource(panel?.source);
       setAddColumnsViewRevision((revision) => revision + 1);
     },
-    concreteAddSources,
-    setAddColumnsSource,
-    addSourceContext,
-    addSourceOptionLabel,
     addSourceRouteContext,
+    addColumnsView,
     addColumnsViewRevision,
     selectAddColumnsView,
     inspectRelatedRouteCoverage,

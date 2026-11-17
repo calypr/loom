@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { AuthoringNetworkResponse, Construction, ExplorerBuilderDocument, ExplorerBuilderPreviewResult } from '../../../types';
+import type { AuthoringNetworkResponse, Construction, ExplorerBuilderDocument, ExplorerBuilderPreviewResult, SourceRuleCreate } from '../../../types';
 
 /** Ephemeral proposal ownership, never a second authored recipe. */
 export interface RecipeEditingIdentity {
@@ -14,6 +14,7 @@ export type RecipeEditTarget =
   | { readonly kind: 'connection'; readonly parentOccurrenceId: string; readonly catalogEdgeId: string }
   | { readonly kind: 'relationship'; readonly occurrenceId: string }
   | { readonly kind: 'sourceRows' }
+  | { readonly kind: 'createColumnRule'; readonly ruleKind: SourceRuleCreate['kind']; readonly occurrenceId: string }
   | { readonly kind: 'root'; readonly mode: 'PRESERVE' | 'REPLACE'; readonly nodeId: string }
   | { readonly kind: 'sourceStep'; readonly sourceStepId: string }
   | { readonly kind: 'column'; readonly columnId: string }

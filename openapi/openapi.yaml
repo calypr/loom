@@ -3187,6 +3187,10 @@ components:
       additionalProperties: false
       required: [steps]
       properties:
+        ruleAdditions:
+          type: array
+          readOnly: true
+          items: {$ref: '#/components/schemas/ImportedSourceRuleAddition'}
         fieldBindings:
           type: array
           readOnly: true
@@ -3201,6 +3205,17 @@ components:
         steps:
           type: array
           items: {$ref: '#/components/schemas/ImportedSourceStep'}
+    ImportedSourceRuleAddition:
+      type: object
+      additionalProperties: false
+      required: [stepId, kind, enabled, parameters]
+      properties:
+        kind: {type: string, enum: [DYNAMIC_COLUMN, EXTENSION_COLUMN, CATALOG_PROJECTION]}
+        occurrenceId: {type: string, minLength: 1}
+        maxColumns: {type: integer, minimum: 1, maximum: 128}
+        stepId: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     NetworkOccurrence:
       type: object
       additionalProperties: false
@@ -3860,6 +3875,29 @@ components:
         occurrenceId: {type: string, minLength: 1}
         edgeId: {type: string, minLength: 1}
         matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    SourceRuleCreate:
+      type: object
+      additionalProperties: false
+      required: [kind, parameters]
+      x-go-type: authoringv2.SourceRuleCreate
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+      oneOf:
+        - properties:
+            kind: {enum: [DYNAMIC_COLUMN]}
+            parameters: {required: [dynamic]}
+        - properties:
+            kind: {enum: [EXTENSION_COLUMN]}
+            parameters: {required: [extension]}
+        - properties:
+            kind: {enum: [CATALOG_PROJECTION]}
+            parameters: {required: [catalog]}
+      properties:
+        kind: {type: string, enum: [DYNAMIC_COLUMN, EXTENSION_COLUMN, CATALOG_PROJECTION]}
+        occurrenceId: {type: string, minLength: 1}
+        maxColumns: {type: integer, minimum: 1, maximum: 128}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     SourceRelationshipProposalRequest:
       type: object
       x-go-type: lifecycle.SourceRelationshipProposalRequest
@@ -3872,12 +3910,14 @@ components:
         - required: [change]
         - required: [sourceStep]
         - required: [sourceSteps]
+        - required: [sourceRule]
       properties:
         snapshotToken: {type: string, minLength: 1}
         expectedDraftVersion: {type: integer, format: int64, minimum: 1}
         expectedDraftDigest: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
         change: {$ref: '#/components/schemas/SourceRelationshipChange'}
+        sourceRule: {$ref: '#/components/schemas/SourceRuleCreate'}
         sourceStep: {$ref: '#/components/schemas/ImportedSourceStepChange'}
         sourceSteps:
           type: array
@@ -6749,6 +6789,9 @@ components:
         targetResourceType: {type: string, minLength: 1}
         limit: {type: integer, minimum: 1, maximum: 50}
         cursor: {type: string, maxLength: 4096}
+        savedGraphOnly:
+          type: boolean
+          description: Resolve paths already connected to the table starting records without searching the catalog.
     RelatedExpandRouteChoice:
       type: object
       additionalProperties: false

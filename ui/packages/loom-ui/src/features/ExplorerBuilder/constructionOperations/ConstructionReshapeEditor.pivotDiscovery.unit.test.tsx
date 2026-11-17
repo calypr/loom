@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ConstructionReshapeEditor,
@@ -123,7 +123,7 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'flag-id' } });
     expect(onCandidateChange.mock.lastCall?.[0]).toBeDefined();
     release();
-    await waitFor(() => expect(screen.getByRole('option', { name: /Age — No populated values/ })).toBeDisabled());
+    await waitFor(() => expect(within(screen.getByLabelText('Pivot category field')).getByRole('option', { name: /Age — No populated values/ })).toBeDisabled());
     expect(onCandidateChange.mock.lastCall?.[0]).toBeUndefined();
   });
   it('emits empty categories with discovery.maxCategories when enabled', () => {
@@ -176,9 +176,11 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
 
     expect(isChecked('Discover categories when proposing')).toBe(false);
     expect(screen.getByText('Change selected categories')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
+    fireEvent.click(screen.getByText('Output column names and labels', { selector: 'summary' }));
+    fireEvent.change(screen.getByLabelText('Pivot output label baseline'), { target: { value: 'Baseline score' } });
     const pivot = pivotFrom(onCandidateChange.mock.lastCall?.[0]);
     expect(pivot.discovery).toBeUndefined();
+    expect(pivot.missingCellPolicy).toBe('NULL');
     expect(pivot.categories).toEqual([{ key: { kind: 'STRING', string: 'baseline' }, outputColumnId: 'saved-output' }]);
   });
 
@@ -210,8 +212,10 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
 
     expect(isChecked('Discover categories when proposing')).toBe(true);
     expect(screen.getByText(/up to 128/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'flag-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     const pivot = pivotFrom(onCandidateChange.mock.lastCall?.[0]);
+    expect(pivot.missingCellPolicy).toBe('NULL');
     expect(pivot.categories).toEqual([]);
     expect(pivot.discovery).toEqual({ maxCategories: 128 });
   });

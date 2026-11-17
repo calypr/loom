@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFixture, createPatientTableInUI, withScenario, api } from './app.mjs';
+import { readFixture, createPatientTableInUI, withFreshUIExplorer, api } from './app.mjs';
 
 const waitForProposal = async (page, expectedStatus) => {
   const result = await page.until(
@@ -29,12 +29,17 @@ test('related Observation values reject ambiguous ONE, accept ALL, and persist a
   assert.equal(new Set(relatedObservations.filter(item => item.patientId === 'dev-patient-001').map(item => item.value)).size, 2,
     'The first Patient has two distinct related Observation values, so ONE must reject the Group row value.');
 
-  await withScenario('related-field', (scenario, page) => createPatientTableInUI(scenario, page, { addFields: ['id'] }), async ({ scenario, page }) => {
+  await withFreshUIExplorer('related-field', (scenario, page) => createPatientTableInUI(scenario, page), async ({ scenario, page }) => {
     const beforeExpansion = await api(`${scenario.base}/builder`);
 
     const configureObservationExpansion = async () => {
       await page.openRowSettings();
-      await page.click('[data-testid="construction-action-related-rows"]');
+      try {
+        await page.click('[data-testid="construction-action-related-rows"]');
+      } catch (error) {
+        const status = await page.evaluate(`JSON.stringify({button:document.querySelector('[data-testid="construction-action-related-rows"]')?.outerHTML,text:document.body.innerText.slice(-1800)})`);
+        throw new Error(`${error.message}; ${status}`);
+      }
       const editor = '[data-testid="construction-related-expand-editor"]';
       await page.until(() => page.evaluate(`Boolean(document.querySelector(${JSON.stringify(`${editor} select[aria-label="Related record type"]`)}))`), 'RelatedExpand editor');
       await page.selectOptionMatching(`${editor} select[aria-label="Related record type"]`, 'Observation');
@@ -61,8 +66,7 @@ test('related Observation values reject ambiguous ONE, accept ALL, and persist a
     assert.equal(expanded.workspace.documents[0].construction.steps.at(-1).operation.relatedExpand.targetResourceType, 'Observation');
 
     await page.click('[data-testid="construction-action-add-columns"]');
-    await page.until(() => page.evaluate('Boolean(document.querySelector("[aria-label=\\\"Add columns source\\\"]"))'), 'related source selection');
-    await page.selectOptionMatching('select[aria-label="Add columns source"]', 'Observation — current related record');
+    await page.click('[aria-label="Observation · current related record"]');
     await page.until(() => page.evaluate('Boolean(document.querySelector("[data-testid=construction-related-field-editor]"))'), 'related Observation field editor');
     await page.fill('[data-testid="construction-related-field-editor"] input[placeholder="Search field name or path"]', 'valueQuantity.value');
     await page.until(() => page.evaluate(`Boolean([...document.querySelectorAll('[data-testid="construction-related-field-editor"] button')].find(button => button.innerText.includes('valueQuantity.value')))`), 'valueQuantity related field choice');
@@ -85,7 +89,7 @@ test('related Observation values reject ambiguous ONE, accept ALL, and persist a
       await page.openRowSettings();
       await page.click('[data-testid="construction-action-group-rows"]');
       await page.until(() => page.evaluate('Boolean(document.querySelector("[data-testid=construction-reshape-group]"))'), 'Group editor');
-      await page.clickLabel('Group by Patient ID', 'input');
+      await page.click('label:has(> input[aria-label="Group by Patient ID"])');
       await page.click('[data-testid="construction-group-tab-summaries"]');
       await page.select('[aria-label="Add summary"]', 'COUNT_ROWS');
       await waitForProposal(page, 'ready');
@@ -109,7 +113,7 @@ test('related Observation values reject ambiguous ONE, accept ALL, and persist a
       }
       const contributorLabels = await page.evaluate(`Array.from(document.querySelectorAll('[data-testid="construction-group-add-columns-browser"] input[type="checkbox"]'),input=>input.getAttribute('aria-label'))`);
       assert(contributorLabels.includes('Add column valueQuantity.value'), `Group contributors expose the related Observation scalar; available=${JSON.stringify(contributorLabels)}`);
-      await page.clickLabel('Add column valueQuantity.value', 'input');
+      await page.click('label:has(> input[aria-label="Add column valueQuantity.value"])');
       await page.select('[aria-label="Keep values 1"]', policy);
     };
 

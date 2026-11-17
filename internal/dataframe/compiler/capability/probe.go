@@ -706,21 +706,17 @@ func defaultProjection(repeated bool) spec.ProjectionMode {
 }
 
 func findTraversal(plan ir.PhysicalPlan) (ir.PhysicalTraversal, bool) {
-	var walk func([]ir.PhysicalOperation) (ir.PhysicalTraversal, bool)
-	walk = func(operations []ir.PhysicalOperation) (ir.PhysicalTraversal, bool) {
-		for _, operation := range operations {
-			if operation.Traversal != nil {
-				return *operation.Traversal, true
-			}
-			if operation.Set != nil {
-				if traversal, ok := walk(operation.Set.Subplan.Operations); ok {
-					return traversal, true
-				}
-			}
+	var first *ir.PhysicalTraversal
+	err := ir.Walk(&plan, func(node ir.Node) error {
+		if operation, ok := node.(*ir.PhysicalOperation); ok && first == nil {
+			first = operation.Traversal
 		}
+		return nil
+	})
+	if err != nil || first == nil {
 		return ir.PhysicalTraversal{}, false
 	}
-	return walk(plan.Operations)
+	return *first, true
 }
 
 func contextErr(ctx context.Context) error {

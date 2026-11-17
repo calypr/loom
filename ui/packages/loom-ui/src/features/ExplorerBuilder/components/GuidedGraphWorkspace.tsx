@@ -183,6 +183,7 @@ export const GuidedGraphWorkspace = ({
   catalog,
   table,
   selectedOccurrenceId,
+  currentRelatedRecord,
   disabled,
   onSelectOccurrence,
   onSetBase,
@@ -217,6 +218,7 @@ export const GuidedGraphWorkspace = ({
   readonly catalog: ExplorerBuilderCatalog;
   readonly table?: DraftTable;
   readonly selectedOccurrenceId: string;
+  readonly currentRelatedRecord?: { readonly id: string; readonly nodeId: string; readonly resourceType: string };
   readonly disabled: boolean;
   readonly onSelectOccurrence: (id: string) => void;
   readonly onSetBase: (nodeId: string) => void;
@@ -402,9 +404,23 @@ export const GuidedGraphWorkspace = ({
     incomingEdgeId: item.edgeId, relationship: item.relationship, matchMode: item.matchMode,
     depth: item.depth, path: item.path, catalogNodeId: item.catalogNodeId,
   })) : [];
+  const rootOccurrence = traversalOccurrences[0];
+  if (rootOccurrence && currentRelatedRecord) {
+    traversalOccurrences.push({
+      occurrenceId: currentRelatedRecord.id,
+      parentId: rootOccurrence.occurrenceId,
+      resourceType: currentRelatedRecord.resourceType,
+      incomingEdgeId: undefined,
+      relationship: 'Current related record',
+      matchMode: 'OPTIONAL',
+      depth: 1,
+      path: `${currentRelatedRecord.resourceType} · current related record`,
+      catalogNodeId: currentRelatedRecord.nodeId,
+    });
+  }
   const authoredOccurrencesByNode = new Map<string, typeof traversalOccurrences>();
   for (const occurrence of traversalOccurrences) {
-    if (!occurrence.catalogNodeId) continue;
+    if (!occurrence.catalogNodeId || occurrence.occurrenceId === currentRelatedRecord?.id) continue;
     const existing = authoredOccurrencesByNode.get(occurrence.catalogNodeId);
     if (existing) existing.push(occurrence);
     else authoredOccurrencesByNode.set(occurrence.catalogNodeId, [occurrence]);
@@ -613,6 +629,7 @@ export const GuidedGraphWorkspace = ({
   const occurrenceNodes: Node[] = authoredGraphActive ? traversalOccurrences.map((occurrence) => {
     const unresolved = !occurrence.catalogNodeId;
     const selected = occurrence.occurrenceId === selectedOccurrenceId;
+    const isCurrentRelatedRecord = occurrence.occurrenceId === currentRelatedRecord?.id;
     return {
       id: routeNodeId(occurrence.occurrenceId),
       position: occurrencePositions.get(routeNodeId(occurrence.occurrenceId)) ?? { x: occurrence.depth * 440, y: 0 },
@@ -621,13 +638,13 @@ export const GuidedGraphWorkspace = ({
       ariaLabel: `${occurrence.path} (occurrence ${occurrence.occurrenceId})`,
       data: { label: <button type="button" data-occurrence-selector="true" data-occurrence-id={occurrence.occurrenceId}
         data-occurrence-path={occurrence.path} data-term-kind="occurrence" aria-pressed={selected}
-        aria-label={`${occurrence.path} (occurrence ${occurrence.occurrenceId})`}
+        aria-label={isCurrentRelatedRecord ? occurrence.path : `${occurrence.path} (occurrence ${occurrence.occurrenceId})`}
         title={`${occurrence.path} · occurrence ${occurrence.occurrenceId}`}
         className={`nokey flex h-full w-full flex-col justify-center gap-1 rounded-lg border px-3 py-2 text-left ${selected ? 'border-blue-700 bg-blue-700 text-white shadow-md' : unresolved ? 'border-amber-400 bg-amber-50 text-amber-950' : 'border-blue-300 bg-white text-slate-900'}`}
         onClick={(event) => { event.stopPropagation(); onSelectOccurrence(occurrence.occurrenceId); }}>
         <span className="truncate text-sm font-semibold">{occurrence.resourceType}</span>
         <span className={`truncate text-xs ${selected ? 'text-blue-100' : unresolved ? 'text-amber-900' : 'text-blue-800'}`}>{occurrence.parentId ? occurrence.relationship ?? 'Relationship unavailable' : 'Starting records'}</span>
-        <span className={`text-[10px] ${selected ? 'text-blue-100' : 'text-slate-500'}`}>{unresolved ? 'Catalog relationship unavailable' : occurrence.matchMode === 'REQUIRED' && occurrence.parentId ? 'Required match' : occurrence.parentId ? 'Optional feature' : 'Row start'}</span>
+        <span className={`text-[10px] ${selected ? 'text-blue-100' : 'text-slate-500'}`}>{isCurrentRelatedRecord ? 'Fields from this row’s record' : unresolved ? 'Catalog relationship unavailable' : occurrence.matchMode === 'REQUIRED' && occurrence.parentId ? 'Required match' : occurrence.parentId ? 'Optional feature' : 'Row start'}</span>
       </button> },
       style: { width: OCCURRENCE_NODE_WIDTH, height: OCCURRENCE_NODE_HEIGHT, border: selected ? '2px solid #1d4ed8' : unresolved ? '1px solid #d97706' : '1px solid #93c5fd', borderRadius: 10, background: '#fff', padding: 0, cursor: 'pointer', pointerEvents: 'auto' },
     };
@@ -637,6 +654,7 @@ export const GuidedGraphWorkspace = ({
     const parent = traversalOccurrences.find((candidate) => candidate.occurrenceId === occurrence.parentId);
     if (!parent) return [];
     const unresolved = !parent.catalogNodeId || !occurrence.catalogNodeId;
+    const isCurrentRelatedRecord = occurrence.occurrenceId === currentRelatedRecord?.id;
     return [{
       id: `occurrence-edge:${occurrence.occurrenceId}`,
       source: routeNodeId(parent.occurrenceId),
@@ -644,9 +662,9 @@ export const GuidedGraphWorkspace = ({
       type: 'default',
       markerEnd: { type: MarkerType.ArrowClosed, color: unresolved ? '#d97706' : '#2563eb' },
       label: occurrence.relationship && occurrence.relationship.length > 22 ? `${occurrence.relationship.slice(0, 21)}…` : occurrence.relationship ?? 'Saved relationship',
-      ariaLabel: `Saved path from ${parent.path} to ${occurrence.path}`,
+      ariaLabel: isCurrentRelatedRecord ? occurrence.path : `Saved path from ${parent.path} to ${occurrence.path}`,
       data: { authoredOccurrenceId: occurrence.occurrenceId },
-      style: { stroke: unresolved ? '#d97706' : '#2563eb', strokeWidth: 2, ...(unresolved ? { strokeDasharray: '6 4' } : {}) },
+      style: { stroke: unresolved ? '#d97706' : '#2563eb', strokeWidth: 2, ...(unresolved || isCurrentRelatedRecord ? { strokeDasharray: '6 4' } : {}) },
       labelStyle: { fill: unresolved ? '#92400e' : '#334155', fontSize: 9, fontWeight: 600 },
       labelBgStyle: { fill: '#ffffff', fillOpacity: 0.96 },
       labelBgPadding: [4, 2],
@@ -660,7 +678,7 @@ export const GuidedGraphWorkspace = ({
     ? routeOccurrenceEdges
     : catalogEdges;
   const selectedAuthoredOccurrence = traversalOccurrences.find((occurrence) => occurrence.occurrenceId === selectedOccurrenceId);
-  const availableConnections = authoredGraphActive && selectedAuthoredOccurrence ? legalNextEdges : [];
+  const availableConnections = authoredGraphActive && selectedAuthoredOccurrence && selectedOccurrenceId !== currentRelatedRecord?.id ? legalNextEdges : [];
   const authoredViewportGeometry = authoredGraphActive ? (() => {
     const positions = occurrenceNodes.map((node) => node.position);
     const minX = Math.min(...positions.map((position) => position.x));

@@ -37,6 +37,14 @@ func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
 	}
 }
 
+func TestSourceRuleCreateRejectsMismatchedKind(t *testing.T) {
+	var rule SourceRuleCreate
+	raw := `{"kind":"EXTENSION_COLUMN","parameters":{"dynamic":{"name":"identifiers","source":{"select":"root.identifier[]"}}}}`
+	if err := json.Unmarshal([]byte(raw), &rule); err == nil || !strings.Contains(err.Error(), "must match") {
+		t.Fatalf("mismatched source rule error = %v", err)
+	}
+}
+
 func TestImportedRelationshipIntentRejectsExecutableOrAmbiguousState(t *testing.T) {
 	for _, raw := range []string{
 		`{"action":"ADD","parentOccurrenceId":"base","edgeId":"edge","matchMode":"OPTIONAL","resourceType":"Patient"}`,

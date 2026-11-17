@@ -22,6 +22,7 @@ type SourceRelationshipProposalRequest struct {
 	OutputID             string                                 `json:"outputId"`
 	Change               authoringv2.ImportedRelationshipChange `json:"change,omitempty"`
 	SourceStep           *authoringv2.ImportedSourceStepChange  `json:"sourceStep,omitempty"`
+	SourceRule           *authoringv2.SourceRuleCreate          `json:"sourceRule,omitempty"`
 	SourceSteps          []authoringv2.ImportedSourceStepChange `json:"sourceSteps,omitempty"`
 	Limit                int                                    `json:"limit,omitempty"`
 	IncludePreview       bool                                   `json:"includePreview,omitempty"`
@@ -62,7 +63,11 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err := request.validateSourceSelection(); err != nil {
 		return fail, malformed("source-relationship-proposal", err.Error(), err)
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.AuthoringNetwork == nil || (!request.hasSourceSteps() && s.config.EditImportedRelationship == nil) || (request.SourceStep != nil && s.config.EditImportedSource == nil) || (request.SourceSteps != nil && s.config.EditImportedSources == nil) {
+	creatingRule := request.SourceRule != nil
+	if creatingRule && s.config.CreateImportedSourceRule == nil {
+		return fail, unavailable("source-relationship-proposal", "IMPORTED_SOURCE_UNAVAILABLE", "Column rule creation is unavailable", nil)
+	}
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.AuthoringNetwork == nil || (request.hasRelationshipChange() && s.config.EditImportedRelationship == nil) || (request.SourceStep != nil && s.config.EditImportedSource == nil) || (request.SourceSteps != nil && s.config.EditImportedSources == nil) {
 		return fail, unavailable("source-relationship-proposal", "IMPORTED_SOURCE_UNAVAILABLE", "native relationship editing is unavailable", nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
@@ -96,7 +101,9 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		return fail, err
 	}
 	var updated authoringv2.Document
-	if request.SourceSteps != nil {
+	if creatingRule {
+		updated, err = s.config.CreateImportedSourceRule(ctx, request.Project, authorized, *document, *request.SourceRule)
+	} else if request.SourceSteps != nil {
 		updated, err = s.config.EditImportedSources(ctx, request.Project, authorized, *document, request.SourceSteps)
 	} else if request.SourceStep != nil {
 		updated, err = s.config.EditImportedSource(ctx, request.Project, authorized, *document, request.SourceStep)
@@ -107,6 +114,9 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 		var typed *Error
 		if errors.As(err, &typed) {
 			return fail, typed
+		}
+		if creatingRule {
+			return fail, unprocessable("source-relationship-proposal", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 		}
 		return fail, unprocessable("source-relationship-proposal", "INVALID_IMPORTED_RELATIONSHIP", err.Error(), err)
 	}
@@ -185,7 +195,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	}
 	sort.Strings(affected)
 	notices := []string{"Related values preserve the source row identity. Multiplicity is unknown; a preview sample does not prove one-to-one relationships."}
-	if request.hasSourceSteps() {
+	if creatingRule || request.hasSourceSteps() {
 		notices = []string{"Source settings change only the project-local source overlay; the original recipe pin stays unchanged.", "Review the resulting rows and source values with existing value policies and downstream operations before Apply."}
 	}
 	if request.Change.Action == "ADD" {

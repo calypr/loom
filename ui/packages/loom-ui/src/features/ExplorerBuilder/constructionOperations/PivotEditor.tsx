@@ -1,39 +1,16 @@
+import { fieldPickerList, fieldPickerMetadata, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import { useId, useState } from 'react';
 import { createOpaqueId, isNumericColumn, sourceLabel as pivotSourceLabel } from './editorShared';
 import type { ConstructionTableScalar } from '../../../types';
 import {
   allDiscoveredPivotCategoriesSelected, createPivotCategoryForm, outputNamesAreValid,
   pivotDiscoveryMatches, pivotOriginalPairApplies, pivotOutputsFor, PIVOT_DISCOVERY_MAX_CATEGORIES,
-  scalarColumnsFor, scalarIdentity, scalarLabel,
+  isScalarColumn, listColumnsFor, scalarColumnsFor, scalarIdentity, scalarLabel,
   type ConstructionReshapePivotCategory, type ConstructionReshapePivotDiscovery,
   type PivotCategoryForm, type PivotForm, type ReshapeColumn, type ReshapeStage, type SourceInputChoice,
 } from './reshapeForms';
 
-const pivotDuplicatePolicyFromInput = (value: string): PivotForm['duplicatePolicy'] | undefined => {
-  switch (value) {
-    case 'ERROR': return 'ERROR';
-    case 'SUM': return 'SUM';
-    case 'MIN': return 'MIN';
-    case 'MAX': return 'MAX';
-    default: return undefined;
-  }
-};
-
-const pivotMissingPolicyFromInput = (value: string): PivotForm['missingCellPolicy'] | undefined => {
-  switch (value) {
-    case 'NULL': return 'NULL';
-    case 'ERROR': return 'ERROR';
-    default: return undefined;
-  }
-};
-
-const pivotUnlistedPolicyFromInput = (value: string): PivotForm['unlistedCategoryPolicy'] | undefined => {
-  switch (value) {
-    case 'ERROR': return 'ERROR';
-    case 'EXCLUDE_WITH_EVIDENCE': return 'EXCLUDE_WITH_EVIDENCE';
-    default: return undefined;
-  }
-};
+export type PivotListSelection = { readonly role: 'category' | 'value'; readonly columnId: string };
 
 export const PivotEditor = (props: {
   readonly sourceChoices: ReadonlyArray<SourceInputChoice>;
@@ -50,6 +27,9 @@ export const PivotEditor = (props: {
   readonly populationStatusFor: (columnId: string) => 'POPULATED' | 'EMPTY' | 'UNKNOWN';
   readonly populationChecking: boolean;
   readonly populationUnavailable: boolean;
+  readonly onExpandListColumn?: (columnId: string) => void;
+  readonly pendingList?: PivotListSelection;
+  readonly onPendingListChange: (selection: PivotListSelection | undefined) => void;
   readonly onDiscover: () => void;
   readonly onManualCategorySelection: (form: PivotForm) => void;
   readonly onForgetPairSelection: (previous: PivotForm, next: PivotForm) => void;
@@ -61,6 +41,14 @@ export const PivotEditor = (props: {
   const emptyRole = [props.form.categoryColumnId, props.form.valueColumnId]
     .some((columnId) => columnId && props.populationStatusFor(columnId) === 'EMPTY');
   const repeatedColumns = props.stage.columns.filter((column) => column.cardinality === 'many');
+  const listColumns = props.onExpandListColumn ? listColumnsFor(props.stage) : [];
+  const listColumnIds = new Set(listColumns.map((column) => column.id));
+  const labelCounts = new Map<string, number>();
+  for (const column of props.stage.columns) {
+    labelCounts.set(column.label, (labelCounts.get(column.label) ?? 0) + 1);
+  }
+  const listColumn = listColumns.find((column) => column.id === props.pendingList?.columnId);
+  const listRole = listColumn ? props.pendingList?.role : undefined;
   const discoveryMatches = pivotDiscoveryMatches(props.form, props.stage.id, props.discovery);
   const discoveryComplete = discoveryMatches && props.discovery.status === 'complete';
   const discoveryMode = props.form.discovery !== undefined;
@@ -69,6 +57,7 @@ export const PivotEditor = (props: {
   const discoveryEligible = !discoveryMode
     && props.canDiscover
     && props.supported
+    && !listColumn
     && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0)
     && props.form.categoryColumnId !== ''
     && props.form.valueColumnId !== ''
@@ -127,9 +116,28 @@ export const PivotEditor = (props: {
     return sourceChoice?.fieldPath ?? (column.name === column.label ? column.name : `${column.name} · ${column.label}`);
   };
   const outputNamesValid = outputNamesAreValid(pivotOutputsFor(props.form, props.stage));
-  const numericValue = isNumericColumn(columns.find((column) => column.id === props.form.valueColumnId) ?? { id: '', name: '', label: '', cardinality: 'optional_one' });
   const categoryColumn = columns.find((column) => column.id === props.form.categoryColumnId);
-  const selectableValueColumns = columns.filter((column) => !props.form.groupKeyIds.includes(column.id) && column.id !== props.form.categoryColumnId);
+  const unavailableReason = (column: ReshapeColumn, role: 'category' | 'value') => {
+    if (props.form.groupKeyIds.includes(column.id)) return 'used to identify rows';
+    if (column.id === (role === 'category' ? props.form.valueColumnId : props.form.categoryColumnId)) {
+      return role === 'category' ? 'used for cell values' : 'used for column names';
+    }
+    if (listColumnIds.has(column.id)) {
+      return listRole && listRole !== role ? 'choose a single-value field here' : undefined;
+    }
+    if (!props.supported) return 'split a list before pivoting';
+    if (!isScalarColumn(column)) return column.cardinality === 'many' ? 'expand list first' : 'requires a scalar field';
+    return undefined;
+  };
+  const renderInputColumn = (column: ReshapeColumn, role: 'category' | 'value') => {
+    const reason = unavailableReason(column, role);
+    const label = pivotColumnLabel(column);
+    const isList = listColumnIds.has(column.id);
+    const duplicateLabel = (labelCounts.get(column.label) ?? 0) > 1;
+    return <option key={column.id} value={column.id} disabled={Boolean(reason) || props.populationStatusFor(column.id) === 'EMPTY'} title={pivotColumnTitle(column)}>
+      {label}{duplicateLabel ? ` (${column.name})` : ''}{isList ? ' — List' : role === 'value' ? ` (${column.type ?? 'unknown type'})` : ''}{reason ? ` — ${reason}` : ''}
+    </option>;
+  };
   const valueColumn = columns.find((column) => column.id === props.form.valueColumnId);
   const categoryColumnLabel = categoryColumn ? pivotColumnLabel(categoryColumn) : 'Column names';
   const valueColumnLabel = valueColumn ? pivotColumnLabel(valueColumn) : 'Cell values';
@@ -172,6 +180,28 @@ export const PivotEditor = (props: {
     if (!preserveCategories) props.onForgetPairSelection(props.form, nextForm);
     props.onChange(nextForm);
   };
+  const selectPivotInput = (role: 'category' | 'value', selected: string) => {
+    const list = listColumns.find((column) => column.id === selected);
+    if (list) {
+      if (unavailableReason(list, role)) return;
+      props.onPendingListChange({ role, columnId: list.id });
+      chooseInput(role, '');
+    } else {
+      if (selected && !props.supported) return;
+      if (listRole === role) props.onPendingListChange(undefined);
+      chooseInput(role, selected);
+    }
+  };
+  const renderSplitAction = (role: 'category' | 'value') => listRole === role && listColumn ? (
+    <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+      <p>Use each item in <strong>{pivotColumnLabel(listColumn)}</strong> separately. Each list item gets its own row, and the other values repeat.</p>
+      <button type="button" disabled={props.disabled}
+        onClick={() => props.onExpandListColumn?.(listColumn.id)}
+        className="justify-self-start rounded border border-blue-300 bg-white px-2 py-1 font-semibold text-blue-800">
+        Preview split
+      </button>
+    </div>
+  ) : null;
   const columnFilterText = columnFilter.trim().toLowerCase();
   const filteredGroupColumns = columns.filter((column) => !columnFilterText || column.label.toLowerCase().includes(columnFilterText) || (column.type ?? '').toLowerCase().includes(columnFilterText));
 
@@ -254,8 +284,8 @@ export const PivotEditor = (props: {
       {props.populationChecking ? <p role="status" aria-live="polite" className="text-sm text-slate-600">Checking which fields contain values…</p> : null}
       {props.populationUnavailable ? <p role="status" className="text-sm text-amber-900">Field population could not be confirmed. Category discovery is unavailable until the field status can be checked.</p> : null}
       {emptyRole ? <p role="status" className="text-sm text-amber-900">Choose fields that contain values for both column names and cell values.</p> : null}
-      {columns.length === 0 && props.sourceChoices.length === 0 ? (
-        <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned scalar fields for this stage.</p>
+      {columns.length === 0 && listColumns.length === 0 && props.sourceChoices.length === 0 ? (
+        <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">No fields are available for Pivot at this stage.</p>
       ) : (
         <>
           {props.showRowSelection ? (
@@ -267,11 +297,11 @@ export const PivotEditor = (props: {
                 Search fields
                 <input aria-label="Search pivot row fields" value={columnFilter} onChange={(event) => setColumnFilter(event.currentTarget.value)} placeholder="Search columns" className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm" />
               </label>
-              <div className="grid max-h-72 gap-x-3 overflow-y-auto sm:grid-cols-2">
+              <div className={fieldPickerList}>
                 {filteredGroupColumns.map((column) => {
                   const label = pivotColumnLabel(column);
                   return (
-                    <label key={column.id} title={pivotColumnTitle(column)} className="flex min-w-0 items-start gap-2 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50">
+                    <label key={column.id} title={pivotColumnTitle(column)} className={fieldPickerToggleRow}>
                       <input
                         type="checkbox"
                         aria-label={`Pivot group ${label}`}
@@ -279,7 +309,8 @@ export const PivotEditor = (props: {
                         disabled={props.disabled || !props.supported || column.id === props.form.categoryColumnId || column.id === props.form.valueColumnId}
                         onChange={(event) => toggleGroup(column.id, event.currentTarget.checked)}
                       />
-                      <span className="min-w-0 break-words">{label}</span>
+                      <span className="min-w-0 flex-1 truncate">{column.label || column.name}</span>
+                      {column.type ? <span className={fieldPickerMetadata}>{column.type}</span> : null}
                     </label>
                   );
                 })}
@@ -293,28 +324,39 @@ export const PivotEditor = (props: {
             </div>
           </fieldset>
           ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
-              New column names
-              <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('category', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
-                <option value="">Choose a column-name field</option>
-                {columns.filter((column) => !props.form.groupKeyIds.includes(column.id)).map((column) => <option key={column.id} value={column.id} disabled={props.populationStatusFor(column.id) === 'EMPTY'} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)}</option>)}
-                {sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}</optgroup> : null}
-              </select>
-            </label>
-            <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
-              Cell values
-              <select aria-label="Pivot values field" value={props.form.valueColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('value', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
-                <option value="">Choose a cell-values field</option>
-                {selectableValueColumns.map((column) => <option key={column.id} value={column.id} disabled={props.populationStatusFor(column.id) === 'EMPTY'} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)} ({column.type ?? 'unknown type'})</option>)}
-                {sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)} ({choice.logicalType})</option>)}</optgroup> : null}
-              </select>
-            </label>
-          </div>
-          <p data-testid="construction-reshape-pivot-role-summary" className="text-sm text-slate-600">
-            {roleSummary}
-          </p>
-          <div className="grid gap-1 rounded border border-slate-200 p-3">
+          <section aria-label="Pivot fields" className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
+            <h4 className="text-sm font-semibold text-slate-900">Choose pivot fields</h4>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid content-start gap-2">
+                <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+                  New column names
+                  <select aria-label="Pivot category field" value={listRole === 'category' ? listColumn?.id : props.form.categoryColumnId} disabled={props.disabled || (!props.supported && listColumns.length === 0)} onChange={(event) => selectPivotInput('category', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
+                    <option value="">Choose a column-name field</option>
+                    {props.stage.columns.map((column) => renderInputColumn(column, 'category'))}
+                    {props.supported && sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}</optgroup> : null}
+                  </select>
+                </label>
+                {renderSplitAction('category')}
+              </div>
+              <div className="grid content-start gap-2">
+                <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+                  Cell values
+                  <select aria-label="Pivot values field" value={listRole === 'value' ? listColumn?.id : props.form.valueColumnId} disabled={props.disabled || (!props.supported && listColumns.length === 0)} onChange={(event) => selectPivotInput('value', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
+                    <option value="">Choose a cell-values field</option>
+                    {props.stage.columns.map((column) => renderInputColumn(column, 'value'))}
+                    {props.supported && sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)} ({choice.logicalType})</option>)}</optgroup> : null}
+                  </select>
+                </label>
+                {renderSplitAction('value')}
+              </div>
+            </div>
+            {!listColumn ? <p data-testid="construction-reshape-pivot-role-summary" className="m-0 text-xs text-slate-600">
+              {roleSummary}
+            </p> : null}
+          </section>
+          {!listColumn ? <section aria-label="Pivot categories" className="grid gap-3 border-t border-slate-200 pt-3">
+          <h4 className="text-sm font-semibold text-slate-900">Categories</h4>
+          <div className="grid gap-1 rounded-md bg-slate-50 px-3 py-2">
             <label className="flex items-start gap-2 text-sm font-medium text-slate-800">
               <input
                 type="checkbox"
@@ -335,17 +377,11 @@ export const PivotEditor = (props: {
             <p id={discoveryHelpId} className="m-0 text-xs text-slate-600">
               {discoveryMode
                 ? `Categories are discovered when this pivot is proposed, up to ${props.form.discovery?.maxCategories ?? PIVOT_DISCOVERY_MAX_CATEGORIES}. They freeze at that point, so turn discovery on and propose the pivot again after the data changes. Manual category selection is unavailable while this is on.`
-                : 'Choose categories manually from the values found in New column names. To refresh them from current data, turn on discovery and propose the pivot again.'}
+                : 'Leave this off to review and select categories before proposing.'}
             </p>
           </div>
-          {repeatedColumns.length > 0 ? (
-            <details className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              <summary className="cursor-pointer">{repeatedColumns.length} {repeatedColumns.length === 1 ? 'column contains a list' : 'columns contain lists'}</summary>
-              <p className="mt-1">Use “Make one row per list value” to expand these columns before choosing Pivot fields.</p>
-            </details>
-          ) : null}
           {!discoveryMode && !props.canDiscover && !categoriesKnown ? <p role="status" className="text-sm text-amber-900">Category discovery is unavailable for this stage.</p> : null}
-          {!discoveryMode && props.canDiscover && props.supported && !categoriesKnown && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0) && (props.form.categoryColumnId === '' || props.form.valueColumnId === '') ? <p role="status" className="text-sm text-slate-600">Choose fields for New column names and Cell values to find categories.</p> : null}
+          {!listColumn && !discoveryMode && props.canDiscover && props.supported && !categoriesKnown && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0) && (props.form.categoryColumnId === '' || props.form.valueColumnId === '') ? <p role="status" className="text-sm text-slate-600">Select both pivot fields to see available categories.</p> : null}
           {discoveryPending ? (
             <div
               role="status"
@@ -440,43 +476,12 @@ export const PivotEditor = (props: {
               </details>
             </>
           ) : null}
-          <p role="status" data-testid="construction-reshape-pivot-policy-summary" className="text-sm text-slate-600">
-            Duplicate values: {pivotDuplicateEffect(props.form.duplicatePolicy)}. Empty cells: {pivotMissingCellEffect(props.form.missingCellPolicy)}. Unselected categories: {pivotUnlistedCategoryEffect(props.form.unlistedCategoryPolicy)}.
-          </p>
-          <details data-testid="construction-reshape-pivot-advanced" className="rounded border border-slate-200 p-3">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800">Advanced settings</summary>
-            <div className="mt-3 grid gap-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  If a group has duplicate values
-                  <select aria-label="Pivot duplicate policy" value={props.form.duplicatePolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotDuplicatePolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, duplicatePolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                    <option value="ERROR">Stop with an error</option>
-                    <option value="SUM" disabled={!numericValue}>Add them together</option>
-                    <option value="MIN">Keep the smallest</option>
-                    <option value="MAX">Keep the largest</option>
-                  </select>
-                </label>
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  If a group has no value
-                  <select aria-label="Pivot missing cell policy" value={props.form.missingCellPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotMissingPolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, missingCellPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                    <option value="NULL">Leave the new cell empty</option>
-                    <option value="ERROR">Stop with an error</option>
-                  </select>
-                </label>
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  If a row has an unselected category
-                  <select aria-label="Pivot unlisted category policy" value={props.form.unlistedCategoryPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotUnlistedPolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, unlistedCategoryPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                    <option value="ERROR">Stop with an error</option>
-                    <option value="EXCLUDE_WITH_EVIDENCE" disabled>Skip it and report it</option>
-                  </select>
-                </label>
-              </div>
-              <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                New pivots require every category present in the rows to be selected. Skipping unselected categories is unavailable.
-              </p>
-              {props.form.categories.length > 0 ? (
+          </section> : null}
+          {props.form.categories.length > 0 ? (
+            <details className="rounded border border-slate-200 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800">Output column names and labels</summary>
                 <fieldset className="grid gap-3 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
-                  <legend className="px-1 text-sm font-semibold text-slate-800">Output column names and labels</legend>
+                  <legend className="sr-only">Output column names and labels</legend>
                   {props.form.categories.map((category) => {
                     const identity = scalarIdentity(category.key);
                     const label = categoriesAvailable.find((available) => scalarIdentity(available.key) === identity)?.label
@@ -489,34 +494,14 @@ export const PivotEditor = (props: {
                     );
                   })}
                 </fieldset>
-              ) : null}
-              {!outputNamesValid ? <p role="status" className="text-sm text-amber-900">Give each output a unique column name using letters, numbers, or underscores, and add a label.</p> : null}
-            </div>
-          </details>
+            </details>
+          ) : null}
+          {!outputNamesValid ? <p role="status" className="text-sm text-amber-900">Give each output a unique column name using letters, numbers, or underscores, and add a label.</p> : null}
         </>
       )}
     </section>
   );
 };
-
-const pivotDuplicateEffect = (policy: PivotForm['duplicatePolicy']): string => {
-  switch (policy) {
-    case 'ERROR': return 'stop the pivot with an error';
-    case 'SUM': return 'be added together';
-    case 'MIN': return 'keep the smallest value';
-    case 'MAX': return 'keep the largest value';
-    default: {
-      const exhaustive: never = policy;
-      return exhaustive;
-    }
-  }
-};
-
-const pivotMissingCellEffect = (policy: PivotForm['missingCellPolicy']): string =>
-  policy === 'NULL' ? 'stay empty' : 'stop the pivot with an error';
-
-const pivotUnlistedCategoryEffect = (policy: PivotForm['unlistedCategoryPolicy']): string =>
-  policy === 'ERROR' ? 'stop the pivot with an error' : 'be skipped and reported';
 
 const PivotCategoryOutput = (props: {
   readonly category: PivotCategoryForm;

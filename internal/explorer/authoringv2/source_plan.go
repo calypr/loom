@@ -21,8 +21,20 @@ type ImportedSourceFieldBinding struct {
 
 type ImportedSourcePlan struct {
 	FieldBindings []ImportedSourceFieldBinding `json:"fieldBindings,omitempty"`
+	RuleAdditions []ImportedSourceRuleAddition `json:"ruleAdditions,omitempty"`
 	Steps         []ImportedSourceStep         `json:"steps"`
 	Relationships *ImportedRelationshipOverlay `json:"relationships,omitempty"`
+}
+
+// ImportedSourceRuleAddition stores a user-created column rule.
+// IDs are append-only positional identities so edits never depend on names.
+type ImportedSourceRuleAddition struct {
+	Kind         string                    `json:"kind"`
+	OccurrenceID string                    `json:"occurrenceId,omitempty"`
+	StepID       string                    `json:"stepId"`
+	Enabled      bool                      `json:"enabled"`
+	Parameters   *ImportedSourceParameters `json:"parameters"`
+	MaxColumns   *int                      `json:"maxColumns,omitempty"`
 }
 
 // ImportedSourceStep identifies one source-plan stage. ParentID preserves the
@@ -68,7 +80,28 @@ func (p ImportedSourcePlan) Validate() error {
 	if len(p.Steps) > maxImportedSourcePlanSteps {
 		return fmt.Errorf("imported source plan has more than %d steps", maxImportedSourcePlanSteps)
 	}
+	if len(p.RuleAdditions) > 128 {
+		return fmt.Errorf("source plan has more than 128 rule additions")
+	}
+	rules := make(map[string]ImportedSourceRuleAddition, len(p.RuleAdditions))
+	for index, addition := range p.RuleAdditions {
+		if addition.StepID != fmt.Sprintf("ruleAdditions[%d]", index) {
+			return fmt.Errorf("ruleAdditions[%d].stepId must be its stable append-order identity", index)
+		}
+		if err := (SourceRuleCreate{Kind: addition.Kind, OccurrenceID: addition.OccurrenceID, Parameters: addition.Parameters, MaxColumns: addition.MaxColumns}).Validate(); err != nil {
+			return fmt.Errorf("ruleAdditions[%d]: %w", index, err)
+		}
+		rules[addition.StepID] = addition
+	}
 
+	removed := map[string]bool{}
+	if p.Relationships != nil {
+		for _, occurrence := range p.Relationships.Removals {
+			removed[occurrence] = true
+		}
+	}
+	available := map[string]bool{}
+	disabled := map[string]bool{}
 	seen := make(map[string]struct{}, len(p.Steps))
 	for index, step := range p.Steps {
 		path := fmt.Sprintf("steps[%d]", index)
@@ -107,8 +140,11 @@ func (p ImportedSourcePlan) Validate() error {
 			if err := validateImportedSourcePlanText(path+".occurrenceId", step.OccurrenceID, 256); err != nil {
 				return err
 			}
-			if step.Kind != "TRAVERSAL" {
-				return fmt.Errorf("%s.occurrenceId requires a traversal descriptor", path)
+			if step.Kind == "TRAVERSAL" {
+				disabled[step.ID] = !step.Enabled || disabled[step.ParentID] || removed[step.OccurrenceID]
+				available[step.OccurrenceID] = !disabled[step.ID]
+			} else if rule, exists := rules[step.ID]; !exists || rule.OccurrenceID != step.OccurrenceID {
+				return fmt.Errorf("%s.occurrenceId requires a traversal or source rule descriptor", path)
 			}
 		}
 		if step.MatchMode != "" && (step.Kind != "TRAVERSAL" || step.MatchMode != RouteMatchOptional && step.MatchMode != RouteMatchRequired) {
@@ -127,6 +163,11 @@ func (p ImportedSourcePlan) Validate() error {
 			return fmt.Errorf("%s cannot override a read-only step", path)
 		}
 		seen[step.ID] = struct{}{}
+	}
+	for _, rule := range p.RuleAdditions {
+		if rule.OccurrenceID != "" && !available[rule.OccurrenceID] {
+			return &UnavailableSourceRuleOccurrence{StepID: rule.StepID, OccurrenceID: rule.OccurrenceID}
+		}
 	}
 	return nil
 }
