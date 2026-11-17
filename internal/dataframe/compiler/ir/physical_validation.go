@@ -139,6 +139,12 @@ func (p PhysicalPlan) Validate() error {
 		}
 		switch operation.Kind {
 		case PhysicalRootScanOp:
+			if hint := operation.RootScan.IndexHint; hint != "" && (!physicalPathPartPattern.MatchString(hint) || hint[0] == '_') {
+				return fmt.Errorf("operation %d: unsafe root index hint %q", i, hint)
+			}
+			if operation.RootScan.IndexHint != "" && (operation.RootScan.Population != nil || operation.RootScan.CohortSource != nil || operation.RootScan.PageCandidateSeed != nil) {
+				return fmt.Errorf("operation %d: root index hint requires a direct scan", i)
+			}
 			rootScans++
 			if rootScans > 1 {
 				return fmt.Errorf("operation %d: physical plan has multiple root scans", i)

@@ -162,6 +162,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		}
 	}
 	sourceOptions := physicalRenderOptions{
+		internalPrefix:                  options.internalPrefix,
 		rootIndexHint:                   options.rootIndexHint,
 		disableRootIndex:                options.disableRootIndex,
 		previewRootKeyWindowVariable:    options.previewRootKeyWindowVariable,
@@ -235,7 +236,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		collectionKeys:                       collectionKeys,
 		setVariables:                         map[string]string{},
 		reservedVars:                         reservedVars,
-		internalPrefix:                       "construction_",
+		internalPrefix:                       options.internalPrefix + "construction_",
 		rootVariable:                         inlineStreamingPivotRoot,
 		dynamicPivotPreview:                  options.dynamicPivotPreview,
 		streamingMissingCategoryPivotPreview: options.streamingMissingCategoryPivotPreview,

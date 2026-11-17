@@ -264,3 +264,7 @@ Retired or renamed test inventory:
 | `internal/server/openapi_view_builder_test.go`: `TestViewBuilderHTTPStorageFailuresAndMalformedRequests` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
 | `internal/server/openapi_view_builder_test.go`: `TestViewBuilderExecutionAuthorizationKeepsBackendFailuresDistinct` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
 | `internal/server/openapi_view_builder_test.go`: `TestViewBuilderScopedEditorCapability` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+
+### WP-22: typed category rendering
+
+No test or public behavior guarantee is retired. The two old AQL presence-rendering entrypoints and compiler query-text surgery helpers have no remaining callers after migration to typed category terminals. Existing category row/presence/value, source-scope, conservative fallback, overflow, proof and EXPLAIN tests remain; added controls detect missing hints, premature limits, and stale terminal metadata. Query-text fingerprints may change with emitted query text; semantic plan/proof inputs and related query/bind fingerprints are checked separately. This change makes no performance claim.

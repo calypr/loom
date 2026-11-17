@@ -188,20 +188,6 @@ func RenderPhysicalPlanWithRootPageKeys(plan ir.PhysicalPlan, bindKey string, re
 	})
 }
 
-// RenderPhysicalPlanWithCategoryScanPresenceMarker keeps the selected value
-// projection ordinary and carries its property-presence result in a separate
-// internal field. Category scans consume this marker after their source plan
-// has finished filtering rows.
-func RenderPhysicalPlanWithCategoryScanPresenceMarker(plan ir.PhysicalPlan, columnName, markerColumn string) (RenderedPhysicalPlan, error) {
-	if strings.TrimSpace(columnName) == "" || strings.TrimSpace(markerColumn) == "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("category scan presence requires a selected column and marker")
-	}
-	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
-		preserveProjectionPresenceNames: map[string]struct{}{columnName: {}},
-		projectionPresenceMarkerColumn:  markerColumn,
-	})
-}
-
 // RenderPhysicalPlanWithTerminalProjection returns one public column from a
 // validated terminal construction stage while preserving every intermediate
 // stage projection needed to evaluate the plan.
@@ -209,41 +195,14 @@ func RenderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName s
 	return renderPhysicalPlanWithTerminalProjection(plan, columnName, false)
 }
 
-// RenderPhysicalPlanWithUnorderedTerminalProjection returns one public column
-// from a validated terminal construction stage without sorting the terminal
-// rows by identity. The caller must impose any ordering its result contract
-// requires.
-// RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker renders a
-// category scan projection while carrying property presence separately from
-// its nullable value through construction stages.
-func RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(plan ir.PhysicalPlan, columnName, markerColumn string) (RenderedPhysicalPlan, error) {
-	if strings.TrimSpace(markerColumn) == "" {
-		return RenderedPhysicalPlan{}, fmt.Errorf("category scan presence marker is required")
-	}
-	return renderPhysicalPlanWithTerminalProjectionAndMarker(plan, columnName, true, markerColumn)
-}
-
 func renderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName string, omitTerminalRowSort bool) (RenderedPhysicalPlan, error) {
-	return renderPhysicalPlanWithTerminalProjectionAndMarker(plan, columnName, omitTerminalRowSort, "")
-}
-
-func renderPhysicalPlanWithTerminalProjectionAndMarker(plan ir.PhysicalPlan, columnName string, omitTerminalRowSort bool, markerColumn string) (RenderedPhysicalPlan, error) {
 	sequence := plan.StageSequence
 	if sequence == nil || columnName == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("terminal projection requires a construction stage and column")
 	}
 	for _, column := range sequence.FinalColumns {
 		if column.Name == columnName && !column.Internal {
-			var presenceNames map[string]struct{}
-			if markerColumn != "" {
-				presenceNames = terminalProjectionPresenceNames(sequence, column.ID)
-			}
-			return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
-				terminalProjectionColumn:        columnName,
-				omitTerminalRowSort:             omitTerminalRowSort,
-				preserveProjectionPresenceNames: presenceNames,
-				projectionPresenceMarkerColumn:  markerColumn,
-			})
+			return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{terminalProjectionColumn: columnName, omitTerminalRowSort: omitTerminalRowSort})
 		}
 	}
 	return RenderedPhysicalPlan{}, fmt.Errorf("terminal projection column %q is not public in the final stage", columnName)
@@ -387,6 +346,7 @@ func RenderPhysicalPlanWithTwoScanPivotPreview(plan ir.PhysicalPlan, indexHint s
 }
 
 type physicalRenderOptions struct {
+	rootCategoryResourceType             string
 	rootIndexHint                        string
 	disableRootIndex                     bool
 	internalPrefix                       string
@@ -487,6 +447,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		bindVars:                        runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 		collectionKeys:                  collectionKeys,
 		rootIndexHint:                   options.rootIndexHint,
+		rootCategoryResourceType:        options.rootCategoryResourceType,
 		disableRootIndex:                options.disableRootIndex,
 		internalPrefix:                  options.internalPrefix,
 		dynamicPivotPreview:             options.dynamicPivotPreview,
@@ -667,10 +628,21 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 		line := fmt.Sprintf("FOR %s IN @@%s", root.Variable, root.CollectionBindKey)
 		if r.disableRootIndex {
 			line += " OPTIONS { disableIndex: true }"
+		} else if root.IndexHint != "" {
+			line += fmt.Sprintf(" OPTIONS { indexHint: %q, forceIndexHint: false }", root.IndexHint)
 		} else if r.rootIndexHint != "" {
 			line += fmt.Sprintf(" OPTIONS { indexHint: %q, forceIndexHint: false }", r.rootIndexHint)
 		}
-		return []string{line}, nil
+		lines := []string{line}
+		if r.rootCategoryResourceType != "" {
+			const key = "__loom_category_resource_type"
+			if _, exists := r.bindVars[key]; exists {
+				return nil, fmt.Errorf("category scan bind %q is already defined", key)
+			}
+			r.bindVars[key] = r.rootCategoryResourceType
+			lines = append(lines, "FILTER "+root.Variable+".resourceType == @"+key)
+		}
+		return lines, nil
 	}
 	population := root.Population
 	lines := []string{fmt.Sprintf("FOR %s IN @@%s", population.MemberScan.Variable, population.MemberScan.CollectionBindKey)}
@@ -792,6 +764,7 @@ func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOp
 }
 
 type physicalPlanRenderer struct {
+	rootCategoryResourceType             string
 	bindVars                             map[string]any
 	collectionKeys                       map[string]struct{}
 	rootIndexHint                        string

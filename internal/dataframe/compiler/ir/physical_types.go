@@ -184,6 +184,8 @@ type PhysicalGroupMemberValue struct {
 }
 
 type PhysicalRootScan struct {
+	// IndexHint is a non-forcing source index preference. Empty preserves the optimizer default.
+	IndexHint         string `json:",omitempty"`
 	Variable          string
 	CollectionBindKey string
 	// PageCandidateSeed is an optional, typed candidate-only prefilter for root

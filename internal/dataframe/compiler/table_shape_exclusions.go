@@ -100,7 +100,7 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 			if projection.Name != pivot.CategoryColumn {
 				continue
 			}
-			value, direct := categoryScanDirectRootProjectionValue(projection, root)
+			value, direct := ir.DirectScalarRootProjectionValue(projection, root)
 			if direct && len(value.Path) > 1 && value.Path[0] == "payload" {
 				pivot.CategoryPresence = &ir.PhysicalProjectionPresence{
 					Source: ir.PhysicalValue{Variable: root, Path: []string{"payload"}},

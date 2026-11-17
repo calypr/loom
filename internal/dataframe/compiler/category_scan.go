@@ -230,7 +230,6 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	presenceMarkerColumn := categoryScanPresenceMarkerColumn(physical, schema)
 	var query string
 	var bindVars map[string]any
-	presenceColumnBind := ""
 	var overflowWitness *CategoryOverflowWitness
 	categoryIndex := categoryScanCategoryIndexSpec(physical, column)
 	relatedQuery, relatedBinds, relatedIndex, relatedEligible, relatedErr :=
@@ -271,90 +270,21 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 			if err != nil {
 				return CompiledCategoryScanQuery{}, fmt.Errorf("compile indexed root category scan: %w", err)
 			}
-		} else if requireValue && physical.StageSequence != nil && column.PresenceCompanionName == "" {
-			// A value-bearing stage scan needs both the complete final row for
-			// the selected value and the category marker carried separately
-			// through the stage prefix. A materialized null category can no
-			// longer be distinguished from an absent field from the terminal
-			// row alone, so bind the value-bearing rows to the marked presence
-			// rows by category identity.
-			query, bindVars, err = categoryScanStageRequiringValueQuery(physical, column, valueColumn, presenceMarkerColumn, maxValues, categoryIndex)
-			if err != nil {
-				return CompiledCategoryScanQuery{}, err
-			}
 		} else {
-			var rendered aql.RenderedPhysicalPlan
-			if column.PresenceCompanionName != "" && !streamRootCategories {
-				rendered, err = aql.RenderPhysicalPlan(physical)
-			} else if physical.StageSequence != nil {
-				rendered, err = aql.RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(physical, column.Name, presenceMarkerColumn)
-			} else {
-				rendered, err = aql.RenderPhysicalPlanWithCategoryScanPresenceMarker(physical, column.Name, presenceMarkerColumn)
-			}
-			if err != nil {
-				return CompiledCategoryScanQuery{}, fmt.Errorf("render category scan output plan: %w", err)
+			terminal := ir.PhysicalCategoryScanReturn{CategoryColumn: column.Name, PresenceMarkerColumn: presenceMarkerColumn, PresenceCompanionColumn: column.PresenceCompanionName, MaxValues: maxValues, StreamRoot: streamRootCategories}
+			if requireValue {
+				terminal.ValueColumn = valueColumn.Name
 			}
 			if categoryIndex != nil {
-				root, _, ok := previewCoveringIndexSource(physical)
-				if !ok {
-					return CompiledCategoryScanQuery{}, fmt.Errorf("category index requires one direct root scan")
-				}
-				rendered.Query, ok = categoryScanWithRootIndexHint(rendered.Query, root.Variable, root.CollectionBindKey, categoryIndex.Name)
-				if !ok {
-					return CompiledCategoryScanQuery{}, fmt.Errorf("category index hint could not be attached to root scan")
-				}
+				terminal.RootIndexHint = categoryIndex.Name
 			}
-			if _, exists := rendered.BindVars[categoryColumnBind]; exists {
-				return CompiledCategoryScanQuery{}, fmt.Errorf("category scan bind %q is already defined", categoryColumnBind)
+			rendered, renderErr := aql.RenderCategoryScan(physical, terminal)
+			if renderErr != nil {
+				return CompiledCategoryScanQuery{}, fmt.Errorf("render category scan: %w", renderErr)
 			}
-			if _, exists := rendered.BindVars[categoryLimitBind]; exists {
-				return CompiledCategoryScanQuery{}, fmt.Errorf("category scan bind %q is already defined", categoryLimitBind)
-			}
-			bindVars = cloneCategoryScanBinds(rendered.BindVars)
-			valueColumnBind := ""
-			if requireValue {
-				valueColumnBind = "__loom_category_value_column"
-				if _, exists := bindVars[valueColumnBind]; exists {
-					return CompiledCategoryScanQuery{}, fmt.Errorf("category value bind %q is already defined", valueColumnBind)
-				}
-			}
-			var streamed bool
-			if column.PresenceCompanionName != "" && !streamRootCategories {
-				presenceColumnBind = "__loom_category_presence_column"
-				if _, exists := bindVars[presenceColumnBind]; exists {
-					return CompiledCategoryScanQuery{}, fmt.Errorf("category presence bind %q is already defined", presenceColumnBind)
-				}
-				query, streamed = categoryScanDistinctQueryFromPresenceColumn(rendered.Query, presenceColumnBind, categoryColumnBind, valueColumnBind, categoryLimitBind)
-				bindVars[presenceColumnBind] = column.PresenceCompanionName
-			} else {
-				query, streamed = categoryScanDistinctQuery(rendered.Query, presenceMarkerColumn, categoryColumnBind, valueColumnBind, categoryLimitBind, streamRootCategories)
-			}
-			bindVars[categoryColumnBind] = column.Name
-			bindVars[categoryLimitBind] = maxValues + 1
-			if requireValue {
-				bindVars[valueColumnBind] = valueColumn.Name
-			}
-			if streamRootCategories && !streamed {
-				return CompiledCategoryScanQuery{}, fmt.Errorf("stream direct source category scan: terminal RETURN projection was not found")
-			}
-		}
-		if physical.StageSequence != nil && !requireValue {
-			witness, eligible, witnessErr := aql.RenderRelatedEligibilityCategoryOverflowWitness(physical, column.Name, presenceMarkerColumn, maxValues*4+1)
-			if witnessErr != nil {
-				return CompiledCategoryScanQuery{}, fmt.Errorf("render category overflow witness: %w", witnessErr)
-			}
-			if eligible && column.PresenceCompanionName == "" {
-				witnessQuery := "LET __loom_witness_rows = (\n" + witness.Query + "\n)\n" +
-					"FOR __loom_witness_row IN __loom_witness_rows\n" +
-					fmt.Sprintf("  LET __loom_witness_present = __loom_witness_row[%q]\n", presenceMarkerColumn) +
-					"  LET __loom_witness_value = __loom_witness_present ? __loom_witness_row[@" + categoryColumnBind + "] : null\n" +
-					"  COLLECT present = __loom_witness_present, value = __loom_witness_value\n" +
-					"  LIMIT @" + categoryLimitBind + "\n" +
-					"  RETURN { present, value }"
-				witnessBinds := cloneCategoryScanBinds(witness.BindVars)
-				witnessBinds[categoryColumnBind] = column.Name
-				witnessBinds[categoryLimitBind] = maxValues + 1
-				overflowWitness = &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}
+			query, bindVars = rendered.Query, rendered.BindVars
+			if rendered.OverflowWitness != nil {
+				overflowWitness = &CategoryOverflowWitness{Query: rendered.OverflowWitness.Query, BindVars: rendered.OverflowWitness.BindVars}
 			}
 		}
 	}
@@ -406,138 +336,6 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	}, nil
 }
 
-func categoryScanStageRequiringValueQuery(
-	physical ir.PhysicalPlan,
-	category, value lower.CompiledOutputColumn,
-	presenceMarkerColumn string,
-	maxValues int,
-	categoryIndex *PreviewCoveringIndexSpec,
-) (string, map[string]any, error) {
-	valueRendered, err := aql.RenderPhysicalPlan(physical)
-	if err != nil {
-		return "", nil, fmt.Errorf("render value-bearing category scan plan: %w", err)
-	}
-	presenceRendered, err := aql.RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(physical, category.Name, presenceMarkerColumn)
-	if err != nil {
-		return "", nil, fmt.Errorf("render category presence plan: %w", err)
-	}
-	if categoryIndex != nil {
-		root, _, ok := previewCoveringIndexSource(physical)
-		if !ok {
-			return "", nil, fmt.Errorf("category index requires one direct root scan")
-		}
-		valueRendered.Query, ok = categoryScanWithRootIndexHint(valueRendered.Query, root.Variable, root.CollectionBindKey, categoryIndex.Name)
-		if !ok {
-			return "", nil, fmt.Errorf("category index hint could not be attached to the value-bearing root scan")
-		}
-		presenceRendered.Query, ok = categoryScanWithRootIndexHint(presenceRendered.Query, root.Variable, root.CollectionBindKey, categoryIndex.Name)
-		if !ok {
-			return "", nil, fmt.Errorf("category index hint could not be attached to the presence root scan")
-		}
-	}
-	presenceQuery, presenceBinds, err := renameCategoryScanBindKeys(presenceRendered.Query, presenceRendered.BindVars, valueRendered.BindVars)
-	if err != nil {
-		return "", nil, err
-	}
-	bindVars, err := mergeCategoryScanBindVars(valueRendered.BindVars, presenceBinds)
-	if err != nil {
-		return "", nil, err
-	}
-	for _, key := range []string{categoryColumnBind, categoryLimitBind, "__loom_category_value_column"} {
-		if _, exists := bindVars[key]; exists {
-			return "", nil, fmt.Errorf("category scan bind %q is already defined", key)
-		}
-	}
-	queries := []string{valueRendered.Query, presenceRendered.Query}
-	valueRows := categoryScanUniqueQueryVariable(queries, "__loom_category_value_rows")
-	valueRow := categoryScanUniqueQueryVariable(queries, "__loom_category_value_row")
-	valueKey := categoryScanUniqueQueryVariable(queries, "__loom_category_value_key")
-	valueKeys := categoryScanUniqueQueryVariable(queries, "__loom_category_value_keys")
-	presenceRow := categoryScanUniqueQueryVariable(queries, "__loom_category_presence_row")
-	present := categoryScanUniqueQueryVariable(queries, "__loom_category_present")
-	categoryValue := categoryScanUniqueQueryVariable(queries, "__loom_category_value")
-	groupPresent := categoryScanUniqueQueryVariable(queries, "__loom_category_group_present")
-	groupValue := categoryScanUniqueQueryVariable(queries, "__loom_category_group_value")
-	query := "LET " + valueRows + " = (\n" + valueRendered.Query + "\n)\n" +
-		"LET " + valueKeys + " = (\n" +
-		"  FOR " + valueRow + " IN " + valueRows + "\n" +
-		"  FILTER " + valueRow + "[@" + "__loom_category_value_column" + "] != null\n" +
-		"  COLLECT " + valueKey + " = " + valueRow + "[@" + categoryColumnBind + "]\n" +
-		"  RETURN " + valueKey + "\n" +
-		")\n" +
-		"LET " + valueRows + "_presence = (\n" + presenceQuery + "\n)\n" +
-		"FOR " + presenceRow + " IN " + valueRows + "_presence\n" +
-		"FILTER " + presenceRow + "[@" + categoryColumnBind + "] IN " + valueKeys + "\n" +
-		"LET " + present + " = " + presenceRow + fmt.Sprintf("[%q]\n", presenceMarkerColumn) +
-		"LET " + categoryValue + " = " + present + " ? " + presenceRow + "[@" + categoryColumnBind + "] : null\n" +
-		"COLLECT " + groupPresent + " = " + present + ", " + groupValue + " = " + categoryValue + "\n" +
-		"SORT " + groupPresent + " ASC, TYPENAME(" + groupValue + ") ASC, " + groupValue + " ASC\n" +
-		"LIMIT @" + categoryLimitBind + "\n" +
-		"RETURN { present: " + groupPresent + ", value: " + groupValue + " }"
-	bindVars[categoryColumnBind] = category.Name
-	bindVars["__loom_category_value_column"] = value.Name
-	bindVars[categoryLimitBind] = maxValues + 1
-	return query, bindVars, nil
-}
-
-func renameCategoryScanBindKeys(query string, binds map[string]any, reserved map[string]any) (string, map[string]any, error) {
-	keys := make([]string, 0, len(binds))
-	for key := range binds {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
-	renamed := make(map[string]any, len(binds))
-	for _, oldKey := range keys {
-		candidate := "__loom_presence_" + strings.TrimPrefix(oldKey, "@")
-		if strings.HasPrefix(oldKey, "@") {
-			candidate = "@" + candidate
-		}
-		for {
-			if _, exists := reserved[candidate]; !exists {
-				if _, exists := renamed[candidate]; !exists {
-					break
-				}
-			}
-			candidate = "_" + candidate
-		}
-		query = strings.ReplaceAll(query, "@"+oldKey, "@"+candidate)
-		renamed[candidate] = binds[oldKey]
-	}
-	return query, renamed, nil
-}
-
-func mergeCategoryScanBindVars(left, right map[string]any) (map[string]any, error) {
-	merged := cloneCategoryScanBinds(left)
-	for key, value := range right {
-		if existing, exists := merged[key]; exists && !reflect.DeepEqual(existing, value) {
-			return nil, fmt.Errorf("category scan bind %q has conflicting values", key)
-		}
-		merged[key] = value
-	}
-	return merged, nil
-}
-
-func categoryScanUniqueQueryVariable(queries []string, base string) string {
-	candidate := base
-	for suffix := 1; ; suffix++ {
-		collides := false
-		for _, query := range queries {
-			if strings.Contains(query, candidate) {
-				collides = true
-				break
-			}
-		}
-		if !collides {
-			return candidate
-		}
-		candidate = fmt.Sprintf("%s_%d", base, suffix)
-	}
-}
-
-// categoryScanPreservesSourceCategories proves that complete distinct values
-// at a construction stage equal the values on its source parents. It only
-// accepts a direct scalar source projection and a contiguous prefix made of
-// parent-preserving RELATED_EXPAND and row-preserving RELATED_FIELD stages.
 func categoryScanPreservesSourceCategories(plan ir.PhysicalPlan, stageID, categoryColumnID string, category lower.CompiledOutputColumn) bool {
 	sequence := plan.StageSequence
 	if sequence == nil || stageID == "" || stageID == sequence.SourceStageID || sequence.FinalStageID != stageID ||
@@ -572,7 +370,7 @@ func categoryScanPreservesSourceCategories(plan ir.PhysicalPlan, stageID, catego
 	if sourceProjection == nil {
 		return false
 	}
-	value, direct := categoryScanDirectRootProjectionValue(*sourceProjection, root.Variable)
+	value, direct := ir.DirectScalarRootProjectionValue(*sourceProjection, root.Variable)
 	if !direct || !categoryScanProjectionPresenceMatches(*sourceProjection, root.Variable, value) {
 		return false
 	}
@@ -671,7 +469,7 @@ func categoryScanDirectRootSource(plan ir.PhysicalPlan, category lower.CompiledO
 	if selected == nil {
 		return false
 	}
-	value, direct := categoryScanDirectRootProjectionValue(*selected, root.Variable)
+	value, direct := ir.DirectScalarRootProjectionValue(*selected, root.Variable)
 	return direct && categoryScanProjectionPresenceMatches(*selected, root.Variable, value)
 }
 
@@ -849,102 +647,28 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	if projection == nil {
 		return "", nil, nil, fmt.Errorf("category projection is missing")
 	}
-	value, direct := categoryScanDirectRootProjectionValue(*projection, root.Variable)
+	value, direct := ir.DirectScalarRootProjectionValue(*projection, root.Variable)
 	if !direct || !categoryScanProjectionPresenceMatches(*projection, root.Variable, value) || !validPreviewIndexPath(value.Path) {
 		return "", nil, nil, fmt.Errorf("category projection has no exact direct scalar presence proof")
 	}
 
-	rendered, err := aql.RenderPhysicalPlan(plan)
+	resourceType, err := categoryScanRootResourceType(plan, root, value.Path, index)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("render source root scan: %w", err)
-	}
-	_, prefix, ok := splitTerminalPhysicalReturn(rendered.Query)
-	if !ok {
-		return "", nil, nil, fmt.Errorf("source root scan has no terminal return")
-	}
-	prefix, ok = categoryScanWithRootIndexHint(prefix, root.Variable, root.CollectionBindKey, index.Name)
-	if !ok {
-		return "", nil, nil, fmt.Errorf("category index hint could not be attached to root scan")
-	}
-	valueExpression := root.Variable + "." + strings.Join(value.Path, ".")
-	bindVars := cloneCategoryScanBinds(rendered.BindVars)
-	if err := categoryScanAddRootResourceTypeGuard(plan, root, value.Path, index, &prefix, bindVars); err != nil {
 		return "", nil, nil, err
 	}
+	indexed := &ir.PhysicalIndexedCategoryScan{RootVariable: root.Variable, ValuePath: append([]string(nil), value.Path...), ResourceType: resourceType}
 	if categoryScanUsesStoredQuantityParent(index, value.Path) {
-		return categoryScanStoredQuantityParentQuery(prefix, root, valueExpression, value.Path, bindVars, maxValues)
+		indexed.StoredParentPath = strings.Split(index.StoredValues[0], ".")
 	}
-	presenceExpression, err := categoryScanRootPresenceExpression(*projection.Presence, root.Variable, bindVars)
+	rendered, err := aql.RenderCategoryScan(plan, ir.PhysicalCategoryScanReturn{CategoryColumn: category.Name, MaxValues: maxValues, RootIndexHint: index.Name, IndexedRoot: indexed})
 	if err != nil {
 		return "", nil, nil, err
 	}
-	variables := categoryScanIndexedQueryVariables(prefix)
-	branch := func(filter string, distinct string, result string) string {
-		return prefix + "\nFILTER " + filter + "\n" + distinct + "\n" +
-			"LIMIT @" + categoryLimitBind + "\n" + "RETURN " + result
+	var witness *CategoryOverflowWitness
+	if rendered.OverflowWitness != nil {
+		witness = &CategoryOverflowWitness{Query: rendered.OverflowWitness.Query, BindVars: rendered.OverflowWitness.BindVars}
 	}
-	nonNullQuery := branch(valueExpression+" != null", "COLLECT value = "+valueExpression,
-		"{ present: true, value }")
-	nullQuery := branch(valueExpression+" == null", "COLLECT present = "+presenceExpression+", value = "+valueExpression,
-		"{ present, value }")
-	query := "LET " + variables["nonnull"] + " = (\n" + nonNullQuery + "\n)\n" +
-		"LET " + variables["null"] + " = (\n" + nullQuery + "\n)\n" +
-		"FOR " + variables["row"] + " IN UNION_DISTINCT(" + variables["nonnull"] + ", " + variables["null"] + ")\n" +
-		"SORT " + variables["row"] + ".present ASC, TYPENAME(" + variables["row"] + ".value) ASC, " + variables["row"] + ".value ASC\n" +
-		"LIMIT @" + categoryLimitBind + "\n" +
-		"RETURN { present: " + variables["row"] + ".present, value: " + variables["row"] + ".value }"
-	if _, exists := bindVars[categoryLimitBind]; exists {
-		return "", nil, nil, fmt.Errorf("category scan bind %q is already defined", categoryLimitBind)
-	}
-	bindVars[categoryLimitBind] = maxValues + 1
-
-	witnessQuery := prefix + "\nFILTER " + valueExpression + " == null\nFILTER NOT (" + presenceExpression + ")\nLIMIT 1\nRETURN { present: false, value: null }"
-	witnessBinds := cloneCategoryScanBinds(bindVars)
-	delete(witnessBinds, categoryLimitBind)
-	bindVars = categoryScanPruneBindVars(bindVars, query)
-	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
-	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
-}
-
-func categoryScanStoredQuantityParentQuery(prefix string, root *ir.PhysicalRootScan, valueExpression string, valuePath []string, bindVars map[string]any, maxValues int) (string, map[string]any, *CategoryOverflowWitness, error) {
-	parentPath := strings.Join(previewQuantityCategoryStoredValues(), ".")
-	parentSegments := strings.Split(parentPath, ".")
-	if len(valuePath) != len(parentSegments)+1 || !samePathPrefix(valuePath, parentSegments) || valuePath[len(valuePath)-1] != "code" {
-		return "", nil, nil, fmt.Errorf("stored quantity category index does not match the direct code leaf")
-	}
-	parentExpression := root.Variable + "." + parentPath
-	presenceBind := categoryScanUniqueBindKey(bindVars, "__loom_category_presence_1")
-	bindVars[presenceBind] = "code"
-	variables := categoryScanIndexedQueryVariables(prefix)
-	parentVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_parent")
-	variables["parent"] = parentVariable
-	presentVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_present")
-	variables["present"] = presentVariable
-	valueVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_value")
-	variables["value"] = valueVariable
-	groupPresentVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_group_present")
-	variables["groupPresent"] = groupPresentVariable
-	groupValueVariable := categoryScanUniqueVariable(prefix, variables, "__loom_category_group_value")
-	variables["groupValue"] = groupValueVariable
-	presenceExpression := "(IS_OBJECT(" + parentVariable + ") ? HAS(" + parentVariable + ", @" + presenceBind + ") : false)"
-	query := prefix + "\nLET " + parentVariable + " = " + parentExpression + "\n" +
-		"LET " + presentVariable + " = " + presenceExpression + "\n" +
-		"LET " + valueVariable + " = " + valueExpression + "\n" +
-		"COLLECT " + groupPresentVariable + " = " + presentVariable + ", " + groupValueVariable + " = " + valueVariable + "\n" +
-		"SORT " + groupPresentVariable + " ASC, TYPENAME(" + groupValueVariable + ") ASC, " + groupValueVariable + " ASC\n" +
-		"LIMIT @" + categoryLimitBind + "\n" +
-		"RETURN { present: " + groupPresentVariable + ", value: " + groupValueVariable + " }"
-	if _, exists := bindVars[categoryLimitBind]; exists {
-		return "", nil, nil, fmt.Errorf("category scan bind %q is already defined", categoryLimitBind)
-	}
-	bindVars[categoryLimitBind] = maxValues + 1
-	witnessQuery := prefix + "\nLET " + parentVariable + " = " + parentExpression + "\n" +
-		"FILTER " + valueExpression + " == null\nFILTER NOT " + presenceExpression + "\nLIMIT 1\nRETURN { present: false, value: null }"
-	witnessBinds := cloneCategoryScanBinds(bindVars)
-	delete(witnessBinds, categoryLimitBind)
-	bindVars = categoryScanPruneBindVars(bindVars, query)
-	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
-	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
+	return rendered.Query, rendered.BindVars, witness, nil
 }
 
 func categoryScanUsesStoredQuantityParent(index *PreviewCoveringIndexSpec, valuePath []string) bool {
@@ -976,49 +700,26 @@ func samePathPrefix(path, prefix []string) bool {
 	return true
 }
 
-func categoryScanUniqueVariable(sourceQuery string, variables map[string]string, base string) string {
-	variable := base
-	for suffix := 1; strings.Contains(sourceQuery, variable) || variablesContain(variables, variable); suffix++ {
-		variable = fmt.Sprintf("%s_%d", base, suffix)
-	}
-	return variable
-}
-
-func categoryScanAddRootResourceTypeGuard(plan ir.PhysicalPlan, root *ir.PhysicalRootScan, path []string, index *PreviewCoveringIndexSpec, prefix *string, bindVars map[string]any) error {
+func categoryScanRootResourceType(plan ir.PhysicalPlan, root *ir.PhysicalRootScan, path []string, index *PreviewCoveringIndexSpec) (string, error) {
 	collection, ok := plan.BindVars[root.CollectionBindKey].(string)
 	if !ok || collection == "" || index.Collection != collection {
-		return fmt.Errorf("category index collection does not match the direct root scan")
+		return "", fmt.Errorf("category index collection does not match the direct root scan")
 	}
 	categoryPath := strings.Join(path, ".")
-	legacyFields := []string{"project", "dataset_generation", categoryPath, "auth_resource_path"}
-	if sameCategoryIndexFields(index.Fields, legacyFields) {
-		return nil
+	if sameCategoryIndexFields(index.Fields, []string{"project", "dataset_generation", categoryPath, "auth_resource_path"}) {
+		return "", nil
 	}
-	if categoryScanUsesStoredQuantityParent(index, path) {
-		rootType := strings.TrimSpace(plan.Source.ResourceType)
-		if rootType != "Observation" || collection != rootType {
-			return fmt.Errorf("stored quantity category index does not match the exact source collection type")
-		}
-		const typeBindKey = "__loom_category_resource_type"
-		if _, exists := bindVars[typeBindKey]; exists {
-			return fmt.Errorf("category scan bind %q is already defined", typeBindKey)
-		}
-		*prefix += "\nFILTER " + root.Variable + ".resourceType == @" + typeBindKey
-		bindVars[typeBindKey] = rootType
-		return nil
-	}
-	sharedFields := []string{"project", "dataset_generation", "resourceType", categoryPath, "auth_resource_path"}
 	rootType := strings.TrimSpace(plan.Source.ResourceType)
-	if !sameCategoryIndexFields(index.Fields, sharedFields) || rootType == "" || collection != rootType {
-		return fmt.Errorf("category index does not match the exact source collection type and path")
+	if categoryScanUsesStoredQuantityParent(index, path) {
+		if rootType != "Observation" || collection != rootType {
+			return "", fmt.Errorf("stored quantity category index does not match the exact source collection type")
+		}
+		return rootType, nil
 	}
-	const typeBindKey = "__loom_category_resource_type"
-	if _, exists := bindVars[typeBindKey]; exists {
-		return fmt.Errorf("category scan bind %q is already defined", typeBindKey)
+	if !sameCategoryIndexFields(index.Fields, []string{"project", "dataset_generation", "resourceType", categoryPath, "auth_resource_path"}) || rootType == "" || collection != rootType {
+		return "", fmt.Errorf("category index does not match the exact source collection type and path")
 	}
-	*prefix += "\nFILTER " + root.Variable + ".resourceType == @" + typeBindKey
-	bindVars[typeBindKey] = rootType
-	return nil
+	return rootType, nil
 }
 
 func sameCategoryIndexFields(got, want []string) bool {
@@ -1031,202 +732,6 @@ func sameCategoryIndexFields(got, want []string) bool {
 		}
 	}
 	return true
-}
-
-func categoryScanPruneBindVars(bindVars map[string]any, query string) map[string]any {
-	pruned := make(map[string]any, len(bindVars))
-	for key, value := range bindVars {
-		if categoryScanQueryReferencesBind(query, key) {
-			pruned[key] = value
-		}
-	}
-	return pruned
-}
-
-func categoryScanQueryReferencesBind(query, key string) bool {
-	token := "@" + key
-	for offset := 0; offset < len(query); {
-		index := strings.Index(query[offset:], token)
-		if index < 0 {
-			return false
-		}
-		end := offset + index + len(token)
-		if end == len(query) || !categoryScanIdentifierByte(query[end]) {
-			return true
-		}
-		offset = end
-	}
-	return false
-}
-
-func categoryScanIdentifierByte(value byte) bool {
-	return value == '_' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
-}
-
-func categoryScanRootPresenceExpression(presence ir.PhysicalProjectionPresence, rootVariable string, bindVars map[string]any) (string, error) {
-	if presence.Source.Variable != rootVariable || presence.Source.BindKey != "" || len(presence.Paths) != 1 || len(presence.Paths[0]) == 0 {
-		return "", fmt.Errorf("category projection presence is not one direct root path")
-	}
-	source := rootVariable
-	if len(presence.Source.Path) > 0 {
-		source += "." + strings.Join(presence.Source.Path, ".")
-	}
-	path := presence.Paths[0]
-	for _, segment := range path {
-		if segment == "" {
-			return "", fmt.Errorf("category projection presence contains an empty path segment")
-		}
-	}
-	var render func(string, int) (string, error)
-	render = func(object string, index int) (string, error) {
-		key := categoryScanUniqueBindKey(bindVars, fmt.Sprintf("__loom_category_presence_%d", index))
-		bindVars[key] = path[index]
-		has := fmt.Sprintf("HAS(%s, @%s)", object, key)
-		if index == len(path)-1 {
-			return fmt.Sprintf("(IS_OBJECT(%s) ? %s : false)", object, has), nil
-		}
-		child := object + "[@" + key + "]"
-		rest, err := render(child, index+1)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("(IS_OBJECT(%s) ? (%s ? %s : false) : false)", object, has, rest), nil
-	}
-	return render(source, 0)
-}
-
-func categoryScanUniqueBindKey(bindVars map[string]any, base string) string {
-	key := base
-	for suffix := 1; ; suffix++ {
-		if _, exists := bindVars[key]; !exists {
-			return key
-		}
-		key = fmt.Sprintf("%s_%d", base, suffix)
-	}
-}
-
-func categoryScanIndexedQueryVariables(sourceQuery string) map[string]string {
-	variables := make(map[string]string, 3)
-	for _, role := range []struct{ key, base string }{
-		{key: "nonnull", base: "__loom_category_nonnull"},
-		{key: "null", base: "__loom_category_null"},
-		{key: "row", base: "__loom_category_row"},
-	} {
-		candidate := role.base
-		for suffix := 1; strings.Contains(sourceQuery, candidate) || variablesContain(variables, candidate); suffix++ {
-			candidate = fmt.Sprintf("%s_%d", role.base, suffix)
-		}
-		variables[role.key] = candidate
-	}
-	return variables
-}
-
-func categoryScanWithRootIndexHint(query, rootVariable, collectionBindKey, indexName string) (string, bool) {
-	if rootVariable == "" || collectionBindKey == "" || indexName == "" {
-		return query, false
-	}
-	rootScan := fmt.Sprintf("FOR %s IN @@%s", rootVariable, collectionBindKey)
-	if strings.Count(query, rootScan) != 1 {
-		return query, false
-	}
-	hintedRootScan := rootScan + fmt.Sprintf(" OPTIONS { indexHint: %q, forceIndexHint: false }", indexName)
-	return strings.Replace(query, rootScan, hintedRootScan, 1), true
-}
-
-func categoryScanDistinctQuery(sourceQuery, presenceMarkerColumn, categoryColumnBind, valueColumnBind, categoryLimitBind string, streamRoot bool) (string, bool) {
-	variables := make(map[string]string, 6)
-	for _, variableRole := range []struct{ key, base string }{
-		{key: "row", base: "__loom_category_row"},
-		{key: "rows", base: "__loom_category_rows"},
-		{key: "present", base: "__loom_category_present"},
-		{key: "value", base: "__loom_category_value"},
-		{key: "groupPresent", base: "__loom_category_group_present"},
-		{key: "groupValue", base: "__loom_category_group_value"},
-	} {
-		key, base := variableRole.key, variableRole.base
-		variable := base
-		for suffix := 1; strings.Contains(sourceQuery, variable) || variablesContain(variables, variable); suffix++ {
-			variable = fmt.Sprintf("%s_%d", base, suffix)
-		}
-		variables[key] = variable
-	}
-	if streamRoot {
-		returnExpression, prefix, ok := splitTerminalPhysicalReturn(sourceQuery)
-		if !ok {
-			return "", false
-		}
-		return prefix + "\nLET " + variables["row"] + " = " + returnExpression + "\n" +
-			categoryScanDistinctSuffix(variables, presenceMarkerColumn, categoryColumnBind, valueColumnBind, categoryLimitBind), true
-	}
-	return "LET " + variables["rows"] + " = (\n" + sourceQuery + "\n)\n" +
-		"FOR " + variables["row"] + " IN " + variables["rows"] + "\n" +
-		categoryScanDistinctSuffix(variables, presenceMarkerColumn, categoryColumnBind, valueColumnBind, categoryLimitBind), true
-}
-
-func categoryScanDistinctQueryFromPresenceColumn(sourceQuery, presenceColumnBind, categoryColumnBind, valueColumnBind, categoryLimitBind string) (string, bool) {
-	variables := make(map[string]string, 6)
-	for _, role := range []struct{ key, base string }{
-		{key: "row", base: "__loom_category_row"},
-		{key: "rows", base: "__loom_category_rows"},
-		{key: "present", base: "__loom_category_present"},
-		{key: "value", base: "__loom_category_value"},
-		{key: "groupPresent", base: "__loom_category_group_present"},
-		{key: "groupValue", base: "__loom_category_group_value"},
-	} {
-		variable := role.base
-		for suffix := 1; strings.Contains(sourceQuery, variable) || variablesContain(variables, variable); suffix++ {
-			variable = fmt.Sprintf("%s_%d", role.base, suffix)
-		}
-		variables[role.key] = variable
-	}
-	valueFilter := ""
-	if valueColumnBind != "" {
-		valueFilter = "FILTER " + variables["row"] + "[@" + valueColumnBind + "] != null\n"
-	}
-	return "LET " + variables["rows"] + " = (\n" + sourceQuery + "\n)\n" +
-		"FOR " + variables["row"] + " IN " + variables["rows"] + "\n" +
-		valueFilter +
-		"LET " + variables["present"] + " = " + variables["row"] + "[@" + presenceColumnBind + "] == true\n" +
-		"LET " + variables["value"] + " = " + variables["present"] + " ? " + variables["row"] + "[@" + categoryColumnBind + "] : null\n" +
-		"COLLECT " + variables["groupPresent"] + " = " + variables["present"] + ", " + variables["groupValue"] + " = " + variables["value"] + "\n" +
-		"SORT " + variables["groupPresent"] + " ASC, TYPENAME(" + variables["groupValue"] + ") ASC, " + variables["groupValue"] + " ASC\n" +
-		"LIMIT @" + categoryLimitBind + "\n" +
-		"RETURN { present: " + variables["groupPresent"] + ", value: " + variables["groupValue"] + " }", true
-}
-
-func variablesContain(variables map[string]string, candidate string) bool {
-	for _, variable := range variables {
-		if variable == candidate {
-			return true
-		}
-	}
-	return false
-}
-
-func splitTerminalPhysicalReturn(query string) (returnExpression, prefix string, ok bool) {
-	returnStart := strings.LastIndex(query, "\nRETURN ")
-	if returnStart < 0 {
-		return "", "", false
-	}
-	start := returnStart + len("\nRETURN ")
-	expression := strings.TrimSpace(query[start:])
-	if expression == "" || strings.ContainsAny(expression, "\r\n") {
-		return "", "", false
-	}
-	return expression, query[:returnStart], true
-}
-
-func categoryScanDistinctSuffix(variables map[string]string, presenceMarkerColumn, categoryColumnBind, valueColumnBind, categoryLimitBind string) string {
-	valueFilter := ""
-	if valueColumnBind != "" {
-		valueFilter = "FILTER " + variables["row"] + "[@" + valueColumnBind + "] != null\n"
-	}
-	return valueFilter + "LET " + variables["present"] + " = " + variables["row"] + fmt.Sprintf("[%q]\n", presenceMarkerColumn) +
-		"LET " + variables["value"] + " = " + variables["present"] + " ? " + variables["row"] + "[@" + categoryColumnBind + "] : null\n" +
-		"COLLECT " + variables["groupPresent"] + " = " + variables["present"] + ", " + variables["groupValue"] + " = " + variables["value"] + "\n" +
-		"SORT " + variables["groupPresent"] + " ASC, TYPENAME(" + variables["groupValue"] + ") ASC, " + variables["groupValue"] + " ASC\n" +
-		"LIMIT @" + categoryLimitBind + "\n" +
-		"RETURN { present: " + variables["groupPresent"] + ", value: " + variables["groupValue"] + " }"
 }
 
 func categoryScanPresenceMarkerColumn(plan ir.PhysicalPlan, schema []lower.CompiledOutputColumn) string {
@@ -1396,14 +901,6 @@ func categoryScanPhysicalPlan(output lower.CompiledRecipeOutput, policy ir.Physi
 		return ir.PhysicalPlan{}, fmt.Errorf("optimize category scan output plan: %w", err)
 	}
 	return physical, nil
-}
-
-func cloneCategoryScanBinds(source map[string]any) map[string]any {
-	cloned := make(map[string]any, len(source)+2)
-	for key, value := range source {
-		cloned[key] = value
-	}
-	return cloned
 }
 
 func categoryQueryFingerprint(query string, binds map[string]any) (string, error) {
