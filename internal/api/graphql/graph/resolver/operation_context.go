@@ -7,10 +7,9 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-// WithOperationContext installs all request-scoped loaders and aggregate
-// scheduling state at gqlgen's operation boundary.
+// WithOperationContext installs request-scoped aggregate scheduling state
+// at gqlgen's operation boundary.
 func (r *Resolver) WithOperationContext(ctx context.Context) context.Context {
-	ctx = withFHIRReferenceLoader(ctx, r)
 	if r.dataframes != nil {
 		ctx = r.dataframes.WithOperationContext(ctx, aggregateRootFieldCount(ctx))
 	}

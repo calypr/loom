@@ -29,7 +29,7 @@ pasted into Apollo Sandbox or sent as a normal GraphQL HTTP POST.
 ## Graph API
 
 The graph endpoint is the Arango/compiler surface for explicit graph traversal,
-typed FHIR reads, discovery, and recipe control operations.
+discovery, and recipe control operations.
 
 ### Explorer authoring and catalog discovery
 
@@ -98,42 +98,7 @@ The dataframe input supports fields, filters, pivots, aggregates, slices,
 catalog projections, and recursive traversal shaping. Its traversal default is
 `OPTIONAL`; this is intentionally different from graph-path mode.
 
-### Typed FHIR reads
-
-The graph endpoint also exposes generated resource roots for the supported FHIR
-types. These are convenient for resource-shaped reads, not graph path queries:
-
-Use these roots at `/graphql/graph`; published dataframe fields live on the
-same schema and do not define duplicate FHIR resource roots.
-
-```graphql
-query Patients($project: String!, $filters: [FhirFilterInput!]) {
-  Patient(project: $project, filters: $filters, limit: 25) {
-    id
-    resourceType
-    gender
-    birthDate
-  }
-}
-```
-
-```json
-{
-  "project": "ARANGODB_PROTO",
-  "filters": [{
-    "select": "gender",
-    "operator": "EQUALS",
-    "values": [{ "kind": "STRING", "string": "female" }]
-  }]
-}
-```
-
-Typed reads use the same filter contract as dataframe and graph reads, but
-return generated FHIR structs. `limit` defaults to 25. Read-only callers may
-request at most 10,000 resources; callers with write access to the selected
-project may request any positive GraphQL `Int` limit. Nested
-`Reference.resource` fields perform separate authorized lookups; use
-`fhirGraph` when you need one compiled query with explicit relationship paths.
+The typed FHIR resource roots have been retired.
 
 ### Explicit graph paths
 

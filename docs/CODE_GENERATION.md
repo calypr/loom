@@ -55,24 +55,16 @@ The handwritten GraphQL inputs and runtime wiring are deliberately separate:
 
 | Input | Command | Generated outputs |
 | --- | --- | --- |
-| `schemas/graph-fhir.json` and `cmd/generate/` | `make generate-fhir` | `generated/fhir/*.go`, `generated/fhirschema/generated.go`, and `generated/graphql/graph/schema/fhir_schema.graphqls` |
-| `internal/api/graphql/graph/schema/schema.graphqls`, generated FHIR SDL, and `gqlgen.yml` | `make generate-graphql` | Primary executor, models, and resolver bindings under `generated/graphql/graph/` and `internal/api/graphql/graph/resolver/` |
+| `schemas/graph-fhir.json` and `cmd/generate/` | `make generate-fhir` | `generated/fhir/*.go` and `generated/fhirschema/generated.go` |
+| `internal/api/graphql/graph/schema/schema.graphqls` and `gqlgen.yml` | `make generate-graphql` | Primary executor, models, and resolver bindings under `generated/graphql/graph/` and `internal/api/graphql/graph/resolver/` |
 | [`openapi/openapi.yaml`](../openapi/openapi.yaml) and [`openapi/oapi-codegen.yaml`](../openapi/oapi-codegen.yaml) | `make generate-openapi` | All Loom HTTP wire models, Fiber v3 strict-server interfaces, registrar, and embedded specification under `generated/loomapi/` |
-
-`generated/graphql/graph/executor/fhir_schema.generated.go` and
-`generated/graphql/graph/executor/root_.generated.go` are
-large because gqlgen emits executable dispatch code for every selectable field
-in the typed FHIR schema. They are generated runtime code, not duplicate data
-models or a second query engine.
 
 `generated/graphql/graph/executor/schema.generated.go` is post-processed by
 `cmd/gqlgenfix` to correct pinned-gqlgen return types and add the JSON scalar
 glue required by the `encoding/json.RawMessage` model mapping. That
 post-processing is part of `make generate-graphql`, not a manual edit.
 
-`internal/api/graphql/graph/resolver/fhir_schema.resolvers.go` contains generated
-field bindings that call shared helpers. It lets all JSON FHIR property names
-remain selectable without hand-writing one resolver per field.
+The typed FHIR GraphQL API has been retired. The ingestion models and schema metadata are still generated from the FHIR schema.
 
 ## Workflow
 
@@ -80,14 +72,8 @@ After changing the FHIR schema or its generator:
 
 ```bash
 make generate-fhir
-make generate-graphql
-make graphql-check
 git diff --check
 ```
-
-`make generate-fhir` must run before `make generate-graphql`, because it
-refreshes the generated FHIR GraphQL SDL consumed by gqlgen. Generated-file
-drift is a failure: commit the resulting files with the input change.
 
 After changing only a handwritten GraphQL schema, gqlgen configuration, or
 resolver binding, run:

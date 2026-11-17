@@ -73,6 +73,35 @@ func TestGraphQLSchemaIntrospectionEndpoint(t *testing.T) {
 	}
 }
 
+func TestGraphQLRejectsRetiredFHIRRoot(t *testing.T) {
+	root := graphresolver.NewResolver(graphresolver.ResolverConfig{})
+	server, err := newGraphServer(root, authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/graphql/graph", strings.NewReader(`{"query":"{ Patient(project:\"x\") { id } }"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var payload struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusUnprocessableEntity || len(payload.Errors) != 1 ||
+		!strings.Contains(payload.Errors[0].Message, `Cannot query field "Patient"`) {
+		t.Fatalf("status = %d, errors = %+v", resp.StatusCode, payload.Errors)
+	}
+}
+
 func TestProjectDataframeDatasetsResolverIsWired(t *testing.T) {
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{})
 	server, err := newGraphServer(graphResolver, authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "u1", Projects: []string{"P1"}}})

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func main() {
@@ -14,7 +13,6 @@ func main() {
 	schemaPath := fs.String("schema", "schemas/graph-fhir.json", "Path to graph-fhir JSON schema")
 	structsDir := fs.String("structs-out", "generated/fhir", "Directory for generated FHIR Go structs, validation, and edge extraction")
 	metadataOut := fs.String("metadata-out", "generated/fhirschema/generated.go", "Path for generated compiler FHIR schema metadata")
-	graphqlOut := fs.String("graphql-out", "generated/graphql/graph/schema/fhir_schema.graphqls", "Path for generated FHIR GraphQL schema")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		os.Exit(2)
@@ -66,8 +64,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 5. Generate the concrete-resource registry and GraphQL markers.
-	if err := generateFHIRResources(&schema, filepath.Join(*structsDir, "resources.go"), filepath.Join(*structsDir, "graphql.go")); err != nil {
+	// 5. Generate the concrete-resource registry.
+	if err := generateFHIRResources(&schema, filepath.Join(*structsDir, "resources.go")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating resource registry: %v\n", err)
 		os.Exit(1)
 	}
@@ -76,21 +74,6 @@ func main() {
 	if err := generateFHIRSchema(&schema, *metadataOut); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating generated/fhirschema/generated.go: %v\n", err)
 		os.Exit(1)
-	}
-
-	// Keep the FHIR GraphQL surface generated from the same parsed schema as
-	// the compiler metadata and Go models. The SDL is intentionally emitted as
-	// a separate schema document so the handwritten dataframe API remains
-	// readable and stable.
-	if strings.TrimSpace(*graphqlOut) != "" {
-		if err := os.MkdirAll(filepath.Dir(*graphqlOut), 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating GraphQL schema directory: %v\n", err)
-			os.Exit(1)
-		}
-		if err := generateFHIRGraphQL(&schema, *graphqlOut); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating FHIR GraphQL schema: %v\n", err)
-			os.Exit(1)
-		}
 	}
 
 	fmt.Println("Code generation completed successfully.")

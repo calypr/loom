@@ -23,6 +23,8 @@ Generated FHIR structs live in `generated/fhir`; raw generated schema tables
 live in `generated/fhirschema`. `internal/fhir/schema` adds the handwritten
 selector, traversal, and compiler semantics that consume those tables.
 
+The typed FHIR GraphQL resource roots have been retired.
+
 GraphQL is split the same way. Handwritten schemas, HTTP transport, error
 presentation, query services, and materialization mapping live under
 `internal/api/graphql/graph`. gqlgen models, executors, and resolver bindings live

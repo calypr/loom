@@ -10,12 +10,6 @@ import (
 	"strconv"
 )
 
-type FHIRResource interface {
-	IsFHIRResource()
-	GetID() string
-	GetResourceType() string
-}
-
 type DataframeAggregateInput struct {
 	ProjectID string                  `json:"projectId"`
 	Selector  *DataframeSelectorInput `json:"selector"`
@@ -756,103 +750,6 @@ func (e *DataframeRecipeExecutionState) UnmarshalJSON(b []byte) error {
 }
 
 func (e DataframeRecipeExecutionState) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
-}
-
-type FHIRResourceType string
-
-const (
-	FHIRResourceTypeBodyStructure            FHIRResourceType = "BODY_STRUCTURE"
-	FHIRResourceTypeCondition                FHIRResourceType = "CONDITION"
-	FHIRResourceTypeDiagnosticReport         FHIRResourceType = "DIAGNOSTIC_REPORT"
-	FHIRResourceTypeDocumentReference        FHIRResourceType = "DOCUMENT_REFERENCE"
-	FHIRResourceTypeFamilyMemberHistory      FHIRResourceType = "FAMILY_MEMBER_HISTORY"
-	FHIRResourceTypeGroup                    FHIRResourceType = "GROUP"
-	FHIRResourceTypeImagingStudy             FHIRResourceType = "IMAGING_STUDY"
-	FHIRResourceTypeMedication               FHIRResourceType = "MEDICATION"
-	FHIRResourceTypeMedicationAdministration FHIRResourceType = "MEDICATION_ADMINISTRATION"
-	FHIRResourceTypeMedicationRequest        FHIRResourceType = "MEDICATION_REQUEST"
-	FHIRResourceTypeMedicationStatement      FHIRResourceType = "MEDICATION_STATEMENT"
-	FHIRResourceTypeObservation              FHIRResourceType = "OBSERVATION"
-	FHIRResourceTypeOrganization             FHIRResourceType = "ORGANIZATION"
-	FHIRResourceTypePatient                  FHIRResourceType = "PATIENT"
-	FHIRResourceTypePractitioner             FHIRResourceType = "PRACTITIONER"
-	FHIRResourceTypePractitionerRole         FHIRResourceType = "PRACTITIONER_ROLE"
-	FHIRResourceTypeProcedure                FHIRResourceType = "PROCEDURE"
-	FHIRResourceTypeResearchStudy            FHIRResourceType = "RESEARCH_STUDY"
-	FHIRResourceTypeResearchSubject          FHIRResourceType = "RESEARCH_SUBJECT"
-	FHIRResourceTypeSpecimen                 FHIRResourceType = "SPECIMEN"
-	FHIRResourceTypeSubstance                FHIRResourceType = "SUBSTANCE"
-	FHIRResourceTypeSubstanceDefinition      FHIRResourceType = "SUBSTANCE_DEFINITION"
-	FHIRResourceTypeTask                     FHIRResourceType = "TASK"
-)
-
-var AllFHIRResourceType = []FHIRResourceType{
-	FHIRResourceTypeBodyStructure,
-	FHIRResourceTypeCondition,
-	FHIRResourceTypeDiagnosticReport,
-	FHIRResourceTypeDocumentReference,
-	FHIRResourceTypeFamilyMemberHistory,
-	FHIRResourceTypeGroup,
-	FHIRResourceTypeImagingStudy,
-	FHIRResourceTypeMedication,
-	FHIRResourceTypeMedicationAdministration,
-	FHIRResourceTypeMedicationRequest,
-	FHIRResourceTypeMedicationStatement,
-	FHIRResourceTypeObservation,
-	FHIRResourceTypeOrganization,
-	FHIRResourceTypePatient,
-	FHIRResourceTypePractitioner,
-	FHIRResourceTypePractitionerRole,
-	FHIRResourceTypeProcedure,
-	FHIRResourceTypeResearchStudy,
-	FHIRResourceTypeResearchSubject,
-	FHIRResourceTypeSpecimen,
-	FHIRResourceTypeSubstance,
-	FHIRResourceTypeSubstanceDefinition,
-	FHIRResourceTypeTask,
-}
-
-func (e FHIRResourceType) IsValid() bool {
-	switch e {
-	case FHIRResourceTypeBodyStructure, FHIRResourceTypeCondition, FHIRResourceTypeDiagnosticReport, FHIRResourceTypeDocumentReference, FHIRResourceTypeFamilyMemberHistory, FHIRResourceTypeGroup, FHIRResourceTypeImagingStudy, FHIRResourceTypeMedication, FHIRResourceTypeMedicationAdministration, FHIRResourceTypeMedicationRequest, FHIRResourceTypeMedicationStatement, FHIRResourceTypeObservation, FHIRResourceTypeOrganization, FHIRResourceTypePatient, FHIRResourceTypePractitioner, FHIRResourceTypePractitionerRole, FHIRResourceTypeProcedure, FHIRResourceTypeResearchStudy, FHIRResourceTypeResearchSubject, FHIRResourceTypeSpecimen, FHIRResourceTypeSubstance, FHIRResourceTypeSubstanceDefinition, FHIRResourceTypeTask:
-		return true
-	}
-	return false
-}
-
-func (e FHIRResourceType) String() string {
-	return string(e)
-}
-
-func (e *FHIRResourceType) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FHIRResourceType(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FHIRResourceType", str)
-	}
-	return nil
-}
-
-func (e FHIRResourceType) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FHIRResourceType) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FHIRResourceType) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

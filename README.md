@@ -58,7 +58,7 @@ recipe, translation-version, and output selector.
 | --- | --- |
 | `arango-fhir-proto` | Operator CLI for loading data, loading immutable generations, catalog discovery, and local dataframe materialization. |
 | `arango-fhir-server` | HTTP server for graph compilation/control and flat dataframe reads. |
-| `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, typed FHIR reads, recipe validation, preview, execution, publication reads, and recipe control. |
+| `POST /graphql/graph` | Arango graph and recipe control plane: explicit graph traversal, recipe validation, preview, execution, publication reads, and recipe control. |
 | `POST /graphql/dataframe` | Arango-backed FHIR dataframe compiler and executor (`runFhirDataframe`). |
 | `POST /api/v1/projects/:project/explorers/...` | REST Explorer lifecycle and V2 intent authoring used by the Builder. |
 | `POST /api/v1/datasets/:project/generations/:generation` | Multipart immutable-generation loader used by ETL. |
@@ -206,28 +206,7 @@ Publication is intentionally a recipe-level operation: Loom must read the
 authorized Arango graph, resolve the recipe against the selected generation,
 and then write its output to ClickHouse. It is not a raw “insert rows” API.
 
-### Typed FHIR reads
-
-The same `/graphql/graph` endpoint also exposes generated, typed FHIR reads.
-The 23 root fields are exactly `BodyStructure`, `Condition`,
-`DiagnosticReport`, `DocumentReference`, `FamilyMemberHistory`, `Group`,
-`ImagingStudy`, `Medication`, `MedicationAdministration`, `MedicationRequest`,
-`MedicationStatement`, `Observation`, `Organization`, `Patient`,
-`Practitioner`, `PractitionerRole`, `Procedure`, `ResearchStudy`,
-`ResearchSubject`, `Specimen`, `Substance`, `SubstanceDefinition`, and `Task`.
-Each field returns a list and accepts `project`, `filters: [FhirFilterInput!]`,
-and a `limit` (default 25). Read-only callers are capped at 10,000 rows;
-callers with write access to the selected project are uncapped. ID lookup is
-an ordinary `id` filter; filters are ANDed using the existing Loom selector
-semantics.
-
-Every selectable property in the generated FHIR schema is available, including
-primitive-extension fields such as `_birthDate`. `Reference.resource` performs
-an authorized outbound lookup for relative, absolute, and versioned references;
-reverse relationships are not exposed. Cursor pagination, arbitrary sorting,
-recursive filter trees, and same-element sibling correlation are not supported
-in this checkpoint. The endpoint is FHIR-shaped, but is not advertised as a
-fully HL7-conformant GraphQL implementation.
+The typed FHIR resource roots have been retired.
 
 ### Flat: discover and read published dataframes
 

@@ -40,7 +40,7 @@ RESPONSIBILITIES = {'internal/testkit/arangotest': 'Provide isolated Arango and 
  'cmd/arango-fhir-server': 'Start the explicit Loom HTTP server binary.',
  'cmd/dataframe-profile': 'Run and compare developer-facing dataframe profiling workloads.',
  'cmd/dataframe-query': 'Execute a checked-in GraphQL dataframe request and report response timing and diagnostics.',
- 'cmd/generate': 'Generate FHIR models, schema metadata, validation, extraction, and GraphQL artifacts from source '
+ 'cmd/generate': 'Generate FHIR models, schema metadata, validation, and edge extraction from source '
                  'schemas.',
  'cmd/gqlgenfix': 'Post-process gqlgen output to enforce Loom-specific generated-code invariants.',
  'cmd/loom-acceptance': 'Run the locked real-data acceptance scenario and emit machine-readable verification '
@@ -49,7 +49,7 @@ RESPONSIBILITIES = {'internal/testkit/arangotest': 'Provide isolated Arango and 
                         'owned Compose project.',
  'conformance/compiler': 'Load and exercise the canonical dataframe compiler oracle corpus for conformance and '
                          'performance checks.',
- 'generated/fhir': 'Expose generated FHIR resource models and their extraction, validation, and GraphQL helpers.',
+ 'generated/fhir': 'Expose generated FHIR resource models and their validation and edge extraction helpers.',
  'generated/fhirschema': 'Expose generated raw FHIR schema metadata tables.',
  'generated/graphql/graph/executor': 'Provide gqlgen-generated GraphQL executable schema and execution plumbing.',
  'generated/graphql/graph/model': 'Provide gqlgen-generated GraphQL transport model types.',
