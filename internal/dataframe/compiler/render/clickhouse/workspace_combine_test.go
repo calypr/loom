@@ -304,3 +304,51 @@ func scopeTestDigest(value string) string {
 	digest := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(digest[:])
 }
+
+func TestRenderWorkspaceMembershipSealsWholeScopeAndFiltersRows(t *testing.T) {
+	plan := ir.PhysicalClickHouseCombine{
+		Kind: ir.PhysicalCombineMembership,
+		Inputs: []ir.PhysicalCombineInputRef{
+			{WorkspaceOutputID: "grouped"},
+			{TableID: "members-table", RevisionID: "members-revision", OutputID: "members-output"},
+		},
+		Keys:           []ir.PhysicalCombineKey{{LeftColumnID: "group-key", RightColumnID: "member-key"}},
+		MembershipMode: "INCLUDE",
+		Projections:    []ir.PhysicalCombineProjection{{OutputColumnID: "group-key", InputIndex: 0, InputColumnID: "group-key"}},
+		Outputs:        []ir.PhysicalCombineOutputColumn{{ID: "group-key", Name: "group_key", LogicalType: "string", ClickHouseType: "String"}},
+	}
+	whole := workspaceArtifact("grouped", "loom_private_grouped", ir.ClickHouseArtifactScopeWhole)
+	whole.Artifact.Columns[1] = ir.ResolvedClickHouseColumn{ID: "group-key", Name: "group_key", LogicalType: "string", ClickHouseType: "String"}
+	members := resolvedInput("members-table", "members-revision", "members-output", "members_table", []ir.ResolvedClickHouseColumn{
+		{ID: "row-id", Name: "__loom_row_id", ClickHouseType: "String"},
+		{ID: "member-key", Name: "member_key", LogicalType: "string", ClickHouseType: "String"},
+		{ID: "auth-path", Name: "auth_resource_path", LogicalType: "string", ClickHouseType: "Nullable(String)"},
+	})
+	members.Unrestricted = false
+	members.AuthResourcePaths = []string{"/programs/p1"}
+	members.ScopeMode = ir.ClickHouseArtifactScopeRows
+
+	rendered, err := RenderWorkspaceClickHouseCombine(plan, []WorkspaceArtifact{whole}, []ir.ResolvedClickHouseTable{members}, "project-a", "generation-a", 0)
+	if err != nil {
+		t.Fatalf("RenderWorkspaceClickHouseCombine: %v", err)
+	}
+	for _, forbidden := range []string{"__loom_left.`auth_resource_path` = __loom_members.`auth_resource_path`", "__loom_left.`auth_resource_path` IN ?"} {
+		if strings.Contains(rendered.Query, forbidden) {
+			t.Fatalf("whole-scope membership output retained row-scope condition %q: %s", forbidden, rendered.Query)
+		}
+	}
+	for _, required := range []string{
+		"CAST(NULL, 'Nullable(String)') AS `auth_resource_path`",
+		"__loom_member_source.`auth_resource_path` IN ?",
+		"__loom_members.`__loom_match` IS NOT NULL",
+		"SELECT DISTINCT",
+		"LEFT ANY JOIN",
+	} {
+		if !strings.Contains(rendered.Query, required) {
+			t.Fatalf("membership query is missing %q: %s", required, rendered.Query)
+		}
+	}
+	if !reflect.DeepEqual(rendered.Args, []any{[]string{"/programs/p1"}}) {
+		t.Fatalf("membership scope args = %#v", rendered.Args)
+	}
+}
