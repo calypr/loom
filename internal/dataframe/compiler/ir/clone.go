@@ -394,64 +394,31 @@ func canonicalizePhysicalSubplan(subplan *PhysicalSubplan) {
 }
 
 func canonicalizePhysicalPredicateExpression(predicate *PhysicalPredicateExpression) {
-	if predicate == nil {
-		return
-	}
-	if predicate.Comparison != nil {
-		canonicalizePhysicalExpression(predicate.Comparison.LeftExpression)
-	}
-	canonicalizePhysicalSubplan(predicate.Exists)
-	for index := range predicate.Children {
-		canonicalizePhysicalPredicateExpression(&predicate.Children[index])
+	if predicate != nil {
+		canonicalizePhysicalExpressionChildren(predicate)
 	}
 }
 
 func canonicalizePhysicalExpression(expression *PhysicalExpression) {
-	if expression == nil {
-		return
+	if expression != nil {
+		canonicalizePhysicalExpressionChildren(expression)
 	}
-	if expression.Aggregate != nil {
-		canonicalizePhysicalExpression(expression.Aggregate.Value)
-		if expression.Aggregate.ContributorWindow != nil {
-			canonicalizePhysicalExpression(&expression.Aggregate.ContributorWindow.Timestamp)
-			canonicalizePhysicalExpression(&expression.Aggregate.ContributorWindow.Anchor)
+}
+
+// canonicalizePhysicalExpressionChildren reuses the generated IR child
+// enumeration for expression recursion while handing subplans back to the
+// operation selector above. That boundary preserves which subplan operations
+// participate in the canonical execution form.
+func canonicalizePhysicalExpressionChildren(node Node) {
+	for _, child := range Children(node) {
+		switch child := child.(type) {
+		case *PhysicalSubplan:
+			canonicalizePhysicalSubplan(child)
+		case *PhysicalExpression, *PhysicalPredicateExpression, *PhysicalValue:
+			canonicalizePhysicalExpressionChildren(child)
+		default:
+			panic("unexpected physical expression child")
 		}
-		if expression.Aggregate.Ordering != nil {
-			canonicalizePhysicalExpression(&expression.Aggregate.Ordering.Timestamp)
-		}
-		canonicalizePhysicalPredicateExpression(expression.Aggregate.Predicate)
-	}
-	if expression.Slice != nil {
-		canonicalizePhysicalPredicateExpression(expression.Slice.Predicate)
-		canonicalizePhysicalExpression(expression.Slice.Sort)
-		for index := range expression.Slice.Projections {
-			canonicalizePhysicalExpression(&expression.Slice.Projections[index].Expression)
-		}
-	}
-	if expression.KeyedMap != nil {
-		canonicalizePhysicalExpression(&expression.KeyedMap.Source)
-		canonicalizePhysicalExpression(&expression.KeyedMap.ItemKey)
-		canonicalizePhysicalExpression(&expression.KeyedMap.ItemValue)
-		for index := range expression.KeyedMap.ValueFallbacks {
-			canonicalizePhysicalExpression(&expression.KeyedMap.ValueFallbacks[index])
-		}
-	}
-	if expression.KeySet != nil {
-		canonicalizePhysicalExpression(&expression.KeySet.Source)
-		canonicalizePhysicalExpression(&expression.KeySet.ItemKey)
-	}
-	if expression.Object != nil {
-		for index := range expression.Object.Fields {
-			canonicalizePhysicalExpression(&expression.Object.Fields[index].Expression)
-		}
-	}
-	if expression.Call != nil {
-		for index := range expression.Call.Args {
-			canonicalizePhysicalExpression(&expression.Call.Args[index])
-		}
-	}
-	if expression.Subplan != nil {
-		canonicalizePhysicalSubplan(expression.Subplan)
 	}
 }
 

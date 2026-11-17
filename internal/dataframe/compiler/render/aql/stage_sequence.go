@@ -1117,78 +1117,56 @@ func sourceGroupOperationVariables(operation ir.PhysicalOperation) ([]string, bo
 }
 
 func addSourceGroupOperationReferences(needed map[string]struct{}, operation ir.PhysicalOperation) {
-	physicalValueType := reflect.TypeOf(ir.PhysicalValue{})
-	physicalObjectLookupType := reflect.TypeOf(ir.PhysicalObjectLookup{})
-	physicalObjectKeysType := reflect.TypeOf(ir.PhysicalObjectKeys{})
-	physicalPreparedReferenceType := reflect.TypeOf(ir.PhysicalPreparedReference{})
-	physicalPreparedSetType := reflect.TypeOf(ir.PhysicalPreparedSet{})
-	physicalSetType := reflect.TypeOf(ir.PhysicalSet{})
-	physicalSubplanType := reflect.TypeOf(ir.PhysicalSubplan{})
-	visited := map[uintptr]struct{}{}
-	var visit func(reflect.Value)
-	visit = func(value reflect.Value) {
-		if !value.IsValid() {
+	visited := make(map[ir.Node]bool)
+	var visit func(ir.Node)
+	visit = func(node ir.Node) {
+		if visited[node] {
 			return
 		}
-		if value.Type() == physicalValueType {
-			variable := value.FieldByName("Variable").String()
-			if variable != "" {
-				needed[variable] = struct{}{}
+		visited[node] = true
+		switch node := node.(type) {
+		case *ir.PhysicalValue:
+			addSourceGroupVariableReference(needed, node.Variable)
+		case *ir.PhysicalSubplan:
+			for _, capture := range node.Captures {
+				addSourceGroupVariableReference(needed, capture)
 			}
-			return
-		}
-		switch value.Type() {
-		case physicalObjectLookupType:
-			addSourceGroupVariableReference(needed, value.FieldByName("ObjectVariable").String())
-		case physicalObjectKeysType:
-			addSourceGroupVariableReference(needed, value.FieldByName("ObjectVariable").String())
-		case physicalPreparedReferenceType:
-			addSourceGroupVariableReference(needed, value.FieldByName("SetVariable").String())
-		case physicalPreparedSetType:
-			addSourceGroupVariableReference(needed, value.FieldByName("SourceSetVariable").String())
-		case physicalSetType:
-			addSourceGroupVariableReference(needed, value.FieldByName("SourceSetVariable").String())
-		case physicalSubplanType:
-			captures := value.FieldByName("Captures")
-			for index := 0; index < captures.Len(); index++ {
-				addSourceGroupVariableReference(needed, captures.Index(index).String())
-			}
-		}
-		switch value.Kind() {
-		case reflect.Interface, reflect.Pointer:
-			if value.IsNil() {
-				return
-			}
-			if value.Kind() == reflect.Pointer {
-				pointer := value.Pointer()
-				if _, found := visited[pointer]; found {
-					return
-				}
-				visited[pointer] = struct{}{}
-			}
-			visit(value.Elem())
-		case reflect.Struct:
-			for index := 0; index < value.NumField(); index++ {
-				field := value.Field(index)
-				if field.CanInterface() {
-					visit(field)
+		case *ir.PhysicalOperation:
+			if node.Kind == ir.PhysicalSetOp && node.Set != nil {
+				addSourceGroupVariableReference(needed, node.Set.SourceSetVariable)
+				if node.Set.Prepared != nil {
+					addSourceGroupVariableReference(needed, node.Set.Prepared.SourceSetVariable)
 				}
 			}
-		case reflect.Slice, reflect.Array:
-			for index := 0; index < value.Len(); index++ {
-				visit(value.Index(index))
-			}
-		case reflect.Map:
-			iterator := value.MapRange()
-			for iterator.Next() {
-				visit(iterator.Value())
+		case *ir.PhysicalExpression:
+			switch node.Kind {
+			case ir.PhysicalObjectLookupExpression:
+				if node.ObjectLookup != nil {
+					addSourceGroupVariableReference(needed, node.ObjectLookup.ObjectVariable)
+				}
+			case ir.PhysicalObjectKeysExpression:
+				if node.ObjectKeys != nil {
+					addSourceGroupVariableReference(needed, node.ObjectKeys.ObjectVariable)
+				}
+			case ir.PhysicalExtractExpression:
+				if node.Extract != nil && node.Extract.Prepared != nil {
+					addSourceGroupVariableReference(needed, node.Extract.Prepared.SetVariable)
+				}
+			case ir.PhysicalPivotExpression:
+				if node.Pivot != nil {
+					for _, reference := range []*ir.PhysicalPreparedReference{node.Pivot.PreparedKey, node.Pivot.PreparedValue} {
+						if reference != nil {
+							addSourceGroupVariableReference(needed, reference.SetVariable)
+						}
+					}
+				}
 			}
 		}
+		for _, child := range ir.Children(node) {
+			visit(child)
+		}
 	}
-	visit(reflect.ValueOf(operation))
-	if operation.Kind == ir.PhysicalSetOp && operation.Set != nil && operation.Set.SourceSetVariable != "" {
-		needed[operation.Set.SourceSetVariable] = struct{}{}
-	}
+	visit(&operation)
 }
 
 func addSourceGroupVariableReference(needed map[string]struct{}, variable string) {

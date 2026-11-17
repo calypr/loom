@@ -835,41 +835,29 @@ func validatePhysicalGroupFilterLineage(stages []PhysicalConstructionStage) erro
 }
 
 func physicalFilterReferencesColumn(filter PhysicalFilter, variable, column string) bool {
-	return physicalValueReferencesColumn(reflect.ValueOf(filter), variable, column)
+	operation := PhysicalOperation{Kind: PhysicalFilterOp, Filter: &filter}
+	return physicalValueReferencesColumn(&operation, variable, column)
 }
 
-func physicalValueReferencesColumn(value reflect.Value, variable, column string) bool {
-	if !value.IsValid() {
+func physicalValueReferencesColumn(node Node, variable, column string) bool {
+	visited := make(map[Node]bool)
+	var references func(Node) bool
+	references = func(node Node) bool {
+		if visited[node] {
+			return false
+		}
+		visited[node] = true
+		if value, ok := node.(*PhysicalValue); ok {
+			return value.Variable == variable && len(value.Path) != 0 && value.Path[0] == column
+		}
+		for _, child := range Children(node) {
+			if references(child) {
+				return true
+			}
+		}
 		return false
 	}
-	if value.Type() == reflect.TypeOf(PhysicalValue{}) {
-		physicalValue := value.Interface().(PhysicalValue)
-		return physicalValue.Variable == variable && len(physicalValue.Path) != 0 && physicalValue.Path[0] == column
-	}
-	switch value.Kind() {
-	case reflect.Interface, reflect.Pointer:
-		return !value.IsNil() && physicalValueReferencesColumn(value.Elem(), variable, column)
-	case reflect.Struct:
-		for index := 0; index < value.NumField(); index++ {
-			if physicalValueReferencesColumn(value.Field(index), variable, column) {
-				return true
-			}
-		}
-	case reflect.Slice, reflect.Array:
-		for index := 0; index < value.Len(); index++ {
-			if physicalValueReferencesColumn(value.Index(index), variable, column) {
-				return true
-			}
-		}
-	case reflect.Map:
-		iterator := value.MapRange()
-		for iterator.Next() {
-			if physicalValueReferencesColumn(iterator.Value(), variable, column) {
-				return true
-			}
-		}
-	}
-	return false
+	return references(node)
 }
 
 func validatePhysicalStageRelatedField(stage PhysicalConstructionStage, related PhysicalStageRelatedField, bindVars map[string]any) error {
