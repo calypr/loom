@@ -942,7 +942,6 @@ func supportsOperation(items []capability.Operation, want capability.Operation) 
 	return false
 }
 
-
 func projectionValueMode(mode string) recipe.ValueMode {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case string(capability.ProjectionFirst):
