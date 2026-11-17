@@ -42,7 +42,7 @@ func MigrateStoredWorkspace(raw []byte, catalog CatalogSnapshot) (StoredWorkspac
 			result.OriginalNilConstructionStepLists++
 		}
 	}
-	if originalCanonical, canonicalErr := original.CanonicalJSON(); canonicalErr == nil {
+	if originalCanonical, canonicalErr := CanonicalStoredWorkspaceForMigration(original); canonicalErr == nil {
 		result.OriginalCanonicalDigest = workspaceDigest(originalCanonical)
 	}
 	if legacyDigest, digestErr := original.LegacyNilConstructionStepsDigest(); digestErr == nil {
@@ -59,7 +59,7 @@ func MigrateStoredWorkspace(raw []byte, catalog CatalogSnapshot) (StoredWorkspac
 		return result, fmt.Errorf("migrate stored workspace: %w", err)
 	}
 	migrated.SemanticsVersion = CurrentSemanticsVersion
-	canonical, err := migrated.CanonicalJSON()
+	canonical, err := CanonicalStoredWorkspaceForMigration(migrated)
 	if err != nil {
 		return result, fmt.Errorf("canonicalize migrated workspace: %w", err)
 	}
@@ -98,7 +98,7 @@ func DecodeStoredWorkspaceForMigration(raw []byte) (Workspace, error) {
 		workspace = MigrateAggregateTemporalPolicy(legacy)
 		workspace = migrateMissingRowsBeforeCurrent(workspace)
 	}
-	if err := workspace.Validate(); err != nil {
+	if err := workspace.validate(true); err != nil {
 		return workspace, err
 	}
 	for i := range workspace.Documents {

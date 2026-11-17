@@ -25,6 +25,8 @@ def make_source_tree(root):
 });
 const constructionOperationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('PIVOT') }).strict(),
+  z.object({ kind: z.literal('UNPIVOT') }).strict(),
+  z.object({ kind: z.literal('DERIVE') }).strict(),
   z.object({ kind: z.literal('CODED_GROUP') }).strict(),
   z.object({ kind: z.literal('COMBINE'), combine: constructionCombineSchema }).strict(),
 ]);
@@ -33,11 +35,6 @@ const rowDefinitionSelectionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('FIELD_GROUP') }).strict(),
   z.object({ kind: z.literal('EXPLICIT_GROUP') }).strict(),
   z.object({ kind: z.literal('EXPANDED') }).strict(),
-]);
-const tableShapeProposalIntentSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('NONE') }).strict(),
-  z.object({ kind: z.literal('GROUPED_PIVOT') }).strict(),
-  z.object({ kind: z.literal('UNPIVOT') }).strict(),
 ]);
 """
     write_source(root, "ui/packages/loom-ui/src/types.ts", types_source)
@@ -84,9 +81,8 @@ def make_manifest(root, pending=False):
         "ROW_DEFINITION:FIELD_GROUP",
         "ROW_DEFINITION:EXPLICIT_GROUP",
         "ROW_DEFINITION:EXPANDED",
-        "TABLE_SHAPE:DERIVED_COLUMN",
-        "TABLE_SHAPE:GROUPED_PIVOT",
-        "TABLE_SHAPE:UNPIVOT",
+        "DERIVE",
+        "UNPIVOT",
     }
     families = ["ADD_COLUMNS", "KEEP_ROWS", "CALCULATE", "RESHAPE", "COMBINE"]
     affordances = []
@@ -187,12 +183,6 @@ def make_manifest(root, pending=False):
                     "schema": "rowDefinitionSelectionSchema",
                     "mappingField": "affordances[].operation.backendKinds",
                     "prefix": "ROW_DEFINITION:",
-                },
-                {
-                    "file": "ui/packages/loom-ui/src/types.ts",
-                    "schema": "tableShapeProposalIntentSchema",
-                    "mappingField": "affordances[].operation.backendKinds",
-                    "prefix": "TABLE_SHAPE:",
                 },
                 {
                     "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",

@@ -22,7 +22,7 @@ func constructionProposalService(t *testing.T) (*Service, *fakeStore, capability
 	t.Helper()
 	service, store, snapshot, _ := rowProposalService(t)
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
@@ -131,7 +131,7 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 }
 
 func constructionProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, document authoringv2.Document, changedStepID string) ConstructionProposalRequest {
-	upgraded, _ := authoringv2.UpgradeDocumentToConstruction(document)
+	upgraded, _ := authoringv2.StartDocumentConstruction(document)
 	columns := make([]authoringv2.StageColumn, 0, len(upgraded.Columns))
 	for _, column := range upgraded.Columns {
 		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
@@ -161,7 +161,7 @@ func seedConstructionProposalWithRelatedSource(t *testing.T, store *fakeStore, s
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func turnProposalStepIntoRelatedSource(workspace authoringv2.Workspace, index in
 
 func relatedSourceProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, workspace authoringv2.Workspace, related authoringv2.ConstructionRelatedSource, changedStepID string, removeStepIDs ...string) ConstructionProposalRequest {
 	document := workspace.Documents[0]
-	candidate, _ := authoringv2.UpgradeDocumentToConstruction(document)
+	candidate, _ := authoringv2.StartDocumentConstruction(document)
 	for index := range candidate.Construction.Steps {
 		if candidate.Construction.Steps[index].ID == "related_step" {
 			candidate.Construction.Steps[index].Operation.RelatedSource = &related
@@ -362,7 +362,7 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -721,7 +721,7 @@ func TestProposeConstructionAllowsRemovalOfOnlyStepWithoutChangedStepID(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1175,7 +1175,7 @@ func TestApplyAppendProposalPreservesExplicitlyEmptyTargetColumns(t *testing.T) 
 	}
 	workspace.Documents[0].Columns = []authoringv2.Column{}
 	workspace.Documents[0].Construction = nil
-	workspace.Documents[0].TableShape = nil
+	workspace.Documents[0].ArchiveRetiredShape = nil
 	sibling := workspace.Documents[0]
 	sibling.Output = authoringv2.Output{ID: "sibling", Title: "Sibling"}
 	sibling.Columns = []authoringv2.Column{{

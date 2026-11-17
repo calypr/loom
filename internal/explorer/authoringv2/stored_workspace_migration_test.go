@@ -104,7 +104,7 @@ func TestMigrateStoredWorkspaceDecodesFlatCodedAndTemporalLegacySources(t *testi
 
 func TestMigrateStoredWorkspaceReportsLegacyNilStepReceiptDigest(t *testing.T) {
 	workspace := constructionWorkspace(workspaceDocument("patients"))
-	document, err := UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := migrateStoredDocumentFixture(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}

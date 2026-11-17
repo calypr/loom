@@ -127,7 +127,7 @@ func TestConstructionPivotDiscoveryOldDocumentsRemainUnchanged(t *testing.T) {
 }
 
 func TestLegacyPivotMigrationKeepsExplicitCategories(t *testing.T) {
-	upgraded, err := UpgradeDocumentToConstruction(legacyPivotDocument())
+	upgraded, err := migrateStoredDocumentFixture(legacyPivotDocument())
 	if err != nil {
 		t.Fatalf("upgrade legacy pivot: %v", err)
 	}

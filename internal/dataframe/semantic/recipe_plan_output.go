@@ -47,13 +47,6 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 	scope := newRootScope(output.RootResourceType)
 	projectionScope := scope
 	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Construction: output.Construction, Collision: output.CollisionPolicy}
-	if output.TableReshape != nil {
-		reshape, err := semanticTableReshape(*output.TableReshape)
-		if err != nil {
-			return OutputPlan{}, fmt.Errorf("table reshape: %w", err)
-		}
-		plan.TableReshape = reshape
-	}
 	if output.GroupRows != nil {
 		plan.GroupRows = &SemanticGroupRows{
 			RevisionID: output.GroupRows.RevisionID, UnassignedMemberPolicy: output.GroupRows.UnassignedMemberPolicy,
@@ -106,25 +99,6 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		}
 	}
 	return finishRecipeOutput(plan, output, scope, projectionScope)
-}
-
-func semanticTableReshape(input recipe.TableReshape) (*SemanticTableReshape, error) {
-	if err := input.Validate(); err != nil {
-		return nil, err
-	}
-	result := input
-	if input.GroupedPivot != nil {
-		pivot := *input.GroupedPivot
-		pivot.GroupKeys = append([]string(nil), input.GroupedPivot.GroupKeys...)
-		pivot.Categories = append([]recipe.GroupedPivotCategory(nil), input.GroupedPivot.Categories...)
-		result.GroupedPivot = &pivot
-	}
-	if input.Unpivot != nil {
-		unpivot := *input.Unpivot
-		unpivot.Inputs = append([]recipe.UnpivotInput(nil), input.Unpivot.Inputs...)
-		result.Unpivot = &unpivot
-	}
-	return &result, nil
 }
 
 type recipeOccurrenceBinding struct {

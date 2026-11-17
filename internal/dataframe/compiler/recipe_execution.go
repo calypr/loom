@@ -508,6 +508,9 @@ func appendAuthResourcePathProjection(physical *ir.PhysicalPlan) error {
 	if rootVariable == "" {
 		return fmt.Errorf("canonical plan has no root scan for auth_resource_path projection")
 	}
+	if constructionReshapeAuthPathSupported(physical.StageSequence) {
+		return appendConstructionReshapeAuthPath(physical, rootVariable)
+	}
 	for index := range physical.Operations {
 		operation := &physical.Operations[index]
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {

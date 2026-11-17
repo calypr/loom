@@ -24,6 +24,7 @@ func (c *receiptClient) WithTransaction(ctx context.Context, _ storepkg.Transact
 }
 
 func (c *receiptClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+	visit = storedJSONVisitorForTest(query, visit)
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	if strings.HasPrefix(strings.TrimSpace(query), "INSERT") {
 		if c.doc == nil {
@@ -223,6 +224,7 @@ func (c *receiptWriteClient) WithTransaction(ctx context.Context, _ storepkg.Tra
 }
 
 func (c *receiptWriteClient) QueryRows(ctx context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+	visit = storedJSONVisitorForTest(query, visit)
 	if err := ctx.Err(); err != nil {
 		return err
 	}

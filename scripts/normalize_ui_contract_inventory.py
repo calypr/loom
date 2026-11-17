@@ -57,8 +57,8 @@ FAMILY_BY_ID = {
     "builder.combine.key_join": "COMBINE",
     "builder.combine.append": "COMBINE",
     "builder.combine.membership": "COMBINE",
-    "legacy.table_shape.grouped_pivot": "TABLE_SHAPE",
-    "legacy.table_shape.unpivot": "TABLE_SHAPE",
+    "legacy.table_shape.grouped_pivot": "RESHAPE",
+    "legacy.table_shape.unpivot": "RESHAPE",
     "builder.related_source_column": "ADD_COLUMNS",
     "builder.row_definition.rows_per_starting_record": "ROW_DEFINITION",
 }
@@ -67,7 +67,9 @@ OPERATION_KINDS_BY_ID = {
     "builder.filter_rows.scalar_condition": ["FILTER"],
     "builder.filter_rows.related_eligibility": ["RELATED_ELIGIBILITY"],
     "builder.calculate.derive": ["DERIVE"],
-    "builder.calculate.table_shape_derived_column": ["TABLE_SHAPE:DERIVED_COLUMN"],
+    "builder.calculate.table_shape_derived_column": ["DERIVE"],
+    "legacy.table_shape.grouped_pivot": ["PIVOT"],
+    "legacy.table_shape.unpivot": ["UNPIVOT"],
     "builder.reshape.group_field": ["GROUP", "ROW_DEFINITION:FIELD_GROUP"],
     "builder.reshape.expand_scalar_list": ["EXPAND"],
     "builder.reshape.group_coded": ["CODED_GROUP"],
@@ -101,6 +103,9 @@ STAGE_CAPABILITY_IDS = {
     "builder.reshape.pivot_values",
     "builder.reshape.pivot_coded",
     "builder.reshape.unpivot",
+    "legacy.table_shape.grouped_pivot",
+    "legacy.table_shape.unpivot",
+    "builder.calculate.table_shape_derived_column",
     "builder.reshape.related_expand",
 }
 
@@ -165,9 +170,6 @@ API_REQUEST_CONTRACTS = {
     "/construction-proposals": request_contract("POST", "proposeConstruction", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "candidateConstruction"], ["changedStepId", "removeStepIds", "groupSources", "groupSource", "limit", "pivotSources", "filterSources", "deriveSources", "unpivotSources", "expandSources"], required_query=[], optional_query=["auth_resource_path"], schema="constructionProposalRequestSchema", source=["ui/packages/loom-ui/src/api.ts:482-483", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1694-1698", "ui/packages/loom-ui/src/types.ts:2185-2204"]),
     "/preview": request_contract("POST", "preview", ["receiptId", "outputId"], ["limit"], schema="PreviewExplorerBuilderArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1697-1698"]),
     "/construction-capabilities": request_contract("POST", "getConstructionCapabilities", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId"], ["groupStepId"], required_query=[], optional_query=["auth_resource_path"], schema="constructionCapabilitiesRequestSchema", source=["ui/packages/loom-ui/src/api.ts:457-460", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1652-1662", "ui/packages/loom-ui/src/types.ts:1937-1945"]),
-    "/table-shape-capabilities": request_contract("POST", "getTableShapeCapabilities", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeCapabilitiesRequestSchema", source=["ui/packages/loom-ui/src/api.ts:427-435", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1621-1627", "ui/packages/loom-ui/src/types.ts:979-985"]),
-    "/table-shape-resolutions": request_contract("POST", "resolveTableShape", ["catalogId", "expectedDraftDigest", "expectedDraftVersion", "kind", "outputId", "snapshotToken"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeResolutionRequestSchema", source=["ui/packages/loom-ui/src/api.ts:443-444", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1640-1644", "ui/packages/loom-ui/src/types.ts:1007-1075"], variants={"kind=PIVOT": ["pivot"], "kind=UNPIVOT": ["unpivot"], "kind=DERIVED": ["derived"]}),
-    "/table-shape-proposals": request_contract("POST", "proposeTableShape", ["catalogId", "derivedResolutionIds", "expectedDraftDigest", "expectedDraftVersion", "mode", "outputId", "snapshotToken"], ["limit", "reshapeResolutionId"], required_query=[], optional_query=["auth_resource_path"], schema="tableShapeProposalRequestSchema", source=["ui/packages/loom-ui/src/api.ts:446-447", "ui/packages/loom-ui/src/api.ts:1375-1380", "ui/packages/loom-ui/src/api.ts:1646-1650", "ui/packages/loom-ui/src/types.ts:1250-1261"]),
     "/column-source": request_contract("POST", "inspectColumnSource", ["snapshotToken", "outputId", "column"], schema="InspectColumnSourceArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1549-1554"]),
     "/related-expand-choices": request_contract("POST", "searchRelatedExpandChoices", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId", "anchorColumnId", "targetResourceType"], ["limit", "cursor"], schema="SearchRelatedExpandChoicesArgs body projection", source=["ui/packages/loom-ui/src/api.ts:1564-1575"]),
     "/related-expand-contributors": request_contract("POST", "searchRelatedExpandContributors", ["snapshotToken", "expectedDraftVersion", "expectedDraftDigest", "outputId", "stageId", "routeChoiceId"], ["query", "limit", "cursor"], schema="SearchRelatedExpandContributorsArgs body projection", source=["ui/packages/loom-ui/src/api.ts:390-400", "ui/packages/loom-ui/src/api.ts:1587-1598"]),
@@ -422,7 +424,7 @@ def normalize_request(row: dict, flow_id: str | None = None) -> list[dict]:
                 kind = "reconcile"
             elif endpoint and endpoint.endswith("/builder"):
                 kind = "refresh"
-            elif "construction-capabilities" in key_and_path or "table-shape-capabilities" in key_and_path:
+            elif "construction-capabilities" in key_and_path:
                 kind = "capability"
             elif any(token in key_and_path for token in ("choices", "contributors", "semantic-inventory", "suggestions", "category-discover", "resolution", "frame-source-options", "construction-inputs", "population-routes", "route-search", "memberendpoint")):
                 kind = "read"
@@ -555,7 +557,6 @@ def seed_for(affordance_id: str, row: dict, lifecycle: bool) -> dict:
             "RESHAPE": "rooted_table_reshape",
             "COMBINE": "two_table_combine",
             "ROW_DEFINITION": "rooted_table_row_definition",
-            "TABLE_SHAPE": "rooted_table_table_shape",
             "COLUMN_PRESENTATION": "configured_table_columns",
         }.get(operation_family, "rooted_builder_workspace")
         source_requirements = []
@@ -604,20 +605,12 @@ def seed_for(affordance_id: str, row: dict, lifecycle: bool) -> dict:
     identity = identity_by_id.get(affordance_id, ["projectId", "explorerId"])
     if operation_family != "LIFECYCLE" and not is_initial_table:
         identity += ["snapshotToken", "outputId", "expectedDraftVersion", "expectedDraftDigest"]
-    table_shape_capability_required = operation_family == "TABLE_SHAPE" or affordance_id == "builder.calculate.table_shape_derived_column"
-    if table_shape_capability_required:
-        identity.append("tableShapeCapabilitiesResponse")
     stage_capability_required = affordance_id in STAGE_CAPABILITY_IDS
     if stage_capability_required:
         identity.append("selectedStageCapabilityResponse")
     if is_initial_table:
         identity = identity_by_id[affordance_id]
-    if table_shape_capability_required:
-        capability_kind = "table-shape-api-response"
-        capability_status = "required-not-yet-observed"
-        capability_source = "actual POST /table-shape-capabilities response bound to catalog/output identity"
-        capability_endpoint = "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities"
-    elif affordance_id == "builder.delete_explorer_no_fallback":
+    if affordance_id == "builder.delete_explorer_no_fallback":
         capability_kind = "explorer-list-delete-state"
         capability_status = "required-not-yet-observed"
         capability_source = "actual loaded Explorer record deleteEnabled flag plus current Explorer count"
@@ -739,8 +732,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
         if not variants and variant:
             variants = [variant]
         backend_kinds = OPERATION_KINDS_BY_ID.get(fid, [])
-        if fid.startswith("legacy.table_shape."):
-            backend_kinds = ["TABLE_SHAPE:" + ("GROUPED_PIVOT" if fid.endswith("grouped_pivot") else "UNPIVOT")]
+
         path = primary.get("path", primary.get("ui_path", primary.get("entryPath", primary.get("surface"))))
         if isinstance(path, list):
             entry_paths = [{"label": "primary", "path": path}]
@@ -771,7 +763,8 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                 # proposal / preview / apply sequence; relational source row
                 # remains the candidate constructor evidence.
                 continue
-            requests.extend(normalize_request(src, flow))
+            if fid not in {"legacy.table_shape.grouped_pivot", "legacy.table_shape.unpivot", "builder.calculate.table_shape_derived_column"}:
+                requests.extend(normalize_request(src, flow))
         if fid == "builder.population.exclude_unmapped_member":
             sequence = {
                 "selectionVariantEndpoint": {
@@ -855,20 +848,19 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                 ("proposal", "propose-row-definition", "row-definition-proposals", "POST"),
                 ("command", "apply-row-definition-proposal", "commands", "POST"),
             ]))
-        if any(kind.startswith("TABLE_SHAPE:") for kind in backend_kinds):
-            flow_specs.append(("table-shape", [
-                ("capability", "load-table-shape-capabilities", "table-shape-capabilities", "POST"),
-                ("read", "resolve-table-shape", "table-shape-resolutions", "POST"),
-                ("proposal", "propose-table-shape", "table-shape-proposals", "POST"),
-                ("command", "apply-table-shape-proposal", "commands", "POST"),
-            ]))
-        construction_kinds = [kind for kind in backend_kinds if not kind.startswith(("ROW_DEFINITION:", "TABLE_SHAPE:"))]
+        construction_kinds = [kind for kind in backend_kinds if not kind.startswith("ROW_DEFINITION:")]
         if construction_kinds:
-            flow_specs.append(("construction-proposal", [
+            construction_steps = []
+            if fid in {"legacy.table_shape.grouped_pivot", "legacy.table_shape.unpivot", "builder.calculate.table_shape_derived_column"}:
+                construction_steps.append(("capability", "load-construction-capabilities", "construction-capabilities", "POST"))
+            if fid == "legacy.table_shape.grouped_pivot":
+                construction_steps.append(("read", "discover-construction-pivot-categories", "construction-category-discoveries", "POST"))
+            construction_steps.extend([
                 ("proposal", "propose-construction-change", "construction-proposals", "POST"),
                 ("preview", "load-construction-proposal-preview", "preview", "POST"),
                 ("command", "apply-construction-proposal", "commands", "POST"),
-            ]))
+            ])
+            flow_specs.append(("construction-proposal", construction_steps))
         if backend_kinds:
             candidate_constructor = None
             for src in sources:
@@ -887,9 +879,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                 candidate_constructor = f"typed {','.join(backend_kinds)} UI candidate builder; see source record and source evidence"
             for item in requests:
                 endpoint = str(item.get("endpoint", ""))
-                if "table-shape-" in endpoint:
-                    item["flowId"] = "table-shape"
-                elif "/explicit-groups" in endpoint:
+                if "/explicit-groups" in endpoint:
                     item["flowId"] = "explicit-group-revision"
                 elif "row-definition-" in endpoint:
                     item["flowId"] = "row-definition"
@@ -909,6 +899,8 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                         continue
                     if flow == "construction-proposal":
                         payload_shapes = {
+                            "capability": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,stageId:string}",
+                            "read": "ConstructionCategoryDiscoveryRequest; outputId,stageId,categoryColumnId,valueColumnId and current draft identity",
                             "proposal": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,candidateConstruction:Construction,changedStepId:string,limit:PreviewLimit}",
                             "preview": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,proposalId:string,limit:PreviewLimit}",
                             "command": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_PROPOSAL,outputId,proposalId}]}",
@@ -922,15 +914,6 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
                             "command": "{commandId,semanticsVersion,snapshotToken,expectedDraftVersion,expectedDraftDigest?,commands:[{type:APPLY_ROW_DEFINITION_PROPOSAL,...}]}",
                         }
                         constructor = f"{candidate_constructor}; row-definition choices/proposal and APPLY_ROW_DEFINITION_PROPOSAL lifecycle"
-                        payload_shape = payload_shapes.get(kind)
-                    else:
-                        payload_shapes = {
-                            "capability": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string}",
-                            "read": "TableShapeResolutionRequest; selected supported choices + catalog identity",
-                            "proposal": "TableShapeProposalRequest; reshape and derived resolution IDs",
-                            "command": "{commandId,semanticsVersion,snapshotToken,expectedDraftVersion,expectedDraftDigest?,commands:[{type:APPLY_TABLE_SHAPE_PROPOSAL,...}]}",
-                        }
-                        constructor = f"{candidate_constructor}; TableShapeController.resolveTableShape/proposeTableShape/APPLY_TABLE_SHAPE_PROPOSAL"
                         payload_shape = payload_shapes.get(kind)
                     requests.append({
                         "order": order,
@@ -954,7 +937,7 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
         for flow, flow_requests in by_flow.items():
             if fid == "builder.population.exclude_unmapped_member" and flow == "primary":
                 continue
-            generic_flows = {"primary", "construction-proposal", "row-definition", "table-shape", "explicit-group-revision", "combine-input-catalog"}
+            generic_flows = {"primary", "construction-proposal", "row-definition", "explicit-group-revision", "combine-input-catalog"}
             if flow not in generic_flows or any(x.get("kind") == "assessment" for x in flow_requests):
                 continue
             kind_priority = {"capability": 0, "read": 1, "inspect": 1, "assessment": 1, "proposal": 2, "preview": 3, "command": 4, "reconcile": 5, "refresh": 6}
@@ -1180,7 +1163,6 @@ def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]
         "related_rows_unavailable": ["builder.row_definition.expanded_source_rows", "builder.reshape.related_expand"],
         "construction_pivot_unpivot_unsupported": ["builder.reshape.pivot_values", "builder.reshape.pivot_coded", "builder.reshape.unpivot"],
         "source_expansion_blocked_for_grouped_rows": ["builder.reshape.expand_scalar_list"],
-        "legacy_table_shape_unsupported_choices": ["legacy.table_shape.grouped_pivot", "legacy.table_shape.unpivot"],
         "combine_action_without_root": ["builder.combine.key_join", "builder.combine.append", "builder.combine.membership"],
     }
     disabled_affordances = [{
@@ -1226,7 +1208,6 @@ def build_inventory(root: Path = ROOT) -> dict:
             "discriminantExtractors": [
                 {"file": "ui/packages/loom-ui/src/types.ts", "schema": "constructionOperationSchema", "mappingField": "affordances[].operation.backendKinds", "excludes": ["COMBINE"], "combineSubkindSchema": "constructionCombineSchema"},
                 {"file": "ui/packages/loom-ui/src/types.ts", "schema": "rowDefinitionSelectionSchema", "mappingField": "affordances[].operation.backendKinds", "prefix": "ROW_DEFINITION:"},
-                {"file": "ui/packages/loom-ui/src/types.ts", "schema": "tableShapeProposalIntentSchema", "mappingField": "affordances[].operation.backendKinds", "prefix": "TABLE_SHAPE:"},
                 {"file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx", "schema": "allOperationFamilies", "mappingField": "affordances[].operation.family"}
             ],
             "surfaceMappings": surface_mappings,

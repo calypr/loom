@@ -65,6 +65,10 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 	if err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("prepare table-shape exclusion plan: %w", err)
 	}
+	physical, err = sourceStagePivotForExclusions(physical)
+	if err != nil {
+		return CompiledTableShapeExclusionQuery{}, err
+	}
 	pivotIndex := -1
 	var pivot *ir.PhysicalGroupedPivot
 	for index := range physical.Operations {
@@ -151,4 +155,38 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		OmissionField:        ir.PhysicalTableShapeExclusionOmissionField,
 		Offset:               offset, Limit: limit, Diagnostics: physicalPlanDiagnostics(physical),
 	}, nil
+}
+
+// sourceStagePivotForExclusions retains the original source projection and
+// lowers its first current Pivot stage into the existing typed diagnostic
+// boundary. Later stages are deliberately excluded from pre-Pivot evidence.
+func sourceStagePivotForExclusions(plan ir.PhysicalPlan) (ir.PhysicalPlan, error) {
+	sequence := plan.StageSequence
+	if sequence == nil {
+		return plan, nil
+	}
+	if len(sequence.Stages) == 0 || sequence.Stages[0].Kind != ir.PhysicalStagePivotOp || sequence.Stages[0].GroupedPivot == nil || sequence.Stages[0].InputStageID != sequence.SourceStageID {
+		return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+	}
+	for _, stage := range sequence.Stages[1:] {
+		if stage.Kind != ir.PhysicalStageDeriveOp {
+			return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+		}
+	}
+	last := len(plan.Operations) - 1
+	if last < 0 || plan.Operations[last].Kind != ir.PhysicalReturnOp || plan.Operations[last].Return == nil {
+		return ir.PhysicalPlan{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionUnsupported}
+	}
+	pivot := *sequence.Stages[0].GroupedPivot
+	pivot.InputProjections = append([]ir.PhysicalProjection(nil), plan.Operations[last].Return.Projections...)
+	if pivot.CategoryPresenceFromInput {
+		for index := range pivot.InputProjections {
+			if pivot.InputProjections[index].Name == pivot.CategoryColumn {
+				pivot.InputProjections[index].Presence = nil
+			}
+		}
+	}
+	plan.Operations = append(plan.Operations[:last], ir.PhysicalOperation{Kind: ir.PhysicalGroupedPivotOp, GroupedPivot: &pivot}, ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: sequence.Stages[0].OutputProjections}})
+	plan.StageSequence = nil
+	return plan, nil
 }

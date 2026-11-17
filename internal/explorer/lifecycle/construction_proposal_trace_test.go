@@ -169,7 +169,7 @@ func traceGroupMeanWorkspace(t *testing.T, store *fakeStore) (authoringv2.Worksp
 	workspace := lifecycleCandidatePreviewWorkspace()
 	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion
 	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,6 @@ func compileTraceReceipt(ctx context.Context, request CompileReceiptRequest, sna
 		return nil, err
 	}
 	receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
-	receipt.TableShapeProposal = cloneTableShapeProposalBinding(request.TableShapeProposal)
 	receipt.ConstructionStages = traceReceiptStages(lowered)
 	receipt.CompiledOutputSchemas = traceReceiptOutputSchemas(lowered)
 	receipt.OutputColumnProvenance = traceOutputProvenance(translated.EmittedColumns)

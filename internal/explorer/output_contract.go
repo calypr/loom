@@ -162,6 +162,11 @@ func (c PublicOutputContracts) Output(outputID string) (PublicOutputContract, bo
 // ValidateAgainst proves that the ordered contract set exactly matches the
 // recipe outputs and each output's ordered emitted columns.
 func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []EmittedColumn) error {
+	return c.ValidateAgainstMetadata(recipeIdentityMetadata(bundle), emitted)
+}
+
+// ValidateAgainstMetadata checks frozen public contracts without exposing an executable archive.
+func (c PublicOutputContracts) ValidateAgainstMetadata(bundle recipe.ArchivedMetadata, emitted []EmittedColumn) error {
 	if len(c.Outputs) != len(bundle.Outputs) {
 		return invalidOutputContract("output count %d does not match recipe output count %d", len(c.Outputs), len(bundle.Outputs))
 	}
@@ -176,7 +181,7 @@ func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []E
 		if contract.OutputID != bundle.Outputs[i].Name {
 			return invalidOutputContract("outputs[%d].outputId %q does not match recipe output %q", i, contract.OutputID, bundle.Outputs[i].Name)
 		}
-		if err := contract.ValidateAgainst(bundle, emittedByOutput[contract.OutputID]); err != nil {
+		if err := contract.ValidateAgainstMetadata(bundle, emittedByOutput[contract.OutputID]); err != nil {
 			return err
 		}
 		delete(emittedByOutput, contract.OutputID)
@@ -192,10 +197,14 @@ func (c PublicOutputContracts) ValidateAgainst(bundle recipe.Bundle, emitted []E
 // output identity, order, IDs, and every public metadata bit. A mismatch is a
 // receipt integrity failure and therefore requires explicit recompilation.
 func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []EmittedColumn) error {
+	return c.ValidateAgainstMetadata(recipeIdentityMetadata(bundle), emitted)
+}
+
+func (c PublicOutputContract) ValidateAgainstMetadata(bundle recipe.ArchivedMetadata, emitted []EmittedColumn) error {
 	if strings.TrimSpace(c.OutputID) == "" {
 		return invalidOutputContract("outputId is required")
 	}
-	var compiledOutput *recipe.Output
+	var compiledOutput *recipe.ArchivedOutputDescriptor
 	for _, output := range bundle.Outputs {
 		if output.Name == c.OutputID {
 			value := output

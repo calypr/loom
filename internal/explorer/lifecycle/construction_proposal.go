@@ -1730,7 +1730,7 @@ func (s *Service) validateConstructionBase(ctx context.Context, project, explore
 	if err != nil {
 		return constructionBaseValidation{}, fmt.Errorf("digest construction base document: %w", err)
 	}
-	upgraded, err := authoringv2.UpgradeDocumentToConstruction(document)
+	upgraded, err := authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		return constructionBaseValidation{}, unprocessable("construction-capabilities", "INVALID_CONSTRUCTION_BASE", err.Error(), err)
 	}
@@ -2014,7 +2014,7 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 
 func sameConstructionDocument(left, right authoringv2.Document) bool {
 	left.Construction, right.Construction = nil, nil
-	left.TableShape, right.TableShape = nil, nil
+	left.ArchiveRetiredShape, right.ArchiveRetiredShape = nil, nil
 	return reflect.DeepEqual(left, right)
 }
 

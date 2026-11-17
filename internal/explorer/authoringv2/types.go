@@ -28,19 +28,19 @@ const (
 // Document is the complete durable Builder intent. Route occurrences form a
 // semantic resource tree rooted at RootResourceType.
 type Document struct {
-	APIVersion       string            `json:"-"`
-	Kind             string            `json:"kind"`
-	Output           Output            `json:"output"`
-	RootResourceType string            `json:"rootResourceType,omitempty"`
-	Route            RouteNode         `json:"route,omitempty"`
-	Rows             RowDefinition     `json:"rows"`
-	Population       *Population       `json:"population,omitempty"`
-	Frames           []FrameDefinition `json:"frames,omitempty"`
-	Columns          []Column          `json:"columns"`
-	TableShape       *TableShape       `json:"tableShape,omitempty"`
+	APIVersion          string            `json:"-"`
+	Kind                string            `json:"kind"`
+	Output              Output            `json:"output"`
+	RootResourceType    string            `json:"rootResourceType,omitempty"`
+	Route               RouteNode         `json:"route,omitempty"`
+	Rows                RowDefinition     `json:"rows"`
+	Population          *Population       `json:"population,omitempty"`
+	Frames              []FrameDefinition `json:"frames,omitempty"`
+	Columns             []Column          `json:"columns"`
+	ArchiveRetiredShape *storedTableShape `json:"tableShape,omitempty"`
 	// Construction is the canonical post-source operation sequence. When it is
 	// present, Route/Rows/Columns describe only the source projection and
-	// TableShape must be nil. A nil value preserves the existing V2 document
+	// ArchiveRetiredShape must be nil. A nil value preserves the existing V2 document
 	// semantics and compiler path.
 	Construction   *Construction       `json:"construction,omitempty"`
 	FixedFilters   []FixedFilter       `json:"fixedFilters,omitempty"`

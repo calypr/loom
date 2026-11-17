@@ -553,93 +553,8 @@ func authoredOutputColumnsWithCombineInputs(
 		}
 		documents[outputID] = document
 		columns[outputID] = make(map[string]authoredOutputColumn)
-		if document.TableShape == nil && document.Construction == nil {
+		if document.Construction == nil {
 			continue
-		}
-		if document.TableShape != nil {
-			add := func(output authoringv2.ColumnOutput, constructionID authoringv2.ConstructionID, inputColumns []string, quality constructedOutputQuality) error {
-				if strings.TrimSpace(output.Column) == "" || strings.TrimSpace(output.Label) == "" || strings.TrimSpace(string(constructionID)) == "" {
-					return fmt.Errorf("table-shape output in document %q is missing its column, label, or construction identity", outputID)
-				}
-				if _, duplicate := columns[outputID][output.Column]; duplicate {
-					return fmt.Errorf("duplicate table-shape output %q for document %q", output.Column, outputID)
-				}
-				inputs, err := uniqueColumnsInOrder(inputColumns)
-				if err != nil {
-					return fmt.Errorf("table-shape output %q in document %q: %w", output.Column, outputID, err)
-				}
-				columns[outputID][output.Column] = authoredOutputColumn{
-					ConstructionID: string(constructionID),
-					Label:          output.Label,
-					InputColumns:   inputs,
-					Quality:        quality,
-				}
-				return nil
-			}
-			shape := document.TableShape
-			if shape.Reshape != nil {
-				switch shape.Reshape.Kind {
-				case "PIVOT":
-					if shape.Reshape.Pivot == nil {
-						return nil, nil, fmt.Errorf("pivot construction for document %q is missing", outputID)
-					}
-					pivot := shape.Reshape.Pivot
-					inputs := append([]string(nil), pivot.GroupKeys...)
-					inputs = append(inputs, pivot.CategoryColumn, pivot.ValueColumn)
-					quality, err := pivotOutputQuality(pivot)
-					if err != nil {
-						return nil, nil, fmt.Errorf("pivot construction for document %q: %w", outputID, err)
-					}
-					for _, category := range pivot.Categories {
-						if err := add(category.Output, pivot.ConstructionID, inputs, quality); err != nil {
-							return nil, nil, err
-						}
-					}
-				case "UNPIVOT":
-					if shape.Reshape.Unpivot == nil {
-						return nil, nil, fmt.Errorf("unpivot construction for document %q is missing", outputID)
-					}
-					unpivot := shape.Reshape.Unpivot
-					dependencies := make([]string, 0, len(unpivot.Inputs))
-					for _, input := range unpivot.Inputs {
-						dependencies = append(dependencies, input.Column)
-					}
-					quality, err := unpivotOutputQuality(unpivot)
-					if err != nil {
-						return nil, nil, fmt.Errorf("unpivot construction for document %q: %w", outputID, err)
-					}
-					if err := add(unpivot.KeyOutput, unpivot.ConstructionID, dependencies, quality); err != nil {
-						return nil, nil, err
-					}
-					if err := add(unpivot.ValueOutput, unpivot.ConstructionID, dependencies, quality); err != nil {
-						return nil, nil, err
-					}
-				default:
-					return nil, nil, fmt.Errorf("unsupported table reshape kind %q for document %q", shape.Reshape.Kind, outputID)
-				}
-			}
-			for _, derived := range shape.Derived {
-				dependencies := make([]string, 0, 2)
-				for _, operand := range []authoringv2.ArithmeticOperand{derived.Left, derived.Right} {
-					switch operand.Kind {
-					case "COLUMN":
-						if strings.TrimSpace(operand.Column) == "" {
-							return nil, nil, fmt.Errorf("derived output %q in document %q has an empty column dependency", derived.Output.Column, outputID)
-						}
-						dependencies = append(dependencies, operand.Column)
-					case "LITERAL":
-					default:
-						return nil, nil, fmt.Errorf("derived output %q in document %q has unsupported operand kind %q", derived.Output.Column, outputID, operand.Kind)
-					}
-				}
-				quality, err := derivedOutputQuality(derived.Operation)
-				if err != nil {
-					return nil, nil, fmt.Errorf("derived output %q in document %q: %w", derived.Output.Column, outputID, err)
-				}
-				if err := add(derived.Output, derived.ConstructionID, dependencies, quality); err != nil {
-					return nil, nil, err
-				}
-			}
 		}
 		if document.Construction != nil {
 			compiledOutput, exists := compiledOutputs[outputID]
@@ -1061,10 +976,7 @@ func authoredConstructionOutputsWithCombineInputs(
 			pivot := step.Operation.Pivot
 			dependencies := append([]string(nil), pivot.GroupKeyIDs...)
 			dependencies = append(dependencies, pivot.CategoryColumnID, pivot.ValueColumnID)
-			quality, err := pivotOutputQuality(&authoringv2.PivotConstruction{
-				DuplicatePolicy: string(pivot.DuplicatePolicy), MissingCellPolicy: string(pivot.MissingCellPolicy),
-				UnlistedCategoryPolicy: string(pivot.UnlistedCategoryPolicy),
-			})
+			quality, err := pivotOutputQuality(string(pivot.DuplicatePolicy), string(pivot.MissingCellPolicy), string(pivot.UnlistedCategoryPolicy))
 			if err != nil {
 				return fmt.Errorf("pivot step %q: %w", step.ID, err)
 			}
@@ -1097,10 +1009,7 @@ func authoredConstructionOutputsWithCombineInputs(
 				return fmt.Errorf("coded pivot step %q has no source", step.ID)
 			}
 			pivot := step.Operation.CodedPivot
-			quality, err := pivotOutputQuality(&authoringv2.PivotConstruction{
-				DuplicatePolicy: string(pivot.DuplicatePolicy), MissingCellPolicy: string(pivot.MissingCellPolicy),
-				UnlistedCategoryPolicy: "EXCLUDE_WITH_EVIDENCE",
-			})
+			quality, err := pivotOutputQuality(string(pivot.DuplicatePolicy), string(pivot.MissingCellPolicy), "EXCLUDE_WITH_EVIDENCE")
 			if err != nil {
 				return fmt.Errorf("coded pivot step %q: %w", step.ID, err)
 			}
@@ -1133,7 +1042,7 @@ func authoredConstructionOutputsWithCombineInputs(
 			for _, input := range unpivot.Inputs {
 				dependencies = append(dependencies, input.ColumnID)
 			}
-			quality, err := unpivotOutputQuality(&authoringv2.UnpivotConstruction{NullRowPolicy: string(unpivot.NullRowPolicy)})
+			quality, err := unpivotOutputQuality(string(unpivot.NullRowPolicy))
 			if err != nil {
 				return fmt.Errorf("unpivot step %q: %w", step.ID, err)
 			}
@@ -1487,31 +1396,31 @@ func derivedOutputQuality(operation string) (constructedOutputQuality, error) {
 	}
 }
 
-func pivotOutputQuality(pivot *authoringv2.PivotConstruction) (constructedOutputQuality, error) {
+func pivotOutputQuality(duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy string) (constructedOutputQuality, error) {
 	quality := constructedOutputQuality{
 		Lossless: false, StructuralSuitability: "requires-review",
 		LossReasons: []string{"TABLE_SHAPE_PIVOT_BASE_COLUMNS_DROPPED"},
 	}
-	switch pivot.DuplicatePolicy {
+	switch duplicatePolicy {
 	case "ERROR":
 	case "SUM", "MIN", "MAX":
 		quality.Lossless = false
 		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_PIVOT_DUPLICATES_AGGREGATED")
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported duplicate policy %q", pivot.DuplicatePolicy)
+		return constructedOutputQuality{}, fmt.Errorf("unsupported duplicate policy %q", duplicatePolicy)
 	}
-	switch pivot.MissingCellPolicy {
+	switch missingCellPolicy {
 	case "NULL", "ERROR":
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported missing-cell policy %q", pivot.MissingCellPolicy)
+		return constructedOutputQuality{}, fmt.Errorf("unsupported missing-cell policy %q", missingCellPolicy)
 	}
-	switch pivot.UnlistedCategoryPolicy {
+	switch unlistedCategoryPolicy {
 	case "ERROR":
 	case "EXCLUDE_WITH_EVIDENCE":
 		quality.Lossless = false
 		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_PIVOT_UNLISTED_CATEGORIES_EXCLUDED")
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported unlisted-category policy %q", pivot.UnlistedCategoryPolicy)
+		return constructedOutputQuality{}, fmt.Errorf("unsupported unlisted-category policy %q", unlistedCategoryPolicy)
 	}
 	if !quality.Lossless {
 		quality.StructuralSuitability = "requires-review"
@@ -1519,16 +1428,16 @@ func pivotOutputQuality(pivot *authoringv2.PivotConstruction) (constructedOutput
 	return quality, nil
 }
 
-func unpivotOutputQuality(unpivot *authoringv2.UnpivotConstruction) (constructedOutputQuality, error) {
+func unpivotOutputQuality(nullRowPolicy string) (constructedOutputQuality, error) {
 	quality := constructedOutputQuality{Lossless: true, StructuralSuitability: "scalar"}
-	switch unpivot.NullRowPolicy {
+	switch nullRowPolicy {
 	case "PRESERVE":
 	case "DROP":
 		quality.Lossless = false
 		quality.StructuralSuitability = "requires-review"
 		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_UNPIVOT_NULL_ROWS_DROPPED")
 	default:
-		return constructedOutputQuality{}, fmt.Errorf("unsupported null-row policy %q", unpivot.NullRowPolicy)
+		return constructedOutputQuality{}, fmt.Errorf("unsupported null-row policy %q", nullRowPolicy)
 	}
 	return quality, nil
 }

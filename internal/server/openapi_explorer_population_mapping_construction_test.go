@@ -28,7 +28,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}

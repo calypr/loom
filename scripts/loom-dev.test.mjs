@@ -237,21 +237,6 @@ test('Add columns readiness requires the selected table preview for the current 
     'an enabled Add columns control remains required');
 });
 
-test('J04 creates its initial table through the visible row-type control', () => {
-  const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
-  const rowPicker = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx'), 'utf8');
-  const start = driver.indexOf("await action('create-observation-table-in-builder'");
-  const end = driver.indexOf('\n\n    let state = await fetchBuilderState(target, explorerId);', start);
-  assert.ok(start >= 0 && end > start, 'J04 browser creation action must remain identifiable');
-  const createAction = driver.slice(start, end);
-  assert.match(rowPicker, /aria-label=\{`Choose \$\{node\.resourceType\} rows`\}/);
-  assert.doesNotMatch(createAction, /clickButton\('Create table'\)/);
-  assert.match(createAction, /getByRole\('button', \{ name: 'Choose Observation rows', exact: true \}\)/);
-  assert.match(createAction, /clickButton\('Choose Observation rows'\)/);
-  assert.match(createAction, /getByLabel\('Search features by field name, concept, or code', \{ exact: true \}\)/);
-  assert.match(driver.slice(driver.lastIndexOf('const builderURL =', start), start), /demo-controls span.*target\.fixtureProject.*explorerId/s);
-});
-
 test('verify-fast creates its Observation and Patient tables through the current row picker and Add columns editor', () => {
   const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
   const builder = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx'), 'utf8');
@@ -265,13 +250,9 @@ test('verify-fast creates its Observation and Patient tables through the current
   const scenario = driver.slice(start, end);
   const ownerStart = scenario.indexOf("fill('first-table-name', 'Observation owner records'");
   const patientStart = scenario.indexOf("fill('first-table-name', 'Patients with observations'");
-  const j04AuthorStart = driver.indexOf('const authorCatalogFields =');
-  const j04AuthorEnd = driver.indexOf('\n  const clickTestID', j04AuthorStart);
   assert.ok(ownerStart >= 0 && patientStart > ownerStart, 'both fixture table setup flows must remain in order');
-  assert.ok(j04AuthorStart >= 0 && j04AuthorEnd > j04AuthorStart, 'J04 catalog field flow must remain identifiable');
   const ownerFlow = scenario.slice(ownerStart, patientStart);
   const patientFlow = scenario.slice(patientStart);
-  const j04AuthorFlow = driver.slice(j04AuthorStart, j04AuthorEnd);
   const addColumnsReadyStart = driver.indexOf('export const addColumnsActionReadinessCondition =');
   const addColumnsReadyEnd = driver.indexOf('\n};', addColumnsReadyStart);
   assert.ok(addColumnsReadyStart >= 0 && addColumnsReadyEnd > addColumnsReadyStart, 'Add columns readiness wait must be identifiable');
@@ -363,8 +344,6 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(patientFlow, /Feature authoring view/);
   assert.match(patientFlow, /builder-catalog-adds-default-root-field-without-graph/);
   assert.match(patientFlow, /builder-configures-exact-root-fields/);
-  assert.match(j04AuthorFlow, /await clickButton\('Advanced options'\);[\s\S]*?await advancedOptions\.waitFor\(\{ state: 'visible', timeout: 5000 \}\);[\s\S]*?await clickButton\('Add 1 selected feature', advancedOptions\)/,
-    'J04 opens inline Advanced options before choosing each requested output form');
   assert.match(patientFlow, /RELATIONSHIP_CARDINALITY_VIOLATION/);
   assert.match(patientFlow, /TEMPORAL_TIE_AMBIGUOUS/);
   assert.match(patientFlow, /preview-shows-exact-fixture-table/);
@@ -483,7 +462,7 @@ test('local J01 browser lifecycle uses Playwright actions and retains its exact 
 test('all retired dev journey commands reject without claiming native browser coverage', async () => {
   for (const command of [
     'verify-current', 'verify-fast', 'verify-full', 'verify-j01', 'verify-j02',
-    'verify-j03', 'verify-j04', 'verify-j04-patient', 'verify-j05',
+    'verify-j03', 'verify-j04-patient', 'verify-j05',
   ]) {
     await assert.rejects(() => dispatchNativeDevJourney(command), error => {
       assert.match(error.message, new RegExp(`${command} is unavailable`));
@@ -491,6 +470,12 @@ test('all retired dev journey commands reject without claiming native browser co
       return true;
     });
   }
+});
+
+test('retired TableShape J04 browser workflow is no longer a dev journey command', async () => {
+  await assert.rejects(() => dispatchNativeDevJourney('verify-j04'), /unknown native dev journey/);
+  const source = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
+  assert.doesNotMatch(source, /table-shape-(?:capabilities|category-discoveries|resolutions|proposals)|APPLY_TABLE_SHAPE_PROPOSAL/);
 });
 
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {

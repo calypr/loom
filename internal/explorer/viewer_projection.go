@@ -60,9 +60,9 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	if err != nil {
 		return nil, err
 	}
-	bundle := revision.Recipe
+	bundle := recipeIdentityMetadata(revision.Recipe)
 	if hasConfig && len(config.Recipe) > 0 {
-		parsed, parseErr := recipe.Parse(config.Recipe)
+		parsed, parseErr := recipe.ParseArchivedMetadata(config.Recipe)
 		if parseErr != nil {
 			return nil, viewerProjectionIntegrity("config.recipe", parseErr)
 		}
@@ -144,7 +144,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 		if contractErr != nil {
 			return nil, viewerProjectionIntegrity("publicOutputContract", contractErr)
 		}
-		if contractErr := contracts.ValidateAgainst(bundle, revision.EmittedColumns); contractErr != nil {
+		if contractErr := contracts.ValidateAgainstMetadata(bundle, revision.EmittedColumns); contractErr != nil {
 			return nil, viewerProjectionIntegrity("publicOutputContract", contractErr)
 		}
 		for _, output := range contracts.Outputs {
@@ -399,7 +399,7 @@ func decodeProjectionConfig(raw json.RawMessage) (ConfigV2, bool, error) {
 	return config, true, nil
 }
 
-func defaultProjectionViews(bundle recipe.Bundle) []ConfigView {
+func defaultProjectionViews(bundle recipe.ArchivedMetadata) []ConfigView {
 	views := make([]ConfigView, 0, len(bundle.Outputs))
 	for _, output := range bundle.Outputs {
 		views = append(views, ConfigView{ID: output.Name, Title: output.Name, Output: output.Name})
@@ -407,7 +407,7 @@ func defaultProjectionViews(bundle recipe.Bundle) []ConfigView {
 	return views
 }
 
-func projectionSelector(output string, datasetOutputs map[string]DatasetOutput, materializations map[string]Materialization, bundle recipe.Bundle) (dataset.DataframeSelector, bool) {
+func projectionSelector(output string, datasetOutputs map[string]DatasetOutput, materializations map[string]Materialization, bundle recipe.ArchivedMetadata) (dataset.DataframeSelector, bool) {
 	if value := datasetOutputs[output].Selector; value != nil && value.Validate() == nil {
 		return *value, true
 	}

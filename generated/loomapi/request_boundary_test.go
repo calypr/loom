@@ -48,10 +48,6 @@ func TestRequestBodySchemasRejectUnknownMembersAtGeneratedBoundary(t *testing.T)
 		"SchemaFieldSearchRequest":                    func() any { return &SchemaFieldSearchRequest{} },
 		"SelectionCreateRequest":                      func() any { return &SelectionCreateRequest{} },
 		"SemanticInventoryBrowseRequest":              func() any { return &SemanticInventoryBrowseRequest{} },
-		"TableShapeCapabilitiesRequest":               func() any { return &TableShapeCapabilitiesRequest{} },
-		"TableShapeCategoryDiscoveryRequest":          func() any { return &TableShapeCategoryDiscoveryRequest{} },
-		"TableShapeProposalRequest":                   func() any { return &TableShapeProposalRequest{} },
-		"TableShapeResolutionRequest":                 func() any { return &TableShapeResolutionRequest{} },
 	}
 	for name, factory := range requests {
 		t.Run(name, func(t *testing.T) {

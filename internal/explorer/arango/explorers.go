@@ -8,8 +8,8 @@ import (
 
 func (s *Store) List(ctx context.Context, project string) ([]explorer.Explorer, error) {
 	out := []explorer.Explorer{}
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project SORT d.explorerId RETURN d`, 1000, map[string]any{"@c": ExplorersCollection, "project": project}, func(row map[string]any) error {
-		v, err := decode[explorer.Explorer](row)
+	err := s.client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d.project == @project SORT d.explorerId RETURN d`, true), 1000, map[string]any{"@c": ExplorersCollection, "project": project}, func(row map[string]any) error {
+		v, err := decodeMigrationJSON[explorer.Explorer](row["migrationJSON"])
 		if err == nil {
 			out = append(out, v)
 		}
@@ -19,7 +19,11 @@ func (s *Store) List(ctx context.Context, project string) ([]explorer.Explorer, 
 }
 func (s *Store) Get(ctx context.Context, project, id string) (*explorer.Explorer, error) {
 	var out *explorer.Explorer
-	err := s.client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, 1, map[string]any{"@c": ExplorersCollection, "key": explorerKey(project, id), "project": project}, func(row map[string]any) error { v, err := decode[explorer.Explorer](row); out = &v; return err })
+	err := s.client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, true), 1, map[string]any{"@c": ExplorersCollection, "key": explorerKey(project, id), "project": project}, func(row map[string]any) error {
+		v, err := decodeMigrationJSON[explorer.Explorer](row["migrationJSON"])
+		out = &v
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}

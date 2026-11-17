@@ -63,7 +63,7 @@ func constructionRouteTestReceipt(service *Service, snapshot capability.Snapshot
 	if err != nil {
 		return nil, err
 	}
-	return lifecycleTableShapeReceipt(snapshot, prepared), nil
+	return lifecycleConstructionReceipt(snapshot, prepared), nil
 }
 
 func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testing.T) {
@@ -280,7 +280,7 @@ func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *tes
 		if prepareErr != nil {
 			return nil, prepareErr
 		}
-		receipt := lifecycleTableShapeReceipt(snapshot, prepared)
+		receipt := lifecycleConstructionReceipt(snapshot, prepared)
 		root := explorer.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
 		active := explorer.ReceiptConstructionRelatedExpandAnchor{
 			AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",

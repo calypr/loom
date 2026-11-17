@@ -23,7 +23,7 @@ func (w Workspace) LegacyNilConstructionStepsDigest() (string, error) {
 	if legacyStepLists == 0 {
 		return "", nil
 	}
-	raw, err := w.CanonicalJSON()
+	raw, err := CanonicalStoredWorkspaceForMigration(w)
 	if err != nil {
 		return "", err
 	}

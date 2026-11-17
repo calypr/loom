@@ -44,10 +44,11 @@ func completeArtifact(t *testing.T, store *Store, execution, request string, exp
 	if err != nil || existing != nil || stage == nil {
 		t.Fatalf("begin(execution=%s) stage=%T existing=%#v err=%v", execution, stage, existing, err)
 	}
-	if _, err := stage.Write([]byte("archive-bytes")); err != nil {
+	archive := []byte("archive-bytes")
+	if _, err := stage.Write(archive); err != nil {
 		t.Fatal(err)
 	}
-	completed, err := stage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:reconcile", Bytes: 13, Rows: 1, Features: 1})
+	completed, err := stage.Commit(context.Background(), artifactCompletionFor(archive, 1, 1))
 	if err != nil || completed.State != explorer.ArtifactComplete {
 		t.Fatalf("commit(execution=%s): %#v err=%v", execution, completed, err)
 	}
@@ -345,10 +346,11 @@ func TestBeginReclaimsCrashResidueStagingWithoutRecord(t *testing.T) {
 	if err != nil || existing != nil || stage == nil {
 		t.Fatalf("begin over crash-residue staging: stage=%T existing=%#v err=%v", stage, existing, err)
 	}
-	if _, err := stage.Write([]byte("full-archive")); err != nil {
+	archive := []byte("full-archive")
+	if _, err := stage.Write(archive); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := stage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:crash", Bytes: 12, Rows: 1, Features: 1}); err != nil {
+	if _, err := stage.Commit(context.Background(), artifactCompletionFor(archive, 1, 1)); err != nil {
 		t.Fatal(err)
 	}
 	reader, got, err := store.Open(context.Background(), id)

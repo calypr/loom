@@ -2,6 +2,8 @@ package artifactfs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -124,6 +126,47 @@ func (s *Store) Open(ctx context.Context, id string) (io.ReadCloser, *explorer.A
 	file, err := os.Open(s.path(id, ".zip"))
 	if err != nil {
 		return nil, record, err
+	}
+	closeOnError := func(err error) (io.ReadCloser, *explorer.ArtifactRecord, error) {
+		_ = file.Close()
+		return nil, record, err
+	}
+
+	digest := sha256.New()
+	buffer := make([]byte, 32*1024)
+	var size int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return closeOnError(err)
+		}
+		read, readErr := file.Read(buffer)
+		if read > 0 {
+			if _, err := digest.Write(buffer[:read]); err != nil {
+				return closeOnError(fmt.Errorf("hash artifact archive: %w", err))
+			}
+			size += int64(read)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return closeOnError(fmt.Errorf("read artifact archive for integrity verification: %w", readErr))
+		}
+		if read == 0 {
+			return closeOnError(io.ErrNoProgress)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return closeOnError(err)
+	}
+	if !record.ExpiresAt.After(s.now()) {
+		return closeOnError(ErrArtifactUnavailable)
+	}
+	if size != record.Bytes || hex.EncodeToString(digest.Sum(nil)) != record.ArchiveSHA256 {
+		return closeOnError(fmt.Errorf("artifact archive integrity verification failed"))
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return closeOnError(fmt.Errorf("rewind verified artifact archive: %w", err))
 	}
 	return file, record, nil
 }

@@ -19,7 +19,11 @@ func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
 		}
 	}
 	command := Command{Type: CommandRefreshImportedSource, OutputID: "patients"}
-	workspace := constructionWorkspace(legacyPivotDocument())
+	migrated, err := migrateStoredDocumentFixture(legacyPivotDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := constructionWorkspace(migrated)
 	if _, _, err := ApplyCommands(workspace, commandCatalog(), "refresh", []Command{command}); err == nil || !strings.Contains(err.Error(), "lifecycle-resolved") {
 		t.Fatalf("unresolved source command error = %v", err)
 	}
@@ -57,7 +61,11 @@ func TestImportedRelationshipIntentRejectsExecutableOrAmbiguousState(t *testing.
 }
 
 func TestImportedGraphAndRowsCannotMutateProjectedDocument(t *testing.T) {
-	workspace := constructionWorkspace(legacyPivotDocument())
+	migrated, err := migrateStoredDocumentFixture(legacyPivotDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := constructionWorkspace(migrated)
 	document := &workspace.Documents[0]
 	document.ImportedRecipe = &ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Output: document.Output.ID, Digest: strings.Repeat("a", 64)}
 	for i := range document.Columns {
@@ -83,7 +91,11 @@ func TestImportedGraphAndRowsCannotMutateProjectedDocument(t *testing.T) {
 }
 
 func TestImportedSourceProposalCannotDeleteOrChangeUnrelatedAuthoredWork(t *testing.T) {
-	workspace := constructionWorkspace(legacyPivotDocument())
+	migrated, err := migrateStoredDocumentFixture(legacyPivotDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := constructionWorkspace(migrated)
 	document := &workspace.Documents[0]
 	document.ImportedRecipe = &ImportedRecipeRef{Name: "default", TranslationVersion: "v1", Output: document.Output.ID, Digest: strings.Repeat("a", 64)}
 	for i := range document.Columns {

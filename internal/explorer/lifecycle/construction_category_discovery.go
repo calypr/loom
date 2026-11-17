@@ -235,12 +235,12 @@ func (s *Service) compileConstructionCategoryCandidate(
 	// Category discovery compiles a temporary staged candidate just like a
 	// proposal. Materialize legacy public columns first so they have the stable
 	// ColumnIDs required by a staged construction.
-	document, err := authoringv2.UpgradeDocumentToConstruction(base.document)
+	document, err := authoringv2.StartDocumentConstruction(base.document)
 	if err != nil {
 		return constructionBase{}, "", unprocessable("construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE", "the output cannot be upgraded for temporary category discovery", err)
 	}
 	document.Construction = &candidate
-	document.TableShape = nil
+	document.ArchiveRetiredShape = nil
 	workspace := base.workspace
 	workspace.Documents = append([]authoringv2.Document(nil), base.workspace.Documents...)
 	documentIndex := constructionDocumentIndex(workspace, request.OutputID)

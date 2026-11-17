@@ -12,22 +12,22 @@ import (
 )
 
 func TestTableShapeRoundTripsCanonicalWorkspace(t *testing.T) {
-	workspace, err := DecodeWorkspace(tableShapeWorkspaceJSON(validPivotDerivedTableShapeJSON()))
+	workspace, err := DecodeStoredWorkspaceForMigration(tableShapeWorkspaceJSON(validPivotDerivedTableShapeJSON()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := workspace.CanonicalJSON()
+	raw, err := CanonicalStoredWorkspaceForMigration(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	roundTripped, err := DecodeWorkspace(raw)
+	roundTripped, err := DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(roundTripped.Documents[0].TableShape, workspace.Documents[0].TableShape) {
-		t.Fatalf("round-tripped table shape differs:\nwant: %#v\n got: %#v", workspace.Documents[0].TableShape, roundTripped.Documents[0].TableShape)
+	if !reflect.DeepEqual(roundTripped.Documents[0].ArchiveRetiredShape, workspace.Documents[0].ArchiveRetiredShape) {
+		t.Fatalf("round-tripped table shape differs:\nwant: %#v\n got: %#v", workspace.Documents[0].ArchiveRetiredShape, roundTripped.Documents[0].ArchiveRetiredShape)
 	}
-	roundTrippedRaw, err := roundTripped.CanonicalJSON()
+	roundTrippedRaw, err := CanonicalStoredWorkspaceForMigration(roundTripped)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,17 +38,17 @@ func TestTableShapeRoundTripsCanonicalWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(cloned.Documents[0].TableShape, workspace.Documents[0].TableShape) {
-		t.Fatalf("cloned table shape differs:\nwant: %#v\n got: %#v", workspace.Documents[0].TableShape, cloned.Documents[0].TableShape)
+	if !reflect.DeepEqual(cloned.Documents[0].ArchiveRetiredShape, workspace.Documents[0].ArchiveRetiredShape) {
+		t.Fatalf("cloned table shape differs:\nwant: %#v\n got: %#v", workspace.Documents[0].ArchiveRetiredShape, cloned.Documents[0].ArchiveRetiredShape)
 	}
 }
 
 func TestTableShapeV9WorkspacePreservesDigestOnDecode(t *testing.T) {
-	current, err := DecodeWorkspace(tableShapeWorkspaceJSON(validPivotTableShapeJSON()))
+	current, err := DecodeStoredWorkspaceForMigration(tableShapeWorkspaceJSON(validPivotTableShapeJSON()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentCanonical, err := current.CanonicalJSON()
+	currentCanonical, err := CanonicalStoredWorkspaceForMigration(current)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,21 +63,21 @@ func TestTableShapeV9WorkspacePreservesDigestOnDecode(t *testing.T) {
 	if after.SemanticsVersion != tableShapeSemanticsVersion {
 		t.Fatalf("semanticsVersion = %d, want %d", after.SemanticsVersion, tableShapeSemanticsVersion)
 	}
-	afterDigest, err := after.Digest()
+	afterDigest, err := storedDigestFixture(after)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if afterDigest != legacyDigest {
 		t.Fatalf("decoded v9 digest = %q, want persisted v9 digest %q", afterDigest, legacyDigest)
 	}
-	if !reflect.DeepEqual(after.Documents[0].TableShape, current.Documents[0].TableShape) {
-		t.Fatalf("v9 decode changed tableShape:\ncurrent=%#v\nafter=%#v", current.Documents[0].TableShape, after.Documents[0].TableShape)
+	if !reflect.DeepEqual(after.Documents[0].ArchiveRetiredShape, current.Documents[0].ArchiveRetiredShape) {
+		t.Fatalf("v9 decode changed tableShape:\ncurrent=%#v\nafter=%#v", current.Documents[0].ArchiveRetiredShape, after.Documents[0].ArchiveRetiredShape)
 	}
 }
 
 func TestTableShapeV8WorkspaceMigratesToSemantics9(t *testing.T) {
 	raw := tableShapeWorkspaceJSON(validPivotTableShapeJSON())
-	before, err := DecodeWorkspace(raw)
+	before, err := DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestTableShapeV8WorkspaceMigratesToSemantics9(t *testing.T) {
 	if after.SemanticsVersion != aggregateTemporalPolicySemanticsVersion {
 		t.Fatalf("semanticsVersion = %d, want %d", after.SemanticsVersion, aggregateTemporalPolicySemanticsVersion)
 	}
-	if !reflect.DeepEqual(after.Documents[0].TableShape, before.Documents[0].TableShape) ||
+	if !reflect.DeepEqual(after.Documents[0].ArchiveRetiredShape, before.Documents[0].ArchiveRetiredShape) ||
 		!reflect.DeepEqual(after.Documents[0].Rows, before.Documents[0].Rows) ||
 		!reflect.DeepEqual(after.Documents[0].Columns, before.Documents[0].Columns) {
 		t.Fatalf("v8 migration changed tableShape, rows, or columns:\nbefore=%#v\nafter=%#v", before.Documents[0], after.Documents[0])
@@ -244,9 +244,9 @@ func TestTableShapePivotDuplicateCategoryKeysCanonicalizeDecimalZeroSign(t *test
 	columns := []Column{{Column: "group"}, {Column: "category"}, {Column: "measure"}}
 	positiveZero := 0.0
 	negativeZero := math.Copysign(0, -1)
-	shape := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+	shape := &storedTableShape{Reshape: &storedTableReshape{Kind: "PIVOT", Pivot: &storedPivotConstruction{
 		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
-		Categories: []PivotCategory{
+		Categories: []storedPivotCategory{
 			{Key: TableScalar{Kind: TableScalarDecimal, Decimal: &positiveZero}, Output: ColumnOutput{Column: "zero_a", Label: "Zero A"}},
 			{Key: TableScalar{Kind: TableScalarDecimal, Decimal: &negativeZero}, Output: ColumnOutput{Column: "zero_b", Label: "Zero B"}},
 		},
@@ -256,9 +256,9 @@ func TestTableShapePivotDuplicateCategoryKeysCanonicalizeDecimalZeroSign(t *test
 		t.Fatalf("duplicate decimal +0/-0 category key error = %v", err)
 	}
 
-	distinct := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+	distinct := &storedTableShape{Reshape: &storedTableReshape{Kind: "PIVOT", Pivot: &storedPivotConstruction{
 		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
-		Categories: []PivotCategory{
+		Categories: []storedPivotCategory{
 			{Key: TableScalar{Kind: TableScalarDecimal, Decimal: &positiveZero}, Output: ColumnOutput{Column: "zero", Label: "Zero"}},
 			{Key: TableScalar{Kind: TableScalarDecimal, Decimal: ptrFloat(1.5)}, Output: ColumnOutput{Column: "one_five", Label: "One point five"}},
 		},
@@ -274,9 +274,9 @@ func ptrFloat(value float64) *float64 { return &value }
 func TestTableScalarSentinelsAreValidOnlyAsPivotCategoryKeys(t *testing.T) {
 	columns := []Column{{Column: "group"}, {Column: "category"}, {Column: "measure"}}
 	sentinels := []TableScalar{{Kind: TableScalarNull}, {Kind: TableScalarMissing}}
-	pivot := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+	pivot := &storedTableShape{Reshape: &storedTableReshape{Kind: "PIVOT", Pivot: &storedPivotConstruction{
 		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
-		Categories: []PivotCategory{
+		Categories: []storedPivotCategory{
 			{Key: sentinels[0], Output: ColumnOutput{Column: "null_category", Label: "Null category"}},
 			{Key: sentinels[1], Output: ColumnOutput{Column: "missing_category", Label: "Missing category"}},
 		},
@@ -286,9 +286,9 @@ func TestTableScalarSentinelsAreValidOnlyAsPivotCategoryKeys(t *testing.T) {
 		t.Fatalf("pivot sentinel keys rejected: %v", err)
 	}
 
-	duplicatePivot := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+	duplicatePivot := &storedTableShape{Reshape: &storedTableReshape{Kind: "PIVOT", Pivot: &storedPivotConstruction{
 		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
-		Categories: []PivotCategory{
+		Categories: []storedPivotCategory{
 			{Key: sentinels[0], Output: ColumnOutput{Column: "null_a", Label: "Null A"}},
 			{Key: sentinels[0], Output: ColumnOutput{Column: "null_b", Label: "Null B"}},
 		},
@@ -300,17 +300,17 @@ func TestTableScalarSentinelsAreValidOnlyAsPivotCategoryKeys(t *testing.T) {
 
 	zero := int64(1)
 	for index, sentinel := range sentinels {
-		unpivot := &TableShape{Reshape: &TableReshape{Kind: "UNPIVOT", Unpivot: &UnpivotConstruction{
-			ConstructionID: "unpivot_1", Inputs: []UnpivotInput{{Column: "category", Key: sentinel}},
+		unpivot := &storedTableShape{Reshape: &storedTableReshape{Kind: "UNPIVOT", Unpivot: &storedUnpivotConstruction{
+			ConstructionID: "unpivot_1", Inputs: []storedUnpivotInput{{Column: "category", Key: sentinel}},
 			KeyOutput: ColumnOutput{Column: "metric_name", Label: "Metric"}, ValueOutput: ColumnOutput{Column: "metric_value", Label: "Value"}, NullRowPolicy: "DROP",
 		}}}
 		if err := unpivot.Validate(columns); err == nil || !strings.Contains(err.Error(), "sentinel scalar is not a concrete value") {
 			t.Errorf("unpivot sentinel %q error = %v", sentinel.Kind, err)
 		}
 
-		derived := &TableShape{Derived: []DerivedConstruction{{
+		derived := &storedTableShape{Derived: []storedDerivedConstruction{{
 			ConstructionID: "derived_1", Output: ColumnOutput{Column: fmt.Sprintf("result_%d", index), Label: "Result"}, Operation: "ADD",
-			Left: ArithmeticOperand{Kind: "LITERAL", Literal: &sentinel}, Right: ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: &zero}}, MissingInputPolicy: "PROPAGATE_NULL",
+			Left: storedArithmeticOperand{Kind: "LITERAL", Literal: &sentinel}, Right: storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: &zero}}, MissingInputPolicy: "PROPAGATE_NULL",
 		}}}
 		if err := derived.Validate(columns); err == nil || !strings.Contains(err.Error(), "sentinel scalar is not a concrete value") {
 			t.Errorf("arithmetic sentinel literal %q error = %v", sentinel.Kind, err)
@@ -347,7 +347,7 @@ func TestDecodeWorkspaceRejectsMalformedTableShapeUnions(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := DecodeWorkspace(tableShapeWorkspaceJSON(test.shape))
+			_, err := DecodeStoredWorkspaceForMigration(tableShapeWorkspaceJSON(test.shape))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("DecodeWorkspace error = %v, want %q", err, test.want)
 			}
@@ -470,7 +470,7 @@ func TestDecodeWorkspaceRejectsInvalidTableShapeReferencesAndPolicies(t *testing
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := DecodeWorkspace(tableShapeWorkspaceJSON(test.shape))
+			_, err := DecodeStoredWorkspaceForMigration(tableShapeWorkspaceJSON(test.shape))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("DecodeWorkspace error = %v, want %q", err, test.want)
 			}
@@ -484,7 +484,7 @@ func TestDecodeWorkspaceBoundsTableShapeDefinitions(t *testing.T) {
 		categories[index] = fmt.Sprintf(`{"key":{"kind":"STRING","string":"category_%d"},"output":{"column":"category_%d","label":"Category %d"}}`, index, index, index)
 	}
 	shape := `{"reshape":{"kind":"PIVOT","pivot":{"constructionId":"pivot_1","groupKeys":["group"],"categoryColumn":"category","valueColumn":"measure","categories":[` + strings.Join(categories, ",") + `],"duplicatePolicy":"ERROR","missingCellPolicy":"NULL","unlistedCategoryPolicy":"ERROR"}}}`
-	if _, err := DecodeWorkspace(tableShapeWorkspaceJSON(shape)); err == nil || !strings.Contains(err.Error(), "categories exceed maximum") {
+	if _, err := DecodeStoredWorkspaceForMigration(tableShapeWorkspaceJSON(shape)); err == nil || !strings.Contains(err.Error(), "categories exceed maximum") {
 		t.Fatalf("oversized category list error = %v", err)
 	}
 
@@ -493,7 +493,7 @@ func TestDecodeWorkspaceBoundsTableShapeDefinitions(t *testing.T) {
 		derived[index] = fmt.Sprintf(`{"constructionId":"derived_%d","output":{"column":"calc_%d","label":"Calculation %d"},"operation":"ADD","left":{"kind":"COLUMN","column":"measure"},"right":{"kind":"LITERAL","literal":{"kind":"INTEGER","integer":1}},"missingInputPolicy":"PROPAGATE_NULL"}`, index, index, index)
 	}
 	shape = `{"derived":[` + strings.Join(derived, ",") + `]}`
-	if _, err := DecodeWorkspace(tableShapeWorkspaceJSON(shape)); err == nil || !strings.Contains(err.Error(), "derived definitions exceed maximum") {
+	if _, err := DecodeStoredWorkspaceForMigration(tableShapeWorkspaceJSON(shape)); err == nil || !strings.Contains(err.Error(), "derived definitions exceed maximum") {
 		t.Fatalf("oversized derived list error = %v", err)
 	}
 }

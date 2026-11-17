@@ -49,8 +49,6 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	rowDefinitionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyRowDefinitionProposal
 	rowChangeReplacementCommand := request.Commands[0].Type == authoringv2.CommandApplyTableRootRebase && request.Commands[0].RowChange != nil && request.Commands[0].RowChange.Mode == authoringv2.RowChangeModeReplace
 	var rowDefinitionCandidate *explorer.CompilationReceipt
-	tableShapeProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyTableShapeProposal
-	var tableShapeCandidate *explorer.CompilationReceipt
 	constructionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal
 	populationMemberProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyPopulationMemberProposal
 	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
@@ -191,12 +189,6 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 			rowDefinitionCandidate = receipt
 			return prepared, prepareErr
 		}
-	} else if tableShapeProposalCommand {
-		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			prepared, receipt, prepareErr := s.prepareTableShapeProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
-			tableShapeCandidate = receipt
-			return prepared, prepareErr
-		}
 	} else if constructionProposalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			prepared, receipt, accepted, prepareErr := s.prepareConstructionProposal(ctx, project, explorerID, request, snapshot, workspace, commands, previewSinkFactory)
@@ -267,9 +259,6 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 		if rowDefinitionProposalCommand {
 			return s.checkRowDefinitionProposalResult(workspace, rowDefinitionCandidate)
-		}
-		if tableShapeProposalCommand {
-			return checkTableShapeProposalResult(workspace, tableShapeCandidate)
 		}
 		if constructionProposalCommand {
 			return checkConstructionProposalResult(workspace, constructionCandidate)
@@ -485,7 +474,7 @@ func (s *Service) compileAuthorized(ctx context.Context, request compileRequest,
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, ColumnPolicyProposal: cloneColumnPolicyProposalBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: cloneSourceRelationshipProposalBinding(request.SourceRelationshipProposal), RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
+	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, ColumnPolicyProposal: cloneColumnPolicyProposalBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: cloneSourceRelationshipProposalBinding(request.SourceRelationshipProposal), RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), ConstructionProposal: cloneConstructionProposalBinding(request.ConstructionProposal), PopulationMemberRemovalProposal: clonePopulationMemberRemovalProposalBinding(request.PopulationMemberRemovalProposal)})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {
@@ -538,9 +527,6 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 	if !sameRowDefinitionProposalBinding(request.RowDefinitionProposal, receipt.RowDefinitionProposal) {
 		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
 	}
-	if !sameTableShapeProposalBinding(request.TableShapeProposal, receipt.TableShapeProposal) {
-		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt table-shape proposal binding does not match the request", nil, nil)
-	}
 	if !sameConstructionProposalBinding(request.ConstructionProposal, receipt.ConstructionProposal) {
 		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt construction proposal binding does not match the request", nil, nil)
 	}
@@ -576,21 +562,6 @@ func sameRowDefinitionProposalBinding(left, right *explorer.RowDefinitionProposa
 }
 
 func cloneRowDefinitionProposalBinding(binding *explorer.RowDefinitionProposalBinding) *explorer.RowDefinitionProposalBinding {
-	if binding == nil {
-		return nil
-	}
-	cloned := *binding
-	return &cloned
-}
-
-func sameTableShapeProposalBinding(left, right *explorer.TableShapeProposalBinding) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
-}
-
-func cloneTableShapeProposalBinding(binding *explorer.TableShapeProposalBinding) *explorer.TableShapeProposalBinding {
 	if binding == nil {
 		return nil
 	}

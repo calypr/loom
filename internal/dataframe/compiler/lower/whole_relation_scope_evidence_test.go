@@ -175,20 +175,19 @@ func wholeRelationGroupOutput() recipe.Output {
 
 func wholeRelationTablePivotOutput() recipe.Output {
 	zero := int64(0)
-	return recipe.Output{
+	return bindOracleCurrentConstruction(recipe.Output{
 		Name: "pivoted", RootResourceType: "Patient", RowGrain: "patient",
 		Fields: []recipe.Field{
 			{Name: "gender", Expr: recipe.Expression{Select: "gender"}},
 			{Name: "category", Expr: recipe.Expression{Select: "multipleBirthInteger"}},
 			{Name: "value", Expr: recipe.Expression{Select: "multipleBirthInteger"}},
 		},
-		TableReshape: &recipe.TableReshape{Kind: recipe.TableReshapeGroupedPivot, GroupedPivot: &recipe.GroupedPivot{
-			ConstructionID: "pivot", GroupKeys: []string{"gender"}, CategoryColumn: "category", ValueColumn: "value",
-			Categories:      []recipe.GroupedPivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &zero}, Output: "zero", Label: "Zero"}},
-			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
-			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
-		}},
-	}
+	}, &oracleReshape{Kind: oracleReshapePivot, GroupedPivot: &oraclePivot{
+		ConstructionID: "pivot", GroupKeys: []string{"gender"}, CategoryColumn: "category", ValueColumn: "value",
+		Categories:      []oraclePivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &zero}, Output: "zero", Label: "Zero"}},
+		DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
+		UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
+	}})
 }
 
 func wholeRelationCohortOutput() recipe.Output {

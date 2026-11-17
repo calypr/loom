@@ -42,7 +42,7 @@ const expectedChecks = [
   'pk-categories-discovered',
   'pk-keyword-names-applied',
   'pk-cancel-byte-stability',
-  'pk-comparison-proposal-available',
+  'pk-construction-proposal-available',
   'pk-apply-success',
   'pk-grid-values',
   'pk-document-persistence',
@@ -54,7 +54,7 @@ const expectedChecks = [
 
 // Legitimate rejection families. Anything else on a mutating call is a defect;
 // INTERNAL_ERROR/5xx is NEVER legitimate (the pivot-500 class this journey guards).
-const legit4xx = /^(TABLE_SHAPE_|DUPLICATE_OUTPUT_NAME|INVALID_AUTHORING_COMMAND|DRAFT_CONFLICT|TABLE_PIVOT_|INVALID_|UNRESOLVED_|NAME_)/;
+const legit4xx = /^(DUPLICATE_OUTPUT_NAME|INVALID_AUTHORING_COMMAND|DRAFT_CONFLICT|TABLE_PIVOT_|INVALID_|UNRESOLVED_|NAME_)/;
 
 const staticValidate = () => {
   assert.equal(expectedChecks.length, new Set(expectedChecks).size, 'duplicate check names in expectedChecks');
@@ -67,6 +67,13 @@ const staticValidate = () => {
   for (const name of expectedChecks) assert.ok(workflow.includes(`'${name}'`), `check ${name} never recorded in source`);
   assert.match(workflow, /construction-apply-proposal/, 'apply must drive the real apply-proposal control');
   assert.match(workflow, /Pivot output name/, 'keyword names must be typed through the real name inputs');
+  for (const removed of [
+    ['table', 'shape', 'capabilities'].join('-'),
+    ['table', 'shape', 'category-discoveries'].join('-'),
+    ['table', 'shape', 'resolutions'].join('-'),
+    ['table', 'shape', 'proposals'].join('-'),
+    ['APPLY', 'TABLE', 'SHAPE', 'PROPOSAL'].join('_'),
+  ]) assert.ok(!workflow.includes(removed), `removed contract returned: ${removed}`);
   console.log(`DRY_RUN_OK artifact=pivot-keyword-names checks=${expectedChecks.length}`);
 };
 
@@ -418,7 +425,7 @@ const main = async () => {
 
   // stable-snapshot BEFORE typing, so the cancel leg can compare bytes
   const beforeTyping = await api('builder');
-  const baseline = { draftVersion: beforeTyping.value.draftVersion, draftDigest: beforeTyping.value.draftDigest, tableShape: (beforeTyping.value.workspace.documents ?? [])[0]?.output?.tableShape ?? null };
+  const baseline = { draftVersion: beforeTyping.value.draftVersion, draftDigest: beforeTyping.value.draftDigest, construction: (beforeTyping.value.workspace.documents ?? [])[0]?.construction ?? null };
 
   const appliedNames = await setNameInputs(keywordNames);
   record('pk-keyword-names-applied', { names: keywordNames, inputs: appliedNames });
@@ -433,65 +440,8 @@ const main = async () => {
   assertNoInternal(afterCancel, 'builder-after-cancel');
   assert.equal(afterCancel.value.draftVersion, baseline.draftVersion, 'Cancel must not bump draftVersion');
   assert.equal(afterCancel.value.draftDigest, baseline.draftDigest, 'Cancel must not change the draft digest (byte stability)');
-  assert.deepEqual((afterCancel.value.workspace.documents ?? [])[0]?.output?.tableShape ?? null, baseline.tableShape, 'Cancel must not persist a tableShape');
+  assert.deepEqual((afterCancel.value.workspace.documents ?? [])[0]?.construction ?? null, baseline.construction, 'Cancel must preserve the saved Construction exactly');
   record('pk-cancel-byte-stability', { draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest.slice(0, 24) });
-
-  // ---- 6. server-side equivalence: same named pivot through the comparison API is AVAILABLE and carries the keyword columns
-  const state3 = (await api('builder')).value;
-  const caps = await api('table-shape-capabilities', {
-    snapshotToken: state3.catalog.snapshotToken, expectedDraftVersion: state3.draftVersion, expectedDraftDigest: state3.draftDigest, outputId,
-  });
-  assertNoInternal(caps, 'table-shape-capabilities');
-  assert.equal(caps.status, 200, `capabilities failed (${caps.status})`);
-  const choose = (list, re) => (list ?? []).find((c) => re.test(JSON.stringify(c)));
-  const choiceIdOf = (c) => (typeof c === 'string' ? c : (c?.choiceId ?? c?.id));
-  const categoryChoice = choose(caps.value.categoryColumns, /reference/i) ?? caps.value.categoryColumns?.[0];
-  const valueChoice = choose(caps.value.valueColumns, /valueQuantity/i) ?? caps.value.valueColumns?.[0];
-  const groupChoices = [choose(caps.value.groupColumns, /status/) ?? (caps.value.groupColumns ?? [])[0]];
-  const dupChoice = (caps.value.duplicatePolicies ?? []).find((d) => /sum/i.test(d.label ?? '')) ?? (caps.value.duplicatePolicies ?? [])[0];
-  assert.ok(categoryChoice && valueChoice && groupChoices[0] && dupChoice, `capabilities lack category/value/group/dup choices: ${JSON.stringify(Object.keys(caps.value))}`);
-  const st = () => ({ snapshotToken: state3.catalog.snapshotToken, expectedDraftVersion: state3.draftVersion, expectedDraftDigest: state3.draftDigest });
-  const discovery = await api('table-shape-category-discoveries', {
-    ...st(), catalogId: caps.value.catalogId, outputId,
-    categoryColumnChoiceId: choiceIdOf(categoryChoice), valueColumnChoiceId: choiceIdOf(valueChoice),
-  });
-  assertNoInternal(discovery, 'category-discoveries');
-  assert.equal(discovery.status, 200, `discovery failed (${discovery.status}): ${JSON.stringify(discovery.value).slice(0, 300)}`);
-  // Every discovered category must be listed (server TABLE_PIVOT_UNLISTED_CATEGORY);
-  // first two names stay the verbatim keywords, later ones keep the keyword stem.
-  const discoveredCategories = (discovery.value.categories ?? []).slice(0, 8);
-  assert.ok(discoveredCategories.length >= 2, `comparison probe needs >=2 categories, saw ${(discovery.value.categories ?? []).length}`);
-  const probeName = (i) => (i < keywordNames.length ? keywordNames[i] : `${keywordNames[i % keywordNames.length]}${i}`);
-  const resolution = await api('table-shape-resolutions', {
-    ...st(), outputId, catalogId: caps.value.catalogId, kind: 'PIVOT',
-    pivot: {
-      categoryDiscoveryId: discovery.value.discoveryIdentity,
-      groupColumnChoiceIds: groupChoices.map(choiceIdOf),
-      categoryColumnChoiceId: choiceIdOf(categoryChoice),
-      valueColumnChoiceId: choiceIdOf(valueChoice),
-      categories: discoveredCategories.map((c, i) => ({
-        choiceId: typeof c === 'string' ? c : (c?.id ?? c?.choiceId),
-        outputColumn: probeName(i), outputLabel: String(c?.label ?? c?.key ?? c ?? ''),
-      })),
-      duplicatePolicyChoiceId: choiceIdOf(dupChoice),
-      missingPolicyChoiceId: choiceIdOf((caps.value.missingCellPolicies ?? [])[0]),
-      unlistedPolicyChoiceId: choiceIdOf((caps.value.unlistedCategoryPolicies ?? [])[0]),
-    },
-  });
-  assertNoInternal(resolution, 'pivot resolution (duplicate-ID class must not 500)');
-  assert.equal(resolution.status, 200, `pivot resolution failed (${resolution.status}): ${JSON.stringify(resolution.value).slice(0, 300)}`);
-  const proposal = await api('table-shape-proposals', {
-    ...st(), outputId, catalogId: caps.value.catalogId, mode: 'ADD',
-    reshapeResolutionId: resolution.value.resolutionId ?? resolution.value.id, derivedResolutionIds: [],
-  });
-  assertNoInternal(proposal, 'pivot proposal');
-  assert.equal(proposal.status, 200, `pivot proposal failed (${proposal.status}): ${JSON.stringify(proposal.value).slice(0, 300)}`);
-  const comparisonAvailable = proposal.value?.comparison?.status === 'AVAILABLE' || proposal.value?.proposal?.comparison?.status === 'AVAILABLE';
-  const changedColumns = proposal.value?.comparison?.changedColumns ?? proposal.value?.proposal?.comparison?.changedColumns ?? [];
-  assert.ok(comparisonAvailable, `comparison probe not AVAILABLE: ${JSON.stringify(proposal.value).slice(0, 400)}`);
-  assert.ok(keywordNames.every((n) => changedColumns.includes(n)), `keyword columns missing from server comparison surface: ${JSON.stringify(changedColumns).slice(0, 300)}`);
-  record('pk-comparison-proposal-available', { changedColumns: changedColumns.slice(0, 8), categories: discoveredCategories.map((c) => c.key ?? c.choiceId), status: 'AVAILABLE' });
-  markPhase('server-probe');
 
   // ---- 7. UI apply with the keyword names
   await openPivotEditor();
@@ -502,6 +452,8 @@ const main = async () => {
     const panelDiag = await evaluate(`(()=>{const p=document.querySelector('[data-testid="construction-proposal-panel"]');return p?{status:p.getAttribute('data-proposal-status'),stats:[...p.querySelectorAll('[role="status"],[role="alert"]')].map(e=>e.textContent.trim().slice(0,160))}:null;})()`);
     assert.fail(`apply-proposal control absent or disabled for a valid keyword-named pivot; panel=${JSON.stringify(panelDiag)} (${String(error?.message).slice(0, 120)})`);
   });
+  record('pk-construction-proposal-available', { names: keywordNames, proposalReady: true });
+  markPhase('construction-proposal');
   const applyReqs = [];
   client.on('Network.requestWillBeSent', (event) => { if (String(event.request?.url ?? '').includes('/authoring/v2/'))   applyReqs.push({ method: event.request.method, tail: String(event.request.url).split('/v2/')[1], bodies: String(event.request.postData ?? '').slice(0, 240) }); });
   const draftBeforeApply = (await api('builder')).value?.draftVersion;
@@ -565,9 +517,7 @@ const main = async () => {
   await screenshot('step3-keyword-grid');
   markPhase('grid');
 
-  // ---- 9. persisted document carries the exact names. The UI row-intent lane persists
-  // the pivot as a construction step (deep search), the API table-shape channel as
-  // output.tableShape.pivot (see the disposition note in docs/EXPLORER_BACKLOG.md).
+  // ---- 9. persisted document carries the exact names in Construction outputs.
   const outputs = pivotColumnNames((afterApply.value.workspace.documents ?? [])[0] ?? {});
   assert.deepEqual(outputs.slice(0, 2).sort(), [...keywordNames].sort(), `persisted pivot column names drifted from the typed keywords: ${JSON.stringify(outputs)}`);
   record('pk-document-persistence', { outputs, persistedColumnCount: outputs.length });

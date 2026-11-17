@@ -443,14 +443,14 @@ func replacementRemovedFeatureKeys(document Document) []string {
 	for _, frame := range document.Frames {
 		keys = append(keys, "frame:"+frame.ID)
 	}
-	if document.TableShape != nil {
-		if document.TableShape.Reshape != nil {
-			keys = append(keys, "tableShape:reshape:"+document.TableShape.Reshape.Kind)
+	if document.ArchiveRetiredShape != nil {
+		if document.ArchiveRetiredShape.Reshape != nil {
+			keys = append(keys, "tableShape:reshape:"+document.ArchiveRetiredShape.Reshape.Kind)
 		}
-		for _, derived := range document.TableShape.Derived {
+		for _, derived := range document.ArchiveRetiredShape.Derived {
 			keys = append(keys, "tableShape:derived:"+string(derived.ConstructionID))
 		}
-		if document.TableShape.Reshape == nil && len(document.TableShape.Derived) == 0 {
+		if document.ArchiveRetiredShape.Reshape == nil && len(document.ArchiveRetiredShape.Derived) == 0 {
 			keys = append(keys, "tableShape")
 		}
 	}

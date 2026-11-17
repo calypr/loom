@@ -2,6 +2,8 @@ package artifactfs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +13,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/explorer"
 )
+
+func artifactCompletionFor(raw []byte, rows int64, features int) explorer.ArtifactCompletion {
+	digest := sha256.Sum256(raw)
+	return explorer.ArtifactCompletion{ArchiveSHA256: hex.EncodeToString(digest[:]), Bytes: int64(len(raw)), Rows: rows, Features: features}
+}
 
 func artifactRecord(t *testing.T) explorer.ArtifactRecord {
 	t.Helper()
@@ -42,10 +49,12 @@ func TestStorePublishesOnlyCommittedArtifactAndSurvivesReopen(t *testing.T) {
 	if _, _, err := store.Open(context.Background(), record.ID); !errors.Is(err, ErrArtifactUnavailable) {
 		t.Fatalf("pre-commit open error = %v", err)
 	}
-	if _, err := stage.Write([]byte("archive")); err != nil {
+	archive := []byte("archive")
+	if _, err := stage.Write(archive); err != nil {
 		t.Fatal(err)
 	}
-	completed, err := stage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:value", Bytes: 7, Rows: 2, Features: 3})
+	completion := artifactCompletionFor(archive, 2, 3)
+	completed, err := stage.Commit(context.Background(), completion)
 	if err != nil || completed.State != explorer.ArtifactComplete {
 		t.Fatalf("commit=%#v err=%v", completed, err)
 	}
@@ -59,12 +68,76 @@ func TestStorePublishesOnlyCommittedArtifactAndSurvivesReopen(t *testing.T) {
 	}
 	defer reader.Close()
 	raw, _ := io.ReadAll(reader)
-	if string(raw) != "archive" || got.ArchiveSHA256 != "sha256:value" || got.Rows != 2 || got.Features != 3 {
+	if string(raw) != "archive" || got.ArchiveSHA256 != completion.ArchiveSHA256 || got.Rows != 2 || got.Features != 3 {
 		t.Fatalf("artifact=%q record=%#v", raw, got)
 	}
 	stage, existing, err = reopened.Begin(context.Background(), record)
 	if err != nil || stage != nil || existing == nil || existing.State != explorer.ArtifactComplete {
 		t.Fatalf("idempotent begin stage=%T existing=%#v err=%v", stage, existing, err)
+	}
+}
+
+func TestStoreOpenRejectsArchiveDigestMismatch(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := artifactRecord(t)
+	stage, _, err := store.Begin(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("archive")
+	if _, err := stage.Write(original); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stage.Commit(context.Background(), artifactCompletionFor(original, 1, 1)); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the byte count unchanged so the digest check is the rejecting guard.
+	if err := os.WriteFile(store.path(record.ID, ".zip"), []byte("tamper!"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, _, err := store.Open(context.Background(), record.ID)
+	if reader != nil {
+		_ = reader.Close()
+	}
+	if err == nil {
+		t.Fatal("Open exposed a changed archive under the committed digest")
+	}
+}
+
+func TestStoreOpenRejectsArchiveByteCountMismatch(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := artifactRecord(t)
+	stage, _, err := store.Begin(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := []byte("archive")
+	if _, err := stage.Write(archive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stage.Commit(context.Background(), artifactCompletionFor(archive, 1, 1)); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Get(context.Background(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Bytes++
+	if err := store.writeRecord(*stored); err != nil {
+		t.Fatal(err)
+	}
+	reader, _, err := store.Open(context.Background(), record.ID)
+	if reader != nil {
+		_ = reader.Close()
+	}
+	if err == nil {
+		t.Fatal("Open exposed an archive whose byte count disagrees with its record")
 	}
 }
 
@@ -124,8 +197,9 @@ func TestStoreReplacesExpiredCompleteArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = stage.Write([]byte("old"))
-	if _, err := stage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "old", Bytes: 3}); err != nil {
+	oldArchive := []byte("old")
+	_, _ = stage.Write(oldArchive)
+	if _, err := stage.Commit(context.Background(), artifactCompletionFor(oldArchive, 0, 0)); err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(2 * time.Hour)

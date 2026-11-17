@@ -16,14 +16,6 @@ func TestGeneratedEnumNullMembersValidateAsNullNotNilPlaceholder(t *testing.T) {
 		missingOk bool
 	}{
 		{
-			name:      "TableShapeScalarKind",
-			nullValue: string(loomapi.TableShapeScalarKindNULL),
-			nullValid: loomapi.TableShapeScalarKindNULL.Valid(),
-			nilValid:  loomapi.TableShapeScalarKind("<nil>").Valid(),
-			missing:   string(loomapi.TableShapeScalarKindMISSING),
-			missingOk: loomapi.TableShapeScalarKindMISSING.Valid(),
-		},
-		{
 			name:      "ConstructionTableScalarKind",
 			nullValue: string(loomapi.ConstructionTableScalarKindNULL),
 			nullValid: loomapi.ConstructionTableScalarKindNULL.Valid(),

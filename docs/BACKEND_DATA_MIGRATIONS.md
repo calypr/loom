@@ -57,3 +57,38 @@ Reruns reuse verified projections and preserve owner versions and marker revisio
 A sealed version with newly introduced legacy packets refuses further changes.
 WP-18 leaves TableShape conversion to its separate migration. Runtime decoding
 and compilation accept current workspaces and do not run historical conversions.
+
+## TableShape to Construction: `wp17_tableshape_v1`
+
+Run and seal the workspace encoding migration first. Then audit again before
+converting retired TableShape drafts:
+
+```sh
+go run ./cmd/arango-preview-index-audit --endpoint http://127.0.0.1:8529 --database loom_dev
+go run ./cmd/arango-workspace-migration --endpoint http://127.0.0.1:8529 --database loom_dev --migration table-shape
+go run ./cmd/arango-workspace-migration --endpoint http://127.0.0.1:8529 --database loom_dev --migration table-shape --mode apply --authorize-local-migration
+```
+
+The default remains read-only dry-run. The report counts changed owners,
+repository configs, immutable projections, history rows and stored digests, and
+whether a version marker would be recorded. Apply converts the entire known
+legacy operation sequence before writing. It retains each original construction
+identity and scalar value, including distinct NULL and MISSING category keys.
+
+Mutable owners receive a new canonical digest and advance their draft version
+once. The original history row is preserved; an already-existing row is reused
+only after its complete typed preimage matches. A conflicting immutable history
+row aborts the owner transaction. Prior command replay metadata is cleared.
+
+Immutable revisions, history and compilation receipts retain their original
+bytes, digests and IDs. Construction projections use a separate `_wp17` key;
+existing WP-18 projections remain untouched. Readers prefer the sealed WP-17
+projection and fail closed if it is missing or invalid. They do not reactivate a
+retired shape through a WP-18 projection. A rerun verifies existing records and
+does not advance versions or rewrite completion markers.
+
+Old receipt IDs remain verifiable for archive metadata and authorized immutable
+downloads. Current execution rejects retired recipes or TableShape proposal
+bindings and requires recompilation. In-place receipt changes invalidate their
+original content IDs. New Construction receipts retain current Construction
+metadata semantics; archived receipts retain their historical metadata.

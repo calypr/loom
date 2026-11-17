@@ -995,9 +995,9 @@ func applyCapturedProposal(workspace authoringv2.Workspace, proposal proposalReq
 		return authoringv2.Workspace{}, fmt.Errorf("captured proposal output %q is absent from saved base receipt workspace", proposal.OutputID)
 	}
 	baseDocument := workspace.Documents[documentIndex]
-	upgraded, err := authoringv2.UpgradeDocumentToConstruction(baseDocument)
+	upgraded, err := authoringv2.StartDocumentConstruction(baseDocument)
 	if err != nil {
-		return authoringv2.Workspace{}, fmt.Errorf("apply production first-edit construction migration: %w", err)
+		return authoringv2.Workspace{}, fmt.Errorf("initialize current construction source: %w", err)
 	}
 	construction := proposal.CandidateConstruction
 	construction.SourceProjections = append([]authoringv2.ConstructionSourceProjection(nil), upgraded.Construction.SourceProjections...)

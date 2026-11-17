@@ -101,7 +101,6 @@ RESPONSIBILITIES = {
     "internal/explorer/compilation": "Translate validated Explorer authoring intent into native recipe and compilation artifacts.",
     "internal/explorer/lifecycle": "Coordinate transport-neutral Explorer authoring, preview, publication, query, and policy operations.",
     "internal/explorer/recipeimport": "Translate imported recipe documents into authorized Explorer source plans and exact capability choices.",
-    "internal/explorer/tableshapecap": "Define immutable table-shape capability and resolution artifacts plus their create-once repository contract.",
     "internal/fhir/schema": "Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR metadata.",
     "internal/fhir/semantic": "Walk generated FHIR definition indexes to enumerate typed referenced datatype occurrences.",
     "internal/ingest": "Preflight and load FHIR NDJSON into generation-scoped Arango vertices, edges, and catalog facts.",
@@ -118,6 +117,15 @@ RESPONSIBILITIES = {
 # understand why a source disappeared; keep records pin the reviewed boundary
 # to a live package.
 COMPLETED_DECISIONS = (
+    {
+        "source": "internal/explorer/tableshapecap",
+        "disposition": "deleted",
+        "destination": "internal/explorer/capability",
+        "rationale": "WP-17 removes the retired TableShape endpoints and their unreferenced immutable capability/resolution repository; current Construction discovery remains in capability",
+        "contracts": "retired promises recorded in DELETED_GUARANTEES; existing stored capability documents and historical compilation receipt identities remain untouched",
+        "verification": "pre/post package audits; Go deadcode -test and caller tracing; current Construction and real Arango migration/row/evidence checks; full package audit",
+        "status": "complete",
+    },
     {
         "source": "cmd/arango-workspace-migration",
         "disposition": "keep",

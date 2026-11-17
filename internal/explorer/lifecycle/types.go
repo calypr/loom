@@ -20,7 +20,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
-	"github.com/calypr/loom/internal/explorer/tableshapecap"
 )
 
 // CapabilityResolver resolves the current or a retained immutable capability
@@ -58,7 +57,6 @@ type CompileReceiptRequest struct {
 	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
 	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
 	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
-	TableShapeProposal              *explorer.TableShapeProposalBinding
 	ConstructionProposal            *explorer.ConstructionProposalBinding
 	PopulationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
 }
@@ -106,10 +104,6 @@ type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recip
 
 // RowLineageExecutor pages source records for one row in the immutable receipt output.
 type RowLineageExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
-
-// TableShapeExclusionExecutor enumerates exact exclusions from one validated
-// candidate receipt under its existing authorization bindings.
-type TableShapeExclusionExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error)
 
 // SelectionReferenceValidator resolves explicit references against the
 // authorized active generation. It must verify both resource existence and
@@ -177,13 +171,11 @@ type Config struct {
 	ConstructionSourceStage      ConstructionSourceStageCompiler
 	PreviewReceipt               ReceiptPreviewer
 	ValidateReceiptStream        ReceiptStreamValidator
-	TableShapeCapabilities       tableshapecap.Repository
 	ScanCategories               CategoryScanner
 	PopulationMapping            PopulationMappingExecutor
 	PopulationMappingCursorCodec PopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor
 	RowLineage                   RowLineageExecutor
-	TableShapeExclusions         TableShapeExclusionExecutor
 	MaterializeReceipt           ReceiptMaterializer
 	ReceiptLookup                ReceiptReader
 	ArtifactStore                explorer.ArtifactStore
@@ -246,7 +238,6 @@ type compileRequest struct {
 	ColumnPolicyProposal            *explorer.ColumnPolicyProposalBinding
 	SourceRelationshipProposal      *explorer.SourceRelationshipProposalBinding
 	RowDefinitionProposal           *explorer.RowDefinitionProposalBinding
-	TableShapeProposal              *explorer.TableShapeProposalBinding
 	ConstructionProposal            *explorer.ConstructionProposalBinding
 	PopulationMemberRemovalProposal *explorer.PopulationMemberRemovalProposalBinding
 }

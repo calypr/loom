@@ -13,8 +13,10 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func (w Workspace) CanonicalJSON() ([]byte, error) {
-	if err := w.Validate(); err != nil {
+func (w Workspace) CanonicalJSON() ([]byte, error) { return w.canonicalJSON(false) }
+
+func (w Workspace) canonicalJSON(allowArchive bool) ([]byte, error) {
+	if err := w.validate(allowArchive); err != nil {
 		return nil, err
 	}
 	n := w.NormalizePresentationOrders()

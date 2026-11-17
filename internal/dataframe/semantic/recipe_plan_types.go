@@ -39,7 +39,6 @@ type OutputPlan struct {
 	// RowExpansion is the sole semantic row-producing operation for an output.
 	RowExpansion          *SemanticRowExpansion
 	GroupRows             *SemanticGroupRows
-	TableReshape          *SemanticTableReshape
 	ExpansionIdentity     bool
 	DynamicMaps           []SemanticDynamicMap
 	CatalogProjections    []string
@@ -53,14 +52,38 @@ type OutputPlan struct {
 // SemanticGroupRows pins the output row set to one immutable explicit-group revision.
 type SemanticGroupRows = recipe.GroupRows
 
-// SemanticTableReshape is the document-level row operation over finalized
-// output columns. GroupedPivot is deliberately separate from SemanticPivot,
-// which remains a correlated FHIR-column projection.
-type SemanticTableReshape = recipe.TableReshape
-type SemanticGroupedPivot = recipe.GroupedPivot
-type SemanticGroupedPivotCategory = recipe.GroupedPivotCategory
-type SemanticUnpivot = recipe.Unpivot
-type SemanticUnpivotInput = recipe.UnpivotInput
+// Construction reshape inputs resolve column identities to output names before physical lowering.
+type SemanticGroupedPivot struct {
+	ConstructionID         string
+	GroupKeys              []string
+	CategoryColumn         string
+	ValueColumn            string
+	Categories             []SemanticGroupedPivotCategory
+	DuplicatePolicy        recipe.PivotDuplicatePolicy
+	MissingCellPolicy      recipe.PivotMissingCellPolicy
+	UnlistedCategoryPolicy recipe.PivotUnlistedCategoryPolicy
+}
+
+type SemanticGroupedPivotCategory struct {
+	Key    recipe.TableScalar
+	Output string
+	Label  string
+}
+
+type SemanticUnpivot struct {
+	ConstructionID string
+	Inputs         []SemanticUnpivotInput
+	KeyOutput      string
+	KeyLabel       string
+	ValueOutput    string
+	ValueLabel     string
+	NullRowPolicy  recipe.UnpivotNullRowPolicy
+}
+
+type SemanticUnpivotInput struct {
+	Column string
+	Key    recipe.TableScalar
+}
 
 type SemanticPopulation struct {
 	SelectionRevisionID string

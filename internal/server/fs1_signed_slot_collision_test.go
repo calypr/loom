@@ -161,7 +161,7 @@ func (e *fs1Env) fs1AddColumn(commandID, candidateID, title string) (authoringv2
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	upgraded, err := authoringv2.UpgradeDocumentToConstruction(current.Documents[0])
+	upgraded, err := authoringv2.StartDocumentConstruction(current.Documents[0])
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func (e *fs1Env) fs1V2Pin() (int64, string, authoringv2.Document) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	upgraded, err := authoringv2.UpgradeDocumentToConstruction(current.Documents[0])
+	upgraded, err := authoringv2.StartDocumentConstruction(current.Documents[0])
 	if err != nil {
 		e.t.Fatal(err)
 	}

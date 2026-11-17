@@ -72,15 +72,15 @@ func TestConstructionPivotSumAcceptsNumericValueColumns(t *testing.T) {
 	}
 }
 
-func pivotTableShapeForTypes(groupType, categoryType, valueType, duplicatePolicy string) (*TableShape, []Column) {
+func pivotTableShapeForTypes(groupType, categoryType, valueType, duplicatePolicy string) (*storedTableShape, []Column) {
 	columns := []Column{
 		{Column: "group", LogicalType: groupType},
 		{Column: "category", LogicalType: categoryType},
 		{Column: "measure", LogicalType: valueType},
 	}
-	shape := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+	shape := &storedTableShape{Reshape: &storedTableReshape{Kind: "PIVOT", Pivot: &storedPivotConstruction{
 		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
-		Categories:      []PivotCategory{{Key: stringScalar("a"), Output: ColumnOutput{Column: "amount_a", Label: "Amount A"}}},
+		Categories:      []storedPivotCategory{{Key: stringScalar("a"), Output: ColumnOutput{Column: "amount_a", Label: "Amount A"}}},
 		DuplicatePolicy: duplicatePolicy, MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
 	}}}
 	return shape, columns

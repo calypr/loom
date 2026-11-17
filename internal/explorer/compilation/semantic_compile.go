@@ -572,19 +572,11 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		}
 	}
 
-	derivedColumns, err := recipeDerivedColumns(document.TableShape)
-	if err != nil {
-		return Result{}, fail("intent", "INVALID_DERIVED_COLUMN", "$.tableShape.derived", err.Error(), nil, err)
-	}
-	tableReshape, err := recipeTableReshape(document.TableShape)
-	if err != nil {
-		return Result{}, fail("intent", "INVALID_TABLE_RESHAPE", "$.tableShape.reshape", err.Error(), nil, err)
-	}
 	construction, err := recipeConstruction(document.Construction, document.Columns, emitted)
 	if err != nil {
 		return Result{}, fail("capability", "UNSUPPORTED_CONSTRUCTION_SOURCE_SHAPE", "$.construction.sourceColumns", err.Error(), nil, err)
 	}
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, DerivedColumns: derivedColumns, TableReshape: tableReshape, Construction: construction, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, Construction: construction, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
 	if expansion != nil {
 		output.Identity = &recipe.Identity{Name: "__loom_row_id", Expansion: &recipe.ExpansionIdentity{}}
 	}

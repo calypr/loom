@@ -696,7 +696,7 @@ func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) { return authorized, nil }
 	service.config.Capability.ForExecution = func(context.Context, string, string) (AuthorizedCapability, error) { return authorized, nil }
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),

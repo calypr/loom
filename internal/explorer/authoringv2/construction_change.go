@@ -65,7 +65,7 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 	base := d
 	if d.Construction == nil {
 		var err error
-		base, err = UpgradeDocumentToConstruction(d)
+		base, err = StartDocumentConstruction(d)
 		if err != nil {
 			return d, ConstructionImpact{}, fmt.Errorf("upgrade accepted document: %w", err)
 		}
@@ -219,7 +219,7 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 
 	result := cloneDocumentForConstructionChange(base)
 	result.Construction = cloned
-	result.TableShape = nil
+	result.ArchiveRetiredShape = nil
 	repairExplicitGroupAnchorAfterConstructionChange(base, &result)
 	normalizeEffectiveConstructionInputs(&result)
 	result.Construction.SourceProjections = pruneConstructionSourceProjections(result.Construction.SourceProjections, result.Construction.Steps)

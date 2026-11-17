@@ -67,6 +67,9 @@ func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 			continue
 		}
 		changed := step.ID == request.ChangedStepID
+		if changed && base != nil && constructionPivotLabelOnlyEdit(*base, candidate, step.ID) {
+			changed = false
+		}
 		if !changed && base != nil {
 			prior, exists := baseByID[step.ID]
 			changed = !exists || !reflect.DeepEqual(prior.Inputs, step.Inputs) || !reflect.DeepEqual(prior.Operation, step.Operation)
@@ -205,4 +208,61 @@ func constructionProposalCategoryKey(value authoringv2.TableScalar) string {
 	default:
 		return "UNKNOWN:" + string(value.Kind)
 	}
+}
+
+// A label edit preserves an existing Pivot's category/value semantics. Require
+// its entire owned input ancestry and source projections to remain unchanged;
+// otherwise the candidate prefix still needs a complete category proof.
+func constructionPivotLabelOnlyEdit(base, candidate authoringv2.Construction, stepID string) bool {
+	if base.Version != candidate.Version || !reflect.DeepEqual(base.SourceProjections, candidate.SourceProjections) {
+		return false
+	}
+	before, after := map[string]authoringv2.ConstructionStep{}, map[string]authoringv2.ConstructionStep{}
+	for _, step := range base.Steps {
+		before[step.ID] = step
+	}
+	for _, step := range candidate.Steps {
+		after[step.ID] = step
+	}
+	if len(before) != len(base.Steps) || len(after) != len(candidate.Steps) {
+		return false
+	}
+	stripLabels := func(step authoringv2.ConstructionStep) authoringv2.ConstructionStep {
+		step.Outputs = append([]authoringv2.StageColumn(nil), step.Outputs...)
+		for i := range step.Outputs {
+			step.Outputs[i].Label = ""
+		}
+		return step
+	}
+	prior, exists := before[stepID]
+	current, found := after[stepID]
+	if !exists || !found || reflect.DeepEqual(prior.Outputs, current.Outputs) {
+		return false
+	}
+	active := map[string]bool{}
+	done := map[string]bool{}
+	var unchanged func(string) bool
+	unchanged = func(id string) bool {
+		if active[id] {
+			return false
+		}
+		if done[id] {
+			return true
+		}
+		old, ok := before[id]
+		next, present := after[id]
+		if !ok || !present || !reflect.DeepEqual(stripLabels(old), stripLabels(next)) {
+			return false
+		}
+		active[id] = true
+		for _, input := range next.Inputs {
+			if input.Kind == authoringv2.ConstructionInputStepOutput && !unchanged(input.StepID) {
+				return false
+			}
+		}
+		delete(active, id)
+		done[id] = true
+		return true
+	}
+	return unchanged(stepID)
 }

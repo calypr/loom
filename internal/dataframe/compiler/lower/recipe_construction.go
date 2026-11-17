@@ -1306,9 +1306,6 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		outputIdentity = inputIdentity
 	case recipe.ConstructionPivotOp:
 		pivot := step.Operation.Pivot
-		if pivot.UnlistedCategoryPolicy == recipe.PivotUnlistedCategoryExcludeWithEvidence {
-			return constructionStageResult{}, fmt.Errorf("EXCLUDE_WITH_EVIDENCE pivot policy is not available inside a construction sequence")
-		}
 		semanticPivot, outputNames, err := constructionSemanticPivot(*pivot, inputByID, outputByID)
 		if err != nil {
 			return constructionStageResult{}, err
@@ -1372,6 +1369,14 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 				Kind:         string(expression.KindString), Cardinality: string(expression.Many), Internal: true,
 				RootContributorResourceType: rootResourceType,
 			})
+		}
+		if physicalPivot.UnlistedEvidenceColumn != "" {
+			for _, column := range compiled {
+				if column.Name == physicalPivot.UnlistedEvidenceColumn {
+					column.ID = column.Name
+					outputSchema = append(outputSchema, column)
+				}
+			}
 		}
 		outputIdentity = constructionRowID
 	case recipe.ConstructionCodedPivotOp:
@@ -1555,6 +1560,18 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		outputSchema, base.OutputProjections = carryConstructionPresenceCompanions(inputSchema, outputSchema, base.OutputProjections, inputRow)
 	} else {
 		outputSchema = withoutConstructionPresenceCompanions(outputSchema)
+	}
+	// DERIVE preserves the Pivot's compiler-owned exclusion count even though
+	// authored stage outputs list only public columns.
+	if base.Kind == ir.PhysicalStageDeriveOp {
+		for _, column := range inputSchema {
+			if column.Internal && column.Name == "__loom_reshape_unlisted_count" && strings.HasPrefix(column.SemanticPath, "table_reshape:") {
+				if _, exists := schemaColumn(outputSchema, column.Name); !exists {
+					outputSchema = append(outputSchema, column)
+					base.OutputProjections = insertProjectionBeforeIdentity(base.OutputProjections, ir.PhysicalProjection{Name: column.Name, Hidden: true, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{column.Name}}}, outputIdentity)
+				}
+			}
+		}
 	}
 	if outputIdentity == "" {
 		return constructionStageResult{}, fmt.Errorf("operation did not produce a row identity")

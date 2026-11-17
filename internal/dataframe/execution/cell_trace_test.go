@@ -56,7 +56,7 @@ func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || trace.IdentityPartsColumn != "" || trace.ExplicitIdentityObject ||
-		!strings.Contains(trace.Query, "__loom_construction_final_row.__loom_row_id") {
+		!strings.Contains(trace.Query, ".__loom_row_id") {
 		t.Fatalf("cell trace does not read Preview's explicit identity directly:\n%s\n%#v", trace.Query, trace)
 	}
 

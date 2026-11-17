@@ -12,7 +12,7 @@ import (
 )
 
 func (b Bundle) Validate() error {
-	return b.validate(nil)
+	return b.validate(nil, currentRecipeValidation)
 }
 
 // ValidateWithWorkspaceOutputs validates a one-output compiler fragment while
@@ -26,10 +26,17 @@ func (b Bundle) ValidateWithWorkspaceOutputs(allowed []string) error {
 			external[outputID] = struct{}{}
 		}
 	}
-	return b.validate(external)
+	return b.validate(external, currentRecipeValidation)
 }
 
-func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
+type recipeValidationMode bool
+
+const (
+	currentRecipeValidation recipeValidationMode = false
+	archiveRecipeValidation recipeValidationMode = true
+)
+
+func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}, mode recipeValidationMode) error {
 	if b.RecipeSchemaVersion != CurrentSchemaVersion {
 		return validationError("unsupported_schema_version", "$.recipeSchemaVersion", fmt.Sprintf("must be %d", CurrentSchemaVersion))
 	}
@@ -110,7 +117,7 @@ func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
 			return err
 		}
 		if output.Construction != nil {
-			if output.TableReshape != nil || len(output.DerivedColumns) > 0 {
+			if output.ArchiveRetiredReshape != nil || len(output.DerivedColumns) > 0 {
 				return validationError("ambiguous_construction", path+".construction", "construction cannot be combined with legacy tableReshape or derivedColumns")
 			}
 			if err := output.Construction.ValidateWithGroupRows(output.Fields, output.GroupRows); err != nil {
@@ -122,14 +129,17 @@ func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
 				}
 			}
 		}
-		if output.TableReshape != nil {
-			if err := output.TableReshape.Validate(); err != nil {
+		if output.ArchiveRetiredReshape != nil {
+			if mode != archiveRecipeValidation {
+				return validationError("retired_recipe_shape", path+".tableReshape", "archived tableReshape requires recompilation and is not executable")
+			}
+			if err := output.ArchiveRetiredReshape.Validate(); err != nil {
 				return validationError("invalid_table_reshape", path+".tableReshape", err.Error())
 			}
-			if output.TableReshape.Kind == TableReshapeUnpivot && len(output.DerivedColumns) != 0 {
+			if output.ArchiveRetiredReshape.Kind == archivedReshapeUnpivot && len(output.DerivedColumns) != 0 {
 				return validationError("invalid_table_reshape", path+".tableReshape", "unpivot cannot be combined with derived columns")
 			}
-			reshapeID := output.TableReshape.GroupedPivot
+			reshapeID := output.ArchiveRetiredReshape.GroupedPivot
 			if reshapeID != nil {
 				for _, derived := range output.DerivedColumns {
 					if derived.ConstructionID == reshapeID.ConstructionID {
@@ -137,7 +147,7 @@ func (b Bundle) validate(allowedWorkspaceOutputs map[string]struct{}) error {
 					}
 				}
 			}
-			unpivotID := output.TableReshape.Unpivot
+			unpivotID := output.ArchiveRetiredReshape.Unpivot
 			if unpivotID != nil {
 				for _, derived := range output.DerivedColumns {
 					if derived.ConstructionID == unpivotID.ConstructionID {

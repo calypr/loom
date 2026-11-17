@@ -121,6 +121,13 @@ func TestOpenAPIDocumentsOperationSpecificFailureStatuses(t *testing.T) {
 	assertStatuses("GET", "/api/v1/datasets/{project}/generations/{generation}", "400", "401", "403", "404", "500", "503")
 	assertStatuses("POST", "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview", "400", "401", "403", "404", "409", "413", "422", "429", "499", "500", "503", "504")
 	assertStatuses("POST", "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace", "400", "401", "403", "404", "409", "422", "500", "503")
-	assertStatuses("POST", "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals", "400", "401", "403", "404", "409", "422", "500", "503")
+	assertStatuses("POST", "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals", "400", "401", "403", "404", "409", "422", "500", "503")
 	assertStatuses("POST", "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish", "400", "401", "403", "404", "409", "422", "500", "503")
+	for _, suffix := range []string{"table-shape-capabilities", "table-shape-category-discoveries", "table-shape-resolutions", "table-shape-proposals"} {
+		path := "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/" + suffix
+		if spec.Paths.Value(path) != nil {
+			t.Errorf("retired TableShape route remains documented: %s", path)
+		}
+	}
+
 }

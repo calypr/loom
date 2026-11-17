@@ -15,14 +15,16 @@ import (
 )
 
 type WorkspaceMigrationReport struct {
-	Version           string `json:"version"`
-	DryRun            bool   `json:"dryRun"`
-	AlreadyApplied    bool   `json:"alreadyApplied"`
-	Owners            int    `json:"owners"`
-	Projections       int    `json:"projections"`
-	RepositoryConfigs int    `json:"repositoryConfigs"`
-	RetiredReceipts   int    `json:"retiredReceipts"`
-	ChangedDigests    int    `json:"changedDigests"`
+	Version            string `json:"version"`
+	DryRun             bool   `json:"dryRun"`
+	AlreadyApplied     bool   `json:"alreadyApplied"`
+	Owners             int    `json:"owners"`
+	Projections        int    `json:"projections"`
+	RepositoryConfigs  int    `json:"repositoryConfigs"`
+	RetiredReceipts    int    `json:"retiredReceipts"`
+	ChangedDigests     int    `json:"changedDigests"`
+	HistoryRows        int    `json:"historyRows"`
+	WouldRecordVersion bool   `json:"wouldRecordVersion"`
 }
 
 type workspaceMigrationDocument struct {
@@ -53,15 +55,24 @@ type workspaceRepositoryMigration struct {
 // projections are stored for them. Old receipts remain verifiable raw artifacts
 // and must be recompiled before execution by the strict current runtime.
 func MigrateStoredWorkspaces(ctx context.Context, client *store.Client, dryRun bool) (WorkspaceMigrationReport, error) {
+	return migrateWorkspaces(ctx, client, dryRun, workspaceEncodingTarget)
+}
+
+func MigrateStoredTableShapes(ctx context.Context, client *store.Client, dryRun bool) (WorkspaceMigrationReport, error) {
+	return migrateWorkspaces(ctx, client, dryRun, tableShapeConstructionTarget)
+}
+
+func migrateWorkspaces(ctx context.Context, client *store.Client, dryRun bool, target workspaceMigrationTarget) (WorkspaceMigrationReport, error) {
 	adapter, err := New(client)
 	if err != nil {
 		return WorkspaceMigrationReport{}, err
 	}
-	plan, err := adapter.planStoredWorkspaces(ctx, client)
+	plan, err := adapter.planStoredWorkspaces(ctx, client, target)
 	if err != nil {
 		return plan.report, err
 	}
 	plan.report.DryRun = dryRun
+	plan.report.WouldRecordVersion = dryRun && !plan.report.AlreadyApplied
 	if dryRun {
 		return plan.report, nil
 	}
@@ -75,7 +86,7 @@ func MigrateStoredWorkspaces(ctx context.Context, client *store.Client, dryRun b
 		return plan.report, err
 	}
 	for _, projection := range plan.projections {
-		if err := insertWorkspaceProjection(ctx, client, projection); err != nil {
+		if err := insertWorkspaceProjectionFor(ctx, client, projection, target); err != nil {
 			return plan.report, err
 		}
 	}
@@ -95,7 +106,7 @@ func MigrateStoredWorkspaces(ctx context.Context, client *store.Client, dryRun b
 					return explorer.ErrDraftConflict
 				}
 				projection := newWorkspaceProjection(explorer.DraftWorkspaceArtifact(history), migration.migrated)
-				return insertWorkspaceProjection(txCtx, tx, projection)
+				return insertWorkspaceProjectionFor(txCtx, tx, projection, target)
 			},
 		})
 		if err != nil {
@@ -115,21 +126,21 @@ UPDATE d WITH {workspace:@workspace, intentDigest:@digest} IN @@c RETURN NEW`, 1
 		}
 	}
 	// Rebuild the plan: a success marker must never hide a still-legacy owner.
-	final, err := adapter.planStoredWorkspaces(ctx, client)
+	final, err := adapter.planStoredWorkspaces(ctx, client, target)
 	if err != nil {
 		return plan.report, err
 	}
 	if len(final.owners)+len(final.repositories)+len(final.projections) != 0 {
 		return plan.report, fmt.Errorf("workspace migration did not converge")
 	}
-	marker := map[string]any{"_key": workspaceMigrationVersion, "version": workspaceMigrationVersion, "completedAt": time.Now().UTC()}
+	marker := map[string]any{"_key": target.version(), "version": target.version(), "completedAt": time.Now().UTC()}
 	if err := client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS {overwriteMode:"ignore"} RETURN NEW`, 1, map[string]any{"@c": workspaceMigrationLedger, "doc": marker}, func(map[string]any) error { return nil }); err != nil {
 		return plan.report, err
 	}
 	sealed := false
 	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1,
-		map[string]any{"@c": workspaceMigrationLedger, "key": workspaceMigrationVersion}, func(row map[string]any) error {
-			sealed = row["version"] == workspaceMigrationVersion
+		map[string]any{"@c": workspaceMigrationLedger, "key": target.version()}, func(row map[string]any) error {
+			sealed = row["version"] == target.version()
 			return nil
 		}); err != nil {
 		return plan.report, err
@@ -140,11 +151,23 @@ UPDATE d WITH {workspace:@workspace, intentDigest:@digest} IN @@c RETURN NEW`, 1
 	return plan.report, nil
 }
 
-func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client) (workspaceMigrationPlan, error) {
-	plan := workspaceMigrationPlan{report: WorkspaceMigrationReport{Version: workspaceMigrationVersion}}
+func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, target workspaceMigrationTarget) (workspaceMigrationPlan, error) {
+	plan := workspaceMigrationPlan{report: WorkspaceMigrationReport{Version: target.version()}}
 	names, err := client.CollectionNamesReadOnly(ctx)
 	if err != nil {
 		return plan, err
+	}
+	if target == tableShapeConstructionTarget {
+		if !slices.Contains(names, workspaceMigrationLedger) {
+			return plan, fmt.Errorf("run %s before %s", workspaceMigrationVersion, target.version())
+		}
+		predecessor, err := migrationVersionRecorded(ctx, client, workspaceMigrationVersion)
+		if err != nil {
+			return plan, err
+		}
+		if !predecessor {
+			return plan, fmt.Errorf("run %s before %s", workspaceMigrationVersion, target.version())
+		}
 	}
 	audit := WorkspaceAuditReport{}
 	documents := map[string]workspaceMigrationDocument{}
@@ -191,10 +214,13 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client) 
 				continue
 			}
 		}
+		if target == tableShapeConstructionTarget && entry.TableShapeDocuments == 0 {
+			continue
+		}
 		features := slices.DeleteFunc(slices.Clone(entry.Features), func(feature string) bool { return feature == "legacy-table-shape" })
 		// TableShape conversion belongs to WP-17. Its presence alone does not
 		// make a current workspace a WP-18 conversion candidate.
-		if entry.SemanticsVersion == authoringv2.CurrentSemanticsVersion && len(features) == 0 && entry.NilConstructionStepLists == 0 && entry.DigestRelation == "matches-decoded-canonical" {
+		if target == workspaceEncodingTarget && entry.SemanticsVersion == authoringv2.CurrentSemanticsVersion && len(features) == 0 && entry.NilConstructionStepLists == 0 && entry.DigestRelation == "matches-decoded-canonical" {
 			continue
 		}
 		if slices.Contains(names, workspaceProjectionCollection) && (entry.Collection == DraftRevisionsCollection || entry.Collection == RevisionsCollection) {
@@ -213,13 +239,13 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client) 
 				source = explorer.RevisionWorkspaceArtifact(revision)
 			}
 			found := false
-			err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1,
-				map[string]any{"@c": workspaceProjectionCollection, "key": source.Key()}, func(row map[string]any) error {
-					projection, err := decode[explorer.WorkspaceProjection](row)
+			err := client.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1,
+				map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(source)}, func(row map[string]any) error {
+					projection, err := decodeMigrationJSON[explorer.WorkspaceProjection](row["migrationJSON"])
 					if err != nil {
 						return err
 					}
-					_, err = projection.Validate(source)
+					err = target.validateProjection(projection, source)
 					found = err == nil
 					return err
 				})
@@ -274,12 +300,26 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client) 
 			if entry.Collection == LegacyRepositoryConfigsCollection {
 				revisionID = auditString(object["activeRevisionId"])
 			}
-			revision, err := s.GetRevision(ctx, revisionID)
+			revisionDocument, found := documents[RevisionsCollection+"/"+revisionID]
+			if !found {
+				return plan, explorer.ErrNotFound
+			}
+			revision, err := decode[explorer.Revision](revisionDocument.raw)
 			if err != nil {
 				return plan, err
 			}
-			receipt, err := s.GetCompilationReceiptForExplorer(ctx, revision.Project, revision.ExplorerID, revision.CompilationReceiptID)
+			receiptDocument, found := documents[CompilationReceiptsCollection+"/"+revision.CompilationReceiptID]
+			if !found {
+				return plan, explorer.ErrNotFound
+			}
+			receipt, err := decode[explorer.CompilationReceipt](receiptDocument.raw)
 			if err != nil {
+				return plan, err
+			}
+			if receipt.Project != revision.Project || receipt.ExplorerID != revision.ExplorerID {
+				return plan, explorer.ErrNotFound
+			}
+			if err := validateReceipt(receipt); err != nil {
 				return plan, err
 			}
 			if revision.IntentDigest != receipt.IntentDigest || revision.SourceGeneration != receipt.SourceGeneration {
@@ -308,7 +348,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client) 
 			}
 			catalog = authoringv2.CatalogFromCapability(*snapshot, explorerID)
 		}
-		migrated, err := authoringv2.MigrateStoredWorkspace(raw, catalog)
+		migrated, err := target.migrate(raw, catalog)
 		if err != nil {
 			return plan, fmt.Errorf("migrate %s/%s%s: %w", entry.Collection, entry.Key, entry.Path, err)
 		}
@@ -326,6 +366,8 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client) 
 			}
 			plan.owners = append(plan.owners, workspaceOwnerMigration{owner, migrated, document.revision})
 			plan.report.Owners++
+			plan.report.HistoryRows++
+			plan.report.Projections++
 		case DraftRevisionsCollection:
 			history, err := decode[explorer.DraftRevision](document.raw)
 			if err != nil {
@@ -346,16 +388,11 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client) 
 		}
 	}
 	if slices.Contains(names, workspaceMigrationLedger) {
-		err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": workspaceMigrationLedger, "key": workspaceMigrationVersion}, func(row map[string]any) error {
-			if row["version"] != workspaceMigrationVersion {
-				return fmt.Errorf("workspace migration version record is invalid")
-			}
-			plan.report.AlreadyApplied = true
-			return nil
-		})
+		recorded, err := migrationVersionRecorded(ctx, client, target.version())
 		if err != nil {
 			return plan, err
 		}
+		plan.report.AlreadyApplied = recorded
 	}
 	return plan, nil
 }
@@ -367,10 +404,14 @@ func newWorkspaceProjection(source explorer.WorkspaceArtifact, migrated authorin
 }
 
 func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, projection explorer.WorkspaceProjection) error {
-	if _, err := projection.Validate(projection.Source); err != nil {
+	return insertWorkspaceProjectionFor(ctx, query, projection, workspaceEncodingTarget)
+}
+
+func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, projection explorer.WorkspaceProjection, target workspaceMigrationTarget) error {
+	if err := target.validateProjection(projection, projection.Source); err != nil {
 		return err
 	}
-	doc, err := document(projection, projection.Source.Key())
+	doc, err := migrationDocument(projection, target.projectionKey(projection.Source))
 	if err != nil {
 		return err
 	}
@@ -378,8 +419,8 @@ func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, proj
 	if err := query.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS {overwriteMode:"ignore"} RETURN NEW`, 1, map[string]any{"@c": workspaceProjectionCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
 		return err
 	}
-	if err := query.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": workspaceProjectionCollection, "key": projection.Source.Key()}, func(row map[string]any) error {
-		value, err := decode[explorer.WorkspaceProjection](row)
+	if err := query.QueryRows(ctx, migrationJSONQuery(`FOR d IN @@c FILTER d._key == @key RETURN d`, true), 1, map[string]any{"@c": workspaceProjectionCollection, "key": target.projectionKey(projection.Source)}, func(row map[string]any) error {
+		value, err := decodeMigrationJSON[explorer.WorkspaceProjection](row["migrationJSON"])
 		stored = &value
 		return err
 	}); err != nil {
@@ -388,6 +429,17 @@ func insertWorkspaceProjection(ctx context.Context, query store.RowQueryer, proj
 	if stored == nil || stored.ID != projection.ID {
 		return fmt.Errorf("immutable workspace projection collision")
 	}
-	_, err = stored.Validate(projection.Source)
-	return err
+	return target.validateProjection(*stored, projection.Source)
+}
+
+func migrationVersionRecorded(ctx context.Context, query store.RowQueryer, version string) (bool, error) {
+	recorded := false
+	err := query.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": workspaceMigrationLedger, "key": version}, func(row map[string]any) error {
+		if row["version"] != version {
+			return fmt.Errorf("workspace migration version record is invalid")
+		}
+		recorded = true
+		return nil
+	})
+	return recorded, err
 }

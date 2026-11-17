@@ -43,8 +43,8 @@ func TestMigrateLosslessDefaultsAdvancesV7WithoutInventingTableShape(t *testing.
 	if migrated.SemanticsVersion != CurrentSemanticsVersion {
 		t.Fatalf("semanticsVersion = %d, want %d", migrated.SemanticsVersion, CurrentSemanticsVersion)
 	}
-	if migrated.Documents[0].TableShape != nil {
-		t.Fatalf("migration invented table shape: %#v", migrated.Documents[0].TableShape)
+	if migrated.Documents[0].ArchiveRetiredShape != nil {
+		t.Fatalf("migration invented table shape: %#v", migrated.Documents[0].ArchiveRetiredShape)
 	}
 }
 

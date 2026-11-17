@@ -121,7 +121,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	sibling.Columns[0].Label = "Sibling patient ID"
 	workspace.Documents = append(workspace.Documents, sibling)
 	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "sibling-patients-tab", Title: "Sibling patients", OutputID: "sibling_patients", Order: 1, Visible: true})
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +526,7 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 		len(contributor.SuggestedValues) != 2 || contributor.SuggestedValues[0] != "final" || contributor.SuggestedValues[1] != "preliminary" {
 		t.Fatalf("related expansion contributor choice = %#v", contributor)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +638,7 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 	}
 	workspace.Tabs[0].OutputID = "specimens"
 	workspace.Tabs[0].Title = "Specimens"
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +863,7 @@ func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *tes
 	}}
 	document.Columns = []authoringv2.Column{}
 	document.Output = authoringv2.Output{ID: "observations", Title: "Observations", RowLabel: "Observations"}
-	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	document, err = authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1308,7 +1308,7 @@ func TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1753,7 +1753,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			ProjectionModes: []capability.ProjectionMode{field.projection},
 		})
 	}
-	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	document, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2146,7 +2146,7 @@ func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *t
 	}}
 	document.Columns = []authoringv2.Column{}
 	document.Output = authoringv2.Output{ID: outputID, Title: "Specimen coding groups", RowLabel: "Specimens"}
-	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	document, err = authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2387,7 +2387,6 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 	document.Route.ResourceType = "Observation"
 	document.Columns = nil
 	document.Construction = nil
-	document.TableShape = nil
 	workspace.Documents[0] = document
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -2654,3 +2653,5 @@ func TestRelatedExpandContributorTypedWireSourcesPreserveRepeatedBoundaries(t *t
 		t.Fatalf("typed RelatedExpand proposal request round trip dropped repeated boundaries: %#v", restoredSource)
 	}
 }
+
+func stringPointer(value string) *string { return &value }

@@ -57,7 +57,7 @@ var ErrReceiptRecompileRequired = errors.New("RECEIPT_RECOMPILE_REQUIRED")
 // and recompilation. Execution requires the current fingerprint contract, which
 // also authenticates source-only dynamic scalar/list validation after Group.
 func ReceiptContractSupportedForExecution(r CompilationReceipt) bool {
-	return r.ReceiptFormatVersion == CompilationReceiptFormatVersion && r.CompilerContractVersion == CompilationReceiptCompilerContractVersion
+	return r.ReceiptFormatVersion == CompilationReceiptFormatVersion && r.CompilerContractVersion == CompilationReceiptCompilerContractVersion && !r.Bundle.HasArchivedReshape() && r.TableShapeProposal == nil
 }
 
 // CompilationArtifactDigest returns the content identity used for canonical
@@ -930,7 +930,12 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 }
 
 // Validate checks that a receipt is a supported, executable artifact.
-func (r CompilationReceipt) Validate() error {
+// Validate authenticates persisted receipt content, including supported archives.
+// Executable consumers must additionally require the current compiler/recipe contract.
+func (r CompilationReceipt) Validate() error { return r.ValidateArchive() }
+
+// ValidateArchive verifies immutable content without reinterpreting retired recipe operations.
+func (r CompilationReceipt) ValidateArchive() error {
 	var verifiedCompilationKey string
 	if r.ColumnPolicyProposal != nil {
 		if r.ReceiptFormatVersion != CompilationReceiptFormatVersion || r.CompilerContractVersion != CompilationReceiptCompilerContractVersion {
@@ -1034,7 +1039,7 @@ func (r CompilationReceipt) Validate() error {
 			return fmt.Errorf("receipt compilation key mismatch: got %q want %q", r.CompilationKey, key)
 		}
 		verifiedCompilationKey = key
-		resolvedDigest, err := r.Bundle.Digest()
+		resolvedDigest, err := r.Bundle.ArchiveDigest()
 		if err != nil {
 			return fmt.Errorf("digest resolved recipe: %w", err)
 		}

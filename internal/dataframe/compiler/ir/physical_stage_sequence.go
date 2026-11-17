@@ -25,6 +25,8 @@ type PhysicalStageSequence struct {
 	// OutputAuthResourcePathBindKey adds the exact bound authorization path to
 	// the private prefix result as hidden row metadata. It is populated only by
 	// the typed composite Combine boundary.
+	// OutputAuthResourcePathColumn is the hidden per-row path retained through reshape stages.
+	OutputAuthResourcePathColumn  string `json:",omitempty"`
 	OutputAuthResourcePathBindKey string
 	CellTraceReturn               *PhysicalCellTraceReturn
 	RowLineageReturn              *PhysicalRowLineageReturn

@@ -1,6 +1,7 @@
 package arango
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -265,6 +266,7 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	strictErr := decoder.Decode(&direct)
+	strictDecodeErr := strictErr
 	if strictErr == nil {
 		strictErr = direct.Validate()
 	}
@@ -281,16 +283,23 @@ func auditWorkspacePacket(collection, key, path string, raw json.RawMessage, obj
 		return entry
 	}
 	if strictErr != nil {
-		entry.Features = append(entry.Features, "persisted-decoder-compatibility")
+		withoutArchive := direct
+		withoutArchive.Documents = append([]authoringv2.Document(nil), direct.Documents...)
+		for index := range withoutArchive.Documents {
+			withoutArchive.Documents[index].ArchiveRetiredShape = nil
+		}
+		if strictDecodeErr != nil || entry.TableShapeDocuments == 0 || withoutArchive.Validate() != nil {
+			entry.Features = append(entry.Features, "persisted-decoder-compatibility")
+		}
 	}
-	entry.DecodedCanonicalDigest, err = workspace.Digest()
+	canonical, err := authoringv2.CanonicalStoredWorkspaceForMigration(workspace)
 	if err != nil {
 		entry.DecodeError = err.Error()
 		entry.Classification = "invalid-or-unsupported"
 		return entry
 	}
-	canonical, canonicalErr := workspace.CanonicalJSON()
-	entry.AlreadyCanonical = canonicalErr == nil && auditNormalizedJSON(raw) == auditNormalizedJSON(canonical)
+	entry.DecodedCanonicalDigest = fmt.Sprintf("sha256:%x", sha256.Sum256(canonical))
+	entry.AlreadyCanonical = auditNormalizedJSON(raw) == auditNormalizedJSON(canonical)
 	sort.Strings(entry.Features)
 	entry.LegacyNilConstructionDigest, err = workspace.LegacyNilConstructionStepsDigest()
 	if err != nil {

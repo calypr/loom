@@ -251,7 +251,7 @@ func (s *Service) OpenArtifact(ctx context.Context, request ArtifactOpenRequest)
 	if err != nil {
 		return nil, record, err
 	}
-	if err := s.validateReceiptRoute(receipt, project, request.ExplorerID); err != nil {
+	if err := s.validateArchivedReceiptRoute(receipt, project, request.ExplorerID); err != nil {
 		return nil, record, err
 	}
 	if err := validateArtifactReceiptIdentity(*record, receipt); err != nil {
@@ -311,7 +311,7 @@ func (s *Service) resolveArtifactSource(ctx context.Context, request ArtifactReq
 	if err != nil {
 		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
 	}
-	if err := s.validateReceiptRoute(receipt, project, request.ExplorerID); err != nil {
+	if err := s.validateArchivedReceiptRoute(receipt, project, request.ExplorerID); err != nil {
 		return nil, nil, AuthorizedCapability{}, dataframepublished.Materialization{}, publication.QualityReport{}, err
 	}
 	if err := validateReceiptOutputContract(receipt, request.OutputID); err != nil {
@@ -632,10 +632,14 @@ func artifactQualityReport(revision explorer.Revision, outputID string, receipt 
 }
 
 func artifactMetadata(receipt *explorer.CompilationReceipt, revision *explorer.Revision, materialization dataframepublished.Materialization, outputID string, quality publication.QualityReport) (json.RawMessage, json.RawMessage, json.RawMessage, json.RawMessage, error) {
+	archiveRecipe, err := receipt.Bundle.ArchiveCanonicalJSON()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
 	selection := struct {
-		Recipe            any    `json:"recipe"`
-		DatasetGeneration string `json:"datasetGeneration"`
-	}{Recipe: receipt.Bundle, DatasetGeneration: receipt.SourceGeneration}
+		Recipe            json.RawMessage `json:"recipe"`
+		DatasetGeneration string          `json:"datasetGeneration"`
+	}{Recipe: archiveRecipe, DatasetGeneration: receipt.SourceGeneration}
 	selectionRaw, err := json.Marshal(selection)
 	if err != nil {
 		return nil, nil, nil, nil, err

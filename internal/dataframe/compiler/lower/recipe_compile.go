@@ -433,13 +433,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 			return CompiledRecipeOutput{}, err
 		}
 	} else {
-		reshapeSchema, err = appendRecipeTableReshape(&physical, output, baseOutputSchema, &identity)
-		if err != nil {
-			return CompiledRecipeOutput{}, err
-		}
-		if output.TableReshape != nil && output.TableReshape.Kind == recipe.TableReshapeUnpivot && len(output.DerivedColumns) > 0 {
-			return CompiledRecipeOutput{}, fmt.Errorf("derived columns cannot be combined with unpivot")
-		}
+		reshapeSchema = CloneCompiledOutputSchema(baseOutputSchema)
 		derivedTypes, err = appendRecipeDerivedColumns(&physical, output.DerivedColumns, reshapeSchema)
 		if err != nil {
 			return CompiledRecipeOutput{}, err
@@ -467,9 +461,6 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		outputSchema, err = recipeOutputSchema(physical, output, dynamicMetadata, derivedTypes)
 		if err != nil {
 			return CompiledRecipeOutput{}, err
-		}
-		if output.TableReshape != nil {
-			outputSchema = reconcileRecipeTableReshapeSchema(outputSchema, reshapeSchema)
 		}
 		if output.GroupRows != nil && !composedCohort {
 			outputSchema = append(outputSchema, CompiledOutputColumn{

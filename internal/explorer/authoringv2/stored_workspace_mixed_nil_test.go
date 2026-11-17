@@ -13,7 +13,7 @@ func TestMigrateStoredWorkspaceRecognizesMixedNilStepDigest(t *testing.T) {
 	w.Documents = append(w.Documents, workspaceDocument("b"))
 	w.Tabs = append(w.Tabs, Tab{ID: "b", Title: "B", OutputID: "b", Order: 1, Visible: true})
 	for i := range w.Documents {
-		d, err := UpgradeDocumentToConstruction(w.Documents[i])
+		d, err := migrateStoredDocumentFixture(w.Documents[i])
 		if err != nil {
 			t.Fatal(err)
 		}

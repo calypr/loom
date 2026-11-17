@@ -119,9 +119,9 @@ func TestTableShapeExclusionsReportsUnsupportedAndNoPolicy(t *testing.T) {
 		want   TableShapeExclusionStatus
 	}{
 		{name: "no reshape", bundle: exclusionStatusBundle(nil), want: TableShapeExclusionUnsupported},
-		{name: "missing policy", bundle: exclusionStatusBundle(&recipe.TableReshape{Kind: recipe.TableReshapeGroupedPivot, GroupedPivot: &recipe.GroupedPivot{
+		{name: "missing policy", bundle: exclusionStatusBundle(&oracleReshape{Kind: oracleReshapePivot, GroupedPivot: &oraclePivot{
 			ConstructionID: "pivot", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
-			Categories:      []recipe.GroupedPivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: stringPtr("known")}, Output: "known", Label: "Known"}},
+			Categories:      []oraclePivotCategory{{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: stringPtr("known")}, Output: "known", Label: "Known"}},
 			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull, UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 		}}), want: TableShapeExclusionNoExclusionPolicy},
 	} {
@@ -141,10 +141,10 @@ func TestTableShapeExclusionsReportsUnsupportedAndNoPolicy(t *testing.T) {
 	}
 }
 
-func exclusionStatusBundle(reshape *recipe.TableReshape) recipe.Bundle {
+func exclusionStatusBundle(reshape *oracleReshape) recipe.Bundle {
 	return recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "exclusion-status", TranslationVersion: "test",
-		Outputs: []recipe.Output{{
+		Outputs: []recipe.Output{bindOracleCurrentConstruction(recipe.Output{
 			Name: "Observations", RootResourceType: "Observation", RowGrain: "observation", RootColumnNaming: recipe.RootColumnNamingExact,
 			Fields: []recipe.Field{
 				{Name: "id", Expr: recipe.Expression{Select: "root.id"}},
@@ -152,8 +152,7 @@ func exclusionStatusBundle(reshape *recipe.TableReshape) recipe.Bundle {
 				{Name: "category", Expr: recipe.Expression{Select: "root.code.text"}},
 				{Name: "value", Expr: recipe.Expression{Select: "root.valueInteger"}},
 			},
-			TableReshape: reshape,
-		}},
+		}, reshape)},
 	}
 }
 

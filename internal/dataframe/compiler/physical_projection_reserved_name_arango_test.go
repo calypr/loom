@@ -63,12 +63,12 @@ func TestGroupedPivotReservedPhysicalOutputNameAgainstArango(t *testing.T) {
 		t.Fatalf("insert reserved-name pivot fixture: %v", err)
 	}
 
-	output := reshapeOracleOutput("reserved_physical_output", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("reserved_physical_output", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "reserved_physical_output_pivot", GroupKeys: []string{"group_text"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories:      []recipe.GroupedPivotCategory{{Key: reshapeOracleString("null"), Output: "null", Label: "Null"}},
+			Categories:      []oraclePivotCategory{{Key: reshapeOracleString("null"), Output: "null", Label: "Null"}},
 			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 		},

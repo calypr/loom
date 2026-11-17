@@ -796,24 +796,6 @@ export const rowDefinitionProposalSchema = z.object({
 }).strict();
 export type RowDefinitionProposal = z.infer<typeof rowDefinitionProposalSchema>;
 
-export type TableShapeJSONValue =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<TableShapeJSONValue>
-  | { readonly [key: string]: TableShapeJSONValue };
-
-const tableShapeJSONValueSchema: z.ZodType<TableShapeJSONValue> = z.lazy(() => z.union([
-  z.null(),
-  z.boolean(),
-  z.number(),
-  z.string(),
-  z.array(tableShapeJSONValueSchema),
-  z.record(z.string(), tableShapeJSONValueSchema),
-]));
-const persistedTableShapeSchema = z.record(z.string(), tableShapeJSONValueSchema);
-
 const exactCategoryMappingSchema = z
   .object({ from: z.string(), to: z.string() })
   .strict();
@@ -1879,7 +1861,6 @@ export const explorerBuilderDocumentSchema = z
     rows: explorerRowDefinitionSchema,
     frames: z.array(frameDefinitionSchema).optional(),
     columns: z.array(explorerBuilderColumnSchema),
-    tableShape: persistedTableShapeSchema.optional(),
     construction: constructionSchema.optional(),
     fixedFilters: z
       .array(
@@ -1921,13 +1902,6 @@ export const explorerBuilderDocumentSchema = z
         code: z.ZodIssueCode.custom,
         message: 'Imported source columns require an imported recipe reference.',
         path: ['importedRecipe'],
-      });
-    }
-    if (document.construction && document.tableShape) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Construction documents cannot also carry legacy tableShape.',
-        path: ['tableShape'],
       });
     }
     if (document.construction) {
@@ -2889,7 +2863,6 @@ export const explorerBuilderCommandSchema = z
       'REMOVE_FRAME_SOURCE',
       'APPLY_ROW_DEFINITION_PROPOSAL',
       'APPLY_CONSTRUCTION_PROPOSAL',
-      'APPLY_TABLE_SHAPE_PROPOSAL',
       'UPDATE_IMPORTED_SOURCE_STEP',
       'REFRESH_IMPORTED_SOURCE',
       'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',

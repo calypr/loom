@@ -9,12 +9,14 @@ import (
 
 func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *testing.T) {
 	legacy := legacyPivotDocument()
-	workspace := constructionWorkspace(legacy)
+	base := legacy
+	base.ArchiveRetiredShape = nil
+	workspace := constructionWorkspace(base)
 	original, err := cloneWorkspace(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := UpgradeDocumentToConstruction(legacy)
+	candidate, err := migrateStoredDocumentFixture(legacy)
 	if err != nil {
 		t.Fatalf("migrate proposal base: %v", err)
 	}
@@ -43,7 +45,7 @@ func TestApplyConstructionProposalStrictlyAppliesServerResolvedCandidate(t *test
 	if err != nil {
 		t.Fatalf("apply construction proposal: %v", err)
 	}
-	want, err := UpgradeDocumentToConstruction(legacy)
+	want, err := migrateStoredDocumentFixture(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +77,9 @@ func TestApplyConstructionProposalRejectsClientPlanAndUnresolvedApply(t *testing
 	if err := command.validate(); err != nil {
 		t.Fatalf("closed proposal command invalid: %v", err)
 	}
-	workspace := constructionWorkspace(legacyPivotDocument())
+	base := legacyPivotDocument()
+	base.ArchiveRetiredShape = nil
+	workspace := constructionWorkspace(base)
 	if _, _, err := ApplyCommands(workspace, commandCatalog(), "command-1", []Command{command}); err == nil || !strings.Contains(err.Error(), "no lifecycle-resolved construction") {
 		t.Fatalf("unresolved apply error = %v", err)
 	}

@@ -27,6 +27,20 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			return fmt.Errorf("private prefix authorization path bind %q is missing or empty", sequence.OutputAuthResourcePathBindKey)
 		}
 	}
+	if sequence.OutputAuthResourcePathColumn != "" {
+		if sequence.OutputAuthResourcePathBindKey != "" {
+			return fmt.Errorf("authorization path cannot have both row and bind sources")
+		}
+		found := false
+		for _, column := range sequence.FinalColumns {
+			if column.Name == sequence.OutputAuthResourcePathColumn && column.Internal && column.Kind == "string" {
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("authorization path column is not an internal final string column")
+		}
+	}
 	projectionNames := map[string]bool{}
 	for _, operation := range sourceOperations {
 		if operation.Kind == PhysicalGroupedPivotOp || operation.Kind == PhysicalUnpivotOp {

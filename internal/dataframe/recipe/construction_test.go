@@ -37,7 +37,7 @@ func TestConstructionAllowsRootRelatedExpandFromIdentityOnlySource(t *testing.T)
 	}
 }
 
-func TestConstructionRejectsExcludeWithEvidencePivotPolicy(t *testing.T) {
+func TestConstructionPivotUnlistedPolicyContract(t *testing.T) {
 	category := "a"
 	construction := Construction{Version: 1, Steps: []ConstructionStep{{
 		ID:     "pivot",
@@ -63,8 +63,12 @@ func TestConstructionRejectsExcludeWithEvidencePivotPolicy(t *testing.T) {
 		t.Fatalf("ERROR pivot policy rejected: %v", err)
 	}
 	construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy = PivotUnlistedCategoryExcludeWithEvidence
+	if err := construction.Validate(source); err != nil {
+		t.Fatalf("EXCLUDE_WITH_EVIDENCE pivot policy rejected: %v", err)
+	}
+	construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy = "UNKNOWN"
 	if err := construction.Validate(source); err == nil || !strings.Contains(err.Error(), "policies are incomplete or unsupported") {
-		t.Fatalf("EXCLUDE_WITH_EVIDENCE construction pivot policy validation = %v", err)
+		t.Fatalf("unsupported construction pivot policy validation = %v", err)
 	}
 }
 

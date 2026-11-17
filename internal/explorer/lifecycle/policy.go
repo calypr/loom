@@ -141,9 +141,29 @@ func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, pro
 	return nil
 }
 
+// validateArchivedReceiptRoute preserves immutable reads without admitting execution.
+func (s *Service) validateArchivedReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
+	if receipt == nil || projectid.Canonical(receipt.Project) != projectid.Canonical(project) || receipt.ExplorerID != explorerID {
+		return notFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
+	}
+	if strings.TrimSpace(receipt.ID) == "" || strings.TrimSpace(receipt.RecipeDigest) == "" || len(receipt.Bundle.Outputs) == 0 {
+		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt is from an unsupported or incomplete compiler contract", nil, nil)
+	}
+	native := s.config.CompileReceipt != nil || s.config.PreviewReceipt != nil || s.config.PopulationMapping != nil || s.config.MaterializeReceipt != nil
+	if native {
+		if err := receipt.ValidateArchive(); err != nil {
+			return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt failed integrity validation and must be recompiled", nil, err)
+		}
+	}
+	return nil
+}
+
 func (s *Service) validateExecutableReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
 	if err := s.validateReceiptRoute(receipt, project, explorerID); err != nil {
 		return err
+	}
+	if receipt.Bundle.HasArchivedReshape() || receipt.TableShapeProposal != nil {
+		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains retired recipe operations and must be recompiled", nil, nil)
 	}
 	if _, err := receipt.CurrentWorkspace(); err != nil {
 		return conflict("receipt", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains historical or inconsistent authoring intent and must be recompiled", nil, err)

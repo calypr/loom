@@ -171,43 +171,17 @@ describe('explorerBuilderDocumentSchema', () => {
     }).success).toBe(false);
   });
 
-  it('preserves a persisted server table shape as opaque JSON during Builder reload parsing', () => {
-    const tableShape = {
-      reshape: {
-        kind: 'GROUPED_PIVOT',
-        pivot: {
-          groupKeys: ['subject-column', 'status-column'],
-          categories: [{ key: { kind: 'STRING', value: 'alpha' }, output: { column: 'alpha', label: 'Alpha' } }],
-          duplicatePolicy: 'SUM',
-          missingCellPolicy: 'NULL',
-          unlistedCategoryPolicy: 'EXCLUDE',
-        },
-      },
-      derived: [{ output: { column: 'alpha_total', label: 'Alpha total' }, operation: 'ADD' }],
-      serverOwnedMetadata: { version: 1, durable: true },
+  it('rejects legacy TableShape on the current Builder document contract', () => {
+    const currentDocument = {
+      ...document,
+      rows: { kind: 'RECORDS', records: {} },
+      construction: { version: 1, steps: [] },
     };
-    const parsed = explorerBuilderDocumentSchema.parse({
-      ...document,
-      rows: { kind: 'RECORDS', records: {} },
-      tableShape,
-    });
-
-    expect(parsed.tableShape).toEqual(tableShape);
-    expect(JSON.parse(JSON.stringify(parsed)).tableShape).toEqual(tableShape);
+    expect(explorerBuilderDocumentSchema.parse(currentDocument)).toEqual(currentDocument);
     expect(explorerBuilderDocumentSchema.safeParse({
-      ...document,
-      rows: { kind: 'RECORDS', records: {} },
-      tableShape,
-      unexpectedDocumentField: true,
+      ...currentDocument,
+      tableShape: { reshape: { kind: 'GROUPED_PIVOT' } },
     }).success).toBe(false);
-
-    for (const invalidTableShape of ['GROUPED_PIVOT', []]) {
-      expect(explorerBuilderDocumentSchema.safeParse({
-        ...document,
-        rows: { kind: 'RECORDS', records: {} },
-        tableShape: invalidTableShape,
-      }).success).toBe(false);
-    }
   });
 
   it('preserves strict imported source-step metadata and validates advertised bounds', () => {
@@ -2044,13 +2018,10 @@ describe('explorerBuilderCommandSchema', () => {
     }).success).toBe(false);
   });
 
-  it('accepts only the opaque proposal receipt in the atomic Builder apply command', () => {
-    expect(explorerBuilderCommandSchema.parse({
-      type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1',
-    })).toEqual({ type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1' });
-    expect(explorerBuilderCommandSchema.safeParse({
-      type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1', tableShape: { columns: [] },
-    }).success).toBe(false);
+  it('accepts only the Construction proposal receipt in the atomic Builder apply command', () => {
+    const command = { type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1' };
+    expect(explorerBuilderCommandSchema.parse(command)).toEqual(command);
+    expect(explorerBuilderCommandSchema.safeParse({ ...command, tableShape: { columns: [] } }).success).toBe(false);
   });
 
   it('parses compiler-owned result units on Preview columns and preserves omission', () => {

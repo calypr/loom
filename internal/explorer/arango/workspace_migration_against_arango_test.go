@@ -300,7 +300,7 @@ func workspaceMigrationNilStepsWire(t *testing.T) ([]byte, string) {
 		RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(),
 		Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID,
 			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}
-	document, err := authoringv2.UpgradeDocumentToConstruction(document)
+	document, err := authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}

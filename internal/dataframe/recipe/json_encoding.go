@@ -232,6 +232,17 @@ func (f *Field) UnmarshalJSON(data []byte) error {
 
 // Parse strictly decodes and validates a recipe document.
 func Parse(data []byte) (Bundle, error) {
+	b, err := decodeBundleJSON(data)
+	if err != nil {
+		return Bundle{}, err
+	}
+	if err := b.Validate(); err != nil {
+		return Bundle{}, err
+	}
+	return b, nil
+}
+
+func decodeBundleJSON(data []byte) (Bundle, error) {
 	if err := detectDuplicateKeys(data); err != nil {
 		return Bundle{}, err
 	}
@@ -247,9 +258,6 @@ func Parse(data []byte) (Bundle, error) {
 			return Bundle{}, validationError("parse_error", "$", "multiple JSON values")
 		}
 		return Bundle{}, validationError("parse_error", "$", "invalid trailing JSON: "+err.Error())
-	}
-	if err := b.Validate(); err != nil {
-		return Bundle{}, err
 	}
 	return b, nil
 }

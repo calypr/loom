@@ -399,7 +399,7 @@ func TestEmptyConstructionSerializesStepsAsArray(t *testing.T) {
 
 func TestFreshDocumentUpgradesToSourceOnlyConstructionAndAcceptsFirstStep(t *testing.T) {
 	fresh := workspaceDocument("patients")
-	upgraded, err := UpgradeDocumentToConstruction(fresh)
+	upgraded, err := migrateStoredDocumentFixture(fresh)
 	if err != nil {
 		t.Fatalf("upgrade fresh document: %v", err)
 	}
@@ -439,17 +439,20 @@ func TestFreshDocumentUpgradesToSourceOnlyConstructionAndAcceptsFirstStep(t *tes
 
 func TestConstructionRejectsMixedLegacyAndStagedSemantics(t *testing.T) {
 	document := stagedConstructionDocument()
-	document.TableShape = &TableShape{Derived: []DerivedConstruction{{
+	document.ArchiveRetiredShape = &storedTableShape{Derived: []storedDerivedConstruction{{
 		ConstructionID: "legacy-derived", Output: ColumnOutput{Column: "old_result", Label: "Old result"}, Operation: "ADD",
-		Left:               ArithmeticOperand{Kind: "COLUMN", Column: "value"},
-		Right:              ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: int64Pointer(1)}},
+		Left:               storedArithmeticOperand{Kind: "COLUMN", Column: "value"},
+		Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: int64Pointer(1)}},
 		MissingInputPolicy: "PROPAGATE_NULL",
 	}}}
-	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "cannot both define") {
+	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "stored-data migration") {
 		t.Fatalf("mixed construction modes error = %v", err)
 	}
+	if err := document.validate(true); err == nil || !strings.Contains(err.Error(), "cannot both define") {
+		t.Fatalf("offline mixed modes error = %v", err)
+	}
 
-	document.TableShape = nil
+	document.ArchiveRetiredShape = nil
 	document.Construction.Steps[2].Operation.Filter.ColumnID = "missing_column"
 	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "missing column id") {
 		t.Fatalf("missing filter column error = %v", err)
@@ -458,18 +461,18 @@ func TestConstructionRejectsMixedLegacyAndStagedSemantics(t *testing.T) {
 
 func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T) {
 	legacy := legacyPivotDocument()
-	if err := legacy.Validate(); err != nil {
+	if err := legacy.validate(true); err != nil {
 		t.Fatalf("legacy document is invalid: %v", err)
 	}
 	original := legacy
 	original.Columns = append([]Column(nil), legacy.Columns...)
-	original.TableShape, _ = cloneTableShape(legacy.TableShape)
+	original.ArchiveRetiredShape, _ = cloneStoredShapeFixture(legacy.ArchiveRetiredShape)
 
-	upgraded, err := UpgradeDocumentToConstruction(legacy)
+	upgraded, err := migrateStoredDocumentFixture(legacy)
 	if err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
-	if upgraded.TableShape != nil || upgraded.Construction == nil {
+	if upgraded.ArchiveRetiredShape != nil || upgraded.Construction == nil {
 		t.Fatalf("upgrade did not establish one staged plan: %#v", upgraded)
 	}
 	if len(upgraded.Construction.Steps) != 3 {
@@ -537,7 +540,7 @@ func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T
 		t.Fatalf("renamed output schema = %#v, found=%t", groupOutput, ok)
 	}
 
-	again, err := UpgradeDocumentToConstruction(reloaded)
+	again, err := migrateStoredDocumentFixture(reloaded)
 	if err != nil {
 		t.Fatalf("reapplying conversion to staged document: %v", err)
 	}
@@ -556,17 +559,17 @@ func TestConstructionRejectsExcludeWithEvidencePivotBeforeCompilation(t *testing
 
 func TestUpgradeRejectsExcludeWithEvidenceTableShapeBeforeCompilation(t *testing.T) {
 	legacy := legacyPivotDocument()
-	legacy.TableShape.Reshape.Pivot.UnlistedCategoryPolicy = "EXCLUDE_WITH_EVIDENCE"
+	legacy.ArchiveRetiredShape.Reshape.Pivot.UnlistedCategoryPolicy = "EXCLUDE_WITH_EVIDENCE"
 	before := legacy
 	before.Columns = append([]Column(nil), legacy.Columns...)
-	before.TableShape, _ = cloneTableShape(legacy.TableShape)
-	if err := legacy.Validate(); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
+	before.ArchiveRetiredShape, _ = cloneStoredShapeFixture(legacy.ArchiveRetiredShape)
+	if err := legacy.validate(true); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
 		t.Fatalf("document validation accepted an unupgradable tableShape pivot policy: %v", err)
 	}
-	if _, err := UpgradeDocumentToConstruction(legacy); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
+	if _, err := migrateStoredDocumentFixture(legacy); err == nil || !strings.Contains(err.Error(), "EXCLUDE_WITH_EVIDENCE") {
 		t.Fatalf("upgrade accepted an unupgradable tableShape pivot policy: %v", err)
 	}
-	if !reflect.DeepEqual(legacy, before) || legacy.TableShape == nil || legacy.Construction != nil {
+	if !reflect.DeepEqual(legacy, before) || legacy.ArchiveRetiredShape == nil || legacy.Construction != nil {
 		t.Fatal("failed upgrade changed the accepted legacy document")
 	}
 }
@@ -577,9 +580,9 @@ func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
 		legacy.Columns[i].ColumnID = ""
 	}
 	legacy.Construction = nil
-	legacy.TableShape = &TableShape{Reshape: &TableReshape{Kind: "UNPIVOT", Unpivot: &UnpivotConstruction{
+	legacy.ArchiveRetiredShape = &storedTableShape{Reshape: &storedTableReshape{Kind: "UNPIVOT", Unpivot: &storedUnpivotConstruction{
 		ConstructionID: "legacy_unpivot",
-		Inputs: []UnpivotInput{
+		Inputs: []storedUnpivotInput{
 			{Column: "group_id", Key: stringScalar("one")},
 			{Column: "category", Key: stringScalar("two")},
 		},
@@ -587,7 +590,7 @@ func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
 		ValueOutput:   ColumnOutput{Column: "metric_value", Label: "Metric value"},
 		NullRowPolicy: "PRESERVE",
 	}}}
-	upgraded, err := UpgradeDocumentToConstruction(legacy)
+	upgraded, err := migrateStoredDocumentFixture(legacy)
 	if err != nil {
 		t.Fatalf("upgrade unpivot: %v", err)
 	}
@@ -608,14 +611,14 @@ func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
 
 func TestUpgradeDocumentToConstructionRejectsLossyShapeWithoutMutation(t *testing.T) {
 	legacy := legacyPivotDocument()
-	legacy.TableShape.Derived[0].Left = ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarString, String: stringPointer("not numeric")}}
+	legacy.ArchiveRetiredShape.Derived[0].Left = storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarString, String: stringPointer("not numeric")}}
 	before := legacy
 	before.Columns = append([]Column(nil), legacy.Columns...)
-	before.TableShape, _ = cloneTableShape(legacy.TableShape)
-	if _, err := UpgradeDocumentToConstruction(legacy); err == nil || !strings.Contains(err.Error(), "not numeric") {
+	before.ArchiveRetiredShape, _ = cloneStoredShapeFixture(legacy.ArchiveRetiredShape)
+	if _, err := migrateStoredDocumentFixture(legacy); err == nil || !strings.Contains(err.Error(), "not numeric") {
 		t.Fatalf("lossy conversion error = %v", err)
 	}
-	if !reflect.DeepEqual(legacy, before) || legacy.TableShape == nil || legacy.Construction != nil {
+	if !reflect.DeepEqual(legacy, before) || legacy.ArchiveRetiredShape == nil || legacy.Construction != nil {
 		t.Fatal("failed conversion changed the accepted legacy document")
 	}
 }
@@ -950,25 +953,25 @@ func legacyPivotDocument() Document {
 		document.Columns[i].ColumnID = ""
 	}
 	document.Construction = nil
-	document.TableShape = &TableShape{
-		Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+	document.ArchiveRetiredShape = &storedTableShape{
+		Reshape: &storedTableReshape{Kind: "PIVOT", Pivot: &storedPivotConstruction{
 			ConstructionID: "legacy_pivot", GroupKeys: []string{"group_id"}, CategoryColumn: "category", ValueColumn: "value",
-			Categories: []PivotCategory{
+			Categories: []storedPivotCategory{
 				{Key: stringScalar("A"), Output: ColumnOutput{Column: "amount_a", Label: "Amount A"}},
 				{Key: stringScalar("B"), Output: ColumnOutput{Column: "amount_b", Label: "Amount B"}},
 			},
 			DuplicatePolicy: "MAX", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
 		}},
-		Derived: []DerivedConstruction{
+		Derived: []storedDerivedConstruction{
 			{
 				ConstructionID: "legacy_ratio", Output: ColumnOutput{Column: "ratio", Label: "Ratio"}, Operation: "ADD",
-				Left: ArithmeticOperand{Kind: "COLUMN", Column: "twice_a"}, Right: ArithmeticOperand{Kind: "COLUMN", Column: "amount_b"},
+				Left: storedArithmeticOperand{Kind: "COLUMN", Column: "twice_a"}, Right: storedArithmeticOperand{Kind: "COLUMN", Column: "amount_b"},
 				MissingInputPolicy: "PROPAGATE_NULL",
 			},
 			{
 				ConstructionID: "legacy_twice", Output: ColumnOutput{Column: "twice_a", Label: "Twice A"}, Operation: "MULTIPLY",
-				Left:               ArithmeticOperand{Kind: "COLUMN", Column: "amount_a"},
-				Right:              ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: int64Pointer(2)}},
+				Left:               storedArithmeticOperand{Kind: "COLUMN", Column: "amount_a"},
+				Right:              storedArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: int64Pointer(2)}},
 				MissingInputPolicy: "PROPAGATE_NULL",
 			},
 		},

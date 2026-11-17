@@ -39,7 +39,6 @@ const (
 	CommandClearColumnContributor            = "CLEAR_COLUMN_CONTRIBUTOR"
 	CommandApplyInterpretationCandidate      = "APPLY_INTERPRETATION_CANDIDATE"
 	CommandApplyRowDefinitionProposal        = "APPLY_ROW_DEFINITION_PROPOSAL"
-	CommandApplyTableShapeProposal           = "APPLY_TABLE_SHAPE_PROPOSAL"
 	CommandApplyConstructionProposal         = "APPLY_CONSTRUCTION_PROPOSAL"
 	CommandApplyPopulationMemberProposal     = "APPLY_POPULATION_MEMBER_PROPOSAL"
 	CommandRestoreDraftRevision              = "RESTORE_DRAFT_REVISION"
@@ -158,8 +157,6 @@ type Command struct {
 	resolvedColumnPolicy     *resolvedColumnPolicy
 	resolvedImportedDocument *Document
 	resolvedRowDefinition    *RowDefinition
-	resolvedTableShape       *TableShape
-	resolvedTableShapeSet    bool
 	resolvedConstruction     *Construction
 	resolvedConstructionSet  bool
 	resolvedConstructionRows *RowDefinition
@@ -377,7 +374,7 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
-	if decoded.Type == CommandApplyColumnPolicyProposal || decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal || decoded.Type == CommandApplyConstructionProposal || decoded.Type == CommandApplyPopulationMemberProposal {
+	if decoded.Type == CommandApplyColumnPolicyProposal || decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyConstructionProposal || decoded.Type == CommandApplyPopulationMemberProposal {
 		if err := rejectUnknownProposalCommandFields(raw, decoded.Type); err != nil {
 			return err
 		}
@@ -441,25 +438,6 @@ func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 		return err
 	}
 	c.resolvedRowDefinition = &cloned
-	return nil
-}
-
-// ResolveTableShapeProposal attaches the lifecycle-validated table shape to an
-// apply command. A nil shape is a resolved removal, not an unresolved command.
-func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
-	if c == nil || c.Type != CommandApplyTableShapeProposal {
-		return fmt.Errorf("table shape can only be resolved for APPLY_TABLE_SHAPE_PROPOSAL")
-	}
-	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
-		strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
-		return fmt.Errorf("APPLY_TABLE_SHAPE_PROPOSAL requires outputId and proposalId")
-	}
-	cloned, err := cloneTableShape(shape)
-	if err != nil {
-		return err
-	}
-	c.resolvedTableShape = cloned
-	c.resolvedTableShapeSet = true
 	return nil
 }
 
@@ -574,7 +552,7 @@ func (r ApplyCommandsRequest) Validate() error {
 		if command.Type == CommandSetFrameSource || command.Type == CommandReplaceFrameSource || command.Type == CommandRemoveFrameSource {
 			frameSourceCommandCount++
 		}
-		if command.Type == CommandApplyColumnPolicyProposal || command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange != nil && command.RowChange.Mode == RowChangeModeReplace {
+		if command.Type == CommandApplyColumnPolicyProposal || command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyConstructionProposal || command.Type == CommandApplyPopulationMemberProposal || command.Type == CommandApplyTableRootRebase && command.RowChange != nil && command.RowChange.Mode == RowChangeModeReplace {
 			proposalCommandCount++
 		}
 		if command.Type == CommandRestoreDraftRevision {
@@ -783,7 +761,7 @@ func (c Command) validate() error {
 			c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
 		}
-	case CommandApplyColumnPolicyProposal, CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal, CommandApplyConstructionProposal, CommandApplyPopulationMemberProposal:
+	case CommandApplyColumnPolicyProposal, CommandApplyRowDefinitionProposal, CommandApplyConstructionProposal, CommandApplyPopulationMemberProposal:
 		if !required(c.OutputID, c.ProposalID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
 			return fmt.Errorf("%s requires exact outputId and proposalId", c.Type)
 		}
@@ -931,7 +909,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if current.ImportedRecipe == nil || resolved.ImportedRecipe == nil || *current.ImportedRecipe != *resolved.ImportedRecipe || resolved.Output.ID != current.Output.ID {
 			return result, fmt.Errorf("source change does not match its pinned output")
 		}
-		if current.RootResourceType != resolved.RootResourceType || !reflect.DeepEqual(current.Output, resolved.Output) || !reflect.DeepEqual(current.Population, resolved.Population) || !reflect.DeepEqual(current.Frames, resolved.Frames) || !reflect.DeepEqual(current.Construction, resolved.Construction) || !reflect.DeepEqual(current.TableShape, resolved.TableShape) || !reflect.DeepEqual(current.FixedFilters, resolved.FixedFilters) || !reflect.DeepEqual(current.Actions, resolved.Actions) {
+		if current.RootResourceType != resolved.RootResourceType || !reflect.DeepEqual(current.Output, resolved.Output) || !reflect.DeepEqual(current.Population, resolved.Population) || !reflect.DeepEqual(current.Frames, resolved.Frames) || !reflect.DeepEqual(current.Construction, resolved.Construction) || !reflect.DeepEqual(current.ArchiveRetiredShape, resolved.ArchiveRetiredShape) || !reflect.DeepEqual(current.FixedFilters, resolved.FixedFilters) || !reflect.DeepEqual(current.Actions, resolved.Actions) {
 			return result, fmt.Errorf("source edits must preserve the row root, presentation, population, and all downstream authored work")
 		}
 		workspace.Documents[position] = resolved
@@ -1467,20 +1445,6 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		workspace.Documents[document].Rows = rows
 		return result, nil
-	case CommandApplyTableShapeProposal:
-		if !command.resolvedTableShapeSet {
-			return result, fmt.Errorf("APPLY_TABLE_SHAPE_PROPOSAL has no lifecycle-resolved table shape")
-		}
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
-			return result, fmt.Errorf("output %q was not found", command.OutputID)
-		}
-		shape, err := cloneTableShape(command.resolvedTableShape)
-		if err != nil {
-			return result, err
-		}
-		workspace.Documents[document].TableShape = shape
-		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 	case CommandApplyPopulationMemberProposal:
 		if !command.resolvedPopulationSet || command.resolvedPopulation == nil {
 			return result, fmt.Errorf("APPLY_POPULATION_MEMBER_PROPOSAL has no lifecycle-resolved population")
@@ -1504,7 +1468,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if documentIndexValue < 0 {
 			return result, fmt.Errorf("output %q was not found", command.OutputID)
 		}
-		document, err := UpgradeDocumentToConstruction(workspace.Documents[documentIndexValue])
+		document, err := StartDocumentConstruction(workspace.Documents[documentIndexValue])
 		if err != nil {
 			return result, fmt.Errorf("prepare staged construction: %w", err)
 		}
@@ -1518,7 +1482,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return result, err
 		}
 		document.Rows = rows
-		document.TableShape = nil
+		document.ArchiveRetiredShape = nil
 		if err := document.Validate(); err != nil {
 			return result, fmt.Errorf("resolved construction is invalid: %w", err)
 		}
@@ -1636,10 +1600,10 @@ func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID s
 		return nil
 	}
 	document := workspace.Documents[documentPos]
-	if len(document.Columns) != 0 || document.Construction != nil || document.TableShape != nil {
+	if len(document.Columns) != 0 || document.Construction != nil || document.ArchiveRetiredShape != nil {
 		return nil
 	}
-	upgraded, err := UpgradeDocumentToConstruction(document)
+	upgraded, err := StartDocumentConstruction(document)
 	if err != nil {
 		return fmt.Errorf("initialize empty source construction: %w", err)
 	}

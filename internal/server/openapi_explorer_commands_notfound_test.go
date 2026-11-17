@@ -108,7 +108,7 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 	}}
 	document.Columns = []authoringv2.Column{}
 	document.Output = authoringv2.Output{ID: "observations", Title: "Observations", RowLabel: "Observations"}
-	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	document, err = authoringv2.StartDocumentConstruction(document)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,15 +20,19 @@ func main() {
 	endpoint := flag.String("endpoint", envOr("LOOM_ARANGO_URL", "http://127.0.0.1:8529"), "local Arango endpoint")
 	database := flag.String("database", envOr("LOOM_ARANGO_DATABASE", "loom_dev"), "existing local loom_dev or loom_test_* database")
 	mode := flag.String("mode", "dry-run", "dry-run or apply (use arango-preview-index-audit for a read-only audit)")
+	migration := flag.String("migration", "workspace", "workspace or table-shape; apply workspace before table-shape")
 	authorize := flag.Bool("authorize-local-migration", false, "authorize local workspace/digest mutation; required with -mode apply")
 	flag.Parse()
-	if err := run(*endpoint, *database, *mode, *authorize); err != nil {
+	if err := run(*endpoint, *database, *mode, *authorize, *migration); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(endpoint, database, mode string, authorize bool) error {
+func run(endpoint, database, mode string, authorize bool, migration string) error {
+	if migration != "workspace" && migration != "table-shape" {
+		return fmt.Errorf("unsupported migration %q", migration)
+	}
 	if mode != "dry-run" && mode != "apply" {
 		return fmt.Errorf("unsupported mode %q", mode)
 	}
@@ -49,7 +53,12 @@ func run(endpoint, database, mode string, authorize bool) error {
 	}
 	defer client.Close(context.Background())
 	dryRun := mode == "dry-run"
-	report, err := explorerarango.MigrateStoredWorkspaces(ctx, client, dryRun)
+	var report explorerarango.WorkspaceMigrationReport
+	if migration == "table-shape" {
+		report, err = explorerarango.MigrateStoredTableShapes(ctx, client, dryRun)
+	} else {
+		report, err = explorerarango.MigrateStoredWorkspaces(ctx, client, dryRun)
+	}
 	if err != nil {
 		return err
 	}

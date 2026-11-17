@@ -84,7 +84,7 @@ func TestImportDefaultDataframerKeepsExactPinAndUsesResolvedSchema(t *testing.T)
 			t.Errorf("column %d does not preserve stable resolved source identity: %#v", i, column)
 		}
 	}
-	if document.Construction != nil || document.TableShape != nil {
+	if document.Construction != nil || document.ArchiveRetiredShape != nil {
 		t.Fatal("fresh import unexpectedly has an overlay")
 	}
 	if got, err := bundle.Digest(); err != nil || got != digest {

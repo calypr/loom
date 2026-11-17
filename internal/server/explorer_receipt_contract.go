@@ -44,7 +44,7 @@ func compileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 	}
 	document := request.Document
 	document.Construction = nil
-	document.TableShape = nil
+	document.ArchiveRetiredShape = nil
 	translated, err := explorercompilation.Compile(ctx, request.Project, request.ExplorerID, document, request.Authorized.Snapshot)
 	if err != nil {
 		return explorer.ReceiptConstructionStage{}, fmt.Errorf("compile source projection: %w", err)
@@ -261,11 +261,6 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		binding := *request.RowDefinitionProposal
 		rowDefinitionProposal = &binding
 	}
-	var tableShapeProposal *explorer.TableShapeProposalBinding
-	if request.TableShapeProposal != nil {
-		binding := *request.TableShapeProposal
-		tableShapeProposal = &binding
-	}
 	var constructionProposal *explorer.ConstructionProposalBinding
 	if request.ConstructionProposal != nil {
 		binding := *request.ConstructionProposal
@@ -276,7 +271,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		binding := *request.PopulationMemberRemovalProposal
 		populationMemberRemovalProposal = &binding
 	}
-	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, CompiledOutputSchemas: compiledOutputSchemas, ColumnPolicyProposal: cloneColumnPolicyBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: request.SourceRelationshipProposal, RowDefinitionProposal: rowDefinitionProposal, TableShapeProposal: tableShapeProposal, ConstructionProposal: constructionProposal, PopulationMemberRemovalProposal: populationMemberRemovalProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, CompiledOutputSchemas: compiledOutputSchemas, ColumnPolicyProposal: cloneColumnPolicyBinding(request.ColumnPolicyProposal), SourceRelationshipProposal: request.SourceRelationshipProposal, RowDefinitionProposal: rowDefinitionProposal, ConstructionProposal: constructionProposal, PopulationMemberRemovalProposal: populationMemberRemovalProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 	if err != nil {
 		return nil, err

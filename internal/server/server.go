@@ -854,10 +854,6 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}
-	tableShapeCapabilities, err := explorerarango.NewTableShapeCapabilityRepository(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("configure table-shape capability repository: %w", err)
-	}
 	var selectionSourceResolver lifecycle.SelectionSourceResolver
 	if materializationReader != nil {
 		selectionSourceResolver = published.SelectionSourceAdapter{Reader: materializationReader}
@@ -880,7 +876,6 @@ func run(ctx context.Context, serverConfig Config) error {
 		RowChoicePlanner:                   rowChoiceResolver,
 		ExplicitGroupResolver:              explicitGroupResolver,
 		ExplicitGroupRepository:            explorerStore,
-		TableShapeCapabilities:             tableShapeCapabilities,
 		ScanCategories:                     configuredCategoryScanner(logger, recipeEngine),
 		CompileReceipt:                     compileReceipt,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
@@ -970,17 +965,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return recipeEngine.RowLineage(ctx, resolved, request)
 		},
-		TableShapeExclusions: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error) {
-			if receipt == nil {
-				return dataframeexecution.TableShapeExclusionResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt table-shape exclusion resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.TableShapeExclusionResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.TableShapeExclusions(ctx, resolved, request)
-		},
+
 		MaterializeReceipt: explorerReceiptMaterializer(
 			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
 			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,

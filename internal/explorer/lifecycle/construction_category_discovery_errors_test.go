@@ -154,7 +154,7 @@ func constructionCategoryDiscoveryErrorFixture(t *testing.T, scanErr error) (*Se
 		t.Fatal(err)
 	}
 	store.created.DraftConfig, store.created.DraftDigest = encoded, digest
-	upgraded, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	upgraded, err := authoringv2.StartDocumentConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
 	}

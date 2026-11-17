@@ -327,12 +327,12 @@ func TestCompileCellTraceUsesOwnerRecordEvidenceAsContributions(t *testing.T) {
 }
 
 func TestCompileCellTraceCarriesPivotAndDerivedLeafLineage(t *testing.T) {
-	output := reshapeOracleOutput("trace_pivot", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("trace_pivot", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "trace-pivot", GroupKeys: []string{"group_text", "group_number"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories: []recipe.GroupedPivotCategory{
+			Categories: []oraclePivotCategory{
 				{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"},
 				{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"},
 			},
@@ -565,7 +565,7 @@ func TestConstructionCellTraceRejectsStructuredGeneratedIdentity(t *testing.T) {
 			output.Plan.StageSequence.Stages[lastStage].OutputColumns[index].Kind = "object"
 		}
 	}
-	if _, err := CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "construction cell trace row identity does not match the final stage" {
+	if _, err := CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || err.Error() != "compiler-generated construction identity is not a required scalar string" {
 		t.Fatalf("structured generated identity error = %v", err)
 	}
 }
@@ -612,7 +612,7 @@ func constructionRelatedSourceCellTraceRecipeOutput() recipe.Output {
 	}
 }
 
-func TestConstructionCellTraceMarksPivotLineageAsUnsupported(t *testing.T) {
+func TestConstructionCellTraceReplaysPivotDespiteGenericLineageRefusal(t *testing.T) {
 	recipeOutput := constructionOracleOutput()
 	recipeOutput.Construction.Steps = recipeOutput.Construction.Steps[:1]
 	output := compilePopulationMappingOutput(t, recipeOutput)
@@ -630,11 +630,11 @@ func TestConstructionCellTraceMarksPivotLineageAsUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiled.Query, "__loom_construction_final_row.alpha") || !strings.Contains(compiled.Query, "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED") {
+	if !strings.Contains(compiled.Query, ".alpha") || strings.Contains(compiled.Query, "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED") || !strings.Contains(compiled.Query, "__loom_physical_trace_pivot_cell_source") {
 		t.Fatalf("unsupported reshape trace must retain the value and explicit omission:\n%s\n%#v", compiled.Query, compiled.BindVars)
 	}
 	if compiled.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || compiled.IdentityPartsColumn != "" ||
-		!strings.Contains(compiled.Query, "__loom_construction_final_row.__loom_row_id") {
+		!strings.Contains(compiled.Query, ".__loom_row_id") {
 		t.Fatalf("pivot trace must match Preview's literal generated row ID without re-hashing:\n%s\n%#v", compiled.Query, compiled)
 	}
 }

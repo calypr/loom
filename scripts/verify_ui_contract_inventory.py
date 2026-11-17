@@ -298,7 +298,6 @@ def extract_source_domains(manifest: Dict[str, Any], root: Path) -> Tuple[Set[st
     expected_schemas = {
         "constructionOperationSchema",
         "rowDefinitionSelectionSchema",
-        "tableShapeProposalIntentSchema",
         "allOperationFamilies",
     }
     if not expected_schemas.issubset(extractor_by_schema):
@@ -343,17 +342,13 @@ def extract_source_domains(manifest: Dict[str, Any], root: Path) -> Tuple[Set[st
                 raise SourceReadError("constructionOperationSchema needs combineSubkindSchema")
             combine_values = _extract_enum_property(text, combine_name, "kind")
             backend_kinds.update("COMBINE:" + item for item in combine_values)
-        elif schema in {"rowDefinitionSelectionSchema", "tableShapeProposalIntentSchema"}:
+        elif schema == "rowDefinitionSelectionSchema":
             if mapping_field != "affordances[].operation.backendKinds":
                 raise SourceReadError("%s must map to operation.backendKinds" % schema)
             prefix = extractor.get("prefix")
             if not isinstance(prefix, str) or not prefix:
                 raise SourceReadError("%s needs a non-empty prefix" % schema)
             values = _extract_zod_union_literals(text, schema)
-            if schema == "tableShapeProposalIntentSchema":
-                # NONE is the no-reshape mode. The active action represented by
-                # its derived-column payload is the inventory's DERIVED_COLUMN.
-                values = ["DERIVED_COLUMN" if item == "NONE" else item for item in values]
             backend_kinds.update(prefix + item for item in values)
         elif schema == "allOperationFamilies":
             if mapping_field != "affordances[].operation.family":

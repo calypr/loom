@@ -1230,7 +1230,7 @@ func (h *filterSourceHarness) saveDraft(t *testing.T, construction authoringv2.C
 			document.Columns[index].ColumnID = "patient-id"
 		}
 	}
-	document.TableShape = nil
+	document.ArchiveRetiredShape = nil
 	document.Construction = &construction
 	workspace.Documents[0] = document
 	if err := workspace.Validate(); err != nil {

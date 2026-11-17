@@ -1790,5 +1790,5 @@ func validPivotMissingPolicy(policy PivotMissingCellPolicy) bool {
 }
 
 func validPivotUnlistedPolicy(policy PivotUnlistedCategoryPolicy) bool {
-	return policy == PivotUnlistedCategoryError
+	return policy == PivotUnlistedCategoryError || policy == PivotUnlistedCategoryExcludeWithEvidence
 }

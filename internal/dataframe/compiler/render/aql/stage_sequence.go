@@ -461,6 +461,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	}
 	projections := make([]ir.PhysicalProjection, 0, projectionCapacity)
 	for _, column := range sequence.FinalColumns {
+		if column.Name == sequence.OutputAuthResourcePathColumn {
+			continue
+		}
 		if options.terminalProjectionColumn != "" && column.Name != options.terminalProjectionColumn {
 			continue
 		}
@@ -483,6 +486,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			Name: "auth_resource_path", Hidden: true,
 			Value: ir.PhysicalValue{BindKey: sequence.OutputAuthResourcePathBindKey},
 		})
+	}
+	if sequence.OutputAuthResourcePathColumn != "" && options.terminalProjectionColumn == "" {
+		projections = append(projections, ir.PhysicalProjection{Name: "auth_resource_path", Hidden: true, Value: ir.PhysicalValue{Variable: finalRow, Path: []string{sequence.OutputAuthResourcePathColumn}}})
 	}
 	returned, err := renderer.renderReturn(ir.PhysicalReturn{Projections: projections})
 	if err != nil {

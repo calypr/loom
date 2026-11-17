@@ -1,8 +1,9 @@
 package compiler
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -12,12 +13,12 @@ import (
 )
 
 func TestCompileTableShapeExclusionsUsesCanonicalGroupedPivotInputs(t *testing.T) {
-	output := reshapeOracleOutput("Observations", &recipe.TableReshape{
-		Kind: recipe.TableReshapeGroupedPivot,
-		GroupedPivot: &recipe.GroupedPivot{
+	output := reshapeOracleOutput("Observations", &oracleReshape{
+		Kind: oracleReshapePivot,
+		GroupedPivot: &oraclePivot{
 			ConstructionID: "exclusion-test", GroupKeys: []string{"group_text", "group_number"},
 			CategoryColumn: "string_category", ValueColumn: "numeric_value",
-			Categories:      []recipe.GroupedPivotCategory{{Key: reshapeOracleString("known"), Output: "known", Label: "Known"}},
+			Categories:      []oraclePivotCategory{{Key: reshapeOracleString("known"), Output: "known", Label: "Known"}},
 			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
 		},
@@ -32,12 +33,19 @@ func TestCompileTableShapeExclusionsUsesCanonicalGroupedPivotInputs(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalPlan := ir.ClonePhysicalPlan(compiledOutput.Plan)
+	originalPlan, err := json.Marshal(compiledOutput.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
 	query, err := CompileTableShapeExclusionsWithPolicy(compiledOutput, 7, 12, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(compiledOutput.Plan, originalPlan) {
+	afterPlan, err := json.Marshal(compiledOutput.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(afterPlan, originalPlan) {
 		t.Fatal("exclusion compilation mutated the canonical published plan")
 	}
 	for _, want := range []string{
@@ -67,27 +75,25 @@ func TestCompileTableShapeExclusionsUsesCanonicalGroupedPivotInputs(t *testing.T
 }
 
 func TestCompileTableShapeExclusionsRefusesUnsupportedOrUnconfiguredOutputs(t *testing.T) {
-	unsupported := lowerOutputForExclusionTest(t, recipe.Output{
+	unsupported := lowerOutputForExclusionTest(t, bindOracleCurrentConstruction(recipe.Output{
 		Name: "Unpivot", RootResourceType: "Observation", RowGrain: "observation",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
-		TableReshape: &recipe.TableReshape{Kind: recipe.TableReshapeUnpivot, Unpivot: &recipe.Unpivot{
-			ConstructionID: "u", Inputs: []recipe.UnpivotInput{{Column: "id", Key: reshapeOracleString("id")}},
-			KeyOutput: "key", KeyLabel: "Key", ValueOutput: "value", ValueLabel: "Value", NullRowPolicy: recipe.UnpivotNullPreserve,
-		}},
-	})
+	}, &oracleReshape{Kind: oracleReshapeUnpivot, Unpivot: &oracleUnpivot{
+		ConstructionID: "u", Inputs: []oracleUnpivotInput{{Column: "id", Key: reshapeOracleString("id")}},
+		KeyOutput: "key", KeyLabel: "Key", ValueOutput: "value", ValueLabel: "Value", NullRowPolicy: recipe.UnpivotNullPreserve,
+	}}))
 	_, err := CompileTableShapeExclusionsWithPolicy(unsupported, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	assertExclusionRefusal(t, err, TableShapeExclusionUnsupported)
 
-	noPolicy := lowerOutputForExclusionTest(t, recipe.Output{
+	noPolicy := lowerOutputForExclusionTest(t, bindOracleCurrentConstruction(recipe.Output{
 		Name: "NoPolicy", RootResourceType: "Observation", RowGrain: "observation",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}, {Name: "category", Expr: recipe.Expression{Select: "root.status"}}, {Name: "value", Expr: recipe.Expression{Select: "root.valueInteger"}}},
-		TableReshape: &recipe.TableReshape{Kind: recipe.TableReshapeGroupedPivot, GroupedPivot: &recipe.GroupedPivot{
-			ConstructionID: "p", GroupKeys: []string{"id"}, CategoryColumn: "category", ValueColumn: "value",
-			Categories:      []recipe.GroupedPivotCategory{{Key: reshapeOracleString("known"), Output: "known", Label: "Known"}},
-			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
-			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
-		}},
-	})
+	}, &oracleReshape{Kind: oracleReshapePivot, GroupedPivot: &oraclePivot{
+		ConstructionID: "p", GroupKeys: []string{"id"}, CategoryColumn: "category", ValueColumn: "value",
+		Categories:      []oraclePivotCategory{{Key: reshapeOracleString("known"), Output: "known", Label: "Known"}},
+		DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
+		UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+	}}))
 	_, err = CompileTableShapeExclusionsWithPolicy(noPolicy, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	assertExclusionRefusal(t, err, TableShapeExclusionNoPolicy)
 

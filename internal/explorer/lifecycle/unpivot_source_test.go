@@ -899,7 +899,7 @@ func unpivotSaveDraftPublicNote(t *testing.T, harness *unpivotSourceHarness, con
 		ColumnID: "note", Column: "note", Label: "Note", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
 		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "gender", ProjectionMode: "VALUE"}},
 	})
-	document.TableShape = nil
+	document.ArchiveRetiredShape = nil
 	document.Construction = &construction
 	workspace.Documents[0] = document
 	if err := workspace.Validate(); err != nil {

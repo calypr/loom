@@ -34,6 +34,9 @@ func DecodeCurrentWorkspace(raw []byte) (Workspace, error) {
 
 // CloneCurrentWorkspace detaches current input without upgrading historical intent.
 func CloneCurrentWorkspace(workspace Workspace) (Workspace, error) {
+	if workspaceHasArchivedShape(workspace) {
+		return Workspace{}, fmt.Errorf("tableShape requires explicit stored-data migration")
+	}
 	if workspace.SemanticsVersion != CurrentSemanticsVersion {
 		return Workspace{}, fmt.Errorf("workspace requires stored-data migration")
 	}

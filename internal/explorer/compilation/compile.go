@@ -651,10 +651,10 @@ func compileImportedDocument(ctx context.Context, project, explorerID string, do
 	if err != nil {
 		return Result{}, fmt.Errorf("imported source plan: %w", err)
 	}
-	if document.TableShape != nil || document.Population != nil || !reflect.DeepEqual(document.Rows, recipeimport.ImportRows(sourceOutput)) || len(document.FixedFilters) != 0 || len(document.Actions) != 0 {
+	if document.ArchiveRetiredShape != nil || document.Population != nil || !reflect.DeepEqual(document.Rows, recipeimport.ImportRows(sourceOutput)) || len(document.FixedFilters) != 0 || len(document.Actions) != 0 {
 		return Result{}, fmt.Errorf("imported recipe route, rows, and current overlay are not supported by this compile path")
 	}
-	if sourceOutput.Construction != nil || sourceOutput.TableReshape != nil || len(sourceOutput.DerivedColumns) != 0 {
+	if sourceOutput.Construction != nil || sourceOutput.ArchiveRetiredReshape != nil || len(sourceOutput.DerivedColumns) != 0 {
 		return Result{}, fmt.Errorf("imported recipe already has a post-source construction that conflicts with the Builder overlay")
 	}
 	expectedRoute, err := recipeimport.ImportRoute(sourceOutput, catalog)

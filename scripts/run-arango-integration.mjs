@@ -47,8 +47,26 @@ export const profiles = [
 // The store package's retained cases require external seeded data. Its ordinary
 // unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
+profiles.find(p => p.id === 'compiler').alsoRequired = [
+    'TestCurrentPivotNullMissingExclusionPartitionAgainstArango',
+    'TestS04TableReshapeOracleAgainstArango',
+    'TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango',
+    'TestGroupedPivotReservedPhysicalOutputNameAgainstArango',
+];
 profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
 profiles.find(p => p.id === 'explorer').alsoRequired = [
+    'TestStoredTableShapeMigrationAgainstArango',
+    'TestTableShapeMigrationReusesJSONHistoryWithoutRewritingAgainstArango',
+    'TestTableShapeProjectionLookupFailsClosedAgainstArango',
+    'TestTableShapeMigrationCASFailureRollsBackExactRevisionHistoryAndProjectionAgainstArango',
+    'TestTableShapeMigrationRejectsConflictingImmutableHistoryAgainstArango',
+    'TestTableShapeMigrationLargeIntegerProjectionAgainstArango',
+    'TestTableShapeMigrationLargeIntegerOwnerAgainstArango',
+    'TestTableShapeArchivedLargeIntegerReceiptAgainstArango',
+    'TestStoredWorkspaceMigrationAgainstArango',
+    'TestImmutableWorkspaceMigrationAgainstArango',
+    'TestStoredWorkspaceMigrationCASFailureRollsBackHistoryAndProjectionAgainstArango',
+    'TestStoredWorkspaceMigrationMixedNilDigestAgainstArango',
     'TestDraftCASConcurrentWritersAgainstArango',
     'TestDraftCASAfterWinnerCommitAgainstArango',
     'TestDraftCASPublicApplyConflictClassAgainstArango',

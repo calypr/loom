@@ -37,6 +37,7 @@ func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections st
 }
 
 func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+	visit = storedJSONVisitorForTest(query, visit)
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
 	collection, _ := binds["@c"].(string)
 	switch {

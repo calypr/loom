@@ -63,7 +63,6 @@ func CollectionSpecs() []store.CollectionSpec {
 		{Name: ViewBuilderSettingsCollection, Indexes: [][]string{{"project"}}},
 		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
 		CapabilitySnapshotCollectionSpec(),
-		TableShapeCapabilitiesCollectionSpec(),
 		workspaceProjectionCollectionSpec(),
 	}
 }

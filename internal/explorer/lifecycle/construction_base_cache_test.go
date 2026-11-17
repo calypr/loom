@@ -19,7 +19,7 @@ func configureSnapshotConstructionCompilation(service *Service, store *fakeStore
 	}
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		*calls++
-		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt := lifecycleConstructionReceipt(snapshot, request.Workspace)
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
 			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
 		}
