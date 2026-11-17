@@ -18,7 +18,7 @@ import {
   useGetExplorerCandidateSuggestionsV2Mutation,
   useLoomClient,
 } from '../../react';
-import type { ResourceRef, SelectionRevision } from '../../selection';
+import type { SelectionRevision } from '../../selection';
 import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
 import type {
   ExplorerAuthoringDiagnostic,
@@ -30,7 +30,6 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   FieldPresentationRequest,
-  ConstructionRouteStep,
   Construction,
   ConstructionOperation,
   ConstructionStep,
@@ -88,13 +87,13 @@ import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { useBuilderDraft } from './authoring/useBuilderDraft';
 import { useRecipeFocus } from './authoring/useRecipeFocus';
+import { usePopulationExclusion } from './authoring/usePopulationExclusion';
 import { useAddColumns } from './authoring/useAddColumns';
 import { createRecipeNetworkLoader } from './authoring/recipeNetwork';
 import { useRootChange } from './authoring/useRootChange';
 import { useCombineCatalog } from './authoring/useCombineCatalog';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
-import { sameConstructionRoute } from './populationRoutes';
 import { fieldCatalogItems, sanitizeReasonText, unavailableOperationReason } from './catalogItems';
 
 import {
@@ -280,16 +279,6 @@ const builderOwnerKeyFor = (
   explorerId,
 ]);
 
-const populationBindingKey = (
-  table: BuilderAuthoringState['tables'][number] | undefined,
-  selectionRevisionId = table?.document.population?.selectionRevisionId,
-) => JSON.stringify([
-  selectionRevisionId ?? '',
-  (table?.document.population?.route ?? []).map((step) => [
-    step.resourceType, step.relationship, step.catalogEdgeId ?? '', step.storageDirection ?? '',
-  ]),
-]);
-
 const BuilderWorkspaceContent = ({
   organization,
   project,
@@ -401,11 +390,6 @@ const BuilderWorkspaceContent = ({
     readonly client: typeof loomClient;
     readonly selectionID: string;
   }>();
-  const [populationVariantError, setPopulationVariantError] = useState<{
-    readonly contextKey: string;
-    readonly message: string;
-  }>();
-  const [populationVariantPending, setPopulationVariantPending] = useState(false);
   const [firstTableName, setFirstTableName] = useState('');
   const [tableCreatorOpen, setTableCreatorOpen] = useState(false);
   const [firstTableProgress, setFirstTableProgress] =
@@ -1114,14 +1098,11 @@ const BuilderWorkspaceContent = ({
   const activePopulationSelection = populationSelectionOverrideIsCurrent
     ? populationSelectionOverride.selection
     : populationSelection ?? populationSelectionQuery.data;
-  const populationExclusionContext = {
-    contextKey: populationSelectionContextKey,
-    client: loomClient,
-    baseSelectionID: activePopulationSelection?.id,
-    bindingKey: populationBindingKey(table),
-  };
-  const populationExclusionContextRef = useRef(populationExclusionContext);
-  populationExclusionContextRef.current = populationExclusionContext;
+  const { excludePopulationMember, populationVariantError, populationVariantPending } = usePopulationExclusion({
+    table, latestState, activePopulationSelection, populationSelectionContextKey, loomClient,
+    workspaceAttached, serverDraft, applyCommands, projectId, authResourcePath,
+    setPopulationSelectionOverride,
+  });
   const activePopulationSelectionLoading = populationSelectionLoading || (
     !populationSelection && populationSelectionQuery.isLoading
   );
@@ -1222,105 +1203,6 @@ const BuilderWorkspaceContent = ({
       </label>
     </div>
   ) : undefined;
-  const excludePopulationMember = useCallback(async (
-    ref: ResourceRef,
-    route: ReadonlyArray<ConstructionRouteStep>,
-  ) => {
-    const current = latestState.current;
-    const currentTable = selectedTable(current);
-    const baseSelection = activePopulationSelection;
-    if (!currentTable || !baseSelection) return;
-    const exclusionContext = populationExclusionContextRef.current;
-    const requestIsCurrent = () => {
-      const latestContext = populationExclusionContextRef.current;
-      const latest = latestState.current;
-      const latestTable = selectedTable(latest);
-      return workspaceAttached.current &&
-        latestContext.contextKey === exclusionContext.contextKey &&
-        latestContext.client === exclusionContext.client &&
-        latestContext.baseSelectionID === baseSelection.id &&
-        latestContext.bindingKey === exclusionContext.bindingKey &&
-        latestTable?.outputId === currentTable.outputId &&
-        latestTable.document.rootResourceType === currentTable.document.rootResourceType &&
-        populationBindingKey(latestTable) === exclusionContext.bindingKey &&
-        latest.draftVersion === serverDraft.current.version &&
-        latest.draftDigest === serverDraft.current.digest;
-    };
-    if (!requestIsCurrent()) return;
-    setPopulationVariantPending(true);
-    setPopulationVariantError(undefined);
-    try {
-      const idempotencyKey = `selection-variant-${window.crypto.randomUUID()}`;
-      const variant = await loomClient.createSelection({
-        project: projectId,
-        explorerId: current.explorerId,
-        authResourcePath,
-        snapshotToken: current.catalog.snapshotToken,
-        idempotencyKey,
-        source: { kind: 'selectionRevision', selectionRevision: { selectionRevisionId: baseSelection.id } },
-        exclusions: [ref],
-        requestId: idempotencyKey,
-      });
-      if (!requestIsCurrent()) return;
-      let cursor: string | undefined;
-      let routeChoiceId: string | undefined;
-      do {
-        const routes = await loomClient.searchPopulationRoutes({
-          project: projectId,
-          explorerId: current.explorerId,
-          authResourcePath,
-          snapshotToken: current.catalog.snapshotToken,
-          outputId: currentTable.outputId,
-          selectionRevisionId: variant.id,
-          limit: 50,
-          ...(cursor ? { cursor } : {}),
-          requestId: `population-routes-${window.crypto.randomUUID()}`,
-        });
-        if (!requestIsCurrent()) return;
-        routeChoiceId = routes.choices.find((choice) =>
-          sameConstructionRoute(choice.route, route),
-        )?.routeChoiceId;
-        cursor = routes.nextCursor;
-      } while (!routeChoiceId && cursor);
-      if (!routeChoiceId) {
-        throw new Error('Loom could not preserve this table connection for the revised collection.');
-      }
-      if (!requestIsCurrent()) return;
-      const attached = await applyCommands([{
-        type: 'SET_TABLE_POPULATION',
-        outputId: currentTable.outputId,
-        selectionRevisionId: variant.id,
-        routeChoiceId,
-      }], undefined, requestIsCurrent);
-      if (!attached) {
-        if (!requestIsCurrent()) return;
-        throw new Error('Loom created the revised collection but could not attach it to this table.');
-      }
-      const resultContext = populationExclusionContextRef.current;
-      const resultTable = selectedTable(latestState.current);
-      if (!workspaceAttached.current ||
-          resultContext.contextKey !== exclusionContext.contextKey ||
-          resultContext.client !== exclusionContext.client ||
-          (resultContext.baseSelectionID !== undefined && resultContext.baseSelectionID !== baseSelection.id && resultContext.baseSelectionID !== variant.id) ||
-          resultTable?.outputId !== currentTable.outputId ||
-          resultTable.document.rootResourceType !== currentTable.document.rootResourceType ||
-          populationBindingKey(resultTable) !== populationBindingKey(currentTable, variant.id)) return;
-      setPopulationSelectionOverride({
-        contextKey: populationSelectionContextKey,
-        baseSelectionID: baseSelection.id,
-        selection: variant,
-      });
-    } catch (error) {
-      if (!requestIsCurrent()) return;
-      setPopulationVariantError({
-        contextKey: populationSelectionContextKey,
-        message: error instanceof Error ? error.message : 'Loom could not create the revised collection.',
-      });
-    } finally {
-      setPopulationVariantPending(false);
-    }
-  }, [activePopulationSelection, applyCommands, authResourcePath, loomClient, populationSelectionContextKey, projectId]);
-
   const ensureSuggestions = useCallback(() => {
     const current = latestState.current;
     const currentOccurrence = derivedOccurrences(
