@@ -86,6 +86,17 @@ func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Wo
 // used to bind compilation receipts. It works on a detached copy so callers can
 // retain the exact persisted draft and its compare-and-swap digest.
 func PrepareWorkspaceForCompilation(workspace Workspace, catalog CatalogSnapshot) (Workspace, error) {
+	prepared, err := MigrateWorkspaceForCompilation(workspace, catalog)
+	if err != nil {
+		return Workspace{}, err
+	}
+	return prepared.NormalizePresentationOrders(), nil
+}
+
+// MigrateWorkspaceForCompilation applies compilation migrations to a detached
+// copy without normalizing presentation orders, so callers can validate the
+// original authored values before canonicalizing them.
+func MigrateWorkspaceForCompilation(workspace Workspace, catalog CatalogSnapshot) (Workspace, error) {
 	prepared, err := cloneWorkspace(workspace)
 	if err != nil {
 		return Workspace{}, err
@@ -94,7 +105,7 @@ func PrepareWorkspaceForCompilation(workspace Workspace, catalog CatalogSnapshot
 	if err != nil {
 		return Workspace{}, err
 	}
-	prepared = MigrateLosslessDefaults(prepared, catalog).NormalizePresentationOrders()
+	prepared = MigrateLosslessDefaults(prepared, catalog)
 	return prepared, nil
 }
 

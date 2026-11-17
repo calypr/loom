@@ -436,11 +436,10 @@ func migrateLegacyAcceptanceWorkspace(workspace authoringv2.Workspace, catalog a
 	if err := validatePinnedContributorCatalog(catalog); err != nil {
 		return authoringv2.Workspace{}, fmt.Errorf("validate pinned acceptance catalog: %w", err)
 	}
-	migrated, err := authoringv2.MigrateLegacyContributors(workspace, catalog)
+	migrated, err := authoringv2.PrepareWorkspaceForCompilation(workspace, catalog)
 	if err != nil {
 		return authoringv2.Workspace{}, fmt.Errorf("migrate acceptance contributor predicates: %w", err)
 	}
-	migrated = authoringv2.MigrateLosslessDefaults(migrated, catalog).NormalizePresentationOrders()
 	if err := migrated.ValidateForPublication(); err != nil {
 		return authoringv2.Workspace{}, fmt.Errorf("validate migrated acceptance workspace: %w", err)
 	}
