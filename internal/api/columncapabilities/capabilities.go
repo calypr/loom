@@ -38,6 +38,20 @@ func FromClickHouse(clickHouseType string) Tuple {
 	}
 }
 
+// Resolve applies stored logical and wrapper metadata to the ClickHouse
+// classification, then derives capabilities from the resolved values.
+func Resolve(clickHouseType, logical string, nullable, repeated bool) Tuple {
+	result := FromClickHouse(clickHouseType)
+	if logical != "" {
+		result.Logical = logical
+	}
+	result.Nullable = result.Nullable || nullable
+	result.Repeated = result.Repeated || repeated
+	result.Sortable = !result.Repeated
+	result.Aggregatable = !result.Repeated && result.Logical != "json"
+	return result
+}
+
 func logicalType(typ string) string {
 	switch {
 	case strings.HasPrefix(typ, "Bool"):

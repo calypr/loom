@@ -46,23 +46,17 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 	for _, output := range execution.Outputs {
 		columns := make([]loomapi.RecipeExecutionColumn, 0, len(output.Columns))
 		for _, column := range output.Columns {
-			capabilities := columncapabilities.FromClickHouse(column.ClickHouse)
-			logical, nullable, repeated := capabilities.Logical, capabilities.Nullable, capabilities.Repeated
-			if column.LogicalType != "" {
-				logical = column.LogicalType
-			}
-			nullable = nullable || column.Nullable
-			repeated = repeated || column.Repeated
+			capabilities := columncapabilities.Resolve(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
 			columns = append(columns, loomapi.RecipeExecutionColumn{
 				Name:           column.Name,
 				SemanticPath:   column.SemanticPath,
 				ClickhouseType: column.ClickHouse,
-				LogicalType:    logical,
-				Nullable:       nullable,
-				Repeated:       repeated,
+				LogicalType:    capabilities.Logical,
+				Nullable:       capabilities.Nullable,
+				Repeated:       capabilities.Repeated,
 				Filterable:     capabilities.Filterable,
-				Sortable:       !repeated,
-				Aggregatable:   !repeated && logical != "json",
+				Sortable:       capabilities.Sortable,
+				Aggregatable:   capabilities.Aggregatable,
 			})
 		}
 		item := loomapi.RecipeExecutionOutput{

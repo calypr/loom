@@ -56,18 +56,8 @@ func ColumnFromPhysical(column publication.PhysicalColumn) *model.DataframeColum
 }
 
 func ColumnModel(column materialization.Column) *model.DataframeColumn {
-	capabilities := columncapabilities.FromClickHouse(column.ClickHouse)
-	logical, nullable, repeated := capabilities.Logical, capabilities.Nullable, capabilities.Repeated
-	if column.LogicalType != "" {
-		logical = column.LogicalType
-	}
-	if column.Nullable {
-		nullable = true
-	}
-	if column.Repeated {
-		repeated = true
-	}
-	return &model.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: logical, Nullable: nullable, Repeated: repeated, Filterable: capabilities.Filterable, Sortable: !repeated, Aggregatable: !repeated && logical != "json"}
+	capabilities := columncapabilities.Resolve(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
+	return &model.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: capabilities.Logical, Nullable: capabilities.Nullable, Repeated: capabilities.Repeated, Filterable: capabilities.Filterable, Sortable: capabilities.Sortable, Aggregatable: capabilities.Aggregatable}
 }
 
 func PersistedFailure(raw, code string, retryable bool) (message, failureCode *string, failureRetryable *bool) {
