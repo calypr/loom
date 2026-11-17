@@ -8,9 +8,13 @@ import (
 )
 
 func capabilityResolutionFailure(stage, message string, err error) error {
+	return capabilityFailure(stage, "STALE_CATALOG_SNAPSHOT", message, err)
+}
+
+func capabilityFailure(stage, code, message string, err error) error {
 	switch {
 	case errors.Is(err, capability.ErrStaleSnapshot), errors.Is(err, capability.ErrSnapshotUnavailable), errors.Is(err, capability.ErrNotFound):
-		return conflict(stage, "STALE_CATALOG_SNAPSHOT", message, nil, err)
+		return conflict(stage, code, message, nil, err)
 	case errors.Is(err, authscope.ErrUnauthenticated), errors.Is(err, authscope.ErrForbidden):
 		return forbidden(stage, message, err)
 	default:
@@ -19,12 +23,5 @@ func capabilityResolutionFailure(stage, message string, err error) error {
 }
 
 func receiptCapabilityFailure(stage, message string, err error) error {
-	switch {
-	case errors.Is(err, capability.ErrStaleSnapshot), errors.Is(err, capability.ErrSnapshotUnavailable), errors.Is(err, capability.ErrNotFound):
-		return conflict(stage, "RECEIPT_STALE", message, nil, err)
-	case errors.Is(err, authscope.ErrUnauthenticated), errors.Is(err, authscope.ErrForbidden):
-		return forbidden(stage, message, err)
-	default:
-		return unavailable(stage, "CAPABILITY_UNAVAILABLE", message, err)
-	}
+	return capabilityFailure(stage, "RECEIPT_STALE", message, err)
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -238,7 +239,7 @@ func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request Related
 	for _, candidate := range base.snapshot.Candidates {
 		if candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
 			(candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") ||
-			len(candidate.RepeatedBoundaries) != 0 || !containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+			len(candidate.RepeatedBoundaries) != 0 || !slices.Contains(candidate.ProjectionModes, capability.ProjectionScalar) ||
 			!relatedFieldPathExecutable(candidate.FieldPath) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
 			continue
 		}
@@ -471,7 +472,7 @@ func relatedContributorCandidateExecutable(candidate capability.Candidate) bool 
 		if len(candidate.RepeatedBoundaries) == 0 || !relatedContributorRepeatedBoundariesMatch(selector, candidate.RepeatedBoundaries) {
 			return false
 		}
-	} else if len(candidate.RepeatedBoundaries) != 0 || !containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) {
+	} else if len(candidate.RepeatedBoundaries) != 0 || !slices.Contains(candidate.ProjectionModes, capability.ProjectionScalar) {
 		return false
 	}
 	metadata, ok := fhirschema.ResolveTerminalScalarMetadata(candidate.ResourceType, selector.CanonicalPath())
@@ -525,15 +526,6 @@ func relatedContributorLogicalTypeMatches(logicalType string, primitive fhirsche
 	default:
 		return false
 	}
-}
-
-func containsProjectionMode(modes []capability.ProjectionMode, want capability.ProjectionMode) bool {
-	for _, mode := range modes {
-		if mode == want {
-			return true
-		}
-	}
-	return false
 }
 
 func relatedFieldPathExecutable(path string) bool {
@@ -956,7 +948,7 @@ func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceTy
 		}
 		if pathIndex == len(path) {
 			if current.ID == targetNodeID {
-				matches = append(matches, cloneConstructionRoute(steps))
+				matches = append(matches, capability.CloneConstructionRoute(steps))
 			}
 			return nil
 		}
@@ -974,7 +966,7 @@ func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceTy
 			return fmt.Errorf("saved route contains a self-loop forbidden by policy")
 		}
 		to, _ := snapshot.Node(edge.ToNodeID)
-		next := append(cloneConstructionRoute(steps), capability.ConstructionRouteStep{
+		next := append(capability.CloneConstructionRoute(steps), capability.ConstructionRouteStep{
 			EdgeID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID,
 			FromResourceType: edge.SourceResourceType, ToResourceType: edge.TargetResourceType,
 			Relationship: edge.Label, StorageDirection: strings.ToUpper(strings.TrimSpace(edge.StorageDirection)), MatchMode: matchMode,

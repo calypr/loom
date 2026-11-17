@@ -196,7 +196,7 @@ func TestTableReshapeExecutionWindowBindsExpectedLimit(t *testing.T) {
 
 func TestWithoutUnusedTerminalPivotPresenceCompanionsOnlyPrunesClonedPreviewPlan(t *testing.T) {
 	original := terminalPivotPresencePreviewPlan()
-	windowed := withoutUnusedTerminalPivotPresenceCompanions(clonePhysicalPlan(original))
+	windowed := withoutUnusedTerminalPivotPresenceCompanions(ir.ClonePhysicalPlan(original))
 
 	if !hasPresenceOutput(original.Operations) || !hasStageColumn(original.StageSequence.SourceColumns, "category_present") {
 		t.Fatal("pruning mutated the source plan and lost its category-presence companion")
@@ -207,7 +207,7 @@ func TestWithoutUnusedTerminalPivotPresenceCompanionsOnlyPrunesClonedPreviewPlan
 		t.Fatal("ordinary terminal Pivot preview retained an unused category-presence companion")
 	}
 
-	missingCategory := clonePhysicalPlan(original)
+	missingCategory := ir.ClonePhysicalPlan(original)
 	missingCategory.StageSequence.Stages[0].GroupedPivot.CategoryPresenceColumn = "category_present"
 	missingCategory = withoutUnusedTerminalPivotPresenceCompanions(missingCategory)
 	if !hasPresenceOutput(missingCategory.Operations) || !hasStageColumn(missingCategory.StageSequence.SourceColumns, "category_present") {

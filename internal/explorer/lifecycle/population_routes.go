@@ -123,7 +123,7 @@ func (s *Service) SearchPopulationRoutes(ctx context.Context, request Population
 			continue
 		}
 		result.Choices = append(result.Choices, PopulationRouteChoice{
-			RouteChoiceID: choiceID, Route: cloneConstructionRoute(resolvedRoute),
+			RouteChoiceID: choiceID, Route: capability.CloneConstructionRoute(resolvedRoute),
 			Presentation: populationRoutePresentation(document.RootResourceType, selection.ResourceType, resolvedRoute),
 		})
 	}
@@ -187,12 +187,6 @@ func populationRoutePresentation(rootResourceType, terminalResourceType string, 
 		facts = append(facts, capability.ConstructionChoiceFact{Label: "Route", Value: strings.Join(parts, " / ")})
 	}
 	return capability.ConstructionChoicePresentation{Summary: summary, Facts: facts}
-}
-
-func cloneConstructionRoute(route []capability.ConstructionRouteStep) []capability.ConstructionRouteStep {
-	result := make([]capability.ConstructionRouteStep, len(route))
-	copy(result, route)
-	return result
 }
 
 func (s *Service) preparePopulationRouteChoices(ctx context.Context, project string, authorized AuthorizedCapability, identities []capability.PopulationRouteChoiceIdentity, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {

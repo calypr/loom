@@ -158,7 +158,7 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 			searchTruncated = true
 			return false
 		}
-		routes = append(routes, cloneConstructionRoute(path))
+		routes = append(routes, CloneConstructionRoute(path))
 		return true
 	}
 	for stateIndex := 0; stateIndex < len(states); stateIndex++ {
@@ -185,7 +185,7 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 				continue
 			}
 			expansions++
-			path := append(cloneConstructionRoute(state.path), ConstructionRouteStep{
+			path := append(CloneConstructionRoute(state.path), ConstructionRouteStep{
 				EdgeID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID,
 				FromResourceType: edge.SourceResourceType, ToResourceType: edge.TargetResourceType,
 				Relationship: edge.Label, StorageDirection: strings.ToUpper(edge.StorageDirection), MatchMode: "OPTIONAL",
@@ -215,7 +215,7 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 	start := min(offset, len(routes))
 	end := min(start+limit, len(routes))
 	for _, route := range routes[start:end] {
-		page.Routes = append(page.Routes, cloneConstructionRoute(route))
+		page.Routes = append(page.Routes, CloneConstructionRoute(route))
 	}
 	moreKnown := end < len(routes)
 	page.Truncated = searchTruncated || moreKnown

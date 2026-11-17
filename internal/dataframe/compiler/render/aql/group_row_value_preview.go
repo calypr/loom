@@ -236,7 +236,7 @@ func renderGroupRowValuePreviewFrontier(
 	}
 	bindVars := make(map[string]any, len(source.BindVars)+2)
 	for key, value := range source.BindVars {
-		bindVars[key] = clonePhysicalBindValue(value)
+		bindVars[key] = ir.ClonePhysicalBindValue(value)
 	}
 	reserved := stageSequenceVariableNames(ir.PhysicalPlan{StageSequence: sequence})
 	for variable := range physicalPlanVariableNames(frontierPlan) {
@@ -257,7 +257,7 @@ func renderGroupRowValuePreviewFrontier(
 		if !ok {
 			return groupRowValuePreviewFrontier{}, fmt.Errorf("preview Group limit bind %q is missing", limitBindKey)
 		}
-		renderer.bindVars[limitBindKey] = clonePhysicalBindValue(value)
+		renderer.bindVars[limitBindKey] = ir.ClonePhysicalBindValue(value)
 	}
 	lines := []string{
 		fmt.Sprintf("LET %s = (", sourceRows),

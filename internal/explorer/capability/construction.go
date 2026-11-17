@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -699,12 +700,12 @@ func NewFieldConstructionChoiceForRoute(snapshotToken string, route []Constructi
 	}
 	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
 		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceField,
-		SnapshotToken: snapshotToken, Source: source, Route: cloneConstructionRoute(route),
+		SnapshotToken: snapshotToken, Source: source, Route: CloneConstructionRoute(route),
 	})
 	if err != nil {
 		return ConstructionChoice{}, err
 	}
-	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route), Presentation: fieldChoicePresentation(source, candidate), Options: constructionOptionsForRoute(candidate, route)}
+	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: CloneConstructionRoute(route), Presentation: fieldChoicePresentation(source, candidate), Options: constructionOptionsForRoute(candidate, route)}
 	if len(choice.Options) == 0 {
 		return ConstructionChoice{}, fmt.Errorf("candidate %q has no compiler-proved construction output", candidate.ID)
 	}
@@ -738,13 +739,13 @@ func NewGroupFieldConstructionChoice(snapshotToken string, route []ConstructionR
 	}
 	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
 		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceGroupField,
-		SnapshotToken: snapshotToken, Source: source, Route: cloneConstructionRoute(route),
+		SnapshotToken: snapshotToken, Source: source, Route: CloneConstructionRoute(route),
 	})
 	if err != nil {
 		return ConstructionChoice{}, err
 	}
 	choice := ConstructionChoice{
-		ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route),
+		ChoiceID: choiceID, Source: source, Route: CloneConstructionRoute(route),
 		Presentation: fieldChoicePresentation(FieldChoiceSource{
 			Kind: ConstructionChoiceSourceField, CandidateID: candidate.ID, NodeID: candidate.NodeID,
 			ResourceType: candidate.ResourceType, Path: candidate.FieldPath, Cardinality: candidate.Cardinality,
@@ -796,7 +797,7 @@ func NewGroupCodingIdentityChoice(snapshotToken string, route []ConstructionRout
 	}
 	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
 		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceGroupField,
-		SnapshotToken: snapshotToken, Source: source, Route: cloneConstructionRoute(route),
+		SnapshotToken: snapshotToken, Source: source, Route: CloneConstructionRoute(route),
 	})
 	if err != nil {
 		return ConstructionChoice{}, err
@@ -806,7 +807,7 @@ func NewGroupCodingIdentityChoice(snapshotToken string, route []ConstructionRout
 		fieldLabel = source.Input.RelatedOccurrence.CodingSelector
 	}
 	return ConstructionChoice{
-		ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route),
+		ChoiceID: choiceID, Source: source, Route: CloneConstructionRoute(route),
 		Presentation: ConstructionChoicePresentation{Summary: "Coding identity", Facts: []ConstructionChoiceFact{
 			{Label: "Field", Value: fieldLabel},
 			{Label: "Scope", Value: source.SourceRole},
@@ -910,7 +911,7 @@ func validateGroupFieldCandidate(source GroupFieldChoiceSource, candidate Candid
 		if related == nil || candidatePathForGroupFieldSource(source) != canonicalPath(candidate.FieldPath) ||
 			candidate.ID != related.CandidateID || candidate.NodeID != related.TargetNodeID || candidate.ResourceType != related.TargetResourceType ||
 			!candidate.Observed || !candidate.Populated || !IsSupportedConstructionSourceType(candidate.LogicalType) ||
-			!containsProjectionMode(candidate.ProjectionModes, ProjectionScalar) || IsRepeatedCardinality(candidate.Cardinality) {
+			!slices.Contains(candidate.ProjectionModes, ProjectionScalar) || IsRepeatedCardinality(candidate.Cardinality) {
 			return fmt.Errorf("related Group field choice does not match one populated scalar candidate")
 		}
 		return nil
@@ -923,7 +924,7 @@ func validateGroupFieldCandidate(source GroupFieldChoiceSource, candidate Candid
 	}
 	if source.SourceRole == "ROOT" {
 		if len(candidate.RepeatedBoundaries) != 0 || IsRepeatedCardinality(candidate.Cardinality) ||
-			!containsProjectionMode(candidate.ProjectionModes, ProjectionScalar) {
+			!slices.Contains(candidate.ProjectionModes, ProjectionScalar) {
 			return fmt.Errorf("root Group field choice must be a one-valued scalar source")
 		}
 		return nil
@@ -1020,15 +1021,6 @@ func joinGroupFieldPath(prefix, path string) string {
 	return prefix + "." + path
 }
 
-func containsProjectionMode(modes []ProjectionMode, want ProjectionMode) bool {
-	for _, mode := range modes {
-		if mode == want {
-			return true
-		}
-	}
-	return false
-}
-
 // NewConstructionRelatedResourceRouteChoiceFromAnchor pins a route to one
 // exact compiler-proven row anchor as well as its terminal resource.
 func NewConstructionRelatedResourceRouteChoiceFromAnchor(
@@ -1061,7 +1053,7 @@ func NewConstructionRelatedResourceRouteChoiceFromAnchor(
 	}
 	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
 		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceRelatedResource,
-		SnapshotToken: snapshotToken, Source: source, Route: cloneConstructionRoute(route),
+		SnapshotToken: snapshotToken, Source: source, Route: CloneConstructionRoute(route),
 	})
 	if err != nil {
 		return ConstructionRelatedResourceRouteChoice{}, err
@@ -1069,7 +1061,7 @@ func NewConstructionRelatedResourceRouteChoiceFromAnchor(
 	return ConstructionRelatedResourceRouteChoice{
 		ChoiceID: choiceID, TargetNodeID: targetNodeID, TargetResource: targetResource,
 		AnchorColumnID: anchorColumnID, AnchorKind: anchorKind, AnchorNodeID: anchorNodeID,
-		AnchorResourceType: anchorResource, Route: cloneConstructionRoute(route),
+		AnchorResourceType: anchorResource, Route: CloneConstructionRoute(route),
 	}, nil
 }
 
@@ -1208,12 +1200,12 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
 		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceSemantic,
 		SnapshotToken: snapshotToken, SemanticContextToken: semanticContextToken,
-		BuildID: buildID, Source: source, Route: cloneConstructionRoute(route),
+		BuildID: buildID, Source: source, Route: CloneConstructionRoute(route),
 	})
 	if err != nil {
 		return ConstructionChoice{}, err
 	}
-	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route), Presentation: semanticChoicePresentation(source, candidate), Options: constructionOptionsForRoute(candidate, route)}
+	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: CloneConstructionRoute(route), Presentation: semanticChoicePresentation(source, candidate), Options: constructionOptionsForRoute(candidate, route)}
 	if len(ownerRecordsProved) > 0 && ownerRecordsProved[0] && ownerRecordsSourceSupported(source, candidate) {
 		choice.Options = append(choice.Options, ConstructionChoiceOption{
 			Form: ConstructionChoiceOwnerRecords, Shape: ConstructionChoiceList,
@@ -1266,13 +1258,13 @@ func NewSemanticFrameConstructionChoice(
 	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
 		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceSemanticFrame,
 		SnapshotToken: snapshotToken, SemanticContextToken: semanticContextToken,
-		BuildID: buildID, Source: source, Route: cloneConstructionRoute(route),
+		BuildID: buildID, Source: source, Route: CloneConstructionRoute(route),
 	})
 	if err != nil {
 		return ConstructionChoice{}, err
 	}
 	return ConstructionChoice{
-		ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route),
+		ChoiceID: choiceID, Source: source, Route: CloneConstructionRoute(route),
 		Presentation: ConstructionChoicePresentation{
 			Summary: source.Family.ResourceType + " coded values",
 			Facts: nonEmptyConstructionFacts(append([]ConstructionChoiceFact{
@@ -1365,7 +1357,7 @@ func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, er
 	identity := ConstructionChoiceIdentity{
 		Version: token.Version, Kind: token.Kind, SnapshotToken: token.SnapshotToken,
 		SemanticContextToken: token.SemanticContextToken, BuildID: token.BuildID,
-		Route: cloneConstructionRoute(token.Route),
+		Route: CloneConstructionRoute(token.Route),
 	}
 	switch token.Kind {
 	case ConstructionChoiceSourceField:
@@ -1526,7 +1518,7 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 	payload, err := json.Marshal(constructionChoiceToken{
 		Version: identity.Version, Kind: identity.Kind, SnapshotToken: identity.SnapshotToken,
 		SemanticContextToken: identity.SemanticContextToken, BuildID: identity.BuildID, Source: source,
-		Route: cloneConstructionRoute(identity.Route),
+		Route: CloneConstructionRoute(identity.Route),
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal construction choice identity: %w", err)
@@ -1559,7 +1551,7 @@ func validateConstructionRoute(route []ConstructionRouteStep) error {
 	return nil
 }
 
-func cloneConstructionRoute(route []ConstructionRouteStep) []ConstructionRouteStep {
+func CloneConstructionRoute(route []ConstructionRouteStep) []ConstructionRouteStep {
 	if route == nil {
 		return []ConstructionRouteStep{}
 	}

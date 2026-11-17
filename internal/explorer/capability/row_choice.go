@@ -157,7 +157,7 @@ func NewRowChoice(snapshot Snapshot, occurrences []RowChoiceOccurrence, occurren
 	return RowChoice{
 		ChoiceID: choiceID, Kind: kind, Label: label, Description: strings.TrimSpace(facts.Description),
 		ValueType: rowChoiceValueType(facts), OccurrenceID: occurrence.OccurrenceID, NodeID: occurrence.NodeID,
-		ResourceType: occurrence.ResourceType, Route: cloneConstructionRoute(occurrence.Route), Path: facts.CanonicalPath,
+		ResourceType: occurrence.ResourceType, Route: CloneConstructionRoute(occurrence.Route), Path: facts.CanonicalPath,
 		FHIRType: facts.FHIRType, Cardinality: facts.Cardinality, Reference: facts.Reference,
 		Presentation: ConstructionChoicePresentation{Summary: label, Facts: presentationFacts},
 	}, nil
@@ -380,7 +380,7 @@ func validateRowOccurrenceShape(occurrence RowChoiceOccurrence) error {
 }
 
 func cloneRowOccurrence(occurrence RowChoiceOccurrence) RowChoiceOccurrence {
-	occurrence.Route = cloneConstructionRoute(occurrence.Route)
+	occurrence.Route = CloneConstructionRoute(occurrence.Route)
 	return occurrence
 }
 

@@ -69,7 +69,7 @@ func physicalTraversalCount(plan ir.PhysicalPlan) int {
 // expensive optional navigation is evaluated only for selected root rows.
 func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
 	if plan.StageSequence != nil {
-		out := clonePhysicalPlan(plan)
+		out := ir.ClonePhysicalPlan(plan)
 		if limit > 0 {
 			if _, exists := out.BindVars[genericPhysicalExecutionLimitBind]; exists {
 				return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution limit bind %q is already defined", genericPhysicalExecutionLimitBind)
@@ -93,7 +93,7 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		return out, nil
 	}
 	if len(plan.Operations) == 1 && plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && plan.Operations[0].GroupRows != nil {
-		out := clonePhysicalPlan(plan)
+		out := ir.ClonePhysicalPlan(plan)
 		if limit > 0 {
 			if _, exists := out.BindVars[genericPhysicalExecutionLimitBind]; exists {
 				return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution limit bind %q is already defined", genericPhysicalExecutionLimitBind)
@@ -113,7 +113,7 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a root scan")
 	}
 	if reshapeIndex, outputVariable := physicalTableReshapeOutput(plan.Operations); reshapeIndex >= 0 {
-		out := clonePhysicalPlan(plan)
+		out := ir.ClonePhysicalPlan(plan)
 		if limit > 0 {
 			if _, exists := out.BindVars[genericPhysicalExecutionLimitBind]; exists {
 				return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution limit bind %q is already defined", genericPhysicalExecutionLimitBind)
@@ -176,7 +176,7 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a scoped root followed by RETURN or traversal")
 	}
 
-	out := clonePhysicalPlan(plan)
+	out := ir.ClonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
 	rootKey := ir.PhysicalValue{Variable: root, Path: []string{"_key"}}
 	keys := []ir.PhysicalValue{rootKey}

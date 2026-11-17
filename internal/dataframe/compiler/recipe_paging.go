@@ -96,7 +96,7 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 
 func optimizedOutputPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if output.OptimizedPlan != nil {
-		return clonePhysicalPlan(*output.OptimizedPlan), nil
+		return ir.ClonePhysicalPlan(*output.OptimizedPlan), nil
 	}
 	physical, err := optimize.OptimizePhysicalPlanWithPolicy(output.Plan, policy)
 	if err != nil {
@@ -117,7 +117,7 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 			return ir.PhysicalPlan{}, fmt.Errorf("root page bind %q is already defined", key)
 		}
 	}
-	out := clonePhysicalPlan(plan)
+	out := ir.ClonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
 	rootPageFilters, candidateSeed := rootPageConstructionFilters(out)
 	if candidateSeed != nil {
@@ -588,7 +588,7 @@ func selectedRootsPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, bool, error) {
 	if _, exists := plan.BindVars[RootPageKeysBind]; exists {
 		return ir.PhysicalPlan{}, false, fmt.Errorf("root page bind %q is already defined", RootPageKeysBind)
 	}
-	out := clonePhysicalPlan(plan)
+	out := ir.ClonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
 	insertAt := rootPageInsertionIndex(out.Operations)
 	out.BindVars[RootPageKeysBind] = []string{}

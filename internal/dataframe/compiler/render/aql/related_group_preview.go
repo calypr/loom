@@ -393,7 +393,7 @@ func renderRelatedGroupPreviewFrontier(
 ) (relatedGroupPreviewFrontier, error) {
 	bindVars := make(map[string]any, len(plan.BindVars))
 	for key, value := range plan.BindVars {
-		bindVars[key] = clonePhysicalBindValue(value)
+		bindVars[key] = ir.ClonePhysicalBindValue(value)
 	}
 	keys := make(map[string]struct{}, len(collectionKeys)+1)
 	for key := range collectionKeys {

@@ -519,7 +519,7 @@ func compile(ctx context.Context, scope Scope, output semantic.OutputPlan, optio
 	context := semantic.ExecutionContext{
 		Project:           scope.Project,
 		DatasetGeneration: scope.DatasetGeneration,
-		AuthResourcePaths: cloneStrings(scope.AuthResourcePaths),
+		AuthResourcePaths: ir.CloneStrings(scope.AuthResourcePaths),
 		AuthScopeMode:     scope.AuthScopeMode,
 	}
 	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(output, context, options.Policy)
@@ -537,7 +537,7 @@ func compile(ctx context.Context, scope Scope, output semantic.OutputPlan, optio
 	if err != nil {
 		return ir.PhysicalPlan{}, Rendered{}, err
 	}
-	return optimized, Rendered{Query: rendered.Query, BindVars: rendered.BindVars, Project: scope.Project, DatasetGeneration: scope.DatasetGeneration, AuthResourcePaths: cloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.AuthScopeMode}, nil
+	return optimized, Rendered{Query: rendered.Query, BindVars: rendered.BindVars, Project: scope.Project, DatasetGeneration: scope.DatasetGeneration, AuthResourcePaths: ir.CloneStrings(scope.AuthResourcePaths), AuthScopeMode: scope.AuthScopeMode}, nil
 }
 
 func optionsFor(options []Options) Options {
@@ -729,5 +729,3 @@ func contextErr(ctx context.Context) error {
 	}
 	return ctx.Err()
 }
-
-func cloneStrings(values []string) []string { return append([]string(nil), values...) }

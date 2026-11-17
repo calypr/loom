@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -127,11 +128,11 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.field.path", index), "field is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": sourcePath}, nil)
 			}
 			capabilityMode, supported := capabilityProjectionMode(projectionMode)
-			advertised := supported && containsProjectionMode(candidate.ProjectionModes, capabilityMode)
+			advertised := supported && slices.Contains(candidate.ProjectionModes, capabilityMode)
 			relatedScalarAll := projectionMode == string(capability.ConstructionChoiceAll) &&
 				column.OccurrenceID != authoringv2.RootOccurrenceID &&
 				!capability.IsRepeatedCardinality(candidate.Cardinality) &&
-				containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar)
+				slices.Contains(candidate.ProjectionModes, capability.ProjectionScalar)
 			if !advertised && !relatedScalarAll {
 				return Result{}, fail("capability", "UNSUPPORTED_PROJECTION_MODE", fmt.Sprintf("$.columns[%d].source.projectionMode", index), "projection mode is not advertised by the resolved capability candidate", map[string]any{"candidateId": candidate.ID, "projectionMode": projectionMode, "advertisedModes": candidate.ProjectionModes}, nil)
 			}
@@ -521,12 +522,12 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				// boundaries. The scalar VALUE backing rule below rejects this
 				// shape by design, so the lanes keep distinct checks.
 				if !capability.IsRepeatedCardinality(candidate.Cardinality) ||
-					!containsProjectionMode(candidate.ProjectionModes, capability.ProjectionArray) ||
+					!slices.Contains(candidate.ProjectionModes, capability.ProjectionArray) ||
 					!semanticSelfRepeated(candidate, path) {
 					return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "signed expanded field no longer matches a direct-root repeated array candidate on the root resource", map[string]any{"fieldPath": path}, nil)
 				}
 			} else if len(candidate.RepeatedBoundaries) != 0 ||
-				!containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) {
+				!slices.Contains(candidate.ProjectionModes, capability.ProjectionScalar) {
 				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches an authorized scalar VALUE field or authorized direct root array on the root resource", map[string]any{"fieldPath": path}, nil)
 			}
 			schemaIndex, err := fhirschema.GeneratedIndex()
@@ -860,15 +861,6 @@ func capabilityProjectionMode(mode string) (capability.ProjectionMode, bool) {
 	default:
 		return "", false
 	}
-}
-
-func containsProjectionMode(values []capability.ProjectionMode, want capability.ProjectionMode) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func semanticFixedLookup(column authoringv2.Column, resourceType, alias, leaf, logicalType string) (recipe.DynamicColumn, error) {
