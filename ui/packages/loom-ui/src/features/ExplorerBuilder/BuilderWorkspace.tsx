@@ -1,46 +1,36 @@
 import { admitAuthoringRequest } from './authoring/admission';
-import { reconcileAcceptance } from './authoring/reconcileAcceptance';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useAutomaticPreview, type AutomaticPreviewIdentity, type AutomaticPreviewRun } from './useAutomaticPreview';
+import { useAutomaticPreview } from './useAutomaticPreview';
+import { useAutomaticPreviewOwner } from './authoring/useAutomaticPreviewOwner';
+import { useReconcile } from './authoring/useReconcile';
 import { constructionAppendStageFor, constructionInputStageFor } from './constructionWorkspace/constructionStages';
 import { effectiveOutputAvailability } from './constructionWorkspace/outputEligibility';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
-  useCreateExplorerAuthoringMutation,
-  useDeleteExplorerAuthoringMutation,
   useGetExplorerAuthoringCapabilityV2Query,
   useGetExplorerAuthoringExplorersQuery,
-  useGetExplorerBuilderStateV2Query,
   useResolveConfiguredColumnContextsQuery,
   useResolvePopulationSelectionQuery,
   useGetExplorerCandidateSuggestionsV2Mutation,
-  usePreviewExplorerAuthoringV2Mutation,
-  usePublishExplorerAuthoringV2Mutation,
-  useReconcileExplorerBuilderV2Mutation,
   useLoomClient,
 } from '../../react';
-import type { ResourceRef, SelectionRevision } from '../../selection';
+import type { SelectionRevision } from '../../selection';
 import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
-import { explorerBuilderAcceptedConstructionSchema } from '../../types';
 import type {
   ExplorerAuthoringDiagnostic,
   ExplorerBuilderCatalog,
   ExplorerBuilderCommand,
   ExplorerBuilderCompileResult,
-  ExplorerBuilderCommandsResult,
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   FieldPresentationRequest,
-  ConstructionRouteStep,
   Construction,
-  ConstructionOperation,
   ConstructionStep,
   ConstructionChoiceSelection,
-  RowChangeAssessment,
   SourceRelationshipChange,
   AuthoringNetworkResponse,
   SourceRelationshipProposal,
@@ -54,11 +44,10 @@ import {
 } from './components/DatasetReviewPanel';
 import { useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './recipeEditing/recipeEditingOwner';
 import { SourceRelationshipReview } from './components/SourceRelationshipReview';
-import { RowRootPicker } from './components/RowRootPicker';
 import { AuthoredTraversalEditor } from './components/AuthoredTraversalEditor';
 import { TraversalScopeNavigator } from './components/TraversalScopeNavigator';
 import { RecipeColumnPolicyInspector } from './components/RecipeColumnPolicyInspector';
-import { ConceptCatalog, type ConceptCatalogView } from './components/ConceptCatalog';
+import { ConceptCatalog } from './components/ConceptCatalog';
 import {
   PreviewTable,
 } from './components/PreviewTable';
@@ -75,53 +64,39 @@ import {
   routeNode,
   routeSubtreeOccurrenceIds,
   selectedTable,
-  stateFromBuilder,
   workspaceFromState,
   type BuilderAuthoringState,
 } from './authoring/model';
 import {
-  hasCommandSelectedTable,
-  hasPairedPreviewRows,
   isCompilerNavigationSelection,
 } from './authoring/workspaceGuards';
 import {
   sameRootChangeRequestIdentity,
-  type RootChangePickerState,
-  type RootChangeRequestIdentity,
-  type RootChangeResolution,
-  type RootChangeSelection,
 } from './authoring/rootChangeSelection';
-import { builderAuthoringReducer } from './authoring/reducer';
-import {
-  planInitialTable,
-  type InitialTableCandidateEvidence,
-  type InitialTablePlan,
-} from './authoring/initialTablePlan';
-import {
-  isPreviewResponseSizeError,
-  previewRecoveryAction,
-  type PreviewLimit,
-} from './authoring/previewRecovery';
-import { commandDraftIdentity } from './authoring/commandDraftIdentity';
-import { isDraftRestoreError } from './authoring/draftRestore';
+import type { PreviewLimit } from './authoring/previewRecovery';
+import { useCommandQueue } from './authoring/useCommandQueue';
+import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
-import { shouldSyncServerDraft } from './authoring/serverDraftSync';
-import {
-  isDraftDesynchronized,
-  isStaleSnapshot,
-  reconcileRecoveryAction,
-  reconcileResultIsCurrent,
-} from './authoring/reconcileRecovery';
+import { useBuilderDraft } from './authoring/useBuilderDraft';
+import { useRecipeFocus } from './authoring/useRecipeFocus';
+import { useReshapeAvailability } from './authoring/useReshapeAvailability';
+import { useConstructionNavigation } from './authoring/useConstructionNavigation';
+import { useFirstTable } from './authoring/useFirstTable';
+import { useTableExplorerCrud } from './authoring/useTableExplorerCrud';
+import { useSuggestions } from './authoring/useSuggestions';
+import { usePopulationExclusion } from './authoring/usePopulationExclusion';
+import { useAddColumns } from './authoring/useAddColumns';
+import { useTraversalProjectedFields } from './authoring/useTraversalProjectedFields';
+import { useSourceRecipe } from './authoring/useSourceRecipe';
+import { useRootChange } from './authoring/useRootChange';
+import { useCombineCatalog } from './authoring/useCombineCatalog';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
-import { sameConstructionRoute } from './populationRoutes';
-import { catalogSourceOptions, fieldCatalogItems, sanitizeReasonText, unavailableOperationReason, type CatalogChoiceIntent } from './catalogItems';
+import { fieldCatalogItems, sanitizeReasonText, unavailableOperationReason } from './catalogItems';
 
 import {
   ConstructionWorkspace,
   ConstructionActionBar,
-  ConstructionUndoButton,
-  constructionOperationFamilies,
   type ConstructionHistorySelection,
   type ConstructionOperationFamily,
 } from './constructionWorkspace/ConstructionWorkspace';
@@ -129,9 +104,7 @@ import {
   ConstructionColumnSelection,
   type ConstructionSelectableColumn,
 } from './constructionWorkspace/ConstructionColumnSelection';
-import {
-  ConstructionProposalPanel,
-} from './constructionWorkspace/ConstructionProposalPanel';
+import { ConstructionProposalPanel } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
 import { ImportedSourceSteps } from './ImportedSourceSteps';
 import {
@@ -141,30 +114,20 @@ import {
 import {
   sourceProjectionAvailability,
 } from './constructionWorkspace/sourceProjectionAvailability';
-import { relatedSourceOutputLabel } from './constructionWorkspace/relatedSourceOutputLabel';
 import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,
 } from './constructionWorkspace/useConstructionLifecycle';
-import {
-  matchesAcceptedPreviewHandoff,
-  type AppliedPreviewHandoff,
-} from './constructionWorkspace/appliedChoicePreview';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
-import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from './constructionOperations/ConstructionReshapeEditor';
-import {
-  RelatedSourceStepEditor,
-  type RelatedSourceStep,
-} from './constructionOperations/RelatedSourceStepEditor';
+import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
+import type { RelatedSourceStep } from './constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
-import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
 import { ConstructionCombineEditor } from './constructionOperations/ConstructionCombineEditor';
-import type {
-  ConstructionCombineCatalog,
-  ConstructionCombinePublishedRevision,
-  ConstructionCombineStep,
-} from './constructionOperations/combineEditorTypes';
+import type { ConstructionCombineStep } from './constructionOperations/combineEditorTypes';
+import { TableCreatorPanel } from './workspacePanels/TableCreatorPanel';
+import { OperationEditorHost } from './workspacePanels/OperationEditorHost';
+import { RelatedStepEditors } from './workspacePanels/RelatedStepEditors';
 
 const receiptContainsOutputIds = (
   receipt: ExplorerBuilderCompileResult | undefined,
@@ -176,36 +139,6 @@ const receiptContainsOutputIds = (
 const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
   step.operation.kind === 'RELATED_FIELD';
 
-type ConstructionCombineCatalogLoad = {
-  readonly identity: string;
-  readonly catalog: ConstructionCombineCatalog;
-  readonly loadingMore: boolean;
-  readonly loadMoreError?: string;
-};
-
-const emptyCatalog = (): ExplorerBuilderCatalog => ({
-  snapshotToken: '',
-  generation: '',
-  routePolicy: {},
-  nodes: [],
-  edges: [],
-  candidates: [],
-});
-const emptyBuilderState = (project: string): BuilderAuthoringState => ({
-  project,
-  explorerId: 'dataframe-default',
-  catalog: emptyCatalog(),
-  workspace: null,
-  draftVersion: 0,
-  draftDigest: '',
-  previewRequestVersion: 0,
-  tables: [],
-  selectedOccurrenceId: 'base',
-  diagnostics: [],
-  dirty: false,
-  reconciliation: 'idle',
-});
-
 type ColumnSelectionState =
   | { readonly kind: 'empty' }
   | {
@@ -213,6 +146,46 @@ type ColumnSelectionState =
       readonly outputId: string;
       readonly columnIds: ReadonlyArray<string>;
     };
+
+type SelectionOwnerState = {
+  readonly rowIntentSession: boolean;
+  readonly sourceRowsOpen: boolean;
+  readonly constructionHistorySelection: ConstructionHistorySelection;
+  readonly editingConstructionStepId: string | undefined;
+  readonly columnSelection: ColumnSelectionState;
+};
+
+const emptySelectionOwnerState: SelectionOwnerState = {
+  rowIntentSession: false,
+  sourceRowsOpen: false,
+  constructionHistorySelection: { kind: 'source' },
+  editingConstructionStepId: undefined,
+  columnSelection: { kind: 'empty' },
+};
+
+type SelectionOwnerStateStore = {
+  readonly getSnapshot: () => SelectionOwnerState;
+  readonly subscribe: (subscriber: () => void) => () => void;
+  readonly update: (update: (current: SelectionOwnerState) => SelectionOwnerState) => void;
+};
+
+const createSelectionOwnerStateStore = (): SelectionOwnerStateStore => {
+  let state = emptySelectionOwnerState;
+  const subscribers = new Set<() => void>();
+  return {
+    getSnapshot: () => state,
+    subscribe: (subscriber) => {
+      subscribers.add(subscriber);
+      return () => subscribers.delete(subscriber);
+    },
+    update: (update) => {
+      const next = update(state);
+      if (next === state) return;
+      state = next;
+      for (const subscriber of subscribers) subscriber();
+    },
+  };
+};
 
 const suppressedBuilderDiagnostic = (diagnostic: ExplorerAuthoringDiagnostic): boolean =>
   diagnostic.code === 'CONSTRUCTION_PREVIEW_FAILED';
@@ -253,143 +226,6 @@ const opaqueId = (prefix: 'output' | 'tab' | 'step') =>
   `${prefix}-${window.crypto.randomUUID()}`;
 const constructionSourceStageId = 'source_projection';
 
-const editableConstructionFamily = (
-  operation: ConstructionOperation,
-): Extract<ConstructionOperationFamily, 'KEEP_ROWS' | 'CALCULATE' | 'RESHAPE' | 'COMBINE'> | undefined => {
-  switch (operation.kind) {
-    case 'FILTER':
-    case 'RELATED_ELIGIBILITY': return 'KEEP_ROWS';
-    case 'DERIVE': return 'CALCULATE';
-    case 'PIVOT':
-    case 'CODED_PIVOT':
-    case 'UNPIVOT':
-    case 'GROUP':
-    case 'CODED_GROUP':
-    case 'EXPAND':
-    case 'RELATED_EXPAND': return 'RESHAPE';
-    case 'RELATED_SOURCE': return undefined;
-    case 'RELATED_FIELD': return undefined;
-    case 'COMBINE': return operation.combine.kind === 'KEY_JOIN' || operation.combine.kind === 'APPEND' || operation.combine.kind === 'MEMBERSHIP'
-      ? 'COMBINE'
-      : undefined;
-    default: {
-      const exhaustive: never = operation;
-      return exhaustive;
-    }
-  }
-};
-
-type PreviewRequest = {
-  readonly outputId: string;
-  readonly limit: PreviewLimit;
-  readonly receiptRefreshes: number;
-};
-
-type PublicationAcknowledgementIdentity = {
-  readonly ownerKey: string;
-  readonly explorerId: string;
-  readonly draftDigest: string;
-  readonly intentFingerprint: string;
-  readonly snapshotToken: string;
-};
-
-type ConstructionApplyPreviewIdentity = {
-  readonly ownerKey: string;
-  readonly snapshotToken: string;
-  readonly draftVersion: number;
-  readonly draftDigest: string;
-  readonly previewRequestVersion: number;
-  readonly outputId: string;
-  readonly proposalId: string;
-  readonly limit: PreviewLimit;
-};
-
-const acceptedConstructionForApply = (
-  value: ExplorerBuilderCommandsResult,
-  request: ConstructionApplyPreviewIdentity,
-  command: ExplorerBuilderCommand | undefined,
-  current: BuilderAuthoringState,
-  currentPreviewIdentity: AutomaticPreviewIdentity | undefined,
-): { readonly receipt: ExplorerBuilderCompileResult; readonly preview: ExplorerBuilderPreviewResult } | undefined => {
-  if (!currentPreviewIdentity) return undefined;
-  if (
-    command?.type !== 'APPLY_CONSTRUCTION_PROPOSAL' ||
-    command.proposalId !== request.proposalId ||
-    command.outputId !== request.outputId ||
-    currentPreviewIdentity.ownerKey !== request.ownerKey ||
-    currentPreviewIdentity.snapshotToken !== request.snapshotToken ||
-    currentPreviewIdentity.draftVersion !== request.draftVersion ||
-    currentPreviewIdentity.draftDigest !== request.draftDigest ||
-    currentPreviewIdentity.previewRequestVersion !== request.previewRequestVersion ||
-    currentPreviewIdentity.outputId !== request.outputId ||
-    currentPreviewIdentity.limit !== request.limit ||
-    current.catalog.snapshotToken !== request.snapshotToken ||
-    current.draftVersion !== request.draftVersion ||
-    current.draftDigest !== request.draftDigest ||
-    selectedTable(current)?.outputId !== request.outputId
-  ) return undefined;
-  const parsed = explorerBuilderAcceptedConstructionSchema.safeParse(value.acceptedConstruction);
-  if (!parsed.success) return undefined;
-  const receipt: ExplorerBuilderCompileResult = {
-    ...parsed.data.receipt,
-    builder: value.workspace,
-  };
-  const { preview } = parsed.data;
-  if (
-    parsed.data.previewLimit !== request.limit ||
-    receipt.receiptId !== request.proposalId ||
-    receipt.intentDigest !== value.draftDigest ||
-    receipt.snapshotToken !== request.snapshotToken ||
-    !receipt.outputs.some((output) => output.outputId === request.outputId) ||
-    preview.receiptId !== receipt.receiptId ||
-    preview.outputId !== request.outputId ||
-    preview.rows === null
-  ) return undefined;
-  return { receipt, preview };
-};
-
-type AutomaticPreviewExecution = {
-  cancelled: boolean;
-  compileGeneration?: number;
-  compileRequest?: { readonly abort: () => void };
-  previewGeneration?: number;
-  previewRequest?: { readonly abort: () => void };
-};
-
-type RowChangePreviewContext = {
-  readonly assessment: Extract<RowChangeAssessment, { readonly status: 'READY' }>;
-  readonly identity: RootChangeRequestIdentity;
-};
-
-type PendingRowChangePreview =
-  | (RowChangePreviewContext & { readonly status: 'loading' })
-  | (RowChangePreviewContext & { readonly status: 'ready'; readonly preview: ExplorerBuilderPreviewResult });
-
-type FirstTableProgress =
-  | { readonly kind: 'idle' }
-  | {
-      readonly kind: 'running';
-      readonly resourceType: string;
-      readonly phase: 'checking' | 'creating' | 'adding-id' | 'previewing';
-    };
-
-type SourceProposalOwnerCandidate = Pick<SourceRelationshipProposal,
-  'proposalId' | 'candidateDocument' | 'candidateNetwork' | 'candidateRowIdentity' |
-  'candidateWorkspaceDigest' | 'candidateReceiptId' | 'outputId' | 'snapshotToken' |
-  'draftVersion' | 'draftDigest'> &
-  Partial<Pick<SourceRelationshipProposal, 'affectedColumns' | 'notices'>>;
-
-const builderDataKeyFor = (
-  ownerKey: string,
-  value: {
-    readonly catalog: ExplorerBuilderCatalog;
-    readonly workspace: unknown;
-    readonly draftVersion: number;
-    readonly draftDigest: string;
-  },
-) =>
-  `${ownerKey}:${value.catalog.snapshotToken}:${value.draftVersion}:${value.draftDigest}:${JSON.stringify(value.workspace)}`;
-
 const builderOwnerKeyFor = (
   project: string,
   authResourcePath: string | undefined,
@@ -398,16 +234,6 @@ const builderOwnerKeyFor = (
   canonicalProject(project),
   authResourcePath?.trim() ?? '',
   explorerId,
-]);
-
-const populationBindingKey = (
-  table: BuilderAuthoringState['tables'][number] | undefined,
-  selectionRevisionId = table?.document.population?.selectionRevisionId,
-) => JSON.stringify([
-  selectionRevisionId ?? '',
-  (table?.document.population?.route ?? []).map((step) => [
-    step.resourceType, step.relationship, step.catalogEdgeId ?? '', step.storageDirection ?? '',
-  ]),
 ]);
 
 const BuilderWorkspaceContent = ({
@@ -467,118 +293,44 @@ const BuilderWorkspaceContent = ({
   const workspaceHostRef = useCallback((node: HTMLElement | null) => {
     workspaceAttached.current = node !== null;
   }, []);
-  const publicationOwnerKeyRef = useRef(ownerKey);
-  publicationOwnerKeyRef.current = ownerKey;
-  const selectedTableStorageKey = `loom.builder.selected-table:${ownerKey}`;
-  const rememberedOutputId = useMemo(() => {
-    try {
-      return window.sessionStorage.getItem(selectedTableStorageKey) ?? undefined;
-    } catch {
-      return undefined;
-    }
-  }, [selectedTableStorageKey]);
-  const explorerQueryEnabled = Boolean(effectiveExplorerId);
-  const builderQueryArgs = {
-    project: projectId,
-    explorerId: effectiveExplorerId,
+  const {
+    builderQueryArgs,
+    builder,
+    refetchBuilder,
+    explorerQueryEnabled,
+    builderDataKey,
+    state,
+    dispatch,
+    rememberSelectedTable,
+    previousDraftRevisionId,
+    setLocalState,
+    setRestorableDraft,
+    serverDraft,
+    serverDraftKey,
+    latestState,
+    syncBuilderData,
+  } = useBuilderDraft({
+    projectId,
     authResourcePath,
-  };
-  const builder = useGetExplorerBuilderStateV2Query(builderQueryArgs);
+    effectiveExplorerId,
+    ownerKey,
+    builderOwnerKeyFor,
+  });
   if (selectedExplorerId === 'dataframe-default' &&
       (builder.error as { code?: string } | undefined)?.code === 'DEFAULT_DATAFRAME_UNAVAILABLE') {
     const fallback = (explorers.data ?? []).find((candidate) => candidate.explorerId !== 'dataframe-default' && candidate.explorerId !== 'default');
     if (fallback) setSelectedExplorerId(fallback.explorerId);
   }
-  const refetchBuilder = builder.refetch;
   const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
-  const [createExplorer, createStatus] = useCreateExplorerAuthoringMutation();
-  const [deleteExplorer, deleteStatus] = useDeleteExplorerAuthoringMutation();
   const [applyBuilderCommands] = useApplyExplorerBuilderCommandsV2Mutation();
   const [assessRowChange, rowChangeStatus] = useAssessExplorerRowChangeMutation();
-  const [reconcileBuilder, reconcileStatus] =
-    useReconcileExplorerBuilderV2Mutation();
   const [getSuggestions, suggestionsStatus] =
     useGetExplorerCandidateSuggestionsV2Mutation();
-  const [previewBuilder, previewStatus] =
-    usePreviewExplorerAuthoringV2Mutation();
-  const [publishBuilder] = usePublishExplorerAuthoringV2Mutation();
-  const builderDataKey = builder.data
-    ? builderDataKeyFor(
-        builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
-        builder.data,
-      )
-    : '';
-  const builderDataRef = useRef(builder.data);
-  builderDataRef.current = builder.data;
-  const [localState, setLocalState] = useState<{
-    readonly key: string;
-    readonly value: BuilderAuthoringState;
-  }>();
-  const [restorableDraft, setRestorableDraft] = useState<{
-    readonly ownerKey: string;
-    readonly revisionId?: string;
-  }>();
-  const previousDraftRevisionId = restorableDraft?.ownerKey === ownerKey
-    ? restorableDraft.revisionId
-    : builder.data?.previousDraftRevisionId;
-  const state =
-    localState?.key === builderDataKey
-      ? localState.value
-      : builder.data
-        ? stateFromBuilder(builder.data, {
-            project: projectId,
-            explorerId: effectiveExplorerId,
-            selectedOutputId: localState?.key.startsWith(`${ownerKey}:`) ? localState.value.selectedOutputId : rememberedOutputId,
-          })
-        : emptyBuilderState(projectId);
-  const dispatch = useCallback(
-    (action: Parameters<typeof builderAuthoringReducer>[1]) => {
-      setLocalState((current) => {
-        const base =
-          current?.key === builderDataKey
-            ? current.value
-            : builderDataRef.current
-              ? stateFromBuilder(builderDataRef.current, {
-                  project: projectId,
-                  explorerId: effectiveExplorerId,
-                  selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : rememberedOutputId,
-                })
-              : emptyBuilderState(projectId);
-        return {
-          key: builderDataKey,
-          value: builderAuthoringReducer(base, action),
-        };
-      });
-    },
-    [authResourcePath, builderDataKey, effectiveExplorerId, ownerKey, projectId, rememberedOutputId],
-  );
-  const rememberSelectedTable = useCallback((outputId: string) => {
-    try {
-      window.sessionStorage.setItem(selectedTableStorageKey, outputId);
-    } catch {
-      // Browser storage can be unavailable; table editing remains usable.
-    }
-  }, [selectedTableStorageKey]);
   const [message, setMessage] = useState<string>();
-  const [suggestionsFailure, setSuggestionsFailure] = useState<{
-    readonly key: string;
-    readonly message: string;
-  }>();
-  const [rootChangeState, setRootChangeState] =
-    useState<RootChangePickerState>({ kind: 'idle' });
-  const rootChangeStateRef = useRef(rootChangeState);
-  rootChangeStateRef.current = rootChangeState;
-  const [pendingRowChangePreview, setPendingRowChangePreview] =
-    useState<PendingRowChangePreview>();
-  const rowChangeAssessmentRequest = useRef<{ readonly abort: () => void } | undefined>(undefined);
-  const rowChangeRequestEpoch = useRef(0);
-  const rowChangePreviewRequest = useRef<AbortController | undefined>(undefined);
-  const [lastPublished, setLastPublished] = useState<{
-    readonly ownerKey: string;
-    readonly draftDigest: string;
-  }>();
-  const [pendingCommands, setPendingCommands] = useState(0);
-  const [occurrenceInspectorHost, setOccurrenceInspectorHost] = useState<HTMLElement | null>(null);
+  const { occurrenceInspectorHost, setOccurrenceInspectorHost, editingRecipeColumn, setEditingRecipeColumn,
+    sourceStepInspectorHost, setSourceStepInspectorHost, activeSourceStepId, setActiveSourceStepId,
+    columnPolicyRequest, sourceStepEditAction, sourceFieldEditAction, sourceOutputEditAction,
+    rowSettingsOpenAction, rowSettingsCloseAction, actionsFor: traversalActionsFor } = useTraversalProjectedFields();
   const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
   const cancelingConstructionProposalRef = useRef(false);
@@ -592,77 +344,19 @@ const BuilderWorkspaceContent = ({
     readonly client: typeof loomClient;
     readonly selectionID: string;
   }>();
-  const [populationVariantError, setPopulationVariantError] = useState<{
-    readonly contextKey: string;
-    readonly message: string;
-  }>();
-  const [populationVariantPending, setPopulationVariantPending] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [firstTableName, setFirstTableName] = useState('');
-  const [tableCreatorOpen, setTableCreatorOpen] = useState(false);
-  const [firstTableProgress, setFirstTableProgress] =
-    useState<FirstTableProgress>({ kind: 'idle' });
-  const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
-  const addColumnsRequest = useRef<AbortController | undefined>(undefined);
-  const appliedChoicePreview = useRef<AppliedPreviewHandoff | undefined>(undefined);
-  const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
-  const [editingRecipeColumn, setEditingRecipeColumn] = useState<{ owner: string; columnId: string }>();
-  const [sourceStepInspectorHost, setSourceStepInspectorHost] = useState<HTMLDivElement | null>(null);
-  const [activeSourceStepId, setActiveSourceStepId] = useState<string>();
-  const columnPolicyRequest = useRef<AbortController | undefined>(undefined);
-  const sourceRelationshipRequest = useRef<AbortController | undefined>(undefined);
-  const networkRequestOwner = useRef('');
-  const recipeFocusGeneration = useRef(0);
-  const pendingRecipeFocus = useRef<{ testId: string; outputId: string; fallback?: HTMLElement } | undefined>(undefined);
-  const recipeInitiator = useRef<HTMLElement | undefined>(undefined);
-  const recipeInitiatorFact = useRef<{ testId?: string; columnId?: string; occurrenceId?: string } | undefined>(undefined);
-  const sourceStepEditAction = useRef<((stepId: string) => void) | undefined>(undefined);
-  const sourceFieldEditAction = useRef<((stepId: string, fieldId: string) => void) | undefined>(undefined);
-  const sourceOutputEditAction = useRef<((stepId: string, outputKey: string) => void) | undefined>(undefined);
-  const rowSettingsOpenAction = useRef<(() => void) | undefined>(undefined);
-  const rowSettingsCloseAction = useRef<(() => void) | undefined>(undefined);
-  const recipeEditToken = useRef<RecipeEditToken | undefined>(undefined);
-  const [candidateInspection, setCandidateInspection] = useState<{ key: string; occurrenceId: string }>();
-  const [sourceProposal, setSourceProposal] = useState<{ owner: string; proposal: SourceProposalOwnerCandidate; preview: ExplorerBuilderPreviewResult }>();
-  const lastAcceptedOutputPreview = useRef<{ readonly owner: string; readonly outputId: string; readonly snapshotToken: string; readonly draftVersion: number; readonly draftDigest: string; readonly receiptId: string } | undefined>(undefined);
-  const [connectingRelationship, setConnectingRelationship] = useState(false);
-  const [savedNetwork, setSavedNetwork] = useState<{ owner: string; result: AuthoringNetworkResponse }>();
-  const [recipeNotice, setRecipeNotice] = useState<string>();
-  const [relationshipEdit, setRelationshipEdit] = useState<{ owner: string; change: SourceRelationshipChange }>();
-  const [activeConstructionSelection, setActiveConstructionSelection] = useState<{
-    readonly ownerKey: string;
-    readonly explorerId: string;
-    readonly outputId: string;
-    readonly family: ConstructionOperationFamily;
-  }>();
-  const [combineCatalogLoad, setCombineCatalogLoad] = useState<ConstructionCombineCatalogLoad>({
-    identity: '',
-    catalog: { kind: 'loading' },
-    loadingMore: false,
+  const { firstTableName, setFirstTableName, tableCreatorOpen, setTableCreatorOpen,
+    firstTableProgress, firstTableActionPending, actionsFor: firstTableActionsFor } = useFirstTable({
+    latestState, getSuggestions, projectId, authResourcePath, setMessage,
   });
-  const combineCatalogController = useRef<AbortController | undefined>(undefined);
-  const combineCatalogRequestGeneration = useRef(0);
+  const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
+  const { sourceRelationshipRequest, recipeEditToken, sourceProposal, setSourceProposal,
+    lastAcceptedOutputPreview, connectingRelationship, setConnectingRelationship, savedNetwork,
+    recipeNotice, setRecipeNotice, setRelationshipEdit, actionsFor: sourceRecipeActionsFor } = useSourceRecipe();
+  const { activeConstructionFamily, setActiveConstructionFamily, setActiveConstructionSelection,
+    reshapeFormKind, setReshapeFormKind, actionsFor: constructionNavigationActionsFor } = useConstructionNavigation({
+    ownerKey, state, latestState,
+  });
   const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
-  const [reshapeEntry, setReshapeEntry] = useState(0);
-  const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
-  const [reshapeFormKind, setReshapeFormKind] = useState<ReshapeForm['kind']>('choose');
-  const [rowIntentSession, setRowIntentSession] = useState(false);
-  const [reshapeInitialEntry, setReshapeInitialEntry] = useState<{
-    readonly editorKey: string;
-    readonly entry: ConstructionReshapeEditorEntry;
-  }>();
-  const [addColumnsView, setAddColumnsView] = useState<Exclude<ConceptCatalogView, 'all'>>('fields');
-  const [addColumnsViewRevision, setAddColumnsViewRevision] = useState(0);
-  const [addColumnsSource, setAddColumnsSource] = useState<{
-    readonly context: string;
-    readonly key: string;
-  }>();
-  const [constructionHistorySelection, setConstructionHistorySelection] =
-    useState<ConstructionHistorySelection>({ kind: 'source' });
-  const [editingConstructionStepId, setEditingConstructionStepId] =
-    useState<string>();
-  const [columnSelection, setColumnSelection] =
-    useState<ColumnSelectionState>({ kind: 'empty' });
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewFocusTarget, setReviewFocusTarget] =
     useState<Exclude<DatasetReviewTarget, { readonly kind: 'new-table' }>>();
@@ -673,68 +367,21 @@ const BuilderWorkspaceContent = ({
   const [tableToolbarHost, setTableToolbarHost] = useState<HTMLElement | null>(
     null,
   );
-  const compileGeneration = useRef(0);
-  const previewGeneration = useRef(0);
-  const activeCompile = useRef<{ abort: () => void } | undefined>(undefined);
-  const activePreview = useRef<{ abort: () => void } | undefined>(undefined);
-  const automaticPreviewGeneration = useRef(0);
-  const activeAutomaticPreview = useRef<{ readonly generation: number; readonly execution: AutomaticPreviewExecution; readonly cancel: () => void } | undefined>(undefined);
-  const automaticPreviewRequest = useRef<AutomaticPreviewIdentity | undefined>(undefined);
-  const cancelAutomaticPreview = useCallback(() => {
-    activeAutomaticPreview.current?.cancel();
-  }, []);
-  const commandRecipeAdmission = useRef<(commands: ReadonlyArray<ExplorerBuilderCommand>) => boolean>(() => true);
-  const commandQueue = useRef<Promise<void>>(Promise.resolve());
-  const relatedExpandQueryOwnerRef = useRef<RelatedExpandQueryOwner | null>(null);
-  const firstTableActionPending = useRef(false);
-  const serverDraft = useRef({ version: 0, digest: '' });
-  const suggestionRequestKey = useRef('');
-  const latestState = useRef(state);
-  latestState.current = state;
-  const combineCatalogOwnerRef = useRef({ ownerKey, explorerId: state.explorerId });
-  combineCatalogOwnerRef.current = { ownerKey, explorerId: state.explorerId };
-  const activeConstructionFamily = activeConstructionSelection?.ownerKey === ownerKey &&
-    activeConstructionSelection.explorerId === state.explorerId &&
-    activeConstructionSelection.outputId === state.selectedOutputId
-    ? activeConstructionSelection.family
-    : undefined;
-  const setActiveConstructionFamily = (
-    next: ConstructionOperationFamily | undefined |
-      ((current: ConstructionOperationFamily | undefined) => ConstructionOperationFamily | undefined),
-  ) => {
-    const currentState = latestState.current;
-    const outputId = currentState.selectedOutputId;
-    if (!outputId) {
-      setActiveConstructionSelection(undefined);
-      return;
-    }
-    setActiveConstructionSelection((current) => {
-      const currentFamily = current?.ownerKey === ownerKey &&
-        current.explorerId === currentState.explorerId &&
-        current.outputId === outputId
-        ? current.family
-        : undefined;
-      const family = typeof next === 'function' ? next(currentFamily) : next;
-      return family
-        ? { ownerKey, explorerId: currentState.explorerId, outputId, family }
-        : undefined;
-    });
-  };
+  const combineCatalog = useCombineCatalog({
+    ownerKey,
+    explorerId: state.explorerId,
+    projectId,
+    authResourcePath,
+    state,
+    latestState,
+    loomClient,
+  });
   const selectTableFromUser = useCallback((outputId: string) => {
     setActiveConstructionSelection(undefined);
     rememberSelectedTable(outputId);
     dispatch({ type: 'selectTable', outputId });
   }, [dispatch, rememberSelectedTable]);
   const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
-
-  const serverDraftKey = useRef('');
-  if (shouldSyncServerDraft(builder.data, serverDraftKey.current, builderDataKey)) {
-    serverDraft.current = {
-      version: builder.data.draftVersion,
-      digest: builder.data.draftDigest,
-    };
-    serverDraftKey.current = builderDataKey;
-  }
 
   const deferInterpretationContext = firstTableProgress.kind === 'running';
   const interpretationContextKey = !deferInterpretationContext &&
@@ -784,9 +431,7 @@ const BuilderWorkspaceContent = ({
 
   const selectExplorer = (nextExplorerId: string) => {
     setActiveConstructionSelection(undefined);
-    combineCatalogRequestGeneration.current += 1;
-    combineCatalogController.current?.abort();
-    combineCatalogController.current = undefined;
+    combineCatalog.invalidate();
     cancelAutomaticPreview();
     compileGeneration.current += 1;
     previewGeneration.current += 1;
@@ -799,217 +444,179 @@ const BuilderWorkspaceContent = ({
     }
   };
 
-  const syncBuilderData = useCallback(
-    (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => {
-      const nextKey = builderDataKeyFor(
-        builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
-        value,
-      );
-      setRestorableDraft({
-        ownerKey: builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
-        revisionId: value.previousDraftRevisionId,
-      });
-      serverDraft.current = {
-        version: value.draftVersion,
-        digest: value.draftDigest,
-      };
-      serverDraftKey.current = nextKey;
-      setLocalState((current) => {
-        const nextValue =
-          mode === 'hydrate'
-            ? stateFromBuilder(value, {
-                project: projectId,
-                explorerId: effectiveExplorerId,
-                selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : rememberedOutputId,
-              })
-            : builderAuthoringReducer(
-                current?.key === builderDataKey
-                  ? current.value
-                  : latestState.current,
-                { type: 'catalogRefreshed', catalog: value.catalog },
-              );
-        return { key: nextKey, value: nextValue };
-      });
-    },
-    [builderDataKey, effectiveExplorerId, ownerKey, projectId, rememberedOutputId],
-  );
-
   const incomplete = state.tables.some(
     (table) => !table.document.rootResourceType,
   );
 
-  const applyCommandsWithResult = useCallback(
-    (
-      commands: ReadonlyArray<ExplorerBuilderCommand>,
-      proposedCommandId?: string,
-      constructionApplyIdentity?: ConstructionApplyPreviewIdentity,
-      admitCommand?: () => boolean,
-    ) => {
-      if (!commandRecipeAdmission.current(commands)) return Promise.resolve(undefined);
-      const admission = admitAuthoringRequest(latestState.current.tables, { kind: 'commands', commands });
-      if (admission.kind === 'refused') {
-        setMessage(admission.refusal.message);
-        return Promise.resolve(undefined);
-      }
-      cancelAutomaticPreview();
-      const applyPreviewEpoch = constructionApplyIdentity
-        ? automaticPreviewGeneration.current
-        : undefined;
-      compileGeneration.current += 1;
-      previewGeneration.current += 1;
-      activeCompile.current?.abort();
-      activePreview.current?.abort();
-      setPendingCommands((value) => value + 1);
-      const run = commandQueue.current.then(async () => {
-        const queryOwner = relatedExpandQueryOwnerRef.current;
-        let commandSucceeded = false;
-        try {
-          await queryOwner?.pauseAndDrain();
-          if (!commandRecipeAdmission.current(commands) || (admitCommand && !admitCommand())) return undefined;
-          const current = latestState.current;
-          const queuedAdmission = admitAuthoringRequest(current.tables, { kind: 'commands', commands });
-          if (queuedAdmission.kind === 'refused') {
-            setMessage(queuedAdmission.refusal.message);
-            return undefined;
-          }
-          const commandId = proposedCommandId ?? window.crypto.randomUUID();
-          const draftIdentity = commandDraftIdentity(current, serverDraft.current);
-          const value = await applyBuilderCommands({
-            project: projectId,
-            explorerId: current.explorerId,
-            authResourcePath,
-            commandId,
-            snapshotToken: current.catalog.snapshotToken,
-            ...draftIdentity,
-            commands,
-            requestId: `builder-command-${commandId}`,
-          }).unwrap();
-          commandSucceeded = true;
-          serverDraft.current = {
-            version: value.draftVersion,
-            digest: value.draftDigest,
-          };
-          setRestorableDraft({
-            ownerKey: builderOwnerKeyFor(projectId, authResourcePath, current.explorerId),
-            revisionId: value.previousDraftRevisionId,
-          });
-          serverDraftKey.current = builderDataKey;
-          const acceptedConstruction = constructionApplyIdentity &&
-            applyPreviewEpoch === automaticPreviewGeneration.current &&
-            commands.length === 1
-            ? acceptedConstructionForApply(
-                value,
-                constructionApplyIdentity,
-                commands[0],
-                latestState.current,
-                automaticPreviewRequest.current,
-              )
-            : undefined;
-          if (acceptedConstruction && constructionApplyIdentity) {
-            appliedChoicePreview.current = {
-              ownerKey: constructionApplyIdentity.ownerKey,
-              draftVersion: value.draftVersion,
-              previewRequestVersion: constructionApplyIdentity.previewRequestVersion,
-              outputId: constructionApplyIdentity.outputId,
-              limit: constructionApplyIdentity.limit,
-              snapshotToken: constructionApplyIdentity.snapshotToken,
-              candidateWorkspaceDigest: value.draftDigest,
-              receipt: acceptedConstruction.receipt,
-              preview: acceptedConstruction.preview,
-            };
-          }
-          const next = builderAuthoringReducer(latestState.current, {
-            type: 'commandsApplied',
-            value,
-            ...(acceptedConstruction ? { acceptedReceipt: acceptedConstruction.receipt } : {}),
-          });
-          const selectsTableThroughCommand = commands.some((command) =>
-            command.type === 'CREATE_TABLE' ||
-            command.type === 'DUPLICATE_TABLE' ||
-            (command.type === 'DELETE_TABLE' && command.outputId === current.selectedOutputId),
-          );
-          const selectedOutputId = next.selectedOutputId;
-          if (hasCommandSelectedTable(selectsTableThroughCommand, selectedOutputId)) {
-            rememberSelectedTable(selectedOutputId);
-            setActiveConstructionSelection(undefined);
-          }
-          latestState.current = next;
-          setLocalState({ key: builderDataKey, value: next });
-          setMessage(undefined);
-          return value;
-        } catch (error) {
-          const apiError = error as ExplorerAuthoringApiError;
-          if (
-            isDraftDesynchronized(apiError.code) ||
-            isStaleSnapshot(apiError.code)
-          ) {
-            const refreshed = await refetchBuilder({ reload: true });
-            if (refreshed.data) {
-              syncBuilderData(refreshed.data, 'hydrate');
-              setMessage(undefined);
-            } else if (apiError.code !== 'CLIENT_CANCELLED') {
-              dispatch({
-                type: 'repair',
-                diagnostics: diagnosticsFromError(apiError),
-              });
-            }
-            return undefined;
-          }
-          if (apiError.code !== 'CLIENT_CANCELLED') {
-            const diagnostics = diagnosticsFromError(apiError);
-            if (diagnostics.length > 0) dispatch({ type: 'repair', diagnostics });
-          }
-          return undefined;
-        } finally {
-          if (!commandSucceeded &&
-              relatedExpandQueryOwnerRef.current === queryOwner &&
-              queryOwner &&
-              serverDraft.current.version === queryOwner.draftVersion &&
-              serverDraft.current.digest === queryOwner.draftDigest) {
-            queryOwner.resume();
-          }
-          setPendingCommands((value) => Math.max(0, value - 1));
-        }
-      });
-      commandQueue.current = run.then(() => undefined, () => undefined);
-      return run;
-    },
-    [
-      applyBuilderCommands,
-      authResourcePath,
-      builderDataKey,
-      cancelAutomaticPreview,
-      dispatch,
-      projectId,
-      refetchBuilder,
-      rememberSelectedTable,
-      syncBuilderData,
-    ],
-  );
-  const applyCommands = useCallback(
-    (
-      commands: ReadonlyArray<ExplorerBuilderCommand>,
-      proposedCommandId?: string,
-      admitCommand?: () => boolean,
-    ) => applyCommandsWithResult(commands, proposedCommandId, undefined, admitCommand).then(Boolean),
-    [applyCommandsWithResult],
-  );
+  const { compileGeneration, previewGeneration, activeCompile, activePreview, reconcileStatus, previewStatus, reconcileCurrent, executePreview } = useReconcile({
+    projectId,
+    authResourcePath,
+    latestState,
+    workspaceAttached,
+    dispatch,
+    refetchBuilder,
+    syncBuilderData,
+    setMessage,
+    diagnosticsFromError,
+  });
+
+  const { previewLimit, setPreviewLimit, appliedChoicePreview, automaticPreviewGeneration, automaticPreviewRequest, cancelAutomaticPreview, queryOptionsFor } = useAutomaticPreviewOwner({
+    ownerKey,
+    projectId,
+    state,
+    latestState,
+    compileGeneration,
+    previewGeneration,
+    dispatch,
+    setMessage,
+  });
+  const { pendingCommands, commandRecipeAdmission, relatedExpandQueryOwnerRef, applyCommandsWithResult, applyCommands } = useCommandQueue({
+    builderOwnerKeyFor,
+    diagnosticsFromError,
+    applyBuilderCommands,
+    authResourcePath,
+    builderDataKey,
+    cancelAutomaticPreview,
+    dispatch,
+    projectId,
+    refetchBuilder,
+    rememberSelectedTable,
+    syncBuilderData,
+    latestState,
+    serverDraft,
+    serverDraftKey,
+    automaticPreviewGeneration,
+    compileGeneration,
+    previewGeneration,
+    activeCompile,
+    activePreview,
+    automaticPreviewRequest,
+    appliedChoicePreview,
+    setRestorableDraft,
+    setActiveConstructionSelection,
+    setLocalState,
+    setMessage,
+  });
 
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
 
-  const rootRecipeAssessment = useRef<Extract<RowChangeAssessment, {status: 'READY'}> | undefined>(undefined);
-  const rootRecipeActions = useRef<{
-    begin: (nodeId: string, mode: 'PRESERVE' | 'REPLACE') => { ready: (assessment: Extract<RowChangeAssessment, {status:'READY'}>, preview: ExplorerBuilderPreviewResult) => boolean; failed: (message: string, stale?: boolean) => void; noChange: () => void } | undefined;
-    cancel: () => boolean;
-    apply: (assessment: Extract<RowChangeAssessment, {status:'READY'}>) => Promise<boolean>;
-  } | undefined>(undefined);
-  const [rootReplacementInspectorHost, setRootReplacementInspectorHost] = useState<HTMLElement | null>(null);
-  const [sourceRowsOpen, setSourceRowsOpen] = useState(false);
   const [sourceRowsInspectorHost, setSourceRowsInspectorHost] = useState<HTMLElement | null>(null);
   const table = selectedTable(state);
+  const selectionOwnerIdentity = `${ownerKey}\u0000${state.explorerId}\u0000${table?.outputId ?? ''}`;
+  const selectionOwnerStore = useMemo(createSelectionOwnerStateStore, [selectionOwnerIdentity]);
+  const selectionOwnerState = React.useSyncExternalStore(
+    selectionOwnerStore.subscribe,
+    selectionOwnerStore.getSnapshot,
+    selectionOwnerStore.getSnapshot,
+  );
+  const updateSelectionOwnerField = useCallback(
+    (update: (current: SelectionOwnerState) => SelectionOwnerState) => selectionOwnerStore.update(update),
+    [selectionOwnerStore],
+  );
+  const setRowIntentSession = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      rowIntentSession: typeof update === 'function' ? update(current.rowIntentSession) : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const setSourceRowsOpen = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      sourceRowsOpen: typeof update === 'function' ? update(current.sourceRowsOpen) : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const setConstructionHistorySelection = useCallback<
+    React.Dispatch<React.SetStateAction<ConstructionHistorySelection>>
+  >(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      constructionHistorySelection: typeof update === 'function'
+        ? update(current.constructionHistorySelection)
+        : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const setEditingConstructionStepId = useCallback<
+    React.Dispatch<React.SetStateAction<string | undefined>>
+  >(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      editingConstructionStepId: typeof update === 'function'
+        ? update(current.editingConstructionStepId)
+        : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const setColumnSelection = useCallback<React.Dispatch<React.SetStateAction<ColumnSelectionState>>>(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      columnSelection: typeof update === 'function' ? update(current.columnSelection) : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const {
+    rowIntentSession,
+    sourceRowsOpen,
+    constructionHistorySelection,
+    editingConstructionStepId,
+    columnSelection,
+  } = selectionOwnerState;
   const recipeOwner = useRecipeEditingOwner({ project: projectId, explorerId: state.explorerId,
     outputId: table?.outputId ?? '', snapshotToken: state.catalog.snapshotToken,
     draftVersion: state.draftVersion, draftDigest: state.draftDigest });
+  const {
+    recipeFocusGeneration,
+    pendingRecipeFocus,
+    recipeInitiator,
+    recipeInitiatorFact,
+    rememberRecipeFocus,
+    rememberOperationFocus,
+    restoreRecipeFocus,
+    completePendingRecipeFocus,
+  } = useRecipeFocus({
+    recipeOwner,
+    workspaceAttached,
+    latestState,
+  });
+  const {
+    rootChangeState,
+    setRootChangeState,
+    rootChangeStateRef,
+    pendingRowChangePreview,
+    setPendingRowChangePreview,
+    rootRecipeAssessment,
+    rootRecipeActions,
+    rootReplacementInspectorHost,
+    setRootReplacementInspectorHost,
+    rootChangeIdentityForTable,
+    currentRootChangeIdentity,
+    getCurrentRootChangeIdentity,
+    cancelRootChange,
+    changeTableRoot,
+    selectRootChoice,
+    resolveRootChange,
+    refreshRootChange,
+    applyRowChangePreview,
+  } = useRootChange({
+    projectId,
+    authResourcePath,
+    state,
+    table,
+    latestState,
+    serverDraft,
+    workspaceAttached,
+    assessRowChange,
+    loomClient,
+    previewLimit,
+    refetchBuilder,
+    syncBuilderData,
+    applyCommands,
+    rowSettingsOpenAction,
+    rowSettingsCloseAction,
+    setMessage,
+  });
   commandRecipeAdmission.current = (commands) => {
     if (recipeOwner.state.status === 'saved') return true;
     const candidate = recipeOwner.state.candidate;
@@ -1023,47 +630,6 @@ const BuilderWorkspaceContent = ({
         'APPLY_ROW_DEFINITION_PROPOSAL', 'APPLY_CONSTRUCTION_PROPOSAL'].includes(commands[0].type)) return true;
     setRecipeNotice('Apply or Cancel the active recipe change before starting another edit.');
     return false;
-  };
-  const rememberRecipeFocus = (element: Element | null = document.activeElement) => {
-    if (!(element instanceof HTMLElement)) return;
-    recipeFocusGeneration.current += 1;
-    pendingRecipeFocus.current = undefined;
-    recipeInitiator.current = element;
-    recipeInitiatorFact.current = {
-      testId: element.dataset.testid,
-      columnId: element.closest<HTMLElement>('[data-column-id]')?.dataset.columnId,
-      occurrenceId: element.closest<HTMLElement>('[data-occurrence-id]')?.dataset.occurrenceId,
-    };
-  };
-  const rememberOperationFocus = () => {
-    const fromSourceSettings = document.activeElement instanceof Element && document.activeElement.closest('[aria-label="Source row settings inspector"]');
-    if (!fromSourceSettings || !recipeInitiator.current?.isConnected) rememberRecipeFocus();
-  };
-  const restoreRecipeFocus = () => {
-    const expectedOutputId = recipeOwner.state.identity.outputId;
-    const initiator = recipeInitiator.current;
-    const fact = recipeInitiatorFact.current;
-    if (!initiator && !fact) return;
-    const generation = ++recipeFocusGeneration.current;
-    const activeAtCompletion = document.activeElement;
-    recipeInitiator.current = undefined;
-    recipeInitiatorFact.current = undefined;
-    window.requestAnimationFrame(() => {
-      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || latestState.current.selectedOutputId !== expectedOutputId) return;
-      if (document.activeElement !== activeAtCompletion && document.activeElement !== document.body && document.activeElement !== initiator) return;
-      let target = initiator?.isConnected ? initiator : undefined;
-      if (!target && fact?.testId) target = [...document.querySelectorAll<HTMLElement>('[data-testid]')].find((node) => node.dataset.testid === fact.testId);
-      if (!target && fact?.columnId) target = [...document.querySelectorAll<HTMLElement>('[data-column-id]')].find((node) => node.dataset.columnId === fact.columnId)?.querySelector<HTMLElement>('button') ?? undefined;
-      if (!target && fact?.occurrenceId) target = [...document.querySelectorAll<HTMLElement>('button[data-occurrence-id]')].find((node) => node.dataset.occurrenceId === fact.occurrenceId);
-      if (fact?.testId?.startsWith('shared-source-policy-') && target?.dataset.testid !== fact.testId) {
-        pendingRecipeFocus.current = { testId: fact.testId, outputId: expectedOutputId, fallback: target };
-      }
-      if (target) {
-        let ancestor: HTMLElement | null = target.parentElement;
-        while (ancestor) { if (ancestor instanceof HTMLDetailsElement) ancestor.open = true; ancestor = ancestor.parentElement; }
-        target.focus();
-      }
-    });
   };
   rootRecipeActions.current = {
     begin: (nodeId, mode) => {
@@ -1140,19 +706,6 @@ const BuilderWorkspaceContent = ({
     return false;
   };
 
-  const rootChangeIdentityForTable = (outputId: string): RootChangeRequestIdentity => ({
-    epoch: rowChangeRequestEpoch.current,
-    project: projectId,
-    ...(authResourcePath ? { authResourcePath } : {}),
-    explorerId: state.explorerId,
-    outputId,
-    snapshotToken: state.catalog.snapshotToken,
-    draftVersion: serverDraft.current.version,
-    draftDigest: serverDraft.current.digest,
-  });
-  const currentRootChangeIdentity = table
-    ? rootChangeIdentityForTable(table.outputId)
-    : undefined;
   const candidateForPreviewColumn = (column: ExplorerBuilderColumn): ExplorerBuilderCandidate | undefined => {
     const context = interpretationContext;
     if (
@@ -1173,63 +726,6 @@ const BuilderWorkspaceContent = ({
     const [candidateId] = candidateIds;
     return state.catalog.candidates?.find((candidate) => candidate.candidateId === candidateId);
   };
-  const rootIdentityKey = currentRootChangeIdentity
-    ? JSON.stringify([
-        currentRootChangeIdentity.project,
-        currentRootChangeIdentity.authResourcePath ?? '',
-        currentRootChangeIdentity.explorerId,
-        currentRootChangeIdentity.outputId,
-        currentRootChangeIdentity.snapshotToken,
-        currentRootChangeIdentity.draftVersion,
-        currentRootChangeIdentity.draftDigest,
-      ])
-    : 'none';
-  const [handledRootIdentityKey, setHandledRootIdentityKey] = useState(rootIdentityKey);
-  if (handledRootIdentityKey !== rootIdentityKey) {
-    setHandledRootIdentityKey(rootIdentityKey);
-    const active = rootChangeStateRef.current;
-    const pendingPreview = pendingRowChangePreview;
-    const activeIsStale = active.kind !== 'idle' && (
-      currentRootChangeIdentity === undefined ||
-      !sameRootChangeRequestIdentity(active.identity, currentRootChangeIdentity)
-    );
-    const previewIsStale = pendingPreview !== undefined && (
-      currentRootChangeIdentity === undefined ||
-      !sameRootChangeRequestIdentity(pendingPreview.identity, currentRootChangeIdentity)
-    );
-    if (activeIsStale || previewIsStale) {
-      rowChangeAssessmentRequest.current?.abort();
-      rowChangeAssessmentRequest.current = undefined;
-      rowChangePreviewRequest.current?.abort();
-      rowChangePreviewRequest.current = undefined;
-      rowChangeRequestEpoch.current += 1;
-      setPendingRowChangePreview(undefined);
-
-      if (activeIsStale) {
-        const sameExplorerOutput = active.identity.project === projectId &&
-          active.identity.authResourcePath === authResourcePath &&
-          active.identity.explorerId === state.explorerId &&
-          active.identity.outputId === table?.outputId;
-        setRootChangeState(sameExplorerOutput
-          ? {
-              kind: 'failed',
-              reason: 'stale',
-              selection: active.selection,
-              resolution: active.resolution,
-              identity: active.identity,
-              message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
-            }
-          : { kind: 'idle' });
-      }
-      if (previewIsStale) {
-        setMessage('The table changed while Loom prepared the row preview. Review the change again.');
-      }
-    }
-  }
-  useBrowserSubscription((_onStoreChange) => () => {
-    addColumnsRequest.current?.abort();
-    addColumnsRequest.current = undefined;
-  }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
   const unsupportedColumns = unsupportedSavedSourceColumns(state.tables);
   const hasUnsupportedSavedSourceColumns = unsupportedColumns.length > 0;
   const construction = table?.document.construction;
@@ -1288,145 +784,27 @@ const BuilderWorkspaceContent = ({
       };
     } },
   });
-  const combineCatalogIdentityFor = (value: BuilderAuthoringState): string => {
-    const selected = selectedTable(value);
-    return JSON.stringify([
-      ownerKey,
-      value.explorerId,
-      selected?.outputId ?? '',
-      value.catalog.snapshotToken,
-      value.draftVersion,
-      value.draftDigest,
-    ]);
-  };
-  const combineCatalogIdentity = combineCatalogIdentityFor(state);
-  const cancelCombineCatalogRequest = () => {
-    combineCatalogRequestGeneration.current += 1;
-    combineCatalogController.current?.abort();
-    combineCatalogController.current = undefined;
-    setCombineCatalogLoad((current) => current.loadingMore ? { ...current, loadingMore: false } : current);
-  };
-  const loadCombineCatalogPage = async (cursor?: string) => {
-    const requestState = latestState.current;
-    const requestTable = selectedTable(requestState);
-    const identity = combineCatalogIdentityFor(requestState);
-    if (!requestTable || !requestState.catalog.snapshotToken || requestState.draftVersion <= 0 || !requestState.draftDigest) {
-      setCombineCatalogLoad({
-        identity,
-        catalog: { kind: 'failed', message: 'The current table draft is still loading.' },
-        loadingMore: false,
-      });
-      return;
-    }
-    const previous = combineCatalogLoad.identity === identity ? combineCatalogLoad : undefined;
-    if (!cursor && previous?.catalog.kind === 'ready') return;
-    if (cursor && (
-      previous?.catalog.kind !== 'ready' ||
-      previous.catalog.nextCursor !== cursor ||
-      previous.loadingMore
-    )) return;
-
-    combineCatalogController.current?.abort();
-    const requestGeneration = ++combineCatalogRequestGeneration.current;
-    const controller = new AbortController();
-    combineCatalogController.current = controller;
-    if (cursor && previous?.catalog.kind === 'ready') {
-      setCombineCatalogLoad({ ...previous, loadingMore: true, loadMoreError: undefined });
-    } else {
-      setCombineCatalogLoad({ identity, catalog: { kind: 'loading' }, loadingMore: false });
-    }
-
-    try {
-      const response = await loomClient.getConstructionInputs({
-        project: projectId,
-        explorerId: requestState.explorerId,
-        ...(authResourcePath ? { authResourcePath } : {}),
-        snapshotToken: requestState.catalog.snapshotToken,
-        expectedDraftVersion: requestState.draftVersion,
-        expectedDraftDigest: requestState.draftDigest,
-        ...(cursor ? { cursor } : {}),
-        limit: 100,
-      }, controller.signal);
-      const latest = latestState.current;
-      if (
-        controller.signal.aborted ||
-        requestGeneration !== combineCatalogRequestGeneration.current ||
-        combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
-        combineCatalogOwnerRef.current.explorerId !== requestState.explorerId ||
-        identity !== combineCatalogIdentityFor(latest)
-      ) return;
-      if (
-        response.snapshotToken !== requestState.catalog.snapshotToken ||
-        response.draftVersion !== requestState.draftVersion ||
-        response.draftDigest !== requestState.draftDigest ||
-        response.datasetGeneration !== requestState.catalog.generation ||
-        response.snapshotToken !== latest.catalog.snapshotToken ||
-        response.draftVersion !== latest.draftVersion ||
-        response.draftDigest !== latest.draftDigest ||
-        response.datasetGeneration !== latest.catalog.generation
-      ) {
-        setCombineCatalogLoad({
-          identity,
-          catalog: { kind: 'failed', message: 'The table changed while published versions were loading. Reopen Combine tables to refresh.' },
-          loadingMore: false,
-        });
-        return;
-      }
-      const revisions: ConstructionCombinePublishedRevision[] = response.entries.map((entry) => ({
-        kind: 'TABLE_REVISION',
-        tableId: entry.tableId,
-        revisionId: entry.revisionId,
-        outputId: entry.outputId,
-        tableTitle: entry.tableTitle,
-        outputTitle: entry.outputTitle,
-        rowMeaning: entry.rowMeaning,
-        isCurrent: entry.isCurrent,
-        columns: entry.columns,
-      }));
-      setCombineCatalogLoad((current) => {
-        if (
-          current.identity !== identity ||
-          requestGeneration !== combineCatalogRequestGeneration.current ||
-          combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
-          combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
-        ) return current;
-        const existing = cursor && current.catalog.kind === 'ready' ? current.catalog.revisions : [];
-        const byKey = new Map<string, ConstructionCombinePublishedRevision>();
-        for (const revision of [...existing, ...revisions]) {
-          byKey.set(JSON.stringify([revision.tableId, revision.revisionId, revision.outputId]), revision);
-        }
-        return {
-          identity,
-          catalog: { kind: 'ready', revisions: [...byKey.values()], ...(response.nextCursor ? { nextCursor: response.nextCursor } : {}) },
-          loadingMore: false,
-        };
-      });
-    } catch (error) {
-      if (
-        controller.signal.aborted ||
-        requestGeneration !== combineCatalogRequestGeneration.current ||
-        combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
-        combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
-      ) return;
-      const message = error instanceof Error && error.message.trim()
-        ? error.message
-        : 'Loom could not load published table versions.';
-      setCombineCatalogLoad((current) => {
-        if (
-          current.identity !== identity ||
-          combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
-          combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
-        ) return current;
-        if (cursor && current.catalog.kind === 'ready') {
-          return { ...current, loadingMore: false, loadMoreError: message };
-        }
-        return { identity, catalog: { kind: 'failed', message }, loadingMore: false };
-      });
-    }
-  };
-  const currentCombineCatalogLoad = combineCatalogLoad.identity === combineCatalogIdentity
-    ? combineCatalogLoad
-    : { identity: combineCatalogIdentity, catalog: { kind: 'loading' as const }, loadingMore: false };
+  const blockingDiagnostics = state.diagnostics.some(
+    (diagnostic) => diagnostic.severity === 'error',
+  );
+  const { publishing, publishDisabled, publish } = usePublish({
+    ownerKey,
+    projectId,
+    authResourcePath,
+    state,
+    latestState,
+    workspaceAttached,
+    compileGeneration,
+    dispatch,
+    reconcileCurrent,
+    refetchBuilder,
+    syncBuilderData,
+    setMessage,
+    incomplete,
+    blockingDiagnostics,
+    recipeOwner,
+    constructionLifecycle,
+  });
   const combineRootNodeId = table?.document.rootResourceType
     ? derivedOccurrences(table, state.catalog)[0]?.nodeId
     : undefined;
@@ -1438,16 +816,6 @@ const BuilderWorkspaceContent = ({
   );
   const constructionProposalBusy = constructionLifecycle.proposal.status === 'previewing' ||
     constructionLifecycle.proposal.status === 'applying';
-  const selectionOwnerIdentity = `${ownerKey}\u0000${state.explorerId}\u0000${table?.outputId ?? ''}`;
-  const [selectionOwner, setSelectionOwner] = useState(selectionOwnerIdentity);
-  if (selectionOwner !== selectionOwnerIdentity) {
-    setSelectionOwner(selectionOwnerIdentity);
-    setColumnSelection({ kind: 'empty' });
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    setRowIntentSession(false);
-    setSourceRowsOpen(false);
-  }
   const tablePreview =
     state.preview?.outputId === table?.outputId ? state.preview : undefined;
   const previewIsCurrent = Boolean(
@@ -1630,14 +998,11 @@ const BuilderWorkspaceContent = ({
   const activePopulationSelection = populationSelectionOverrideIsCurrent
     ? populationSelectionOverride.selection
     : populationSelection ?? populationSelectionQuery.data;
-  const populationExclusionContext = {
-    contextKey: populationSelectionContextKey,
-    client: loomClient,
-    baseSelectionID: activePopulationSelection?.id,
-    bindingKey: populationBindingKey(table),
-  };
-  const populationExclusionContextRef = useRef(populationExclusionContext);
-  populationExclusionContextRef.current = populationExclusionContext;
+  const { excludePopulationMember, populationVariantError, populationVariantPending } = usePopulationExclusion({
+    table, latestState, activePopulationSelection, populationSelectionContextKey, loomClient,
+    workspaceAttached, serverDraft, applyCommands, projectId, authResourcePath,
+    setPopulationSelectionOverride,
+  });
   const activePopulationSelectionLoading = populationSelectionLoading || (
     !populationSelection && populationSelectionQuery.isLoading
   );
@@ -1675,950 +1040,73 @@ const BuilderWorkspaceContent = ({
             : {}),
         }
       : undefined;
-  const addSourceOptions = useMemo(() => {
-    const sources = catalogSourceOptions(
-      state.catalog,
-      table?.document.rootResourceType ?? '',
-      selectedRouteContext?.nodeId,
-    );
-    const current = constructionLifecycle.capabilities;
-    const currentStage = current.status === 'ready' ? current.response.selectedStage : undefined;
-    const appendStageIsCurrent = current.status === 'ready' && currentStage?.id ===
-      constructionAppendStageFor(current.response.baseConstruction, table?.document.rows);
-    const activeRelatedRecord = current.status === 'ready' &&
-      !hasUnsupportedSavedSourceColumns && !editingConstructionStep && appendStageIsCurrent &&
-      currentStage?.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)
-      ? currentStage.activeRelatedRecord
-      : undefined;
-    const relatedSourceSupported = !hasUnsupportedSavedSourceColumns && !editingConstructionStep && appendStageIsCurrent &&
-      currentStage?.rowIdentityColumn &&
-      currentStage.capabilities.some((capability) => capability.kind === 'RELATED_SOURCE' && capability.supported);
-    const visibleSources = addColumnsView === 'fields' && !relatedSourceSupported
-      ? sources.filter((source) => source.kind === 'ROOT')
-      : sources;
-    const exactRelatedOption = addColumnsView === 'fields' && activeRelatedRecord
-      ? {
-          kind: 'EXACT_RELATED' as const,
-          key: `exact:${currentStage?.id}:${activeRelatedRecord.targetNodeId}`,
-          label: activeRelatedRecord.targetResourceType,
-          resourceType: activeRelatedRecord.targetResourceType,
-          sourceNodeId: undefined,
-        }
-      : undefined;
-    const resourceSources = exactRelatedOption
-      ? visibleSources.filter((source) =>
-          source.kind !== 'RELATED' || source.sourceNodeId !== activeRelatedRecord?.targetNodeId)
-      : visibleSources;
-    const searchableSources = [{ kind: 'ALL' as const, key: 'all', label: 'All accessible resources' }, ...resourceSources];
-    return exactRelatedOption ? [...searchableSources, exactRelatedOption] : searchableSources;
-  }, [state.catalog, table?.document.rootResourceType, table?.document.rows, selectedRouteContext?.nodeId, constructionLifecycle.capabilities, addColumnsView, hasUnsupportedSavedSourceColumns, editingConstructionStep]);
-  const addSourceContext = JSON.stringify([
-    state.explorerId,
-    state.catalog.snapshotToken,
-    table?.outputId ?? '',
-    selectedRouteContext?.occurrenceId ?? '',
-  ]);
-  const storedAddSourceKey = addColumnsSource?.context === addSourceContext ? addColumnsSource.key : undefined;
-  const selectedAddSource = addSourceOptions.find(
-    (source) => source.kind !== 'ALL' && source.key === storedAddSourceKey,
-  ) ?? addSourceOptions.find((option) => option.kind === 'ROOT') ?? addSourceOptions[0];
-  const selectAddColumnsView = (view: Exclude<ConceptCatalogView, 'all'>) => {
-    if (view === 'coded' && selectedAddSource?.kind === 'EXACT_RELATED') {
-      const rootSource = addSourceOptions.find((source) => source.kind === 'ROOT');
-      if (rootSource) setAddColumnsSource({ context: addSourceContext, key: rootSource.key });
-    }
-    if (addColumnsView !== view) setAddColumnsViewRevision((revision) => revision + 1);
-    setAddColumnsView(view);
-  };
-  const handleAddColumnsTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    event.preventDefault();
-    const nextView = event.currentTarget.dataset.view === 'coded' ? 'fields' : 'coded';
-    selectAddColumnsView(nextView);
-    event.currentTarget.parentElement
-      ?.querySelector<HTMLButtonElement>(`[data-view="${nextView}"]`)
-      ?.focus();
-  };
-  useBrowserSubscription((_onStoreChange) => () => {
-    addColumnsRequest.current?.abort();
-    addColumnsRequest.current = undefined;
-  }, [selectedAddSource?.key, activeConstructionFamily]);
-  const relatedSourceTypeCounts = addSourceOptions.reduce((counts, source) => {
-    if (source.kind === 'RELATED') {
-      counts.set(source.resourceType, (counts.get(source.resourceType) ?? 0) + 1);
-    }
-    return counts;
-  }, new Map<string, number>());
-  const addSourceRouteContext = selectedAddSource?.sourceNodeId !== undefined && selectedAddSource.sourceNodeId === selectedRouteContext?.nodeId
-    ? selectedRouteContext
+  const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response.stages
     : undefined;
-  const buildRelatedSourceCandidate = (
-    selection: CatalogChoiceIntent,
-    previous?: { readonly construction: Construction; readonly step: ConstructionStep },
-  ) => {
-    if (!table) throw new Error('Choose a table before adding features.');
-    const relatedSource = selection.relatedSource;
-    if (!relatedSource) throw new Error('Choose a related field first.');
-    const capabilities = constructionLifecycle.capabilities;
-    if (capabilities.status !== 'ready') {
-      throw new Error('Loom is still checking whether this stage can add a related field.');
-    }
-    const { selectedStage, baseConstruction } = capabilities.response;
-    if (
-      editingConstructionStep ||
-      selectedStage.id !== constructionAppendStageFor(baseConstruction, table?.document.rows)
-    ) {
-      throw new Error(
-        'Close the saved-step editor before adding a related field; proposals must follow the current final step.',
-      );
-    }
-    const support = selectedStage.capabilities.find(
-      (capability) => capability.kind === 'RELATED_SOURCE',
-    );
-    if (!support?.supported || !selectedStage.rowIdentityColumn) {
-      throw new Error(
-        support?.reason || 'Loom has not proved that this stage retains a source row anchor.',
-      );
-    }
-    const { choice, candidate } = relatedSource;
-    const source = choice.source;
-    const form = selection.constructionChoice.form;
-    const contributorPredicate = selection.contributorPredicate;
-    const supportedForm = choice.options.find((option) =>
-      option.form === form &&
-      option.support === 'SUPPORTED',
-    );
-    if (
-      source.kind !== 'FIELD' ||
-      source.candidateId !== candidate.candidateId ||
-      source.nodeId !== candidate.nodeId ||
-      source.path !== candidate.fieldPath ||
-      source.cardinality !== candidate.cardinality ||
-      (source.resourceType === table.document.rootResourceType && choice.route.length === 0) ||
-      !supportedForm ||
-      (form !== 'ALL' && form !== 'COUNT' && form !== 'PRESENCE') ||
-      (source.cardinality !== 'optional_one' && source.cardinality !== 'required_one')
-    ) {
-      throw new Error('Loom did not provide a supported scalar related field choice for this stage.');
-    }
-
-    const stepId = opaqueId('step');
-    const outputColumnId = `related-${window.crypto.randomUUID()}`;
-    const baseName = (form === 'COUNT'
-      ? `related_${source.resourceType}_count`
-      : form === 'PRESENCE'
-        ? `has_related_${source.resourceType}`
-        : `related_${source.resourceType}_${source.path}`)
-      .replace(/[^A-Za-z0-9_]/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^([0-9])/, '_$1');
-    const previousColumns = previous?.step.outputs ?? selectedStage.columns.map((column) => ({
-      id: column.id,
-      name: column.name,
-      label: column.label,
-      ...(column.type === undefined ? {} : { type: column.type }),
-    }));
-    const usedNames = new Set(previousColumns.map((column) => column.name.toLowerCase()));
-    let outputName = baseName;
-    for (let suffix = 2; usedNames.has(outputName.toLowerCase()); suffix += 1) {
-      outputName = `${baseName}_${suffix}`;
-    }
-    const previousStepId = previous?.step.id ?? (selectedStage.operation ? selectedStage.id : undefined);
-    const step = {
-      id: stepId,
-      inputs: [previousStepId
-        ? { kind: 'STEP_OUTPUT' as const, stepId: previousStepId }
-        : { kind: 'SOURCE_PROJECTION' as const }],
-      operation: {
-        kind: 'RELATED_SOURCE',
-        relatedSource: {
-          anchorColumnId: selectedStage.rowIdentityColumn,
-          choiceId: choice.choiceId,
-          sourceOccurrenceId: source.nodeId,
-          source: {
-            kind: 'FIELD',
-            candidateId: source.candidateId,
-            nodeId: source.nodeId,
-            resourceType: source.resourceType,
-            path: source.path,
-            cardinality: source.cardinality,
-            logicalType: candidate.logicalType,
-          },
-          route: choice.route,
-          contributorRule: {
-            policy: 'ALL_MATCHES',
-            ...(contributorPredicate
-              ? { predicate: contributorPredicate }
-              : {}),
-          },
-          form,
-          ...(form === 'ALL' && selection.constructionChoice.rowValuePolicy
-            ? { rowValuePolicy: selection.constructionChoice.rowValuePolicy }
-            : {}),
-          outputColumnId,
-        },
-      },
-      outputs: [
-        ...previousColumns,
-        {
-          id: outputColumnId,
-          name: outputName,
-          label: relatedSourceOutputLabel(
-            source.resourceType, candidate.fieldPath, candidate.label, form, contributorPredicate,
-          ),
-          type: form === 'COUNT' ? 'integer' : form === 'PRESENCE' ? 'boolean' : candidate.logicalType,
-        },
-      ],
-    } satisfies ConstructionStep;
-    const currentConstruction = previous?.construction ?? baseConstruction;
-    return {
-      intent: {
-        candidateConstruction: {
-          ...currentConstruction,
-          steps: [...currentConstruction.steps, step],
-        },
-        changedStepId: step.id,
-      },
-      step,
-      outputColumnName: outputName,
-    };
-  };
-  const inspectRelatedRouteCoverage = async (selection: CatalogChoiceIntent, signal: AbortSignal) => {
-    const relatedCandidate = selection.relatedSource ? buildRelatedSourceCandidate(selection) : undefined;
-    if (selection.constructionChoice.form === 'ALL' && !relatedCandidate) {
-      const current = latestState.current;
-      if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
-        throw new Error('The current table is still loading.');
-      }
-      const admission = admitAuthoringRequest(current.tables, { kind: 'add-columns-proposal', outputId: table.outputId });
-      if (admission.kind === 'refused') throw new Error(admission.refusal.message);
-      const response = await loomClient.proposeConstructionChoices({
-        project: projectId,
-        explorerId: current.explorerId,
-        ...(authResourcePath ? { authResourcePath } : {}),
-        commandId: window.crypto.randomUUID(),
-        snapshotToken: current.catalog.snapshotToken,
-        expectedDraftVersion: current.draftVersion,
-        expectedDraftDigest: current.draftDigest,
-        outputId: table.outputId,
-        constructionChoices: [{ ...selection.constructionChoice,
-          ...(sourceStageDescriptors?.at(-1)?.capabilities.some((capability) => capability.kind === 'ROW_VALUES' && capability.supported) ? { rowValuePolicy: 'ALL' as const } : {}), ...(selection.title ? { title: selection.title } : {}) }],
-        limit: 25,
-      }, signal);
-      const latest = latestState.current;
-      if (
-        signal.aborted ||
-        response.snapshotToken !== current.catalog.snapshotToken ||
-        response.draftVersion !== current.draftVersion ||
-        response.draftDigest !== current.draftDigest ||
-        response.outputId !== table.outputId ||
-        latest.draftVersion !== current.draftVersion ||
-        latest.draftDigest !== current.draftDigest ||
-        selectedTable(latest)?.outputId !== table.outputId
-      ) throw new Error('The table changed while Loom checked paired values.');
-      const columnId = response.candidateColumnIds[0];
-      const rows = response.preview.rows;
-      if (!hasPairedPreviewRows(response.previewStatus, columnId, rows)) {
-        throw new Error('Loom could not measure paired values in this preview.');
-      }
-      let empty = 0;
-      let one = 0;
-      let many = 0;
-      for (const row of rows) {
-        const values = row[columnId];
-        if (values === null || values === undefined) empty += 1;
-        else if (Array.isArray(values)) {
-          const present = values.filter((value) => value !== null && value !== undefined).length;
-          if (present === 0) empty += 1;
-          else if (present === 1) one += 1;
-          else many += 1;
-        } else throw new Error('Loom did not return a paired value list for this route.');
-      }
-      return {
-        kind: 'VALUES' as const, empty, one, many, displayedRows: rows.length,
-        sampled: response.preview.sampled !== false || response.preview.partialValidation === true,
-      };
-    }
-    if (!relatedCandidate || (selection.constructionChoice.form !== 'COUNT' && selection.constructionChoice.form !== 'ALL')) {
-      throw new Error('Route coverage is unavailable for this result form.');
-    }
-    const candidate = relatedCandidate;
-    const current = latestState.current;
-    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
-      throw new Error('The current table is still loading.');
-    }
-    const response = await loomClient.proposeConstruction({
-      project: projectId,
-      explorerId: current.explorerId,
-      ...(authResourcePath ? { authResourcePath } : {}),
-      snapshotToken: current.catalog.snapshotToken,
-      expectedDraftVersion: current.draftVersion,
-      expectedDraftDigest: current.draftDigest,
-      outputId: table.outputId,
-      ...candidate.intent,
-      limit: 25,
-      requestId: `construction-route-coverage-${window.crypto.randomUUID()}`,
-    }, signal);
-    const latest = latestState.current;
-    if (
-      signal.aborted ||
-      response.snapshotToken !== current.catalog.snapshotToken ||
-      response.draftVersion !== current.draftVersion ||
-      response.draftDigest !== current.draftDigest ||
-      response.outputId !== table.outputId ||
-      latest.draftVersion !== current.draftVersion ||
-      latest.draftDigest !== current.draftDigest ||
-      selectedTable(latest)?.outputId !== table.outputId
-    ) throw new Error('The table changed while Loom checked matching records.');
-    const preview = response.preview;
-    const rows = preview?.rows;
-    if (response.previewStatus !== 'READY' || !preview || !rows ||
-      !preview.columns.some((column) => column.column === candidate.outputColumnName)) {
-      throw new Error('Loom could not measure matching records in this preview.');
-    }
-    let zero = 0;
-    let one = 0;
-    let many = 0;
-    if (selection.constructionChoice.form === 'ALL') {
-      let empty = 0;
-      for (const row of rows) {
-        const values = row[candidate.outputColumnName];
-        if (values === null || values === undefined) empty += 1;
-        else if (Array.isArray(values)) {
-          const present = values.filter((value) => value !== null && value !== undefined).length;
-          if (present === 0) empty += 1;
-          else if (present === 1) one += 1;
-          else many += 1;
-        } else throw new Error('Loom did not return related values for this route.');
-      }
-      return {
-        kind: 'VALUES' as const, empty, one, many, displayedRows: rows.length,
-        sampled: preview.sampled !== false || preview.partialValidation === true,
-      };
-    }
-    for (const row of rows) {
-      const count = row[candidate.outputColumnName];
-      if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
-        throw new Error('Loom did not return valid match counts for this route.');
-      }
-      if (count === 0) zero += 1;
-      else if (count === 1) one += 1;
-      else many += 1;
-    }
-    return {
-      zero, one, many, displayedRows: rows.length,
-      sampled: preview.sampled !== false || preview.partialValidation === true,
-    };
-  };
-  const applyConstructionProposal = async (
-    expectedProposal?: Parameters<typeof constructionLifecycle.beginApply>[0],
-    fromColumnPicker = false,
-  ): Promise<boolean> => {
-    if (cancelingConstructionProposalRef.current) {
-      if (fromColumnPicker) constructionLifecycle.cancel();
-      return false;
-    }
-    const apply = constructionLifecycle.beginApply(expectedProposal);
-    if (!apply || !table) {
-      if (fromColumnPicker) constructionLifecycle.cancel();
-      return false;
-    }
-    const { proposalId } = apply;
-    appliedChoicePreview.current = undefined;
-    const previewIdentity = automaticPreviewRequest.current;
-    const constructionApplyIdentity = previewIdentity && previewIdentity.outputId === table.outputId
-      ? { ...previewIdentity, proposalId }
-      : undefined;
-    const appliedResult = await applyCommandsWithResult([{
-      type: 'APPLY_CONSTRUCTION_PROPOSAL',
-      outputId: table.outputId,
-      proposalId,
-    }], undefined, constructionApplyIdentity);
-    const applied = Boolean(appliedResult);
-    const settledCurrentOwner = apply.finish(applied);
-    if (applied && settledCurrentOwner) {
-      const closeEditor = !fromColumnPicker || activeConstructionFamily === 'ADD_COLUMNS';
-      if (closeEditor) {
-        cancelCombineCatalogRequest();
-        setActiveConstructionFamily(undefined);
-        setConstructionHistorySelection({ kind: 'source' });
-        setEditingConstructionStepId(undefined);
-        setRowIntentSession(false);
-      }
-    } else if (!applied && settledCurrentOwner && fromColumnPicker) {
-      constructionLifecycle.cancel();
-    }
-    return applied;
-  };
-  const relatedSourceCandidateIntentFor = (
-    selections: ReadonlyArray<CatalogChoiceIntent>,
-  ) => {
-    const relatedSelections = selections.filter((selection) => selection.relatedSource);
-    if (relatedSelections.length === 0) return undefined;
-    if (relatedSelections.length !== selections.length) {
-      throw new Error('Add related fields together only when every selected field follows the same exact route.');
-    }
-    const firstSelection = relatedSelections[0];
-    const firstRelatedSource = firstSelection?.relatedSource;
-    if (!firstSelection || !firstRelatedSource || relatedSelections.some((selection) =>
-      !selection.relatedSource ||
-      !sameConstructionRoute(selection.relatedSource.choice.route, firstRelatedSource.choice.route)
-    )) {
-      throw new Error('Add related fields together only when every selected field follows the same exact route.');
-    }
-    let candidate = buildRelatedSourceCandidate(firstSelection);
-    for (const selection of relatedSelections.slice(1)) {
-      candidate = buildRelatedSourceCandidate(selection, {
-        construction: candidate.intent.candidateConstruction,
-        step: candidate.step,
-      });
-    }
-    return candidate.intent;
-  };
-  const previewRelatedSourceColumns = async (
-    selections: ReadonlyArray<CatalogChoiceIntent>,
-  ) => {
-    if (!table) throw new Error('Choose a table before adding features.');
-    const candidateIntent = relatedSourceCandidateIntentFor(selections);
-    if (!candidateIntent) throw new Error('Choose a related field before previewing columns.');
-    await constructionLifecycle.proposeCandidateAndWait(candidateIntent);
-    return 'preview-ready' as const;
-  };
-  const addSelectedFeatures = async (
-    selections: ReadonlyArray<CatalogChoiceIntent>,
-  ) => {
-    if (!table) throw new Error('Choose a table before adding features.');
-    const candidateIntent = relatedSourceCandidateIntentFor(selections);
-    if (candidateIntent) {
-      const readyProposal = await constructionLifecycle.proposeCandidateAndWait(candidateIntent);
-      const applied = await applyConstructionProposal(readyProposal, true);
-      if (!applied) throw new Error('Loom could not save these related columns. The table was not changed.');
-      return;
-    }
-    const current = latestState.current;
-    const proposalOwnerKey = ownerKey;
-    const proposalLimit = previewLimit;
-    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {
-      throw new Error('The current table is still loading. Try adding the columns again.');
-    }
-    const admission = admitAuthoringRequest(current.tables, { kind: 'add-columns-proposal', outputId: table.outputId });
-    if (admission.kind === 'refused') throw new Error(admission.refusal.message);
-    addColumnsRequest.current?.abort();
-    const controller = new AbortController();
-    addColumnsRequest.current = controller;
-    try {
-      const response = await loomClient.proposeConstructionChoices({
-        project: projectId,
-        explorerId: current.explorerId,
-        ...(authResourcePath ? { authResourcePath } : {}),
-        commandId: window.crypto.randomUUID(),
-        snapshotToken: current.catalog.snapshotToken,
-        expectedDraftVersion: current.draftVersion,
-        expectedDraftDigest: current.draftDigest,
-        outputId: table.outputId,
-        constructionChoices: selections.map((selection) => ({
-          ...selection.constructionChoice,
-          ...(sourceStageDescriptors?.at(-1)?.capabilities.some((capability) => capability.kind === 'ROW_VALUES' && capability.supported) ? { rowValuePolicy } : {}),
-          ...(selection.title ? { title: selection.title } : {}),
-        })),
-        limit: proposalLimit,
-      }, controller.signal);
-      const latest = latestState.current;
-      if (
-        controller.signal.aborted ||
-        ownerKey !== proposalOwnerKey ||
-        previewLimit !== proposalLimit ||
-        latest.explorerId !== current.explorerId ||
-        latest.catalog.snapshotToken !== response.snapshotToken ||
-        latest.draftVersion !== response.draftVersion ||
-        latest.draftDigest !== response.draftDigest ||
-        selectedTable(latest)?.outputId !== response.outputId
-      ) throw new Error('The table changed while its column preview was loading. Choose the columns again.');
-      if (response.preview.rows === null || response.preview.outputId !== table.outputId) {
-        throw new Error('Loom did not render rows for these columns. The table was not changed.');
-      }
-      const appliedResult = await applyCommandsWithResult(response.constructionChoices.map((choice) => ({
-        type: 'APPLY_CONSTRUCTION_CHOICE',
-        outputId: response.outputId,
-        constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}), ...(choice.rowValuePolicy ? { rowValuePolicy: choice.rowValuePolicy } : {}) },
-        ...(choice.title ? { title: choice.title } : {}),
-      } satisfies ExplorerBuilderCommand)), response.commandId);
-      if (!appliedResult) {
-        appliedChoicePreview.current = undefined;
-        throw new Error('Loom could not save these coded-value columns. The table was not changed.');
-      }
-      appliedChoicePreview.current = {
-        ownerKey: proposalOwnerKey,
-        draftVersion: appliedResult.draftVersion,
-        previewRequestVersion: latestState.current.previewRequestVersion,
-        outputId: response.outputId,
-        limit: proposalLimit,
-        snapshotToken: response.snapshotToken,
-        candidateWorkspaceDigest: response.candidateWorkspaceDigest,
-        preview: response.preview,
-      };
-      if (activeConstructionFamily === 'ADD_COLUMNS') {
-        setConstructionHistorySelection({ kind: 'source' });
-        setEditingConstructionStepId(undefined);
-        setActiveConstructionFamily(undefined);
-      }
-    } finally {
-      if (addColumnsRequest.current === controller) addColumnsRequest.current = undefined;
-    }
-  };
-
-  const excludePopulationMember = useCallback(async (
-    ref: ResourceRef,
-    route: ReadonlyArray<ConstructionRouteStep>,
-  ) => {
-    const current = latestState.current;
-    const currentTable = selectedTable(current);
-    const baseSelection = activePopulationSelection;
-    if (!currentTable || !baseSelection) return;
-    const exclusionContext = populationExclusionContextRef.current;
-    const requestIsCurrent = () => {
-      const latestContext = populationExclusionContextRef.current;
-      const latest = latestState.current;
-      const latestTable = selectedTable(latest);
-      return workspaceAttached.current &&
-        latestContext.contextKey === exclusionContext.contextKey &&
-        latestContext.client === exclusionContext.client &&
-        latestContext.baseSelectionID === baseSelection.id &&
-        latestContext.bindingKey === exclusionContext.bindingKey &&
-        latestTable?.outputId === currentTable.outputId &&
-        latestTable.document.rootResourceType === currentTable.document.rootResourceType &&
-        populationBindingKey(latestTable) === exclusionContext.bindingKey &&
-        latest.draftVersion === serverDraft.current.version &&
-        latest.draftDigest === serverDraft.current.digest;
-    };
-    if (!requestIsCurrent()) return;
-    setPopulationVariantPending(true);
-    setPopulationVariantError(undefined);
-    try {
-      const idempotencyKey = `selection-variant-${window.crypto.randomUUID()}`;
-      const variant = await loomClient.createSelection({
-        project: projectId,
-        explorerId: current.explorerId,
-        authResourcePath,
-        snapshotToken: current.catalog.snapshotToken,
-        idempotencyKey,
-        source: { kind: 'selectionRevision', selectionRevision: { selectionRevisionId: baseSelection.id } },
-        exclusions: [ref],
-        requestId: idempotencyKey,
-      });
-      if (!requestIsCurrent()) return;
-      let cursor: string | undefined;
-      let routeChoiceId: string | undefined;
-      do {
-        const routes = await loomClient.searchPopulationRoutes({
-          project: projectId,
-          explorerId: current.explorerId,
-          authResourcePath,
-          snapshotToken: current.catalog.snapshotToken,
-          outputId: currentTable.outputId,
-          selectionRevisionId: variant.id,
-          limit: 50,
-          ...(cursor ? { cursor } : {}),
-          requestId: `population-routes-${window.crypto.randomUUID()}`,
-        });
-        if (!requestIsCurrent()) return;
-        routeChoiceId = routes.choices.find((choice) =>
-          sameConstructionRoute(choice.route, route),
-        )?.routeChoiceId;
-        cursor = routes.nextCursor;
-      } while (!routeChoiceId && cursor);
-      if (!routeChoiceId) {
-        throw new Error('Loom could not preserve this table connection for the revised collection.');
-      }
-      if (!requestIsCurrent()) return;
-      const attached = await applyCommands([{
-        type: 'SET_TABLE_POPULATION',
-        outputId: currentTable.outputId,
-        selectionRevisionId: variant.id,
-        routeChoiceId,
-      }], undefined, requestIsCurrent);
-      if (!attached) {
-        if (!requestIsCurrent()) return;
-        throw new Error('Loom created the revised collection but could not attach it to this table.');
-      }
-      const resultContext = populationExclusionContextRef.current;
-      const resultTable = selectedTable(latestState.current);
-      if (!workspaceAttached.current ||
-          resultContext.contextKey !== exclusionContext.contextKey ||
-          resultContext.client !== exclusionContext.client ||
-          (resultContext.baseSelectionID !== undefined && resultContext.baseSelectionID !== baseSelection.id && resultContext.baseSelectionID !== variant.id) ||
-          resultTable?.outputId !== currentTable.outputId ||
-          resultTable.document.rootResourceType !== currentTable.document.rootResourceType ||
-          populationBindingKey(resultTable) !== populationBindingKey(currentTable, variant.id)) return;
-      setPopulationSelectionOverride({
-        contextKey: populationSelectionContextKey,
-        baseSelectionID: baseSelection.id,
-        selection: variant,
-      });
-    } catch (error) {
-      if (!requestIsCurrent()) return;
-      setPopulationVariantError({
-        contextKey: populationSelectionContextKey,
-        message: error instanceof Error ? error.message : 'Loom could not create the revised collection.',
-      });
-    } finally {
-      setPopulationVariantPending(false);
-    }
-  }, [activePopulationSelection, applyCommands, authResourcePath, loomClient, populationSelectionContextKey, projectId]);
-
-  const getCurrentRootChangeIdentity = useCallback((): RootChangeRequestIdentity | undefined => {
-    const current = latestState.current;
-    const currentTable = selectedTable(current);
-    if (!currentTable) return undefined;
-    return {
-      epoch: rowChangeRequestEpoch.current,
-      project: projectId,
-      ...(authResourcePath ? { authResourcePath } : {}),
-      explorerId: current.explorerId,
-      outputId: currentTable.outputId,
-      snapshotToken: current.catalog.snapshotToken,
-      draftVersion: serverDraft.current.version,
-      draftDigest: serverDraft.current.digest,
-    };
-  }, [authResourcePath, projectId]);
-
-  const abortRootChangeRequests = useCallback(() => {
-    rowChangeAssessmentRequest.current?.abort();
-    rowChangeAssessmentRequest.current = undefined;
-    rowChangePreviewRequest.current?.abort();
-    rowChangePreviewRequest.current = undefined;
-  }, []);
-
-  const cancelRootChange = useCallback(() => {
-    if (rootRecipeActions.current?.cancel() === false) return;
-    abortRootChangeRequests();
-    rowChangeRequestEpoch.current += 1;
-    setPendingRowChangePreview(undefined);
-    setRootChangeState({ kind: 'idle' });
-  }, [abortRootChangeRequests]);
-
-  const changeTableRoot = useCallback(
-    async (selection: RootChangeSelection, resolution: RootChangeResolution = {}) => {
-      const rootOwnership = rootRecipeActions.current?.begin(selection.nodeId, 'PRESERVE');
-      if (!rootOwnership) return;
-      rowSettingsOpenAction.current?.();
-      abortRootChangeRequests();
-      rowChangeRequestEpoch.current += 1;
-      const epoch = rowChangeRequestEpoch.current;
-      const identity = getCurrentRootChangeIdentity();
-      if (!identity) {
-        rootOwnership.failed('The selected table is unavailable.');
-        setRootChangeState({ kind: 'idle' });
-        return;
-      }
-      setPendingRowChangePreview(undefined);
-      setMessage(undefined);
-      setRootChangeState({ kind: 'assessing', selection, resolution, identity });
-      const isCurrentAttempt = () => {
-        const currentIdentity = getCurrentRootChangeIdentity();
-        return workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
-          sameRootChangeRequestIdentity(identity, currentIdentity);
-      };
-      const request = assessRowChange({
-        project: identity.project,
-        explorerId: identity.explorerId,
-        authResourcePath: identity.authResourcePath,
-        snapshotToken: identity.snapshotToken,
-        draftVersion: identity.draftVersion,
-        draftDigest: identity.draftDigest,
-        outputId: identity.outputId,
-        rootNodeId: selection.nodeId,
-        ...resolution,
-        requestId: `row-change-${window.crypto.randomUUID()}`,
-      });
-      rowChangeAssessmentRequest.current = request;
-      try {
-        const assessment = await request.unwrap();
-        if (!isCurrentAttempt()) return;
-        if (assessment.snapshotToken !== identity.snapshotToken ||
-            assessment.draftVersion !== identity.draftVersion ||
-            assessment.draftDigest !== identity.draftDigest) {
-          rootOwnership.failed('The draft changed while checking the starting record.', true);
-          setRootChangeState({
-            kind: 'failed', reason: 'stale', selection, resolution, identity,
-            message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
-          });
-          return;
-        }
-        if (assessment.status === 'NO_CHANGE') {
-          rootOwnership.noChange();
-          setRootChangeState({ kind: 'idle' });
-          setMessage(undefined);
-          return;
-        }
-        if (assessment.status === 'BLOCKED') {
-          rootOwnership.failed(assessment.diagnostics.map((item) => item.message).join(' ') || 'This starting-record change needs a supported relationship or repair.');
-          setRootChangeState({ kind: 'blocked', selection, resolution, identity, assessment });
-          setMessage(undefined);
-          return;
-        }
-        const candidateReceiptId = assessment.candidateReceiptId;
-        if (!candidateReceiptId || assessment.proposal.outputId !== identity.outputId ||
-            assessment.proposal.rootNodeId !== selection.nodeId ||
-            (resolution.rootOccurrenceId !== undefined &&
-              assessment.proposal.rootOccurrenceId !== resolution.rootOccurrenceId)) {
-          rootOwnership.failed('The starting-record assessment has no matching preview receipt.');
-          setRootChangeState({
-            kind: 'failed', reason: 'unavailable', selection, resolution, identity,
-            message: 'Loom could not match this row choice to a preview receipt. The table has not changed.',
-          });
-          return;
-        }
-        const context: RowChangePreviewContext = { assessment, identity };
-        setRootChangeState({ kind: 'previewing', selection, resolution, identity });
-        setPendingRowChangePreview({ ...context, status: 'loading' });
-        const controller = new AbortController();
-        rowChangePreviewRequest.current = controller;
-        try {
-          const candidatePreview = await loomClient.preview({
-            project: identity.project,
-            explorerId: identity.explorerId,
-            authResourcePath: identity.authResourcePath,
-            receiptId: candidateReceiptId,
-            outputId: identity.outputId,
-            limit: previewLimit,
-            requestId: `row-change-preview-${window.crypto.randomUUID()}`,
-          }, controller.signal);
-          if (controller.signal.aborted || !isCurrentAttempt()) return;
-          if (candidatePreview.receiptId !== candidateReceiptId ||
-              candidatePreview.outputId !== identity.outputId ||
-              candidatePreview.rows === null) {
-            rootOwnership.failed('The preview does not match the starting-record candidate.');
-            setPendingRowChangePreview(undefined);
-            setRootChangeState({
-              kind: 'failed', reason: 'unavailable', selection, resolution, identity,
-              message: 'Loom returned a preview that does not match the selected row change. The table has not changed.',
-            });
-            return;
-          }
-          if (!rootOwnership.ready(assessment, candidatePreview)) {
-            setPendingRowChangePreview(undefined);
-            setRootChangeState({kind:'failed', reason:'unavailable', selection, resolution, identity, message:'The starting-record candidate could not be described for both editors. The saved table has not changed.'});
-            return;
-          }
-          setPendingRowChangePreview({ ...context, status: 'ready', preview: candidatePreview });
-          rowSettingsCloseAction.current?.();
-          setRootChangeState({ kind: 'idle' });
-        } catch (error) {
-          if (controller.signal.aborted || !isCurrentAttempt()) return;
-          rootOwnership.failed(error instanceof Error ? error.message : 'The proposed starting-record rows could not be loaded.');
-          setPendingRowChangePreview(undefined);
-          setRootChangeState({
-            kind: 'failed', reason: 'request', selection, resolution, identity,
-            message: error instanceof Error ? error.message : 'Loom could not preview the proposed rows.',
-          });
-        } finally {
-          if (rowChangePreviewRequest.current === controller) rowChangePreviewRequest.current = undefined;
-        }
-      } catch (error) {
-        if (!isCurrentAttempt()) return;
-        rootOwnership.failed(error instanceof Error ? error.message : 'The starting-record change could not be assessed.');
-        const apiError = typeof error === 'object' && error !== null && 'code' in error &&
-          typeof error.code === 'string'
-          ? {
-              code: error.code,
-              ...( 'message' in error && typeof error.message === 'string'
-                ? { message: error.message }
-                : {}),
-            }
-          : undefined;
-        if (apiError && isDraftRestoreError(apiError.code)) {
-          const refreshed = await refetchBuilder({ reload: true });
-          if (!isCurrentAttempt()) return;
-          if (refreshed.data) syncBuilderData(refreshed.data, 'hydrate');
-          setRootChangeState({
-            kind: 'failed', reason: 'stale', selection, resolution, identity,
-            message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
-          });
-          return;
-        }
-        if (apiError?.code === 'CLIENT_CANCELLED') return;
-        setRootChangeState({
-          kind: 'failed', reason: 'request', selection, resolution, identity,
-          message: apiError?.message ?? (error instanceof Error ? error.message : 'Loom could not assess the row change.'),
-        });
-      } finally {
-        if (rowChangeAssessmentRequest.current === request) rowChangeAssessmentRequest.current = undefined;
-      }
-    },
-    [abortRootChangeRequests, assessRowChange, getCurrentRootChangeIdentity, loomClient,
-      previewLimit, projectId, refetchBuilder, syncBuilderData],
-  );
-
-  const selectRootChoice = useCallback((selection: RootChangeSelection) => {
-    const active = rootChangeStateRef.current;
-    const sameTarget = active.kind !== 'idle' && active.selection.nodeId === selection.nodeId;
-    const currentIdentity = getCurrentRootChangeIdentity();
-    const validPreviousResolution = active.kind === 'blocked' && sameTarget &&
-      currentIdentity !== undefined &&
-      sameRootChangeRequestIdentity(active.identity, currentIdentity)
-      ? active.resolution
-      : {};
-    if (isCompilerNavigationSelection(selection)) {
-      const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
-        sameRootChangeRequestIdentity(active.identity, currentIdentity);
-      const alternative = selection.kind === 'compiler-route'
-        ? selection.routeToken
-        : selection.occurrenceId;
-      const reference = isCurrentBlocked
-        ? active.assessment.unresolved.find((candidate) =>
-            candidate.id === selection.referenceId &&
-            candidate.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE' &&
-            candidate.alternatives?.includes(alternative),
-          )
-        : undefined;
-      if (!reference || !isCurrentBlocked || active.kind !== 'blocked') {
-        if (currentIdentity) setRootChangeState({
-          kind: 'failed', reason: 'unavailable', selection: active.kind === 'idle' ? selection : active.selection,
-          resolution: active.kind === 'idle' ? {} : active.resolution,
-          identity: active.kind === 'idle' ? currentIdentity : active.identity,
-          message: 'That relationship choice is no longer available. Refresh the choices or keep the current rows.',
-        });
-        return;
-      }
-      void changeTableRoot(selection, {
-        ...active.resolution,
-        rootOccurrenceId: alternative,
-      });
-      return;
-    }
-    const resolution: RootChangeResolution = {
-      ...(validPreviousResolution.routeRebase?.length
-        ? { routeRebase: validPreviousResolution.routeRebase }
-        : {}),
-      ...(selection.kind === 'authored-occurrence'
-        ? { rootOccurrenceId: selection.occurrenceId }
-        : {}),
-    };
-    void changeTableRoot(selection, resolution);
-  }, [changeTableRoot, getCurrentRootChangeIdentity]);
-
-  const resolveRootChange = useCallback((referenceId: string, alternative: string) => {
-    const active = rootChangeStateRef.current;
-    const currentIdentity = getCurrentRootChangeIdentity();
-    const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
-      sameRootChangeRequestIdentity(active.identity, currentIdentity);
-    const reference = isCurrentBlocked && active.kind === 'blocked'
-      ? active.assessment.unresolved.find((candidate) =>
-          candidate.id === referenceId &&
-          candidate.code === 'AMBIGUOUS_ROUTE_REBASE_EDGE' &&
-          candidate.alternatives?.includes(alternative),
-        )
-      : undefined;
-    if (!reference || !isCurrentBlocked || active.kind !== 'blocked') {
-      if (active.kind !== 'idle') setRootChangeState({
-        kind: 'failed', reason: 'unavailable', selection: active.selection,
-        resolution: active.resolution, identity: active.identity,
-        message: 'That relationship choice is no longer available. Refresh the choices or keep the current rows.',
-      });
-      return;
-    }
-    const resolution: RootChangeResolution = {
-      ...active.resolution,
-      routeRebase: [
-        ...(active.resolution.routeRebase ?? []).filter(
-          (choice) => choice.occurrenceId !== referenceId,
-        ),
-        { occurrenceId: referenceId, edgeId: alternative },
-      ],
-    };
-    void changeTableRoot(active.selection, resolution);
-  }, [changeTableRoot, getCurrentRootChangeIdentity]);
-
-  const refreshRootChange = useCallback(() => {
-    const active = rootChangeStateRef.current;
-    if (active.kind === 'idle') return;
-    if (active.kind === 'failed' && active.reason !== 'request') {
-      void changeTableRoot({ kind: 'catalog-node', nodeId: active.selection.nodeId }, {});
-      return;
-    }
-    void changeTableRoot(active.selection, active.resolution);
-  }, [changeTableRoot]);
-
-  const applyRowChangePreview = useCallback(async () => {
-    const pending = pendingRowChangePreview;
-    if (pending?.status !== 'ready') return;
-    const currentIdentity = getCurrentRootChangeIdentity();
-    if (!currentIdentity || !sameRootChangeRequestIdentity(pending.identity, currentIdentity)) {
-      setPendingRowChangePreview(undefined);
-      setMessage('The table changed. Review the proposed rows again.');
-      return;
-    }
-    const applied = await rootRecipeActions.current?.apply(pending.assessment);
-    if (applied) setPendingRowChangePreview(undefined);
-  }, [applyCommands, getCurrentRootChangeIdentity, pendingRowChangePreview]);
-
-  const ensureSuggestions = useCallback(() => {
-    const current = latestState.current;
-    const currentOccurrence = derivedOccurrences(
-      selectedTable(current),
-      current.catalog,
-    ).find((candidate) => candidate.id === current.selectedOccurrenceId);
-    if (!currentOccurrence || !current.catalog.snapshotToken) return;
-    const key = `${current.explorerId}:${current.catalog.snapshotToken}:${currentOccurrence.id}`;
-    if (suggestionRequestKey.current === key) return;
-    if (
-      (current.catalog.candidates ?? []).some(
-        (candidate) => candidate.nodeId === currentOccurrence.nodeId,
-      )
-    )
-      return;
-    suggestionRequestKey.current = key;
-    setSuggestionsFailure(undefined);
-    const request = getSuggestions({
-      project: projectId,
-      explorerId: current.explorerId,
-      authResourcePath,
-      snapshotToken: current.catalog.snapshotToken,
-      nodeId: currentOccurrence.nodeId,
-      requestId: `suggestions-${currentOccurrence.id}`,
-    });
-    void request
-      .unwrap()
-      .then((value) => {
-        const latest = latestState.current;
-        if (
-          latest.explorerId === current.explorerId &&
-          value.snapshotToken === latest.catalog.snapshotToken &&
-          latest.selectedOccurrenceId === currentOccurrence.id
-        ) {
-          dispatch({ type: 'candidatesLoaded', candidates: value.candidates });
-          setSuggestionsFailure(undefined);
-        } else if (suggestionRequestKey.current === key) {
-          suggestionRequestKey.current = '';
-        }
-      })
-      .catch((error: ExplorerAuthoringApiError) => {
-        if (suggestionRequestKey.current === key) suggestionRequestKey.current = '';
-        if (error.code !== 'CLIENT_CANCELLED') {
-          const suffix = error.code ? ` (${error.code})` : '';
-          const latest = latestState.current;
-          if (latest.explorerId === current.explorerId &&
-            latest.catalog.snapshotToken === current.catalog.snapshotToken &&
-            latest.selectedOccurrenceId === currentOccurrence.id) {
-            setSuggestionsFailure({
-              key,
-              message: `Available columns could not be loaded: ${error.message}${suffix}`,
-            });
-          }
-        }
-      });
-  }, [authResourcePath, dispatch, getSuggestions, projectId]);
-  const suggestionHostRef = useCallback(
-    (host: HTMLSpanElement | null) => {
-      if (host) ensureSuggestions();
-    },
-    [ensureSuggestions],
-  );
-  const suggestionIdentity = `${state.explorerId}:${state.catalog.snapshotToken}:${state.selectedOccurrenceId}`;
-  const blockingDiagnostics = state.diagnostics.some(
-    (diagnostic) => diagnostic.severity === 'error',
-  );
+  const {
+    selectedAddSource,
+    concreteAddSources,
+    setAddColumnsSource,
+    addSourceContext,
+    addSourceOptionLabel,
+    addSourceRouteContext,
+    addColumnsViewRevision,
+    selectAddColumnsView,
+    inspectRelatedRouteCoverage,
+    applyConstructionProposal,
+    previewRelatedSourceColumns,
+    addSelectedFeatures,
+    addColumnsReason,
+  } = useAddColumns({
+    state,
+    table,
+    selectedRouteContext,
+    constructionLifecycle,
+    hasUnsupportedSavedSourceColumns,
+    editingConstructionStep,
+    activeConstructionFamily,
+    ownerKey,
+    projectId,
+    authResourcePath,
+    previewLimit,
+    latestState,
+    loomClient,
+    sourceStageDescriptors,
+    rowValuePolicy,
+    cancelingConstructionProposalRef,
+    appliedChoicePreview,
+    automaticPreviewRequest,
+    applyCommandsWithResult,
+    combineCatalog,
+    setActiveConstructionFamily,
+    setConstructionHistorySelection,
+    setEditingConstructionStepId,
+    setRowIntentSession,
+    opaqueId,
+  });
+  const addColumnsSourceControls = concreteAddSources.length > 1 ? (
+    <div role="group" aria-label="Add columns source" className="rounded border border-slate-200 bg-white px-3 py-2">
+      <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+        Fields from
+        <select
+          aria-label="Add columns source"
+          value={selectedAddSource?.key ?? ''}
+          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+          onChange={(event) => {
+            const source = concreteAddSources.find((candidate) => candidate.key === event.currentTarget.value);
+            if (source) setAddColumnsSource({ context: addSourceContext, key: source.key });
+          }}
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+        >
+          {concreteAddSources.map((source) => <option key={source.key} value={source.key}>{addSourceOptionLabel(source)}</option>)}
+        </select>
+      </label>
+    </div>
+  ) : undefined;
+  const {
+    suggestionsFailure, setSuggestionsFailure, suggestionRequestKey,
+    ensureSuggestions, suggestionHostRef, suggestionIdentity,
+  } = useSuggestions({ state, latestState, dispatch, getSuggestions, projectId, authResourcePath });
   const unsupportedSourceProjectionDiagnostic = state.diagnostics.find(
     isUnsupportedUnknownSourceProjectionDiagnostic,
   );
@@ -2631,639 +1119,28 @@ const BuilderWorkspaceContent = ({
     !outputAvailability.hasVisibleOutputColumn ||
     blockingDiagnostics ||
     constructionLifecycle.proposal.status !== 'idle';
-  const publishDisabled =
-    (lastPublished?.ownerKey === ownerKey &&
-      lastPublished.draftDigest === state.draftDigest) ||
-    incomplete ||
-    blockingDiagnostics ||
-    recipeOwner.state.status !== 'saved' ||
-    constructionLifecycle.proposal.status !== 'idle' ||
-    state.tables.some((candidate) =>
-      !effectiveOutputAvailability(candidate.document).hasAnyOutputColumn,
-    );
-
-  const addTable = () => {
-    if (!recipeMutationAllowed()) return;
-    if (
-      firstTableActionPending.current ||
-      latestState.current.tables.length === 0
-    ) return;
-    if (!tableCreatorOpen) setFirstTableName('');
-    setTableCreatorOpen(true);
-  };
-  const duplicateTable = () => {
-    if (!recipeMutationAllowed()) return;
-    if (!table) return;
-    if (!table.document.rootResourceType) {
-      const outputId = opaqueId('output');
-      const title = `${table.title} copy`;
-      dispatch({
-        type: 'addTable',
-        table: {
-          ...table,
-          outputId,
-          tabId: opaqueId('tab'),
-          title,
-          document: {
-            ...table.document,
-            output: { ...table.document.output, id: outputId, title },
-          },
-        },
-      });
-      rememberSelectedTable(outputId);
-      return;
-    }
-    void applyCommands([
-      {
-        type: 'DUPLICATE_TABLE',
-        sourceOutputId: table.outputId,
-        title: `${table.title} copy`,
-      },
-    ]);
-  };
-  const renameTable = (outputId: string, value: string) => {
-    const title = value.trim();
-    if (!title) return;
-    const target = state.tables.find((candidate) => candidate.outputId === outputId);
-    if (!target?.document.rootResourceType) {
-      dispatch({ type: 'renameTable', outputId, title });
-      return;
-    }
-    void applyCommands([{ type: 'RENAME_TABLE', outputId, title }]);
-  };
-  const renameTableById = (outputId: string) => {
-    if (!recipeMutationAllowed()) return;
-    const target = state.tables.find((candidate) => candidate.outputId === outputId);
-    if (!target) return;
-    const title = window.prompt('Table name', target.title)?.trim();
-    if (title && title !== target.title) renameTable(outputId, title);
-  };
-  const deleteSelectedTable = () => {
-    if (!recipeMutationAllowed()) return;
-    if (!table) return;
-    if (!window.confirm(`Delete ${table.title}?`)) return;
-    if (table.document.rootResourceType) {
-      void applyCommands([
-        { type: 'DELETE_TABLE', outputId: table.outputId },
-      ]);
-      return;
-    }
-    const fallbackOutputId = state.tables.find(
-      (candidate) => candidate.outputId !== table.outputId,
-    )?.outputId;
-    dispatch({ type: 'removeTable', outputId: table.outputId });
-    if (fallbackOutputId) rememberSelectedTable(fallbackOutputId);
-  };
-  const createCustomExplorer = async (title: string, fromCurrent: boolean) => {
-    try {
-      const created = await createExplorer({
-        project: projectId,
-        authResourcePath,
-        name: title,
-        title,
-        ...(fromCurrent ? { sourceExplorerId: state.explorerId } : {}),
-      }).unwrap();
-      selectExplorer(created.explorerId);
-      if (!onExplorerChange) void explorers.refetch();
-      setMessage(undefined);
-    } catch (error) {
-      const apiError = error as ExplorerAuthoringApiError;
-      const suffix = apiError.code ? ` (${apiError.code})` : '';
-      setMessage(`Explorer creation failed: ${apiError.message}${suffix}`);
-    }
-  };
-  const deleteCurrentExplorer = async () => {
-    if (!capabilities.data?.features.deleteExplorer) return;
-    const current = (explorers.data ?? []).find(
-      (explorer) => explorer.explorerId === effectiveExplorerId,
-    );
-    const fallback =
-      (explorers.data ?? []).find(
-        (explorer) =>
-          explorer.explorerId !== effectiveExplorerId &&
-          explorer.explorerId === 'dataframe-default',
-      ) ??
-      (explorers.data ?? []).find(
-        (explorer) => explorer.explorerId !== effectiveExplorerId,
-      );
-    if (!current || !fallback) return;
-    if (
-      !window.confirm(
-        `Delete Explorer "${current.title}"? This permanently removes its configuration and cannot be undone.`,
-      )
-    )
-      return;
-    try {
-      await deleteExplorer({
-        project: projectId,
-        explorerId: effectiveExplorerId,
-        authResourcePath,
-        requestId: `delete-explorer-${effectiveExplorerId}`,
-      }).unwrap();
-      compileGeneration.current += 1;
-      activeCompile.current?.abort();
-      selectExplorer(fallback.explorerId);
-      if (!onExplorerChange) await explorers.refetch();
-      setMessage(undefined);
-    } catch (error) {
-      const apiError = error as ExplorerAuthoringApiError;
-      const suffix = apiError.code ? ` (${apiError.code})` : '';
-      setMessage(`Explorer deletion failed: ${apiError.message}${suffix}`);
-    }
-  };
-  const reconcileCurrent = useCallback(async (
-    owner?: AutomaticPreviewExecution,
-    outputId?: string,
-  ): Promise<ExplorerBuilderCompileResult | undefined> => {
-    if (!workspaceAttached.current) return undefined;
-    const submitted = latestState.current;
-    if (
-      !submitted.catalog.snapshotToken ||
-      submitted.tables.length === 0 ||
-      submitted.tables.some((candidate) => !candidate.document.rootResourceType)
-    )
-      return undefined;
-    const generation = ++compileGeneration.current;
-    const submittedFingerprint = intentFingerprint(
-      workspaceFromState(submitted),
-    );
-    const requestIsCurrent = () => workspaceAttached.current && reconcileResultIsCurrent({
-      generation,
-      currentGeneration: compileGeneration.current,
-      submittedExplorerId: submitted.explorerId,
-      currentExplorerId: latestState.current.explorerId,
-      submittedFingerprint,
-      currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
-    });
-    let snapshotToken = submitted.catalog.snapshotToken;
-    let draftVersion = submitted.draftVersion;
-    let draftDigest = submitted.draftDigest;
-    let attempt = 1;
-    let staleRefreshes = 0;
-    const maxAttempts = 3;
-    const maxStaleRefreshes = 2;
-    if (!owner) dispatch({ type: 'compiling' });
-    for (;;) {
-      if (owner?.cancelled || !requestIsCurrent()) return undefined;
-      const request = reconcileBuilder({
-        project: projectId,
-        explorerId: submitted.explorerId,
-        authResourcePath,
-        snapshotToken,
-        draftVersion,
-        draftDigest,
-        ...(outputId ? { outputId } : {}),
-        requestId: `builder-${generation}-${attempt}`,
-      });
-      activeCompile.current = request;
-      if (owner) {
-        owner.compileGeneration = generation;
-        owner.compileRequest = request;
-      }
-      try {
-        const value = await request.unwrap();
-        if (owner?.cancelled || !requestIsCurrent()) return undefined;
-        const current = latestState.current;
-        const acceptance = reconcileAcceptance(value, {
-          generation,
-          currentGeneration: compileGeneration.current,
-          submittedExplorerId: submitted.explorerId,
-          currentExplorerId: current.explorerId,
-          submittedFingerprint,
-          currentFingerprint: intentFingerprint(workspaceFromState(current)),
-        }, { snapshotToken, ...(outputId ? { outputId } : {}) });
-        if (acceptance === 'obsolete') return undefined;
-        if (acceptance === 'mismatch') {
-          dispatch({
-            type: 'repair',
-            diagnostics: [{
-              severity: 'error',
-              code: 'RECONCILE_RECEIPT_MISMATCH',
-              message: 'Loom returned a compile receipt for a different snapshot or output.',
-            }],
-          });
-          return undefined;
-        }
-        dispatch({ type: 'compiled', value });
-        return acceptance === 'accepted' ? value : undefined;
-      } catch (error) {
-        const apiError = error as ExplorerAuthoringApiError;
-        if (
-          owner?.cancelled ||
-          !requestIsCurrent() ||
-          apiError.code === 'CLIENT_CANCELLED'
-        )
-          return undefined;
-        const recovery = reconcileRecoveryAction(apiError, {
-          attempt,
-          maxAttempts,
-          staleRefreshes,
-          maxStaleRefreshes,
-        });
-        if (recovery === 'refresh-and-stop') {
-          const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled || !requestIsCurrent()) return undefined;
-          if (refreshed.data) {
-            syncBuilderData(refreshed.data, 'hydrate');
-            setMessage(undefined);
-          } else {
-            dispatch({
-              type: 'repair',
-              diagnostics: diagnosticsFromError(apiError),
-            });
-          }
-          return undefined;
-        }
-        if (recovery === 'refresh-and-retry') {
-          const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled || !requestIsCurrent() || !refreshed.data) return undefined;
-          syncBuilderData(refreshed.data, 'catalog');
-          snapshotToken = refreshed.data.catalog.snapshotToken;
-          draftVersion = refreshed.data.draftVersion;
-          draftDigest = refreshed.data.draftDigest;
-          staleRefreshes += 1;
-          attempt += 1;
-          continue;
-        }
-        if (recovery === 'retry') {
-          attempt += 1;
-          await new Promise((resolve) => window.setTimeout(resolve, 250));
-          continue;
-        }
-        dispatch({
-          type: 'repair',
-          diagnostics: diagnosticsFromError(apiError),
-        });
-        return undefined;
-      } finally {
-        if (activeCompile.current === request) activeCompile.current = undefined;
-        if (owner?.compileRequest === request) owner.compileRequest = undefined;
-      }
-    }
-  }, [
-    authResourcePath,
-    dispatch,
-    projectId,
-    reconcileBuilder,
-    refetchBuilder,
-    syncBuilderData,
-  ]);
-  const executePreview = useCallback(
-    async (
-      request: PreviewRequest,
-      receipt: ExplorerBuilderCompileResult,
-      owner?: AutomaticPreviewExecution,
-    ): Promise<{ readonly receipt: ExplorerBuilderCompileResult; readonly preview: ExplorerBuilderPreviewResult } | undefined> => {
-      const generation = ++previewGeneration.current;
-      let activeRequest = request;
-      let activeReceipt = receipt;
-      const limit = request.limit;
-      let transientRetries = 0;
-      for (;;) {
-        if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
-        const previewRequest = previewBuilder({
-          project: projectId,
-          explorerId: latestState.current.explorerId,
-          authResourcePath,
-          receiptId: activeReceipt.receiptId,
-          outputId: activeRequest.outputId,
-          limit,
-        });
-        activePreview.current = previewRequest;
-        if (owner) {
-          owner.previewGeneration = generation;
-          owner.previewRequest = previewRequest;
-        }
-        try {
-          const value = await previewRequest.unwrap();
-          if (
-            owner?.cancelled ||
-            generation !== previewGeneration.current ||
-            value.receiptId !== activeReceipt.receiptId ||
-            value.outputId !== activeRequest.outputId
-          )
-            return undefined;
-          setMessage(undefined);
-          return { receipt: activeReceipt, preview: value };
-        } catch (error) {
-          const apiError = error as ExplorerAuthoringApiError;
-          if (
-            owner?.cancelled ||
-            generation !== previewGeneration.current ||
-            apiError.code === 'CLIENT_CANCELLED'
-          )
-            return undefined;
-          const recovery = previewRecoveryAction(apiError, {
-            receiptRefreshes: activeRequest.receiptRefreshes,
-            transientRetries,
-            limit,
-          });
-          if (recovery === 'retry') {
-            transientRetries += 1;
-            continue;
-          }
-          if (recovery === 'recompile') {
-            activeRequest = {
-              ...activeRequest,
-              limit,
-              receiptRefreshes: activeRequest.receiptRefreshes + 1,
-            };
-            const refreshedReceipt = await reconcileCurrent(owner, activeRequest.outputId);
-            if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
-            if (!refreshedReceipt) return undefined;
-            activeReceipt = refreshedReceipt;
-            setMessage(undefined);
-            continue;
-          }
-          if (recovery === 'refresh-catalog') {
-            activeRequest = {
-              ...activeRequest,
-              limit,
-              receiptRefreshes: activeRequest.receiptRefreshes + 1,
-            };
-            const refreshed = await refetchBuilder({ reload: true });
-            if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
-            if (!refreshed.data) return undefined;
-            latestState.current = builderAuthoringReducer(latestState.current, {
-              type: 'catalogRefreshed',
-              catalog: refreshed.data.catalog,
-            });
-            syncBuilderData(refreshed.data, 'catalog');
-            const refreshedReceipt = await reconcileCurrent(owner, activeRequest.outputId);
-            if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
-            if (!refreshedReceipt) return undefined;
-            activeReceipt = refreshedReceipt;
-            setMessage(undefined);
-            continue;
-          }
-          if (isPreviewResponseSizeError(apiError.code)) {
-            setMessage(
-              `Loom could not return ${limit} preview rows at the current table width. Choose fewer rows or hide some table columns.`,
-            );
-          } else if (
-            ['PLAN_TOO_EXPENSIVE', 'EXPENSIVE_PLAN'].includes(
-              apiError.code ?? '',
-            )
-          ) {
-            setMessage(
-              'This plan is too expensive to preview. Remove columns or shorten the route.',
-            );
-          } else {
-            const suffix = apiError.code ? ` (${apiError.code})` : '';
-            setMessage(`Preview failed: ${apiError.message}${suffix}`);
-          }
-          throw error;
-        } finally {
-          if (activePreview.current === previewRequest) activePreview.current = undefined;
-          if (owner?.previewRequest === previewRequest) owner.previewRequest = undefined;
-        }
-      }
-    },
-    [
-      authResourcePath,
-      previewBuilder,
-      projectId,
-      reconcileCurrent,
-      refetchBuilder,
-      syncBuilderData,
-    ],
-  );
-
-  const createFirstTableFromRoot = async (nodeId: string) => {
-    if (firstTableActionPending.current) return;
-    const current = latestState.current;
-    const root = current.catalog.nodes.find((node) => node.nodeId === nodeId);
-    if (!root || !current.catalog.snapshotToken) return;
-
-    let tableCreated = false;
-    firstTableActionPending.current = true;
-    setFirstTableProgress({
-      kind: 'running',
-      resourceType: root.resourceType,
-      phase: 'checking',
-    });
-    try {
-      let evidence: InitialTableCandidateEvidence = { kind: 'unavailable' };
-      try {
-        const value = await getSuggestions({
-          project: projectId,
-          explorerId: current.explorerId,
-          authResourcePath,
-          snapshotToken: current.catalog.snapshotToken,
-          nodeId: root.nodeId,
-          requestId: `first-table-suggestions-${window.crypto.randomUUID()}`,
-        }).unwrap();
-        if (
-          value.snapshotToken === current.catalog.snapshotToken &&
-          value.nodeId === root.nodeId
-        ) {
-          evidence = { kind: 'available', candidates: value.candidates };
-        }
-      } catch {
-        // A root table is still useful when Loom cannot prove an identity field.
-      }
-
-      const plan: InitialTablePlan = planInitialTable(
-        root,
-        firstTableName,
-        evidence,
-      );
-      setFirstTableProgress({
-        kind: 'running',
-        resourceType: root.resourceType,
-        phase: 'creating',
-      });
-      const created = await applyCommandsWithResult([{
-        type: 'CREATE_TABLE',
-        title: plan.title,
-        rootNodeId: plan.root.nodeId,
-      }]);
-      const createdTable = created?.results.find(
-        (result) =>
-          result.type === 'TABLE_CREATED' &&
-          Boolean(result.outputId) &&
-          Boolean(result.occurrenceId),
-      );
-      if (!createdTable?.outputId || !createdTable.occurrenceId) {
-        setMessage(`Loom could not create a ${root.resourceType} table.`);
-        return;
-      }
-      tableCreated = true;
-      setFirstTableName('');
-
-      if (plan.kind === 'root-only') {
-        const reason = plan.reason === 'CATALOG_UNAVAILABLE'
-          ? 'Loom could not verify a safe identity column from the current catalog.'
-          : plan.reason === 'AMBIGUOUS_DIRECT_ID'
-            ? 'Loom found more than one executable direct ID field.'
-            : 'Loom did not find a direct scalar string ID field.';
-        setMessage(
-          `${plan.title} was created with ${root.resourceType} rows. ${reason} Add a column to preview the table.`,
-        );
-        return;
-      }
-
-      setFirstTableProgress({
-        kind: 'running',
-        resourceType: root.resourceType,
-        phase: 'adding-id',
-      });
-      const added = await applyCommandsWithResult([{
-        type: 'ADD_COLUMN',
-        outputId: createdTable.outputId,
-        occurrenceId: createdTable.occurrenceId,
-        candidateId: plan.candidate.candidateId,
-        projectionMode: 'VALUE',
-        initialPresentation: 'TABLE',
-        title: `${root.resourceType} ID`,
-      }]);
-      if (!added) {
-        setMessage(
-          `${plan.title} was created, but Loom could not add the catalog-verified ID column. Review the Builder diagnostics and try again.`,
-        );
-        return;
-      }
-
-    } finally {
-      if (tableCreated) setTableCreatorOpen(false);
-      firstTableActionPending.current = false;
-      setFirstTableProgress({ kind: 'idle' });
-    }
-  };
-
-  const automaticPreviewIdentity: AutomaticPreviewIdentity | undefined =
-    table && state.catalog.snapshotToken && state.draftVersion > 0 && state.draftDigest
-      ? {
-          key: JSON.stringify([
-            ownerKey,
-            state.catalog.snapshotToken,
-            state.draftVersion,
-            state.draftDigest,
-            state.previewRequestVersion,
-            table.outputId,
-            previewLimit,
-          ]),
-          ownerKey,
-          snapshotToken: state.catalog.snapshotToken,
-          draftVersion: state.draftVersion,
-          draftDigest: state.draftDigest,
-          previewRequestVersion: state.previewRequestVersion,
-          outputId: table.outputId,
-          limit: previewLimit,
-        }
-      : undefined;
-  automaticPreviewRequest.current = automaticPreviewIdentity;
-  const automaticPreviewQuery = useAutomaticPreview({
-    request: automaticPreviewIdentity,
-    enabled: !previewDisabled && pendingCommands === 0 && firstTableProgress.kind === 'idle',
-    refresh: async (identity, signal, options): Promise<AutomaticPreviewRun | undefined> => {
-      activeAutomaticPreview.current?.cancel();
-      const generation = ++automaticPreviewGeneration.current;
-      const execution: AutomaticPreviewExecution = { cancelled: false };
-      const cancel = () => {
-        if (automaticPreviewGeneration.current !== generation) return;
-        automaticPreviewGeneration.current += 1;
-        execution.cancelled = true;
-        if (activeAutomaticPreview.current?.generation === generation) {
-          activeAutomaticPreview.current = undefined;
-        }
-        if (execution.compileRequest && execution.compileGeneration === compileGeneration.current) {
-          compileGeneration.current += 1;
-        }
-        if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {
-          previewGeneration.current += 1;
-        }
-        execution.compileRequest?.abort();
-        execution.previewRequest?.abort();
-      };
-      activeAutomaticPreview.current = { generation, execution, cancel };
-      signal.addEventListener('abort', cancel, { once: true });
-      const identityIsCurrent = () => {
-        const current = latestState.current;
-        return !signal.aborted &&
-          automaticPreviewRequest.current?.key === identity.key &&
-          current.catalog.snapshotToken === identity.snapshotToken &&
-          current.draftVersion === identity.draftVersion &&
-          current.draftDigest === identity.draftDigest &&
-          current.previewRequestVersion === identity.previewRequestVersion &&
-          selectedTable(current)?.outputId === identity.outputId;
-      };
-      const accept = (receipt: ExplorerBuilderCompileResult, preview: ExplorerBuilderPreviewResult) => {
-        if (!identityIsCurrent() ||
-          receipt.snapshotToken !== identity.snapshotToken ||
-          !receipt.outputs.some((output) => output.outputId === identity.outputId) ||
-          preview.receiptId !== receipt.receiptId ||
-          preview.outputId !== identity.outputId) return undefined;
-        dispatch({
-          type: 'previewAccepted',
-          identity: {
-            project: projectId,
-            explorerId: latestState.current.explorerId,
-            snapshotToken: identity.snapshotToken,
-            draftVersion: identity.draftVersion,
-            draftDigest: identity.draftDigest,
-            previewRequestVersion: identity.previewRequestVersion,
-            outputId: identity.outputId,
-          },
-          receipt,
-          preview,
-        });
-        setMessage(undefined);
-        return { identity, receipt, preview };
-      };
-      try {
-        if (!identityIsCurrent()) return undefined;
-        const current = latestState.current;
-        const receipt = !options?.reload && current.receipt && current.reconciliation === 'resolved' &&
-          current.receipt.snapshotToken === identity.snapshotToken &&
-          current.receipt.outputs.some((output) => output.outputId === identity.outputId)
-          ? current.receipt
-          : await reconcileCurrent(execution, identity.outputId);
-        if (execution.cancelled || !receipt || !identityIsCurrent()) return undefined;
-        const candidate = appliedChoicePreview.current;
-        appliedChoicePreview.current = undefined;
-        if (matchesAcceptedPreviewHandoff(candidate, {
-          ownerKey: identity.ownerKey,
-          draftVersion: identity.draftVersion,
-          previewRequestVersion: identity.previewRequestVersion,
-          outputId: identity.outputId,
-          limit: identity.limit,
-          snapshotToken: identity.snapshotToken,
-          receipt,
-        })) return accept(receipt, candidate.preview);
-        const completed = await executePreview({
-          outputId: identity.outputId,
-          limit: identity.limit,
-          receiptRefreshes: 0,
-        }, receipt, execution);
-        if (execution.cancelled || !completed || !identityIsCurrent()) return undefined;
-        return accept(completed.receipt, completed.preview);
-      } catch (error) {
-        if (!identityIsCurrent()) return undefined;
-        const apiError = error as ExplorerAuthoringApiError;
-        const suffix = apiError.code ? ` (${apiError.code})` : '';
-        setMessage(`Preview failed: ${apiError.message}${suffix}`);
-        throw error;
-      } finally {
-        signal.removeEventListener('abort', cancel);
-        if (activeAutomaticPreview.current?.generation === generation) {
-          activeAutomaticPreview.current = undefined;
-        }
-      }
-    },
+  const { addTable, duplicateTable, renameTable, renameTableById, deleteSelectedTable,
+    createCustomExplorer, deleteCurrentExplorer, createStatus, deleteStatus } = useTableExplorerCrud({
+    state, table, latestState, dispatch, recipeMutationAllowed, firstTableActionPending,
+    tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
+    projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
+    effectiveExplorerId, compileGeneration, activeCompile, setMessage, opaqueId,
   });
+  const { createFirstTableFromRoot } = firstTableActionsFor({ applyCommandsWithResult });
+
+  const automaticPreviewQuery = useAutomaticPreview(queryOptionsFor({
+    previewDisabled,
+    pendingCommands,
+    firstTableProgress,
+    reconcileCurrent,
+    executePreview,
+  }));
   const automaticPreviewFailure = automaticPreviewQuery.error as Partial<ExplorerAuthoringApiError> | undefined;
   const automaticPreviewFailureMessage = automaticPreviewQuery.error === undefined
     ? undefined
     : automaticPreviewFailure?.message
       ? `${automaticPreviewFailure.message}${automaticPreviewFailure.code ? ` (${automaticPreviewFailure.code})` : ''}`
       : 'The automatic preview request failed.';
-  const addColumnsAdmission = table
-    ? admitAuthoringRequest(state.tables, { kind: 'add-columns-proposal', outputId: table.outputId })
-    : { kind: 'admitted' as const };
-  const addColumnsReason = addColumnsAdmission.kind === 'refused'
-    ? addColumnsAdmission.refusal.message
-    : undefined;
   const busy =
     pendingCommands > 0 ||
     reconcileStatus.isLoading ||
@@ -3273,123 +1150,6 @@ const BuilderWorkspaceContent = ({
     publishing ||
     createStatus.isLoading ||
     deleteStatus.isLoading;
-  const executePublish = useCallback(
-    async (receiptId: string) => {
-      let activeReceiptId = receiptId;
-      let refreshes = 0;
-      const publicationOwnerIsCurrent = () =>
-        workspaceAttached.current && publicationOwnerKeyRef.current === ownerKey;
-      for (;;) {
-        if (!publicationOwnerIsCurrent()) return;
-        const submitted = latestState.current;
-        const generation = compileGeneration.current;
-        const submittedFingerprint = intentFingerprint(workspaceFromState(submitted));
-        const publicationIsCurrent = () => publicationOwnerIsCurrent() && reconcileResultIsCurrent({
-          generation,
-          currentGeneration: compileGeneration.current,
-          submittedExplorerId: submitted.explorerId,
-          currentExplorerId: latestState.current.explorerId,
-          submittedFingerprint,
-          currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
-        });
-        const acknowledgementIdentity: PublicationAcknowledgementIdentity = {
-          ownerKey,
-          explorerId: submitted.explorerId,
-          draftDigest: submitted.draftDigest,
-          intentFingerprint: submittedFingerprint,
-          snapshotToken: submitted.catalog.snapshotToken,
-        };
-        const acknowledgementIsCurrent = () =>
-          publicationOwnerIsCurrent() &&
-          publicationOwnerKeyRef.current === acknowledgementIdentity.ownerKey &&
-          latestState.current.explorerId === acknowledgementIdentity.explorerId &&
-          latestState.current.draftDigest === acknowledgementIdentity.draftDigest &&
-          latestState.current.catalog.snapshotToken === acknowledgementIdentity.snapshotToken &&
-          intentFingerprint(workspaceFromState(latestState.current)) === acknowledgementIdentity.intentFingerprint;
-        try {
-          await publishBuilder({
-            project: projectId,
-            explorerId: latestState.current.explorerId,
-            authResourcePath,
-            receiptId: activeReceiptId,
-          }).unwrap();
-          if (!acknowledgementIsCurrent()) return;
-          setLastPublished({
-            ownerKey,
-            draftDigest: submitted.draftDigest,
-          });
-          dispatch({ type: 'published' });
-          setMessage(undefined);
-          return;
-        } catch (error) {
-          if (!publicationOwnerIsCurrent()) return;
-          const apiError = error as ExplorerAuthoringApiError;
-          if (isStaleSnapshot(apiError.code) && refreshes === 0) {
-            if (!publicationIsCurrent()) return;
-            refreshes += 1;
-            const refreshed = await refetchBuilder({ reload: true });
-            if (!refreshed.data || !publicationIsCurrent()) return;
-            latestState.current = builderAuthoringReducer(latestState.current, {
-              type: 'catalogRefreshed',
-              catalog: refreshed.data.catalog,
-            });
-            syncBuilderData(refreshed.data, 'catalog');
-            const receipt = await reconcileCurrent();
-            if (!receipt || !publicationOwnerIsCurrent()) return;
-            activeReceiptId = receipt.receiptId;
-            continue;
-          }
-          const suffix = apiError.code ? ` (${apiError.code})` : '';
-          setMessage(
-            `Publication failed; the previously active Viewer revision remains available: ${apiError.message}${suffix}`,
-          );
-          return;
-        }
-      }
-    },
-    [
-      authResourcePath,
-      dispatch,
-      ownerKey,
-      projectId,
-      publishBuilder,
-      reconcileCurrent,
-      refetchBuilder,
-      syncBuilderData,
-    ],
-  );
-
-  const publish = async () => {
-    if (publishDisabled || publishing) return;
-    setPublishing(true);
-    try {
-      const receiptCoversEveryTable = state.receipt !== undefined &&
-        state.tables.every((candidate) => state.receipt?.outputs.some(
-          (output) => output.outputId === candidate.outputId,
-        ));
-      const receipt =
-        state.receipt && state.reconciliation === 'resolved' && receiptCoversEveryTable
-          ? state.receipt
-          : await reconcileCurrent();
-      if (!receipt) return;
-      const publishable = state.tables.every((candidate) =>
-        receipt.outputs.some(
-          (output) =>
-            output.outputId === candidate.outputId && output.columns.length > 0,
-        ),
-      );
-      if (!publishable) {
-        setMessage(
-          'Every table needs at least one output column before publishing.',
-        );
-        return;
-      }
-      await executePublish(receipt.receiptId);
-    } finally {
-      setPublishing(false);
-    }
-  };
-
   const emptyExplorerProject = !effectiveExplorerId &&
     !explorers.isLoading &&
     !explorers.error &&
@@ -3498,468 +1258,28 @@ const BuilderWorkspaceContent = ({
     />
   );
 
-  const reshapeEditorKeyFor = (entry: number, kind: ReshapeEntryKind, stageId: string) =>
-    `${ownerKey}:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}:${table?.outputId ?? ''}:${stageId}:${entry}:${kind}`;
-  const startCombine = async () => {
-    const current = latestState.current;
-    const currentTable = selectedTable(current);
-    const requestOwner = { ownerKey, explorerId: current.explorerId };
-    const rootNodeId = currentTable?.document.rootResourceType
-      ? derivedOccurrences(currentTable, current.catalog)[0]?.nodeId
-      : undefined;
-    if (!currentTable || !rootNodeId || !current.catalog.snapshotToken) {
-      setMessage('Choose a rooted table before starting a new table from published versions.');
-      return;
-    }
-
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    setReshapeEntryKind('choose');
-    setReshapeFormKind('choose');
-
-    const existingTitles = new Set(current.tables.map((candidate) => candidate.title.trim().toLocaleLowerCase()));
-    const baseTitle = currentTable.title.trim() ? `${currentTable.title.trim()} combined` : 'Combined table';
-    let title = baseTitle;
-    let suffix = 2;
-    while (existingTitles.has(title.toLocaleLowerCase())) {
-      title = `${baseTitle} ${suffix++}`;
-    }
-
-    const created = await applyCommandsWithResult([{
-      type: 'CREATE_TABLE',
-      title,
-      rootNodeId,
-    }]);
-    if (
-      combineCatalogOwnerRef.current.ownerKey !== requestOwner.ownerKey ||
-      combineCatalogOwnerRef.current.explorerId !== requestOwner.explorerId
-    ) return;
-    const createdTable = created?.results.find(
-      (result) => result.type === 'TABLE_CREATED' && Boolean(result.outputId),
-    );
-    if (!createdTable?.outputId) {
-      return;
-    }
-    setFeatureMode('catalog');
-    setActiveConstructionFamily('COMBINE');
-    void loadCombineCatalogPage();
-  };
-
-  const selectConstructionFamily = (family: ConstructionOperationFamily) => {
-    if (!recipeMutationAllowed()) return;
-    rememberOperationFocus();
-    const willOpen = activeConstructionFamily !== family;
-    setRowIntentSession(false);
-    if (family === 'ADD_COLUMNS' && willOpen) {
-      const admission = admitAuthoringRequest(state.tables, { kind: 'add-columns-proposal', outputId: table?.outputId ?? '' });
-      if (admission.kind === 'refused') {
-        setMessage(admission.refusal.message);
-        return;
-      }
-      selectAddColumnsView('fields');
-    }
-    if (family === 'COMBINE' && willOpen) {
-      if (!canStartCombine) return;
-      void startCombine();
-      return;
-    }
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    setReshapeEntryKind('choose');
-    setReshapeFormKind('choose');
-    setActiveConstructionFamily((current) => current === family ? undefined : family);
-  };
-  const chooseRelatedRows = () => {
-    if (!recipeMutationAllowed()) return;
-    rememberOperationFocus();
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    setRowIntentSession(true);
-    setReshapeEntryKind('related-expand');
-    setReshapeFormKind('related-expand');
-    setReshapeEntry((current) => current + 1);
-    setActiveConstructionFamily('RESHAPE');
-  };
-  const chooseReshapeRows = (
-    kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'expand-signed' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot',
-    preferredColumnIds?: ReadonlyArray<string>,
-  ) => {
-    if (!recipeMutationAllowed()) return;
-    if (kind === 'expand' && preferredColumnIds?.length !== 1) return;
-    rememberOperationFocus();
-    if (kind !== 'expand') setRowIntentSession(true);
-
-    let entry: ConstructionReshapeEditorEntry | undefined;
-    let entryStageId: string | undefined;
-    if ((kind === 'expand' || kind === 'expand-signed' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
-      const response = constructionLifecycle.capabilities.response;
-      const stage = response.selectedStage;
-      const appendStageId = constructionAppendStageFor(response.baseConstruction, table.document.rows);
-      const supported = stage.id === appendStageId && stage.capabilities.some((candidate) =>
-        candidate.kind === (kind === 'expand' ? 'EXPAND' : 'GROUP') && candidate.supported,
-      );
-      if (kind === 'expand') {
-        const requestedColumnId = preferredColumnIds?.[0];
-        if (!supported || !publicScalarListColumnIds(stage).includes(requestedColumnId ?? '')) return;
-        entry = createReshapeEditorEntry({
-          construction: construction ?? response.baseConstruction,
-          capabilities: response,
-          kind,
-          selectedColumns: preferredColumnIds,
-        });
-        if (!entry) return;
-        entryStageId = stage.id;
-      } else if (kind === 'expand-signed') {
-        // No column-keyed entry: the signed picker is capability-driven and
-        // opens like the unpivot lane (empty form + capabilities choices),
-        // staying apply-disabled until a field resolves.
-        const signedSupported = stage.id === appendStageId
-          && (response.expandSourceInput?.supported ?? false)
-          && (response.expandSourceInput?.choices ?? []).some((choice) => choice.isPopulated);
-        if (!signedSupported) return;
-      } else if (supported) {
-        entry = createReshapeEditorEntry({
-          construction: construction ?? response.baseConstruction,
-          capabilities: response,
-          kind,
-          selectedColumns: selectedColumnIds,
-        });
-        entryStageId = stage.id;
-      }
-    } else if (kind === 'expand' || kind === 'expand-signed') {
-      return;
-    }
-
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    const editorKind = kind === 'expand-signed' ? 'expand' : kind;
-    setReshapeEntryKind(editorKind);
-    setReshapeFormKind(kind === 'categories' ? 'choose' : kind === 'expand-signed' ? 'expand' : kind);
-    const nextEntry = reshapeEntry + 1;
-    if (entry && entryStageId) {
-      if (entry.candidateIntent) constructionLifecycle.onCandidateChange(entry.candidateIntent);
-      else constructionLifecycle.cancel();
-      setReshapeInitialEntry({
-        editorKey: reshapeEditorKeyFor(nextEntry, editorKind, entryStageId),
-        entry,
-      });
-    } else {
-      setReshapeInitialEntry(undefined);
-    }
-    setReshapeEntry(nextEntry);
-    setActiveConstructionFamily('RESHAPE');
-  };
-  const selectConstructionHistory = (selection: ConstructionHistorySelection) => {
-    if (recipeOwner.state.status !== 'saved') {
-      setRecipeNotice('Apply or Cancel the active recipe change before editing another step.'); return;
-    }
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setRowIntentSession(false);
-    setConstructionHistorySelection(selection);
-    setEditingConstructionStepId(undefined);
-    setActiveConstructionFamily(undefined);
-  };
-  const editConstructionStep = (stepId: string) => {
-    if (!recipeMutationAllowed()) return;
-    const step = construction?.steps.find((candidate) => candidate.id === stepId);
-    if (!step) return;
-    rememberOperationFocus();
-    if (step.operation.kind === 'RELATED_SOURCE' || step.operation.kind === 'RELATED_FIELD') {
-      constructionLifecycle.cancel();
-      setConstructionHistorySelection({ kind: 'step', stepId });
-      setEditingConstructionStepId(stepId);
-      setActiveConstructionFamily(undefined);
-      return;
-    }
-    const family = editableConstructionFamily(step.operation);
-    if (!family) return;
-    setRowIntentSession(false);
-    constructionLifecycle.cancel();
-    if (family === 'COMBINE') {
-      void loadCombineCatalogPage();
-    } else {
-      cancelCombineCatalogRequest();
-    }
-    setConstructionHistorySelection({ kind: 'step', stepId });
-    setEditingConstructionStepId(stepId);
-    setActiveConstructionFamily(family);
-    if (family === 'RESHAPE') setReshapeFormKind('choose');
-    setReshapeInitialEntry(undefined);
-  };
-  const closeConstructionWorkspace = () => {
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setEditingConstructionStepId(undefined);
-    setActiveConstructionFamily(undefined);
-    setRowIntentSession(false);
-    setReshapeEntryKind('choose');
-    setReshapeFormKind('choose');
-    setReshapeInitialEntry(undefined);
-  };
-  const cancelConstructionEditor = closeConstructionWorkspace;
-  const switchRowIntent = (_intent: 'records' | 'reshape') => {
-    if (!rowIntentSession) return;
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    setReshapeEntryKind('choose');
-    setReshapeFormKind('choose');
-    setReshapeInitialEntry(undefined);
-    setActiveConstructionFamily(undefined);
-  };
-  const closeRowIntentSession = () => {
-    setSourceRowsOpen(false);
-    if (!rowIntentSession) return;
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    setReshapeEntryKind('choose');
-    setReshapeFormKind('choose');
-    setReshapeInitialEntry(undefined);
-    setActiveConstructionFamily(undefined);
-    setRowIntentSession(false);
-  };
-  const removeConstructionStep = (stepId: string) => {
-    if (!recipeMutationAllowed()) return;
-    if (!construction?.steps.some((step) => step.id === stepId)) return;
-    cancelCombineCatalogRequest();
-    constructionLifecycle.onCandidateChange({
-      candidateConstruction: {
-        ...construction,
-        steps: construction.steps.filter((step) => step.id !== stepId),
-      },
-      removeStepIds: [stepId],
-    });
-    setConstructionHistorySelection({ kind: 'step', stepId });
-    // Keep the saved-step input stage stable while its removal proposal is
-    // active. Closing the editor here changes the capabilities request key
-    // before the proposal can render; cancel/apply clears this state later.
-    if (editingConstructionStepId !== stepId) setEditingConstructionStepId(undefined);
-    setActiveConstructionFamily(undefined);
-  };
-  const restorePreviousDraft = async () => {
-    if (!recipeMutationAllowed()) return;
-    if (!previousDraftRevisionId) return;
-    constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
-    setActiveConstructionFamily(undefined);
-    setEditingConstructionStepId(undefined);
-    setConstructionHistorySelection({ kind: 'source' });
-    setColumnSelection({ kind: 'empty' });
-    await applyCommands([{
-      type: 'RESTORE_DRAFT_REVISION',
-      draftRevisionId: previousDraftRevisionId,
-    }]);
-  };
-
-  const activeOperation = constructionOperationFamilies.find(
-    (candidate) => candidate.family === activeConstructionFamily,
-  );
-  const activeReshapeEditorKey = table && constructionLifecycle.capabilities.status === 'ready'
-    ? `${reshapeEditorKeyFor(
-        reshapeEntry,
-        reshapeEntryKind,
-        constructionLifecycle.capabilities.response.selectedStage.id,
-      )}:${!editingConstructionStep && (reshapeFormKind === 'choose' || reshapeFormKind === 'pivot' || reshapeFormKind === 'unpivot') ? selectedColumnIds.join(',') : ''}`
-    : undefined;
-  const activeReshapeInitialEntry = reshapeInitialEntry && reshapeInitialEntry.editorKey === activeReshapeEditorKey
-    ? reshapeInitialEntry.entry
-    : undefined;
-  // The signed EXPAND flow opens the expand editor with no column-keyed entry
-  // (capability-driven, like the unpivot lane), so only a chooser-less
-  // non-signed expand demotes; demoting the signed kind made the signed card
-  // unopenable.
-  const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry && reshapeFormKind !== 'expand'
-    ? 'choose'
-    : reshapeEntryKind;
-  const showReshapeColumnSelection = activeOperation?.family === 'RESHAPE' &&
-    (reshapeFormKind === 'choose' || reshapeFormKind === 'pivot' || reshapeFormKind === 'unpivot' || reshapeFormKind === 'coded-pivot');
-  const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && !showReshapeColumnSelection;
+  const { startCombine, selectConstructionFamily, chooseRelatedRows, chooseReshapeRows,
+    selectConstructionHistory, editConstructionStep, closeConstructionWorkspace, cancelConstructionEditor,
+    switchRowIntent, closeRowIntentSession, removeConstructionStep, restorePreviousDraft,
+    activeOperation, activeReshapeEditorKey, activeReshapeInitialEntry, activeReshapeInitialKind,
+    showReshapeColumnSelection, hideGenericReshapeSelection } = constructionNavigationActionsFor({
+    table, construction, constructionLifecycle, combineCatalog, setConstructionHistorySelection,
+    setEditingConstructionStepId, setRowIntentSession, setFeatureMode, setMessage, applyCommandsWithResult,
+    recipeMutationAllowed, rememberOperationFocus, selectAddColumnsView, canStartCombine,
+    selectedColumnIds, recipeOwner, setRecipeNotice, rowIntentSession, setSourceRowsOpen,
+    editingConstructionStepId, previousDraftRevisionId, setColumnSelection, applyCommands, editingConstructionStep
+  });
   const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
     ? editingConstructionStep as RelatedSourceStep
     : undefined;
   const editingRelatedFieldStep = editingConstructionStep && isRelatedFieldStep(editingConstructionStep)
     ? editingConstructionStep
     : undefined;
-  const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
-    ? constructionLifecycle.capabilities.response.stages
-    : undefined;
-  const sourceProjectionSummary = constructionLifecycle.capabilities.status === 'ready'
-    ? constructionLifecycle.capabilities.response.sourceProjectionAvailability
-    : undefined;
-  const capabilityNodeOccurrences = constructionLifecycle.capabilities.status === 'ready'
-    ? constructionLifecycle.capabilities.response.nodeOccurrences
-    : undefined;
-  const existingSourceKeys = constructionLifecycle.capabilities.status === 'ready'
-    ? new Set(
-        constructionLifecycle.capabilities.response.selectedStage.columns
-          .map((column) => column.sourceKey)
-          .filter((key): key is string => Boolean(key)),
-      )
-    : undefined;
-  const selectedCapabilityStageId = constructionLifecycle.capabilities.status === 'ready'
-    ? constructionLifecycle.capabilities.response.selectedStage.id
-    : undefined;
-  const rowValuesSupported = sourceStageDescriptors?.at(-1)?.capabilities.some(
-    (capability) => capability.kind === 'ROW_VALUES' && capability.supported,
-  ) ?? false;
-  const groupedRowValuePolicy = rowValuesSupported
-    ? { value: rowValuePolicy, onChange: setRowValuePolicy }
-    : undefined;
-  const sourceAvailability = hasUnsupportedSavedSourceColumns
-    ? { available: false, reason: 'Remove unsupported saved source fields before adding more fields.' }
-    : constructionLifecycle.capabilities.status === 'error'
-    ? { available: false, reason: sanitizeReasonText(constructionLifecycle.capabilities.message) }
-    : sourceProjectionAvailability(sourceStageDescriptors, sourceProjectionSummary, selectedCapabilityStageId);
-  const capabilityStage = constructionLifecycle.capabilities.status === 'ready'
-    ? constructionLifecycle.capabilities.response.selectedStage
-    : undefined;
-  const constructionCapabilitiesResponse = constructionLifecycle.capabilities.status === 'ready'
-    ? constructionLifecycle.capabilities.response
-    : undefined;
-  const relatedSourceCapability = capabilityStage?.capabilities.find(
-    (candidate) => candidate.kind === 'RELATED_SOURCE',
-  );
-  const relatedSourceReason = [
-    relatedSourceCapability?.reasonCode,
-    relatedSourceCapability?.reason,
-  ]
-    .map((part) => (part === undefined ? '' : sanitizeReasonText(part).trim()))
-    .filter((part) => part !== '')
-    .join(': ');
-  const capabilityIsForAppendStage = constructionLifecycle.capabilities.status === 'ready' &&
-    capabilityStage?.id === constructionAppendStageFor(
-      constructionLifecycle.capabilities.response.baseConstruction,
-      table?.document.rows,
-    );
-  const deriveCapability = capabilityStage?.capabilities.find(
-    (candidate) => candidate.kind === 'DERIVE',
-  );
-  const calculateUnavailableReason = !table?.document.rootResourceType
-    ? 'Choose a row source before calculating.'
-    : constructionLifecycle.capabilities.status === 'loading'
-      ? 'Checking calculation support for this table stage…'
-      : constructionLifecycle.capabilities.status === 'error'
-        ? sanitizeReasonText(constructionLifecycle.capabilities.message)
-        : constructionLifecycle.capabilities.status === 'idle'
-          ? 'Calculation support is not available until the table capabilities load.'
-          : !capabilityIsForAppendStage
-            ? 'The table stage changed; reload calculation support.'
-            : deriveCapability?.reason
-              ? sanitizeReasonText(deriveCapability.reason)
-              : 'The current table stage does not support calculated columns.';
-  const capabilitiesErrorMessage = constructionLifecycle.capabilities.status === 'error'
-    ? constructionLifecycle.capabilities.message
-    : '';
-  const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT' | 'CODED_PIVOT') => {
-    const capability = capabilityStage?.capabilities.find((candidate) => candidate.kind === kind);
-    return capabilityIsForAppendStage && capability?.supported
-      ? { supported: true }
-      : {
-          supported: false,
-          reason: unavailableOperationReason({
-            stage: constructionLifecycle.capabilities.status === 'error'
-              ? 'error'
-              : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
-                ? 'checking'
-                : 'ready',
-            errorMessage: capabilitiesErrorMessage,
-            checkingMessage: 'Checking this table’s available row operations…',
-            label: 'This row operation is unavailable for the current table.',
-            capability,
-          }),
-        };
-  };
-  const codedGroupingAvailable = capabilityIsForAppendStage &&
-    capabilityStage?.capabilities.some((candidate) => candidate.kind === 'CODED_GROUP' && candidate.supported) &&
-    Boolean(capabilityStage.codedGroupChoices?.length);
-  const sourceGroupingAvailable = capabilityIsForAppendStage &&
-    constructionLifecycle.capabilities.status === 'ready' &&
-    constructionLifecycle.capabilities.response.sourceInput?.supported &&
-    constructionLifecycle.capabilities.response.sourceInput.choices.some((choice) => choice.isPopulated);
-  const stageGroupingAvailability = reshapeAvailabilityFor('GROUP');
-  const codedPivotAvailability = reshapeAvailabilityFor('CODED_PIVOT');
-  const ordinaryGroupAvailable = stageGroupingAvailability.supported || codedPivotAvailability.supported;
-  const tablePivotAvailability = constructionLifecycle.capabilities.status === 'ready' && constructionLifecycle.capabilities.response.pivotSourceInput?.supported
-    ? { supported: true } : reshapeAvailabilityFor('PIVOT');
-  const expandCapability = capabilityStage?.capabilities.find((candidate) => candidate.kind === 'EXPAND');
-  const signedExpandAvailable = constructionLifecycle.capabilities.status === 'ready'
-    && previewIsCurrent && capabilityIsForAppendStage
-    && (constructionLifecycle.capabilities.response.expandSourceInput?.supported ?? false)
-    && (constructionLifecycle.capabilities.response.expandSourceInput?.choices ?? []).some((choice) => choice.isPopulated);
-  const groupAlternatives = [
-    ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'Source fields' }] : []),
-    ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'Recorded code' }] : []),
-  ];
-  const reshapeRowsAvailability = {
-    group: ordinaryGroupAvailable ? { supported: true } : stageGroupingAvailability,
-    groupEntry: 'group' as const,
-    groupAlternatives,
-    expandSigned: signedExpandAvailable ? { supported: true as const } : undefined,
-    pivot: codedPivotAvailability.supported ? codedPivotAvailability : tablePivotAvailability,
-    pivotPending: Boolean(capabilitiesRequest) && constructionLifecycle.capabilities.status === 'loading',
-    pivotEntry: codedPivotAvailability.supported ? 'coded-pivot' as const : 'pivot' as const,
-    pivotAlternative: codedPivotAvailability.supported && tablePivotAvailability.supported ? 'pivot' as const : undefined,
-  };
-  const relatedExpandCapability = capabilityStage?.capabilities.find(
-    (candidate) => candidate.kind === 'RELATED_EXPAND',
-  );
-  const relatedRowsAvailability = capabilityIsForAppendStage &&
-    relatedExpandCapability?.supported &&
-    Boolean(capabilityStage?.relatedExpandAnchors?.length)
-    ? { supported: true }
-    : {
-        supported: false,
-        reason: unavailableOperationReason({
-          stage: constructionLifecycle.capabilities.status === 'error'
-            ? 'error'
-            : constructionLifecycle.capabilities.status !== 'ready'
-              ? 'checking'
-              : 'ready',
-          errorMessage: capabilitiesErrorMessage,
-          checkingMessage: 'Checking available related row paths…',
-          label: 'This table has no executable related-record row path at the current stage.',
-          capability: relatedExpandCapability,
-        }),
-      };
-  const relatedSourceUnavailableReason = hasUnsupportedSavedSourceColumns
-    ? 'Remove unsupported saved source fields before adding related fields.'
-    : editingConstructionStep
-      ? 'Close the saved-step editor before adding related fields; proposals follow the current final step.'
-    : constructionLifecycle.capabilities.status === 'ready' && !capabilityIsForAppendStage
-      ? 'Related fields can only be added after the current final step.'
-      : undefined;
-  const relatedSourceAvailability = !relatedSourceUnavailableReason &&
-    capabilityIsForAppendStage &&
-    relatedSourceCapability?.supported &&
-    capabilityStage?.rowIdentityColumn
-    ? { supported: true }
-    : {
-        supported: false,
-        reason: relatedSourceUnavailableReason || relatedSourceReason || (
-          constructionLifecycle.capabilities.status === 'error'
-            ? sanitizeReasonText(constructionLifecycle.capabilities.message)
-            : constructionLifecycle.capabilities.status === 'ready'
-              ? 'Loom has not proved that this stage retains a source row anchor.'
-              : 'Loom is checking whether this stage supports related-source fields.'
-        ),
-      };
-  const sourceSelectionDisabledReason = pendingCommands > 0
-    ? 'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.'
-    : state.reconciliation === 'pending'
-      ? 'Loom is refreshing the current table draft. Field selection will return when the refresh completes.'
-      : undefined;
+  const { capabilityNodeOccurrences, existingSourceKeys, rowValuesSupported, groupedRowValuePolicy, sourceAvailability, capabilityStage, constructionCapabilitiesResponse, capabilityIsForAppendStage, calculateUnavailableReason, reshapeRowsAvailability, relatedRowsAvailability, relatedSourceAvailability, sourceSelectionDisabledReason } = useReshapeAvailability({
+    constructionLifecycle, sourceStageDescriptors, rowValuePolicy, setRowValuePolicy,
+    hasUnsupportedSavedSourceColumns, table, previewIsCurrent, capabilitiesRequest,
+    editingConstructionStep, pendingCommands, state
+  });
   const sourceColumns = sourceStageDescriptors?.find(
     (stage) => stage.id === constructionSourceStageId,
   )?.columns ?? (table?.document.columns ?? []).map((column) => ({
@@ -3969,177 +1289,12 @@ const BuilderWorkspaceContent = ({
     type: column.logicalType,
   }));
   const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
-  const relationshipOwner = JSON.stringify([builderDataKey, state.explorerId, table?.outputId,
-    state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
-  const completePendingRecipeFocus = (outputId: string) => {
-    const generation = recipeFocusGeneration.current;
-    window.requestAnimationFrame(() => {
-      const pending = pendingRecipeFocus.current;
-      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || !pending || pending.outputId !== outputId || latestState.current.selectedOutputId !== pending.outputId) return;
-      if (document.activeElement !== document.body && document.activeElement !== pending.fallback) {
-        pendingRecipeFocus.current = undefined;
-        return;
-      }
-      const control = [...document.querySelectorAll<HTMLElement>('[data-testid]')].find((node) => node.dataset.testid === pending.testId);
-      if (!control) return;
-      pendingRecipeFocus.current = undefined;
-      control.focus();
-    });
-  };
-  const loadRecipeNetwork = () => {
-    if (firstTableProgress.kind !== 'idle' || !table) return;
-    // The portal may commit after current bindings; this existing ref action also
-    // completes a pending restoration without issuing another metadata request.
-    completePendingRecipeFocus(table.outputId);
-    if (networkRequestOwner.current === relationshipOwner) return;
-    networkRequestOwner.current = relationshipOwner;
-    void loomClient.describeAuthoringNetwork({ project: projectId, explorerId: state.explorerId, authResourcePath,
-      snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
-      expectedDraftDigest: state.draftDigest, outputId: table.outputId }).then((result) => {
-      if (networkRequestOwner.current !== relationshipOwner) return;
-      if (result.draftVersion !== state.draftVersion || result.draftDigest !== state.draftDigest ||
-        result.snapshotToken !== state.catalog.snapshotToken || result.network.outputId !== table.outputId) return;
-      setSavedNetwork({ owner: relationshipOwner, result });
-      completePendingRecipeFocus(result.network.outputId);
-    }).catch(() => { if (networkRequestOwner.current === relationshipOwner) networkRequestOwner.current = ''; });
-  };
-  const pendingRelationship = relationshipEdit?.owner === relationshipOwner ? relationshipEdit.change : undefined;
-  const proposeRelationship = (change: SourceRelationshipChange, prepareImmediately = false) => {
-    if (!recipeMutationAllowed()) return;
-    rememberRecipeFocus();
-    const token = recipeOwner.begin(change.action === 'ADD'
-      ? { kind: 'connection', parentOccurrenceId: change.parentOccurrenceId, catalogEdgeId: change.edgeId }
-      : { kind: 'relationship', occurrenceId: change.occurrenceId });
-    if (!token) return;
-    recipeEditToken.current = token;
-    setRecipeNotice(undefined);
-    setSourceProposal(undefined);
-    setRelationshipEdit({ owner: relationshipOwner, change });
-    if (prepareImmediately) void prepareSourceRelationship(change);
-  };
-  const cancelRecipeRelationship = (restoreFocus = true) => {
-    if (recipeOwner.getState().status === 'applying') return false;
-    const token = recipeEditToken.current;
-    if (token && !recipeOwner.cancel(token)) return false;
-    sourceRelationshipRequest.current?.abort();
-    sourceRelationshipRequest.current = undefined;
-    setConnectingRelationship(false);
-    columnPolicyRequest.current?.abort();
-    recipeEditToken.current = undefined;
-    setSourceProposal(undefined);
-    setRelationshipEdit(undefined);
-    setEditingRecipeColumn(undefined);
-    setRecipeNotice(undefined);
-    constructionLifecycle.cancel();
-    if (restoreFocus) restoreRecipeFocus();
-    else {
-      recipeFocusGeneration.current += 1;
-      recipeInitiator.current = undefined;
-      recipeInitiatorFact.current = undefined;
-      pendingRecipeFocus.current = undefined;
-    }
-    return true;
-  };
-  const sourceReviewStatus = (status: 'previewing' | 'applying' | 'failed', message?: string) => {
-    const token = recipeEditToken.current;
-    if (!token) return;
-    if (status === 'previewing') recipeEditToken.current = recipeOwner.previewing(token);
-    else if (status === 'failed') recipeOwner.fail(token, message ?? 'The proposal failed.');
-  };
-  const beginSourceReview = () => {
-    const currentToken = recipeEditToken.current;
-    if (!currentToken) return undefined;
-    const attempt = recipeOwner.previewing(currentToken);
-    if (!attempt) return undefined;
-    recipeEditToken.current = attempt;
-    setSourceProposal(undefined);
-    return {
-      ready: (proposal: SourceProposalOwnerCandidate, preview: ExplorerBuilderPreviewResult) => {
-        if (proposal.outputId !== attempt.identity.outputId || proposal.snapshotToken !== attempt.identity.snapshotToken ||
-          proposal.draftVersion !== attempt.identity.draftVersion || proposal.draftDigest !== attempt.identity.draftDigest) {
-          recipeOwner.fail(attempt, 'The draft changed while the proposal was loading. Cancel and review the current draft.', true);
-          return false;
-        }
-        const accepted = recipeOwner.ready(attempt, { receiptId: proposal.candidateReceiptId,
-          candidateWorkspaceDigest: proposal.candidateWorkspaceDigest, preview,
-          candidateDocument: proposal.candidateDocument, candidateNetwork: proposal.candidateNetwork,
-          candidateRowIdentity: proposal.candidateRowIdentity });
-        if (accepted) {
-          lastAcceptedOutputPreview.current = { owner: relationshipOwner, outputId: attempt.identity.outputId,
-            snapshotToken: attempt.identity.snapshotToken, draftVersion: attempt.identity.draftVersion,
-            draftDigest: attempt.identity.draftDigest, receiptId: preview.receiptId };
-          setSourceProposal({ owner: relationshipOwner, proposal, preview });
-        }
-        else recipeOwner.fail(attempt, 'The candidate preview does not belong to this recipe edit. Preview again or Cancel.');
-        return accepted;
-      },
-      failed: (message: string) => { recipeOwner.fail(attempt, message); },
-    };
-  };
-  const prepareSourceRelationship = (change: SourceRelationshipChange) => {
-    const ownership = beginSourceReview();
-    if (!ownership) {
-      setConnectingRelationship(false);
-      return;
-    }
-    sourceRelationshipRequest.current?.abort();
-    const controller = new AbortController();
-    sourceRelationshipRequest.current = controller;
-    setConnectingRelationship(true);
-    void (async () => {
-      try {
-        const proposal = await loomClient.proposeSourceRelationship({
-          project: projectId,
-          explorerId: state.explorerId,
-          authResourcePath,
-          snapshotToken: state.catalog.snapshotToken,
-          expectedDraftVersion: state.draftVersion,
-          expectedDraftDigest: state.draftDigest,
-          outputId: table?.outputId ?? '',
-          change,
-        }, controller.signal);
-        if (controller.signal.aborted) return;
-        const preview = proposal.preview;
-        if (preview.rows === null || preview.receiptId !== proposal.candidateReceiptId || preview.outputId !== proposal.outputId) {
-          throw new Error('The proposal did not include a preview for its candidate receipt.');
-        }
-        setConnectingRelationship(false);
-        ownership.ready(proposal, preview);
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setConnectingRelationship(false);
-          ownership.failed(cause instanceof Error ? cause.message : 'The proposed relationship could not be previewed.');
-        }
-      } finally {
-        if (sourceRelationshipRequest.current === controller) sourceRelationshipRequest.current = undefined;
-      }
-    })();
-  };
-  const beginSourceRowsReview = () => {
-    const editing = recipeOwner.getState();
-    if (editing.status === 'saved') {
-      if (!recipeMutationAllowed()) return undefined;
-      recipeEditToken.current = recipeOwner.begin({ kind: 'sourceRows' });
-    } else if (editing.target?.kind !== 'sourceRows') {
-      setRecipeNotice('Apply or Cancel the active recipe change before opening another row editor.');
-      return undefined;
-    }
-    const attempt = beginSourceReview();
-    return attempt ? { failed: attempt.failed, ready: (proposal: RowDefinitionProposal, preview: ExplorerBuilderPreviewResult) => proposal.proposalId
-      ? attempt.ready({ ...proposal, proposalId: proposal.proposalId, candidateReceiptId: proposal.proposalId }, preview) : false } : undefined;
-  };
-  const applySourceRecipe = async (commands: ExplorerBuilderCommand[]) => {
-    const token = recipeEditToken.current;
-    if (!token || commands.some((command) => command.proposalId !== recipeOwner.state.candidate?.receiptId) || !recipeOwner.applying(token)) return false;
-    let applied = false;
-    try { applied = await applyCommands(commands); } catch (error) {
-      recipeOwner.fail(token, error instanceof Error ? error.message : 'The proposal was not saved.'); return false;
-    }
-    if (applied) { recipeOwner.applied(token); recipeEditToken.current = undefined; setSourceProposal(undefined); setRelationshipEdit(undefined); setEditingRecipeColumn(undefined); restoreRecipeFocus(); }
-    else recipeOwner.fail(token, 'The change was not saved. Review the current draft.');
-    return applied;
-  };
-
+  const { relationshipOwner, loadRecipeNetwork, pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, beginSourceRowsReview, applySourceRecipe } = sourceRecipeActionsFor({
+    builderDataKey, state, table, firstTableProgress, loomClient, projectId, authResourcePath,
+    completePendingRecipeFocus, recipeMutationAllowed, rememberRecipeFocus, recipeOwner,
+    columnPolicyRequest, setEditingRecipeColumn, constructionLifecycle, restoreRecipeFocus,
+    recipeFocusGeneration, recipeInitiator, recipeInitiatorFact, pendingRecipeFocus, applyCommands
+  });
   const attachedPopulationSelection = table?.document.population?.selectionRevisionId === activePopulationSelection?.id
     ? activePopulationSelection
     : undefined;
@@ -4161,359 +1316,82 @@ const BuilderWorkspaceContent = ({
     pendingCommands === 0 &&
     !publishing &&
     state.reconciliation !== 'pending';
-  const populatedFieldItems = table
-    ? fieldCatalogItems(state.catalog, table.document.rootResourceType ?? '', undefined, '', undefined, true)
-      .filter((item) => item.kind === 'FIELD')
-    : [];
-  const populatedFieldCandidates = populatedFieldItems.flatMap((item) => item.kind === 'FIELD' ? [item.candidate] : []);
   const operationEditor = table && activeOperation ? (
-    <section
-      aria-label={`${activeOperation.label} editor`}
-      data-testid="construction-operation-editor"
-      data-operation-family={activeOperation.family}
-      data-output-id={table.outputId}
-      className={activeOperation.family === 'ADD_COLUMNS' ? "flex h-full min-h-0 min-w-0 flex-col bg-white" : "min-w-0 bg-white"}
-    >
-      <header className={activeOperation.family === 'ADD_COLUMNS' ? "px-3 py-2" : rowIntentSession ? "px-0 py-1" : "border-b border-slate-200 px-3 py-2.5"}>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            {!rowIntentSession && activeOperation.family !== 'RESHAPE' ? <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2> : null}
-            {editingConstructionStep ? <p className="text-xs text-slate-500">Editing a saved step</p> : null}
-          </div>
-          <button
-            type="button"
-            aria-label="Close operation editor"
-            data-testid="construction-close-operation-editor"
-            onClick={closeConstructionWorkspace}
-            className="inline-flex shrink-0 items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            <span aria-hidden="true">←</span> Back to table
-          </button>
-        </div>
-        {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' || showReshapeColumnSelection ? (
-          <div className="mt-3">
-            <ConstructionColumnSelection
-              key={`${activeConstructionFamily}:${currentStage?.id ?? ''}:${selectableColumns.map((column) => column.id).join(',')}`}
-              columns={selectableColumns}
-              selectedColumnIds={selectedColumnIds}
-              disabled={pendingCommands > 0 || !currentStage}
-              onToggleColumn={toggleSelectedColumn}
-              onClear={() => setColumnSelection({ kind: 'empty' })}
-            />
-          </div>
-        ) : selectedColumnIds.length > 0 ? (
-          <p className="mt-3 rounded bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
-            Inputs from your selection:{' '}
-            <span className="font-medium text-slate-800">
-              {selectableColumns
-                .filter((column) => selectedColumnIds.includes(column.id))
-                .map((column) => column.label)
-                .join(', ')}
-            </span>
-          </p>
-        ) : null}
-      </header>
-
-      <div className={activeOperation.family === 'ADD_COLUMNS' ? "min-h-0 flex-1" : rowIntentSession ? "py-2" : "p-3"}>
-        {activeOperation.family === 'ADD_COLUMNS' ? (
-          <div className="grid gap-4">
-            {editingConstructionStep?.operation.kind === 'GROUP' && constructionLifecycle.capabilities.status === 'ready' ? (
-              <ConstructionReshapeEditor
-                key={`${ownerKey}:${state.catalog.snapshotToken}:${table?.outputId ?? ''}:${editingConstructionStep.id}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
-                construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-                capabilities={constructionLifecycle.capabilities.response}
-                editingStep={editingConstructionStep}
-                initialKind="group"
-                rowValuesOnly
-                disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                onCandidateChange={constructionLifecycle.onCandidateChange}
-                onEditStep={editConstructionStep}
-                onCancel={cancelConstructionEditor}
-              />
-            ) : null}
-            {rowValuesSupported ? (
-              <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
-                Values from each row's contributing records
-                <select aria-label="Values per grouped row" value={rowValuePolicy} onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  if (value === 'ALL' || value === 'ONE') setRowValuePolicy(value);
-                }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                  <option value="ALL">Keep all distinct values</option>
-                  <option value="ONE">Require one distinct value</option>
-                </select>
-                <span className="text-xs text-slate-500">Missing values stay empty. Require one stops if records disagree.</span>
-              </label>
-            ) : null}
-            {table.document.rootResourceType ? (
-              <>
-                {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
-                  <RelatedFieldEditor
-                    key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
-                    presentation="standalone"
-                    project={projectId}
-                    explorerId={state.explorerId}
-                    authResourcePath={authResourcePath}
-                    snapshotToken={state.catalog.snapshotToken}
-                    outputId={table.outputId}
-                    construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-                    capabilities={constructionLifecycle.capabilities.response}
-                    disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                    onCandidateChange={constructionLifecycle.onCandidateChange}
-                  />
-                ) : (
-                  <>
-                    <ConceptCatalog
-                      key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}`}
-                      project={projectId}
-                      explorerId={state.explorerId}
-                      authResourcePath={authResourcePath}
-                      snapshotToken={state.catalog.snapshotToken}
-                      outputId={table.outputId}
-                      tableContextKey={`${state.draftVersion}:${state.draftDigest}`}
-                      rowRoot={table.document.rootResourceType}
-                      resourceType={selectedAddSource?.resourceType}
-                      sourceNodeId={selectedAddSource?.sourceNodeId}
-                      routeContext={addSourceRouteContext}
-                      layout="panel"
-                      dense
-                      view="all"
-                      viewRevision={addColumnsViewRevision}
-                      presentationContext={fieldPresentationContext}
-                      onSwitchView={selectAddColumnsView}
-                      semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
-                      existingSourceKeys={existingSourceKeys}
-                      nodeOccurrences={capabilityNodeOccurrences}
-                        catalog={state.catalog}
-                      sourceProjectionAvailability={sourceAvailability}
-                      relatedSourceAvailability={relatedSourceAvailability}
-                      suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-                      disabledReason={sourceSelectionDisabledReason}
-                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      groupedRowValuePolicy={groupedRowValuePolicy}
-                      onAddSelected={addSelectedFeatures}
-                      onPreviewSelected={previewRelatedSourceColumns}
-                      onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                    />
-                  </>
-                )}
-                {table.document.frames?.length ? (
-                  <details className="rounded-md border border-slate-200 bg-white p-3">
-                    <summary className="cursor-pointer text-sm font-semibold text-slate-700">Manage saved coded-value sources</summary>
-                    <FrameSourcePanel
-                      key={`${table.outputId}:${state.catalog.snapshotToken}`}
-                      project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-                      snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
-                      rowRoot={table.document.rootResourceType} frames={table.document.frames ?? []}
-                      columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      allowNewSource={false}
-                      onSet={(choice, form) => applyCommands([{
-                        type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form,
-                      }])}
-                      onReplace={(frameId, choice, form) => applyCommands([{
-                        type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form,
-                      }])}
-                      onRemove={(frameId) => applyCommands([{
-                        type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
-                      }])}
-                      onAddSelected={addSelectedFeatures}
-                      onRemoveColumn={(column) => applyCommands([{
-                        type: 'REMOVE_COLUMN', outputId: table.outputId, column,
-                      }])}
-                    />
-                  </details>
-                ) : null}
-              </>
-            ) : null}
-          </div>
-        ) : null}
-        {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' ? (
-          constructionLifecycle.capabilities.status === 'loading' ? (
-            <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              Loading the current table columns and operation support…
-            </p>
-          ) : constructionLifecycle.capabilities.status === 'error' ? (
-            <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {sanitizeReasonText(constructionLifecycle.capabilities.message)}
-            </p>
-          ) : constructionLifecycle.capabilities.status === 'ready' ? (
-            activeOperation.family === 'KEEP_ROWS' ? (
-              <FilterRowsEditor
-                key={`${ownerKey}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}:${editingConstructionStep?.id ?? 'new'}`}
-                project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-                snapshotToken={state.catalog.snapshotToken} outputId={table.outputId} catalog={state.catalog}
-                construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-                capabilities={constructionLifecycle.capabilities.response}
-                editingStep={editingConstructionStep}
-                selectedColumns={selectedColumnIds}
-                disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                onCandidateChange={constructionLifecycle.onCandidateChange}
-                onEditStep={editConstructionStep}
-                onCancel={cancelConstructionEditor}
-              />
-            ) : <ConstructionOperationEditor
-              family="CALCULATE"
-              construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-              capabilities={constructionLifecycle.capabilities.response}
-              editingStep={editingConstructionStep}
-              selectedColumns={selectedColumnIds}
-              disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-              onCandidateChange={constructionLifecycle.onCandidateChange}
-              onEditStep={editConstructionStep}
-            />
-          ) : null
-        ) : null}
-        {activeOperation.family === 'RESHAPE' ? (
-          constructionLifecycle.capabilities.status === 'loading' ? (
-            <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              Loading the current table columns and reshape support…
-            </p>
-          ) : constructionLifecycle.capabilities.status === 'error' ? (
-            <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {sanitizeReasonText(constructionLifecycle.capabilities.message)}
-            </p>
-          ) : constructionLifecycle.capabilities.status === 'ready' ? (
-            <ConstructionReshapeEditor
-              key={activeReshapeEditorKey}
-              construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-              capabilities={constructionLifecycle.capabilities.response}
-              editingStep={editingConstructionStep}
-              initialKind={activeReshapeInitialKind}
-              initialEntry={activeReshapeInitialEntry}
-              hideChangeRowOperation={rowIntentSession}
-              selectedColumns={selectedColumnIds}
-              useExternalColumnSelection={showReshapeColumnSelection}
-              onFormKindChange={setReshapeFormKind}
-              pivotDiscovery={constructionLifecycle.pivotDiscovery}
-              onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
-              relatedExpandContext={{
-                project: projectId,
-                explorerId: state.explorerId,
-                authResourcePath,
-                snapshotToken: state.catalog.snapshotToken,
-                outputId: table.outputId,
-                catalog: state.catalog,
-              }}
-              relatedExpandQueryOwnerRef={relatedExpandQueryOwnerRef}
-              codedPivotContext={{
-                client: loomClient,
-                project: projectId,
-                explorerId: state.explorerId,
-                authResourcePath,
-                snapshotToken: state.catalog.snapshotToken,
-                outputId: table.outputId,
-                rowRoot: table.document.rootResourceType,
-              }}
-              disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-              onCandidateChange={constructionLifecycle.onCandidateChange}
-              onEditStep={editConstructionStep}
-              onCancel={cancelConstructionEditor}
-            />
-          ) : (
-            null
-          )
-        ) : null}
-        {activeOperation.family === 'COMBINE' ? (
-          <ConstructionCombineEditor
-            key={`${ownerKey}:${combineCatalogIdentity}:${editingConstructionStep?.id ?? 'new'}`}
-            catalog={currentCombineCatalogLoad.catalog}
-            workspaceInputs={constructionLifecycle.capabilities.status === 'ready'
-              ? constructionLifecycle.capabilities.response.workspaceInputs.map((input) => ({
-                  kind: 'WORKSPACE_OUTPUT' as const,
-                  outputId: input.outputId,
-                  title: input.title,
-                  columns: input.columns.map((column) => ({
-                    id: column.id,
-                    name: column.name,
-                    label: column.label,
-                    type: column.logicalType,
-                    nullable: column.nullable,
-                    repeated: column.cardinality === 'many',
-                    cardinality: column.cardinality,
-                    joinCompatibilityKey: column.joinCompatibilityKey,
-                    appendCompatibilityKey: column.appendCompatibilityKey,
-                  })),
-                }))
-              : []}
-            constructionVersion={construction?.version ?? 1}
-            editingStep={editingConstructionStep?.operation.kind === 'COMBINE'
-              ? editingConstructionStep as ConstructionCombineStep
-              : undefined}
-            disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-            loadingMore={currentCombineCatalogLoad.loadingMore}
-            loadMoreError={currentCombineCatalogLoad.loadMoreError}
-            onLoadMore={() => {
-              if (currentCombineCatalogLoad.catalog.kind === 'ready' && currentCombineCatalogLoad.catalog.nextCursor) {
-                void loadCombineCatalogPage(currentCombineCatalogLoad.catalog.nextCursor);
-              }
-            }}
-            onRetryCatalog={() => void loadCombineCatalogPage()}
-            onCandidateChange={constructionLifecycle.onCandidateChange}
-          />
-        ) : null}
-      </div>
-    </section>
+    <OperationEditorHost
+      table={table}
+      activeOperation={activeOperation}
+      state={state}
+      ownerKey={ownerKey}
+      rowIntentSession={rowIntentSession}
+      editingConstructionStep={editingConstructionStep}
+      construction={construction}
+      lifecycle={constructionLifecycle}
+      pendingCommands={pendingCommands}
+      publishing={publishing}
+      showReshapeColumnSelection={showReshapeColumnSelection}
+      selectedColumnIds={selectedColumnIds}
+      selectableColumns={selectableColumns}
+      currentStage={currentStage}
+      activeConstructionFamily={activeConstructionFamily}
+      onToggleSelectedColumn={toggleSelectedColumn}
+      setColumnSelection={setColumnSelection}
+      rowValuesSupported={rowValuesSupported}
+      rowValuePolicy={rowValuePolicy}
+      setRowValuePolicy={setRowValuePolicy}
+      selectedAddSource={selectedAddSource}
+      project={projectId}
+      authResourcePath={authResourcePath}
+      addColumnsSourceControls={addColumnsSourceControls}
+      addSourceRouteContext={addSourceRouteContext}
+      addColumnsViewRevision={addColumnsViewRevision}
+      fieldPresentationContext={fieldPresentationContext}
+      onSwitchAddColumnsView={selectAddColumnsView}
+      existingSourceKeys={existingSourceKeys}
+      capabilityNodeOccurrences={capabilityNodeOccurrences}
+      sourceAvailability={sourceAvailability}
+      relatedSourceAvailability={relatedSourceAvailability}
+      hasUnsupportedSavedSourceColumns={hasUnsupportedSavedSourceColumns}
+      sourceSelectionDisabledReason={sourceSelectionDisabledReason}
+      groupedRowValuePolicy={groupedRowValuePolicy}
+      onAddSelected={addSelectedFeatures}
+      onPreviewSelected={previewRelatedSourceColumns}
+      onInspectRouteCoverage={inspectRelatedRouteCoverage}
+      onApplyCommands={applyCommands}
+      activeReshapeEditorKey={activeReshapeEditorKey}
+      activeReshapeInitialKind={activeReshapeInitialKind}
+      activeReshapeInitialEntry={activeReshapeInitialEntry}
+      onReshapeFormKindChange={setReshapeFormKind}
+      relatedExpandQueryOwnerRef={relatedExpandQueryOwnerRef}
+      loomClient={loomClient}
+      combineCatalog={combineCatalog}
+      onEditConstructionStep={editConstructionStep}
+      onCancelConstructionEditor={cancelConstructionEditor}
+      onClose={closeConstructionWorkspace}
+    />
   ) : undefined;
-  const relatedSourceStepEditor = table && editingRelatedSourceStep ? (
-    <section
-      aria-label="Related source editor"
-      data-testid="construction-related-source-editor"
-      className="min-w-0 bg-white p-4"
-    >
-      {constructionLifecycle.capabilities.status === 'loading' ? (
-        <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
-      ) : constructionLifecycle.capabilities.status === 'error' ? (
-        <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
-      ) : constructionLifecycle.capabilities.status === 'ready' ? (
-        <RelatedSourceStepEditor
-          key={`${table.outputId}:${editingRelatedSourceStep.id}`}
-          project={projectId}
-          explorerId={state.explorerId}
-          authResourcePath={authResourcePath}
-          snapshotToken={state.catalog.snapshotToken}
-          outputId={table.outputId}
-          rowRoot={table.document.rootResourceType ?? ''}
-          catalog={state.catalog}
-          construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-          capabilities={constructionLifecycle.capabilities.response}
-          step={editingRelatedSourceStep}
-          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-          onCandidateChange={constructionLifecycle.onCandidateChange}
-          onCancel={() => {
-            constructionLifecycle.cancel();
-            setEditingConstructionStepId(undefined);
-            setActiveConstructionFamily(undefined);
-          }}
-        />
-      ) : null}
-    </section>
-  ) : undefined;
-  const relatedFieldStepEditor = table && editingRelatedFieldStep ? (
-    <section aria-label="Related field editor" className="min-w-0 bg-white p-4">
-      {constructionLifecycle.capabilities.status === 'loading' ? (
-        <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
-      ) : constructionLifecycle.capabilities.status === 'error' ? (
-        <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
-      ) : constructionLifecycle.capabilities.status === 'ready' ? (
-        <RelatedFieldEditor
-          key={`${ownerKey}:${editingRelatedFieldStep.id}`}
-          presentation="standalone"
-          project={projectId}
-          explorerId={state.explorerId}
-          authResourcePath={authResourcePath}
-          snapshotToken={state.catalog.snapshotToken}
-          outputId={table.outputId}
-          construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-          capabilities={constructionLifecycle.capabilities.response}
-          step={editingRelatedFieldStep}
-          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-          onCandidateChange={constructionLifecycle.onCandidateChange}
-          onCancel={() => {
-            constructionLifecycle.cancel();
-            setEditingConstructionStepId(undefined);
-          }}
-        />
-      ) : null}
-    </section>
+  const relatedStepEditors = table && (editingRelatedSourceStep || editingRelatedFieldStep) ? (
+    <RelatedStepEditors
+      table={table}
+      state={state}
+      ownerKey={ownerKey}
+      construction={construction}
+      lifecycle={constructionLifecycle}
+      sourceStep={editingRelatedSourceStep}
+      fieldStep={editingRelatedFieldStep}
+      project={projectId}
+      authResourcePath={authResourcePath}
+      pendingCommands={pendingCommands}
+      publishing={publishing}
+      onCancelSource={() => {
+        constructionLifecycle.cancel();
+        setEditingConstructionStepId(undefined);
+        setActiveConstructionFamily(undefined);
+      }}
+      onCancelField={() => {
+        constructionLifecycle.cancel();
+        setEditingConstructionStepId(undefined);
+      }}
+    />
   ) : undefined;
   const proposalPanel = (
     <ConstructionProposalPanel
@@ -4549,49 +1427,17 @@ const BuilderWorkspaceContent = ({
       onRetry={constructionLifecycle.retry}
     />
   );
-  const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
+  const workspaceEditor = operationEditor || relatedStepEditors || constructionLifecycle.proposal.status !== 'idle'
     ? <div className="construction-mutation-inspector">
-        <div className="construction-mutation-fields">{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}</div>
+        <div className="construction-mutation-fields">{operationEditor}{relatedStepEditors}</div>
         {proposalPanel}
       </div>
     : undefined;
-  const sourceCandidate = sourceProposal?.owner === relationshipOwner ? sourceProposal : undefined;
-  const sourceReviewColumnLabels = table ? new Map(table.document.columns.map((column) => [column.columnId ?? column.column, column.label || column.column])) : undefined;
-  const rootCandidate = recipeOwner.state.target?.kind === 'root' ? recipeOwner.state.candidate : undefined;
-  const candidatePreview = rootCandidate?.preview ?? sourceCandidate?.preview ?? (constructionLifecycle.proposal.status === 'ready' ||
-    constructionLifecycle.proposal.status === 'applying'
-    ? constructionLifecycle.proposal.preview
-    : undefined);
-  const lastOutputPreview = lastAcceptedOutputPreview.current;
-  const retainedOutputPreviewReceipt = lastOutputPreview?.owner === relationshipOwner && lastOutputPreview.outputId === table?.outputId &&
-    lastOutputPreview.snapshotToken === state.catalog.snapshotToken && lastOutputPreview.draftVersion === state.draftVersion &&
-    lastOutputPreview.draftDigest === state.draftDigest ? lastOutputPreview.receiptId : undefined;
-  const generatedOutputRevision = candidatePreview?.receiptId ?? retainedOutputPreviewReceipt ??
-    `saved:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}`;
-  const proposalResponse = 'response' in constructionLifecycle.proposal
-    ? constructionLifecycle.proposal.response
-    : undefined;
-  const proposalPresentationTable = table && rootCandidate
-    ? { ...table, document: rootCandidate.candidateDocument! }
-    : table && sourceCandidate
-    ? { ...table, document: sourceCandidate.proposal.candidateDocument }
-    : table && proposalResponse
-    ? {
-        ...table,
-        document: {
-          ...table.document,
-          construction: proposalResponse.candidateConstruction,
-        },
-      }
-    : undefined;
-  // Inspection is ephemeral and receipt-bound; it never changes the saved route or a stage anchor.
-  const candidateInspectionKey = candidatePreview && proposalPresentationTable
-    ? JSON.stringify([relationshipOwner, candidatePreview.receiptId, candidatePreview.outputId]) : undefined;
-  const inspectedOccurrenceId = candidateInspectionKey && proposalPresentationTable
-    ? candidateInspection?.key === candidateInspectionKey && routeNode(proposalPresentationTable.document.route, candidateInspection.occurrenceId)
-      ? candidateInspection.occurrenceId
-      : routeNode(proposalPresentationTable.document.route, state.selectedOccurrenceId) ? state.selectedOccurrenceId : proposalPresentationTable.document.route.occurrenceId
-    : state.selectedOccurrenceId;
+  const { sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview, generatedOutputRevision, proposalResponse, proposalPresentationTable, inspectedOccurrenceId, selectTraversalScope, editTraversalColumn, traversalTable, traversalNetwork, traversalRowIdentity, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, catalogOutputsForStep, pivotOutputsForStep, traversalOperationLabels, editTraversalRows } = traversalActionsFor({
+    state, table, sourceProposal, relationshipOwner, recipeOwner, constructionLifecycle,
+    lastAcceptedOutputPreview, pendingRelationship, cancelRecipeRelationship, dispatch,
+    savedNetwork, recipeMutationAllowed, rememberRecipeFocus, recipeEditToken
+  });
   const pendingChangeReview = table && pendingRelationship ? <SourceRelationshipReview key={`${relationshipOwner}:${JSON.stringify(pendingRelationship)}`}
     columnLabels={sourceReviewColumnLabels}
     client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
@@ -4664,105 +1510,6 @@ const BuilderWorkspaceContent = ({
             proposalId: sourceCandidate.preview.receiptId }]); }} /> : null;
       })() : null}
   </> : undefined;
-  const selectTraversalScope = (occurrenceId: string) => {
-    const editing = recipeOwner.getState();
-    const relationshipReviewActive = Boolean(
-      pendingRelationship &&
-      (editing.target?.kind === 'connection' || editing.target?.kind === 'relationship'),
-    );
-    if (editing.status === 'applying' && relationshipReviewActive) return;
-    const candidateOccurrence = Boolean(
-      candidateInspectionKey && proposalPresentationTable &&
-      routeNode(proposalPresentationTable.document.route, occurrenceId),
-    );
-    const savedOccurrence = Boolean(table && routeNode(table.document.route, occurrenceId));
-    if (candidateInspectionKey && proposalPresentationTable) {
-      if (!candidateOccurrence) return;
-      setCandidateInspection({ key: candidateInspectionKey, occurrenceId });
-      if (!savedOccurrence) return;
-    }
-    if (relationshipReviewActive && savedOccurrence) {
-      const sameSavedInspection = occurrenceId === state.selectedOccurrenceId &&
-        (!candidateInspectionKey || occurrenceId === inspectedOccurrenceId);
-      if (!sameSavedInspection) {
-        if (!cancelRecipeRelationship(false)) return;
-        setCandidateInspection(undefined);
-      }
-    } else if (candidateInspectionKey && proposalPresentationTable) {
-      return;
-    }
-    dispatch({ type: 'selectOccurrence', occurrenceId });
-  };
-  const editTraversalColumn = (columnId: string) => {
-    const binding = savedNetwork?.owner === relationshipOwner ? savedNetwork.result.network.bindings.find((item) => item.columnId === columnId) : undefined;
-    if (binding?.sourceStepId) sourceStepEditAction.current?.(binding.sourceStepId);
-    else {
-      if (!recipeMutationAllowed()) return;
-      rememberRecipeFocus();
-      const token = recipeOwner.begin({ kind: 'column', columnId });
-      if (!token) return;
-      recipeEditToken.current = token;
-      setEditingRecipeColumn({ owner: relationshipOwner, columnId });
-    }
-  };
-  const traversalTable = proposalPresentationTable ?? table;
-  const traversalNetwork = rootCandidate?.candidateNetwork ?? sourceCandidate?.proposal.candidateNetwork ?? (savedNetwork?.owner === relationshipOwner ? savedNetwork.result.network : undefined);
-  const traversalRowIdentity = rootCandidate?.candidateRowIdentity ?? sourceCandidate?.proposal.candidateRowIdentity ?? (proposalPresentationTable ? undefined : savedNetwork?.owner === relationshipOwner ? savedNetwork.result.rowIdentity : undefined);
-  const traversalSourceSteps = traversalTable?.document.importedSource?.steps ?? [];
-  const resourceTypeChoices = Array.from(new Set((state.catalog.nodes ?? []).filter((node) => node.populated).map((node) => node.resourceType))).sort();
-  const sourcePathChoices = Array.from(new Set(populatedFieldCandidates.flatMap((candidate) => [
-    ...(candidate.repeated ? [`root.${candidate.fieldPath}[]`] : []),
-    ...(candidate.repeatedBoundaries ?? []).map((boundary) => `root.${boundary.path}[]`),
-  ]))).sort();
-  const fieldPathChoices = Array.from(new Set(populatedFieldCandidates.map((candidate) => candidate.fieldPath))).sort();
-  const fieldKindChoices = Array.from(new Set(populatedFieldCandidates.map((candidate) => candidate.logicalType))).sort();
-  const catalogOutputsForStep = (stepId: string) => {
-    const step = traversalSourceSteps.find((candidate) => candidate.id === stepId && candidate.kind === 'CATALOG_PROJECTION');
-    if (!step?.parameters?.catalog) return [];
-    const overrides = step.parameters.catalog.outputs ?? [];
-    const bindings = traversalNetwork?.bindings.filter((binding) => binding.status === 'EXACT' && binding.sourceStepId === stepId && binding.outputKey) ?? [];
-    const emitted = bindings.flatMap((binding) => {
-      const matches = traversalTable?.document.columns.filter((column) => (column.columnId ?? column.column) === binding.columnId) ?? [];
-      if (matches.length !== 1 || !binding.outputKey) return [];
-      const override = overrides.find((item) => item.fieldPath === binding.outputKey);
-      return [{ outputKey: binding.outputKey, columnId: binding.columnId, defaultName: matches[0].label || matches[0].column, enabled: override?.enabled ?? true }];
-    });
-    const emittedKeys = new Set(emitted.map((output) => output.outputKey));
-    const persistedDisabled = overrides.filter((output) => !output.enabled && !emittedKeys.has(output.fieldPath))
-      .map((output) => ({ outputKey: output.fieldPath, defaultName: output.name ?? output.fieldPath, enabled: false }));
-    return [...emitted, ...persistedDisabled];
-  };
-  const pivotOutputsForStep = (stepId: string) => {
-    const step = traversalSourceSteps.find((candidate) => candidate.id === stepId && candidate.kind === 'PIVOT');
-    if (!step?.parameters?.pivot) return [];
-    const overrides = step.parameters.pivot.outputs ?? [];
-    const bindings = traversalNetwork?.bindings.filter((binding) => binding.status === 'EXACT' && binding.sourceStepId === stepId && binding.outputKey) ?? [];
-    const emitted = bindings.flatMap((binding) => {
-      const matches = traversalTable?.document.columns.filter((column) => (column.columnId ?? column.column) === binding.columnId) ?? [];
-      if (matches.length !== 1 || !binding.outputKey) return [];
-      const override = overrides.find((item) => item.key === binding.outputKey);
-      return [{ outputKey: binding.outputKey, columnId: binding.columnId, defaultName: matches[0].label || matches[0].column, enabled: override?.enabled ?? true }];
-    });
-    const emittedKeys = new Set(emitted.map((output) => output.outputKey));
-    const persistedDisabled = overrides.filter((output) => !output.enabled && !emittedKeys.has(output.key))
-      .map((output) => ({ outputKey: output.key, defaultName: output.name || output.key, enabled: false }));
-    return [...emitted, ...persistedDisabled];
-  };
-  const traversalOperationLabels = new Map(traversalSourceSteps.flatMap((step) => {
-    const parameters = step.parameters;
-    const name = parameters?.dynamic?.name ?? parameters?.extension?.name ?? parameters?.pivot?.name ?? parameters?.catalog?.name ?? parameters?.identity?.name;
-    return name ? [[step.id, `${step.kind === 'DYNAMIC_COLUMN' ? 'Keyed columns' : step.kind === 'PIVOT' ? 'Pivot' : step.kind === 'CATALOG_PROJECTION' ? 'Populated fields' : step.kind === 'IDENTITY' ? 'Row identity' : 'Extension columns'}: ${name}`] as const] : [];
-  }));
-  const editTraversalRows = () => {
-    if (!recipeMutationAllowed() || !table) return;
-    rememberRecipeFocus();
-    if (table.document.importedRecipe) {
-      const sourceStep = table.document.importedSource?.steps.find((step) => step.kind === 'EXPANSION')
-        ?? table.document.importedSource?.steps.find((step) => step.kind === 'OUTPUT');
-      if (sourceStep) { sourceStepEditAction.current?.(sourceStep.id); return; }
-    }
-    rowSettingsOpenAction.current?.();
-  };
   const canInspectOccurrence = Boolean(table && recipeOwner.state.status === 'saved' && !sourceRowsOpen && !sourceRecipeInspector && !workspaceEditor &&
     routeNode(table.document.route, inspectedOccurrenceId));
   const occurrenceInspection = canInspectOccurrence ? <div className="min-w-0" ref={setOccurrenceInspectorHost} /> : undefined;
@@ -4841,73 +1588,23 @@ const BuilderWorkspaceContent = ({
   const workspacePreviewProposalId = workspaceCandidatePreview?.receiptId ??
     (!rowIntentSession ? proposalResponse?.proposalId : undefined);
   const tableCreatorPanel = (
-    <section className="rounded-xl border border-blue-200 bg-white px-6 py-8 shadow-sm">
-      <h2 className="text-xl font-semibold text-slate-900">
-        {state.tables.length === 0 ? 'Build your first table' : 'Build another table'}
-      </h2>
-      {state.tables.length === 0 && previousDraftRevisionId ? (
-        <div className="mt-3">
-          <ConstructionUndoButton
-            onUndo={() => void restorePreviousDraft()}
-            disabled={pendingCommands > 0 || publishing || state.reconciliation === 'pending'}
-          />
-        </div>
-      ) : null}
-      <p className="mt-2 max-w-xl text-sm text-slate-600">
-        Choose a populated record type. Loom will add its direct ID column and
-        load a preview. The table name is optional.
-      </p>
-      <div className="mt-5 max-w-sm">
-        <label className="block text-sm font-medium text-slate-800" htmlFor="first-table-name">
-          Table name (optional)
-        </label>
-        <input
-          id="first-table-name"
-          value={firstTableName}
-          onChange={(event) => setFirstTableName(event.currentTarget.value)}
-          placeholder="Defaults to the record type"
-          disabled={firstTableProgress.kind === 'running'}
-          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-blue-500 focus:border-blue-500 disabled:bg-slate-100"
-        />
-      </div>
-      <div className="mt-5 max-w-3xl">
-        <RowRootPicker
-          catalog={state.catalog}
-          disabled={
-            pendingCommands > 0 ||
-            state.reconciliation === 'pending' ||
-            firstTableProgress.kind === 'running'
-          }
-          onChoose={(nodeId) => void createFirstTableFromRoot(nodeId)}
-        />
-      </div>
-      {firstTableProgress.kind === 'running' ? (
-        <p role="status" className="mt-4 text-sm text-blue-800">
-          {firstTableProgress.phase === 'checking'
-            ? `Checking ${firstTableProgress.resourceType} fields…`
-            : firstTableProgress.phase === 'creating'
-              ? `Creating ${firstTableProgress.resourceType} table…`
-              : firstTableProgress.phase === 'adding-id'
-                ? 'Adding the ID column…'
-                : 'Loading the preview…'}
-        </p>
-      ) : null}
-      {state.tables.length > 0 ? (
-        <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            disabled={firstTableProgress.kind === 'running'}
-            onClick={() => {
-              setTableCreatorOpen(false);
-              setFirstTableName('');
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      ) : null}
-    </section>
+    <TableCreatorPanel
+      isFirstTable={state.tables.length === 0}
+      previousDraftRevisionId={previousDraftRevisionId}
+      pendingCommands={pendingCommands}
+      publishing={publishing}
+      reconciliationPending={state.reconciliation === 'pending'}
+      firstTableName={firstTableName}
+      onFirstTableNameChange={setFirstTableName}
+      firstTableProgress={firstTableProgress}
+      catalog={state.catalog}
+      onChooseRoot={(nodeId) => void createFirstTableFromRoot(nodeId)}
+      onUndo={() => void restorePreviousDraft()}
+      onCancel={() => {
+        setTableCreatorOpen(false);
+        setFirstTableName('');
+      }}
+    />
   );
 
   const rootChangePreviewReady = pendingRowChangePreview?.status === 'ready' &&
@@ -5101,7 +1798,7 @@ const BuilderWorkspaceContent = ({
                   setSourceRowsOpen(false);
                   if (recipeOwner.state.status === 'saved') {
                     selectConstructionHistory({ kind: 'source' });
-                    cancelCombineCatalogRequest();
+                    combineCatalog.cancel();
                   }
                   selectTableFromUser(outputId);
                 }}

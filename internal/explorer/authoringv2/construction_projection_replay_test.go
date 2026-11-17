@@ -22,26 +22,16 @@ import (
 	"testing"
 )
 
-type formalProjectionCase struct {
-	ID     string `json:"id"`
-	Branch string `json:"branch"`
+type projectionBranchCase struct {
+	ID            string `json:"id"`
+	Branch        string `json:"branch"`
+	Accept        bool   `json:"accept"`
+	ErrorContains string `json:"error_contains"`
 }
 
-type formalProjectionResult struct {
-	ID     string `json:"id"`
-	Branch string `json:"branch"`
-	Accept bool   `json:"accept"`
-	Error  string `json:"error"`
-}
-
-var projectionBranches = []string{
-	"pivot-accept", "pivot-not-consumed",
-	"group-accept",
-	"filter-accept", "filter-wrong-column", "filter-nil-payload",
-	"derive-accept", "derive-not-operand",
-	"unpivot-accept", "unpivot-non-melt", "unpivot-nil-payload",
-	"owner-missing", "owner-stepid-empty", "default-combine-owner",
-	"carry-cross-noncarrier", "carry-missing-typed-output",
+type projectionBranchResults struct {
+	SchemaVersion int                    `json:"schemaVersion"`
+	Cases         []projectionBranchCase `json:"cases"`
 }
 
 func projectionFacts(columnID, owner string) ConstructionSourceProjection {
@@ -207,36 +197,6 @@ func projectionCaseProjection(branch string) ConstructionSourceProjection {
 	return projectionFacts(column, owner)
 }
 
-// projectionBranchExpectation is the single Go-side source of truth for the
-// observable outcome of every branch; the Node lane and contract assert the
-// same id/accept/substring triples through the batch channel.
-func projectionBranchExpectation(branch string) (accepted bool, contains string) {
-	switch branch {
-	case "pivot-accept", "group-accept", "filter-accept", "derive-accept", "unpivot-accept":
-		return true, ""
-	case "pivot-not-consumed", "default-combine-owner":
-		return false, "source projection must be consumed by its owner PIVOT step"
-	case "filter-wrong-column", "filter-nil-payload":
-		return false, "is not the column filtered by its owner FILTER step"
-	case "derive-not-operand":
-		return false, "is not a COLUMN operand of its owner DERIVE step"
-	case "unpivot-non-melt":
-		return false, "is not a melt input of its owner UNPIVOT step"
-	case "unpivot-nil-payload":
-		return false, "has no unpivot payload"
-	case "owner-missing":
-		return false, "does not exist"
-	case "owner-stepid-empty":
-		return false, "ownerStepId must be an exact step id"
-	case "carry-cross-noncarrier":
-		return false, "cannot cross GROUP before its owner PIVOT"
-	case "carry-missing-typed-output":
-		return false, "does not carry source projection"
-	default:
-		return false, "unknown projection branch"
-	}
-}
-
 var projectionDirectEntryBranches = map[string]bool{
 	"filter-nil-payload":    true,
 	"unpivot-nil-payload":   true,
@@ -244,102 +204,67 @@ var projectionDirectEntryBranches = map[string]bool{
 	"owner-stepid-empty":    true,
 }
 
-func runProjectionCase(branch string) (formalProjectionResult, error) {
+func runProjectionCase(branch string) (bool, string, error) {
 	construction, columns, err := projectionCaseConstruction(branch)
 	if err != nil {
-		return formalProjectionResult{}, err
+		return false, "", err
 	}
 	projection := projectionCaseProjection(branch)
 	construction.SourceProjections = []ConstructionSourceProjection{projection}
-	result := formalProjectionResult{ID: "projection-" + branch, Branch: branch}
 	runErr := construction.Validate(columns)
 	if runErr == nil {
-		result.Accept = true
-		return result, nil
+		return true, "", nil
 	}
-	result.Error = runErr.Error()
+	message := runErr.Error()
 	if projectionDirectEntryBranches[branch] {
 		if directErr := validatePivotSourceProjection(construction, projection); directErr != nil {
-			result.Error = directErr.Error()
+			message = directErr.Error()
 		}
 	}
-	return result, nil
+	return false, message, nil
 }
 
 func TestProjectionOwnerBranchReplay(t *testing.T) {
-	inputPath, outputPath := os.Getenv("LOOM_FORMAL_PROJECTION_INPUT"), os.Getenv("LOOM_FORMAL_PROJECTION_OUTPUT")
-	if inputPath == "" && outputPath == "" {
-		for _, branch := range projectionBranches {
-			result, err := runProjectionCase(branch)
-			if err != nil {
-				t.Fatal(err)
-			}
-			accepted, contains := projectionBranchExpectation(branch)
-			if result.Accept != accepted {
-				t.Fatalf("branch %s accepted=%v want %v err=%v", branch, result.Accept, accepted, result.Error)
-			}
-			if !accepted && !strings.Contains(result.Error, contains) {
-				t.Fatalf("branch %s error %q lacks %q", branch, result.Error, contains)
-			}
-			if accepted && result.Error != "" {
-				t.Fatalf("branch %s unexpectedly rejected: %v", branch, result.Error)
-			}
-		}
-		return
-	}
-	if inputPath == "" || outputPath == "" {
-		t.Fatal("both formal projection input and output paths are required")
-	}
-	file, err := os.Open(inputPath)
+	data, err := os.ReadFile("testdata/projection_owner_cases.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || info.Size() > 4<<20 {
-		t.Fatal("formal projection input exceeds size limit or cannot be inspected")
-	}
-	var input struct {
-		SchemaVersion int                    `json:"schemaVersion"`
-		Cases         []formalProjectionCase `json:"cases"`
-	}
-	decoder := json.NewDecoder(io.LimitReader(file, 4<<20))
+	var input projectionBranchResults
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
 		t.Fatal(err)
 	}
 	var extra any
 	if decoder.Decode(&extra) != io.EOF {
-		t.Fatal("trailing input")
+		t.Fatal("projection case data has trailing JSON")
 	}
-	known := map[string]bool{}
-	for _, branch := range projectionBranches {
-		known[branch] = true
+	if input.SchemaVersion != 1 || len(input.Cases) != 16 {
+		t.Fatalf("projection cases schema/count = %d/%d, want 1/16", input.SchemaVersion, len(input.Cases))
 	}
-	if input.SchemaVersion != 1 || len(input.Cases) == 0 || len(input.Cases) > 1024 {
-		t.Fatal("invalid formal projection case inventory")
-	}
-	seen, seenBranch := map[string]bool{}, map[string]bool{}
-	results := make([]formalProjectionResult, 0, len(input.Cases))
+	seen := map[string]bool{}
 	for _, row := range input.Cases {
-		if seen[row.ID] || !known[row.Branch] || seenBranch[row.Branch] {
-			t.Fatal("duplicate or unknown formal projection case")
+		if row.ID == "" || row.Branch == "" || seen[row.Branch] {
+			t.Fatalf("duplicate or empty projection case identity: %#v", row)
 		}
-		seen[row.ID], seenBranch[row.Branch] = true, true
-		result, err := runProjectionCase(row.Branch)
-		if err != nil {
-			t.Fatal(err)
-		}
-		results = append(results, result)
-	}
-	data, err := json.Marshal(struct {
-		SchemaVersion int                      `json:"schemaVersion"`
-		Results       []formalProjectionResult `json:"results"`
-	}{1, results})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(outputPath, data, 0600); err != nil {
-		t.Fatal(err)
+		seen[row.Branch] = true
+		t.Run(row.ID, func(t *testing.T) {
+			accepted, message, err := runProjectionCase(row.Branch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if accepted != row.Accept {
+				t.Fatalf("branch %s accepted=%v want %v; error=%q", row.Branch, accepted, row.Accept, message)
+			}
+			if row.Accept {
+				if message != "" || row.ErrorContains != "" {
+					t.Fatalf("accepted branch %s returned error %q or has error expectation %q", row.Branch, message, row.ErrorContains)
+				}
+				return
+			}
+			if row.ErrorContains == "" || !strings.Contains(message, row.ErrorContains) {
+				t.Fatalf("rejected branch %s error %q lacks frozen text %q", row.Branch, message, row.ErrorContains)
+			}
+		})
 	}
 }

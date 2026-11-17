@@ -1,5 +1,4 @@
 import { fireEvent, screen, within } from '@testing-library/react';
-import { isColumnFeatureAction } from './actionGuards';
 
 type RequestStep = Readonly<{
   readonly flowId: string;
@@ -100,13 +99,6 @@ const ensureDetailsOpen = (summaryText: string): void => {
   if (details instanceof HTMLDetailsElement && !details.open) fireEvent.click(summary);
 };
 
-const ensureAdvancedSourceSetupOpen = (): void => {
-  const summary = screen.queryByText('Advanced source setup', { exact: true });
-  if (!summary) return;
-  const details = summary.closest('details');
-  if (details instanceof HTMLDetailsElement && !details.open) fireEvent.click(summary);
-};
-
 const ensurePreviewColumnsOpen = (): void => {
   const button = screen.getByRole('button', { name: 'Columns' });
   if (button.getAttribute('aria-expanded') !== 'true') fireEvent.click(button);
@@ -122,20 +114,6 @@ const ensureCheck = (control: HTMLElement, checked: boolean): void => {
 const selectOption = (control: HTMLElement, value: string): void => {
   if (!(control instanceof HTMLSelectElement)) throw new Error('Expected a mounted select control.');
   fireEvent.change(control, { target: { value } });
-};
-
-const columnSelector = () => {
-  ensureAdvancedSourceSetupOpen();
-  const search = screen.getByRole('textbox', { name: 'Search columns' });
-  const aside = search.closest('aside');
-  if (!aside) throw new Error('ColumnSelector landmark is not mounted.');
-  return within(aside);
-};
-
-const configuredColumnRowElement = (columns: ReturnType<typeof columnSelector>, label: string): HTMLElement | undefined => {
-  const displayName = columns.queryByRole('textbox', { name: `Display name for configured ${label}` });
-  const row = displayName?.closest('div.grid');
-  return row instanceof HTMLElement ? row : undefined;
 };
 
 const savedFrame = (frameId: string) => {
@@ -156,39 +134,6 @@ const setCheckboxByLabel = (label: string, value: boolean): void => {
 
 const screenAction = (values: Values): string => requiredString(values, 'action');
 
-export const driveColumnPresentation = async (input: PeripheralDriveInput): Promise<void> => {
-  const values = assertAction(input, 'builder.column.presentation', 'driveColumnPresentation');
-  const label = getColumnLabel(values);
-  const action = screenAction(values);
-  const columns = columnSelector();
-  const rowElement = configuredColumnRowElement(columns, label);
-  const row = rowElement ? within(rowElement) : undefined;
-  if (action === 'rename') {
-    const nextLabel = optionalString(values, 'new_label') ?? requiredString(values, 'column_label');
-    const configured = row?.queryByRole('textbox', { name: `Display name for configured ${label}` });
-    const constructed = columns.queryByRole('textbox', { name: `Display name for construction output ${label}` });
-    const control = configured ?? constructed;
-    if (!control) throw new Error(`No configured column name control is mounted for ${label}.`);
-    setInput(control, nextLabel);
-    return;
-  }
-  if (action === 'visibility') {
-    ensureCheck((row ?? columns).getByRole('checkbox', { name: `Display ${label} in table` }), requiredBoolean(values, 'table_visible'));
-    return;
-  }
-  if (action === 'chart') {
-    const chart = values.chart_presentation;
-    const enabled = chart !== 'absent' && chart !== undefined && chart !== null && chart !== false;
-    ensureCheck((row ?? columns).getByRole('checkbox', { name: `Use ${label} as chart` }), enabled);
-    return;
-  }
-  if (action === 'move_to_end') {
-    fireEvent.click((row ?? columns).getByRole('button', { name: `Move ${label} to end` }));
-    return;
-  }
-  throw new Error(`Unsupported column presentation action "${action}".`);
-};
-
 export const driveGroupedRowValuePolicy = (input: PeripheralDriveInput): void => {
   const values = assertAction(input, 'builder.column.grouped_row_value_policy', 'driveGroupedRowValuePolicy');
   const label = getColumnLabel(values);
@@ -196,158 +141,6 @@ export const driveGroupedRowValuePolicy = (input: PeripheralDriveInput): void =>
   ensurePreviewColumnsOpen();
   const policy = enumValue(values, 'row_value_policy', ['ONE', 'ALL']);
   selectOption(screen.getByRole('combobox', { name: `Values per cohort member for ${label} (${column})` }), policy);
-};
-
-const featurePolicySelect = (scope: HTMLElement, label: string): HTMLElement => {
-  const controls = within(scope);
-  const exactCalculation = controls.queryByRole('combobox', { name: `Calculation for ${label}` });
-  if (exactCalculation) return exactCalculation;
-  const relatedCalculation = controls.getAllByRole('combobox').find((control) => {
-    const name = control.getAttribute('aria-label') ?? '';
-    return name.startsWith('Across related ') && name.endsWith(` records for ${label}`);
-  });
-  if (!relatedCalculation) throw new Error(`No calculation control is mounted for ${label}.`);
-  return relatedCalculation;
-};
-
-export const driveColumnFeaturePolicy = async (input: PeripheralDriveInput): Promise<void> => {
-  const values = assertAction(input, 'builder.column_selector.feature_policy', 'driveColumnFeaturePolicy');
-  const label = getColumnLabel(values);
-  const action = screenAction(values);
-  const columns = columnSelector();
-  const rowElement = configuredColumnRowElement(columns, label);
-  if (!rowElement) throw new Error(`No configured authored column row is mounted for ${label}.`);
-  const row = within(rowElement);
-  if (action === 'projection') {
-    const mode = enumValue(values, 'field_projection_mode', ['VALUE', 'INDEXED', 'FIRST', 'ALL', 'DISTINCT']);
-    selectOption(row.getByRole('combobox', { name: `Repeated values for ${label}` }), mode);
-    return;
-  }
-  if (isColumnFeatureAction(action)) {
-    const operation = requiredString(values, action === 'aggregate_operation' ? 'aggregate_operation' : 'related_field_reduction');
-    selectOption(featurePolicySelect(rowElement, label), operation);
-    return;
-  }
-  if (action === 'acknowledge_first_related') {
-    ensureCheck(row.getByRole('checkbox', { name: `Allow first related value for ${label}` }), requiredBoolean(values, 'acknowledged'));
-    return;
-  }
-  if (action === 'contributor') {
-    const contributor = row.getByRole('combobox', { name: `Contributors for ${label}` });
-    selectOption(contributor, optionalString(values, 'contributor_candidate_id') ?? '');
-    const candidateId = optionalString(values, 'contributor_candidate_id');
-    if (!candidateId) return;
-    const condition = enumValue(values, 'contributor_operator', ['EXISTS', 'EQUALS']);
-    const conditionControl = row.getByRole('combobox', { name: `Contributor condition for ${label}` });
-    selectOption(conditionControl, condition);
-    if (condition === 'EQUALS') {
-      const contributorValue = requiredString(values, 'contributor_value');
-      fireEvent.change(row.getByRole('textbox', { name: `Contributor value for ${label}` }), { target: { value: contributorValue } });
-      fireEvent.click(row.getByRole('button', { name: 'Apply condition' }));
-    }
-    return;
-  }
-  if (action === 'category_recode') {
-    const recode = objectValue(values, 'exact_category_recode');
-    const disposition = enumValue(recode, 'disposition', ['SET', 'REMOVE']);
-    if (disposition === 'REMOVE') {
-      const remove = row.queryByRole('button', { name: 'Remove saved recoding' }) ??
-        row.queryByRole('button', { name: 'Remove recoding' });
-      if (!remove) throw new Error(`No recoding removal control is mounted for ${label}.`);
-      fireEvent.click(remove);
-      return;
-    }
-    const summary = row.queryByText('Recode exact category values', { exact: true }) ??
-      row.getByText('Edit exact category recoding', { exact: true });
-    const details = summary.closest('details');
-    if (details instanceof HTMLDetailsElement && !details.open) fireEvent.click(summary);
-    const rawMappings = recode.mappings;
-    if (!Array.isArray(rawMappings)) throw new Error('SET exact_category_recode requires mappings.');
-    const mappings = rawMappings.map((entry, index) => {
-      if (!isRecord(entry)) throw new Error(`Mapping ${index + 1} must be an object.`);
-      const mapping = entry;
-      if (typeof mapping.from !== 'string' || typeof mapping.to !== 'string') throw new Error(`Mapping ${index + 1} requires string from/to values.`);
-      return { from: mapping.from, to: mapping.to };
-    });
-    let current = row.queryAllByRole('textbox', { name: /Recorded category \d+ for/ }).length;
-    while (current < mappings.length) {
-      fireEvent.click(row.getByRole('button', { name: 'Add mapping' }));
-      current += 1;
-    }
-    while (current > mappings.length) {
-      fireEvent.click(row.getByRole('button', { name: `Remove category mapping ${current} for ${label}` }));
-      current -= 1;
-    }
-    mappings.forEach((mapping, index) => {
-      fireEvent.change(row.getByRole('textbox', { name: `Recorded category ${index + 1} for ${label}` }), { target: { value: mapping.from } });
-      fireEvent.change(row.getByRole('textbox', { name: `Replacement value ${index + 1} for ${label}` }), { target: { value: mapping.to } });
-    });
-    const policy = enumValue(recode, 'unknownPolicy', ['ERROR', 'KEEP_ORIGINAL']);
-    selectOption(row.getByRole('combobox', { name: `Unmapped value policy for ${label}` }), policy);
-    fireEvent.click(row.getByRole('button', { name: 'Save recoding' }));
-    return;
-  }
-  if (action === 'temporal_window') {
-    const operation = optionalString(values, 'aggregate_operation');
-    if (operation) selectOption(featurePolicySelect(rowElement, label), operation);
-    const timestampPath = requiredString(values, 'timestamp_path');
-    const anchorPath = requiredString(values, 'anchor_path');
-    selectOption(await row.findByRole('combobox', { name: 'Record date' }), timestampPath);
-    selectOption(row.getByRole('combobox', { name: 'Compare with row date' }), anchorPath);
-    fireEvent.change(row.getByRole('spinbutton', { name: 'Look back days' }), { target: { value: String(requiredNumber(values, 'lookback_days')) } });
-    ensureCheck(row.getByLabelText('Include start boundary'), requiredBoolean(values, 'lower_inclusive'));
-    ensureCheck(row.getByLabelText('Include end boundary'), requiredBoolean(values, 'upper_inclusive'));
-    if (operation === 'FIRST_ORDERED') {
-      selectOption(row.getByRole('combobox', { name: 'Date selection direction' }), enumValue(values, 'direction', ['ASC', 'DESC']));
-      selectOption(row.getByRole('combobox', { name: 'Equal date handling' }), enumValue(values, 'tie_policy', ['REQUIRE_UNIQUE', 'RESOURCE_KEY']));
-    }
-    const button = operation === 'FIRST_ORDERED' ? 'Apply date selection' : 'Apply date window';
-    fireEvent.click(row.getByRole('button', { name: button }));
-    return;
-  }
-  if (action === 'unit_normalization') {
-    const normalize = row.queryByRole('button', { name: /^(Normalize units|Edit unit normalization)$/ });
-    if (normalize) fireEvent.click(normalize);
-    const policyId = requiredString(values, 'policy_id');
-    const version = requiredString(values, 'version');
-    const preset = JSON.stringify([policyId, version]);
-    selectOption(row.getByRole('combobox', { name: 'Unit conversion preset' }), preset);
-    fireEvent.click(row.getByRole('button', { name: 'Apply normalization' }));
-    return;
-  }
-  throw new Error(`Unsupported feature policy action "${action}".`);
-};
-
-export const driveColumnSelectorLocalSearch = (input: PeripheralDriveInput): void => {
-  const values = assertAction(input, 'builder.column_selector.local_search', 'driveColumnSelectorLocalSearch');
-  ensureAdvancedSourceSetupOpen();
-  fireEvent.change(screen.getByRole('textbox', { name: 'Search columns' }), { target: { value: requiredText(values, 'query') } });
-};
-
-export const driveRelatedAggregateSource = (input: PeripheralDriveInput): void => {
-  const values = assertAction(input, 'builder.column_selector.related_aggregate_source', 'driveRelatedAggregateSource');
-  const operation = enumValue(values, 'aggregate_operation', ['COUNT', 'EXISTS']);
-  fireEvent.click(screen.getByRole('button', { name: operation === 'COUNT' ? 'Count' : 'Yes / no' }));
-};
-
-export const driveRemoveConfiguredColumn = (input: PeripheralDriveInput): void => {
-  const values = assertAction(input, 'builder.column_selector.remove_configured_column', 'driveRemoveConfiguredColumn');
-  const label = getColumnLabel(values);
-  const columns = columnSelector();
-  const rowElement = configuredColumnRowElement(columns, label);
-  const row = rowElement ? within(rowElement) : undefined;
-  fireEvent.click((row ?? columns).getByRole('button', { name: `Remove ${label}` }));
-};
-
-export const driveColumnSourceInspection = async (input: PeripheralDriveInput): Promise<void> => {
-  const values = assertAction(input, 'builder.column_source.inspect', 'driveColumnSourceInspection');
-  const label = getColumnLabel(values);
-  const columns = columnSelector();
-  const rowElement = configuredColumnRowElement(columns, label);
-  const row = rowElement ? within(rowElement) : undefined;
-  if (!row) throw new Error(`No configured authored column row is mounted for ${label}.`);
-  fireEvent.click(row.getByRole('button', { name: 'Column details' }));
-  await screen.findByRole('region', { name: `Source for ${label}` });
 };
 
 export const driveDatasetReviewNavigation = async (input: PeripheralDriveInput): Promise<void> => {
@@ -580,40 +373,10 @@ export const drivePreviewRowSources = async (input: PeripheralDriveInput): Promi
 };
 
 export const peripheralAdapters = {
-  'builder.column.presentation': {
-    adapterId: 'peripheral.column.presentation', runnerActionId: 'driveColumnPresentation',
-    sourceRefs: ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:234', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:276', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:319', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:343', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4733'],
-    drive: driveColumnPresentation,
-  },
   'builder.column.grouped_row_value_policy': {
     adapterId: 'peripheral.column.grouped-row-value-policy', runnerActionId: 'driveGroupedRowValuePolicy',
     sourceRefs: ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:700', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:703', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4478'],
     drive: driveGroupedRowValuePolicy,
-  },
-  'builder.column_selector.feature_policy': {
-    adapterId: 'peripheral.column-selector.feature-policy', runnerActionId: 'driveColumnFeaturePolicy',
-    sourceRefs: ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:363', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:1090', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4767', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4795'],
-    drive: driveColumnFeaturePolicy,
-  },
-  'builder.column_selector.local_search': {
-    adapterId: 'peripheral.column-selector.local-search', runnerActionId: 'driveColumnSelectorLocalSearch',
-    sourceRefs: ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:546', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:661', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:882'],
-    drive: driveColumnSelectorLocalSearch,
-  },
-  'builder.column_selector.related_aggregate_source': {
-    adapterId: 'peripheral.column-selector.related-aggregate-source', runnerActionId: 'driveRelatedAggregateSource',
-    sourceRefs: ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:846', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx:207', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4721'],
-    drive: driveRelatedAggregateSource,
-  },
-  'builder.column_selector.remove_configured_column': {
-    adapterId: 'peripheral.column-selector.remove-configured-column', runnerActionId: 'driveRemoveConfiguredColumn',
-    sourceRefs: ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:353', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:359', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4739'],
-    drive: driveRemoveConfiguredColumn,
-  },
-  'builder.column_source.inspect': {
-    adapterId: 'peripheral.column-source.inspect', runnerActionId: 'driveColumnSourceInspection',
-    sourceRefs: ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:268', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:588', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4749', 'ui/packages/loom-ui/src/api.ts:1549'],
-    drive: driveColumnSourceInspection,
   },
   'builder.dataset_review.navigation': {
     adapterId: 'peripheral.dataset-review.navigation', runnerActionId: 'driveDatasetReviewNavigation',

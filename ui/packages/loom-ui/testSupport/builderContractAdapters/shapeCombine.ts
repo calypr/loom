@@ -772,9 +772,6 @@ const shapeCombineAdapters = {
     runnerActionId: 'driveSourceExpansion',
     sourceRefs: [
       'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:294',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx:269',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx:319',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx:373',
     ],
     drive: driveSourceExpansion,
   },

@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import ts from 'typescript';
 
 const root = new URL('../src/', import.meta.url);
 const forbidden = /(?:@gen3\/core|@gen3\/frontend|from ['"]next(?:\/|['"])|ProtectedContent|CalyprAuth)/;
@@ -19,6 +20,18 @@ await walk(root);
 const violations = [];
 for (const file of files) {
   const source = await readFile(file, 'utf8');
+  const syntax = ts.createSourceFile(file.pathname, source, ts.ScriptTarget.Latest, false);
+  for (const statement of syntax.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.moduleSpecifier.text !== 'react') continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    const importedEffects = bindings.elements
+      .map((binding) => (binding.propertyName ?? binding.name).text)
+      .filter((name) => effectNames.test(name));
+    if (importedEffects.length) {
+      violations.push(`${file.pathname}: React effect import(s) ${importedEffects.join(', ')} are forbidden. Derive state during rendering or update it through its owning action.`);
+    }
+  }
   if (forbidden.test(source)) violations.push(`${file.pathname}: forbidden Calypr dependency`);
   if (!/\.test\.tsx?$/.test(file.pathname) && /\bimport\s*\.\s*meta\s*\.\s*env\b/.test(source)) {
     violations.push(`${file.pathname}: Vite environment access belongs in the host app; pass configuration through props`);

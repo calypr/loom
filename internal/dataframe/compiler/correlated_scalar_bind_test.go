@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,13 +15,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 func TestCorrelatedScalarSelectorsPreserveOwnersAgainstArango(t *testing.T) {
-	endpoint := os.Getenv("LOOM_SELECTOR_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set LOOM_SELECTOR_ARANGO_URL to an existing Arango database URL")
-	}
+	endpoint := arangotest.Shared(t).URL
 	coding := func(system, code, version, display string) map[string]any {
 		return map[string]any{"system": system, "code": code, "version": version, "display": display}
 	}

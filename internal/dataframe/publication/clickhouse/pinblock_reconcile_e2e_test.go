@@ -2,54 +2,19 @@ package clickhouse
 
 import (
 	"context"
-	"errors"
-	"net/http"
-	"net/url"
-	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
-	"github.com/google/uuid"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
-// Candidate finding H2-a: a stalled export read-pin makes Reconcile abandon
-// every other stale execution and downgrade publication readiness.
-//
-// Source-verified wiring (unmodified):
-//   - internal/explorer/lifecycle/artifact.go:21 defaultArtifactTTL = 24h;
-//     :104 identity.ExpiresAt = now + artifactTTL(=24h); :152 the exact-export
-//     request carries PinExpiresAt = identity.ExpiresAt.
-//   - internal/dataframe/published/export.go:120-126 accepts ANY future
-//     PinExpiresAt, so a fresh artifact export pins the execution at now+24h;
-//     the renewal ticker (:156/:166 with defaultReadPinInterval=30s,
-//     defaultReadPinTTL=2min) is what first pulls it back to now+2min — but
-//     only at the FIRST 30s tick. A process crash inside that first window
-//     leaves a 24h live pin on the execution.
-//
-// Hypothesis: startup Reconcile (internal/server/server.go:556-558, a single
-// one-shot call: err -> recordDegradation + publicationReady=false) reaches
-// claimExecutionCleanup (bundle_store.go:301-313 -> ErrExecutionReadPinActive
-// when the real ClaimExecutionCleanup AQL bundle_registry.go:411-427 sees an
-// unexpired pin) for the pinned execution; reconcileExecution propagates the
-// error (bundle_store.go:1076-1079) and Reconcile's `process` loop aborts the
-// ENTIRE run on the first error (bundle_store.go:1033-1052, first error wins),
-// so an UNRELATED stale execution is never reclaimed and the whole deployment
-// loses publication readiness. Author intent hints otherwise (export.go:57
-// "shorter operation budget"); the doc on Reconcile (:1029-1032) advertises
-// "safe to call repeatedly during startup", implying a partial sweep must not
-// be able to veto the rest.
-//
-// This file drives the REAL Registry against a real Arango database and the
-// production Reconcile/reconcileExecution/claimExecutionCleanup paths verbatim
-// — the only fake is a ClickHouse effect recorder (like tocFakeClickHouse /
-// fbxClickHouse) that records which physical tables were dropped. No wrapper
-// injects any decision: the pin is created through the production catalog API.
+// These tests exercise reconciliation with a live read pin. The intended
+// behavior is to retain the pinned execution and continue reclaiming unrelated
+// stale executions. ARC-C13 tracks the current production failure to do so.
 //
 // Opt-in, same idiom as reconcile_toctou_e2e_test.go / abort_ackloss_e2e_test.go.
 // The tests own UUID databases named loom_verify_pbx_<hex> and delete only
@@ -102,44 +67,12 @@ func pbxDropped(set []string, table string) bool {
 	return false
 }
 
-func pbxCleanupDatabase(t *testing.T, endpoint, database string) {
-	t.Helper()
-	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cleanupCancel()
-	request, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(database), nil)
-	if err != nil {
-		t.Errorf("build cleanup request: %v", err)
-		return
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Errorf("drop database %s: %v", database, err)
-		return
-	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusForbidden {
-		t.Errorf("drop database %s: status %d", database, response.StatusCode)
-	}
-}
-
 func pbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
 	t.Helper()
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
-	if endpoint == "" {
-		t.Skip("set LOOM_TEST_ARANGO_URL")
-	}
+	database := arangotest.Owned(t, "loom_verify_pbx_")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
-	database := "loom_verify_pbx_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	t.Logf("owned arango database: %s", database)
-	client, err := storearango.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatalf("open arango: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		pbxCleanupDatabase(t, endpoint, database)
-	})
+	client := database.Client
 	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
@@ -147,7 +80,7 @@ func pbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	return registry, ctx, database[len("loom_verify_pbx_"):]
+	return registry, ctx, database.Name[len("loom_verify_pbx_"):]
 }
 
 // pbxExecution builds a stale FAILED execution under a distinct identity, so X
@@ -187,22 +120,9 @@ func pbxSeed(t *testing.T, registry *pubarango.Registry, ctx context.Context, ex
 	}
 }
 
-// TestStalePinBlocksEntireReconcileAgainstArango is the FINDING. Two stale
-// FAILED executions X (older) and Y, neither pointer-advertised, each with an
-// output table. X alone carries a never-released read pin through the real
-// catalog API (crash simulation). Production Reconcile is run once.
-//
-// Expected-buggy outcome (this test therefore fails ON PURPOSE):
-//
-//	(a) Reconcile returns an error for which errors.Is(err, ErrExecutionReadPinActive)
-//	    (bundle_store.go:1076-1079 via claimExecutionCleanup :301-313 /
-//	    bundle_registry.go:411-427);
-//	(b) X is not reclaimed — its DropTable is never issued (expected, legitimate);
-//	(c) DAMAGE: Y — an unrelated, pin-free, equally-stale execution — is ALSO
-//	    not reclaimed, because process aborted on X's error (bundle_store.go:1033-1052).
-//	    The control TestStalePinAbsentReclaimsAllAgainstArango proves Y's table
-//	    WOULD have been dropped with no pin present, so (c) is caused by the pin,
-//	    not harness ordering.
+// TestStalePinBlocksEntireReconcileAgainstArango keeps its historical name.
+// With two stale executions and a pin on X, Reconcile should retain X, reclaim
+// unrelated Y, and return no error.
 func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
 	registry, ctx, suffix := pbxSetup(t)
 
@@ -216,60 +136,33 @@ func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
 	pbxSeed(t, registry, ctx, x)
 	pbxSeed(t, registry, ctx, y)
 
-	// The crash-simulated export pin: acquired on X through the REAL catalog
-	// API with a 24h expiry, then never released. This is exactly the pin a
-	// process crash leaves behind inside export.go's first 30s pre-renewal
-	// window (PinExpiresAt = artifact identity.ExpiresAt = now+24h).
 	acquired, err := registry.AcquireExecutionReadPin(ctx, x.ID, "reader-crash-sim", base.Add(24*time.Hour))
 	if err != nil || !acquired {
 		t.Fatalf("precondition: real AcquireExecutionReadPin(X) failed: acquired=%v err=%v", acquired, err)
 	}
-	// Deliberately no ReleaseExecutionReadPin — this is the crash.
+	// Deliberately no ReleaseExecutionReadPin: this models a crashed reader.
 
 	ch := &pbxClickHouse{}
 	store, err := NewBundleStore(ch, registry)
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}
-
-	cutoff := time.Now().UTC().Add(-2 * time.Minute)
-	reconcileErr := store.Reconcile(ctx, cutoff)
-
+	reconcileErr := store.Reconcile(ctx, time.Now().UTC().Add(-2*time.Minute))
 	dropped := ch.droppedTables()
-	xRow, xRowErr := registry.GetExecution(ctx, x.ID)
-	yRow, yRowErr := registry.GetExecution(ctx, y.ID)
+	_, xRowErr := registry.GetExecution(ctx, x.ID)
+	_, yRowErr := registry.GetExecution(ctx, y.ID)
 	if xRowErr != nil || yRowErr != nil {
 		t.Fatalf("precondition: real rows unreadable after reconcile: X err=%v, Y err=%v", xRowErr, yRowErr)
 	}
 
-	pinErr := errors.Is(reconcileErr, pubpublication.ErrExecutionReadPinActive)
-	xReclaimed := pbxDropped(dropped, xTable)
-	yReclaimed := pbxDropped(dropped, yTable)
-
-	// (a) the pin must be the reason the run errored.
-	if !pinErr {
-		t.Errorf("FINDING NOT REPRODUCED (abort cause): expected errors.Is(err, ErrExecutionReadPinActive); reconcile returned: %v (dropped=%v)", reconcileErr, dropped)
+	if reconcileErr != nil {
+		t.Errorf("Reconcile must skip pinned X and complete the remaining sweep without error; got %v (dropped=%v)", reconcileErr, dropped)
 	}
-	// (a)+(c) the collateral: an unrelated, pin-free stale sibling is stranded.
-	if pinErr && !xReclaimed && !yReclaimed {
-		t.Errorf("CONFIRMED against real Arango (H2-a): one crashed export's never-released read pin on %q aborted the ENTIRE Reconcile run (bundle_store.go:1033-1052 first-error-wins; :1076-1079 propagates claimExecutionCleanup's ErrExecutionReadPinActive). Unrelated, pin-free, equally-stale execution %q was STRANDED: DropTable never issued for it. reconcileErr=%v; X(id=%s table=%s) reclaimed=%v state=%q reconcile-error-field=%q; Y(id=%s table=%s) reclaimed=%v state=%q reconcile-error-field=%q; full dropped set=%v. Contrast control TestStalePinAbsentReclaimsAllAgainstArango: with no pin BOTH %s and %s are dropped by the very same production Reconcile. Startup impact: internal/server/server.go:556-558 turns this one error into recordDegradation + publicationReady=false (bundleTarget stays nil at :560-562, consumed at :823) with NO retry/background re-run of bundle-store Reconcile anywhere in server startup.",
-			x.ID, y.ID, reconcileErr, x.ID, xTable, xReclaimed, xRow.State, xRow.Error, y.ID, yTable, yReclaimed, yRow.State, yRow.Error, dropped, xTable, yTable)
-	} else if pinErr && !xReclaimed && yReclaimed {
-		// A compensating skip-and-continue path would land here. Do not let it
-		// pass silently: this would refute the hypothesis and must be visible.
-		t.Errorf("UNEXPECTED: pin abort did NOT strand sibling Y (dropped=%v); a compensating path exists in Reconcile — re-examine hypothesis H2-a", dropped)
+	if pbxDropped(dropped, xTable) {
+		t.Errorf("Reconcile reclaimed pinned execution X; its table must remain until the read pin expires (dropped=%v)", dropped)
 	}
-
-	if xReclaimed {
-		t.Errorf("unexpected: pinned execution X was reclaimed despite the live pin (dropped=%v)", dropped)
-	}
-	// Y never reached reconcileExecution, so its row is untouched: still FAILED
-	// and never stamped with Reconcile's cleanup marker.
-	if yRow.State != pubpublication.BundleFailed {
-		t.Errorf("unexpected: strayed sibling Y changed state to %q; expected untouched %q", yRow.State, pubpublication.BundleFailed)
-	}
-	if yRow.Error != "" {
-		t.Errorf("unexpected: sibling Y carries reconcile marker %q; expected untouched empty error (proves reconcileExecution never ran for Y)", yRow.Error)
+	if !pbxDropped(dropped, yTable) {
+		t.Errorf("Reconcile did not reclaim unrelated stale execution Y while X was pinned (dropped=%v)", dropped)
 	}
 }
 
@@ -320,11 +213,9 @@ func TestStalePinAbsentReclaimsAllAgainstArango(t *testing.T) {
 	t.Logf("CONTROL OK: with no pins, the identical production Reconcile reclaimed BOTH stale executions (dropped=%v); each row marked %q. This is the exact sibling that the pin-aborted run in the finding test stranded.", dropped, "stale execution reconciled")
 }
 
-// TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango is the
-// single-target expected-behavior probe and is EXPECTED TO PASS: only the
-// pinned X is stale, so the run abort on ErrExecutionReadPinActive causes no
-// collateral. This isolates the collateral in the finding test: it arises only
-// when a sibling is present, not from the abort per se.
+// TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango keeps its
+// historical name while checking that a single pinned candidate does not abort
+// reconciliation or cause its table to be dropped.
 func TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango(t *testing.T) {
 	registry, ctx, suffix := pbxSetup(t)
 
@@ -344,16 +235,12 @@ func TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}
-
-	cutoff := time.Now().UTC().Add(-2 * time.Minute)
-	reconcileErr := store.Reconcile(ctx, cutoff)
-
-	dropped := ch.droppedTables()
-	if !errors.Is(reconcileErr, pubpublication.ErrExecutionReadPinActive) {
-		t.Fatalf("PROBE FAILED: with the only stale execution pinned, Reconcile must return ErrExecutionReadPinActive (claimExecutionCleanup :301-313 refuses while the real ClaimExecutionCleanup AQL :411-427 sees an unexpired pin); got: %v (dropped=%v)", reconcileErr, dropped)
+	reconcileErr := store.Reconcile(ctx, time.Now().UTC().Add(-2*time.Minute))
+	if reconcileErr != nil {
+		t.Fatalf("Reconcile must skip the pinned stale execution and complete without error; got %v (dropped=%v)", reconcileErr, ch.droppedTables())
 	}
-	if pbxDropped(dropped, xTable) {
-		t.Fatalf("PROBE FAILED: pinned execution X was reclaimed despite the live pin (dropped=%v)", dropped)
+	if pbxDropped(ch.droppedTables(), xTable) {
+		t.Fatalf("Reconcile reclaimed pinned execution X (dropped=%v)", ch.droppedTables())
 	}
-	t.Logf("PROBE OK (single target, no collateral): Reconcile returns ErrExecutionReadPinActive and leaves the pinned stale X untouched. Reconcile's doc (bundle_store.go:1029-1032) says it is 'safe to call repeatedly during startup' — a single legitimately-pinned stale execution that vetoes the entire startup sweep is NOT 'safe' under the finding-test scenario, because the doc implies a repeatable/benign partial sweep. My read: aborting the whole run is defensible ONLY when the pinned execution is the sole candidate (this probe, no collateral). When an unrelated stale sibling exists (finding test) the same all-or-nothing abort converts a legitimate per-execution 'not reclaimable yet' signal (+24h until the pin expires or the process restarts, and re-fails on any restart inside the window) into a deployment-wide publicationReady=false gate (server.go:556-558, no retry path) that strands every other stale execution. Skip-and-continue (collect the pin-active error, keep sweeping, surface it non-fatally) matches the Reconcile doc and the export.go:57 'shorter operation budget' intent")
+	t.Log("Reconcile skipped the only pinned candidate and completed without dropping its table")
 }

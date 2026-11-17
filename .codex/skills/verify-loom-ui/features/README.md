@@ -1,9 +1,10 @@
-# Loom UI feature map
+# External Calypr UI coverage
 
-- [Builder load](builder-load.md)
-- [Catalog navigation](catalog-navigation.md)
-- [Draft authoring](draft-authoring.md)
-- [Preview](preview.md)
-- [Publication](publication.md)
+- [Builder load](builder-load.md): authenticated routing, API envelope, visible load failure, and browser diagnostics.
+- [Catalog navigation](catalog-navigation.md): returned catalog summary; navigation itself is not automated.
 
-Only Builder load is automated by the current read-only harness. Extend the driver when a feature needs a repeatable browser proof.
+The read-only helper covers initial Builder loading on the external Calypr
+deployment, which is not managed in this repository. Draft authoring, preview,
+publication, graph navigation, and recovery after clicking retry are not covered.
+A new write-capable case needs a dedicated owned Explorer and explicit scope.
+Local Builder e2e cases are documented in [verify](../../verify/SKILL.md).

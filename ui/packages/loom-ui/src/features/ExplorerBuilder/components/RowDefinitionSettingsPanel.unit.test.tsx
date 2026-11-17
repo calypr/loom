@@ -279,11 +279,6 @@ const replacementConsequenceTable: DraftTable = {
   },
 };
 
-const replacementShapeTable: DraftTable = {
-  ...patientWorkspaceTable,
-  document: { ...patientWorkspaceTable.document, tableShape: { reshape: { kind: 'PIVOT' } } },
-};
-
 const relatedRowProps = {
   currentRowMeaning: 'One row per source record',
   startingCollectionSummary: 'Starting collection: All authorized Patient records',
@@ -720,7 +715,7 @@ describe('RowDefinitionSettingsPanel', () => {
       removedFeatureKeys: featureKeys,
       proposal: { ...replacementAssessment.proposal, removedFeatureKeys: featureKeys },
     };
-    renderSettings({ tableValue: replacementShapeTable, replacementAssessment: assessmentWithEffects });
+    renderSettings({ tableValue: patientWorkspaceTable, replacementAssessment: assessmentWithEffects });
     fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
     await screen.findByRole('combobox', { name: 'Rows per starting record' });
     fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));

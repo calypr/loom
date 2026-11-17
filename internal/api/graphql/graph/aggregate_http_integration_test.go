@@ -330,3 +330,18 @@ func TestGraphQLTableRenderCombinesRowsAndTermsFacets(t *testing.T) {
 		t.Fatalf("catalog discovery calls = %d, want 1", catalog.lists.Load())
 	}
 }
+
+func (c *aggregateHTTPCatalog) FindExecutionBySelector(_ context.Context, project, generation string, selector dfpublication.DataframeSelector) (dfpublication.BundleExecution, dfpublication.BundleOutputRecord, error) {
+	if c.execution.Project == project && c.execution.DatasetGeneration == generation && c.execution.State.Successful() {
+		for _, output := range c.execution.Outputs {
+			resolved := output.Selector
+			if !resolved.Valid() {
+				resolved = c.execution.Selector(output.Name)
+			}
+			if output.Queryable() && resolved == selector {
+				return c.execution, output, nil
+			}
+		}
+	}
+	return dfpublication.BundleExecution{}, dfpublication.BundleOutputRecord{}, dfpublication.ErrBundleNotFound
+}

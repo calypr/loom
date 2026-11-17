@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { RouteFixture } from './routeFixture';
 import { createRoot } from 'react-dom/client';
 import { MantineProvider } from '@mantine/core';
@@ -36,6 +36,8 @@ const runtime: ExplorerRuntimeV1 = {
   fileActions: { extensions: { txt: ['file_download'] }, actions: { file_download: new URLSearchParams(location.search).get('downloadBase') === 'query' ? '/download?source=viewer&redirect=false#details' : '/download' } },
 };
 function App() {
+  const [limit, setLimit] = useState<25 | 50 | 100 | 500 | 1000>(25);
+  const [limitChanges, setLimitChanges] = useState<number[]>([]);
   const table: DraftTable = { outputId: 'rows', tabId: 'rows', title: 'Rows', document: {
     kind: 'ExplorerBuilderDocument', output: { id: 'rows', title: 'Rows' }, rootResourceType: 'Patient',
     route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns,
@@ -46,7 +48,7 @@ function App() {
       ? <OutputTable runtime={runtime} output={runtime.outputs[0]}
           result={{ columns: ['file'], rows: [{ file: fileId, file_name: 'fixture.txt' }], rowIds: ['file-row-A'], totalCount: 1, pageInfo: { hasNextPage: false }, facets: [] }}
           state={createViewerReducerState(runtime)} dispatch={() => undefined} />
-      : <PreviewTable preview={preview} table={table} limit={25} onLimitChange={() => undefined} />}
+      : <><output data-testid="preview-limit-state">{JSON.stringify({ limit, changes: limitChanges })}</output><PreviewTable preview={preview} table={table} limit={limit} onLimitChange={(next) => { setLimit(next); setLimitChanges((previous) => [...previous, next]); }} /></>}
   </main></MantineProvider>;
 }
 createRoot(document.getElementById('root')!).render(<App />);

@@ -1,0 +1,661 @@
+{
+  "cases": [
+    {
+      "id": "S1",
+      "rTarget": 1,
+      "sTarget": 1,
+      "savePosition": "before-entry",
+      "previewAfterAdvance": false
+    },
+    {
+      "id": "S2",
+      "rTarget": 1,
+      "sTarget": 1,
+      "savePosition": "in-compile",
+      "previewAfterAdvance": false
+    },
+    {
+      "id": "S3",
+      "rTarget": 2,
+      "sTarget": 1,
+      "savePosition": "before-entry",
+      "previewAfterAdvance": false
+    },
+    {
+      "id": "S4",
+      "rTarget": 1,
+      "sTarget": 1,
+      "savePosition": "none",
+      "previewAfterAdvance": false
+    },
+    {
+      "id": "S5",
+      "rTarget": 2,
+      "sTarget": 1,
+      "savePosition": "none",
+      "previewAfterAdvance": false
+    },
+    {
+      "id": "S6",
+      "rTarget": 1,
+      "sTarget": 2,
+      "savePosition": "before-entry",
+      "previewAfterAdvance": false
+    },
+    {
+      "id": "S7",
+      "rTarget": 1,
+      "sTarget": 2,
+      "savePosition": "in-compile",
+      "previewAfterAdvance": false
+    },
+    {
+      "id": "S8",
+      "rTarget": 1,
+      "sTarget": 1,
+      "savePosition": "in-compile",
+      "previewAfterAdvance": true
+    }
+  ],
+  "expected": [
+    {
+      "id": "S1",
+      "reconcileStatus": 409,
+      "reconcilePhase": "rejected",
+      "receiptReported": false,
+      "receiptEmitted": false,
+      "receiptLabel": "",
+      "previewStatus": 0,
+      "previewOk": false,
+      "previewLabel": "",
+      "saveStatus": 200,
+      "saveApplied": true,
+      "headVersion": 2,
+      "headLabel": "Patient Competing B",
+      "error": "",
+      "events": [
+        {
+          "name": "Observe",
+          "claims": {
+            "headVersion": 1
+          }
+        },
+        {
+          "name": "SaveDispatch",
+          "claims": {
+            "applied": true,
+            "status": 200
+          }
+        },
+        {
+          "name": "SaveAck",
+          "claims": {
+            "headVersion": 2
+          }
+        },
+        {
+          "name": "REntryReject",
+          "claims": {
+            "status": 409
+          }
+        },
+        {
+          "name": "Observe",
+          "claims": {
+            "hasReceipts": false,
+            "headVersion": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "S2",
+      "reconcileStatus": 200,
+      "reconcilePhase": "completed",
+      "receiptReported": true,
+      "receiptEmitted": true,
+      "receiptLabel": "Patient ID",
+      "previewStatus": 200,
+      "previewOk": true,
+      "previewLabel": "Patient ID",
+      "saveStatus": 200,
+      "saveApplied": true,
+      "headVersion": 2,
+      "headLabel": "Patient Competing B",
+      "error": "",
+      "events": [
+        {
+          "name": "Observe",
+          "claims": {
+            "headVersion": 1
+          }
+        },
+        {
+          "name": "REntryAccept",
+          "claims": {
+            "captured": 1
+          }
+        },
+        {
+          "name": "RCapture",
+          "claims": {}
+        },
+        {
+          "name": "SaveDispatch",
+          "claims": {
+            "applied": true,
+            "status": 200
+          }
+        },
+        {
+          "name": "SaveAck",
+          "claims": {
+            "headVersion": 2
+          }
+        },
+        {
+          "name": "RPersist",
+          "claims": {
+            "receiptLabel": "Patient ID"
+          }
+        },
+        {
+          "name": "RComplete",
+          "claims": {
+            "status": 200
+          }
+        },
+        {
+          "name": "PreviewExec",
+          "claims": {
+            "previewLabel": "Patient ID",
+            "receiptLabel": "Patient ID",
+            "status": 200
+          }
+        },
+        {
+          "name": "Observe",
+          "claims": {
+            "hasReceipts": true,
+            "headVersion": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "S3",
+      "reconcileStatus": 200,
+      "reconcilePhase": "completed",
+      "receiptReported": true,
+      "receiptEmitted": true,
+      "receiptLabel": "Patient Competing B",
+      "previewStatus": 200,
+      "previewOk": true,
+      "previewLabel": "Patient Competing B",
+      "saveStatus": 200,
+      "saveApplied": true,
+      "headVersion": 2,
+      "headLabel": "Patient Competing B",
+      "error": "",
+      "events": [
+        {
+          "name": "Observe",
+          "claims": {
+            "headVersion": 1
+          }
+        },
+        {
+          "name": "SaveDispatch",
+          "claims": {
+            "applied": true,
+            "status": 200
+          }
+        },
+        {
+          "name": "SaveAck",
+          "claims": {
+            "headVersion": 2
+          }
+        },
+        {
+          "name": "REntryAccept",
+          "claims": {
+            "captured": 2
+          }
+        },
+        {
+          "name": "RCapture",
+          "claims": {}
+        },
+        {
+          "name": "RPersist",
+          "claims": {
+            "receiptLabel": "Patient Competing B"
+          }
+        },
+        {
+          "name": "RComplete",
+          "claims": {
+            "status": 200
+          }
+        },
+        {
+          "name": "PreviewExec",
+          "claims": {
+            "previewLabel": "Patient Competing B",
+            "receiptLabel": "Patient Competing B",
+            "status": 200
+          }
+        },
+        {
+          "name": "Observe",
+          "claims": {
+            "hasReceipts": true,
+            "headVersion": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "S4",
+      "reconcileStatus": 200,
+      "reconcilePhase": "completed",
+      "receiptReported": true,
+      "receiptEmitted": true,
+      "receiptLabel": "Patient ID",
+      "previewStatus": 200,
+      "previewOk": true,
+      "previewLabel": "Patient ID",
+      "saveStatus": 0,
+      "saveApplied": false,
+      "headVersion": 1,
+      "headLabel": "Patient ID",
+      "error": "",
+      "events": [
+        {
+          "name": "Observe",
+          "claims": {
+            "headVersion": 1
+          }
+        },
+        {
+          "name": "REntryAccept",
+          "claims": {
+            "captured": 1
+          }
+        },
+        {
+          "name": "RCapture",
+          "claims": {}
+        },
+        {
+          "name": "RPersist",
+          "claims": {
+            "receiptLabel": "Patient ID"
+          }
+        },
+        {
+          "name": "RComplete",
+          "claims": {
+            "status": 200
+          }
+        },
+        {
+          "name": "PreviewExec",
+          "claims": {
+            "previewLabel": "Patient ID",
+            "receiptLabel": "Patient ID",
+            "status": 200
+          }
+        },
+        {
+          "name": "Observe",
+          "claims": {
+            "hasReceipts": true,
+            "headVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "S5",
+      "reconcileStatus": 409,
+      "reconcilePhase": "rejected",
+      "receiptReported": false,
+      "receiptEmitted": false,
+      "receiptLabel": "",
+      "previewStatus": 0,
+      "previewOk": false,
+      "previewLabel": "",
+      "saveStatus": 0,
+      "saveApplied": false,
+      "headVersion": 1,
+      "headLabel": "Patient ID",
+      "error": "",
+      "events": [
+        {
+          "name": "Observe",
+          "claims": {
+            "headVersion": 1
+          }
+        },
+        {
+          "name": "REntryReject",
+          "claims": {
+            "status": 409
+          }
+        },
+        {
+          "name": "Observe",
+          "claims": {
+            "hasReceipts": false,
+            "headVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "S6",
+      "reconcileStatus": 200,
+      "reconcilePhase": "completed",
+      "receiptReported": true,
+      "receiptEmitted": true,
+      "receiptLabel": "Patient ID",
+      "previewStatus": 200,
+      "previewOk": true,
+      "previewLabel": "Patient ID",
+      "saveStatus": 409,
+      "saveApplied": false,
+      "headVersion": 1,
+      "headLabel": "Patient ID",
+      "error": "",
+      "events": [
+        {
+          "name": "Observe",
+          "claims": {
+            "headVersion": 1
+          }
+        },
+        {
+          "name": "SaveDispatch",
+          "claims": {
+            "applied": false,
+            "status": 409
+          }
+        },
+        {
+          "name": "REntryAccept",
+          "claims": {
+            "captured": 1
+          }
+        },
+        {
+          "name": "RCapture",
+          "claims": {}
+        },
+        {
+          "name": "RPersist",
+          "claims": {
+            "receiptLabel": "Patient ID"
+          }
+        },
+        {
+          "name": "RComplete",
+          "claims": {
+            "status": 200
+          }
+        },
+        {
+          "name": "PreviewExec",
+          "claims": {
+            "previewLabel": "Patient ID",
+            "receiptLabel": "Patient ID",
+            "status": 200
+          }
+        },
+        {
+          "name": "Observe",
+          "claims": {
+            "hasReceipts": true,
+            "headVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "S7",
+      "reconcileStatus": 200,
+      "reconcilePhase": "completed",
+      "receiptReported": true,
+      "receiptEmitted": true,
+      "receiptLabel": "Patient ID",
+      "previewStatus": 200,
+      "previewOk": true,
+      "previewLabel": "Patient ID",
+      "saveStatus": 409,
+      "saveApplied": false,
+      "headVersion": 1,
+      "headLabel": "Patient ID",
+      "error": "",
+      "events": [
+        {
+          "name": "Observe",
+          "claims": {
+            "headVersion": 1
+          }
+        },
+        {
+          "name": "REntryAccept",
+          "claims": {
+            "captured": 1
+          }
+        },
+        {
+          "name": "RCapture",
+          "claims": {}
+        },
+        {
+          "name": "SaveDispatch",
+          "claims": {
+            "applied": false,
+            "status": 409
+          }
+        },
+        {
+          "name": "RPersist",
+          "claims": {
+            "receiptLabel": "Patient ID"
+          }
+        },
+        {
+          "name": "RComplete",
+          "claims": {
+            "status": 200
+          }
+        },
+        {
+          "name": "PreviewExec",
+          "claims": {
+            "previewLabel": "Patient ID",
+            "receiptLabel": "Patient ID",
+            "status": 200
+          }
+        },
+        {
+          "name": "Observe",
+          "claims": {
+            "hasReceipts": true,
+            "headVersion": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "S8",
+      "reconcileStatus": 200,
+      "reconcilePhase": "completed",
+      "receiptReported": true,
+      "receiptEmitted": true,
+      "receiptLabel": "Patient ID",
+      "previewStatus": 200,
+      "previewOk": true,
+      "previewLabel": "Patient ID",
+      "saveStatus": 200,
+      "saveApplied": true,
+      "headVersion": 2,
+      "headLabel": "Patient Competing B",
+      "error": "",
+      "events": [
+        {
+          "name": "Observe",
+          "claims": {
+            "headVersion": 1
+          }
+        },
+        {
+          "name": "REntryAccept",
+          "claims": {
+            "captured": 1
+          }
+        },
+        {
+          "name": "RCapture",
+          "claims": {}
+        },
+        {
+          "name": "SaveDispatch",
+          "claims": {
+            "applied": true,
+            "status": 200
+          }
+        },
+        {
+          "name": "SaveAck",
+          "claims": {
+            "headVersion": 2
+          }
+        },
+        {
+          "name": "RPersist",
+          "claims": {
+            "receiptLabel": "Patient ID"
+          }
+        },
+        {
+          "name": "RComplete",
+          "claims": {
+            "status": 200
+          }
+        },
+        {
+          "name": "PreviewExec",
+          "claims": {
+            "previewLabel": "Patient ID",
+            "receiptLabel": "Patient ID",
+            "status": 200
+          }
+        },
+        {
+          "name": "PreviewExec",
+          "claims": {
+            "previewLabel": "Patient ID",
+            "receiptLabel": "Patient ID",
+            "status": 200
+          }
+        },
+        {
+          "name": "Observe",
+          "claims": {
+            "hasReceipts": true,
+            "headVersion": 2
+          }
+        }
+      ]
+    }
+  ],
+  "concretePrograms": [
+    {
+      "id": "C14-A-B-A"
+    }
+  ],
+  "expectedConcrete": [
+    {
+      "id": "C14-A-B-A",
+      "seedVersion": 1,
+      "seedDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+      "saveBStatus": 200,
+      "saveBDigest": "sha256:beed9d126085b444a7ff2c20828d2d40e8e377dfff1a3f3d249ce32a9fd164b9",
+      "saveAStatus": 200,
+      "saveAVersion": 3,
+      "saveADigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+      "mergeValueZone": true,
+      "staleAttempt": {
+        "requestId": "formal-c14-C14-A-B-A-stale",
+        "draftVersion": 1,
+        "draftDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+        "success": false,
+        "headVersion": 3,
+        "headDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+        "hasReceipt": false
+      },
+      "stale2Attempt": {
+        "requestId": "formal-c14-C14-A-B-A-stale2",
+        "draftVersion": 3,
+        "draftDigest": "sha256:beed9d126085b444a7ff2c20828d2d40e8e377dfff1a3f3d249ce32a9fd164b9",
+        "success": false,
+        "headVersion": 3,
+        "headDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+        "hasReceipt": false
+      },
+      "stale3Attempt": {
+        "requestId": "formal-c14-C14-A-B-A-stale3",
+        "draftVersion": 1,
+        "draftDigest": "sha256:beed9d126085b444a7ff2c20828d2d40e8e377dfff1a3f3d249ce32a9fd164b9",
+        "success": false,
+        "headVersion": 3,
+        "headDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+        "hasReceipt": false
+      },
+      "validAttempt": {
+        "requestId": "formal-c14-C14-A-B-A-valid",
+        "draftVersion": 3,
+        "draftDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+        "success": true,
+        "headVersion": 3,
+        "headDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+        "hasReceipt": true,
+        "receiptId": "receipt_e9c6ac52405ad3ac635d81c54c0cdc880fd16dfe33781e70d573b452944d513b"
+      },
+      "replayAttempt": {
+        "requestId": "formal-c14-C14-A-B-A-valid",
+        "draftVersion": 3,
+        "draftDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+        "success": true,
+        "headVersion": 3,
+        "headDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366",
+        "hasReceipt": false,
+        "receiptId": "receipt_e9c6ac52405ad3ac635d81c54c0cdc880fd16dfe33781e70d573b452944d513b"
+      },
+      "previewStatus": 200,
+      "previewReceipt": "receipt_e9c6ac52405ad3ac635d81c54c0cdc880fd16dfe33781e70d573b452944d513b",
+      "validLabel": "Patient ID",
+      "revisions": [
+        {
+          "revisionId": "draft_revision_core-protocol_1",
+          "found": true,
+          "draftVersion": 1,
+          "draftDigest": "sha256:2f09f16a62478fff1c1669dea92166f871cd2ae931842a23ae6e19b74626a366"
+        },
+        {
+          "revisionId": "draft_revision_core-protocol_2",
+          "found": true,
+          "draftVersion": 2,
+          "draftDigest": "sha256:beed9d126085b444a7ff2c20828d2d40e8e377dfff1a3f3d249ce32a9fd164b9"
+        }
+      ],
+      "staleError": "DRAFT_CONFLICT",
+      "stale2Error": "DRAFT_CONFLICT",
+      "stale3Error": "DRAFT_CONFLICT"
+    }
+  ]
+}

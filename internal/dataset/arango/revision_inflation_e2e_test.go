@@ -4,16 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/dataset"
 	store "github.com/calypr/loom/internal/store/arango"
-	"github.com/google/uuid"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 // F-B15 durable control (product repaired in REPAIR-5/Round 31; the red arm
@@ -40,42 +37,10 @@ func (riNoopVerifier) VerifyPublication(context.Context, string, string, dataset
 
 func riOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Store) {
 	t.Helper()
-	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set owned LOOM_TEST_ARANGO_URL")
-	}
-	name := riDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if !strings.HasPrefix(name, riDatabasePrefix) {
-		t.Fatalf("verification database %q escapes the %s prefix", name, riDatabasePrefix)
-	}
+	database := arangotest.Owned(t, riDatabasePrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
-	client, err := store.Open(ctx, endpoint, name)
-	if err != nil {
-		t.Fatalf("open %s: %v", name, err)
-	}
-	t.Logf("RI_DATABASE=%s", name)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
-		defer stop()
-		req, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(name), nil)
-		if err != nil {
-			t.Errorf("build cleanup request for %s: %v", name, err)
-			return
-		}
-		response, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Errorf("cleanup %s: %v", name, err)
-			return
-		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("cleanup %s status=%d", name, response.StatusCode)
-			return
-		}
-		t.Logf("RI_DATABASE_REMOVED=%s", name)
-	})
+	client := database.Client
 	if err := client.Bootstrap(ctx, BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
 	}

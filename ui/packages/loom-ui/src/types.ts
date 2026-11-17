@@ -1533,7 +1533,7 @@ const constructionScalarSourceInputSchema = z.object({
   }).strict()),
 }).strict();
 
-const constructionFilterSourceChoiceSchema = z.object({
+const constructionSourceChoiceSchema = z.object({
   choiceId: z.string().min(1),
   // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
   columnId: z.string().optional(),
@@ -1543,31 +1543,23 @@ const constructionFilterSourceChoiceSchema = z.object({
   isPopulated: z.boolean(),
 }).strict();
 
-const constructionFilterSourceInputSchema = z.object({
+const constructionFilterSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionDeriveSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionUnpivotSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionExpandSourceChoiceSchema = constructionSourceChoiceSchema;
+
+const constructionSourceInputSchema = z.object({
   supported: z.boolean(),
   stageId: opaqueIdSchema,
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
-  choices: z.array(constructionFilterSourceChoiceSchema),
+  choices: z.array(constructionSourceChoiceSchema),
 }).strict();
 
-const constructionDeriveSourceChoiceSchema = z.object({
-  choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
-  columnId: z.string().optional(),
-  fieldPath: z.string().min(1),
-  label: z.string().min(1),
-  logicalType: z.string().min(1),
-  isPopulated: z.boolean(),
-}).strict();
-
-const constructionDeriveSourceInputSchema = z.object({
-  supported: z.boolean(),
-  stageId: opaqueIdSchema,
-  reasonCode: z.string().optional(),
-  reason: z.string().optional(),
-  choices: z.array(constructionDeriveSourceChoiceSchema),
-}).strict();
+const constructionFilterSourceInputSchema = constructionSourceInputSchema;
+const constructionDeriveSourceInputSchema = constructionSourceInputSchema;
+const constructionUnpivotSourceInputSchema = constructionSourceInputSchema;
+const constructionExpandSourceInputSchema = constructionSourceInputSchema;
 
 export const constructionSourceProjectionAvailabilitySchema = z.object({
   stageId: opaqueIdSchema,
@@ -1576,73 +1568,23 @@ export const constructionSourceProjectionAvailabilitySchema = z.object({
   reason: z.string().optional(),
 }).strict();
 
-export const constructionPivotSourceSelectionSchema = z.object({
+const constructionSourceSelectionSchema = z.object({
   choiceId: opaqueIdSchema,
   columnId: opaqueIdSchema,
 }).strict();
+export const constructionPivotSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionPivotSourceSelection = z.infer<typeof constructionPivotSourceSelectionSchema>;
 
-export const constructionFilterSourceSelectionSchema = z.object({
-  choiceId: opaqueIdSchema,
-  columnId: opaqueIdSchema,
-}).strict();
+export const constructionFilterSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionFilterSourceSelection = z.infer<typeof constructionFilterSourceSelectionSchema>;
 
-export const constructionDeriveSourceSelectionSchema = z.object({
-  choiceId: opaqueIdSchema,
-  columnId: opaqueIdSchema,
-}).strict();
+export const constructionDeriveSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionDeriveSourceSelection = z.infer<typeof constructionDeriveSourceSelectionSchema>;
 
-const constructionUnpivotSourceChoiceSchema = z.object({
-  choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
-  columnId: z.string().optional(),
-  fieldPath: z.string().min(1),
-  label: z.string().min(1),
-  logicalType: z.string().min(1),
-  isPopulated: z.boolean(),
-}).strict();
-
-const constructionUnpivotSourceInputSchema = z.object({
-  supported: z.boolean(),
-  stageId: opaqueIdSchema,
-  reasonCode: z.string().optional(),
-  reason: z.string().optional(),
-  choices: z.array(constructionUnpivotSourceChoiceSchema),
-}).strict();
-
-export const constructionUnpivotSourceSelectionSchema = z.object({
-  choiceId: opaqueIdSchema,
-  columnId: opaqueIdSchema,
-}).strict();
+export const constructionUnpivotSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionUnpivotSourceSelection = z.infer<typeof constructionUnpivotSourceSelectionSchema>;
 
-// Signed EXPAND source choices advertise populated direct-root primitive
-// arrays. logicalType is the ELEMENT type (e.g. string), and columnId '' (no
-// live materialization) is normalized away client-side, same as unpivot.
-const constructionExpandSourceChoiceSchema = z.object({
-  choiceId: z.string().min(1),
-  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
-  columnId: z.string().optional(),
-  fieldPath: z.string().min(1),
-  label: z.string().min(1),
-  logicalType: z.string().min(1),
-  isPopulated: z.boolean(),
-}).strict();
-
-const constructionExpandSourceInputSchema = z.object({
-  supported: z.boolean(),
-  stageId: opaqueIdSchema,
-  reasonCode: z.string().optional(),
-  reason: z.string().optional(),
-  choices: z.array(constructionExpandSourceChoiceSchema),
-}).strict();
-
-export const constructionExpandSourceSelectionSchema = z.object({
-  choiceId: opaqueIdSchema,
-  columnId: opaqueIdSchema,
-}).strict();
+export const constructionExpandSourceSelectionSchema = constructionSourceSelectionSchema;
 export type ConstructionExpandSourceSelection = z.infer<typeof constructionExpandSourceSelectionSchema>;
 
 export const constructionCapabilitiesResponseSchema = z.object({
@@ -1661,7 +1603,7 @@ export const constructionCapabilitiesResponseSchema = z.object({
   groupFieldChoicesIncomplete: z.boolean().optional(),
   sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
   nodeOccurrences: z.record(z.string(), z.string()).optional(),
-  sourceInput: constructionScalarSourceInputSchema.optional(),
+  sourceInput: constructionScalarSourceInputSchema,
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),
   filterSourceInput: constructionFilterSourceInputSchema.optional(),
   deriveSourceInput: constructionDeriveSourceInputSchema.optional(),

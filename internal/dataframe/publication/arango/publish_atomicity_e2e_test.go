@@ -4,17 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	storearango "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 // Repair evidence for F-B16 (Round 11 CONFIRMED, FINDINGS.md): the execution
@@ -57,44 +54,12 @@ var patAbortError = errors.New("injected abort after successful publish statemen
 
 func patOpen(t *testing.T) (*storearango.Client, *pubarango.Registry) {
 	t.Helper()
-	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set owned LOOM_TEST_ARANGO_URL")
-	}
-	name := patDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if !strings.HasPrefix(name, patDatabasePrefix) {
-		t.Fatalf("verification database %q escapes the %s prefix", name, patDatabasePrefix)
-	}
+	database := arangotest.Owned(t, patDatabasePrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, name)
-	if err != nil {
-		t.Fatalf("open %s: %v", name, err)
-	}
-	t.Logf("PAT_DATABASE=%s", name)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
-		defer stop()
-		req, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+name, nil)
-		if err != nil {
-			t.Errorf("build cleanup request for %s: %v", name, err)
-			return
-		}
-		response, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Errorf("cleanup %s: %v", name, err)
-			return
-		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("cleanup %s status=%d", name, response.StatusCode)
-			return
-		}
-		t.Logf("PAT_DATABASE_REMOVED=%s", name)
-	})
+	client := database.Client
 	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
-		t.Fatalf("bootstrap %s: %v", name, err)
+		t.Fatalf("bootstrap %s: %v", database.Name, err)
 	}
 	registry, err := pubarango.New(client)
 	if err != nil {

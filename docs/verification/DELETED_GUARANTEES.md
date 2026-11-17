@@ -1,10 +1,50 @@
 # Deleted verification guarantees
 
 This reference preserves authored promises without restoring the retired reporting system.
-A replacement earns coverage only for its named behavior, bounds, real-code replay, and fault controls.
+A replacement earns coverage only for its named product behavior and stated bounds.
 Neither a unit-test count nor a similar model name establishes equivalence.
 
-## Immutable recovery point
+## Plan 2 retirement (recovery: `45879f3b2`)
+
+Recover any path in this table with `git show 45879f3b2:<path>`. Wildcards name the entire retired harness family, including its helper-only tests. Earlier model tables below are historical promises; they do not describe maintained models or current coverage. No TLA+ model remains in the repository or CI.
+
+The replacement commands are `make test-ui`, `make test-go`, `make test-integration`, and `make e2e`. Browser checks use literal NDJSON as their independent oracle. Model schedules were frozen from the passing `846dc7ffa` snapshot before removing the model toolchain. Passing a replacement does not establish every old workflow, fixture scale, or unbounded invariant.
+
+| Retired path or family | Replacement or disposition |
+| --- | --- |
+| `verification/builder-interactions/**` | Frozen production-code Go schedules in `internal/explorer/{arango,authoringv2,lifecycle}/testdata`, server core-protocol witnesses, and four UI schedule suites. Model-only invariants and controls dropped. |
+| `verification/publication-bundle/**` | Real publication/Arango/ClickHouse tests remain. `FINDINGS.md` and `PUBLISHED_IMMORTALITY_PROPOSAL.md` moved to `docs/architecture/publication/`; model-only controls and generated evidence dropped. |
+| `.codex/skills/builder-interaction-formal-verification/**` | Current verification skills point to direct product tests. Core C01–C19 checks remain in `internal/server/core_authoring_protocol_*_test.go`. |
+| `scripts/verify-builder-formal-core.mjs` | Direct Make targets and CI commands. No registry or umbrella verdict replaces actual test results. |
+| `scripts/setup-formal-tools.mjs`, `scripts/review-builder-sources.mjs` | Dropped: model tooling and fixed source-pin refresh. |
+| `scripts/formal-core-protocol-manifest.mjs` | Direct core-protocol Go tests and checked-in schedules; manifest coupling dropped. |
+| `scripts/lib/formal-api.mjs` | Its exact Go integration test names run directly from `make test-integration` and CI. |
+| `scripts/lib/formal-{derived-policy,append-rows}.mjs` | Real server/Arango/ClickHouse arithmetic and append-row tests run directly. |
+| `scripts/lib/formal-{apply,recovery,reconcile,exclusion,publication}-replay.mjs` | Plain Vitest schedule suites in `constructionWorkspace` and `authoring`; actual callbacks and reducers execute. |
+| Other `scripts/lib/formal-*.mjs` and `formal-*.test.mjs` | Production replays moved to ordinary Go/Vitest tests; framework, model, trace, and mutation-only tests dropped. |
+| `scripts/lib/{reviewed-sources,verification-inventory,verification-budget}.mjs` and inventory test | Fixed pins/inventories dropped. Kept integration tooling retains deadlines, required actual-test completion, cleanup, and current-run source integrity. |
+| `.github/workflows/builder-formal.yml` | Direct Go/Vitest jobs and the component-browser job in `tests.yaml`; model/source-proof jobs dropped. End-to-end cadence remains an owner decision. |
+| `scripts/verify-ui/**` | Five e2e specs cover authored preview/publish/view/download, root changes, Group/Pivot, ONE/ALL repair, and record networks. Helper-only tests/registries and dormant workflow variants dropped. The deep DocumentReference→Specimen→Patient path and preserved unmatched row now have a raw-NDJSON browser oracle. All seven cases passed three consecutive serialized runs before final retirement; other legacy default-output fields/workflows are not claimed equivalent. |
+| `scripts/loom-dev.mjs` J01–J05 journey layer and journey-only tests | New e2e specs. Compose/session, raw fixture seed, bootstrap, identity, Doctor, down, and their tooling tests remain. |
+| `scripts/verify-builder-{traces,group-slice}.mjs` | Kept mounted tests and frozen operation-history journeys. Trace ledgers and source-proof controls dropped. |
+| `scripts/verify-{selections,population-row,construction-removals,correlated-concepts,cda-mixed-scope-selectors,builder-reconciliation}.mjs` | Direct Go and mounted UI checks; dormant wrapper/reporting paths dropped. |
+| `scripts/{run-graph-rows-native,run-traversal-first-native,prepare-graph-rows-history,prepare-traversal-first-targets,revalidate-graph-rows-history}.mjs` | Native replacement is `record-network.spec.mjs`; the retained independent Go graph oracle is compiler/AQL coverage, not equivalent native deep-traversal coverage. |
+| `scripts/*.playwright.config.mjs`, `scripts/package{,-lock}.json` | Chrome/CDP specs run through `make e2e`; unused Playwright package/configuration dropped. |
+| `scripts/browser/{compare-engines,lightpanda-cases,browser-pool,benchmark-chromium,engine-verdict,batch-scheduler}.mjs` and their helper-only tests | Dropped: dormant alternate-engine scheduling/benchmarks. `run.mjs`, `cdp.mjs`, artifact caching, and kept-tool tests remain. |
+| `scripts/audit-lightpanda-coverage.mjs` | Dropped: alternate-engine inventory. |
+| `scripts/{run-assigned-check,coverage-status,verification-timing,capture-owned-verification,owned-stack-verification,run-scope-001-restricted-auth}.mjs` | Direct test commands; dormant assignment/evidence wrappers dropped. |
+| `scripts/{measure-b05-preview,measure-b07-evidence,verify-b07-faults,measure-authoring-loop}.mjs`, tests, and `scripts/measurements/**` | Dropped: dormant measurement/source-fault infrastructure; no current performance improvement claimed. |
+| `scripts/validate_ml_dataframer_plan.mjs`, `scripts/fixtures/generate-cda-mini-fixture.mjs` | Dropped: plan validation and unused generated browser fixture. Literal fixture NDJSON remains. |
+| `scripts/{verify_ui_contract_inventory,normalize_ui_contract_inventory}.py`, tests, `scripts/lib/ui-contract-inventory.mjs`, `docs/ui-contract-inventory/**` | Dropped: source checkpoint/inventory and its uncalled wrapper. Runtime parser and real component/API tests remain. |
+| `scripts/{validate_architecture_plan,test_validate_architecture_plan}.py`, `scripts/tests/test_ui_ci_workflow.py` | Dropped: planning-document/source-text verification. |
+| `scripts/tests/test_acceptance_real.py` | Dropped: six source-text/syntax cases. Real acceptance cleanup tests and release/demo tooling checks remain. |
+| `cmd/{explorer-config-v2-convert,preview-covering-index-artifact}/**`, `scripts/preview-covering-index-artifact.mjs` | Dropped: unused offline tools and their three tool-only tests; no served API or operational caller. |
+| `internal/api/graphql/graph/dataframe/export{,_test}.go` | Dropped: uncalled writer and its two tests. Published dataset artifact export remains covered by the browser ZIP oracle and Go published-path tests. |
+| Retired reports under `docs/verification/**` and plan-named Builder verification narratives | Dropped: generated logs, ledgers, browser archives, and obsolete procedure narratives. Open product defects are in `docs/BACKLOG.md`. |
+
+The old component `drag` branch had no corresponding control in the current product. It is replaced by actual PreviewTable rendering, row-limit callback, row identity and reload checks. Downloads and saved-route component checks remain. The select check dispatches DOM input/change events and does not claim native popup behavior; native downloads and pointer actions remain exercised.
+
+## Historical recovery point
 
 The parent tree of the latest authored-model deletion is commit `5646633e0e5c7ff8de568a4f111478d121e7f75f`.
 [Browse its verification directory](https://github.com/calypr/loom/tree/5646633e0e5c7ff8de568a4f111478d121e7f75f/verification).
@@ -13,10 +53,10 @@ The deletions included 15 TLA models, 19 configurations, 25 JSON files, eight co
 These files remain available through Git. They were not moved intact into the new runner.
 
 All old model links below use that immutable recovery point.
-Current dispositions refer to the working tree and the [current formal skill](../../.codex/skills/builder-interaction-formal-verification/SKILL.md).
+The dispositions in this historical section describe the earlier audit snapshot, not the current tree. The retired skill is recoverable at `45879f3b2:.codex/skills/builder-interaction-formal-verification/SKILL.md`.
 They do not claim replacement of every old invariant, assumption, fixture, or trace.
 
-## Authored model promises
+## Historical authored-model promises
 
 | Deleted model | Promise recorded by the old source or configuration | Current disposition |
 | --- | --- | --- |
@@ -169,6 +209,8 @@ The four TableShape routes and `APPLY_TABLE_SHAPE_PROPOSAL` are removed after ex
 
 #### Retired verification script promises
 
+> Historical backend-only disposition, superseded by the PR160 integration section below. The keyword workflow, registry, normalizer and inventory described as retained in this table are retired in the combined tree; these rows do not claim current coverage.
+
 | Retired promise | Reason and current evidence boundary |
 |---|---|
 | `verify-j04` opened the legacy UI04 TableShape editor, selected a grouped pivot and derived column, and used `/table-shape-capabilities`, category discoveries, resolutions, and proposals. | The historical browser harness and UI04 selectors are retired and absent from the current Builder source. The dev command is removed. The keyword Pivot journey remains on current Construction capabilities, category discovery, proposal, preview, and apply routes. The separate native migrated-workspace driver must verify migrated Pivot and Unpivot lifecycle behavior against independent CDA fixture rows before WP-17 completion. |
@@ -268,3 +310,9 @@ Retired or renamed test inventory:
 ### WP-22: typed category rendering
 
 No test or public behavior guarantee is retired. The two old AQL presence-rendering entrypoints and compiler query-text surgery helpers have no remaining callers after migration to typed category terminals. Existing category row/presence/value, source-scope, conservative fallback, overflow, proof and EXPLAIN tests remain; added controls detect missing hints, premature limits, and stale terminal metadata. Query-text fingerprints may change with emitted query text; semantic plan/proof inputs and related query/bind fingerprints are checked separately. This change makes no performance claim.
+
+## PR160 integration: backend and hygiene retirements
+
+WP-17 adapted the historical keyword-Pivot workflow and source inventory before the hygiene branch retired their entire runner/helper family. The integrated tree follows that retirement: the earlier WP-17 statements that these scripts remain are historical, superseded here. The current Make/CI entrypoints use direct product tests and e2e; the old registry is not restored with missing imports.
+
+Retired specifically: the old keyword-named Pivot browser script's native duplicate-name gate, rename, exact Cancel identity, Apply/grid/reload/removal witness; the source-pinned affordance inventory/normalizer/verifier; the offline ExplorerConfigV2 JSON-to-workspace converter (including current semantics and default Records output); and the captured-preview-proposal artifact command plus closure-manifest wrapper. The stored-workspace migration CLI is a different tool and is retained with all WP-17/18 real-Arango cases; it does not replace offline JSON import. Existing compiler keyword/auth/NULL-MISSING tests, category EXPLAIN checks, publication/catalog tests, and ordinary migrated-draft Pivot/Unpivot lifecycle are retained or rerun. No claim that generic e2e replaces the exact retired keyword edge cases or artifact capture workflow. Recover the adapted tools with `git show 9a3cd558c:<path>`.

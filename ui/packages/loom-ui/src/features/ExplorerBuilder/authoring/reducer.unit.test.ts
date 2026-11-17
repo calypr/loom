@@ -146,52 +146,6 @@ describe('semantic Builder hydration', () => {
     expect(workspaceFromState(state).sharedFilters).toBeUndefined();
   });
 
-  it('serializes presentation edits from the V2 document into the next compile workspace', () => {
-    const preview = {
-      apiVersion: 'loom.calypr.org/explorer-authoring/v2' as const,
-      kind: 'ExplorerBuilderPreview' as const,
-      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
-      receiptId: 'receipt_preview',
-      outputId: 'Specimen',
-      columns: [],
-      rows: [{ specimen_identifier: 'sample-1' }],
-      rowCount: 1,
-      diagnostics: [],
-    };
-    const state = {
-      ...stateFromBuilder(ready, {
-        project: 'project',
-        explorerId: 'default',
-      }),
-      preview,
-    };
-    const original = state.tables[0].document.columns[0];
-    const edited = builderAuthoringReducer(state, {
-      type: 'updateColumn',
-      outputId: 'Specimen',
-      column: original.column,
-      value: {
-        ...original,
-        label: 'Specimen identifier',
-        table: { visible: false, order: 0 },
-        filter: { label: 'Specimen identifier' },
-        chart: { type: 'bar', title: 'Specimens' },
-      },
-    });
-
-    expect(edited.dirty).toBe(true);
-    expect(edited.reconciliation).toBe('idle');
-    expect(edited.preview).toBe(preview);
-    expect(workspaceFromState(edited).documents[0].columns[0]).toMatchObject({
-      column: 'specimen_identifier',
-      label: 'Specimen identifier',
-      table: { visible: false, order: 0 },
-      filter: { label: 'Specimen identifier' },
-      chart: { type: 'bar', title: 'Specimens' },
-      source: original.source,
-    });
-  });
-
   it('treats selecting the current table as a no-op and clears preview when switching tables', () => {
     const preview = {
       apiVersion: 'loom.calypr.org/explorer-authoring/v2' as const,

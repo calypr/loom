@@ -1,3 +1,5 @@
+> Historical WP-17 migration inventory. Superseded during PR160 integration by hygiene's intentional retirement of the entire legacy registry/inventory/keyword runner family. These paths are not current commands. See `docs/verification/DELETED_GUARANTEES.md` (PR160 integration section) for exact retired promises and retained direct tests.
+
 # Removed TableShape endpoint caller inventory
 
 Baseline: `/private/tmp/loom-cleanup-wp12`, HEAD `04046c45eb860acbbfc02acb091e7eb04f898cbe`.

@@ -38,20 +38,7 @@ type ClickHouseBundleStore struct {
 	leaseTTL           time.Duration
 	leaseRenewInterval time.Duration
 	reconcilePageSize  int
-	activeReleases     ActiveReleaseReader
-}
-
-// ActiveReleaseReader is the narrow read surface Reconcile consults before
-// dropping an execution's physical tables (Repair-1b, F-B12 drop-path). The
-// reconcile sweep's pointer guard is a one-shot read taken before the cleanup
-// claim; a release Created+Activated afterwards (or a legacy/non-lease-guarded
-// writer publishing behind the guard) still ends with DropTable + FAILED
-// demotion while the ACTIVE release binds the execution, which hard-fails the
-// whole CurrentProjectDatasets response (published/current.go:206-208). A
-// live binding therefore vetoes the drop, and any binding-read failure is
-// treated fail-closed as a veto.
-type ActiveReleaseReader interface {
-	ReadActiveRelease(context.Context, string) (dataset.ActiveRelease, error)
+	activeReleases     dataset.ActiveReleaseResolver
 }
 
 type bundleKeyLock struct {
@@ -82,10 +69,18 @@ func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCata
 	}, nil
 }
 
-// SetActiveReleaseReader wires the drop-path binding veto used by Reconcile
-// (see ActiveReleaseReader). Without a reader the reconciler keeps its
-// historical pointer-only guard; production wiring supplies it (server.go).
-func (s *ClickHouseBundleStore) SetActiveReleaseReader(reader ActiveReleaseReader) {
+// SetActiveReleaseReader wires the narrow read surface Reconcile consults before
+// dropping an execution's physical tables (Repair-1b, F-B12 drop-path). The
+// reconcile sweep's pointer guard is a one-shot read taken before the cleanup
+// claim; a release Created+Activated afterwards (or a legacy/non-lease-guarded
+// writer publishing behind the guard) still ends with DropTable + FAILED
+// demotion while the ACTIVE release binds the execution, which hard-fails the
+// whole CurrentProjectDatasets response (published/current.go:206-208). A
+// live binding therefore vetoes the drop, and any binding-read failure is
+// treated fail-closed as a veto.
+// Without a reader the reconciler keeps its historical pointer-only guard;
+// production wiring supplies it (server.go).
+func (s *ClickHouseBundleStore) SetActiveReleaseReader(reader dataset.ActiveReleaseResolver) {
 	s.activeReleases = reader
 }
 
@@ -1118,12 +1113,10 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 		return nil
 	}
 	states := []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundleFailed}
-	// Repair-4 (F-B19): recurring PUBLISHED-superseded janitor arm. Enumerated
-	// ONLY when an ActiveReleaseReader is wired — a janitor that cannot re-check
-	// bindings is the m-po-janitor-blind shape (PointerOrphanLifecycle.tla
-	// NoBoundDeleted violated): it recreates the F-B12 bound-data loss. The
-	// destructive step still runs the full post-claim pointer+binding re-checks
-	// in reconcileExecution (m-po-fixed validated RecheckBeforeReclaim shape).
+	// Enumerate superseded PUBLISHED executions only with an active-release
+	// resolver: cleanup must not drop data still bound by the active release.
+	// TestReconcileRetiresSupersededPublishedExecutions covers this admission
+	// guard and the post-claim pointer and binding checks in reconcileExecution.
 	if s.activeReleases != nil {
 		states = append(states, publication.BundlePublished)
 	}
@@ -1201,9 +1194,9 @@ func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, executio
 	// vetoes the drop. Any read failure other than "no pointer" /
 	// "no active release" vetoes fail-closed. Skipping only defers the sweep
 	// for a genuinely abandoned execution; dropping a bound one destroys
-	// advertised data and aborts CurrentProjectDatasets
-	// (published/current.go:206-208, validated by ReconcileDangleTrust.tla
-	// m-dangle-atomic-recheck).
+	// advertised data and aborts CurrentProjectDatasets. The active-release
+	// veto, late pointer read, and fail-closed errors are covered by
+	// TestReconcileDeniesDropOfActiveReleaseBoundExecution.
 	if pointerNow, pointerNowErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName()); pointerNowErr != nil {
 		if !errors.Is(pointerNowErr, publication.ErrBundleNotFound) {
 			return errors.Join(pointerNowErr, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))

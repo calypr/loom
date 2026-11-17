@@ -25,6 +25,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
@@ -114,14 +115,15 @@ func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
 	}
 
 	arangoURL := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
-	arangoDatabase := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_DB"))
+	arangoDatabase := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_DATABASE"))
 	if arangoURL == "" && arangoDatabase == "" {
 		return
 	}
 	if arangoURL == "" || arangoDatabase == "" {
-		t.Fatal("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DB must be set together")
+		t.Fatal("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must be set together")
 	}
-	executeAcceptanceObservationAQL(t, arangoURL, arangoDatabase, physical.Outputs[0], runtimeBindings, rendered.Query, rendered.BindVars)
+	database := arangotest.Shared(t)
+	executeAcceptanceObservationAQL(t, database.URL, database.Name, physical.Outputs[0], runtimeBindings, rendered.Query, rendered.BindVars)
 }
 
 func executeAcceptanceObservationAQL(

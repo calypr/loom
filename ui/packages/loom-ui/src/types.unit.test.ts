@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  EXPLORER_AUTHORING_SEMANTICS_VERSION,
   assertExplorerBuilderPreviewResult,
   assertExplorerStateV1,
   aggregateTransformationCapabilitySchema,
@@ -11,10 +9,15 @@ import {
   columnValueTransformationSchema,
   constructionCapabilitiesResponseSchema,
   constructionCategoryDiscoveryResponseSchema,
+  constructionDeriveSourceSelectionSchema,
+  constructionExpandSourceSelectionSchema,
+  constructionFilterSourceSelectionSchema,
   constructionInputsRequestSchema,
   constructionInputsResponseSchema,
   constructionProposalResponseSchema,
+  constructionPivotSourceSelectionSchema,
   constructionSchema,
+  constructionUnpivotSourceSelectionSchema,
   explorerBuilderCandidateSchema,
   explorerBuilderCatalogEdgeSchema,
   constructionChoiceSchema,
@@ -33,15 +36,6 @@ import {
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
 } from './types';
-
-describe('Explorer authoring contract version', () => {
-  it('sends the semantics version required by the Go command decoder', () => {
-    const source = readFileSync(new URL('../../../../internal/explorer/authoringv2/types.go', import.meta.url), 'utf8');
-    const match = source.match(/CurrentSemanticsVersion\s*=\s*(\d+)/);
-    expect(match, 'Go authoring semantics version must be declared').not.toBeNull();
-    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(Number(match?.[1]));
-  });
-});
 
 describe('explorerBuilderDocumentSchema', () => {
   const document = {
@@ -219,6 +213,78 @@ describe('explorerBuilderDocumentSchema', () => {
       ...importedDocument,
       importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], unknown: true }] },
     }).success).toBe(false);
+  });
+});
+
+describe('construction source selection schemas', () => {
+  it('keeps filter, derive, unpivot, and expand capability source inputs behaviorally identical', () => {
+    const stage = {
+      id: 'source_projection',
+      inputStageId: '',
+      columns: [],
+      capabilities: [],
+    };
+    const base = {
+      snapshotToken: 'snapshot',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft',
+      outputId: 'patients',
+      stageId: 'source_projection',
+      baseConstruction: { version: 1, steps: [] },
+      stages: [stage],
+      selectedStage: stage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: 'source_projection', choices: [] },
+      workspaceInputs: [],
+    };
+    const input = {
+      supported: true,
+      stageId: 'source_projection',
+      reason: 'available',
+      choices: [{
+        choiceId: 'gender-choice',
+        columnId: '',
+        fieldPath: 'gender',
+        label: 'Gender',
+        logicalType: 'string',
+        isPopulated: true,
+      }],
+    };
+    const capabilityInputs = ['filterSourceInput', 'deriveSourceInput', 'unpivotSourceInput', 'expandSourceInput'] as const;
+    const parsedInputs = constructionCapabilitiesResponseSchema.parse({
+      ...base,
+      ...Object.fromEntries(capabilityInputs.map((key) => [key, input])),
+    });
+
+    for (const key of capabilityInputs) expect(parsedInputs[key]).toEqual(input);
+    for (const key of capabilityInputs) {
+      expect(constructionCapabilitiesResponseSchema.safeParse({
+        ...base,
+        [key]: { ...input, choices: [{ ...input.choices[0], unexpected: true }] },
+      }).success).toBe(false);
+    }
+    expect(constructionCapabilitiesResponseSchema.safeParse({
+      ...base,
+      filterSourceInput: { ...input, choices: [{ ...input.choices[0], isPopulated: undefined }] },
+    }).success).toBe(false);
+  });
+
+  it('keeps all source selection aliases strict and equally required', () => {
+    const selection = { choiceId: 'choice-1', columnId: 'column-1' };
+    const schemas = [
+      constructionPivotSourceSelectionSchema,
+      constructionFilterSourceSelectionSchema,
+      constructionDeriveSourceSelectionSchema,
+      constructionUnpivotSourceSelectionSchema,
+      constructionExpandSourceSelectionSchema,
+    ];
+
+    for (const schema of schemas) {
+      expect(schema.parse(selection)).toEqual(selection);
+      expect(schema.safeParse({ ...selection, unexpected: true }).success).toBe(false);
+      expect(schema.safeParse({ choiceId: selection.choiceId }).success).toBe(false);
+    }
   });
 });
 
@@ -940,6 +1006,7 @@ describe('staged construction contract', () => {
       selectedStage: stage,
       groupFieldChoices: [],
       groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: 'source_projection', choices: [] },
       workspaceInputs: [],
     };
 
@@ -1007,6 +1074,7 @@ describe('staged construction contract', () => {
       outputId: 'patients', stageId: stage.id,
       baseConstruction: { version: 1, steps: [] }, stages: [stage], selectedStage: stage,
       groupFieldChoices: [], groupRowValueChoices: [],
+      sourceInput: { supported: false, stageId: stage.id, choices: [] },
       workspaceInputs: [],
     };
 

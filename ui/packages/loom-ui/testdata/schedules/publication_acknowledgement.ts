@@ -1,0 +1,12 @@
+export const publication_acknowledgement = [
+  { name: 'matching publication identity without preview recompilation is acknowledged', mode: 'matching', input: { workspaceAttached: true, ownerMatches: true, explorerMatches: true, draftDigestMatches: true, intentMatches: true, snapshotMatches: true, previewRecompiled: false }, expectedAccepted: true },
+  { name: 'matching acknowledgement survives preview recompilation', mode: 'preview-recompiled', input: { workspaceAttached: true, ownerMatches: true, explorerMatches: true, draftDigestMatches: true, intentMatches: true, snapshotMatches: true, previewRecompiled: true }, expectedAccepted: true },
+  { name: 'detached workspace rejects acknowledgement', mode: 'workspace-detached', input: { workspaceAttached: false, ownerMatches: true, explorerMatches: true, draftDigestMatches: true, intentMatches: true, snapshotMatches: true, previewRecompiled: true }, expectedAccepted: false },
+  { name: 'changed owner rejects acknowledgement', mode: 'owner-switch', input: { workspaceAttached: true, ownerMatches: false, explorerMatches: true, draftDigestMatches: true, intentMatches: true, snapshotMatches: true, previewRecompiled: true }, expectedAccepted: false },
+  { name: 'changed Explorer rejects acknowledgement', mode: 'explorer-mismatch', input: { workspaceAttached: true, ownerMatches: true, explorerMatches: false, draftDigestMatches: true, intentMatches: true, snapshotMatches: true, previewRecompiled: true }, expectedAccepted: false },
+  { name: 'changed draft digest rejects acknowledgement', mode: 'draft-digest', input: { workspaceAttached: true, ownerMatches: true, explorerMatches: true, draftDigestMatches: false, intentMatches: true, snapshotMatches: true, previewRecompiled: true }, expectedAccepted: false },
+  { name: 'changed workspace intent rejects acknowledgement', mode: 'intent', input: { workspaceAttached: true, ownerMatches: true, explorerMatches: true, draftDigestMatches: true, intentMatches: false, snapshotMatches: true, previewRecompiled: true }, expectedAccepted: false },
+  { name: 'changed catalog snapshot rejects acknowledgement', mode: 'snapshot', input: { workspaceAttached: true, ownerMatches: true, explorerMatches: true, draftDigestMatches: true, intentMatches: true, snapshotMatches: false, previewRecompiled: true }, expectedAccepted: false },
+] as const;
+
+export const publication_identity_guards = publication_acknowledgement.filter((schedule) => schedule.mode === 'explorer-mismatch');

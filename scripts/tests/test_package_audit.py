@@ -57,6 +57,9 @@ class PackageAuditTest(unittest.TestCase):
                 self.assertIn(decision["source"], locations)
                 self.assertIn(decision["destination"], locations)
                 self.assertEqual(decision["source"], decision["destination"])
+            elif decision["disposition"] == "removed":
+                self.assertNotIn(decision["source"], locations)
+                self.assertEqual("—", decision["destination"])
             else:
                 self.assertNotIn(decision["source"], locations)
                 self.assertIn(decision["destination"], locations)

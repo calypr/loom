@@ -3,7 +3,6 @@ package arango
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -11,24 +10,15 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
 func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
-	if os.Getenv("LOOM_C01_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_C01_ARANGO_INTEGRATION=1 to run coded category Arango proof")
-	}
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_URL"))
-	database := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_DATABASE"))
-	if endpoint == "" || database == "" {
-		t.Fatal("LOOM_C01_ARANGO_URL and an isolated LOOM_C01_ARANGO_DATABASE are required")
-	}
+	owned := arangotest.Owned(t, "loom_test_coded_category_")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	client, err := arangostore.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := owned.Client
 	project := "c01-coded-category-" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	generation := strings.ReplaceAll(uuid.NewString(), "-", "")
 	t.Cleanup(func() {
@@ -42,9 +32,6 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 			if err := deleteSemanticCategoryFixtureRows(cleanupCtx, client, collection, project, generation); err != nil {
 				t.Errorf("clean scoped %s fixture rows: %v", collection, err)
 			}
-		}
-		if err := client.Close(cleanupCtx); err != nil {
-			t.Errorf("close Arango client: %v", err)
 		}
 	})
 

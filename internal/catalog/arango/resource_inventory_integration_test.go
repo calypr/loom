@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -14,18 +13,13 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	arangostore "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
 func TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen(t *testing.T) {
-	if os.Getenv("LOOM_C01_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_C01_ARANGO_INTEGRATION=1 to run resource inventory Arango proof")
-	}
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_URL"))
-	database := strings.TrimSpace(os.Getenv("LOOM_C01_ARANGO_DATABASE"))
-	if endpoint == "" || database == "" {
-		t.Fatal("LOOM_C01_ARANGO_URL and an isolated LOOM_C01_ARANGO_DATABASE are required")
-	}
+	owned := arangotest.Owned(t, "loom_test_resource_inventory_")
+	endpoint, database := owned.URL, owned.Name
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -75,11 +69,7 @@ func TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen(t *testing.T)
 		}
 	})
 
-	client, err := arangostore.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(context.Background())
+	client := owned.Client
 	// This proof owns its fixture prerequisites even on an empty test database.
 	// Do not truncate existing collections: fixture rows remain UUID-scoped.
 	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{
@@ -141,7 +131,7 @@ func TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen(t *testing.T)
 		"Observation/scope-a": 1, "Observation/scope-b": 3,
 	})
 
-	if err := client.Close(ctx); err != nil {
+	if err := owned.Close(ctx); err != nil {
 		t.Fatalf("close first Arango client: %v", err)
 	}
 	client, err = arangostore.Open(ctx, endpoint, database)

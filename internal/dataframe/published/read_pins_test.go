@@ -108,3 +108,7 @@ func TestWithExecutionReadPinsCancelsVisitorOnRenewalLoss(t *testing.T) {
 		t.Fatalf("released after renewal loss = %#v", catalog.released)
 	}
 }
+
+func (*pinTestCatalog) FindExecutionBySelector(context.Context, string, string, publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+	return publication.BundleExecution{}, publication.BundleOutputRecord{}, publication.ErrBundleNotFound
+}

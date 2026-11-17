@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import { ZodError } from 'zod';
 import { useLoomClient } from '../../../react';

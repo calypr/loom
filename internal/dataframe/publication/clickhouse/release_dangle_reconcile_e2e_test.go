@@ -7,10 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -23,7 +19,7 @@ import (
 	datasetstore "github.com/calypr/loom/internal/dataset/arango"
 	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
-	"github.com/google/uuid"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 // rdlDatabasePrefix owns this suite's databases independently of the sibling
@@ -33,12 +29,12 @@ const rdlDatabasePrefix = "loom_verify_rdl_"
 const (
 	// rdlSeedAge is how far in the past every seeded execution's updatedAt is
 	// parked; Reconcile's enumeration filter is `doc.updatedAt < olderThan`
-	// (bundle_registry.go:107-112), so anything younger is invisible to it.
+	// (bundle_registry.go), so anything younger is invisible to it.
 	rdlSeedAge = 90 * time.Minute
 	// rdlReconcileOlderThan is the `olderThan` passed to Reconcile. Seed docs
 	// are rdlSeedAge(90m) old, strictly older than this 60m bound.
 	rdlReconcileOlderThan = 60 * time.Minute
-	rdlReconcileMarker    = "stale execution reconciled" // bundle_store.go:1091
+	rdlReconcileMarker    = "stale execution reconciled"
 )
 
 // ---------------------------------------------------------------------------
@@ -47,16 +43,16 @@ const (
 //   - F-B9: the dataset-release Create/Activate path never takes a reader pin
 //     on the execution it binds, so the ONLY thing that can shield an
 //     active-release-bound execution from startup Reconcile is the pointer
-//     visibility guard at bundle_store.go:1068-1075. (Pre-run audit, reported
+//     visibility guard at bundle_store.go. (Pre-run audit, reported
 //     verbatim in the task's STEP 0a: AcquireExecutionReadPin has exactly two
-//     non-test call sites, read_pins.go:63 and export.go:135, ZERO in
+//     non-test call sites, read_pins.go and export.go, ZERO in
 //     internal/dataset/**, and there is no internal/explorer/arango/read_pins.go.)
 //   - F-B1: ClickHouseBundleStore.Reconcile enumerates RUNNING/VALIDATING/FAILED
-//     executions older than the cutoff (bundle_store.go:1046-1053) and, once it
+//     executions older than the cutoff (bundle_store.go) and, once it
 //     claims the key, drops their physical tables and demotes the row to FAILED
-//     with marker "stale execution reconciled" (:1080-1093).
+//     with marker "stale execution reconciled" ().
 //   - F-B7: a single unresolvable binding force-fails the whole
-//     published.Reader.CurrentProjectDatasets response (current.go:206-208,
+//     published.Reader.CurrentProjectDatasets response (current.go,
 //     `return nil, err`), hiding the independently-valid siblings — the
 //     all-or-nothing discovery-list behaviour the sibling
 //     dangling_binding_e2e_test.go already source-verifies.
@@ -68,7 +64,7 @@ const (
 // force-fails the current dataset list wholesale (F-B7).
 //
 // THE LINE THAT BREAKS THE CHAIN: reconcileExecution re-reads the visibility
-// pointer AFTER claiming the key, at bundle_store.go:1068, and:
+// pointer AFTER claiming the key, at bundle_store.go, and:
 //
 //	pointer, pointerErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName())
 //	...
@@ -78,7 +74,7 @@ const (
 //
 // If the pointer names the execution, cleanup is aborted (lease released, no
 // DropTable, no SaveExecution demotion). The current-release READ path
-// (releaseMaterialization, current.go:94-111) never consults that pointer, so
+// (releaseMaterialization, current.go) never consults that pointer, so
 // the guard is the SOLE defense — and F-B9 tells us a pin is not there.
 //
 // This test therefore runs ONE controlled experiment with the pointer as the
@@ -91,7 +87,7 @@ const (
 //     production dataset.ReleaseService Create+Activate over the real
 //     datasetstore.Store. Inject the stale RUNNING enumeration snapshot, free
 //     the lease, and run the production Reconcile. Predicted: the pointer guard
-//     at :1073 skips cleanup -> NOT dangled -> current list stays healthy =>
+//     at  skips cleanup -> NOT dangled -> current list stays healthy =>
 //     PREVENTED. (Verdict gate; FAILED-ON-PURPOSE only if it actually dangles.)
 //
 //   - LIVE-MACHINERY CONTROL: a second RUNNING, lease-free, PIN-FREE execution
@@ -118,7 +114,7 @@ const (
 // FAILED-candidate cleanup, exactly the end-state of the "enumerate-before-
 // publish" startup race where the publisher completes PublishExecution+pointer
 // (and the release activates) between the reconciler's enumeration pass and its
-// per-execution cleanup. Because reconcileExecution reads the pointer at :1068
+// per-execution cleanup. Because reconcileExecution reads the pointer at
 // AFTER claiming — not from a frozen snapshot — the guard is evaluated against
 // the CURRENT (post-publish, pointer-named) pointer in both the frozen-snapshot
 // and live-race interleavings; that is what PREVENTS the chain. See TEST RESULT
@@ -127,7 +123,7 @@ const (
 
 // rdlClickHouse is the reconciler's deterministic effect recorder. Every drop
 // is recorded and a dead context aborts, mirroring BundleClickHouseStore
-// (bundle_store.go:53-61) so the observation "did reconcile drop table X" is
+// (bundle_store.go) so the observation "did reconcile drop table X" is
 // trustworthy.
 type rdlClickHouse struct {
 	mu       sync.Mutex
@@ -177,7 +173,7 @@ func (c *rdlClickHouse) didDrop(table string) bool {
 
 // rdlCatalog wraps the real Registry so the reconciler's guard decisions run on
 // REAL Arango AQL while we observe that reconcileExecution really reached the
-// candidate (lease claim) and really re-read the pointer (:1068). The wrapper
+// candidate (lease claim) and really re-read the pointer (). The wrapper
 // decides nothing; every method delegates verbatim to the embedded Registry.
 type rdlCatalog struct {
 	*pubarango.Registry
@@ -256,44 +252,10 @@ func (v rdlVerifier) VerifyPublication(_ context.Context, _, generation string, 
 
 func rdlOpen(t *testing.T, budget time.Duration) (context.Context, *storearango.Client, *pubarango.Registry, *datasetstore.Store, string) {
 	t.Helper()
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
-	if endpoint == "" {
-		t.Skip("set LOOM_TEST_ARANGO_URL to run the F-B9xF-B1xF-B7 reconcile/release reproduction")
-	}
-	name := rdlDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
-	if !strings.HasPrefix(name, rdlDatabasePrefix) {
-		t.Fatalf("verification database %q escapes the %s prefix", name, rdlDatabasePrefix)
-	}
+	database := arangotest.Owned(t, rdlDatabasePrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, name)
-	if err != nil {
-		t.Fatalf("open %s: %v", name, err)
-	}
-	t.Logf("RDL_DATABASE=%s", name)
-	t.Cleanup(func() {
-		_ = client.Close(context.Background())
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
-		defer stop()
-		req, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete,
-			strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(name), nil)
-		if err != nil {
-			t.Errorf("build cleanup request for %s: %v", name, err)
-			return
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Errorf("drop database %s: %v", name, err)
-			return
-		}
-		defer resp.Body.Close()
-		// 403 = already-gone race tolerated, matching the sibling workers.
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusForbidden {
-			t.Errorf("drop database %s: status %d", name, resp.StatusCode)
-			return
-		}
-		t.Logf("RDL_DATABASE_REMOVED=%s", name)
-	})
+	client := database.Client
 	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
@@ -308,7 +270,7 @@ func rdlOpen(t *testing.T, budget time.Duration) (context.Context, *storearango.
 	if err != nil {
 		t.Fatalf("new dataset lifecycle store: %v", err)
 	}
-	return ctx, client, registry, lifecycle, name[len(rdlDatabasePrefix):]
+	return ctx, client, registry, lifecycle, database.Name[len(rdlDatabasePrefix):]
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +295,7 @@ func rdlSelector(recipe, output string) dataset.DataframeSelector {
 // queryable (State PUBLISHED + VerifiedAt + PhysicalTable) so both the release
 // read and the reconciler see a valid materialization target. The output
 // Selector is set explicitly to the binding selector so
-// releaseMaterialization's outputSelector comparison (current.go:103) is exact.
+// releaseMaterialization's outputSelector comparison (current.go) is exact.
 func rdlBuildExecution(spec rdlExecSpec, owner string, age time.Time) pubpublication.BundleExecution {
 	stamp := age
 	verified := age.Add(-time.Minute)
@@ -383,7 +345,7 @@ func rdlSeedRunning(t *testing.T, registry *pubarango.Registry, ctx context.Cont
 // points: AcquireBundleLease (owner), SaveExecution (RUNNING doc exists so
 // PublishExecution's `execution != null` guard holds), then PublishExecution
 // which atomically flips the doc to PUBLISHED and creates the visibility
-// pointer naming exec in one AQL (bundle_registry.go:274-310), then frees the
+// pointer naming exec in one AQL (bundle_registry.go), then frees the
 // lease so a reconcile can claim the key. Returns the published execution.
 func rdlSeedPublished(t *testing.T, registry *pubarango.Registry, ctx context.Context, spec rdlExecSpec, owner string) pubpublication.BundleExecution {
 	t.Helper()
@@ -471,13 +433,10 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 // with Manifests=Releases=lifecycle and a controlled verifier, and finally its
 // Activate (Create + the real CompareAndSwapActivateRelease AQL).
 //
-// Premise STEP 0b is demonstrated here at runtime, not just quoted: the CAS
-// Activate writes the release VERBATIM. release_store.go's activateReleaseAQL
-// (:152-176) reads only @@lifecycle_collection documents and patches just the
-// active-release + active-generation pointers; the release document itself was
-// persisted byte-for-byte from Create's publicationBinding by SaveRelease via
-// lifecycleDocument (release_store.go:105-115). It never opens the executions
-// collection and never looks the execution up.
+// Premise STEP 0b is demonstrated here at runtime: activation writes the
+// release through the lifecycle store and updates the active-release pointers.
+// The release document was persisted from Create's publication binding and
+// activation does not look up the execution record.
 func rdlCreateAndActivateRelease(t *testing.T, ctx context.Context, lifecycle *datasetstore.Store, project, generation, execID string, selector dataset.DataframeSelector) dataset.ActiveRelease {
 	t.Helper()
 	ref, err := dataset.NewRef(project, generation)
@@ -601,71 +560,6 @@ RETURN {active: LENGTH(FOR pin IN pins FILTER pin.expiresAt >= @now RETURN pin),
 	return active
 }
 
-// ---------------------------------------------------------------------------
-// guard-source citation: fails the test if the :1068-1075 branch drifts, so the
-// PREVENTED verdict can never survive a silent refactor of the guard.
-// ---------------------------------------------------------------------------
-
-func rdlRepoRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("no go.mod above %s", dir)
-		}
-		dir = parent
-	}
-}
-
-var rdlGuardRequiredLines = []string{
-	"pointer, pointerErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName())",
-	"if pointerErr == nil && pointer.ExecutionID == execution.ID {",
-	"return s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)",
-}
-
-// rdlQuoteGuardBranch locates the reconcileExecution pointer-visibility guard in
-// the real source, asserts its shape is intact, prints the quoted :1068-1075
-// block, and proves the brief's "skipping bundle with pointer" log line does NOT
-// exist (the skip is silent — the guard returns after releasing the lease), so
-// the skip is proven behaviorally, never by a log.
-func rdlQuoteGuardBranch(t *testing.T) string {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(rdlRepoRoot(t), "internal/dataframe/publication/clickhouse/bundle_store.go"))
-	if err != nil {
-		t.Fatalf("guard source bundle_store.go unreadable: %v", err)
-	}
-	text := string(raw)
-	lines := strings.Split(text, "\n")
-	guardIdx := -1
-	for i, line := range lines {
-		if strings.Contains(line, "if pointerErr == nil && pointer.ExecutionID == execution.ID {") {
-			guardIdx = i
-			break
-		}
-	}
-	if guardIdx < 0 {
-		t.Fatalf("guard citation drift: the :1073 pointer-visibility branch is gone from bundle_store.go")
-	}
-	for _, need := range rdlGuardRequiredLines {
-		if !strings.Contains(text, need) {
-			t.Fatalf("guard citation drift: bundle_store.go no longer contains %q", need)
-		}
-	}
-	if strings.Contains(text, "skipping bundle with pointer") {
-		t.Fatalf("unexpected: production does log 'skipping bundle with pointer'; update this test's DISPROVEN claim")
-	}
-	low := max(0, guardIdx-4)
-	high := min(len(lines), guardIdx+2)
-	return strings.TrimRight(strings.Join(lines[low:high], "\n"), " \t")
-}
-
 func rdlMaterializationDigest(values []pubpublished.Materialization) string {
 	parts := make([]string, 0, len(values))
 	for _, value := range values {
@@ -718,9 +612,8 @@ func rdlErrChain(err error) string {
 // Verdict: CONFIRMED iff the PRIMARY active-release-bound execution ends
 // dangling (its table dropped OR reconcile wrote the FAILED marker) AND its
 // current-list call would fail wholesale; then t.Fatalf FAILED-ON-PURPOSE.
-// PREVENTED (the expected outcome): quote :1068-1075, log the guard skip, PASS.
+// PREVENTED (the expected outcome): assert the live post-reconcile state.
 func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
-	quote := rdlQuoteGuardBranch(t)
 	ctx, client, registry, lifecycle, suffix := rdlOpen(t, 150*time.Second)
 
 	projectActive := "rdl-active-project"
@@ -815,10 +708,10 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 		hardList, hardErr := reader.CurrentProjectDatasets(ctx, projectActive)
 		listBrokeHard := hardErr != nil && len(hardList) == 0
 		if listBrokeHard {
-			t.Fatalf("FAILED-ON-PURPOSE CONFIRMED of the composite F-B9 x F-B1 x F-B7 against real Arango: an ACTIVE-release-bound + pointer-named execution was dangled by startup Reconcile and its current dataset list failed wholesale. active=%q state=%q reconcileMarker=%q tableDropped=%v (dropped=%v); F-B9 live pins=%d (release path pins nothing → only the pointer re-check + active-release binding veto shield); catalog observed reconcile lease-claim owner=%q and %d pointer re-read(s) of %q; CurrentProjectDatasets post-fault list=[%d] err=[%s]; guard that should have skipped is:\n%s",
+			t.Fatalf("FAILED-ON-PURPOSE CONFIRMED of the composite F-B9 x F-B1 x F-B7 against real Arango: an ACTIVE-release-bound + pointer-named execution was dangled by startup Reconcile and its current dataset list failed wholesale. active=%q state=%q reconcileMarker=%q tableDropped=%v (dropped=%v); F-B9 live pins=%d (release path pins nothing → only the pointer re-check + active-release binding veto shield); catalog observed reconcile lease-claim owner=%q and %d pointer re-read(s) of %q; CurrentProjectDatasets post-fault list=[%d] err=[%s]",
 				pubActive.ID, activeState, activeErr, primaryTableDropped, dropped,
 				rdlActivePins(t, client, ctx, pubActive.ID), mustOwner(t, catalog, specActive.key), catalog.pointerReadCount(pubActive.PointerName()), pubActive.PointerName(),
-				len(hardList), rdlErrChain(hardErr), quote)
+				len(hardList), rdlErrChain(hardErr))
 		} else {
 			t.Fatalf("inconsistent CONFIRMED: active exec looked dangled (dropped=%v marker=%q state=%q) but the current list survived: list=[%d] err=%v — re-examine attribution", primaryTableDropped, activeErr, activeState, len(hardList), rdlErrChain(hardErr))
 		}
@@ -870,7 +763,7 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 		t.Fatalf("binding-veto claim broken: with the drop denied and only the harness's RUNNING flag undone, the shadow release read is not healthy: list=%s err=[%s]", rdlMaterializationDigest(shadowAfter), rdlErrChain(shadowListErr))
 	}
 
-	t.Logf("VERDICT PREVENTED for the composite F-B9 x F-B1 x F-B7: the pointer-named active-release-bound exec survived startup Reconcile via the pointer re-check, and the unpointered bound exec survived via the active-release binding veto (Repair-1b); live pins=%d; guard branch:\n%s", rdlActivePins(t, client, ctx, pubActive.ID), quote)
+	t.Logf("VERDICT PREVENTED for the composite F-B9 x F-B1 x F-B7: the pointer-named active-release-bound exec survived startup Reconcile via the pointer re-check, and the unpointered bound exec survived via the active-release binding veto (Repair-1b); live pins=%d; guard branch is enforced by the live post-reconcile state assertions", rdlActivePins(t, client, ctx, pubActive.ID))
 
 	t.Logf("DISPROVEN log-claim: production has no 'skipping bundle with pointer' log string; the pointer/binding skip is silent (releases the lease and returns), so the skip is proven behaviorally: reconcile reached candidate %q, claimed it under reconciler ID %q and observed %d pointer re-read(s), then dropped NOTHING for %q (active table not dropped: %v) while reclaiming %q (stale control; control dropped=%v; shadow dropped=%v)",
 		pubActive.ID, mustOwner(t, catalog, specActive.key), catalog.pointerReadCount(pubActive.PointerName()), pubActive.ID, ch.didDrop(specActive.table), stale.ID, ch.didDrop(specStale.table), ch.didDrop(specShadow.table))

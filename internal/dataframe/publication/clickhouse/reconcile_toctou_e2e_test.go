@@ -3,23 +3,19 @@ package clickhouse
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/url"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	storearango "github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"github.com/google/uuid"
 )
 
 // TestReconcileDropsJustPublishedBundleAgainstArango replays finding F-B1
 // end-to-end against a real Arango instance: every guard decision — lease
-// takeover (AcquireBundleLease :315), the publish filter set (:287-291), the
-// cleanup claim (:414-422), and the fenced save (:44-47) — is made by
+// takeover (AcquireBundleLease ), the publish filter set (), the
+// cleanup claim (), and the fenced save () — is made by
 // production AQL on the real database. The ClickHouse side stays the
 // deterministic effect recorder from reconcile_toctou_test.go: the bug is
 // which deletions the reconciler is ALLOWED to reach, decided entirely
@@ -42,7 +38,7 @@ type fb1Catalog struct {
 }
 
 // ClaimExecutionCleanup injects the racing publish AFTER reconcileExecution's
-// GetPointer (:1068) and before the production claim AQL runs — the modelled
+// GetPointer () and before the production claim AQL runs — the modelled
 // freeze interleaving. Everything else delegates verbatim.
 func (c *fb1Catalog) ClaimExecutionCleanup(ctx context.Context, executionID, owner string) (bool, error) {
 	if !c.raceRan {
@@ -56,35 +52,10 @@ func (c *fb1Catalog) ClaimExecutionCleanup(ctx context.Context, executionID, own
 
 func fb1Setup(t *testing.T) (*pubarango.Registry, publicationSetup) {
 	t.Helper()
-	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
-	if endpoint == "" {
-		t.Skip("set LOOM_TEST_ARANGO_URL")
-	}
+	database := arangotest.Owned(t, "loom_verify_fb1_")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
-	database := "loom_verify_fb1_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	client, err := storearango.Open(ctx, endpoint, database)
-	if err != nil {
-		t.Fatalf("open arango: %v", err)
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cleanupCancel()
-		request, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(database), nil)
-		if err != nil {
-			t.Errorf("build cleanup request: %v", err)
-			return
-		}
-		response, err := http.DefaultClient.Do(request)
-		if err != nil {
-			t.Errorf("drop database %s: %v", database, err)
-			return
-		}
-		_ = response.Body.Close()
-		if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusForbidden {
-			t.Errorf("drop database %s: status %d", database, response.StatusCode)
-		}
-	})
+	client := database.Client
 	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
@@ -92,7 +63,7 @@ func fb1Setup(t *testing.T) (*pubarango.Registry, publicationSetup) {
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	return registry, publicationSetup{ctx: ctx, suffix: database[len("loom_verify_fb1_"):]}
+	return registry, publicationSetup{ctx: ctx, suffix: database.Name[len("loom_verify_fb1_"):]}
 }
 
 type publicationSetup struct {

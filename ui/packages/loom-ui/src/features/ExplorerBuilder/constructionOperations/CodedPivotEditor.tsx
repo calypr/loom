@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import type { LoomClient } from '../../../api';
 import { useQuery } from '../../../react';
@@ -10,7 +10,7 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../types';
-import { constructionSchema } from '../../../types';
+import { constructionWithStep } from './editorShared';
 import { semanticConceptLabel } from '../catalogItems';
 
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
@@ -143,13 +143,8 @@ const CodedPivotEditorBody = ({
         id: category.outputColumnId, name: category.name, label: category.label, type: 'INFER',
       })),
     };
-    const draft = constructionSchema.safeParse({
-      ...construction,
-      steps: editingStep
-        ? construction.steps.map((candidate) => candidate.id === editingStep.id ? step : candidate)
-        : [...construction.steps, step],
-    });
-    onCandidateChange(draft.success ? { candidateConstruction: draft.data, changedStepId: stepId } : undefined);
+    const candidateConstruction = constructionWithStep({ construction, editingStep, step });
+    onCandidateChange(candidateConstruction ? { candidateConstruction, changedStepId: stepId } : undefined);
   };
 
   useCommitLifecycle(() => {

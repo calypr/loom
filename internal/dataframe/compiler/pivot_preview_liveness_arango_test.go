@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -16,13 +15,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 func TestConstructionPivotSourceProjectionLivenessAgainstBindOnlyArango(t *testing.T) {
-	endpoint := os.Getenv("LOOM_SELECTOR_ARANGO_URL")
-	if endpoint == "" {
-		t.Skip("set LOOM_SELECTOR_ARANGO_URL for the bind-only Arango Pivot regression")
-	}
+	endpoint := arangotest.Shared(t).URL
 
 	const project, generation = "pivot-source-liveness", "pivot-source-generation"
 	output := pivotSourceLivenessOutput()

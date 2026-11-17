@@ -1,337 +1,113 @@
-import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { createOpaqueId, normalizedName, uniqueName, editorContextKey, stageWithSourceInputs, type CodedPivotContext } from './editorShared';
+import React, { useCallback, useId, useReducer, useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import { useQuery } from '../../../react';
-import type { LoomClient } from '../../../api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
-  ConstructionProposalRequest,
-  ConstructionStageDescriptor,
   ConstructionTableScalar,
   ConstructionStep,
   ExplorerBuilderCatalog,
-  FrameSourceOption,
-  SemanticInventoryBrowseResponse,
-  SemanticInventoryItem,
 } from '../../../types';
-import { constructionSchema } from '../../../types';
 import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
 import { CodedPivotEditor } from './CodedPivotEditor';
-import { semanticConceptLabel } from '../catalogItems';
+import { GroupEditor } from './GroupEditor';
+import { PivotEditor } from './PivotEditor';
+import { ListColumnExpandChoices } from './ListColumnExpandChoices';
 import { classifySourcePickerEmptiness, sourcePickerBoundSet } from './sourcePickerExplanations';
 import { existingColumnForFieldPath } from './existingFieldReuse';
 import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 import {
-  constructionInputForStage,
   constructionInputStageFor,
   isSourceProjectionStage,
   sourceInputMatchesStage,
 } from '../constructionWorkspace/constructionStages';
+import {
+  allDiscoveredPivotCategoriesSelected,
+  candidateIntentFor,
+  capabilityFor,
+  codedGroupStepFromForm,
+  codingPathLabel,
+  convertScalarKind,
+  createPivotCategoryForm,
+  defaultKeyForColumn,
+  expandOutputsFor,
+  expandStepFromForm,
+  formForStep,
+  groupFieldChoicesForStage,
+  groupRowValueChoicesForStage,
+  groupStepFromForm,
+  initialExpandForm,
+  initialGroupForm,
+  initialPivotForm,
+  initialSourceGroupForm,
+  initialUnpivotForm,
+  isListColumn,
+  listColumnsFor,
+  outputNamesAreValid,
+  pivotCategoriesAreKnown,
+  pivotCategoryMemoryKey,
+  pivotDiscoveryMatches,
+  pivotDiscoveryRequestIdentity,
+  pivotOriginalPairApplies,
+  pivotSelectionIdentity,
+  pivotStepFromForm,
+  scalarColumnsFor,
+  scalarFromText,
+  scalarIdentity,
+  scalarKindFromInput,
+  scalarLabel,
+  semanticGroupChoicesForStage,
+  sourceGroupStepFromForm,
+  unpivotOutputsFor,
+  unpivotStepFromForm,
+  type AvailableSourceField,
+  type CandidateEvaluation,
+  type CandidateIntent,
+  type CodedGroupForm,
+  type CompletePivotDiscovery,
+  type ConstructionReshapeEditorEntry,
+  type ConstructionReshapePivotCategory,
+  type ConstructionReshapePivotDiscovery,
+  type ConstructionReshapePivotDiscoveryRequest,
+  type ConstructionReshapeStep,
+  type EmptyListPolicy,
+  type ExpandForm,
+  type PivotForm,
+  type ReshapeCapabilities,
+  type ReshapeColumn,
+  type ReshapeEntryKind,
+  type ReshapeForm,
+  type ReshapeStage,
+  type SourceGroupForm,
+  type SourceInputChoice,
+  type UnpivotForm,
+  type UnpivotInputForm,
+} from './reshapeForms';
+import {
+  initialPivotDiscoveryState,
+  pivotDiscoveryReducer,
+  transitionPivotDiscovery,
+  type PendingPivotDiscovery,
+  type PivotDiscoverySnapshot,
+  type ScheduledPivotDiscovery,
+} from './pivotDiscoveryReducer';
 
-export type CandidateIntent = Pick<
-  ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'unpivotSources' | 'expandSources'
->;
-
-type ReshapeOperationKind = 'PIVOT' | 'CODED_PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
-type GroupAggregateKind = 'COUNT_ROWS' | 'COUNT_NON_NULL' | 'COUNT_DISTINCT' | 'SUM' | 'MEAN';
-type EmptyListPolicy = 'ERROR' | 'EXCLUDE' | 'PRESERVE_PARENT';
-
-export interface ConstructionReshapePivotCategory {
-  readonly key: ConstructionTableScalar;
-  readonly label: string;
-  readonly suggestedName?: string;
-  readonly suggestedLabel?: string;
-}
-
-export interface ConstructionReshapePivotDiscoveryRequest {
-  readonly groupKeyIds?: string[];
-  readonly pivotStepId?: string;
-  readonly pivotSources?: ConstructionProposalRequest['pivotSources'];
-  readonly candidateConstruction?: Construction;
-  readonly stageId: string;
-  readonly categoryColumnId: string;
-  readonly valueColumnId: string;
-}
-
-export type ConstructionReshapePivotDiscovery = ConstructionReshapePivotDiscoveryRequest & (
-  | { readonly status: 'loading' }
-  | { readonly status: 'failed'; readonly reason: string }
-  | { readonly status: 'limit-exceeded'; readonly limit: number; readonly reason: string }
-  | { readonly status: 'missing-unsupported'; readonly reason: string }
-  | { readonly status: 'no-values'; readonly reason: string }
-  | { readonly status: 'complete'; readonly categories: ReadonlyArray<ConstructionReshapePivotCategory> }
-);
-
-export type CompletePivotDiscovery = Extract<ConstructionReshapePivotDiscovery, { readonly status: 'complete' }>;
-
-type PivotOperation = Extract<ConstructionStep['operation'], { readonly kind: 'PIVOT' }>;
-type UnpivotOperation = Extract<ConstructionStep['operation'], { readonly kind: 'UNPIVOT' }>;
-
-type ReshapeColumn = ConstructionStageDescriptor['columns'][number];
-type ReshapeStage = ConstructionStageDescriptor;
-type ReshapeCapabilities = ConstructionCapabilitiesResponse;
-type SourceInputChoice = NonNullable<ReshapeCapabilities['sourceInput']>['choices'][number];
-type AvailableSourceField = {
-  readonly choice: SourceInputChoice;
-  readonly examples: ReadonlyArray<string>;
-};
-type StageCapability = { readonly supported: boolean; readonly reason: string; readonly reasonCode?: string };
-
-type GroupKey = {
-  readonly inputColumnId: string;
-  readonly outputColumnId: string;
-  readonly name: string;
-  readonly label: string;
-};
-
-type GroupOperation = Extract<ConstructionStep['operation'], { readonly kind: 'GROUP' }>;
-type GroupOperationKey = NonNullable<GroupOperation['group']['keys']>[number];
-type GroupSemanticOperationKey = Extract<GroupOperationKey, { readonly semanticCategory: unknown }>;
-type GroupSemanticCategory = GroupSemanticOperationKey['semanticCategory'];
-type GroupFieldSourceOperationKey = Extract<GroupOperationKey, { readonly fieldSource: unknown }>;
-type GroupFieldSource = GroupFieldSourceOperationKey['fieldSource'];
-type GroupFieldChoice = NonNullable<ReshapeCapabilities['groupFieldChoices']>[number];
-type GroupFieldSourceChoice = Extract<GroupFieldChoice, { readonly kind: 'FIELD_SOURCE' }>;
-type GroupScalarFieldSource = Extract<GroupFieldSource, { readonly kind: 'CHOICE' }>
-  | Extract<GroupFieldSource, { readonly kind: 'BINDING'; readonly valueKind: 'SCALAR' }>;
-type GroupCodingFieldSource = Extract<GroupFieldSource, { readonly kind: 'CHOICE' }>
-  | Extract<GroupFieldSource, { readonly kind: 'BINDING'; readonly valueKind: 'CODING_IDENTITY' }>;
-type SemanticGroupChoice = NonNullable<ReshapeCapabilities['semanticGroupChoices']>[number];
-type GroupFieldKey =
-  | {
-      readonly kind: 'SCALAR';
-      readonly valueKind: 'SCALAR';
-      readonly fieldSource: GroupScalarFieldSource;
-      readonly outputColumnId: string;
-      readonly name: string;
-      readonly label: string;
-      readonly displayLabel: string;
-      readonly scopeLabel: string;
-      readonly valueType: string;
-    }
-  | {
-      readonly kind: 'CODING_IDENTITY';
-      readonly valueKind: 'CODING_IDENTITY';
-      readonly fieldSource: GroupCodingFieldSource;
-      readonly outputColumnId: string;
-      readonly name: string;
-      readonly label: string;
-      readonly displayLabel: string;
-      readonly scopeLabel: string;
-      readonly valueType: 'string';
-    };
-type GroupSemanticKey = {
-  readonly semanticCategory: GroupSemanticCategory;
-  readonly outputColumnId: string;
-  readonly name: string;
-  readonly label: string;
-  readonly displayLabel: string;
-  readonly scopeLabel: string;
-};
-
-type GroupCodedCategory = {
-  readonly key: string;
-  readonly familyKey: string;
-  readonly system: string;
-  readonly code: string;
-  readonly display: string;
-  readonly valueType: string;
-  readonly helperOutputColumnId: string;
-  readonly groupOutputColumnId: string;
-  readonly groupOutputName: string;
-  readonly groupOutputLabel: string;
-  readonly helperOutputName: string;
-  readonly helperOutputLabel: string;
-} & (
-  | { readonly choice: 'saved' }
-  | { readonly choice: 'ready'; readonly sourceChoiceId: string; readonly categoryChoiceId: string }
-);
-
-type GroupCodedPassthrough = {
-  readonly inputColumnId: string;
-  readonly outputColumnId: string;
-  readonly name: string;
-  readonly label: string;
-  readonly type?: string;
-};
-
-type GroupAggregate =
-  | {
-      readonly operation: 'COUNT_ROWS';
-      readonly outputColumnId: string;
-      readonly name: string;
-      readonly label: string;
-    }
-  | {
-      readonly operation: Exclude<GroupAggregateKind, 'COUNT_ROWS'>;
-      readonly inputColumnId: string;
-      readonly outputColumnId: string;
-      readonly name: string;
-      readonly label: string;
-    };
-
-type ConstructionRowValue = NonNullable<ConstructionStep['rowValues']>[number];
-type GroupRowValueFieldSource = Extract<ConstructionRowValue, { readonly fieldSource: unknown }>['fieldSource'];
-type GroupRowValueChoice = ConstructionCapabilitiesResponse['groupRowValueChoices'][number];
-type GroupRowValue = {
-  readonly outputColumnId: string;
-  readonly policy: 'ALL' | 'ONE';
-  readonly name: string;
-  readonly label: string;
-  readonly displayLabel: string;
-  readonly scopeLabel: string;
-  readonly valueType: string;
-} & (
-  | { readonly inputColumnId: string }
-  | { readonly fieldSource: GroupRowValueFieldSource }
-);
-
-type PivotCategoryForm = {
-  readonly key: ConstructionTableScalar;
-  readonly outputColumnId: string;
-  readonly name: string;
-  readonly label: string;
-};
-
-type PivotCategoryMemory = {
-  readonly excluded: Set<string>;
-};
-
-const PIVOT_DISCOVERY_MAX_CATEGORIES = 256;
-
-type PivotForm = {
-  readonly pivotSources?: ConstructionProposalRequest['pivotSources'];
-  readonly kind: 'pivot';
-  readonly stepId: string;
-  readonly groupKeyIds: ReadonlyArray<string>;
-  readonly categoryColumnId: string;
-  readonly valueColumnId: string;
-  readonly categories: ReadonlyArray<PivotCategoryForm>;
-  readonly discovery?: { readonly maxCategories: number };
-  readonly duplicatePolicy: 'ERROR' | 'SUM' | 'MIN' | 'MAX';
-  readonly missingCellPolicy: 'NULL' | 'ERROR';
-  readonly unlistedCategoryPolicy: 'ERROR' | 'EXCLUDE_WITH_EVIDENCE';
-  readonly originalPair?: { readonly categoryColumnId: string; readonly valueColumnId: string };
-  readonly categoriesPair?: { readonly categoryColumnId: string; readonly valueColumnId: string };
-  readonly savedOutputs?: ConstructionStep['outputs'];
-};
-
-type UnpivotInputForm = {
-  readonly columnId: string;
-  readonly key: ConstructionTableScalar;
-};
-
-type UnpivotForm = {
-  readonly kind: 'unpivot';
-  readonly stepId: string;
-  readonly inputs: ReadonlyArray<UnpivotInputForm>;
-  readonly unpivotSources?: ConstructionProposalRequest['unpivotSources'];
-  readonly keyOutputColumnId: string;
-  readonly keyOutputName: string;
-  readonly keyOutputLabel: string;
-  readonly valueOutputColumnId: string;
-  readonly valueOutputName: string;
-  readonly valueOutputLabel: string;
-  readonly nullRowPolicy: 'DROP' | 'PRESERVE';
-  readonly savedOutputs?: ConstructionStep['outputs'];
-};
-
-export type ConstructionReshapeStep = ConstructionStep;
-
-type GroupForm = {
-  readonly kind: 'group';
-  readonly stepId: string;
-  readonly missingKeyPolicy: 'GROUP' | 'EXCLUDE' | 'ERROR';
-  readonly keys: ReadonlyArray<GroupKey>;
-  readonly fieldKeys: ReadonlyArray<GroupFieldKey>;
-  readonly keyOrder: ReadonlyArray<string>;
-  readonly semanticKey?: GroupSemanticKey;
-  readonly aggregates: ReadonlyArray<GroupAggregate>;
-  readonly codedPivotStepId: string;
-  readonly codedCategories: ReadonlyArray<GroupCodedCategory>;
-  readonly codedPassthroughs: ReadonlyArray<GroupCodedPassthrough>;
-  readonly rowValues: ReadonlyArray<GroupRowValue>;
-  readonly unmatchedSourceKeyOutputIds?: ReadonlyArray<string>;
-  readonly conflictingRelatedRouteIds?: ReadonlyArray<string>;
-};
-
-const groupFieldChoiceForKey = (
-  choices: ReadonlyArray<GroupFieldChoice>,
-  key: GroupFieldKey,
-): GroupFieldSourceChoice | undefined => choices.find((choice): choice is GroupFieldSourceChoice =>
-  choice.kind === 'FIELD_SOURCE' && (
-    key.fieldSource.kind === 'CHOICE'
-      ? choice.fieldSource.kind === 'CHOICE' && choice.fieldSource.choiceId === key.fieldSource.choiceId
-      : choice.matchedOutputKeyId === key.outputColumnId && choice.valueKind === key.valueKind
-  ),
-);
-
-const relatedRouteIdsForGroupFieldKeys = (
-  choices: ReadonlyArray<GroupFieldChoice>,
-  keys: ReadonlyArray<GroupFieldKey>,
-): string[] => [...new Set(keys.flatMap((key) => {
-  const routeId = groupFieldChoiceForKey(choices, key)?.relatedOccurrence?.routeId;
-  return routeId ? [routeId] : [];
-}))];
-
-type CodedGroupForm = {
-  readonly kind: 'coded-group';
-  readonly stepId: string;
-  readonly codingPath: string;
-  readonly missingKeyPolicy: 'GROUP' | 'EXCLUDE' | 'ERROR';
-  readonly outputs: ConstructionStep['outputs'];
-};
-
-type SourceGroupForm = {
-  readonly kind: 'source-group';
-  readonly additionalKeys?: ReadonlyArray<{ readonly choiceId: string; readonly inputColumnId: string; readonly keyOutput: ConstructionStep['outputs'][number] }>;
-  readonly stepId: string;
-  readonly choiceId: string;
-  readonly inputColumnId: string;
-  readonly missingKeyPolicy: 'GROUP' | 'EXCLUDE' | 'ERROR';
-  readonly keyOutput: ConstructionStep['outputs'][number];
-  readonly countOutput: ConstructionStep['outputs'][number];
-};
-
-type ExpandForm = {
-  readonly kind: 'expand';
-  readonly stepId: string;
-  readonly inputColumnId: string;
-  readonly expandSources?: ConstructionProposalRequest['expandSources'];
-  readonly outputColumnId: string;
-  readonly outputName: string;
-  readonly outputLabel: string;
-  readonly ordinal: {
-    readonly kind: 'none';
-  } | {
-    readonly kind: 'include';
-    readonly outputColumnId: string;
-    readonly outputName: string;
-    readonly outputLabel: string;
-  };
-  readonly emptyPolicy: EmptyListPolicy | undefined;
-  readonly savedOutputs?: ConstructionStep['outputs'];
-};
-
-export type ReshapeForm =
-  | { readonly kind: 'choose' }
-  | { readonly kind: 'related-expand' }
-  | { readonly kind: 'coded-pivot' }
-  | GroupForm
-  | SourceGroupForm
-  | CodedGroupForm
-  | ExpandForm
-  | PivotForm
-  | UnpivotForm
-  | { readonly kind: 'unsupported'; readonly message: string };
-
-export interface ConstructionReshapeEditorEntry {
-  readonly form: ReshapeForm;
-  readonly candidateIntent?: CandidateIntent;
-}
-
-export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'related-expand' | 'unpivot';
+export {
+  CONSTRUCTION_RESHAPE_EDITABLE_KINDS,
+  hasPublicScalarListColumn,
+  publicScalarListColumnIds,
+} from './reshapeForms';
+export type {
+  CandidateIntent,
+  CompletePivotDiscovery,
+  ConstructionReshapeEditorEntry,
+  ConstructionReshapePivotCategory,
+  ConstructionReshapePivotDiscovery,
+  ConstructionReshapePivotDiscoveryRequest,
+  ConstructionReshapeStep,
+  ReshapeEntryKind,
+  ReshapeForm,
+} from './reshapeForms';
 
 const reshapeFormLabels = {
   group: 'Group rows',
@@ -373,1685 +149,8 @@ export interface ConstructionReshapeEditorProps {
     readonly catalog: ExplorerBuilderCatalog;
   };
   readonly relatedExpandQueryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
-  readonly codedPivotContext?: {
-    readonly client: Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>;
-    readonly project: string;
-    readonly explorerId: string;
-    readonly authResourcePath?: string;
-    readonly snapshotToken: string;
-    readonly outputId: string;
-    readonly rowRoot: string;
-  };
+  readonly codedPivotContext?: CodedPivotContext;
 }
-
-type PivotDiscoveryRequestOwner = NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>;
-type PendingPivotDiscovery = {
-  readonly identity: string;
-  readonly revision: number;
-  readonly owner: PivotDiscoveryRequestOwner;
-};
-type ScheduledPivotDiscovery = PendingPivotDiscovery & { readonly timer: number };
-// Editor-owned view of "a discovery for this exact request identity has been asked
-// for and no result was adopted yet". Hosts may lag or omit status:'loading', so the
-// in-progress UI cannot depend on props.pivotDiscovery alone. `seen` is the host state
-// already acknowledged when the request was issued; a newer host object ends the
-// in-flight window even for a terminal status.
-type AwaitingPivotDiscovery = PendingPivotDiscovery & {
-  readonly contextKey: string;
-  readonly seen: ConstructionReshapePivotDiscovery | undefined;
-};
-
-export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'CODED_PIVOT', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
-
-const createOpaqueId = (prefix: string): string => {
-  const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-  return `${prefix}_${randomPart}`;
-};
-
-const capabilityFor = (
-  stage: ReshapeStage,
-  kind: ReshapeOperationKind,
-): StageCapability => {
-  const capability = stage.capabilities.find((candidate) => candidate.kind === kind);
-  if (!capability) {
-    return {
-      supported: false,
-      reason: `Loom has not returned ${reshapeKindLabel(kind)} support for this stage.`,
-    };
-  }
-  const reason = kind === 'PIVOT' && capability.reasonCode === 'INSUFFICIENT_SCALAR_COLUMNS'
-    ? 'No executable combination of row, category, and value fields is available at this stage.'
-    : capability.reason ?? 'Loom does not support this operation at the selected stage.';
-  return capability.supported
-    ? { supported: true, reason: '', reasonCode: capability.reasonCode }
-    : {
-      supported: false,
-      reason,
-      reasonCode: capability.reasonCode,
-    };
-};
-
-const semanticGroupChoicesForStage = (
-  capabilities: ReshapeCapabilities,
-  stage: ReshapeStage,
-): ReadonlyArray<SemanticGroupChoice> =>
-  capabilities.stageId === stage.id && isSourceProjectionStage(stage)
-    ? capabilities.semanticGroupChoices ?? []
-    : [];
-
-const groupFieldChoicesForStage = (
-  capabilities: ReshapeCapabilities,
-  stage: ReshapeStage,
-): ReadonlyArray<GroupFieldChoice> => capabilities.stageId === stage.id
-  ? capabilities.groupFieldChoices ?? []
-  : [];
-
-const groupRowValueChoicesForStage = (
-  capabilities: ReshapeCapabilities,
-  stage: ReshapeStage,
-): ReadonlyArray<GroupRowValueChoice> => capabilities.stageId === stage.id
-  ? capabilities.groupRowValueChoices
-  : [];
-
-const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
-  switch (kind) {
-    case 'PIVOT': return 'pivot';
-    case 'CODED_PIVOT': return 'coded pivot';
-    case 'UNPIVOT': return 'unpivot';
-    case 'GROUP': return 'group summary';
-    case 'CODED_GROUP': return 'coded value grouping';
-    case 'EXPAND': return 'list expansion';
-    case 'RELATED_EXPAND': return 'related record expansion';
-    default: {
-      const exhaustive: never = kind;
-      return exhaustive;
-    }
-  }
-};
-
-const normalizedLogicalType = (type: string | undefined): string =>
-  (type ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
-
-const reshapeScalarTypes = new Set(['string', 'date', 'date_time', 'datetime', 'code', 'uuid', 'integer', 'decimal', 'number', 'boolean']);
-
-const isScalarValueType = (type: string | undefined): boolean => reshapeScalarTypes.has(normalizedLogicalType(type));
-
-const isScalarColumn = (column: ReshapeColumn): boolean =>
-  (column.cardinality === 'required_one' || column.cardinality === 'optional_one')
-  && isScalarValueType(column.type);
-
-const isListColumn = (column: ReshapeColumn): boolean => column.cardinality === 'many'
-  && isScalarValueType(column.type);
-
-const isNumericColumn = (column: ReshapeColumn): boolean => {
-  const type = normalizedLogicalType(column.type);
-  return type === 'integer' || type === 'decimal' || type === 'number';
-};
-
-const scalarColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
-  stage.columns.filter(isScalarColumn);
-
-const numericColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
-  scalarColumnsFor(stage).filter(isNumericColumn);
-
-const listColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
-  stage.columns.filter(isListColumn);
-
-export const publicScalarListColumnIds = (stage: ConstructionStageDescriptor | undefined): ReadonlyArray<string> =>
-  stage ? listColumnsFor(stage).map((column) => column.id) : [];
-
-export const hasPublicScalarListColumn = (stage: ConstructionStageDescriptor | undefined): boolean =>
-  publicScalarListColumnIds(stage).length > 0;
-
-const codingPathLabel = (path: string): string => path.split('.').map((segment) => {
-  const words = segment.replaceAll('[]', '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^_+/, '').trim();
-  return words ? words[0].toUpperCase() + words.slice(1) : '';
-}).filter(Boolean).join(' → ');
-
-const normalizedName = (value: string): string => {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'column';
-  return /^[0-9]/.test(normalized) ? `column_${normalized}` : normalized;
-};
-
-const codedFamilyKey = (bindingId: string, sourcePath: string): string => `${bindingId}\u0000${sourcePath}`;
-const codedCategoryKey = (familyKey: string, system: string, code: string): string => `${familyKey}\u0000${system}\u0000${code}`;
-const INITIAL_VISIBLE_CODED_CHOICES = 10;
-const CODED_INVENTORY_READINESS_POLL_INTERVAL_MS = 1_000;
-
-const waitForCodedInventoryReadinessPoll = (signal: AbortSignal): Promise<void> => new Promise((resolve) => {
-  if (signal.aborted) {
-    resolve();
-    return;
-  }
-  let timer: number | undefined;
-  const finish = () => {
-    if (timer !== undefined) window.clearTimeout(timer);
-    signal.removeEventListener('abort', finish);
-    resolve();
-  };
-  timer = window.setTimeout(finish, CODED_INVENTORY_READINESS_POLL_INTERVAL_MS);
-  signal.addEventListener('abort', finish, { once: true });
-});
-
-const availableGroupCodedEntry = (
-  item: SemanticInventoryItem,
-  sources: ReadonlyArray<FrameSourceOption>,
-) => {
-  const source = sources.find((candidate) => candidate.resourceType === item.resourceType
-    && candidate.bindingId === item.bindingId && candidate.sourcePath === item.sourcePath);
-  const semanticSource = item.constructionChoice?.source;
-  if (!source || !item.code || item.codingVersion || !item.constructionChoice || item.constructionChoice.route.length !== 0
-      || semanticSource?.kind !== 'SEMANTIC' || semanticSource.resourceType !== source.resourceType
-      || semanticSource.bindingId !== source.bindingId || semanticSource.sourcePath !== source.sourcePath
-      || semanticSource.code !== item.code || (semanticSource.system ?? '') !== item.system
-      || item.readiness.status !== 'READY' && item.readiness.status !== 'READY_WITH_WARNING') return undefined;
-  return { item, source, familyKey: codedFamilyKey(source.bindingId, source.sourcePath) };
-};
-
-type GroupCodedSourceDiscovery = {
-  readonly scopeKey: string;
-  readonly sources: ReadonlyArray<FrameSourceOption>;
-  readonly complete: boolean;
-  readonly truncated: boolean;
-  readonly loading: boolean;
-};
-
-type GroupCodedInventoryReadiness = {
-  readonly scopeKey: string;
-  readonly contextToken: string;
-  readonly buildId: string;
-  readonly state: SemanticInventoryBrowseResponse['state'];
-};
-
-type GroupCodedInventoryFamily = {
-  readonly source: FrameSourceOption;
-  readonly entries: SemanticInventoryItem[];
-  readonly seenCursors: Set<string>;
-  started: boolean;
-  cursor?: string;
-  exhausted: boolean;
-};
-
-type GroupCodedInventoryCheckpoint = {
-  readonly scopeKey: string;
-  readonly families: Map<string, GroupCodedInventoryFamily>;
-  contextToken?: string;
-  buildId?: string;
-  initialized: boolean;
-  loadedRound: number;
-};
-
-type GroupCodedInventoryView = {
-  readonly scopeKey: string;
-  readonly sourceKey: string;
-  readonly entries: ReadonlyArray<SemanticInventoryItem>;
-  readonly hasMore: boolean;
-  readonly complete: boolean;
-};
-
-const uniqueName = (base: string, used: ReadonlySet<string>): string => {
-  const normalized = normalizedName(base);
-  if (!used.has(normalized)) return normalized;
-  let suffix = 2;
-  while (used.has(`${normalized}_${suffix}`)) suffix += 1;
-  return `${normalized}_${suffix}`;
-};
-
-const groupOutputColumns = (form: GroupForm, stage: ReshapeStage): ConstructionStep['outputs'] => {
-  const keyOutputs = new Map<string, ConstructionStep['outputs'][number]>();
-  for (const key of form.keys) {
-    const input = stage.columns.find((column) => column.id === key.inputColumnId);
-    const codedCategory = form.codedCategories.find((category) => category.helperOutputColumnId === key.inputColumnId);
-    const type = input?.type ?? codedCategory?.valueType;
-    keyOutputs.set(key.outputColumnId, {
-      id: key.outputColumnId,
-      name: key.name,
-      label: key.label.trim(),
-      ...(type ? { type } : {}),
-    });
-  }
-  for (const key of form.fieldKeys) {
-    keyOutputs.set(key.outputColumnId, {
-      id: key.outputColumnId,
-      name: key.name,
-      label: key.label.trim(),
-      type: key.valueType,
-    });
-  }
-  if (form.semanticKey) {
-    keyOutputs.set(form.semanticKey.outputColumnId, {
-      id: form.semanticKey.outputColumnId,
-      name: form.semanticKey.name,
-      label: form.semanticKey.label.trim(),
-      type: 'string',
-    });
-  }
-  const outputs = [
-    ...form.keyOrder.flatMap((id) => {
-      const output = keyOutputs.get(id);
-      if (!output) return [];
-      keyOutputs.delete(id);
-      return [output];
-    }),
-    ...keyOutputs.values(),
-  ];
-  for (const aggregate of form.aggregates) {
-    const input = aggregate.operation === 'COUNT_ROWS'
-      ? undefined
-      : stage.columns.find((column) => column.id === aggregate.inputColumnId);
-    const type = aggregate.operation === 'MEAN' ? 'decimal'
-      : aggregate.operation === 'COUNT_ROWS' || aggregate.operation === 'COUNT_NON_NULL' || aggregate.operation === 'COUNT_DISTINCT'
-        ? 'integer'
-        : input?.type;
-    outputs.push({
-      id: aggregate.outputColumnId,
-      name: aggregate.name,
-      label: aggregate.label.trim(),
-      ...(type ? { type } : {}),
-    });
-  }
-  for (const value of form.rowValues) {
-    outputs.push({
-      id: value.outputColumnId,
-      name: value.name,
-      label: value.label.trim(),
-      type: value.policy === 'ALL' ? 'array' : value.valueType,
-    });
-  }
-  return outputs;
-};
-
-const groupOperationFor = (form: GroupForm): Extract<ConstructionStep['operation'], { readonly kind: 'GROUP' }> => {
-  const passthroughID = new Map(form.codedPassthroughs.map(({ inputColumnId, outputColumnId }) => [inputColumnId, outputColumnId]));
-  const codedInputs = new Set(form.codedCategories.map((category) => category.helperOutputColumnId));
-  const inputID = (columnID: string) => form.codedCategories.length > 0 && !codedInputs.has(columnID)
-    ? passthroughID.get(columnID) ?? columnID
-    : columnID;
-  const keyByOutput = new Map<string, GroupOperationKey>();
-  for (const key of form.keys) {
-    keyByOutput.set(key.outputColumnId, { inputColumnId: inputID(key.inputColumnId), outputColumnId: key.outputColumnId });
-  }
-  for (const key of form.fieldKeys) {
-    keyByOutput.set(key.outputColumnId, { fieldSource: key.fieldSource, outputColumnId: key.outputColumnId });
-  }
-  if (form.semanticKey) {
-    keyByOutput.set(form.semanticKey.outputColumnId, {
-      semanticCategory: form.semanticKey.semanticCategory,
-      outputColumnId: form.semanticKey.outputColumnId,
-    });
-  }
-  const keys = [
-    ...form.keyOrder.flatMap((id) => {
-      const key = keyByOutput.get(id);
-      if (!key) return [];
-      keyByOutput.delete(id);
-      return [key];
-    }),
-    ...keyByOutput.values(),
-  ];
-  return {
-    kind: 'GROUP',
-    group: {
-      constructionId: form.stepId,
-      missingKeyPolicy: form.missingKeyPolicy,
-      keys,
-      aggregates: form.aggregates.map((aggregate) => aggregate.operation === 'COUNT_ROWS'
-        ? { operation: aggregate.operation, outputColumnId: aggregate.outputColumnId }
-        : {
-            operation: aggregate.operation,
-            inputColumnId: inputID(aggregate.inputColumnId),
-            outputColumnId: aggregate.outputColumnId,
-          }),
-    },
-  };
-};
-
-const expandOutputsFor = (form: ExpandForm, stage: ReshapeStage): ConstructionStep['outputs'] => {
-  const input = stage.columns.find((column) => column.id === form.inputColumnId);
-  if (!input) return [];
-  const savedById = new Map(form.savedOutputs?.map((column) => [column.id, column]));
-  const output: ConstructionStep['outputs'][number][] = [];
-  for (const column of stage.columns) {
-    if (column.id !== input.id) {
-      output.push(savedById.get(column.id) ?? {
-        id: column.id,
-        name: column.name,
-        label: column.label,
-        ...(column.type ? { type: column.type } : {}),
-      });
-      continue;
-    }
-    output.push({
-      id: form.outputColumnId,
-      name: form.outputName,
-      label: form.outputLabel.trim(),
-      ...(input.type ? { type: input.type } : {}),
-    });
-    if (form.ordinal.kind === 'include') {
-      output.push({
-        id: form.ordinal.outputColumnId,
-        name: form.ordinal.outputName,
-        label: form.ordinal.outputLabel.trim(),
-        type: 'integer',
-      });
-    }
-  }
-  return output;
-};
-
-const expandOperationFor = (form: ExpandForm): Extract<ConstructionStep['operation'], { readonly kind: 'EXPAND' }> | undefined => {
-  if (!form.emptyPolicy) return undefined;
-  return {
-    kind: 'EXPAND',
-    expand: {
-      constructionId: form.stepId,
-      inputColumnId: form.inputColumnId,
-      outputColumnId: form.outputColumnId,
-      ...(form.ordinal.kind === 'include' ? { ordinalColumnId: form.ordinal.outputColumnId } : {}),
-      emptyPolicy: form.emptyPolicy,
-    },
-  };
-};
-
-const scalarIdentity = (scalar: ConstructionTableScalar): string => JSON.stringify(scalar);
-
-const pivotSelectionIdentity = (form: PivotForm, stageId: string): string => JSON.stringify([
-  form.stepId,
-  stageId,
-  form.categoryColumnId,
-  form.valueColumnId,
-  form.pivotSources,
-  form.pivotSources?.length ? form.groupKeyIds : undefined,
-]);
-
-const pivotDiscoveryRequestIdentity = (form: PivotForm, stageId: string, contextKey: string): string => JSON.stringify([
-  contextKey,
-  stageId,
-  form.categoryColumnId,
-  form.valueColumnId,
-  form.pivotSources?.length
-    ? { pivotStepId: form.stepId, groupKeyIds: form.groupKeyIds, pivotSources: form.pivotSources }
-    : undefined,
-]);
-
-// Category edits and manual opt-outs belong to the step's category/value pair,
-// not to the row-key/source selection that scopes a discovery request.
-const pivotCategoryMemoryKey = (form: PivotForm, stageId: string, contextKey: string): string => JSON.stringify([
-  contextKey,
-  stageId,
-  form.stepId,
-  form.categoryColumnId,
-  form.valueColumnId,
-]);
-
-const scalarLabel = (scalar: ConstructionTableScalar): string => {
-  switch (scalar.kind) {
-    case 'BOOLEAN': return String(scalar.boolean);
-    case 'DECIMAL': return String(scalar.decimal);
-    case 'INTEGER': return String(scalar.integer);
-    case 'STRING': return scalar.string;
-    case 'NULL': return 'Null value';
-    case 'MISSING': return 'Missing value';
-    default: {
-      const exhaustive: never = scalar;
-      return exhaustive;
-    }
-  }
-};
-
-const createPivotCategoryForm = (
-  available: ConstructionReshapePivotCategory,
-  usedNames: ReadonlySet<string>,
-): PivotCategoryForm => ({
-  key: available.key,
-  outputColumnId: createOpaqueId('pivot-column'),
-  name: uniqueName(available.suggestedName ?? normalizedName(scalarLabel(available.key)), usedNames),
-  label: available.suggestedLabel ?? available.label,
-});
-
-const scalarFromText = (kind: ConstructionTableScalar['kind'], value: string): ConstructionTableScalar | undefined => {
-  switch (kind) {
-    case 'STRING': return { kind, string: value };
-    case 'INTEGER': {
-      if (!/^-?\d+$/.test(value.trim())) return undefined;
-      const integer = Number(value);
-      return Number.isSafeInteger(integer) ? { kind, integer } : undefined;
-    }
-    case 'DECIMAL': {
-      if (value.trim() === '') return undefined;
-      const decimal = Number(value);
-      return Number.isFinite(decimal) ? { kind, decimal } : undefined;
-    }
-    case 'BOOLEAN': return value === 'true' || value === 'false' ? { kind, boolean: value === 'true' } : undefined;
-    case 'NULL': return { kind };
-    case 'MISSING': return { kind };
-    default: {
-      const exhaustive: never = kind;
-      return exhaustive;
-    }
-  }
-};
-
-const scalarKindFromInput = (value: string): ConstructionTableScalar['kind'] | undefined => {
-  switch (value) {
-    case 'STRING': return 'STRING';
-    case 'INTEGER': return 'INTEGER';
-    case 'DECIMAL': return 'DECIMAL';
-    case 'BOOLEAN': return 'BOOLEAN';
-    case 'NULL': return 'NULL';
-    case 'MISSING': return 'MISSING';
-    default: return undefined;
-  }
-};
-
-const convertScalarKind = (kind: ConstructionTableScalar['kind'], current: ConstructionTableScalar): ConstructionTableScalar => {
-  const value = scalarLabel(current);
-  const parsed = scalarFromText(kind, value);
-  if (parsed) return parsed;
-  switch (kind) {
-    case 'STRING': return { kind, string: value };
-    case 'INTEGER': return { kind, integer: 0 };
-    case 'DECIMAL': return { kind, decimal: 0 };
-    case 'BOOLEAN': return { kind, boolean: false };
-    case 'NULL': return { kind };
-    case 'MISSING': return { kind };
-    default: {
-      const exhaustive: never = kind;
-      return exhaustive;
-    }
-  }
-};
-
-const pivotOutputsFor = (form: PivotForm, stage: ReshapeStage): ConstructionStep['outputs'] => {
-  const savedById = new Map(form.savedOutputs?.map((column) => [column.id, column]));
-  const groupOutputs = form.groupKeyIds.flatMap((id) => {
-    const column = stage.columns.find((candidate) => candidate.id === id);
-    if (!column) return [];
-    const saved = savedById.get(column.id);
-    return [saved ?? { id: column.id, name: column.name, label: column.label, ...(column.type ? { type: column.type } : {}) }];
-  });
-  const valueType = stage.columns.find((column) => column.id === form.valueColumnId)?.type;
-  const categoryOutputs = form.discovery ? [] : form.categories.map((category) => {
-    const saved = savedById.get(category.outputColumnId);
-    const type = saved?.type ?? valueType;
-    return {
-      id: category.outputColumnId,
-      name: category.name,
-      label: category.label.trim(),
-      ...(type ? { type } : {}),
-      ...(saved?.table ? { table: saved.table } : {}),
-    };
-  });
-  return [...groupOutputs, ...categoryOutputs];
-};
-
-const pivotOperationFor = (form: PivotForm): PivotOperation => ({
-  kind: 'PIVOT',
-  pivot: {
-    constructionId: form.stepId,
-    groupKeyIds: [...form.groupKeyIds],
-    categoryColumnId: form.categoryColumnId,
-    valueColumnId: form.valueColumnId,
-    categories: form.discovery
-      ? []
-      : form.categories.map(({ key, outputColumnId }) => ({ key, outputColumnId })),
-    ...(form.discovery ? { discovery: { maxCategories: form.discovery.maxCategories } } : {}),
-    duplicatePolicy: form.duplicatePolicy,
-    missingCellPolicy: form.missingCellPolicy,
-    unlistedCategoryPolicy: form.unlistedCategoryPolicy,
-  },
-});
-
-const unpivotOutputsFor = (form: UnpivotForm, stage: ReshapeStage): ConstructionStep['outputs'] => {
-  const savedById = new Map(form.savedOutputs?.map((column) => [column.id, column]));
-  const inputIDs = new Set(form.inputs.map((input) => input.columnId));
-  const inputTypes = form.inputs.map((input) => stage.columns.find((column) => column.id === input.columnId)?.type);
-  const valueType = inputTypes.length > 0 && inputTypes.every((type) => type === inputTypes[0]) ? inputTypes[0] : undefined;
-  return [
-    ...stage.columns.filter((column) => !inputIDs.has(column.id)).map((column) => savedById.get(column.id) ?? ({
-      id: column.id,
-      name: column.name,
-      label: column.label,
-      ...(column.type ? { type: column.type } : {}),
-    })),
-    { id: form.keyOutputColumnId, name: form.keyOutputName, label: form.keyOutputLabel.trim(), type: 'string' },
-    { id: form.valueOutputColumnId, name: form.valueOutputName, label: form.valueOutputLabel.trim(), ...(valueType ? { type: valueType } : {}) },
-  ];
-};
-
-const unpivotOperationFor = (form: UnpivotForm): UnpivotOperation => ({
-  kind: 'UNPIVOT',
-  unpivot: {
-    constructionId: form.stepId,
-    inputs: form.inputs.map(({ columnId, key }) => ({ columnId, key })),
-    keyOutputColumnId: form.keyOutputColumnId,
-    valueOutputColumnId: form.valueOutputColumnId,
-    nullRowPolicy: form.nullRowPolicy,
-  },
-});
-
-type CandidateEvaluation =
-  | { readonly kind: 'ready'; readonly intent: CandidateIntent }
-  | { readonly kind: 'incomplete' }
-  | { readonly kind: 'schema-pending' };
-
-const candidateIntentFor = (args: {
-  readonly construction: Construction;
-  readonly editingStep?: ConstructionReshapeStep;
-  readonly step: ConstructionReshapeStep;
-  readonly groupSource?: CandidateIntent['groupSource'];
-  readonly groupSources?: CandidateIntent['groupSources'];
-  readonly pivotSources?: CandidateIntent['pivotSources'];
-  readonly unpivotSources?: CandidateIntent['unpivotSources'];
-  readonly expandSources?: CandidateIntent['expandSources'];
-  readonly ownedSteps?: ReadonlyArray<ConstructionStep>;
-}): CandidateEvaluation => {
-  const { construction, editingStep, groupSource, groupSources, pivotSources, unpivotSources, expandSources, ownedSteps = [] } = args;
-  const rowValues = args.step.rowValues ?? editingStep?.rowValues;
-  const valueIds = new Set(rowValues?.map((value) => value.outputColumnId));
-  const step = rowValues?.length ? {
-    ...args.step,
-    rowValues,
-    outputs: [...args.step.outputs.filter((output) => !valueIds.has(output.id)),
-      ...args.step.outputs.filter((output) => valueIds.has(output.id)),
-      ...(editingStep?.outputs ?? []).filter((output) => valueIds.has(output.id) && !args.step.outputs.some((candidate) => candidate.id === output.id))],
-  } : args.step;
-  if (editingStep && !construction.steps.some((candidate) => candidate.id === editingStep.id)) return { kind: 'incomplete' };
-  const priorSteps = editingStep
-    ? construction.steps.filter((candidate) => !(candidate.ownerStepId === editingStep.id && candidate.operation.kind === 'CODED_PIVOT'))
-    : construction.steps;
-  const nextSteps = editingStep
-    ? priorSteps.flatMap((candidate) => candidate.id === editingStep.id ? [...ownedSteps, step] : [candidate])
-    : [...priorSteps, ...ownedSteps, step];
-  const draft: unknown = {
-    version: construction.version,
-    steps: nextSteps,
-    ...(construction.sourceProjections ? { sourceProjections: construction.sourceProjections } : {}),
-  };
-  const parsed = constructionSchema.safeParse(draft);
-  if (!parsed.success) return { kind: 'schema-pending' };
-  return {
-    kind: 'ready',
-    intent: {
-      candidateConstruction: parsed.data,
-      changedStepId: step.id,
-      ...(groupSource ? { groupSource } : {}),
-      ...(groupSources ? { groupSources } : {}),
-      ...(pivotSources !== undefined ? { pivotSources } : {}),
-      ...(unpivotSources !== undefined ? { unpivotSources } : {}),
-      ...(expandSources !== undefined ? { expandSources } : {}),
-    },
-  };
-};
-
-const outputNamesAreValid = (columns: ReadonlyArray<{ readonly name: string; readonly label: string }>): boolean => {
-  const names = columns.map((column) => column.name.trim().toLowerCase());
-  return names.every((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-    && names.length === new Set(names).size
-    && columns.every((column) => column.label.trim() !== '');
-};
-
-const aggregateInputColumnsFor = (
-  stage: ReshapeStage,
-  operation: GroupAggregateKind,
-): ReadonlyArray<ReshapeColumn> => {
-  if (operation === 'COUNT_ROWS') return [];
-  return operation === 'SUM' || operation === 'MEAN'
-    ? numericColumnsFor(stage)
-    : scalarColumnsFor(stage);
-};
-
-const aggregateNameFor = (operation: GroupAggregateKind, column?: ReshapeColumn): string => {
-  switch (operation) {
-    case 'COUNT_ROWS': return 'row_count';
-    case 'COUNT_NON_NULL': return `${normalizedName(column?.name ?? 'value')}_count`;
-    case 'COUNT_DISTINCT': return `${normalizedName(column?.name ?? 'value')}_distinct_count`;
-    case 'SUM': return `${normalizedName(column?.name ?? 'value')}_sum`;
-    case 'MEAN': return `${normalizedName(column?.name ?? 'value')}_mean`;
-    default: {
-      const exhaustive: never = operation;
-      return exhaustive;
-    }
-  }
-};
-
-const makeAggregate = (
-  operation: GroupAggregateKind,
-  stage: ReshapeStage,
-  usedNames: ReadonlySet<string>,
-  inputColumnId?: string,
-): GroupAggregate => {
-  const inputOptions = aggregateInputColumnsFor(stage, operation);
-  const input = inputOptions.find((column) => column.id === inputColumnId) ?? inputOptions[0];
-  const base = aggregateNameFor(operation, input);
-  const common = {
-    outputColumnId: createOpaqueId('group-column'),
-    name: uniqueName(base, usedNames),
-    label: operation === 'COUNT_ROWS'
-      ? 'Row count'
-      : `${operationLabel(operation)} of ${input?.label ?? input?.name ?? 'value'}`,
-  };
-  return operation === 'COUNT_ROWS'
-    ? { operation, ...common }
-    : { operation, inputColumnId: input?.id ?? '', ...common };
-};
-
-const operationLabel = (operation: GroupAggregateKind): string => {
-  switch (operation) {
-    case 'COUNT_ROWS': return 'Count rows';
-    case 'COUNT_NON_NULL': return 'Count present values';
-    case 'COUNT_DISTINCT': return 'Count distinct values';
-    case 'SUM': return 'Sum';
-    case 'MEAN': return 'Mean';
-    default: {
-      const exhaustive: never = operation;
-      return exhaustive;
-    }
-  }
-};
-
-const groupStepFromForm = (args: {
-  readonly stage: ReshapeStage;
-  readonly editingStep?: ConstructionReshapeStep;
-  readonly form: GroupForm;
-}): { readonly step: ConstructionReshapeStep; readonly codedInput?: ConstructionReshapeStep } | undefined => {
-  const { stage, editingStep, form } = args;
-  const outputs = groupOutputColumns(form, stage);
-  const hasGrouping = form.keys.length > 0 || form.fieldKeys.length > 0 || Boolean(form.semanticKey) ||
-    form.codedCategories.length > 0 || form.rowValues.length > 0;
-  if ((!hasGrouping && form.aggregates.length === 0) || !outputNamesAreValid(outputs)) return undefined;
-  if (form.semanticKey && (!isSourceProjectionStage(stage) || form.codedCategories.length > 0)) return undefined;
-  if (form.fieldKeys.some((key) => key.kind === 'CODING_IDENTITY') &&
-      (form.semanticKey !== undefined || form.codedCategories.length > 0 || form.fieldKeys.filter((key) => key.kind === 'CODING_IDENTITY').length > 1)) return undefined;
-  if (form.fieldKeys.some((key) => key.fieldSource.kind === 'CHOICE' && key.fieldSource.choiceId.trim() === '')) return undefined;
-  if (form.codedCategories.length > 0 && form.fieldKeys.length > 0) return undefined;
-  if (form.codedCategories.length > 0 && form.rowValues.some((value) => 'fieldSource' in value)) return undefined;
-  const codedInputIDs = new Set(form.codedCategories.map((category) => category.helperOutputColumnId));
-  if (form.keys.some((key) => !scalarColumnsFor(stage).some((column) => column.id === key.inputColumnId)
-      && !codedInputIDs.has(key.inputColumnId))) return undefined;
-  if (new Set(form.keys.map((key) => key.inputColumnId)).size !== form.keys.length) return undefined;
-  if (form.aggregates.some((aggregate) => aggregate.operation !== 'COUNT_ROWS'
-      && !aggregateInputColumnsFor(stage, aggregate.operation).some((column) => column.id === aggregate.inputColumnId))) return undefined;
-  const groupStep: ConstructionReshapeStep = {
-    id: editingStep?.id ?? form.stepId,
-    inputs: form.codedCategories.length > 0
-      ? [{ kind: 'STEP_OUTPUT', stepId: form.codedPivotStepId }]
-      : [constructionInputForStage(stage)],
-    operation: groupOperationFor(form),
-    ...(form.rowValues.length ? {
-      rowValues: form.rowValues.map((value) => {
-        if ('fieldSource' in value) {
-          return { fieldSource: value.fieldSource, outputColumnId: value.outputColumnId, policy: value.policy };
-        }
-        return {
-          inputColumnId: form.codedCategories.length > 0
-            ? form.codedPassthroughs.find((passthrough) => passthrough.inputColumnId === value.inputColumnId)?.outputColumnId ?? ''
-            : value.inputColumnId,
-          outputColumnId: value.outputColumnId,
-          policy: value.policy,
-        };
-      }),
-    } : {}),
-    outputs,
-  };
-  if (groupStep.rowValues?.some((value) => 'inputColumnId' in value && value.inputColumnId === '')) return undefined;
-  if (form.codedCategories.length === 0) return { step: groupStep };
-  if (new Set(form.codedCategories.map((category) => category.familyKey)).size !== 1
-      || form.codedCategories.some((category) => category.choice !== 'ready')) return undefined;
-  const selected = form.codedCategories;
-  const first = selected[0];
-  if (!first || first.choice !== 'ready') return undefined;
-  const sourceChoiceIDs = new Set(selected.flatMap((category) => category.choice === 'ready' ? [category.sourceChoiceId] : []));
-  if (sourceChoiceIDs.size !== 1) return undefined;
-  const rowInputIDs = new Set([
-    ...form.keys.flatMap((key) => codedInputIDs.has(key.inputColumnId) ? [] : [key.inputColumnId]),
-    ...form.aggregates.flatMap((aggregate) => aggregate.operation === 'COUNT_ROWS' ? [] : [aggregate.inputColumnId]),
-    ...form.rowValues.flatMap((value) => 'inputColumnId' in value ? [value.inputColumnId] : []),
-  ]);
-  const rowValues = [...rowInputIDs].flatMap((inputColumnId) => {
-    const outputColumnId = form.codedPassthroughs.find((passthrough) => passthrough.inputColumnId === inputColumnId)?.outputColumnId;
-    return outputColumnId ? [{ inputColumnId, outputColumnId, policy: 'ONE' as const }] : [];
-  });
-  if (rowValues.length !== rowInputIDs.size) return undefined;
-  const codedInput: ConstructionReshapeStep = {
-    id: form.codedPivotStepId,
-    ownerStepId: groupStep.id,
-    inputs: [{ kind: 'SOURCE_PROJECTION' }],
-    operation: {
-      kind: 'CODED_PIVOT',
-      codedPivot: {
-        constructionId: form.codedPivotStepId,
-        sourceChoiceId: first.sourceChoiceId,
-        categories: selected.flatMap((category) => category.choice === 'ready'
-          ? [{ choiceId: category.categoryChoiceId, outputColumnId: category.helperOutputColumnId }]
-          : []),
-        duplicatePolicy: 'ERROR',
-        missingCellPolicy: 'NULL',
-      },
-    },
-    rowValues,
-    outputs: [
-      ...selected.map((category) => ({
-        id: category.helperOutputColumnId,
-        name: category.helperOutputName,
-        label: category.helperOutputLabel,
-        type: 'INFER',
-      })),
-      ...rowValues.flatMap((rowValue) => {
-        if (!('inputColumnId' in rowValue)) return [];
-        const input = stage.columns.find((column) => column.id === rowValue.inputColumnId);
-        const passthrough = form.codedPassthroughs.find((candidate) => candidate.outputColumnId === rowValue.outputColumnId);
-        return input && passthrough ? [{ id: rowValue.outputColumnId, name: passthrough.name, label: passthrough.label, ...(passthrough.type ? { type: passthrough.type } : {}) }] : [];
-      }),
-    ],
-  };
-  return { step: groupStep, codedInput };
-};
-
-const sourceGroupProjection = (construction: Construction, step: ConstructionReshapeStep) => {
-  if (step.operation.kind !== 'GROUP') return undefined;
-  if (step.operation.group.keys?.some((candidate) => 'semanticCategory' in candidate)) return undefined;
-  const key = step.operation.group.keys?.find((candidate) => 'inputColumnId' in candidate);
-  return construction.sourceProjections?.find((projection) => projection.columnId === key?.inputColumnId);
-};
-
-const initialSourceGroupForm = (
-  construction: Construction,
-  choices: ReadonlyArray<SourceInputChoice>,
-  editingStep?: ConstructionReshapeStep,
-): SourceGroupForm | undefined => {
-  const projection = editingStep ? sourceGroupProjection(construction, editingStep) : undefined;
-  const choice = projection
-    ? choices.find((candidate) => candidate.occurrenceId === projection.occurrenceId && candidate.fieldPath === projection.fieldPath)
-    : choices.find((candidate) => candidate.isPopulated);
-  if (!choice) return undefined;
-  const keyOutput = editingStep?.outputs[0] ?? {
-    id: createOpaqueId('group-key'),
-    name: normalizedName(choice.fieldPath.split('.').at(-1) ?? choice.label),
-    label: choice.label,
-    type: choice.logicalType,
-  };
-  const countId = editingStep?.operation.kind === 'GROUP' ? editingStep.operation.group.aggregates?.find((item) => item.operation === 'COUNT_ROWS')?.outputColumnId : undefined;
-  const countOutput = editingStep?.outputs.find((output) => output.id === countId) ?? {
-    id: createOpaqueId('group-count'), name: 'source_records', label: 'Source records', type: 'integer',
-  };
-  return {
-    kind: 'source-group',
-    additionalKeys: editingStep?.operation.kind === 'GROUP' ? (editingStep.operation.group.keys ?? []).flatMap((key) => {
-      if (!('inputColumnId' in key) || key.inputColumnId === projection?.columnId) return [];
-      const keyProjection = construction.sourceProjections?.find((item) => item.columnId === key.inputColumnId);
-      const choice = choices.find((item) => item.fieldPath === keyProjection?.fieldPath && item.occurrenceId === keyProjection?.occurrenceId);
-      const output = editingStep.outputs.find((item) => item.id === key.outputColumnId);
-      return choice && output ? [{ choiceId: choice.choiceId, inputColumnId: key.inputColumnId, keyOutput: output }] : [];
-    }) : [],
-    stepId: editingStep?.id ?? createOpaqueId('group'),
-    choiceId: choice.choiceId,
-    inputColumnId: projection?.columnId ?? createOpaqueId('group-source'),
-    missingKeyPolicy: editingStep?.operation.kind === 'GROUP'
-      ? editingStep.operation.group.missingKeyPolicy ?? 'GROUP'
-      : 'GROUP',
-    keyOutput,
-    countOutput,
-  };
-};
-
-const sourceGroupStepFromForm = (
-  form: SourceGroupForm,
-  stage: ReshapeStage,
-  choice: SourceInputChoice,
-): ConstructionReshapeStep | undefined => {
-  const outputs = [form.keyOutput, ...(form.additionalKeys ?? []).map((key) => key.keyOutput), form.countOutput];
-  if (!isSourceProjectionStage(stage) || !outputNamesAreValid(outputs)) return undefined;
-  return {
-    id: form.stepId,
-    inputs: [constructionInputForStage(stage)],
-    operation: {
-      kind: 'GROUP',
-      group: {
-        constructionId: form.stepId,
-        missingKeyPolicy: form.missingKeyPolicy,
-        keys: [{ inputColumnId: form.inputColumnId, outputColumnId: form.keyOutput.id }, ...(form.additionalKeys ?? []).map((key) => ({ inputColumnId: key.inputColumnId, outputColumnId: key.keyOutput.id }))],
-        aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: form.countOutput.id }],
-      },
-    },
-    outputs: [
-      { ...form.keyOutput, type: choice.logicalType },
-      ...(form.additionalKeys ?? []).map((key) => key.keyOutput),
-      form.countOutput,
-    ],
-  };
-};
-
-const initialCodedGroupForm = (stage: ReshapeStage, editingStep?: ConstructionReshapeStep): CodedGroupForm => {
-  if (editingStep?.operation.kind === 'CODED_GROUP') {
-    return {
-      kind: 'coded-group',
-      stepId: editingStep.id,
-      codingPath: editingStep.operation.codedGroup.source.codingPath,
-      missingKeyPolicy: editingStep.operation.codedGroup.missingKeyPolicy,
-      outputs: editingStep.outputs,
-    };
-  }
-  return {
-    kind: 'coded-group',
-    stepId: createOpaqueId('coded-group'),
-    codingPath: stage.codedGroupChoices?.[0]?.codingPath ?? '',
-    missingKeyPolicy: 'GROUP',
-    outputs: [
-      { id: createOpaqueId('coded-system'), name: 'code_system', label: 'Code system', type: 'string', nullable: true },
-      { id: createOpaqueId('coded-version'), name: 'code_version', label: 'Code version', type: 'string', nullable: true },
-      { id: createOpaqueId('coded-code'), name: 'code', label: 'Code', type: 'string', nullable: true },
-      { id: createOpaqueId('coded-count'), name: 'source_records', label: 'Source records', type: 'integer' },
-    ],
-  };
-};
-
-const codedGroupStepFromForm = (
-  stage: ReshapeStage,
-  form: CodedGroupForm,
-  editingStep?: ConstructionReshapeStep,
-): ConstructionReshapeStep | undefined => {
-  const choice = stage.codedGroupChoices?.find((candidate) => candidate.codingPath === form.codingPath);
-  if (!choice || form.outputs.length !== 4 || !outputNamesAreValid(form.outputs)) return undefined;
-  const [system, version, code, count] = form.outputs;
-  return {
-    id: editingStep?.id ?? form.stepId,
-    inputs: [constructionInputForStage(stage)],
-    operation: {
-      kind: 'CODED_GROUP',
-      codedGroup: {
-        constructionId: editingStep?.id ?? form.stepId,
-        choiceId: choice.choiceId,
-        source: {
-          occurrenceId: choice.occurrenceId,
-          resourceType: choice.resourceType,
-          codingPath: choice.codingPath,
-          fhirType: 'Coding',
-          cardinality: 'MANY',
-          shape: 'ARRAY',
-          route: [],
-        },
-        missingKeyPolicy: form.missingKeyPolicy,
-        systemOutputColumnId: system.id,
-        versionOutputColumnId: version.id,
-        codeOutputColumnId: code.id,
-        distinctSourceCountOutputColumnId: count.id,
-      },
-    },
-    outputs: form.outputs,
-  };
-};
-
-const expandStepFromForm = (args: {
-  readonly stage: ReshapeStage;
-  readonly editingStep?: ConstructionReshapeStep;
-  readonly form: ExpandForm;
-}): ConstructionReshapeStep | undefined => {
-  const { stage, editingStep, form } = args;
-  const operation = expandOperationFor(form);
-  const input = listColumnsFor(stage).find((column) => column.id === form.inputColumnId);
-  const outputs = expandOutputsFor(form, stage);
-  if (!operation || !input || outputs.length === 0 || !outputNamesAreValid(outputs)) return undefined;
-  const step: ConstructionReshapeStep = {
-    id: editingStep?.id ?? form.stepId,
-    inputs: [constructionInputForStage(stage)],
-    operation,
-    outputs,
-  };
-  return step;
-};
-
-const pivotStepFromForm = (args: {
-  readonly stage: ReshapeStage;
-  readonly editingStep?: ConstructionReshapeStep;
-  readonly form: PivotForm;
-}): ConstructionReshapeStep | undefined => {
-  const { stage, editingStep, form } = args;
-  const categoryColumn = scalarColumnsFor(stage).find((column) => column.id === form.categoryColumnId);
-  const valueColumn = scalarColumnsFor(stage).find((column) => column.id === form.valueColumnId);
-  const groupIDs = new Set(form.groupKeyIds);
-  const outputIDs = [...form.groupKeyIds, ...form.categories.map((category) => category.outputColumnId)];
-  const keyIDs = form.categories.map((category) => scalarIdentity(category.key));
-  const outputs = pivotOutputsFor(form, stage);
-  if (form.groupKeyIds.length === 0 || (!form.discovery && form.categories.length === 0) || !categoryColumn || !valueColumn) return undefined;
-  if (form.duplicatePolicy === 'SUM' && !isNumericColumn(valueColumn)) return undefined;
-  if (groupIDs.size !== form.groupKeyIds.length || groupIDs.has(form.categoryColumnId) || groupIDs.has(form.valueColumnId)) return undefined;
-  if (form.groupKeyIds.some((id) => !scalarColumnsFor(stage).some((column) => column.id === id))) return undefined;
-  if (form.categoryColumnId === form.valueColumnId || new Set(keyIDs).size !== keyIDs.length) return undefined;
-  if (new Set(outputIDs).size !== outputIDs.length || !outputNamesAreValid(outputs)) return undefined;
-  const step: ConstructionReshapeStep = {
-    id: editingStep?.id ?? form.stepId,
-    inputs: [constructionInputForStage(stage)],
-    operation: pivotOperationFor(form),
-    outputs,
-  };
-  return step;
-};
-
-const unpivotStepFromForm = (args: {
-  readonly stage: ReshapeStage;
-  readonly editingStep?: ConstructionReshapeStep;
-  readonly form: UnpivotForm;
-}): ConstructionReshapeStep | undefined => {
-  const { stage, editingStep, form } = args;
-  const inputIDs = form.inputs.map((input) => input.columnId);
-  const keys = form.inputs.map((input) => scalarIdentity(input.key));
-  const scalarInputIDs = new Set(scalarColumnsFor(stage).map((column) => column.id));
-  const outputs = unpivotOutputsFor(form, stage);
-  if (form.inputs.length === 0 || form.inputs.some((input) => !stage.columns.some((column) => column.id === input.columnId))) return undefined;
-  if (inputIDs.some((columnId) => !scalarInputIDs.has(columnId))) return undefined;
-  if (form.inputs.some((input) => input.key.kind === 'NULL' || input.key.kind === 'MISSING')) return undefined;
-  if (new Set(inputIDs).size !== inputIDs.length || new Set(keys).size !== keys.length) return undefined;
-  if (inputIDs.includes(form.keyOutputColumnId) || inputIDs.includes(form.valueOutputColumnId)) return undefined;
-  if (form.keyOutputColumnId === form.valueOutputColumnId || !outputNamesAreValid(outputs)) return undefined;
-  const step: ConstructionReshapeStep = {
-    id: editingStep?.id ?? form.stepId,
-    inputs: [constructionInputForStage(stage)],
-    operation: unpivotOperationFor(form),
-    outputs,
-  };
-  return step;
-};
-
-const initialGroupForm = (
-  stage: ReshapeStage,
-  selectedColumns: ReadonlyArray<string>,
-  editingStep?: ConstructionReshapeStep,
-  construction?: Construction,
-  semanticGroupChoices: ReadonlyArray<SemanticGroupChoice> = [],
-  groupFieldChoices: ReadonlyArray<GroupFieldChoice> = [],
-  groupRowValueChoices: ReadonlyArray<GroupRowValueChoice> = [],
-): GroupForm => {
-  if (editingStep?.operation.kind === 'GROUP') {
-    const operation = editingStep.operation.group;
-    const outputById = new Map(editingStep.outputs.map((column) => [column.id, column]));
-    const semanticOperationKey = operation.keys?.find((key) => 'semanticCategory' in key);
-    const semanticCategory = semanticOperationKey?.semanticCategory;
-    const semanticSourceDetails = semanticCategory?.kind === 'CHOICE'
-      ? semanticGroupChoices.find((choice) => choice.choiceId === semanticCategory.choiceId)
-      : undefined;
-    const semanticOutput = semanticOperationKey ? outputById.get(semanticOperationKey.outputColumnId) : undefined;
-    const semanticKey: GroupSemanticKey | undefined = semanticOperationKey && semanticCategory
-      ? {
-          semanticCategory,
-          outputColumnId: semanticOperationKey.outputColumnId,
-          name: semanticOutput?.name ?? normalizedName(semanticSourceDetails?.label ?? 'semantic_category'),
-          label: semanticOutput?.label ?? semanticSourceDetails?.label ?? 'Semantic category',
-          displayLabel: semanticSourceDetails?.label ?? semanticOutput?.label ?? 'Saved semantic category field',
-          scopeLabel: semanticCategory.kind === 'CHOICE'
-            ? semanticSourceDetails?.scopeLabel ?? 'Current semantic family'
-            : `${semanticCategory.sourceKind} · ${semanticCategory.resourceType}.${semanticCategory.codingPath} · ${semanticCategory.system}${semanticCategory.version === '' ? ' · versionless' : ` · version ${semanticCategory.version}`}`,
-        }
-      : undefined;
-    const codedInput = construction?.steps.find((step) => step.ownerStepId === editingStep.id && step.operation.kind === 'CODED_PIVOT');
-    const codedPivot = codedInput?.operation.kind === 'CODED_PIVOT' ? codedInput.operation.codedPivot : undefined;
-    const codedSource = codedPivot?.source;
-    const familyKey = codedSource ? codedFamilyKey(codedSource.family.bindingId, codedSource.family.sourcePath) : '';
-    const codedPassthroughs: GroupCodedPassthrough[] = codedInput?.rowValues?.flatMap((value) => {
-      if (!('inputColumnId' in value)) return [];
-      const output = codedInput.outputs.find((column) => column.id === value.outputColumnId);
-      return output ? [{
-        inputColumnId: value.inputColumnId, outputColumnId: value.outputColumnId,
-        name: output.name, label: output.label, ...(output.type ? { type: output.type } : {}),
-      }] : [];
-    }) ?? [];
-    const originalInputByHelperOutput = new Map(codedPassthroughs.map((value) => [value.outputColumnId, value.inputColumnId]));
-    const codedCategories: GroupCodedCategory[] = codedInput && codedPivot ? codedPivot.categories.flatMap((category) => {
-      const inputOutput = codedInput.outputs.find((output) => output.id === category.outputColumnId);
-      const groupKey = operation.keys?.find((key) => 'inputColumnId' in key && key.inputColumnId === category.outputColumnId);
-      const groupOutput = groupKey ? outputById.get(groupKey.outputColumnId) : undefined;
-      if (!inputOutput || !groupKey || !groupOutput || !codedSource) return [];
-      return [{
-        choice: 'saved',
-        key: codedCategoryKey(familyKey, category.system ?? '', category.code ?? ''),
-        familyKey,
-        system: category.system ?? '',
-        code: category.code ?? '',
-        display: inputOutput.label,
-        valueType: inputOutput.type ?? 'string',
-        helperOutputColumnId: category.outputColumnId,
-        groupOutputColumnId: groupKey.outputColumnId,
-        groupOutputName: groupOutput.name,
-        groupOutputLabel: groupOutput.label,
-        helperOutputName: inputOutput.name,
-        helperOutputLabel: inputOutput.label,
-      }];
-    }) : [];
-    const codedInputIDs = new Set(codedCategories.map((category) => category.helperOutputColumnId));
-    const keys = (operation.keys ?? []).flatMap((key) => {
-      if (!('inputColumnId' in key)) return [];
-      const output = outputById.get(key.outputColumnId);
-      const sourceInputColumnId = originalInputByHelperOutput.get(key.inputColumnId) ?? key.inputColumnId;
-      const input = stage.columns.find((column) => column.id === sourceInputColumnId);
-      const coded = codedCategories.find((category) => category.helperOutputColumnId === key.inputColumnId);
-      return [{
-        inputColumnId: coded ? key.inputColumnId : sourceInputColumnId,
-        outputColumnId: key.outputColumnId,
-        name: output?.name ?? coded?.groupOutputName ?? input?.name ?? 'group_key',
-        label: output?.label ?? coded?.groupOutputLabel ?? input?.label ?? 'Group',
-      }];
-    });
-    const fieldKeys: GroupFieldKey[] = [];
-    const unmatchedSourceKeyOutputIds: string[] = [];
-    for (const key of operation.keys ?? []) {
-      if (!('fieldSource' in key)) continue;
-      const output = outputById.get(key.outputColumnId);
-      const choiceId = key.fieldSource.kind === 'CHOICE' ? key.fieldSource.choiceId : undefined;
-      const bindingValueKind = key.fieldSource.kind === 'BINDING' ? key.fieldSource.valueKind : undefined;
-      const choice = groupFieldChoices.find((item): item is GroupFieldSourceChoice => item.kind === 'FIELD_SOURCE' && (
-        choiceId
-          ? item.fieldSource.kind === 'CHOICE' && item.fieldSource.choiceId === choiceId
-          : item.matchedOutputKeyId === key.outputColumnId && item.valueKind === bindingValueKind
-      ));
-      const valueKind = key.fieldSource.kind === 'BINDING' ? key.fieldSource.valueKind : choice?.valueKind;
-      if (key.fieldSource.kind === 'BINDING' && !choice) unmatchedSourceKeyOutputIds.push(key.outputColumnId);
-      const savedSource = groupFieldSourcePresentation(key.fieldSource);
-      const displayLabel = choice
-        ? choice.label
-        : output?.label ?? (valueKind === 'CODING_IDENTITY' ? 'Coding identity' : 'Saved source field');
-      const scopeLabel = choice
-        ? choice.scopeLabel ?? ''
-        : savedSource
-          ? `${savedSource.sourceRole} · ${savedSource.ownerResourceType}${savedSource.canonicalPath ? `.${savedSource.canonicalPath}` : ''}`
-          : 'Current field choice';
-      const common = {
-        outputColumnId: key.outputColumnId,
-        name: output?.name ?? normalizedName(displayLabel),
-        label: output?.label ?? displayLabel,
-        displayLabel,
-        scopeLabel,
-      };
-      if (valueKind === 'SCALAR') {
-        const source = scalarGroupFieldSource(key.fieldSource);
-        if (source) fieldKeys.push({
-          kind: 'SCALAR', valueKind, fieldSource: source, ...common,
-          valueType: choice?.valueType ?? output?.type ?? 'string',
-        });
-      }
-      if (valueKind === 'CODING_IDENTITY') {
-        const source = codingGroupFieldSource(key.fieldSource);
-        if (source) fieldKeys.push({ kind: 'CODING_IDENTITY', valueKind, fieldSource: source, ...common, valueType: 'string' });
-      }
-    }
-    const aggregates: GroupAggregate[] = (operation.aggregates ?? []).map((aggregate) => {
-      const output = outputById.get(aggregate.outputColumnId);
-      const inputColumnId = 'inputColumnId' in aggregate
-        ? originalInputByHelperOutput.get(aggregate.inputColumnId) ?? aggregate.inputColumnId
-        : undefined;
-      const common = {
-        outputColumnId: aggregate.outputColumnId,
-        name: output?.name ?? aggregateNameFor(aggregate.operation, stage.columns.find((column) => column.id === inputColumnId)),
-        label: output?.label ?? operationLabel(aggregate.operation),
-      };
-      return aggregate.operation === 'COUNT_ROWS'
-        ? { operation: aggregate.operation, ...common }
-        : { operation: aggregate.operation, inputColumnId: inputColumnId ?? '', ...common };
-    });
-    const rowValues: GroupRowValue[] = (editingStep.rowValues ?? []).map((value) => {
-      const output = outputById.get(value.outputColumnId);
-      if ('fieldSource' in value) {
-        const identity = groupRowValueBindingIdentity(value.fieldSource);
-        const choice = identity
-          ? groupRowValueChoices.find((candidate) => fieldChoiceIdentity(candidate) === identity)
-          : undefined;
-        const displayLabel = choice?.label ?? output?.label ?? 'Saved source field';
-        return {
-          fieldSource: value.fieldSource,
-          outputColumnId: value.outputColumnId,
-          policy: value.policy,
-          name: output?.name ?? normalizedName(displayLabel),
-          label: output?.label ?? displayLabel,
-          displayLabel,
-          scopeLabel: choice?.scopeLabel ?? 'Saved compiler-authorized source field',
-          valueType: choice?.valueType ?? (output?.type === 'array' ? 'string' : output?.type ?? 'string'),
-        };
-      }
-      const inputColumnId = originalInputByHelperOutput.get(value.inputColumnId) ?? value.inputColumnId;
-      const input = stage.columns.find((column) => column.id === inputColumnId);
-      const displayLabel = input?.label ?? output?.label ?? 'Saved source column';
-      return {
-        inputColumnId,
-        outputColumnId: value.outputColumnId,
-        policy: value.policy,
-        name: output?.name ?? normalizedName(displayLabel),
-        label: output?.label ?? displayLabel,
-        displayLabel,
-        scopeLabel: 'Current Group input column',
-        valueType: input?.type ?? (output?.type === 'array' ? 'string' : output?.type ?? 'string'),
-      };
-    });
-    const relatedRouteIds = relatedRouteIdsForGroupFieldKeys(groupFieldChoices, fieldKeys);
-    return {
-      kind: 'group', stepId: editingStep.id, missingKeyPolicy: operation.missingKeyPolicy ?? 'GROUP', keys, fieldKeys,
-      keyOrder: (operation.keys ?? []).map((key) => key.outputColumnId),
-      ...(semanticKey ? { semanticKey } : {}), aggregates,
-      codedPivotStepId: codedInput?.id ?? createOpaqueId('group-coded-input'),
-      codedCategories: codedCategories.filter((category) => codedInputIDs.has(category.helperOutputColumnId)),
-      codedPassthroughs,
-      rowValues,
-      ...(unmatchedSourceKeyOutputIds.length ? { unmatchedSourceKeyOutputIds } : {}),
-      ...(relatedRouteIds.length > 1 ? { conflictingRelatedRouteIds: relatedRouteIds } : {}),
-    };
-  }
-
-  const scalarIDs = new Set(scalarColumnsFor(stage).map((column) => column.id));
-  const keys = selectedColumns
-    .filter((columnId) => scalarIDs.has(columnId))
-    .map((inputColumnId) => {
-      const input = stage.columns.find((column) => column.id === inputColumnId);
-      return {
-        inputColumnId,
-        outputColumnId: createOpaqueId('group-key'),
-        name: input?.name ?? 'group_key',
-        label: input?.label ?? 'Group',
-      };
-    });
-  const fieldKeys: GroupFieldKey[] = [];
-  return {
-    kind: 'group', stepId: createOpaqueId('group'), missingKeyPolicy: 'GROUP', keys, fieldKeys,
-    keyOrder: keys.map((key) => key.outputColumnId), aggregates: [],
-    codedPivotStepId: createOpaqueId('group-coded-input'), codedCategories: [], codedPassthroughs: [], rowValues: [],
-  };
-};
-
-const initialExpandForm = (
-  stage: ReshapeStage,
-  editingStep?: ConstructionReshapeStep,
-  preferredColumnId?: string,
-  signed?: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string }>,
-  sourceProjections?: Construction['sourceProjections'],
-): ExpandForm => {
-  if (editingStep?.operation.kind === 'EXPAND') {
-    const operation = editingStep.operation.expand;
-    const outputById = new Map(editingStep.outputs.map((column) => [column.id, column]));
-    const owned = (sourceProjections ?? []).find((projection) => projection.columnId === operation.inputColumnId && projection.ownerStepId === editingStep.id);
-    const signedChoice = owned ? signed?.find((choice) => choice.fieldPath === owned.fieldPath) : undefined;
-    const output = outputById.get(operation.outputColumnId);
-    const ordinal = operation.ordinalColumnId ? outputById.get(operation.ordinalColumnId) : undefined;
-    return {
-      kind: 'expand',
-      stepId: editingStep.id,
-      inputColumnId: operation.inputColumnId,
-      outputColumnId: operation.outputColumnId,
-      outputName: output?.name ?? 'item',
-      outputLabel: output?.label ?? 'Item',
-      ordinal: ordinal
-        ? {
-            kind: 'include',
-            outputColumnId: operation.ordinalColumnId ?? ordinal.id,
-            outputName: ordinal.name,
-            outputLabel: ordinal.label,
-          }
-        : { kind: 'none' },
-      emptyPolicy: operation.emptyPolicy,
-      savedOutputs: editingStep.outputs,
-      ...(signedChoice ? { expandSources: [{ choiceId: signedChoice.choiceId, columnId: operation.inputColumnId }] } : {}),
-    };
-  }
-  const listColumns = listColumnsFor(stage);
-  const firstList = preferredColumnId === undefined
-    ? undefined
-    : listColumns.find((column) => column.id === preferredColumnId);
-  return {
-    kind: 'expand',
-    stepId: createOpaqueId('expand'),
-    inputColumnId: firstList?.id ?? '',
-    outputColumnId: createOpaqueId('expanded-column'),
-    outputName: firstList ? `${normalizedName(firstList.name)}_item` : 'item',
-    outputLabel: firstList ? `${firstList.label} item` : 'Item',
-    ordinal: { kind: 'none' },
-    emptyPolicy: 'PRESERVE_PARENT',
-  };
-};
-
-const initialPivotForm = (
-  stage: ReshapeStage,
-  selectedColumns: ReadonlyArray<string>,
-  editingStep?: ConstructionReshapeStep,
-): PivotForm => {
-  if (editingStep?.operation.kind === 'PIVOT') {
-    const operation = editingStep.operation.pivot;
-    const outputById = new Map(editingStep.outputs.map((column) => [column.id, column]));
-    const savedValueColumn = stage.columns.find((column) => column.id === operation.valueColumnId);
-    const duplicatePolicy = operation.duplicatePolicy === 'SUM' && savedValueColumn && !isNumericColumn(savedValueColumn)
-      ? 'MIN'
-      : operation.duplicatePolicy;
-    return {
-      kind: 'pivot',
-      stepId: editingStep.id,
-      groupKeyIds: [...operation.groupKeyIds],
-      categoryColumnId: operation.categoryColumnId,
-      valueColumnId: operation.valueColumnId,
-      categories: operation.categories.map((category) => {
-        const output = outputById.get(category.outputColumnId);
-        return {
-          key: category.key,
-          outputColumnId: category.outputColumnId,
-          name: output?.name ?? `category_${normalizedName(scalarLabel(category.key))}`,
-          label: output?.label ?? scalarLabel(category.key),
-        };
-      }),
-      ...(operation.discovery ? { discovery: { maxCategories: operation.discovery.maxCategories } } : {}),
-      duplicatePolicy,
-      missingCellPolicy: operation.missingCellPolicy,
-      unlistedCategoryPolicy: operation.unlistedCategoryPolicy,
-      originalPair: { categoryColumnId: operation.categoryColumnId, valueColumnId: operation.valueColumnId },
-      categoriesPair: { categoryColumnId: operation.categoryColumnId, valueColumnId: operation.valueColumnId },
-      savedOutputs: editingStep.outputs,
-    };
-  }
-
-  const scalar = scalarColumnsFor(stage);
-  const groups = selectedColumns.filter((columnId) => scalar.some((column) => column.id === columnId));
-  return {
-    kind: 'pivot',
-    stepId: createOpaqueId('pivot'),
-    groupKeyIds: groups,
-    categoryColumnId: '',
-    valueColumnId: '',
-    categories: [],
-    duplicatePolicy: 'ERROR',
-    missingCellPolicy: 'NULL',
-    unlistedCategoryPolicy: 'ERROR',
-  };
-};
-
-const defaultKeyForColumn = (
-  column: ReshapeColumn | undefined,
-  inputs: ReadonlyArray<UnpivotInputForm> = [],
-): ConstructionTableScalar => {
-  const label = column?.label.trim() || column?.name || 'value';
-  const used = new Set(inputs.flatMap((input) =>
-    input.key.kind === 'STRING' ? [input.key.string.toLowerCase()] : [],
-  ));
-  let value = label;
-  for (let suffix = 2; used.has(value.toLowerCase()); suffix += 1) {
-    value = `${label} (${suffix})`;
-  }
-  return { kind: 'STRING', string: value };
-};
-
-const initialUnpivotForm = (
-  stage: ReshapeStage,
-  selectedColumns: ReadonlyArray<string>,
-  editingStep?: ConstructionReshapeStep,
-): UnpivotForm => {
-  if (editingStep?.operation.kind === 'UNPIVOT') {
-    const operation = editingStep.operation.unpivot;
-    const outputById = new Map(editingStep.outputs.map((column) => [column.id, column]));
-    const keyOutput = outputById.get(operation.keyOutputColumnId);
-    const valueOutput = outputById.get(operation.valueOutputColumnId);
-    return {
-      kind: 'unpivot',
-      stepId: editingStep.id,
-      inputs: operation.inputs.map((input) => ({ columnId: input.columnId, key: input.key })),
-      keyOutputColumnId: operation.keyOutputColumnId,
-      keyOutputName: keyOutput?.name ?? 'variable',
-      keyOutputLabel: keyOutput?.label ?? 'Variable',
-      valueOutputColumnId: operation.valueOutputColumnId,
-      valueOutputName: valueOutput?.name ?? 'value',
-      valueOutputLabel: valueOutput?.label ?? 'Value',
-      nullRowPolicy: operation.nullRowPolicy,
-      savedOutputs: editingStep.outputs,
-    };
-  }
-  const scalarIDs = new Set(scalarColumnsFor(stage).map((column) => column.id));
-  const initialInputs = selectedColumns.filter((columnId) => scalarIDs.has(columnId)).reduce<UnpivotInputForm[]>((inputs, columnId) => {
-    const column = stage.columns.find((candidate) => candidate.id === columnId);
-    if (column) inputs.push({ columnId, key: defaultKeyForColumn(column, inputs) });
-    return inputs;
-  }, []);
-  return {
-    kind: 'unpivot',
-    stepId: createOpaqueId('unpivot'),
-    inputs: initialInputs,
-    keyOutputColumnId: createOpaqueId('unpivot-key'),
-    keyOutputName: uniqueName('variable', new Set(stage.columns.map((column) => column.name.toLowerCase()))),
-    keyOutputLabel: 'Variable',
-    valueOutputColumnId: createOpaqueId('unpivot-value'),
-    valueOutputName: uniqueName('value', new Set(stage.columns.map((column) => column.name.toLowerCase()))),
-    valueOutputLabel: 'Value',
-    nullRowPolicy: 'PRESERVE',
-  };
-};
-
-const groupKeyName = (stage: ReshapeStage, key: GroupKey): string =>
-  stage.columns.find((column) => column.id === key.inputColumnId)?.label ?? 'selected column';
-
-const editorContextKey = (
-  capabilities: ReshapeCapabilities,
-  editingStep: ConstructionReshapeStep | undefined,
-  selectedColumns: ReadonlyArray<string> | undefined,
-  initialKind: string | undefined,
-): string => [
-  capabilities.snapshotToken,
-  capabilities.draftVersion,
-  capabilities.draftDigest,
-  capabilities.outputId,
-  capabilities.stageId,
-  editingStep?.id ?? 'new',
-  (selectedColumns ?? []).join(','),
-  initialKind ?? '',
-].join(':');
-
-const formForStep = (
-  construction: Construction,
-  capabilities: ReshapeCapabilities,
-  editingStep: ConstructionReshapeStep | undefined,
-  stage: ReshapeStage,
-  selectedColumns: ReadonlyArray<string>,
-  initialKind?: ReshapeEntryKind,
-): ReshapeForm => {
-  if (!editingStep) {
-    if (initialKind === 'group') return initialGroupForm(stage, selectedColumns, undefined, construction, semanticGroupChoicesForStage(capabilities, stage), groupFieldChoicesForStage(capabilities, stage), groupRowValueChoicesForStage(capabilities, stage));
-    if (initialKind === 'source-group') return initialSourceGroupForm(construction, capabilities.sourceInput?.choices ?? [])
-      ?? { kind: 'unsupported', message: 'No source field can group these rows.' };
-    if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
-    if (initialKind === 'expand') return initialExpandForm(stage);
-    if (initialKind === 'pivot') return initialPivotForm(stage, selectedColumns);
-    if (initialKind === 'coded-pivot') return { kind: 'coded-pivot' };
-    if (initialKind === 'unpivot') return initialUnpivotForm(stage, selectedColumns);
-    if (initialKind === 'categories') {
-      return capabilityFor(stage, 'CODED_PIVOT').supported ? { kind: 'coded-pivot' } : initialPivotForm(stage, selectedColumns);
-    }
-    if (initialKind === 'related-expand') return { kind: 'related-expand' };
-    if (initialKind === undefined || initialKind === 'choose') return initialPivotForm(stage, selectedColumns);
-    return { kind: initialKind };
-  }
-  if (sourceGroupProjection(construction, editingStep)) return initialSourceGroupForm(
-    construction, capabilities.sourceInput?.choices ?? [], editingStep,
-  ) ?? { kind: 'unsupported', message: 'The saved source field is no longer available for grouping.' };
-  if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep, construction, semanticGroupChoicesForStage(capabilities, stage), groupFieldChoicesForStage(capabilities, stage), groupRowValueChoicesForStage(capabilities, stage));
-  if (editingStep.operation.kind === 'CODED_GROUP') return initialCodedGroupForm(stage, editingStep);
-  if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep, undefined, capabilities.expandSourceInput?.choices ?? [], construction.sourceProjections);
-  if (editingStep.operation.kind === 'RELATED_EXPAND') return { kind: 'related-expand' };
-  if (editingStep.operation.kind === 'PIVOT') {
-    const form = initialPivotForm(stage, [], editingStep);
-    const used = new Set([...form.groupKeyIds, form.categoryColumnId, form.valueColumnId]);
-    const pivotSources = (capabilities.pivotSourceInput?.choices ?? []).flatMap((choice) =>
-      choice.columnId && used.has(choice.columnId) ? [{ choiceId: choice.choiceId, columnId: choice.columnId }] : [],
-    );
-    return { ...form, ...(pivotSources.length ? { pivotSources } : {}) };
-  }
-  if (editingStep.operation.kind === 'CODED_PIVOT') return { kind: 'coded-pivot' };
-  if (editingStep.operation.kind === 'UNPIVOT') {
-    const form = initialUnpivotForm(stage, [], editingStep);
-    const melted = new Set(form.inputs.map((input) => input.columnId));
-    const unpivotSources = (capabilities.unpivotSourceInput?.choices ?? []).flatMap((choice) =>
-      choice.columnId && melted.has(choice.columnId) ? [{ choiceId: choice.choiceId, columnId: choice.columnId }] : [],
-    );
-    return { ...form, ...(unpivotSources.length ? { unpivotSources } : {}) };
-  }
-  return { kind: 'unsupported', message: 'This saved reshape is not supported by this editor.' };
-};
-
-const pivotDiscoveryMatches = (
-  form: PivotForm,
-  stageId: string,
-  discovery: ConstructionReshapePivotDiscovery | undefined,
-): discovery is ConstructionReshapePivotDiscovery => {
-  if (!discovery || discovery.stageId !== stageId
-      || discovery.categoryColumnId !== form.categoryColumnId
-      || discovery.valueColumnId !== form.valueColumnId) return false;
-  if (!form.pivotSources?.length) return !discovery.pivotSources?.length;
-  return discovery.pivotStepId === form.stepId
-    && JSON.stringify(discovery.groupKeyIds ?? []) === JSON.stringify(form.groupKeyIds)
-    && JSON.stringify(discovery.pivotSources ?? []) === JSON.stringify(form.pivotSources);
-};
-
-const pivotOriginalPairApplies = (form: PivotForm): boolean => !form.pivotSources?.length
-  && form.originalPair?.categoryColumnId === form.categoryColumnId
-  && form.originalPair.valueColumnId === form.valueColumnId;
-
-const pivotCategoriesAreKnown = (
-  form: PivotForm,
-  stageId: string,
-  discovery: ConstructionReshapePivotDiscovery | undefined,
-): boolean => {
-  const categoriesBelongToPair = form.categoriesPair?.categoryColumnId === form.categoryColumnId
-    && form.categoriesPair.valueColumnId === form.valueColumnId;
-  const resultBelongsToPair = pivotDiscoveryMatches(form, stageId, discovery)
-    && discovery.status === 'complete';
-  return categoriesBelongToPair && (resultBelongsToPair || pivotOriginalPairApplies(form));
-};
-
-const allDiscoveredPivotCategoriesSelected = (
-  form: PivotForm,
-  stageId: string,
-  discovery: ConstructionReshapePivotDiscovery | undefined,
-): boolean => {
-  if (!pivotDiscoveryMatches(form, stageId, discovery) || discovery.status !== 'complete') return false;
-  const selectedIdentities = new Set(form.categories.map((category) => scalarIdentity(category.key)));
-  return discovery.categories.every((category) => selectedIdentities.has(scalarIdentity(category.key)));
-};
-
-const getUsedGroupNames = (form: GroupForm, excludingColumnId?: string): ReadonlySet<string> =>
-  new Set([
-    ...form.keys.filter((key) => key.outputColumnId !== excludingColumnId).map((key) => key.name.trim().toLowerCase()),
-    ...form.fieldKeys.filter((key) => key.outputColumnId !== excludingColumnId).map((key) => key.name.trim().toLowerCase()),
-    ...(form.semanticKey && form.semanticKey.outputColumnId !== excludingColumnId ? [form.semanticKey.name.trim().toLowerCase()] : []),
-    ...form.aggregates.filter((aggregate) => aggregate.outputColumnId !== excludingColumnId).map((aggregate) => aggregate.name.trim().toLowerCase()),
-    ...form.rowValues.filter((value) => value.outputColumnId !== excludingColumnId).map((value) => value.name.trim().toLowerCase()),
-  ]);
-
-const ensureGroupCodedPassthroughs = (
-  form: GroupForm,
-  stage: ReshapeStage,
-  inputColumnIDs: ReadonlyArray<string>,
-): ReadonlyArray<GroupCodedPassthrough> => {
-  const passthroughs = new Map(form.codedPassthroughs.map((value) => [value.inputColumnId, value]));
-  for (const inputColumnId of inputColumnIDs) {
-    if (passthroughs.has(inputColumnId)) continue;
-    const input = stage.columns.find((column) => column.id === inputColumnId);
-    if (!input) continue;
-    passthroughs.set(inputColumnId, {
-      inputColumnId,
-      outputColumnId: createOpaqueId('coded-row-value'),
-      name: input.name,
-      label: input.label,
-      ...(input.type ? { type: input.type } : {}),
-    });
-  }
-  return [...passthroughs.values()];
-};
-
-const addGroupKey = (form: GroupForm, stage: ReshapeStage, inputColumnId: string): GroupForm => {
-  const input = scalarColumnsFor(stage).find((column) => column.id === inputColumnId);
-  if (!input || form.keys.some((key) => key.inputColumnId === inputColumnId)) return form;
-  const usedNames = getUsedGroupNames(form);
-  const key = {
-    inputColumnId,
-    outputColumnId: createOpaqueId('group-key'),
-    name: uniqueName(input.name, usedNames),
-    label: input.label,
-  };
-  return {
-    ...form,
-    ...(form.codedCategories.length > 0 ? {
-      codedPassthroughs: ensureGroupCodedPassthroughs(form, stage, [inputColumnId]),
-    } : {}),
-    keys: [...form.keys, key],
-    keyOrder: [...form.keyOrder, key.outputColumnId],
-  };
-};
-
-const groupFieldKeyForChoice = (form: GroupForm, choice: GroupFieldSourceChoice): GroupFieldKey | undefined => {
-  if (choice.fieldSource.kind !== 'CHOICE') return undefined;
-  const outputColumnId = createOpaqueId('group-field-key');
-  const usedNames = getUsedGroupNames(form);
-  const common = {
-    outputColumnId,
-    name: uniqueName(normalizedName(choice.label), usedNames),
-    label: choice.label,
-    displayLabel: choice.label,
-    scopeLabel: choice.scopeLabel ?? choice.canonicalPath ?? choice.label,
-  };
-  if (choice.valueKind === 'CODING_IDENTITY') {
-    if (form.semanticKey || form.fieldKeys.some((key) => key.kind === 'CODING_IDENTITY') || form.codedCategories.length > 0) return undefined;
-    return {
-      kind: 'CODING_IDENTITY', valueKind: 'CODING_IDENTITY', fieldSource: choice.fieldSource,
-      ...common, valueType: 'string',
-    };
-  }
-  return {
-    kind: 'SCALAR', valueKind: 'SCALAR', fieldSource: choice.fieldSource,
-    ...common, valueType: choice.valueType ?? 'string',
-  };
-};
-
-const scalarGroupFieldSource = (source: GroupFieldSource): GroupScalarFieldSource | undefined => {
-  if (source.kind === 'CHOICE') return source;
-  if (source.valueKind === 'SCALAR') return source;
-  return undefined;
-};
-
-type GroupFieldSourcePresentation = {
-  readonly sourceRole: string;
-  readonly ownerResourceType: string;
-  readonly canonicalPath?: string;
-};
-
-const groupFieldSourcePresentation = (source: GroupFieldSource): GroupFieldSourcePresentation | undefined => {
-  if (source.kind !== 'BINDING') return undefined;
-  if (!('input' in source)) {
-    return {
-      sourceRole: source.sourceRole,
-      ownerResourceType: source.ownerResourceType,
-      canonicalPath: source.canonicalPath,
-    };
-  }
-  switch (source.input.kind) {
-    case 'CURRENT_STAGE':
-      return {
-        sourceRole: source.input.currentStage.sourceRole,
-        ownerResourceType: source.input.currentStage.ownerResourceType,
-        canonicalPath: source.input.currentStage.canonicalPath,
-      };
-    case 'RELATED_OCCURRENCE': {
-      const related = source.input.relatedOccurrence;
-      const canonicalPath = 'canonicalPath' in related ? related.canonicalPath : related.codingSelector;
-      return {
-        sourceRole: 'RELATED_OCCURRENCE',
-        ownerResourceType: related.targetResourceType,
-        canonicalPath,
-      };
-    }
-    default: {
-      const _exhaustive: never = source.input;
-      return _exhaustive;
-    }
-  }
-};
-
-const codingGroupFieldSource = (source: GroupFieldSource): GroupCodingFieldSource | undefined => {
-  if (source.kind === 'CHOICE') return source;
-  if (source.valueKind === 'CODING_IDENTITY') return source;
-  return undefined;
-};
-
-const fieldChoiceIdentity = (choice: GroupFieldSourceChoice): string | undefined => {
-  const candidateId = choice.valueKind === 'SCALAR' ? choice.candidateId : undefined;
-  if (choice.fieldSource.kind !== 'CHOICE' || !choice.sourceStageId || !choice.sourceShapeId ||
-      !choice.sourceRole || !choice.occurrenceId || !choice.resourceType || !choice.ownerOccurrenceId ||
-      !choice.ownerResourceType || !choice.canonicalPath ||
-      choice.valueKind === 'SCALAR' && !candidateId) return undefined;
-  return JSON.stringify([
-    choice.valueKind, choice.sourceStageId, choice.sourceShapeId, choice.sourceRole,
-    choice.occurrenceId, choice.resourceType, choice.ownerOccurrenceId, choice.ownerResourceType,
-    candidateId ?? '', choice.canonicalPath, choice.valueKind === 'SCALAR' ? choice.boundarySelector ?? '' : '',
-  ]);
-};
-
-const groupRowValueBindingIdentity = (source: GroupRowValueFieldSource): string | undefined => {
-  if (source.kind !== 'BINDING' || source.valueKind !== 'SCALAR') return undefined;
-  let sourceRole: string;
-  let occurrenceId: string;
-  let resourceType: string;
-  let ownerOccurrenceId: string;
-  let ownerResourceType: string;
-  let candidateId: string | undefined;
-  let canonicalPath: string | undefined;
-  let boundarySelector: string | undefined;
-
-  if ('input' in source) {
-    switch (source.input.kind) {
-      case 'CURRENT_STAGE': {
-        const current = source.input.currentStage;
-        sourceRole = current.sourceRole;
-        occurrenceId = current.occurrenceId;
-        resourceType = current.resourceType;
-        ownerOccurrenceId = current.occurrenceId;
-        ownerResourceType = current.ownerResourceType;
-        candidateId = current.candidateId;
-        canonicalPath = current.canonicalPath;
-        boundarySelector = current.boundarySelector;
-        break;
-      }
-      case 'RELATED_OCCURRENCE': {
-        const related = source.input.relatedOccurrence;
-        sourceRole = 'RELATED_OCCURRENCE';
-        occurrenceId = related.targetOccurrenceId;
-        resourceType = related.resourceType;
-        ownerOccurrenceId = related.targetOccurrenceId;
-        ownerResourceType = related.targetResourceType;
-        candidateId = related.candidateId;
-        canonicalPath = related.canonicalPath;
-        break;
-      }
-      default: {
-        const _exhaustive: never = source.input;
-        return _exhaustive;
-      }
-    }
-  } else {
-    sourceRole = source.sourceRole;
-    occurrenceId = source.occurrenceId;
-    resourceType = source.resourceType;
-    ownerOccurrenceId = source.ownerOccurrenceId;
-    ownerResourceType = source.ownerResourceType;
-    candidateId = source.candidateId;
-    canonicalPath = source.canonicalPath;
-    boundarySelector = source.boundarySelector;
-  }
-  if (!source.sourceStageId || !source.sourceShapeId || !occurrenceId || !resourceType ||
-      !ownerOccurrenceId || !ownerResourceType || !candidateId || !canonicalPath) return undefined;
-  return JSON.stringify([
-    source.valueKind, source.sourceStageId, source.sourceShapeId, sourceRole,
-    occurrenceId, resourceType, ownerOccurrenceId, ownerResourceType,
-    candidateId, canonicalPath, boundarySelector ?? '',
-  ]);
-};
-
-const groupSemanticKeyForChoice = (form: GroupForm, choice: SemanticGroupChoice): GroupSemanticKey => {
-  const usedNames = getUsedGroupNames(form, form.semanticKey?.outputColumnId);
-  return {
-    semanticCategory: { kind: 'CHOICE', choiceId: choice.choiceId },
-    outputColumnId: form.semanticKey?.outputColumnId ?? createOpaqueId('group-semantic-key'),
-    name: uniqueName(normalizedName(choice.label), usedNames),
-    label: choice.label,
-    displayLabel: choice.label,
-    scopeLabel: choice.scopeLabel,
-  };
-};
-
-const replaceGroupAggregate = (
-  aggregate: GroupAggregate,
-  operation: GroupAggregateKind,
-  stage: ReshapeStage,
-  usedNames: ReadonlySet<string>,
-): GroupAggregate => {
-  const inputOptions = aggregateInputColumnsFor(stage, operation);
-  const priorInputId = aggregate.operation === 'COUNT_ROWS' ? undefined : aggregate.inputColumnId;
-  const input = inputOptions.find((column) => column.id === priorInputId) ?? inputOptions[0];
-  const common = {
-    outputColumnId: aggregate.outputColumnId,
-    name: uniqueName(aggregateNameFor(operation, input), usedNames),
-    label: operation === 'COUNT_ROWS' ? 'Row count' : `${operationLabel(operation)} of ${input?.label ?? input?.name ?? 'value'}`,
-  };
-  return operation === 'COUNT_ROWS'
-    ? { operation, ...common }
-    : { operation, inputColumnId: input?.id ?? '', ...common };
-};
 
 const candidateFor = (args: {
   readonly form: ReshapeForm;
@@ -2172,90 +271,13 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const groupCodedPivotCapability = capabilityFor(groupStage, 'CODED_PIVOT');
   const groupCodedValuesSupported = savedGroupInputStageAvailable && Boolean(savedOwnedCodedInput || groupCodedPivotCapability.supported) &&
     isSourceProjectionStage(groupStage);
-  const contextKey = editorContextKey(capabilities, editingStep, props.selectedColumns, props.initialKind);
+  const contextKey = editorContextKey(capabilities, editingStep, (props.selectedColumns ?? []).join(','), props.initialKind ?? '');
   const [form, setForm] = useState<ReshapeForm>(() => editingStep
     ? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind)
     : props.initialEntry?.form
       ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind));
   const [formContextKey, setFormContextKey] = useState(contextKey);
   const [contractUnavailable, setContractUnavailable] = useState(false);
-  const automaticallySelectedPivotPairs = useRef(new Set<string>());
-  const manuallySelectedPivotPairs = useRef(new Set<string>());
-  const pivotCategoryMemory = useRef(new Map<string, PivotCategoryMemory>());
-  const pivotDiscoveryRevision = useRef(0);
-  const requestedPivotDiscovery = useRef<PendingPivotDiscovery | undefined>(undefined);
-  const scheduledPivotDiscovery = useRef<ScheduledPivotDiscovery | undefined>(undefined);
-  const [awaitingPivotDiscovery, setAwaitingPivotDiscovery] = useState<AwaitingPivotDiscovery | undefined>(undefined);
-  const rememberAwaitingPivotDiscovery = useCallback((next: AwaitingPivotDiscovery) => {
-    setAwaitingPivotDiscovery((current) => (
-      current?.identity === next.identity
-        && current?.revision === next.revision
-        && current?.owner === next.owner
-        && current?.contextKey === next.contextKey
-        && current?.seen === next.seen
-        ? current
-        : next
-    ));
-  }, []);
-  const clearAwaitingPivotDiscovery = useCallback((identity: string, revision: number) => {
-    setAwaitingPivotDiscovery((current) => (
-      current && current.identity === identity && current.revision === revision ? undefined : current
-    ));
-  }, []);
-  const pivotDiscoveryActivationTimer = useRef<number | undefined>(undefined);
-  const pivotDiscoveryRootMounted = useRef(false);
-  const currentFormRef = useRef(form);
-  currentFormRef.current = form;
-  const currentContextKeyRef = useRef(contextKey);
-  currentContextKeyRef.current = contextKey;
-  const currentFormContextKeyRef = useRef(formContextKey);
-  currentFormContextKeyRef.current = formContextKey;
-  const currentDiscoveryOwnerRef = useRef(props.onDiscoverCategories);
-  currentDiscoveryOwnerRef.current = props.onDiscoverCategories;
-  const currentStageIdRef = useRef(stage.id);
-  currentStageIdRef.current = stage.id;
-  const currentConstructionRef = useRef(construction);
-  currentConstructionRef.current = construction;
-  const currentDisabledRef = useRef(disabled);
-  currentDisabledRef.current = disabled;
-  const updateFormRef = useRef<((next: ReshapeForm, discovery?: ConstructionReshapePivotDiscovery) => void) | undefined>(undefined);
-  const schedulePivotDiscoveryRef = useRef<((next: PivotForm) => void) | undefined>(undefined);
-  const currentPivotDiscoveryRef = useRef<ConstructionReshapePivotDiscovery | undefined>(undefined);
-  currentPivotDiscoveryRef.current = formContextKey === contextKey ? props.pivotDiscovery : undefined;
-  const reportInitialStateRef = useRef<(() => void) | undefined>(undefined);
-  const reportedInitialContextKey = useRef<string | undefined>(undefined);
-  const pivotDiscoveryRootRef = useCallback((element: HTMLElement | null) => {
-    if (element) {
-      reportInitialStateRef.current?.();
-      pivotDiscoveryRootMounted.current = true;
-      pivotDiscoveryActivationTimer.current = window.setTimeout(() => {
-        pivotDiscoveryActivationTimer.current = undefined;
-        const current = currentFormRef.current;
-        if (current.kind !== 'pivot') return;
-        const cachedDiscovery = currentPivotDiscoveryRef.current;
-        if (cachedDiscovery?.status === 'complete'
-            && !pivotCategoriesAreKnown(current, stage.id, cachedDiscovery)
-            && adoptPivotDiscovery(pivotDiscoveryRequestIdentity(current, stage.id, contextKey), cachedDiscovery)) return;
-        if (!disabled) schedulePivotDiscoveryRef.current?.(current);
-      }, 0);
-      return;
-    }
-    pivotDiscoveryRootMounted.current = false;
-    if (pivotDiscoveryActivationTimer.current !== undefined) {
-      window.clearTimeout(pivotDiscoveryActivationTimer.current);
-      pivotDiscoveryActivationTimer.current = undefined;
-    }
-    const identityChanged = currentContextKeyRef.current !== contextKey
-      || currentDiscoveryOwnerRef.current !== props.onDiscoverCategories;
-    const scheduled = scheduledPivotDiscovery.current;
-    if (scheduled) {
-      window.clearTimeout(scheduled.timer);
-      scheduledPivotDiscovery.current = undefined;
-    }
-    if (identityChanged) {
-      pivotDiscoveryRevision.current += 1;
-    }
-  }, [contextKey, disabled, props.initialEntry, props.onDiscoverCategories, stage.id]);
   const [reshapeTab, setReshapeTab] = useState<'pivot' | 'unpivot'>('pivot');
   const [groupPurpose, setGroupPurpose] = useState<'group' | 'summarize' | undefined>();
   if (formContextKey !== contextKey) {
@@ -2263,13 +285,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       ? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind)
       : props.initialEntry?.form
         ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
-    automaticallySelectedPivotPairs.current.clear();
-    manuallySelectedPivotPairs.current.clear();
-    pivotCategoryMemory.current.clear();
-    requestedPivotDiscovery.current = undefined;
-    scheduledPivotDiscovery.current = undefined;
-    pivotDiscoveryRevision.current += 1;
-    setAwaitingPivotDiscovery(undefined);
     setForm(initialForm);
     setFormContextKey(contextKey);
     setContractUnavailable(false);
@@ -2288,86 +303,192 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     ? pivotSupport
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
   const pivotDiscovery = formContextKey === contextKey ? props.pivotDiscovery : undefined;
+  const pivotEvaluationContextKey = JSON.stringify([
+    groupSupport,
+    groupCodedValuesSupported,
+    sourceGroupSupported,
+    sourceGroupReason,
+    codedGroupSupport,
+    expandSupport,
+    relatedExpandSupport,
+    pivotSupport,
+    codedPivotSupport,
+    unpivotSupport,
+  ]);
+  const pivotSnapshot: PivotDiscoverySnapshot = {
+    contextKey,
+    formContextKey,
+    owner: props.onDiscoverCategories,
+    stageId: stage.id,
+    form,
+    construction,
+    capabilities,
+    editingStep,
+    stage,
+    groupStage,
+    groupSupport,
+    groupCodedValuesSupported,
+    sourceGroupSupport: { supported: sourceGroupSupported, reason: sourceGroupReason },
+    codedGroupSupport,
+    expandSupport,
+    relatedExpandSupport,
+    pivotSupport,
+    codedPivotSupport,
+    unpivotSupport,
+    discovery: pivotDiscovery,
+    disabled,
+    pivotSupported: pivotSupport.supported,
+    onCandidateChange,
+    onFormKindChange: props.onFormKindChange,
+  };
+  const [pivotState, dispatchPivotAction] = useReducer(
+    pivotDiscoveryReducer,
+    pivotSnapshot,
+    initialPivotDiscoveryState,
+  );
+  const pivotStateRef = useRef(pivotState);
+  const sendPivotAction = useCallback((action: Parameters<typeof transitionPivotDiscovery>[1]) => {
+    const transition = transitionPivotDiscovery(pivotStateRef.current, action);
+    if (transition.state !== pivotStateRef.current) {
+      pivotStateRef.current = transition.state;
+      dispatchPivotAction(action);
+    }
+    return transition.accepted;
+  }, []);
+
+  const pivotDiscoveryRootRef = useCallback((element: HTMLElement | null) => {
+    if (!element) {
+      const current = pivotStateRef.current;
+      if (current.activationTimer !== undefined) window.clearTimeout(current.activationTimer);
+      if (current.scheduled) window.clearTimeout(current.scheduled.timer);
+      sendPivotAction({ type: 'root-detached' });
+      return;
+    }
+
+    const machineSnapshot = pivotStateRef.current.snapshot;
+    const attachedSnapshot = {
+      ...pivotSnapshot,
+      form: machineSnapshot.contextKey === pivotSnapshot.contextKey
+          && machineSnapshot.formContextKey === pivotSnapshot.formContextKey
+        ? machineSnapshot.form
+        : pivotSnapshot.form,
+    };
+    sendPivotAction({ type: 'root-attached', snapshot: attachedSnapshot });
+    const initialStateReported = sendPivotAction({
+      type: 'initial-state-reported',
+      contextKey,
+      hasInitialEntry: Boolean(props.initialEntry),
+    });
+    if (initialStateReported && !props.initialEntry) {
+      const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
+      props.onFormKindChange?.(initialForm.kind);
+      const initialCandidate = (!editingStep
+        && (initialForm.kind === 'coded-group' && codedGroupSupport.supported
+          || initialForm.kind === 'source-group' && sourceGroupSupported
+          || initialForm.kind === 'unpivot' && unpivotSupport.supported))
+        || (editingStep !== undefined && initialForm.kind === 'expand' && editingStep.operation.kind === 'EXPAND'
+          && (expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)))
+        ? candidateFor({
+            form: initialForm,
+            construction,
+            capabilities,
+            stage: groupStage,
+            editingStep,
+            pivotCategoriesKnown: false,
+          })
+        : undefined;
+      const reportInitialCandidate = editingStep !== undefined || initialForm.kind !== 'group';
+      if (initialCandidate?.kind === 'ready') onCandidateChange(initialCandidate.intent);
+      else if (reportInitialCandidate) onCandidateChange(undefined);
+    }
+
+    const timer = window.setTimeout(() => {
+      if (!sendPivotAction({ type: 'activation-fired', contextKey, timer })) return;
+      const current = pivotStateRef.current;
+      const currentForm = current.snapshot.form;
+      if (currentForm.kind !== 'pivot') return;
+      const cachedDiscovery = current.snapshot.discovery;
+      if (cachedDiscovery?.status === 'complete'
+          && !pivotCategoriesAreKnown(currentForm, current.snapshot.stageId, cachedDiscovery)
+          && adoptPivotDiscovery(
+            pivotDiscoveryRequestIdentity(currentForm, current.snapshot.stageId, current.snapshot.contextKey),
+            cachedDiscovery,
+          )) return;
+      if (!current.snapshot.disabled) schedulePivotDiscovery(currentForm);
+    }, 0);
+    sendPivotAction({ type: 'activation-scheduled', contextKey, timer });
+  }, [
+    contextKey,
+    formContextKey,
+    disabled,
+    props.initialEntry,
+    props.onDiscoverCategories,
+    props.onCandidateChange,
+    props.onFormKindChange,
+    props.pivotDiscovery,
+    props.capabilities,
+    construction,
+    editingStep,
+    groupStage,
+    stage,
+    stage.id,
+    pivotSupport.supported,
+    pivotEvaluationContextKey,
+  ]);
+
   // A host-published loading state stays handled by PivotEditor's own check. Beyond
   // that, an editor-issued request counts as in flight until the host publishes
   // something newer for the current key or a result for its exact identity is
   // adopted, because hosts may lag or omit status:'loading' entirely.
   const pivotDiscoveryInFlight = ((): boolean => {
     const owner = props.onDiscoverCategories;
-    if (!owner || disabled || form.kind !== 'pivot' || !pivotDiscoveryRootMounted.current) return false;
+    const awaiting = pivotState.awaiting;
+    if (!owner || disabled || form.kind !== 'pivot' || !pivotState.mounted) return false;
     if (formContextKey !== contextKey || !pivotSupport.supported) return false;
-    if (awaitingPivotDiscovery?.contextKey !== contextKey
-        || awaitingPivotDiscovery.owner !== owner
-        || awaitingPivotDiscovery.revision !== pivotDiscoveryRevision.current
-        || awaitingPivotDiscovery.identity !== pivotDiscoveryRequestIdentity(form, stage.id, contextKey)) return false;
-    if (pivotDiscovery === awaitingPivotDiscovery.seen) return true;
+    if (awaiting?.contextKey !== contextKey
+        || awaiting.owner !== owner
+        || awaiting.revision !== pivotState.revision
+        || awaiting.identity !== pivotDiscoveryRequestIdentity(form, stage.id, contextKey)) return false;
+    if (pivotDiscovery === awaiting.seen) return true;
     return !pivotDiscoveryMatches(form, stage.id, pivotDiscovery) || pivotDiscovery.status === 'loading';
   })();
 
-  reportInitialStateRef.current = () => {
-    if (props.initialEntry) {
-      reportedInitialContextKey.current = undefined;
-      return;
-    }
-    if (reportedInitialContextKey.current === contextKey) return;
-    reportedInitialContextKey.current = contextKey;
-    const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
-    props.onFormKindChange?.(initialForm.kind);
-    const initialCandidate = (!editingStep
-      && (initialForm.kind === 'coded-group' && codedGroupSupport.supported
-        || initialForm.kind === 'source-group' && sourceGroupSupported
-        || initialForm.kind === 'unpivot' && unpivotSupport.supported))
-      || (editingStep !== undefined && initialForm.kind === 'expand' && editingStep.operation.kind === 'EXPAND'
-        && (expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)))
-      ? candidateFor({
-          form: initialForm,
-          construction,
-          capabilities,
-          stage: groupStage,
-          editingStep,
-          pivotCategoriesKnown: false,
-        })
-      : undefined;
-    const reportInitialCandidate = editingStep !== undefined || initialForm.kind !== 'group';
-    if (initialCandidate?.kind === 'ready') onCandidateChange(initialCandidate.intent);
-    else if (reportInitialCandidate) onCandidateChange(undefined);
-  };
-
-  const capabilityForForm = (next: ReshapeForm) => {
+  const capabilityForForm = (next: ReshapeForm, snapshot: PivotDiscoverySnapshot) => {
     switch (next.kind) {
-      case 'group': return groupCodedValuesSupported ? { supported: true, reason: '' } : groupSupport;
-      case 'source-group': return { supported: sourceGroupSupported, reason: sourceGroupReason };
-      case 'coded-group': return codedGroupSupport;
-      case 'expand': return expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)
+      case 'group': return snapshot.groupCodedValuesSupported ? { supported: true, reason: '' } : snapshot.groupSupport;
+      case 'source-group': return snapshot.sourceGroupSupport;
+      case 'coded-group': return snapshot.codedGroupSupport;
+      case 'expand': return snapshot.expandSupport.supported || (snapshot.capabilities.expandSourceInput?.supported ?? false)
         ? { supported: true, reason: '' }
-        : expandSupport;
-      case 'related-expand': return relatedExpandSupport;
-      case 'pivot': return pivotSupport;
-      case 'coded-pivot': return codedPivotSupport;
-      case 'unpivot': return unpivotSupport;
+        : snapshot.expandSupport;
+      case 'related-expand': return snapshot.relatedExpandSupport;
+      case 'pivot': return snapshot.pivotSupport;
+      case 'coded-pivot': return snapshot.codedPivotSupport;
+      case 'unpivot': return snapshot.unpivotSupport;
       default: return undefined;
     }
   };
 
   const evaluate = (
     next: ReshapeForm,
-    discovery: ConstructionReshapePivotDiscovery | undefined = pivotDiscovery,
+    discovery: ConstructionReshapePivotDiscovery | undefined,
+    snapshot: PivotDiscoverySnapshot,
   ): CandidateEvaluation => {
-    const support = capabilityForForm(next);
+    const support = capabilityForForm(next, snapshot);
     if (!support?.supported) return { kind: 'incomplete' };
-    const pivotCategoriesKnown = next.kind === 'pivot' && pivotCategoriesAreKnown(next, stage.id, discovery);
+    const pivotCategoriesKnown = next.kind === 'pivot' && pivotCategoriesAreKnown(next, snapshot.stage.id, discovery);
     if (
       next.kind === 'pivot'
-      && editingStep?.operation.kind !== 'PIVOT'
+      && snapshot.editingStep?.operation.kind !== 'PIVOT'
       && pivotCategoriesKnown
-      && !allDiscoveredPivotCategoriesSelected(next, stage.id, discovery)
+      && !allDiscoveredPivotCategoriesSelected(next, snapshot.stage.id, discovery)
     ) return { kind: 'incomplete' };
     return candidateFor({
       form: next,
-      construction,
-      capabilities,
-      stage: next.kind === 'group' ? groupStage : stage,
-      editingStep,
+      construction: snapshot.construction,
+      capabilities: snapshot.capabilities,
+      stage: next.kind === 'group' ? snapshot.groupStage : snapshot.stage,
+      editingStep: snapshot.editingStep,
       pivotCategoriesKnown,
     });
   };
@@ -2376,25 +497,28 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     pivot: PivotForm,
     discovery: ConstructionReshapePivotDiscovery | undefined,
   ): PivotForm => {
+    const current = pivotStateRef.current;
+    const snapshot = current.snapshot;
     if (pivot.discovery) return pivot;
-    if (formContextKey !== contextKey
+    if (snapshot.formContextKey !== snapshot.contextKey
         || pivotOriginalPairApplies(pivot)
-        || !pivotDiscoveryMatches(pivot, stage.id, discovery)
+        || !pivotDiscoveryMatches(pivot, snapshot.stageId, discovery)
         || discovery.status !== 'complete') return pivot;
 
-    const selectionIdentity = pivotSelectionIdentity(pivot, stage.id);
-    const manualSelectionApplies = manuallySelectedPivotPairs.current.has(selectionIdentity)
+    const selectionIdentity = pivotSelectionIdentity(pivot, snapshot.stageId);
+    const manualSelectionApplies = current.manuallySelectedPairs.has(selectionIdentity)
       && pivot.categories.length > 0 && pivot.categoriesPair !== undefined;
-    if (automaticallySelectedPivotPairs.current.has(selectionIdentity) || manualSelectionApplies) return pivot;
+    if (current.automaticallySelectedPairs.has(selectionIdentity) || manualSelectionApplies) return pivot;
 
-    automaticallySelectedPivotPairs.current.add(selectionIdentity);
-    const savedCategories = editingStep?.operation.kind === 'PIVOT'
-      && editingStep.operation.pivot.categoryColumnId === pivot.categoryColumnId
-      && editingStep.operation.pivot.valueColumnId === pivot.valueColumnId
-      ? initialPivotForm(stage, [], editingStep).categories : [];
-    const excluded = pivotCategoryMemory.current.get(pivotCategoryMemoryKey(pivot, stage.id, contextKey))?.excluded;
+    sendPivotAction({ type: 'automatic-pair-selected', identity: selectionIdentity });
+    const savedStep = snapshot.editingStep;
+    const savedCategories = savedStep?.operation.kind === 'PIVOT'
+      && savedStep.operation.pivot.categoryColumnId === pivot.categoryColumnId
+      && savedStep.operation.pivot.valueColumnId === pivot.valueColumnId
+      ? initialPivotForm(snapshot.stage, [], savedStep).categories : [];
+    const excluded = current.categoryMemory.get(pivotCategoryMemoryKey(pivot, snapshot.stageId, snapshot.contextKey))?.excluded;
     const usedNames = new Set([
-      ...stage.columns.map((column) => column.name.toLowerCase()),
+      ...snapshot.stage.columns.map((column) => column.name.toLowerCase()),
       ...pivot.categories.map((category) => category.name.toLowerCase()),
       ...savedCategories.map((category) => category.name.toLowerCase()),
     ]);
@@ -2417,47 +541,62 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
 
   const updateForm = (
     nextForm: ReshapeForm,
-    discovery: ConstructionReshapePivotDiscovery | undefined = pivotDiscovery,
+    discovery: ConstructionReshapePivotDiscovery | undefined = pivotStateRef.current.snapshot.discovery,
   ) => {
+    const current = pivotStateRef.current;
+    const previousForm = current.snapshot.form;
     const next = nextForm.kind === 'pivot' ? autoSelectDiscoveredCategories(nextForm, discovery) : nextForm;
-    const previousRequestIdentity = form.kind === 'pivot'
-      ? pivotDiscoveryRequestIdentity(form, stage.id, contextKey)
+    const previousRequestIdentity = previousForm.kind === 'pivot'
+      ? pivotDiscoveryRequestIdentity(previousForm, current.snapshot.stageId, current.snapshot.contextKey)
       : undefined;
     const nextRequestIdentity = next.kind === 'pivot'
-      ? pivotDiscoveryRequestIdentity(next, stage.id, contextKey)
+      ? pivotDiscoveryRequestIdentity(next, current.snapshot.stageId, current.snapshot.contextKey)
       : undefined;
-    if (form.kind === 'pivot' && next.kind === 'pivot' && previousRequestIdentity !== nextRequestIdentity) {
-      automaticallySelectedPivotPairs.current.delete(pivotSelectionIdentity(form, stage.id));
-    }
-    if (previousRequestIdentity !== nextRequestIdentity) {
-      pivotDiscoveryRevision.current += 1;
-      const scheduled = scheduledPivotDiscovery.current;
-      if (scheduled) {
+    if (next.kind === 'pivot' && next.discovery && previousForm.kind === 'pivot' && !previousForm.discovery) {
+      const scheduled = current.scheduled;
+      if (scheduled && scheduled.identity === previousRequestIdentity) {
         window.clearTimeout(scheduled.timer);
-        scheduledPivotDiscovery.current = undefined;
+        sendPivotAction({ type: 'schedule-canceled', identity: scheduled.identity, revision: scheduled.revision });
       }
     }
+    if (previousForm.kind === 'pivot' && next.kind === 'pivot' && previousRequestIdentity !== nextRequestIdentity) {
+      sendPivotAction({
+        type: 'automatic-pair-forgotten',
+        identity: pivotSelectionIdentity(previousForm, current.snapshot.stageId),
+      });
+    }
+    const requestIdentityChanged = previousRequestIdentity !== nextRequestIdentity;
+    if (requestIdentityChanged && current.scheduled) {
+      window.clearTimeout(current.scheduled.timer);
+      sendPivotAction({ type: 'schedule-canceled' });
+    }
+    sendPivotAction({ type: 'form-changed', form: next, requestIdentityChanged });
     setForm(next);
-    props.onFormKindChange?.(next.kind);
-    const evaluation = evaluate(next, discovery);
+    current.snapshot.onFormKindChange?.(next.kind);
+    const evaluation = evaluate(next, discovery, pivotStateRef.current.snapshot);
     setContractUnavailable(evaluation.kind === 'schema-pending');
-    onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
-    if (next.kind === 'pivot') schedulePivotDiscoveryRef.current?.(next);
+    current.snapshot.onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
+    if (next.kind === 'pivot') schedulePivotDiscovery(next);
   };
-  updateFormRef.current = updateForm;
 
-  const adoptPivotDiscovery = (identity: string, discovery: CompletePivotDiscovery): boolean => {
-    const current = currentFormRef.current;
-    if (!pivotDiscoveryRootMounted.current
-        || currentContextKeyRef.current !== contextKey
-        || currentFormContextKeyRef.current !== contextKey
-        || currentDiscoveryOwnerRef.current !== props.onDiscoverCategories
-        || currentStageIdRef.current !== stage.id
-        || current.kind !== 'pivot'
-        || pivotDiscoveryRequestIdentity(current, stage.id, contextKey) !== identity
-        || !pivotDiscoveryMatches(current, stage.id, discovery)) return false;
-    clearAwaitingPivotDiscovery(identity, pivotDiscoveryRevision.current);
-    updateFormRef.current?.(current, discovery);
+  const adoptPivotDiscovery = (
+    identity: string,
+    discovery: CompletePivotDiscovery,
+    expected?: PendingPivotDiscovery,
+  ): boolean => {
+    const current = pivotStateRef.current;
+    const snapshot = current.snapshot;
+    const pending = expected ?? (snapshot.owner ? { identity, revision: current.revision, owner: snapshot.owner } : undefined);
+    if (!pending || pending.identity !== identity || !sendPivotAction({
+      type: 'discovery-arrived',
+      pending,
+      contextKey: snapshot.contextKey,
+      stageId: snapshot.stageId,
+      discovery,
+    })) return false;
+    const latest = pivotStateRef.current.snapshot.form;
+    if (latest.kind !== 'pivot') return false;
+    updateForm(latest, discovery);
     return true;
   };
 
@@ -2473,114 +612,124 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
 
   const rememberManualPivotSelection = (pivot: PivotForm) => {
     if (pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
-    manuallySelectedPivotPairs.current.add(pivotSelectionIdentity(pivot, stage.id));
-    if (form.kind !== 'pivot') return;
-    const memoryKey = pivotCategoryMemoryKey(pivot, stage.id, contextKey);
-    const memory = pivotCategoryMemory.current.get(memoryKey) ?? { excluded: new Set<string>() };
-    const previousSelected = new Set(form.categories.map((category) => scalarIdentity(category.key)));
+    const current = pivotStateRef.current;
+    const { stageId, contextKey: currentContextKey, form: currentForm } = current.snapshot;
+    const memoryKey = pivotCategoryMemoryKey(pivot, stageId, currentContextKey);
+    const excluded = new Set(current.categoryMemory.get(memoryKey)?.excluded ?? []);
+    if (currentForm.kind !== 'pivot') {
+      sendPivotAction({
+        type: 'manual-pair-selected',
+        identity: pivotSelectionIdentity(pivot, stageId),
+        memoryKey,
+        excluded,
+      });
+      return;
+    }
+    const previousSelected = new Set(currentForm.categories.map((category) => scalarIdentity(category.key)));
     const nextSelected = new Set(pivot.categories.map((category) => scalarIdentity(category.key)));
     for (const identity of previousSelected) {
-      if (!nextSelected.has(identity)) memory.excluded.add(identity);
+      if (!nextSelected.has(identity)) excluded.add(identity);
     }
     for (const identity of nextSelected) {
-      memory.excluded.delete(identity);
+      excluded.delete(identity);
     }
-    pivotCategoryMemory.current.set(memoryKey, memory);
+    sendPivotAction({
+      type: 'manual-pair-selected',
+      identity: pivotSelectionIdentity(pivot, stageId),
+      memoryKey,
+      excluded,
+    });
   };
 
   const forgetPivotPairSelection = (previous: PivotForm, next: PivotForm) => {
-    for (const identity of [
-      pivotSelectionIdentity(previous, stage.id),
-      pivotSelectionIdentity(next, stage.id),
-    ]) {
-      automaticallySelectedPivotPairs.current.delete(identity);
-      manuallySelectedPivotPairs.current.delete(identity);
-    }
-    pivotCategoryMemory.current.delete(pivotCategoryMemoryKey(previous, stage.id, contextKey));
-    pivotCategoryMemory.current.delete(pivotCategoryMemoryKey(next, stage.id, contextKey));
+    const { stageId, contextKey: currentContextKey } = pivotStateRef.current.snapshot;
+    sendPivotAction({
+      type: 'pivot-pairs-forgotten',
+      identities: [pivotSelectionIdentity(previous, stageId), pivotSelectionIdentity(next, stageId)],
+      memoryKeys: [
+        pivotCategoryMemoryKey(previous, stageId, currentContextKey),
+        pivotCategoryMemoryKey(next, stageId, currentContextKey),
+      ],
+    });
   };
 
-  const requestPivotCategories = (pivot: PivotForm, force = false) => {
-    const owner = props.onDiscoverCategories;
-    if (!owner || disabled || formContextKey !== contextKey || !pivotSupport.supported
-        || pivot.discovery
+  const requestPivotCategories = (requestedForm: PivotForm, force = false) => {
+    const current = pivotStateRef.current;
+    const snapshot = current.snapshot;
+    const owner = snapshot.owner;
+    const pivot = snapshot.form.kind === 'pivot' ? snapshot.form : requestedForm;
+    if (!owner || !current.mounted || snapshot.disabled || snapshot.formContextKey !== snapshot.contextKey
+        || !snapshot.pivotSupported || pivot.discovery
         || (pivot.pivotSources?.length && pivot.groupKeyIds.length === 0)
         || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
 
-    const identity = pivotDiscoveryRequestIdentity(pivot, stage.id, contextKey);
-    const revision = pivotDiscoveryRevision.current;
-    const requested = requestedPivotDiscovery.current;
+    const identity = pivotDiscoveryRequestIdentity(pivot, snapshot.stageId, snapshot.contextKey);
+    const revision = current.revision;
+    const requested = current.requested;
     if (!force && requested?.identity === identity && requested.revision === revision && requested.owner === owner) return;
 
-    const scheduled = scheduledPivotDiscovery.current;
-    if (scheduled) {
-      window.clearTimeout(scheduled.timer);
-      scheduledPivotDiscovery.current = undefined;
+    if (current.scheduled) {
+      window.clearTimeout(current.scheduled.timer);
+      sendPivotAction({ type: 'schedule-canceled', identity: current.scheduled.identity, revision: current.scheduled.revision });
     }
-    requestedPivotDiscovery.current = { identity, revision, owner };
-    rememberAwaitingPivotDiscovery({ identity, revision, owner, contextKey, seen: pivotDiscovery });
+    const pending: PendingPivotDiscovery = { identity, revision, owner };
+    if (!sendPivotAction({ type: 'request-started', pending })) return;
     const request: ConstructionReshapePivotDiscoveryRequest = {
-      stageId: stage.id,
+      stageId: snapshot.stageId,
       ...(pivot.pivotSources?.length ? {
         pivotStepId: pivot.stepId,
         groupKeyIds: [...pivot.groupKeyIds],
         pivotSources: pivot.pivotSources,
-        candidateConstruction: currentConstructionRef.current,
+        candidateConstruction: snapshot.construction,
       } : {}),
       categoryColumnId: pivot.categoryColumnId,
       valueColumnId: pivot.valueColumnId,
     };
     owner(request, (discovery) => {
-      if (pivotDiscoveryRevision.current !== revision
-          || currentDiscoveryOwnerRef.current !== owner) return;
-      adoptPivotDiscovery(identity, discovery);
+      adoptPivotDiscovery(identity, discovery, pending);
     });
   };
 
-  const schedulePivotDiscovery = (pivot: PivotForm) => {
-    const owner = props.onDiscoverCategories;
-    if (!owner || disabled || formContextKey !== contextKey || !pivotSupport.supported
-        || pivot.discovery
+  const schedulePivotDiscovery = (requestedForm: PivotForm) => {
+    const current = pivotStateRef.current;
+    const snapshot = current.snapshot;
+    const owner = snapshot.owner;
+    const pivot = snapshot.form.kind === 'pivot' ? snapshot.form : requestedForm;
+    if (!owner || !current.mounted || snapshot.disabled || snapshot.formContextKey !== snapshot.contextKey
+        || !snapshot.pivotSupported || pivot.discovery
         || (pivot.pivotSources?.length && pivot.groupKeyIds.length === 0)
         || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
 
-    const identity = pivotDiscoveryRequestIdentity(pivot, stage.id, contextKey);
-    if (pivotDiscoveryMatches(pivot, stage.id, pivotDiscovery) && pivotDiscovery.status === 'complete') return;
-    if (pivotCategoriesAreKnown(pivot, stage.id, pivotDiscovery)) {
-      const scheduled = scheduledPivotDiscovery.current;
+    const identity = pivotDiscoveryRequestIdentity(pivot, snapshot.stageId, snapshot.contextKey);
+    if (pivotDiscoveryMatches(pivot, snapshot.stageId, snapshot.discovery) && snapshot.discovery?.status === 'complete') return;
+    if (pivotCategoriesAreKnown(pivot, snapshot.stageId, snapshot.discovery)) {
+      const scheduled = current.scheduled;
       if (scheduled?.identity === identity) {
         window.clearTimeout(scheduled.timer);
-        scheduledPivotDiscovery.current = undefined;
+        sendPivotAction({ type: 'schedule-canceled', identity: scheduled.identity, revision: scheduled.revision });
       }
-      clearAwaitingPivotDiscovery(identity, pivotDiscoveryRevision.current);
+      sendPivotAction({ type: 'awaiting-cleared', identity, revision: current.revision });
       return;
     }
-    const revision = pivotDiscoveryRevision.current;
-    const requested = requestedPivotDiscovery.current;
+    const revision = current.revision;
+    const requested = current.requested;
     if (requested?.identity === identity && requested.revision === revision && requested.owner === owner) return;
-    const pending = scheduledPivotDiscovery.current;
+    const pending = current.scheduled;
     if (pending?.identity === identity && pending.revision === revision && pending.owner === owner) return;
-    if (pending) window.clearTimeout(pending.timer);
+    if (pending) {
+      window.clearTimeout(pending.timer);
+      sendPivotAction({ type: 'schedule-canceled', identity: pending.identity, revision: pending.revision });
+    }
 
-    rememberAwaitingPivotDiscovery({ identity, revision, owner, contextKey, seen: pivotDiscovery });
     const timer = window.setTimeout(() => {
-      if (scheduledPivotDiscovery.current?.timer !== timer) return;
-      scheduledPivotDiscovery.current = undefined;
-      const current = currentFormRef.current;
-      if (pivotDiscoveryRevision.current !== revision
-          || currentContextKeyRef.current !== contextKey
-          || !pivotDiscoveryRootMounted.current
-          || currentFormContextKeyRef.current !== contextKey
-          || currentDiscoveryOwnerRef.current !== owner
-          || currentDisabledRef.current
-          || current.kind !== 'pivot'
-          || currentStageIdRef.current !== stage.id
-          || pivotDiscoveryRequestIdentity(current, stage.id, contextKey) !== identity) return;
-      requestPivotCategories(current);
+      const scheduled = { identity, revision, owner, timer };
+      if (!sendPivotAction({ type: 'schedule-fired', scheduled })) return;
+      const latest = pivotStateRef.current.snapshot.form;
+      if (latest.kind === 'pivot') requestPivotCategories(latest);
     }, 250);
-    scheduledPivotDiscovery.current = { identity, revision, owner, timer };
+    const scheduled: ScheduledPivotDiscovery = { identity, revision, owner, timer };
+    sendPivotAction({ type: 'schedule-created', scheduled });
   };
-  schedulePivotDiscoveryRef.current = schedulePivotDiscovery;
 
   return (
     <section ref={pivotDiscoveryRootRef} aria-label={props.rowValuesOnly ? 'Add columns from Group contributors' : 'Reshape editor'} data-testid="construction-reshape-editor" className="grid content-start gap-3">
@@ -2798,46 +947,6 @@ const SourceFieldChoices = (props: {
   </section>
 ) : null;
 
-const ListColumnExpandChoices = (props: {
-  readonly columns: ReadonlyArray<ReshapeColumn>;
-  readonly supported: boolean;
-  readonly disabled: boolean;
-  readonly onExpand?: (columnId: string) => void;
-  readonly inlineGrainAction?: boolean;
-}) => {
-  if (props.columns.length === 0) return null;
-  const choices = props.supported && props.onExpand ? (
-    <ul className="m-0 mt-2 grid list-none gap-1 p-0 sm:grid-cols-2">
-      {props.columns.map((column) => (
-        <li key={column.id}>
-          <button type="button" aria-label={`Expand ${column.label}`} disabled={props.disabled}
-            onClick={() => props.onExpand?.(column.id)}
-            className="w-full rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-blue-50 disabled:opacity-50">
-            Split {column.label} into rows
-          </button>
-        </li>
-      ))}
-    </ul>
-  ) : <p className="m-0 mt-2 text-xs text-slate-600">These repeated fields can’t be split into rows at this stage.</p>;
-  if (props.inlineGrainAction) {
-    return (
-      <section data-testid="construction-reshape-list-column-settings" aria-label="Repeated field actions" className="rounded border border-slate-200 bg-slate-50 px-2 py-2">
-        <h3 className="m-0 text-xs font-semibold text-slate-800">Repeated fields</h3>
-        <p className="mb-0 mt-1 text-xs text-slate-600">
-          Splitting a repeated field changes the input grain: each list item becomes its own row and values from other fields repeat.
-        </p>
-        {choices}
-      </section>
-    );
-  }
-  return (
-    <details data-testid="construction-reshape-list-column-settings" className="rounded border border-slate-200 px-2 py-1.5">
-      <summary className="cursor-pointer text-xs font-medium text-blue-800">List column settings</summary>
-      {choices}
-    </details>
-  );
-};
-
 const SourceFieldDescription = ({ field }: { readonly field: AvailableSourceField }) => (
   <span className="grid gap-0.5">
     <span className="text-sm font-medium text-slate-900">{field.choice.label}</span>
@@ -2939,14 +1048,6 @@ const SourceGroupEditor = (props: {
   );
 };
 
-const readableFieldCombination = (labels: ReadonlyArray<string>): string => {
-  if (labels.length < 2) return labels[0] ?? '';
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
-  return `${labels.slice(0, -1).join(', ')}, and ${labels.at(-1)}`;
-};
-
-const compactSemanticScope = (scopeLabel: string): string => scopeLabel.split(' · ').slice(-2).join(' · ');
-
 const CodedGroupEditor = (props: {
   readonly form: CodedGroupForm;
   readonly stage: ReshapeStage;
@@ -3000,1249 +1101,6 @@ const CodedGroupEditor = (props: {
     </details>
   </section>
 );
-
-const GroupRowValuesEditor = (props: {
-  readonly form: GroupForm;
-  readonly inputColumns: ReadonlyArray<ReshapeColumn>;
-  readonly groupKeyInputColumnIds: ReadonlySet<string>;
-  readonly groupRowValueChoices: ReadonlyArray<GroupRowValueChoice>;
-  readonly disabled: boolean;
-  readonly supported: boolean;
-  readonly embedded?: boolean;
-  readonly onChange: (form: GroupForm) => void;
-}) => {
-  const [rowValueSearch, setRowValueSearch] = useState('');
-  const normalizedRowValueSearch = rowValueSearch.trim().toLocaleLowerCase();
-  const selectedRowValueChoiceIds = new Set(props.form.rowValues.flatMap((value) =>
-    'fieldSource' in value && value.fieldSource.kind === 'CHOICE' ? [value.fieldSource.choiceId] : [],
-  ));
-  const selectedRowValueBindingIdentities = new Set(props.form.rowValues.flatMap((value) => {
-    if (!('fieldSource' in value)) return [];
-    const identity = groupRowValueBindingIdentity(value.fieldSource);
-    return identity ? [identity] : [];
-  }));
-  const selectedRowValueInputIDs = new Set(props.form.rowValues.flatMap((value) =>
-    'inputColumnId' in value ? [value.inputColumnId] : [],
-  ));
-  const visibleRowValueChoices = props.groupRowValueChoices.filter((choice) =>
-    choice.fieldSource.kind === 'CHOICE' && !selectedRowValueChoiceIds.has(choice.fieldSource.choiceId) &&
-    !(choice.inputColumnId && props.groupKeyInputColumnIds.has(choice.inputColumnId)) &&
-    !(choice.inputColumnId && selectedRowValueInputIDs.has(choice.inputColumnId)) &&
-    !(fieldChoiceIdentity(choice) && selectedRowValueBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
-    (!normalizedRowValueSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath} ${choice.sourceRole}`.toLocaleLowerCase().includes(normalizedRowValueSearch)));
-  // Resolved input columns already have exact stage authority, even when a
-  // pinned source cannot expose live FHIR field choices. Keep these separate
-  // from signed choices rather than inventing a raw-field binding.
-  const signedInputColumnIds = new Set(props.groupRowValueChoices.flatMap((choice) => choice.inputColumnId ? [choice.inputColumnId] : []));
-  const visibleInputColumns = props.inputColumns.filter((column) =>
-    !props.groupKeyInputColumnIds.has(column.id) && !selectedRowValueInputIDs.has(column.id) && !signedInputColumnIds.has(column.id) &&
-    (!normalizedRowValueSearch || `${column.label} ${column.name}`.toLocaleLowerCase().includes(normalizedRowValueSearch)));
-  const addInputColumn = (column: ReshapeColumn) => {
-    if (props.form.codedCategories.length > 0) return;
-    const name = uniqueName(normalizedName(column.label), getUsedGroupNames(props.form));
-    const rowValue: GroupRowValue = {
-      inputColumnId: column.id, outputColumnId: createOpaqueId('group-row-value'), policy: 'ALL',
-      name, label: column.label, displayLabel: column.label, scopeLabel: 'Current Group input column', valueType: column.type ?? 'string',
-    };
-    props.onChange({ ...props.form, rowValues: [...props.form.rowValues, rowValue] });
-  };
-  const changeRowValue = (outputColumnId: string, update: Partial<Pick<GroupRowValue, 'name' | 'label' | 'policy'>>) => {
-    props.onChange({
-      ...props.form,
-      rowValues: props.form.rowValues.map((value) => value.outputColumnId === outputColumnId ? { ...value, ...update } : value),
-    });
-  };
-  const addGroupRowValue = (choice: GroupRowValueChoice) => {
-    if (choice.fieldSource.kind !== 'CHOICE' || props.form.codedCategories.length > 0) return;
-    const name = uniqueName(normalizedName(choice.label), getUsedGroupNames(props.form));
-    const common = {
-      outputColumnId: createOpaqueId('group-row-value'), policy: 'ALL' as const,
-      name, label: choice.label, displayLabel: choice.label,
-      scopeLabel: choice.scopeLabel ?? 'Current Group input', valueType: choice.valueType ?? 'string',
-    };
-    const rowValue: GroupRowValue = choice.inputColumnId
-      ? { inputColumnId: choice.inputColumnId, ...common }
-      : { fieldSource: choice.fieldSource, ...common };
-    props.onChange({ ...props.form, rowValues: [...props.form.rowValues, rowValue] });
-  };
-  const removeGroupRowValue = (outputColumnId: string) => props.onChange({
-    ...props.form,
-    rowValues: props.form.rowValues.filter((value) => value.outputColumnId !== outputColumnId),
-  });
-
-  return (
-    <fieldset data-testid="construction-group-add-columns" className={props.embedded ? 'grid gap-3 border-t border-slate-100 pt-3' : 'grid gap-3'} disabled={props.disabled || !props.supported}>
-      <legend className={props.embedded ? 'sr-only' : 'm-0 text-sm font-semibold text-slate-900'}>Values from contributing records</legend>
-      {props.embedded ? <h3 className="m-0 text-sm font-semibold text-slate-900">Record values <span className="font-normal text-slate-500">(optional)</span></h3> : null}
-      <p className="m-0 text-xs text-slate-600">These do not change which rows form a group. They copy a field from the records inside each group into that group row.</p>
-      {props.form.rowValues.length > 0 ? (
-        <div data-testid="construction-group-retained-values" className="grid gap-1">
-        {props.form.rowValues.map((value, index) => (
-          <div key={value.outputColumnId} data-testid="construction-group-row-value" className="grid gap-2.5 border-b border-slate-100 py-3 last:border-b-0">
-            <div className="min-w-0">
-              <p className="m-0 truncate text-sm font-medium text-slate-800" title={value.displayLabel}>{value.displayLabel}</p>
-              <p className="m-0 truncate text-xs text-slate-500" title={value.scopeLabel}>{value.scopeLabel}</p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-[8rem_minmax(0,1fr)_auto] sm:items-end">
-            <label className="grid min-w-0 gap-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              Keep values
-              <select
-                aria-label={`Keep values ${index + 1}`}
-                value={value.policy}
-                disabled={props.disabled || !props.supported}
-                onChange={(event) => {
-                  const policy = event.currentTarget.value;
-                  if (policy === 'ALL' || policy === 'ONE') changeRowValue(value.outputColumnId, { policy });
-                }}
-                className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-              >
-                <option value="ALL">All values</option>
-                <option value="ONE">One value</option>
-              </select>
-            </label>
-            <label className="grid min-w-0 gap-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              Output name
-              <input
-                aria-label={`Added column name ${index + 1}`}
-                value={value.name}
-                disabled={props.disabled || !props.supported}
-                onChange={(event) => changeRowValue(value.outputColumnId, { name: event.currentTarget.value })}
-                className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-              />
-            </label>
-            <button type="button" aria-label={`Remove added column ${index + 1}`} disabled={props.disabled || !props.supported}
-              onClick={() => removeGroupRowValue(value.outputColumnId)}
-              className="justify-self-start whitespace-nowrap px-1 py-1.5 text-xs font-medium text-red-700 hover:underline">Remove</button>
-            </div>
-          </div>
-        ))}
-        </div>
-      ) : null}
-      <div data-testid="construction-group-add-columns-browser" className="grid gap-3">
-        <div className="grid gap-2">
-          <label className="grid max-w-xl gap-1 text-xs font-medium text-slate-700">
-            Search fields to add
-            <input
-              type="search"
-              aria-label="Search fields to add"
-              data-testid="construction-group-add-columns-search"
-              value={rowValueSearch}
-              onChange={(event) => setRowValueSearch(event.currentTarget.value)}
-              className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-            />
-          </label>
-          {rowValueSearch ? (
-            <button type="button" data-testid="construction-group-add-columns-clear-search" onClick={() => setRowValueSearch('')}
-              className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
-          ) : null}
-          <div data-testid="construction-group-add-columns-field-list" className="grid max-h-72 gap-x-3 overflow-y-auto sm:grid-cols-2">
-            {visibleRowValueChoices.map((choice) => {
-              const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
-              return (
-                <label key={`row-value:${choiceId}`} className="flex min-w-0 items-start gap-2 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50">
-                  <input
-                    type="checkbox"
-                    value={choiceId}
-                    data-testid={`construction-group-add-column-choice-${choiceId}`}
-                    aria-label={`Add column ${choice.label}`}
-                    checked={false}
-                    disabled={props.disabled || !props.supported || props.form.codedCategories.length > 0}
-                    onChange={(event) => { if (event.currentTarget.checked) addGroupRowValue(choice); }}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{choice.label}</span>
-                    <span className="block truncate text-xs text-slate-500" title={choice.scopeLabel}>{choice.scopeLabel ?? `${choice.sourceRole} · ${choice.resourceType}.${choice.canonicalPath}`}</span>
-                  </span>
-                </label>
-              );
-            })}
-            {visibleInputColumns.map((column) => (
-              <label key={`row-input:${column.id}`} className="flex min-w-0 items-start gap-2 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50">
-                <input type="checkbox" value={column.id}
-                  data-testid={`construction-group-add-column-input-${column.id}`}
-                  aria-label={`Add column ${column.label}`} checked={false}
-                  disabled={props.disabled || !props.supported || props.form.codedCategories.length > 0}
-                  onChange={(event) => { if (event.currentTarget.checked) addInputColumn(column); }}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{column.label}</span>
-                  <span className="block truncate text-xs text-slate-500" title={column.name}>Current Group input column · {column.name}</span>
-                </span>
-              </label>
-            ))}
-            {normalizedRowValueSearch && visibleRowValueChoices.length === 0 && visibleInputColumns.length === 0 ? (
-              <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No other fields match this search.</p>
-            ) : null}
-            {!normalizedRowValueSearch && visibleRowValueChoices.length === 0 && visibleInputColumns.length === 0 ? (
-              <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No additional scalar fields are available for this Group input.</p>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </fieldset>
-  );
-};
-
-const GroupEditor = (props: {
-  readonly form: GroupForm;
-  readonly stage: ReshapeStage;
-  readonly groupFieldChoices: ReadonlyArray<GroupFieldChoice>;
-  readonly groupRowValueChoices: ReadonlyArray<GroupRowValueChoice>;
-  readonly rowValuesOnly?: boolean;
-  readonly purpose?: 'group' | 'summarize';
-  readonly semanticGroupChoices: ReadonlyArray<SemanticGroupChoice>;
-  readonly semanticGroupChoicesIncomplete: boolean;
-  readonly semanticGroupSupported: boolean;
-  readonly codedPivotContext?: NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
-  readonly codedPivotSupported: boolean;
-  readonly supported: boolean;
-  readonly reason: string;
-  readonly disabled: boolean;
-  readonly expandSupported: boolean;
-  readonly onExpandListColumn?: (columnId: string) => void;
-  readonly onChange: (form: GroupForm) => void;
-}) => {
-  const scalarColumns = scalarColumnsFor(props.stage);
-  const usedNames = getUsedGroupNames(props.form);
-  const [groupSearch, setGroupSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'group' | 'summaries' | 'contributors'>(
-    props.form.keys.length === 0 && props.form.fieldKeys.length === 0 && props.form.aggregates.length > 0
-      ? 'summaries' : 'group',
-  );
-  const tabsId = useId();
-  const groupOnly = !props.rowValuesOnly && props.purpose === 'group';
-  const summarizeOnly = !props.rowValuesOnly && props.purpose === 'summarize';
-  const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase();
-  const groupKeyInputColumnIds = new Set([
-    ...props.form.keys.map((key) => key.inputColumnId),
-    ...props.form.fieldKeys.flatMap((key) => {
-      const choice = groupFieldChoiceForKey(props.groupFieldChoices, key);
-      return choice && 'inputColumnId' in choice && choice.inputColumnId ? [choice.inputColumnId] : [];
-    }),
-  ]);
-  const contributorInputColumns = props.supported
-    ? scalarColumns.filter((column) => column.id !== props.stage.rowIdentityColumn && column.name !== props.stage.rowIdentityColumn)
-    : [];
-  if (props.rowValuesOnly) {
-    return <GroupRowValuesEditor
-      form={props.form}
-      inputColumns={contributorInputColumns}
-      groupKeyInputColumnIds={groupKeyInputColumnIds}
-      groupRowValueChoices={props.groupRowValueChoices}
-      disabled={props.disabled}
-      supported={props.supported}
-      onChange={props.onChange}
-    />;
-  }
-  const semanticKey = props.form.semanticKey;
-  const semanticCategory = semanticKey?.semanticCategory;
-  const codingIdentityKey = props.form.fieldKeys.find((key) => key.kind === 'CODING_IDENTITY');
-  const hasCodedKey = Boolean(semanticKey || codingIdentityKey || props.form.codedCategories.length > 0);
-  const directSourceStage = isSourceProjectionStage(props.stage);
-  const selectedSemanticChoice = semanticCategory?.kind === 'CHOICE'
-    ? props.semanticGroupChoices.find((choice) => choice.choiceId === semanticCategory.choiceId)
-    : undefined;
-  const selectedSemanticChoiceId = semanticCategory?.kind === 'CHOICE'
-    ? semanticCategory.choiceId
-    : undefined;
-  const selectedScalarColumns = scalarColumns.filter((column) => props.form.keys.some((key) => key.inputColumnId === column.id));
-  const visibleScalarColumns = scalarColumns.filter((column) =>
-    !props.form.keys.some((key) => key.inputColumnId === column.id) &&
-    (!normalizedGroupSearch || column.label.toLocaleLowerCase().includes(normalizedGroupSearch)));
-  const visibleSemanticChoices = semanticCategory?.kind === 'BINDING'
-    ? []
-    : props.semanticGroupChoices.filter((choice) => choice.choiceId !== selectedSemanticChoiceId &&
-      (!normalizedGroupSearch || `${choice.label} ${choice.resourceType}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
-  const showSavedSemanticKey = Boolean(semanticKey && (semanticCategory?.kind === 'BINDING' || !selectedSemanticChoice));
-  const sourceFieldChoices = props.groupFieldChoices.filter((choice): choice is GroupFieldSourceChoice => choice.kind === 'FIELD_SOURCE');
-  const fieldChoiceForKey = (key: GroupFieldKey): GroupFieldSourceChoice | undefined => groupFieldChoiceForKey(sourceFieldChoices, key);
-  const selectedRelatedRouteIds = new Set(relatedRouteIdsForGroupFieldKeys(sourceFieldChoices, props.form.fieldKeys));
-  const hasConflictingRelatedRoutes = selectedRelatedRouteIds.size > 1;
-  const selectedRelatedFieldChoices = props.form.fieldKeys
-    .map(fieldChoiceForKey)
-    .filter((choice): choice is GroupFieldSourceChoice => Boolean(choice?.relatedOccurrence));
-  const countRowsHelp = selectedRelatedFieldChoices.some((choice) => choice.valueKind === 'CODING_IDENTITY')
-    ? 'Counts each contributing code occurrence. Repeated identical codes count separately; kept empty rows also count.'
-    : selectedRelatedFieldChoices.some((choice) => choice.valueKind === 'SCALAR')
-      ? 'Counts each matching related record; kept empty rows also count.'
-      : 'Counts every input row.';
-  const savedFieldBindingOutputIds = new Set(props.form.fieldKeys.flatMap((key) =>
-    key.fieldSource.kind === 'BINDING' ? [key.outputColumnId] : [],
-  ));
-  const selectedSourceChoiceIds = new Set(props.form.fieldKeys.flatMap((key) => key.fieldSource.kind === 'CHOICE' ? [key.fieldSource.choiceId] : []));
-  const visibleSourceFieldChoices = sourceFieldChoices.filter((choice) =>
-    choice.fieldSource.kind === 'CHOICE' && !selectedSourceChoiceIds.has(choice.fieldSource.choiceId) &&
-    !(choice.matchedOutputKeyId && savedFieldBindingOutputIds.has(choice.matchedOutputKeyId)) &&
-    !(choice.valueKind === 'SCALAR' && choice.inputColumnId && scalarColumns.some((column) => column.id === choice.inputColumnId)) &&
-    (!normalizedGroupSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath ?? ''} ${choice.sourceRole ?? ''}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
-  const semanticLabelCounts = new Map<string, number>();
-  for (const column of [...selectedScalarColumns, ...visibleScalarColumns]) {
-    const label = column.label.trim().toLocaleLowerCase();
-    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
-  }
-  for (const choice of [...(selectedSemanticChoice ? [selectedSemanticChoice] : []), ...visibleSemanticChoices]) {
-    const label = choice.label.trim().toLocaleLowerCase();
-    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
-  }
-  for (const key of props.form.fieldKeys) {
-    const label = key.displayLabel.trim().toLocaleLowerCase();
-    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
-  }
-  for (const choice of visibleSourceFieldChoices) {
-    const label = choice.label.trim().toLocaleLowerCase();
-    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
-  }
-  if (semanticKey && showSavedSemanticKey) {
-    const label = semanticKey.displayLabel.trim().toLocaleLowerCase();
-    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
-  }
-  const selectedGroupLabels = [
-    ...scalarColumns.filter((column) => props.form.keys.some((key) => key.inputColumnId === column.id)).map((column) => column.label),
-    ...props.form.fieldKeys.map((key) => key.displayLabel),
-    ...(semanticKey ? [semanticKey.displayLabel] : []),
-    ...props.form.codedCategories.map((category) => category.display),
-  ];
-  const changeAggregate = (index: number, aggregate: GroupAggregate) => {
-    const aggregates = props.form.aggregates.map((current, aggregateIndex) => aggregateIndex === index ? aggregate : current);
-    props.onChange({
-      ...props.form,
-      aggregates,
-      ...(props.form.codedCategories.length > 0 ? {
-        codedPassthroughs: ensureGroupCodedPassthroughs(props.form, props.stage, [
-          ...props.form.keys.map((key) => key.inputColumnId),
-          ...aggregates.flatMap((item) => item.operation === 'COUNT_ROWS' ? [] : [item.inputColumnId]),
-          ...props.form.rowValues.flatMap((value) => 'inputColumnId' in value ? [value.inputColumnId] : []),
-        ]),
-      } : {}),
-    });
-  };
-  const removeSemanticKey = () => {
-    const { semanticKey: _removed, ...formWithoutSemanticKey } = props.form;
-    props.onChange({ ...formWithoutSemanticKey, keyOrder: props.form.keyOrder.filter((id) => id !== semanticKey?.outputColumnId) });
-  };
-  const removeFieldKey = (outputColumnId: string) => {
-    const fieldKeys = props.form.fieldKeys.filter((key) => key.outputColumnId !== outputColumnId);
-    const relatedRouteIds = relatedRouteIdsForGroupFieldKeys(sourceFieldChoices, fieldKeys);
-    props.onChange({
-      ...props.form,
-      fieldKeys,
-      keyOrder: props.form.keyOrder.filter((id) => id !== outputColumnId),
-      unmatchedSourceKeyOutputIds: props.form.unmatchedSourceKeyOutputIds?.filter((id) => id !== outputColumnId),
-      ...(relatedRouteIds.length > 1 ? { conflictingRelatedRouteIds: relatedRouteIds } : { conflictingRelatedRouteIds: undefined }),
-    });
-  };
-  const addFieldKey = (choice: GroupFieldSourceChoice) => {
-    const key = groupFieldKeyForChoice(props.form, choice);
-    if (!key) return;
-    props.onChange({ ...props.form, fieldKeys: [...props.form.fieldKeys, key], keyOrder: [...props.form.keyOrder, key.outputColumnId] });
-  };
-  const renderScalarChoice = (column: ReshapeColumn, checked: boolean) => (
-    <label key={`scalar:${column.id}`} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
-      <input
-        type="checkbox"
-        value={column.id}
-        checked={checked}
-        aria-label={`Group by ${column.label}`}
-            disabled={props.disabled || !props.supported}
-        onChange={() => props.onChange(checked
-          ? {
-              ...props.form,
-              keys: props.form.keys.filter((key) => key.inputColumnId !== column.id),
-              keyOrder: props.form.keyOrder.filter((id) => !props.form.keys.some((key) => key.inputColumnId === column.id && key.outputColumnId === id)),
-            }
-          : addGroupKey(props.form, props.stage, column.id))}
-      />
-      <span className="min-w-0 truncate" title={column.label}>{column.label}</span>
-    </label>
-  );
-  const renderSemanticChoice = (choice: SemanticGroupChoice, checked: boolean) => {
-    const duplicateLabel = (semanticLabelCounts.get(choice.label.trim().toLocaleLowerCase()) ?? 0) > 1;
-    const disambiguation = duplicateLabel ? compactSemanticScope(choice.scopeLabel) : undefined;
-    const disabled = props.disabled || !props.supported || !directSourceStage || !props.semanticGroupSupported ||
-      props.form.codedCategories.length > 0 && !checked || Boolean(codingIdentityKey) && !checked || Boolean(semanticKey) && !checked;
-    return (
-      <div key={`semantic:${choice.choiceId}`} data-testid="construction-group-semantic-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
-        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            value={choice.choiceId}
-            data-semantic-choice-id={choice.choiceId}
-            data-testid={`construction-group-semantic-choice-${choice.choiceId}`}
-            checked={checked}
-            aria-label={`Group by ${choice.label}${disambiguation ? ` (${disambiguation})` : ''}`}
-            disabled={disabled}
-            aria-describedby={semanticKey && !checked ? 'construction-group-coded-key-limit' : undefined}
-            onChange={(event) => {
-              if (!event.currentTarget.checked) {
-                removeSemanticKey();
-                return;
-              }
-              if (!semanticKey && !codingIdentityKey && props.form.codedCategories.length === 0) {
-                const next = groupSemanticKeyForChoice(props.form, choice);
-                props.onChange({ ...props.form, semanticKey: next, keyOrder: [...props.form.keyOrder, next.outputColumnId] });
-              }
-            }}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium text-slate-800">{choice.label}</span>
-            {disambiguation ? <span className="block truncate text-xs text-slate-500" title={choice.scopeLabel}>{disambiguation}</span> : null}
-          </span>
-        </label>
-        <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-field-details-${choice.choiceId}`}>
-          <summary className="cursor-pointer">Details</summary>
-          <p className="mb-0 mt-1 break-words">{choice.scopeLabel}</p>
-        </details>
-      </div>
-    );
-  };
-  const renderSelectedFieldKey = (key: GroupFieldKey) => {
-    const matchedChoice = fieldChoiceForKey(key);
-    const unmatchedBinding = key.fieldSource.kind === 'BINDING' && !matchedChoice;
-    const sourceDescription = matchedChoice
-      ? matchedChoice.ownerResourceType
-      : groupFieldSourcePresentation(key.fieldSource)?.ownerResourceType;
-    const detailDescription = matchedChoice
-      ? [matchedChoice.relatedOccurrence?.routeLabel, matchedChoice.scopeLabel].filter((part): part is string => Boolean(part)).join(' · ')
-      : key.scopeLabel;
-    return (
-      <div key={`field-source:${key.outputColumnId}`} data-testid="construction-group-field-source-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
-        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            value={key.outputColumnId}
-            checked
-            aria-label={`Group by ${key.displayLabel}`}
-            disabled={props.disabled || !props.supported}
-            onChange={() => removeFieldKey(key.outputColumnId)}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium text-slate-800">{key.displayLabel}</span>
-            {sourceDescription ? <span className="block break-words text-xs text-slate-500">{sourceDescription}</span> : null}
-            {unmatchedBinding ? <span data-testid={`construction-group-stale-field-${key.outputColumnId}`} className="block text-xs font-medium text-amber-800">
-              Saved source field has no current capability match. Remove it or refresh the Group capabilities before applying changes.
-            </span> : null}
-          </span>
-        </label>
-        {detailDescription ? (
-          <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-saved-field-details-${key.outputColumnId}`}>
-            <summary className="cursor-pointer">Details</summary>
-            <p className="mb-0 mt-1 break-words">{detailDescription}</p>
-          </details>
-        ) : null}
-      </div>
-    );
-  };
-  const renderFieldChoice = (choice: GroupFieldSourceChoice) => {
-    const routeId = choice.relatedOccurrence?.routeId;
-    const differentRoute = Boolean(routeId && (
-      hasConflictingRelatedRoutes || selectedRelatedRouteIds.size > 0 && !selectedRelatedRouteIds.has(routeId)
-    ));
-    const disabled = props.disabled || !props.supported ||
-      (choice.valueKind === 'CODING_IDENTITY' && hasCodedKey) ||
-      (choice.valueKind === 'SCALAR' && props.form.codedCategories.length > 0) || differentRoute;
-    const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
-    const sourceDescription = choice.ownerResourceType;
-    const detailDescription = [choice.relatedOccurrence?.routeLabel, choice.scopeLabel]
-      .filter((part): part is string => Boolean(part)).join(' · ');
-    const describedBy = [
-      choice.valueKind === 'CODING_IDENTITY' && hasCodedKey ? 'construction-group-coded-key-limit' : undefined,
-      differentRoute ? 'construction-group-related-route-limit' : undefined,
-    ].filter((id): id is string => Boolean(id)).join(' ') || undefined;
-    return (
-      <div key={`source-choice:${choiceId}`} data-testid="construction-group-field-source-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
-        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            value={choiceId}
-            data-testid={`construction-group-field-choice-${choiceId}`}
-            checked={false}
-            aria-label={`Group by ${choice.label}`}
-            disabled={disabled}
-            aria-describedby={describedBy}
-            onChange={(event) => { if (event.currentTarget.checked) addFieldKey(choice); }}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium text-slate-800">{choice.label}</span>
-            <span className="block break-words text-xs text-slate-500">{sourceDescription}</span>
-            {differentRoute ? <span data-testid={`construction-group-different-route-${choiceId}`} className="block text-xs font-medium text-amber-800">
-              {hasConflictingRelatedRoutes
-                ? 'Saved fields use multiple related routes. Remove fields until one route remains before choosing another related field.'
-                : 'Available from a different related route. Remove the selected route field to choose this one.'}
-            </span> : null}
-          </span>
-        </label>
-        {detailDescription ? (
-          <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-choice-details-${choiceId}`}>
-            <summary className="cursor-pointer">Details</summary>
-            <p className="mb-0 mt-1 break-words">{detailDescription}</p>
-          </details>
-        ) : null}
-      </div>
-    );
-  };
-  const renderSavedSemanticKey = () => {
-    if (!semanticKey || !semanticCategory) return null;
-    const semanticValue = semanticCategory.kind === 'BINDING'
-      ? `binding:${semanticCategory.bindingId}:${semanticCategory.ruleVersion}`
-      : semanticCategory.choiceId;
-    const labelKey = semanticKey.displayLabel.trim().toLocaleLowerCase();
-    const disambiguation = (semanticLabelCounts.get(labelKey) ?? 0) > 1
-      ? compactSemanticScope(semanticKey.scopeLabel)
-      : undefined;
-    return (
-      <div data-testid="construction-group-semantic-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
-        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            value={semanticValue}
-            checked
-            aria-label={`Group by ${semanticKey.displayLabel}${disambiguation ? ` (${disambiguation})` : ''}`}
-            disabled={props.disabled || !props.supported || !directSourceStage || !props.semanticGroupSupported}
-            onChange={removeSemanticKey}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium text-slate-800">{semanticKey.displayLabel}</span>
-            {disambiguation ? <span className="block truncate text-xs text-slate-500" title={semanticKey.scopeLabel}>{disambiguation}</span> : null}
-          </span>
-        </label>
-        <details className="ml-6 mt-1 text-xs text-slate-600" data-testid="construction-group-saved-field-details">
-          <summary className="cursor-pointer">Details</summary>
-          <p className="mb-0 mt-1 break-words">{semanticKey.scopeLabel}</p>
-        </details>
-      </div>
-    );
-  };
-
-  return (
-    <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="construction-reshape-group-editor grid content-start gap-4">
-      {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
-
-      {groupOnly ? null : (
-      <div role="tablist" aria-label="Group editor sections" className="flex flex-wrap gap-1 border-b border-slate-200 pb-2">
-        {([
-          ['group', 'Group by', selectedGroupLabels.length],
-          ['summaries', 'Summaries', props.form.aggregates.length],
-        ] as const).map(([tab, label, count]) => (
-          <button
-            key={tab}
-            id={`${tabsId}-tab-${tab}`}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab}
-            aria-controls={`${tabsId}-panel-${tab}`}
-            data-testid={`construction-group-tab-${tab}`}
-            onClick={() => setActiveTab(tab)}
-            className={activeTab === tab
-              ? 'rounded border border-slate-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-900'
-              : 'rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50'}
-          >
-            {label}{count > 0 ? ` (${count})` : ''}
-          </button>
-        ))}
-      </div>
-      )}
-      <div
-        id={`${tabsId}-panel-group`}
-        role="tabpanel"
-        aria-labelledby={`${tabsId}-tab-group`}
-        className={groupOnly || activeTab === 'group' ? 'grid items-start gap-4' : 'hidden'}
-      >
-        <fieldset className="grid min-w-0 content-start gap-3" disabled={props.disabled || !props.supported}>
-          <legend className="m-0 text-sm font-semibold text-slate-900">Group by</legend>
-          <p className="m-0 text-xs text-slate-600">These fields define the groups. Each unique combination becomes one output row.</p>
-          <div data-testid="construction-group-selected-keys" className="grid gap-1">
-            {selectedScalarColumns.map((column) => renderScalarChoice(column, true))}
-            {props.form.fieldKeys.map(renderSelectedFieldKey)}
-            {selectedSemanticChoice ? renderSemanticChoice(selectedSemanticChoice, true) : null}
-            {showSavedSemanticKey ? renderSavedSemanticKey() : null}
-          </div>
-          {sourceFieldChoices.some((choice) => choice.relatedOccurrence) ? (
-            <p id="construction-group-related-route-limit" data-testid="construction-group-related-route-guidance" role="status" className="m-0 rounded bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
-              Related fields can be combined with root fields and fields from one matching source route. Fields from other routes stay visible but disabled.
-            </p>
-          ) : null}
-          {hasConflictingRelatedRoutes || props.form.conflictingRelatedRouteIds?.length ? (
-            <p data-testid="construction-group-related-route-conflict" role="alert" className="m-0 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-              This saved Group combines fields from multiple related routes. The saved fields remain selected, but Apply is blocked until you remove fields so only one related route remains.
-            </p>
-          ) : null}
-          {props.form.unmatchedSourceKeyOutputIds?.length ? (
-            <p data-testid="construction-group-stale-binding-warning" role="alert" className="m-0 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-              A saved source field has no current capability match. Its saved binding is preserved below, and Apply is blocked until you remove it or refresh this Group’s capabilities.
-            </p>
-          ) : null}
-          <div data-testid="construction-group-by-browser" className="grid gap-2">
-              <label className="grid gap-1 text-xs font-medium text-slate-700">
-                Search fields
-                <input
-                  type="search"
-                  aria-label="Search fields to group by"
-                  data-testid="construction-group-by-search"
-                  value={groupSearch}
-                  onChange={(event) => setGroupSearch(event.currentTarget.value)}
-                  className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                />
-              </label>
-              {groupSearch ? (
-                <button type="button" data-testid="construction-group-by-clear-search" onClick={() => setGroupSearch('')}
-                  className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
-              ) : null}
-              <div data-testid="construction-group-by-field-list" className="grid max-h-72 gap-x-3 overflow-y-auto sm:grid-cols-2">
-                {visibleScalarColumns.map((column) => renderScalarChoice(column, false))}
-                {visibleSourceFieldChoices.map(renderFieldChoice)}
-                {visibleSemanticChoices.map((choice) => renderSemanticChoice(choice, false))}
-                {normalizedGroupSearch && visibleScalarColumns.length === 0 && visibleSourceFieldChoices.length === 0 && visibleSemanticChoices.length === 0 ? (
-                  <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No other fields match this search.</p>
-                ) : null}
-                {!normalizedGroupSearch && selectedScalarColumns.length === 0 && !selectedSemanticChoice && !showSavedSemanticKey &&
-                  props.form.fieldKeys.length === 0 && visibleScalarColumns.length === 0 && visibleSourceFieldChoices.length === 0 && visibleSemanticChoices.length === 0 ? (
-                  <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">
-                    No eligible fields are available to group by. You can still summarize all input rows.
-                  </p>
-                ) : null}
-              </div>
-          </div>
-          {props.semanticGroupChoicesIncomplete ? (
-            <p role="status" className="m-0 text-xs text-amber-800">Some coded fields may be missing from this list; search only covers the fields currently available.</p>
-          ) : null}
-          {hasCodedKey ? (
-            <p id="construction-group-coded-key-limit" role="status" className="m-0 text-xs text-slate-600">
-              A Group can use one coded identity field. Remove {semanticKey?.displayLabel ?? codingIdentityKey?.displayLabel ?? props.form.codedCategories[0]?.display ?? 'the coded field'} before choosing a different coded field.
-            </p>
-          ) : null}
-          {props.form.codedCategories.length > 0 ? (
-            <p role="status" className="m-0 text-xs text-slate-600">Remove the selected recorded-code values before choosing a coded field.</p>
-          ) : null}
-          {selectedGroupLabels.length > 0 || props.form.aggregates.length > 0 ? (
-            <p data-testid="construction-group-grain-summary" role="status" aria-live="polite" className="m-0 rounded bg-blue-50 px-2 py-1.5 text-sm text-slate-700">
-              {selectedGroupLabels.length > 0
-                ? `One row per unique combination of ${readableFieldCombination(selectedGroupLabels)}.`
-                : 'With no fields selected, one row summarizes all input rows.'}
-            </p>
-          ) : null}
-          {selectedGroupLabels.length > 0 ? (
-            <label className="grid gap-1 text-xs font-medium text-slate-700">
-              Rows with a missing group key
-              <select
-                aria-label="Missing group key policy"
-                value={props.form.missingKeyPolicy}
-                disabled={props.disabled || !props.supported}
-                onChange={(event) => {
-                  const policy = event.currentTarget.value;
-                  if (policy === 'GROUP' || policy === 'EXCLUDE' || policy === 'ERROR') {
-                    props.onChange({ ...props.form, missingKeyPolicy: policy });
-                  }
-                }}
-                className="justify-self-start rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal"
-              >
-                <option value="GROUP">Keep in one missing-key group</option>
-                <option value="EXCLUDE">Exclude from summaries</option>
-                <option value="ERROR">Stop the operation</option>
-              </select>
-            </label>
-          ) : null}
-          {listColumnsFor(props.stage).length > 0 ? (
-            <ListColumnExpandChoices
-              columns={listColumnsFor(props.stage)}
-              supported={props.expandSupported}
-              disabled={props.disabled}
-              inlineGrainAction
-              onExpand={props.onExpandListColumn}
-            />
-          ) : null}
-          {props.codedPivotSupported && props.codedPivotContext ? (
-            <details data-testid="construction-group-recorded-values-advanced" className="rounded border border-slate-200 p-2">
-              <summary className="cursor-pointer text-sm font-medium text-blue-800">Advanced: choose specific recorded values</summary>
-              <p className="mb-2 mt-1 text-xs text-slate-600">Use this when you need selected code values rather than grouping by the full coded field.</p>
-              <GroupCodedValuePicker
-                context={props.codedPivotContext}
-                form={props.form}
-                stage={props.stage}
-                disabled={props.disabled || !props.supported || Boolean(props.form.semanticKey) || Boolean(codingIdentityKey)}
-                onChange={props.onChange}
-              />
-            </details>
-          ) : null}
-          {selectedGroupLabels.length > 0 || props.form.aggregates.length > 0 ? (
-            <GroupRowValuesEditor
-              embedded
-              form={props.form}
-              inputColumns={contributorInputColumns}
-              groupKeyInputColumnIds={groupKeyInputColumnIds}
-              groupRowValueChoices={props.groupRowValueChoices}
-              disabled={props.disabled}
-              supported={props.supported}
-              onChange={props.onChange}
-            />
-          ) : null}
-        </fieldset>
-
-      </div>
-
-      <fieldset
-        id={`${tabsId}-panel-summaries`}
-        role="tabpanel"
-        aria-labelledby={`${tabsId}-tab-summaries`}
-        className={!groupOnly && activeTab === 'summaries' ? 'grid min-w-0 content-start gap-3' : 'hidden'}
-        disabled={props.disabled || !props.supported}
-      >
-          <legend className="m-0 text-sm font-semibold text-slate-900">Summaries</legend>
-          <p className="m-0 text-xs text-slate-600">
-            {props.form.aggregates.length === 0
-              ? 'No summaries. Group keys alone produce one row per distinct combination.'
-              : 'Add another summary if this group needs more calculated outputs.'}
-          </p>
-          {props.form.aggregates.map((aggregate, index) => {
-            const inputColumns = aggregateInputColumnsFor(props.stage, aggregate.operation);
-            const operation: GroupAggregateKind = aggregate.operation;
-            return (
-              <div key={aggregate.outputColumnId} data-testid={`construction-reshape-aggregate-${index}`} className="grid gap-2.5 border-b border-slate-100 py-3 last:border-b-0">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="grid min-w-0 gap-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                    Summary
-                    <select
-                      aria-label={`Summary ${index + 1}`}
-                      value={operation}
-                      disabled={props.disabled || !props.supported}
-                      onChange={(event) => {
-                        const selected = groupAggregateKindFromInput(event.currentTarget.value);
-                        if (!selected) return;
-                        const replacement = replaceGroupAggregate(aggregate, selected, props.stage, getUsedGroupNames(props.form, aggregate.outputColumnId));
-                        changeAggregate(index, replacement);
-                      }}
-                      className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-900"
-                    >
-                      <option value="COUNT_ROWS">Count rows</option>
-                      <option value="COUNT_NON_NULL">Count present values</option>
-                      <option value="COUNT_DISTINCT">Count distinct values</option>
-                      <option value="SUM" disabled={numericColumnsFor(props.stage).length === 0}>Sum numeric values</option>
-                      <option value="MEAN" disabled={numericColumnsFor(props.stage).length === 0}>Mean numeric values</option>
-                    </select>
-                  </label>
-                  {aggregate.operation !== 'COUNT_ROWS' ? (
-                    <label className="grid min-w-0 gap-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                      Field
-                      <select
-                        aria-label={`Summary field ${index + 1}`}
-                        value={aggregate.inputColumnId}
-                        disabled={props.disabled || !props.supported}
-                        onChange={(event) => {
-                          const input = inputColumns.find((column) => column.id === event.currentTarget.value);
-                          if (!input) return;
-                          changeAggregate(index, {
-                            ...aggregate,
-                            inputColumnId: input.id,
-                            name: uniqueName(aggregateNameFor(aggregate.operation, input), getUsedGroupNames(props.form, aggregate.outputColumnId)),
-                            label: `${operationLabel(aggregate.operation)} of ${input.label}`,
-                          });
-                        }}
-                        className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-900"
-                      >
-                        {inputColumns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
-                      </select>
-                      {inputColumns.length === 0 ? <span role="status" className="text-xs font-normal normal-case tracking-normal text-amber-900">No compatible columns were returned for this summary.</span> : null}
-                    </label>
-                  ) : (
-                    <p className="m-0 self-end pb-2 text-xs font-normal normal-case tracking-normal text-slate-500">{countRowsHelp}</p>
-                  )}
-                </div>
-                <div className="flex items-end gap-2">
-                  <label className="grid min-w-0 flex-1 gap-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                    Output name
-                    <input
-                      aria-label={`Summary output name ${index + 1}`}
-                      value={aggregate.name}
-                      disabled={props.disabled || !props.supported}
-                      onChange={(event) => changeAggregate(index, { ...aggregate, name: event.currentTarget.value })}
-                      className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-900"
-                    />
-                  </label>
-                  <button type="button" aria-label={`Remove summary ${index + 1}`} disabled={props.disabled || !props.supported} onClick={() => props.onChange({ ...props.form, aggregates: props.form.aggregates.filter((_, itemIndex) => itemIndex !== index) })} className="mb-0.5 whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-slate-500 hover:bg-red-50 hover:text-red-700">Remove</button>
-                </div>
-              </div>
-            );
-          })}
-          <label className="grid max-w-xs gap-1 text-xs font-medium text-slate-700">
-            {props.form.aggregates.length === 0 ? 'Choose a summary' : 'Add another summary'}
-            <select
-              aria-label="Add summary"
-              data-testid="construction-reshape-add-summary"
-              value=""
-              disabled={props.disabled || !props.supported}
-              onChange={(event) => {
-                const operation = groupAggregateKindFromInput(event.currentTarget.value);
-                if (!operation) return;
-                props.onChange({
-                  ...props.form,
-                  aggregates: [...props.form.aggregates, makeAggregate(operation, props.stage, usedNames)],
-                });
-              }}
-              className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-normal"
-            >
-              <option value="">{props.form.aggregates.length === 0 ? 'Select a summary to add' : 'Select another summary'}</option>
-              <option value="COUNT_ROWS">Count rows</option>
-              <option value="COUNT_NON_NULL">Count present values</option>
-              <option value="COUNT_DISTINCT">Count distinct values</option>
-              <option value="SUM" disabled={numericColumnsFor(props.stage).length === 0}>Sum numeric values</option>
-              <option value="MEAN" disabled={numericColumnsFor(props.stage).length === 0}>Mean numeric values</option>
-            </select>
-          </label>
-      </fieldset>
-
-      {!outputNamesAreValid(groupOutputColumns(props.form, props.stage)) ? (
-        <p role="status" className="text-sm text-amber-900">Give every output a unique column name using letters, numbers, or underscores, and add a label.</p>
-      ) : null}
-    </section>
-  );
-};
-
-const GroupCodedValuePicker = (props: {
-  readonly context: NonNullable<ConstructionReshapeEditorProps['codedPivotContext']>;
-  readonly form: GroupForm;
-  readonly stage: ReshapeStage;
-  readonly disabled: boolean;
-  readonly onChange: (form: GroupForm) => void;
-}) => {
-  const { client, project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot } = props.context;
-  const [pageRound, setPageRound] = useState(0);
-  const [sourceProgress, setSourceProgress] = useState<GroupCodedSourceDiscovery>();
-  const [inventoryProgress, setInventoryProgress] = useState<GroupCodedInventoryView>();
-  const [readinessProgress, setReadinessProgress] = useState<GroupCodedInventoryReadiness>();
-  const checkpointRef = useRef<GroupCodedInventoryCheckpoint | undefined>(undefined);
-  const requestedRoundRef = useRef(0);
-  const currentForm = useRef(props.form);
-  currentForm.current = props.form;
-  const changeForm = useRef(props.onChange);
-  changeForm.current = props.onChange;
-
-  const sourceScopeKey = JSON.stringify([project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot]);
-  const readinessQuery = useQuery(async (signal) => {
-    const browseReadiness = () => client.browseSemanticInventory({
-      project, explorerId, authResourcePath, snapshotToken, rowRoot, limit: 1,
-    }, signal);
-    let response = await browseReadiness();
-    while (response.state === 'running' && !signal.aborted) {
-      setReadinessProgress({
-        scopeKey: sourceScopeKey,
-        contextToken: response.contextToken,
-        buildId: response.buildId,
-        state: response.state,
-      });
-      await waitForCodedInventoryReadinessPoll(signal);
-      if (!signal.aborted) response = await browseReadiness();
-    }
-    return {
-      scopeKey: sourceScopeKey,
-      contextToken: response.contextToken,
-      buildId: response.buildId,
-      state: response.state,
-    } satisfies GroupCodedInventoryReadiness;
-  }, [client, sourceScopeKey]);
-  const readiness = readinessQuery.data?.scopeKey === sourceScopeKey
-    ? readinessQuery.data
-    : readinessProgress?.scopeKey === sourceScopeKey ? readinessProgress : undefined;
-  const inventoryReady = Boolean(readiness?.buildId && readiness.state === 'complete');
-  const inventoryScopeKey = JSON.stringify([sourceScopeKey, readiness?.contextToken, readiness?.buildId]);
-  const sourcesQuery = useQuery(async (signal) => {
-    const sources = new Map<string, FrameSourceOption>();
-    const seenCursors = new Set<string>();
-    let cursor: string | undefined;
-    let complete = false;
-    let truncated = false;
-    do {
-      const response = await client.browseFrameSourceOptions({
-        project, explorerId, authResourcePath, snapshotToken, outputId, resourceType: rowRoot, limit: 50,
-        ...(cursor ? { cursor } : {}),
-      }, signal);
-      if (response.snapshotToken !== snapshotToken || response.outputId !== outputId) {
-        throw new Error('Coded source fields were returned for a different table snapshot. Reload the table and retry.');
-      }
-      for (const source of response.sources) {
-        if (source.route.length === 0 && source.resourceType === rowRoot) sources.set(source.choiceId, source);
-      }
-      complete = response.complete;
-      truncated = truncated || response.truncated;
-      cursor = response.nextCursor;
-      const progress = {
-        scopeKey: inventoryScopeKey,
-        sources: [...sources.values()],
-        complete: complete && !cursor,
-        truncated,
-        loading: Boolean(cursor),
-      } satisfies GroupCodedSourceDiscovery;
-      if (!signal.aborted) setSourceProgress(progress);
-      if (cursor && seenCursors.has(cursor)) throw new Error('Coded source fields could not be completely listed. Reopen the editor to retry.');
-      if (cursor) seenCursors.add(cursor);
-    } while (cursor && !signal.aborted);
-    return {
-      scopeKey: inventoryScopeKey,
-      sources: [...sources.values()],
-      complete: complete && !cursor,
-      truncated,
-      loading: false,
-    } satisfies GroupCodedSourceDiscovery;
-  }, [client, inventoryScopeKey], inventoryReady);
-
-  const sourceDiscovery = sourcesQuery.data?.scopeKey === inventoryScopeKey
-    ? sourcesQuery.data
-    : sourceProgress?.scopeKey === inventoryScopeKey ? sourceProgress : undefined;
-  const sources = sourceDiscovery?.sources ?? [];
-  const sourceKey = JSON.stringify(sources.map((source) => [source.choiceId, source.bindingId, source.sourcePath]));
-  const currentInventoryScopeKey = useRef(inventoryScopeKey);
-  currentInventoryScopeKey.current = inventoryScopeKey;
-  const inventoryQuery = useQuery(async (signal) => {
-    let checkpoint = checkpointRef.current;
-    if (!checkpoint || checkpoint.scopeKey !== inventoryScopeKey
-        || checkpoint.contextToken !== readiness?.contextToken || checkpoint.buildId !== readiness?.buildId) {
-      checkpoint = {
-        scopeKey: inventoryScopeKey,
-        families: new Map(),
-        contextToken: readiness?.contextToken,
-        buildId: readiness?.buildId,
-        initialized: false,
-        loadedRound: 0,
-      };
-      checkpointRef.current = checkpoint;
-    }
-    const currentCheckpoint = checkpoint;
-    for (const source of sources) {
-      const existing = currentCheckpoint.families.get(source.choiceId);
-      if (existing && (existing.source.resourceType !== source.resourceType
-          || existing.source.bindingId !== source.bindingId || existing.source.sourcePath !== source.sourcePath)) {
-        throw new Error('The direct coded source changed while it was loading. Reload the table and retry.');
-      }
-      if (!existing) currentCheckpoint.families.set(source.choiceId, {
-        source, entries: [], seenCursors: new Set<string>(), started: false, exhausted: false,
-      });
-    }
-    const makeView = (): GroupCodedInventoryView => {
-      const families = [...currentCheckpoint.families.values()];
-      return {
-        scopeKey: inventoryScopeKey,
-        sourceKey,
-        entries: families.flatMap((family) => family.entries),
-        hasMore: families.some((family) => Boolean(family.cursor)),
-        complete: sourceDiscovery?.complete === true && !sourceDiscovery.truncated && families.every((family) => family.exhausted),
-      };
-    };
-    const publish = () => setInventoryProgress(makeView());
-    const fetchPage = async (family: GroupCodedInventoryFamily) => {
-      if (signal.aborted || family.exhausted) return;
-      const response = await client.browseSemanticInventory({
-        project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot,
-        sourceChoiceId: family.source.choiceId,
-        ...(family.cursor ? { cursor: family.cursor } : {}),
-        limit: 50,
-      }, signal);
-      if (signal.aborted) return;
-      if (response.state !== 'complete') {
-        throw new Error(`Coded values for ${family.source.title} are not confirmed by a complete inventory. Wait for the catalog to be ready, then reopen the editor.`);
-      }
-      if (currentCheckpoint.contextToken !== response.contextToken
-          || currentCheckpoint.buildId !== response.buildId) {
-        throw new Error('The coded-value inventory changed while it was loading. Reload the table and retry.');
-      }
-      family.entries.push(...response.entries.filter((item) => item.resourceType === family.source.resourceType
-        && item.bindingId === family.source.bindingId && item.sourcePath === family.source.sourcePath));
-      family.cursor = response.nextCursor;
-      family.exhausted = !response.nextCursor;
-      family.started = true;
-      if (response.nextCursor) {
-        if (family.seenCursors.has(response.nextCursor)) {
-          throw new Error(`Coded values for ${family.source.title} could not be completely loaded. Reopen the editor to retry.`);
-        }
-        family.seenCursors.add(response.nextCursor);
-      }
-    };
-    const unstarted = [...currentCheckpoint.families.values()].filter((family) => !family.started);
-    if (unstarted.length > 0) {
-      await Promise.all(unstarted.map(fetchPage));
-      if (signal.aborted) return makeView();
-      publish();
-    }
-    if (!currentCheckpoint.initialized || unstarted.length > 0) {
-      while (!signal.aborted) {
-        const visibleKeys = new Set(makeView().entries.flatMap((item) => {
-          const entry = availableGroupCodedEntry(item, sources);
-          return entry ? [codedCategoryKey(entry.familyKey, item.system, item.code)] : [];
-        }));
-        if (visibleKeys.size >= INITIAL_VISIBLE_CODED_CHOICES) break;
-        const pending = [...currentCheckpoint.families.values()].filter((family) => !family.exhausted);
-        if (pending.length === 0) break;
-        await Promise.all(pending.map(fetchPage));
-        if (signal.aborted) return makeView();
-        publish();
-      }
-      if (signal.aborted) return makeView();
-      currentCheckpoint.initialized = true;
-      currentCheckpoint.loadedRound = pageRound;
-    } else if (pageRound > currentCheckpoint.loadedRound) {
-      for (let round = currentCheckpoint.loadedRound; round < pageRound && !signal.aborted; round += 1) {
-        const pending = [...currentCheckpoint.families.values()].filter((family) => Boolean(family.cursor));
-        if (pending.length === 0) break;
-        await Promise.all(pending.map(fetchPage));
-        if (signal.aborted) return makeView();
-        currentCheckpoint.loadedRound = round + 1;
-        publish();
-      }
-    }
-    return makeView();
-  }, [client, inventoryScopeKey, readiness?.contextToken, readiness?.buildId, sourceKey, sourceDiscovery?.complete, sourceDiscovery?.truncated, sourceDiscovery?.loading, pageRound],
-  inventoryReady && ((sourceDiscovery !== undefined && sources.length > 0) || sourceDiscovery?.complete === true));
-
-  const inventoryView = inventoryQuery.data?.scopeKey === inventoryScopeKey && inventoryQuery.data.sourceKey === sourceKey
-    ? inventoryQuery.data
-    : inventoryProgress?.scopeKey === inventoryScopeKey && inventoryProgress.sourceKey === sourceKey ? inventoryProgress : undefined;
-  const inventory = inventoryView?.entries ?? [];
-  const available = useMemo(() => {
-    const entries = new Map<string, NonNullable<ReturnType<typeof availableGroupCodedEntry>>>();
-    for (const item of inventory) {
-      const entry = availableGroupCodedEntry(item, sources);
-      if (entry) entries.set(codedCategoryKey(entry.familyKey, item.system, item.code), entry);
-    }
-    return [...entries.values()];
-  }, [inventory, sources]);
-
-  const savedCategoryKey = props.form.codedCategories.filter((category) => category.choice === 'saved')
-    .map((category) => category.key).join('\u0001');
-  const savedCategoryQuery = useQuery(async (signal) => {
-    const unresolved = currentForm.current.codedCategories.filter((category) => category.choice === 'saved');
-    const hydrated = await Promise.all(unresolved.map(async (category) => {
-      const source = sources.find((candidate) => candidate.resourceType === rowRoot
-        && codedFamilyKey(candidate.bindingId, candidate.sourcePath) === category.familyKey);
-      if (!source) return { key: category.key, value: undefined, pending: !sourceDiscovery?.complete };
-      try {
-        const response = await client.browseSemanticInventory({
-          project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot,
-          sourceChoiceId: source.choiceId, query: category.code, limit: 50,
-        }, signal);
-        if (response.state !== 'complete') {
-          throw new Error('The saved coded value is not confirmed by a complete inventory. Wait for the catalog to be ready, then reopen the editor.');
-        }
-        if (response.contextToken !== readiness?.contextToken || response.buildId !== readiness?.buildId) {
-          throw new Error('The coded-value inventory changed while it was loading. Reload the table and retry.');
-        }
-        const item = response.entries.find((candidate) => candidate.system === category.system && candidate.code === category.code
-          && availableGroupCodedEntry(candidate, [source]));
-        return { key: category.key, value: item?.constructionChoice ? {
-          sourceChoiceId: source.choiceId,
-          categoryChoiceId: item.constructionChoice.choiceId,
-          display: semanticConceptLabel(item),
-          valueType: item.valueType,
-        } : undefined, pending: false };
-      } catch (reason: unknown) {
-        return {
-          key: category.key,
-          value: undefined,
-          pending: false,
-          error: reason instanceof Error ? reason.message : 'A saved coded value could not be reauthorized.',
-        };
-      }
-    }));
-    if (signal.aborted || currentInventoryScopeKey.current !== inventoryScopeKey) return { unavailableKeys: [], error: undefined };
-    const byKey = new Map(hydrated.flatMap((item) => item.value ? [[item.key, item.value] as const] : []));
-    const form = currentForm.current;
-    const savedKeys = new Set(form.codedCategories.filter((category) => category.choice === 'saved').map((category) => category.key));
-    let changed = false;
-    const codedCategories = form.codedCategories.map((category): GroupCodedCategory => {
-      if (category.choice !== 'saved') return category;
-      const item = byKey.get(category.key);
-      if (!item) return category;
-      changed = true;
-      return {
-        ...category,
-        choice: 'ready',
-        sourceChoiceId: item.sourceChoiceId,
-        categoryChoiceId: item.categoryChoiceId,
-        display: item.display,
-        valueType: item.valueType,
-      };
-    });
-    if (changed) changeForm.current({ ...form, codedCategories });
-    return {
-      unavailableKeys: hydrated.filter((item) => savedKeys.has(item.key) && !item.value && !item.pending).map((item) => item.key),
-      error: hydrated.find((item) => item.error)?.error,
-    };
-  }, [client, inventoryScopeKey, sourceKey, sourceDiscovery?.complete, sourceDiscovery?.loading, savedCategoryKey],
-  inventoryReady && sourceDiscovery !== undefined && savedCategoryKey.length > 0);
-  const unavailableSavedKeys = new Set(savedCategoryQuery.data?.unavailableKeys ?? []);
-
-  const selectedFamily = props.form.codedCategories[0]?.familyKey;
-  const removeSelectedCategory = (category: GroupCodedCategory) => {
-    props.onChange({
-      ...props.form,
-      codedCategories: props.form.codedCategories.filter((candidate) => candidate.key !== category.key),
-      keys: props.form.keys.filter((groupKey) => groupKey.outputColumnId !== category.groupOutputColumnId),
-    });
-  };
-  const toggle = (entry: (typeof available)[number]) => {
-    const { item, source, familyKey } = entry;
-    const key = codedCategoryKey(familyKey, item.system, item.code);
-    const prior = props.form.codedCategories.find((category) => category.key === key);
-    if (prior) {
-      removeSelectedCategory(prior);
-      return;
-    }
-    if (selectedFamily && selectedFamily !== familyKey || props.form.codedCategories.length >= 50 || !item.constructionChoice) return;
-    const label = semanticConceptLabel(item);
-    const usedNames = getUsedGroupNames(props.form);
-    const groupOutputName = uniqueName(item.code, usedNames);
-    const helperOutputName = uniqueName(item.code, new Set([
-      ...props.stage.columns.map((column) => column.name.toLowerCase()),
-      ...props.form.codedCategories.map((category) => category.helperOutputName.toLowerCase()),
-    ]));
-    const groupKey: GroupKey = {
-      inputColumnId: createOpaqueId('coded-group-input'),
-      outputColumnId: createOpaqueId('coded-group-output'),
-      name: groupOutputName,
-      label,
-    };
-    const codedCategory: GroupCodedCategory = {
-      choice: 'ready',
-      key,
-      familyKey,
-      system: item.system,
-      code: item.code,
-      display: label,
-      valueType: item.valueType,
-      sourceChoiceId: source.choiceId,
-      categoryChoiceId: item.constructionChoice.choiceId,
-      helperOutputColumnId: groupKey.inputColumnId,
-      groupOutputColumnId: groupKey.outputColumnId,
-      groupOutputName: groupKey.name,
-      groupOutputLabel: groupKey.label,
-      helperOutputName,
-      helperOutputLabel: label,
-    };
-    const codedCategories = [...props.form.codedCategories, codedCategory];
-    const nextForm = { ...props.form, codedCategories, keys: [...props.form.keys, groupKey] };
-    props.onChange({
-      ...nextForm,
-      codedPassthroughs: ensureGroupCodedPassthroughs(nextForm, props.stage, [
-        ...nextForm.keys.flatMap((key) => codedCategories.some((category) => category.helperOutputColumnId === key.inputColumnId) ? [] : [key.inputColumnId]),
-        ...nextForm.aggregates.flatMap((aggregate) => aggregate.operation === 'COUNT_ROWS' ? [] : [aggregate.inputColumnId]),
-        ...nextForm.rowValues.flatMap((value) => 'inputColumnId' in value ? [value.inputColumnId] : []),
-      ]),
-    });
-  };
-  const loadNextPage = () => {
-    if (!inventoryView?.hasMore || inventoryQuery.isLoading || pageRound !== requestedRoundRef.current) return;
-    requestedRoundRef.current = pageRound + 1;
-    setPageRound(pageRound + 1);
-  };
-  const onChoicesScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    const element = event.currentTarget;
-    if (element.scrollHeight - element.scrollTop - element.clientHeight <= 24) loadNextPage();
-  };
-  const sourceListIncomplete = Boolean(sourceDiscovery && !sourceDiscovery.loading && (!sourceDiscovery.complete || sourceDiscovery.truncated));
-  const error = readinessQuery.error ?? sourcesQuery.error ?? inventoryQuery.error ?? savedCategoryQuery.data?.error;
-  const errorText = error instanceof Error ? error.message : error ? 'Coded values could not be loaded.' : undefined;
-  const choicesLoading = readinessQuery.isLoading || sourcesQuery.isLoading || inventoryQuery.isLoading || savedCategoryQuery.isLoading;
-  if (inventoryReady && !choicesLoading && !errorText && !sourceListIncomplete && inventoryView?.complete && available.length === 0
-      && props.form.codedCategories.length === 0) return null;
-
-  return (
-    <div data-testid="construction-group-coded-values" className="grid gap-2 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
-      <div>
-        <p className="m-0 text-sm font-semibold text-slate-800">Coded values</p>
-        <p className="mb-0 mt-1 text-xs text-slate-600">Choose coded values to group by.</p>
-      </div>
-      {readinessQuery.isLoading && !readiness ? <p role="status" className="m-0 text-xs text-slate-600">Checking coded-value availability…</p> : null}
-      {!readinessQuery.error && readiness && !inventoryReady ? (
-        <p role="status" className="m-0 text-xs text-slate-600">
-          {!readiness.buildId
-            ? 'No current coded-value catalog is available.'
-            : `The coded-value catalog is ${readiness.state}. Choices will appear when it is complete.`}
-        </p>
-      ) : null}
-      {inventoryReady && choicesLoading ? <p role="status" className="m-0 text-xs text-slate-600">Loading coded values…</p> : null}
-      {errorText ? <p role="alert" className="m-0 text-xs text-red-700">{errorText}</p> : null}
-      {sourceListIncomplete && available.length > 0 ? <p role="status" className="m-0 text-xs text-amber-900">The direct source-field list may be incomplete; additional coded choices may exist.</p> : null}
-      {selectedFamily && props.form.codedCategories.some((category) => category.familyKey !== selectedFamily) ? (
-        <p role="status" className="m-0 text-xs text-amber-900">These selected concepts come from different source fields. A group can use coded values from one direct source field at a time; remove the conflicting selection to continue.</p>
-      ) : selectedFamily ? (
-        <p className="m-0 text-xs text-slate-600">Selected source field: {sources.find((source) => codedFamilyKey(source.bindingId, source.sourcePath) === selectedFamily)?.title ?? 'saved direct source'}. Choose coded values from this source field.</p>
-      ) : null}
-        <div
-        aria-label="Coded value choices by direct source field"
-        className="grid max-h-[min(14rem,45vh)] grid-cols-1 gap-3 overflow-y-auto"
-        onScroll={onChoicesScroll}
-        role="region"
-        tabIndex={0}
-      >
-        {sources.map((source) => {
-          const sourceEntries = available.filter((entry) => entry.source.choiceId === source.choiceId);
-          if (sourceEntries.length === 0 && !inventoryView?.complete) return null;
-          return (
-            <section key={source.choiceId} aria-label={`Coded values from ${source.title}`} className="grid content-start gap-1">
-              <h5 className="m-0 text-xs font-semibold text-slate-700">{source.title}</h5>
-              {sourceEntries.map((entry) => {
-                const { item, familyKey } = entry;
-                const key = codedCategoryKey(familyKey, item.system, item.code);
-                const selected = props.form.codedCategories.some((category) => category.key === key);
-                const familyConflict = Boolean(selectedFamily && selectedFamily !== familyKey);
-                return (
-                  <label key={key} data-testid="construction-group-coded-option" className={`flex min-h-10 items-start gap-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-sm ${familyConflict ? 'opacity-60' : 'hover:bg-slate-50'}`}>
-                    <input
-                      type="checkbox"
-                      aria-label={`Group by coded value: ${semanticConceptLabel(item)}`}
-                      checked={selected}
-                      disabled={props.disabled || familyConflict || props.form.codedCategories.length >= 50 && !selected}
-                      onChange={() => toggle(entry)}
-                    />
-                    <span><span className="block font-medium text-slate-800">{semanticConceptLabel(item)}</span><span className="block text-xs text-slate-500">{item.sourcePath} · {item.valueType} · {item.occurrences.toLocaleString()} observed</span></span>
-                  </label>
-                );
-              })}
-            </section>
-          );
-        })}
-        {props.form.codedCategories.filter((category) => !available.some((entry) =>
-          category.key === codedCategoryKey(entry.familyKey, entry.item.system, entry.item.code))).map((category) => {
-          const familyConflict = Boolean(selectedFamily && selectedFamily !== category.familyKey);
-          return (
-            <label key={category.key} data-testid="construction-group-coded-option" className={`flex items-start gap-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-sm ${familyConflict ? 'opacity-60' : 'hover:bg-slate-50'}`}>
-              <input
-                type="checkbox"
-                aria-label={`Group by coded value: ${category.display}`}
-                checked
-                disabled={props.disabled}
-                onChange={() => removeSelectedCategory(category)}
-              />
-              <span>
-                <span className="block font-medium text-slate-800">{category.display}</span>
-                <span className="block text-xs text-slate-500">{category.system} · {category.code} · selected</span>
-                {unavailableSavedKeys.has(category.key) ? <span role="status" className="block text-xs text-amber-800">This coded value is no longer available. Remove it to continue.</span> : null}
-              </span>
-            </label>
-          );
-        })}
-        {inventoryView?.hasMore ? <p className="m-0 text-xs text-slate-500">Scroll for more choices from these source fields.</p> : null}
-      </div>
-      {inventoryReady && !choicesLoading && !errorText && available.length === 0 ? (
-        <p role="status" className="m-0 text-xs text-slate-600">
-          {sourceListIncomplete
-            ? 'No ready coded values were found among the listed direct source fields; the source list may be incomplete.'
-            : inventoryView?.complete
-              ? 'No ready coded values are available from these direct source fields.'
-              : 'Coded values from direct source fields are still loading.'}
-        </p>
-      ) : null}
-      {props.form.codedCategories.length > 0 ? <p className="m-0 text-xs text-slate-600">{props.form.codedCategories.length} coded value{props.form.codedCategories.length === 1 ? '' : 's'} selected.</p> : null}
-    </div>
-  );
-};
-
-const groupAggregateKindFromInput = (value: string): GroupAggregateKind | undefined => {
-  switch (value) {
-    case 'COUNT_ROWS': return 'COUNT_ROWS';
-    case 'COUNT_NON_NULL': return 'COUNT_NON_NULL';
-    case 'COUNT_DISTINCT': return 'COUNT_DISTINCT';
-    case 'SUM': return 'SUM';
-    case 'MEAN': return 'MEAN';
-    default: return undefined;
-  }
-};
 
 const ExpandEditor = (props: {
   readonly form: ExpandForm;
@@ -4426,578 +1284,16 @@ const emptyListPolicyFromInput = (value: string): EmptyListPolicy | undefined =>
   }
 };
 
-const pivotDuplicatePolicyFromInput = (value: string): PivotForm['duplicatePolicy'] | undefined => {
-  switch (value) {
-    case 'ERROR': return 'ERROR';
-    case 'SUM': return 'SUM';
-    case 'MIN': return 'MIN';
-    case 'MAX': return 'MAX';
-    default: return undefined;
-  }
-};
+const pivotInputStage = (stage: ReshapeStage, form: PivotForm, choices: ReadonlyArray<SourceInputChoice>): ReshapeStage =>
+  stageWithSourceInputs({ stage, choices, selections: form.pivotSources ?? [], kind: 'PIVOT' });
 
-const pivotMissingPolicyFromInput = (value: string): PivotForm['missingCellPolicy'] | undefined => {
-  switch (value) {
-    case 'NULL': return 'NULL';
-    case 'ERROR': return 'ERROR';
-    default: return undefined;
-  }
-};
-
-const pivotUnlistedPolicyFromInput = (value: string): PivotForm['unlistedCategoryPolicy'] | undefined => {
-  switch (value) {
-    case 'ERROR': return 'ERROR';
-    case 'EXCLUDE_WITH_EVIDENCE': return 'EXCLUDE_WITH_EVIDENCE';
-    default: return undefined;
-  }
-};
-
-const pivotSourceFieldPathLabel = (path: string): string => {
-  const words: string[] = [];
-  for (const segment of path.replace(/^root\./, '').split('.')) {
-    const readable = segment.replace(/\[\]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
-    if (!readable) continue;
-    words.push(readable.toLowerCase() === 'id' ? 'ID' : readable[0].toUpperCase() + readable.slice(1));
-  }
-  return words.join(' ');
-};
-
-const pivotSourceLabel = (choice: SourceInputChoice): string => {
-  const rawPath = choice.fieldPath.replace(/^root\./, '');
-  const label = choice.label.trim().replace(/^root\./, '');
-  const prefixedPath = label.endsWith(`.${rawPath}`) ? label.slice(0, -rawPath.length - 1) : undefined;
-  const rawSegments = rawPath.split('.');
-  const rawPathResource = rawSegments.length > 1 && /^[A-Z]/.test(rawSegments[0] ?? '') ? rawSegments[0] : undefined;
-  const context = prefixedPath ?? (label === rawPath ? rawPathResource : undefined);
-  const fieldPath = rawPathResource && context === rawPathResource ? rawSegments.slice(1).join('.') : rawPath;
-  const labelIsPath = label === rawPath || Boolean(prefixedPath) || label === choice.fieldPath;
-  const field = labelIsPath ? pivotSourceFieldPathLabel(fieldPath) : label;
-  return context ? `${context} · ${field}` : field;
-};
-
-const pivotInputStage = (stage: ReshapeStage, form: PivotForm, choices: ReadonlyArray<SourceInputChoice>): ReshapeStage => {
-  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
-  const inputs = (form.pivotSources ?? []).flatMap((selection) => {
-    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
-    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
-    if (!choice) return [];
-    const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
-    usedNames.add(name.toLowerCase());
-    return [{ id: selection.columnId, name, label: choice.label, type: choice.logicalType, cardinality: 'optional_one' as const }];
-  });
-  return { ...stage, columns: [...stage.columns, ...inputs] };
-};
-
-const unpivotInputStage = (stage: ReshapeStage, form: UnpivotForm, choices: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string; readonly label: string; readonly logicalType: string }>): ReshapeStage => {
-  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
-  const inputs = (form.unpivotSources ?? []).flatMap((selection) => {
-    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
-    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
-    if (!choice) return [];
-    const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
-    usedNames.add(name.toLowerCase());
-    return [{ id: selection.columnId, name, label: choice.label, type: choice.logicalType, cardinality: 'optional_one' as const }];
-  });
-  return { ...stage, columns: [...stage.columns, ...inputs] };
-};
+const unpivotInputStage = (stage: ReshapeStage, form: UnpivotForm, choices: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string; readonly label: string; readonly logicalType: string }>): ReshapeStage =>
+  stageWithSourceInputs({ stage, choices, selections: form.unpivotSources ?? [], kind: 'UNPIVOT' });
 
 const expandInputStage = (stage: ReshapeStage, form: ExpandForm, choices: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string; readonly label: string; readonly logicalType: string }>): ReshapeStage => {
   const binding = (form.expandSources ?? []).find((candidate) => candidate.columnId === form.inputColumnId);
-  if (!binding || stage.columns.some((column) => column.id === form.inputColumnId)) return stage;
-  const choice = choices.find((candidate) => candidate.choiceId === binding.choiceId);
-  if (!choice) return stage;
-  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
-  const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
-  return { ...stage, columns: [...stage.columns, { id: form.inputColumnId, name, label: choice.label, type: choice.logicalType, cardinality: 'many' as const }] };
+  return stageWithSourceInputs({ stage, choices, selections: binding ? [binding] : [], kind: 'EXPAND' });
 };
-
-const PivotEditor = (props: {
-  readonly sourceChoices: ReadonlyArray<SourceInputChoice>;
-  readonly form: PivotForm;
-  readonly stage: ReshapeStage;
-  readonly supported: boolean;
-  readonly reason: string;
-  readonly disabled: boolean;
-  readonly discovery?: ConstructionReshapePivotDiscovery;
-  readonly discoveryAwaited: boolean;
-  readonly requireEveryDiscoveredCategory: boolean;
-  readonly canDiscover: boolean;
-  readonly showRowSelection: boolean;
-  readonly onDiscover: () => void;
-  readonly onManualCategorySelection: (form: PivotForm) => void;
-  readonly onForgetPairSelection: (previous: PivotForm, next: PivotForm) => void;
-  readonly onChange: (form: PivotForm) => void;
-}) => {
-  const discoveryHelpId = useId();
-  const [categorySearch, setCategorySearch] = useState('');
-  const columns = scalarColumnsFor(props.stage);
-  const repeatedColumns = props.stage.columns.filter((column) => column.cardinality === 'many');
-  const discoveryMatches = pivotDiscoveryMatches(props.form, props.stage.id, props.discovery);
-  const discoveryComplete = discoveryMatches && props.discovery.status === 'complete';
-  const discoveryMode = props.form.discovery !== undefined;
-  const pairUnchanged = pivotOriginalPairApplies(props.form);
-  const categoriesKnown = !discoveryMode && (pairUnchanged || discoveryComplete);
-  const discoveryEligible = !discoveryMode
-    && props.canDiscover
-    && props.supported
-    && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0)
-    && props.form.categoryColumnId !== ''
-    && props.form.valueColumnId !== ''
-    && !categoriesKnown;
-  const hostDiscoveryPending = discoveryEligible
-    && discoveryMatches
-    && props.discovery?.status === 'loading';
-  const discoveryPending = hostDiscoveryPending || (props.discoveryAwaited && !categoriesKnown);
-  const categoriesAvailable = discoveryComplete ? props.discovery.categories : [];
-  const missingDiscoveredCategories = props.requireEveryDiscoveredCategory
-    && discoveryComplete
-    && !allDiscoveredPivotCategoriesSelected(props.form, props.stage.id, props.discovery);
-  const listedKeys = new Set(categoriesAvailable.map((category) => scalarIdentity(category.key)));
-  const existingNotListed = pairUnchanged
-    ? props.form.categories.filter((category) => !listedKeys.has(scalarIdentity(category.key)))
-    : [];
-  const categorySearchTerm = categorySearch.trim().toLowerCase();
-  const matchesCategorySearch = (label: string, key: ConstructionTableScalar): boolean =>
-    `${label} ${scalarLabel(key)}`.toLowerCase().includes(categorySearchTerm);
-  const shownCategories = categoriesAvailable.filter((category) => matchesCategorySearch(category.label, category.key));
-  const shownExistingNotListed = existingNotListed.filter((category) => matchesCategorySearch(scalarLabel(category.key), category.key));
-  const selectedCategoryIdentities = new Set(props.form.categories.map((category) => scalarIdentity(category.key)));
-  const selectedCategoryLabels = props.form.categories.map((category) =>
-    categoriesAvailable.find((available) => scalarIdentity(available.key) === scalarIdentity(category.key))?.label
-      ?? scalarLabel(category.key),
-  );
-  const displayedSelectedCategoryLabels = selectedCategoryLabels.slice(0, 3);
-  const additionalSelectedCategoryCount = selectedCategoryLabels.length - displayedSelectedCategoryLabels.length;
-  const showSelectedCategoryLabels = selectedCategoryLabels.length <= 10;
-  const shownCategoryIdentities = new Set([
-    ...shownCategories.map((category) => scalarIdentity(category.key)),
-    ...shownExistingNotListed.map((category) => scalarIdentity(category.key)),
-  ]);
-  const hasUnselectedShownCategory = shownCategories.some((category) => !selectedCategoryIdentities.has(scalarIdentity(category.key)));
-  const hasSelectedShownCategory = props.form.categories.some((category) => shownCategoryIdentities.has(scalarIdentity(category.key)));
-  const shownCategoryCount = shownCategories.length + shownExistingNotListed.length;
-  const categoryCount = categoriesAvailable.length + existingNotListed.length;
-  const groupColumns = props.form.groupKeyIds.flatMap((id) => {
-    const column = columns.find((candidate) => candidate.id === id);
-    return column ? [column] : [];
-  });
-  const sourceChoiceForColumn = (columnId: string): SourceInputChoice | undefined => {
-    const binding = props.form.pivotSources?.find((candidate) => candidate.columnId === columnId);
-    return binding ? props.sourceChoices.find((candidate) => candidate.choiceId === binding.choiceId) : undefined;
-  };
-  const pivotColumnLabel = (column: ReshapeColumn): string => {
-    const sourceChoice = sourceChoiceForColumn(column.id);
-    return sourceChoice ? pivotSourceLabel(sourceChoice) : column.label;
-  };
-  const pivotColumnTitle = (column: ReshapeColumn): string => {
-    const sourceChoice = sourceChoiceForColumn(column.id);
-    return sourceChoice?.fieldPath ?? (column.name === column.label ? column.name : `${column.name} · ${column.label}`);
-  };
-  const outputNamesValid = outputNamesAreValid(pivotOutputsFor(props.form, props.stage));
-  const numericValue = isNumericColumn(columns.find((column) => column.id === props.form.valueColumnId) ?? { id: '', name: '', label: '', cardinality: 'optional_one' });
-  const categoryColumn = columns.find((column) => column.id === props.form.categoryColumnId);
-  const selectableValueColumns = columns.filter((column) => !props.form.groupKeyIds.includes(column.id) && column.id !== props.form.categoryColumnId);
-  const valueColumn = columns.find((column) => column.id === props.form.valueColumnId);
-  const categoryColumnLabel = categoryColumn ? pivotColumnLabel(categoryColumn) : 'Column names';
-  const valueColumnLabel = valueColumn ? pivotColumnLabel(valueColumn) : 'Cell values';
-  const rowColumnLabels = groupColumns.map(pivotColumnLabel);
-  const roleSummary = rowColumnLabels.length > 0 && categoryColumn && valueColumn
-    ? `One row per ${rowColumnLabels.join(', ')}. Each ${categoryColumnLabel} value creates a column containing ${valueColumnLabel}.`
-    : 'Example: One row per Patient ID. Each Visit type value creates a column containing Score.';
-
-  const [columnFilter, setColumnFilter] = useState('');
-  const chooseInput = (role: 'group' | 'category' | 'value', selected: string) => {
-    if (role === 'group' && selected === '') return;
-    if (role === 'category' || role === 'value') {
-      setCategorySearch('');
-      setColumnFilter('');
-    }
-    const choice = props.sourceChoices.find((candidate) => `source:${candidate.choiceId}` === selected);
-    const existing = choice && props.form.pivotSources?.find((binding) => binding.choiceId === choice.choiceId);
-    const columnId = choice ? existing?.columnId ?? createOpaqueId('pivot-input') : selected;
-    if ((role === 'category' && columnId === props.form.categoryColumnId)
-      || (role === 'value' && columnId === props.form.valueColumnId)) return;
-    const bindings = choice && !existing ? [...(props.form.pivotSources ?? []), { choiceId: choice.choiceId, columnId }] : props.form.pivotSources ?? [];
-    const nextValueColumnId = role === 'value' ? columnId : role === 'category' && columnId === props.form.valueColumnId ? '' : props.form.valueColumnId;
-    const nextValueColumn = columns.find((column) => column.id === nextValueColumnId);
-    const duplicatePolicy = !props.form.originalPair && role === 'value'
-      ? (isNumericColumn(nextValueColumn ?? { id: '', name: '', label: '', cardinality: 'optional_one' }) ? 'SUM' : 'MIN')
-      : props.form.duplicatePolicy;
-    const preserveCategories = role === 'group';
-    const next = {
-      ...props.form,
-      groupKeyIds: role === 'group' ? [...new Set([...props.form.groupKeyIds, columnId])] : props.form.groupKeyIds,
-      categoryColumnId: role === 'category' ? columnId : props.form.categoryColumnId,
-      valueColumnId: nextValueColumnId,
-      duplicatePolicy,
-      categories: preserveCategories ? props.form.categories : [],
-      categoriesPair: preserveCategories ? props.form.categoriesPair : undefined,
-      originalPair: preserveCategories ? props.form.originalPair : undefined,
-    };
-    const used = new Set([...next.groupKeyIds, next.categoryColumnId, next.valueColumnId]);
-    const nextForm = { ...next, pivotSources: bindings.filter((binding) => used.has(binding.columnId)) };
-    if (!preserveCategories) props.onForgetPairSelection(props.form, nextForm);
-    props.onChange(nextForm);
-  };
-  const columnFilterText = columnFilter.trim().toLowerCase();
-  const filteredGroupColumns = columns.filter((column) => !columnFilterText || column.label.toLowerCase().includes(columnFilterText) || (column.type ?? '').toLowerCase().includes(columnFilterText));
-
-  const toggleGroup = (columnId: string, checked: boolean) => {
-    const groupKeyIds = checked
-      ? [...props.form.groupKeyIds, columnId]
-      : props.form.groupKeyIds.filter((id) => id !== columnId);
-    const used = new Set([...groupKeyIds, props.form.categoryColumnId, props.form.valueColumnId]);
-    props.onChange({ ...props.form, groupKeyIds, pivotSources: props.form.pivotSources?.filter((binding) => used.has(binding.columnId)) });
-  };
-
-  const sourceOptions = props.sourceChoices.filter((choice) => choice.isPopulated && !props.form.pivotSources?.some((binding) => binding.choiceId === choice.choiceId));
-  const updateCategory = (identity: string, update: Partial<PivotCategoryForm>) => {
-    props.onChange({
-      ...props.form,
-      categories: props.form.categories.map((category) => scalarIdentity(category.key) === identity ? { ...category, ...update } : category),
-    });
-  };
-
-  const toggleCategory = (available: ConstructionReshapePivotCategory, checked: boolean) => {
-    const identity = scalarIdentity(available.key);
-    const existing = props.form.categories.find((category) => scalarIdentity(category.key) === identity);
-    const categories = checked
-      ? existing
-        ? props.form.categories.map((category) => scalarIdentity(category.key) === identity ? { ...category } : category)
-        : [...props.form.categories, createPivotCategoryForm(available, new Set([
-            ...props.stage.columns.map((column) => column.name.toLowerCase()),
-            ...props.form.categories.map((category) => category.name.toLowerCase()),
-          ]))]
-      : props.form.categories.filter((category) => scalarIdentity(category.key) !== identity);
-    const next = {
-      ...props.form,
-      categories,
-      categoriesPair: { categoryColumnId: props.form.categoryColumnId, valueColumnId: props.form.valueColumnId },
-    };
-    props.onManualCategorySelection(next);
-    props.onChange(next);
-  };
-
-  const selectShownCategories = () => {
-    const selectedIdentities = new Set(selectedCategoryIdentities);
-    const categories = [...props.form.categories];
-    const usedNames = new Set([
-      ...props.stage.columns.map((column) => column.name.toLowerCase()),
-      ...props.form.categories.map((category) => category.name.toLowerCase()),
-    ]);
-    for (const available of shownCategories) {
-      const identity = scalarIdentity(available.key);
-      if (selectedIdentities.has(identity)) continue;
-      const category = createPivotCategoryForm(available, usedNames);
-      categories.push(category);
-      selectedIdentities.add(identity);
-      usedNames.add(category.name.toLowerCase());
-    }
-    if (categories.length === props.form.categories.length) return;
-    const next = {
-      ...props.form,
-      categories,
-      categoriesPair: { categoryColumnId: props.form.categoryColumnId, valueColumnId: props.form.valueColumnId },
-    };
-    props.onManualCategorySelection(next);
-    props.onChange(next);
-  };
-
-  const clearShownCategories = () => {
-    const categories = props.form.categories.filter((category) => !shownCategoryIdentities.has(scalarIdentity(category.key)));
-    if (categories.length === props.form.categories.length) return;
-    const next = {
-      ...props.form,
-      categories,
-      categoriesPair: { categoryColumnId: props.form.categoryColumnId, valueColumnId: props.form.valueColumnId },
-    };
-    props.onManualCategorySelection(next);
-    props.onChange(next);
-  };
-
-  return (
-    <section aria-label="Pivot categories into columns" data-testid="construction-reshape-pivot" className="construction-reshape-pivot-editor grid content-start gap-3">
-      {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
-      {columns.length === 0 && props.sourceChoices.length === 0 ? (
-        <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned scalar fields for this stage.</p>
-      ) : (
-        <>
-          {props.showRowSelection ? (
-          <fieldset className="grid min-w-0 content-start gap-3" disabled={props.disabled || !props.supported}>
-            <legend className="m-0 text-sm font-semibold text-slate-900">One row per</legend>
-            <p className="m-0 text-xs text-slate-600">These fields identify each output row. Each category value becomes a new column.</p>
-            <div className="grid gap-2">
-              <label className="grid gap-1 text-xs font-medium text-slate-700">
-                Search fields
-                <input aria-label="Search pivot row fields" value={columnFilter} onChange={(event) => setColumnFilter(event.currentTarget.value)} placeholder="Search columns" className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm" />
-              </label>
-              <div className="grid max-h-72 gap-x-3 overflow-y-auto sm:grid-cols-2">
-                {filteredGroupColumns.map((column) => {
-                  const label = pivotColumnLabel(column);
-                  return (
-                    <label key={column.id} title={pivotColumnTitle(column)} className="flex min-w-0 items-start gap-2 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50">
-                      <input
-                        type="checkbox"
-                        aria-label={`Pivot group ${label}`}
-                        checked={props.form.groupKeyIds.includes(column.id)}
-                        disabled={props.disabled || !props.supported || column.id === props.form.categoryColumnId || column.id === props.form.valueColumnId}
-                        onChange={(event) => toggleGroup(column.id, event.currentTarget.checked)}
-                      />
-                      <span className="min-w-0 break-words">{label}</span>
-                    </label>
-                  );
-                })}
-                {filteredGroupColumns.length === 0 ? <p className="px-1 text-xs text-slate-500">{columns.length === 0 ? 'No columns are available.' : 'No columns match this search.'}</p> : null}
-              </div>
-              {sourceOptions.length > 0 ? <select aria-label="Add pivot group field" value="" disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('group', event.currentTarget.value)} className="justify-self-start rounded border border-slate-300 bg-white px-2 py-1.5">
-                <option value="">Add another field</option>
-                {sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}
-              </select> : null}
-              {props.form.groupKeyIds.length === 0 && props.supported ? <p role="status" className="m-0 text-xs text-amber-900">Choose one or more fields to identify each row{props.form.pivotSources?.length ? '. Choose a row identity before finding categories from source fields.' : '.'}</p> : null}
-            </div>
-          </fieldset>
-          ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
-              New column names
-              <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('category', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
-                <option value="">Choose a column-name field</option>
-                {columns.filter((column) => !props.form.groupKeyIds.includes(column.id)).map((column) => <option key={column.id} value={column.id} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)}</option>)}
-                {sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)}</option>)}</optgroup> : null}
-              </select>
-            </label>
-            <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
-              Cell values
-              <select aria-label="Pivot values field" value={props.form.valueColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('value', event.currentTarget.value)} className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
-                <option value="">Choose a cell-values field</option>
-                {selectableValueColumns.map((column) => <option key={column.id} value={column.id} title={pivotColumnTitle(column)}>{pivotColumnLabel(column)} ({column.type ?? 'unknown type'})</option>)}
-                {sourceOptions.length > 0 ? <optgroup label="Source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{pivotSourceLabel(choice)} ({choice.logicalType})</option>)}</optgroup> : null}
-              </select>
-            </label>
-          </div>
-          <p data-testid="construction-reshape-pivot-role-summary" className="text-sm text-slate-600">
-            {roleSummary}
-          </p>
-          <div className="grid gap-1 rounded border border-slate-200 p-3">
-            <label className="flex items-start gap-2 text-sm font-medium text-slate-800">
-              <input
-                type="checkbox"
-                aria-label="Discover categories when proposing"
-                aria-describedby={discoveryHelpId}
-                checked={discoveryMode}
-                disabled={props.disabled || !props.supported}
-                onChange={(event) => props.onChange({
-                  ...props.form,
-                  discovery: event.currentTarget.checked ? { maxCategories: PIVOT_DISCOVERY_MAX_CATEGORIES } : undefined,
-                  categories: event.currentTarget.checked ? [] : props.form.categories,
-                  categoriesPair: event.currentTarget.checked ? undefined : props.form.categoriesPair,
-                  originalPair: event.currentTarget.checked ? undefined : props.form.originalPair,
-                })}
-              />
-              <span>Discover categories when proposing</span>
-            </label>
-            <p id={discoveryHelpId} className="m-0 text-xs text-slate-600">
-              {discoveryMode
-                ? `Categories are discovered when this pivot is proposed, up to ${props.form.discovery?.maxCategories ?? PIVOT_DISCOVERY_MAX_CATEGORIES}. They freeze at that point, so turn discovery on and propose the pivot again after the data changes. Manual category selection is unavailable while this is on.`
-                : 'Choose categories manually from the values found in New column names. To refresh them from current data, turn on discovery and propose the pivot again.'}
-            </p>
-          </div>
-          {repeatedColumns.length > 0 ? (
-            <details className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              <summary className="cursor-pointer">{repeatedColumns.length} {repeatedColumns.length === 1 ? 'column contains a list' : 'columns contain lists'}</summary>
-              <p className="mt-1">Use “Make one row per list value” to expand these columns before choosing Pivot fields.</p>
-            </details>
-          ) : null}
-          {!discoveryMode && !props.canDiscover && !categoriesKnown ? <p role="status" className="text-sm text-amber-900">Category discovery is unavailable for this stage.</p> : null}
-          {!discoveryMode && props.canDiscover && props.supported && !categoriesKnown && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0) && (props.form.categoryColumnId === '' || props.form.valueColumnId === '') ? <p role="status" className="text-sm text-slate-600">Choose fields for New column names and Cell values to find categories.</p> : null}
-          {discoveryPending ? (
-            <div
-              role="status"
-              aria-live="polite"
-              aria-busy="true"
-              data-testid="construction-reshape-pivot-discovery-status"
-              data-stage-id={props.stage.id}
-              data-category-column-id={props.form.categoryColumnId}
-              data-value-column-id={props.form.valueColumnId}
-              className="grid gap-1 rounded bg-slate-50 px-3 py-2 text-sm text-slate-600"
-            >
-              <p className="m-0">Finding categories…</p>
-              <p className="m-0 text-xs">
-                Searching category values for New column names “{categoryColumnLabel}” and Cell values “{valueColumnLabel}”. Your entries stay as they are.
-              </p>
-            </div>
-          ) : null}
-          {props.discovery && discoveryMatches && props.discovery.status === 'failed' ? <div role="status" className="text-sm text-amber-900"><p>{props.discovery.reason}</p><button type="button" onClick={props.onDiscover} disabled={props.disabled || !discoveryEligible} className="mt-1 text-blue-800 underline">Retry finding categories</button></div> : null}
-          {props.discovery && discoveryMatches && props.discovery.status === 'limit-exceeded' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason} (Maximum supported categories: {props.discovery.limit}.)</p> : null}
-          {props.discovery && discoveryMatches && props.discovery.status === 'missing-unsupported' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}
-          {props.discovery && discoveryMatches && props.discovery.status === 'no-values' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}
-          {categoriesKnown ? (
-            <>
-              <p role="status" data-testid="construction-reshape-pivot-category-summary" className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                Selected {selectedCategoryLabels.length} of {categoryCount} categories{selectedCategoryLabels.length === 0 ? ': none' : showSelectedCategoryLabels ? `: ${displayedSelectedCategoryLabels.join(', ')}${additionalSelectedCategoryCount > 0 ? `, and ${additionalSelectedCategoryCount} more` : ''}` : '. Review the list to change them.'}
-              </p>
-              {discoveryComplete && categoryCount === 0 ? <p role="status" className="text-sm text-slate-600">No categories were found for this pair. Choose another New column names field or adjust the rows before continuing.</p> : null}
-              {missingDiscoveredCategories ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Select every discovered category, or filter rows before pivoting.</p> : null}
-              <p role="status" aria-live="polite" data-testid="construction-reshape-pivot-category-status" className="text-sm text-slate-600">
-                {props.form.categories.length} selected · Showing {shownCategoryCount} of {categoryCount} category values
-              </p>
-              <details data-testid="construction-reshape-pivot-categories" className="rounded border border-slate-200 p-3">
-                <summary className="cursor-pointer text-sm font-semibold text-slate-800">Change selected categories</summary>
-                <fieldset className="mt-3 grid gap-3" disabled={props.disabled || !props.supported}>
-                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-                    <label className="grid gap-1 text-sm font-medium text-slate-700">
-                      Search category values
-                      <input
-                        type="search"
-                        aria-label="Search category values"
-                        value={categorySearch}
-                        onChange={(event) => setCategorySearch(event.currentTarget.value)}
-                        placeholder="Search by label or value"
-                        className="rounded border border-slate-300 bg-white px-2 py-1.5"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      aria-label="Select shown categories"
-                      disabled={props.disabled || !props.supported || !hasUnselectedShownCategory}
-                      onClick={selectShownCategories}
-                      className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                    >
-                      Select shown categories
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Clear shown categories"
-                      disabled={props.disabled || !props.supported || !hasSelectedShownCategory}
-                      onClick={clearShownCategories}
-                      className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                    >
-                      Clear shown categories
-                    </button>
-                  </div>
-                  {shownCategories.map((available) => {
-                    const identity = scalarIdentity(available.key);
-                    const current = props.form.categories.find((category) => scalarIdentity(category.key) === identity);
-                    return (
-                      <div key={identity} className="grid gap-2 rounded bg-slate-50 p-2">
-                        <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
-                          <input type="checkbox" aria-label={`Include category ${available.label}`} checked={Boolean(current)} disabled={props.disabled || !props.supported} onChange={(event) => toggleCategory(available, event.currentTarget.checked)} />
-                          {available.label}
-                        </label>
-                      </div>
-                    );
-                  })}
-                  {shownExistingNotListed.map((category) => {
-                    const identity = scalarIdentity(category.key);
-                    return (
-                      <div key={identity} className={`grid gap-2 rounded p-2 ${discoveryComplete ? 'border border-amber-200 bg-amber-50' : 'bg-slate-50'}`}>
-                        <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
-                          <input type="checkbox" aria-label={`Keep saved category ${scalarLabel(category.key)}`} checked disabled={props.disabled || !props.supported} onChange={(event) => { if (!event.currentTarget.checked) toggleCategory({ key: category.key, label: scalarLabel(category.key) }, false); }} />
-                          {scalarLabel(category.key)} {discoveryComplete ? <span className="font-normal text-amber-900">Not found in the latest category list</span> : null}
-                        </label>
-                      </div>
-                    );
-                  })}
-                  {categoriesAvailable.length === 0 && existingNotListed.length === 0 ? <p role="status" className="text-sm text-slate-600">No categories were found for this pair.</p> : null}
-                  {categoryCount > 0 && shownCategoryCount === 0 ? <p role="status" className="text-sm text-slate-600">No categories match this search.</p> : null}
-                </fieldset>
-              </details>
-            </>
-          ) : null}
-          <p role="status" data-testid="construction-reshape-pivot-policy-summary" className="text-sm text-slate-600">
-            Duplicate values: {pivotDuplicateEffect(props.form.duplicatePolicy)}. Empty cells: {pivotMissingCellEffect(props.form.missingCellPolicy)}. Unselected categories: {pivotUnlistedCategoryEffect(props.form.unlistedCategoryPolicy)}.
-          </p>
-          <details data-testid="construction-reshape-pivot-advanced" className="rounded border border-slate-200 p-3">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800">Advanced settings</summary>
-            <div className="mt-3 grid gap-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  If a group has duplicate values
-                  <select aria-label="Pivot duplicate policy" value={props.form.duplicatePolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotDuplicatePolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, duplicatePolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                    <option value="ERROR">Stop with an error</option>
-                    <option value="SUM" disabled={!numericValue}>Add them together</option>
-                    <option value="MIN">Keep the smallest</option>
-                    <option value="MAX">Keep the largest</option>
-                  </select>
-                </label>
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  If a group has no value
-                  <select aria-label="Pivot missing cell policy" value={props.form.missingCellPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotMissingPolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, missingCellPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                    <option value="NULL">Leave the new cell empty</option>
-                    <option value="ERROR">Stop with an error</option>
-                  </select>
-                </label>
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  If a row has an unselected category
-                  <select aria-label="Pivot unlisted category policy" value={props.form.unlistedCategoryPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotUnlistedPolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, unlistedCategoryPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                    <option value="ERROR">Stop with an error</option>
-                    <option value="EXCLUDE_WITH_EVIDENCE" disabled>Skip it and report it</option>
-                  </select>
-                </label>
-              </div>
-              <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                New pivots require every category present in the rows to be selected. Skipping unselected categories is unavailable.
-              </p>
-              {props.form.categories.length > 0 ? (
-                <fieldset className="grid gap-3 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
-                  <legend className="px-1 text-sm font-semibold text-slate-800">Output column names and labels</legend>
-                  {props.form.categories.map((category) => {
-                    const identity = scalarIdentity(category.key);
-                    const label = categoriesAvailable.find((available) => scalarIdentity(available.key) === identity)?.label
-                      ?? scalarLabel(category.key);
-                    return (
-                      <div key={identity} className="grid gap-2 rounded bg-slate-50 p-2">
-                        <p className="text-sm font-medium text-slate-700">{label}</p>
-                        <PivotCategoryOutput category={category} disabled={props.disabled || !props.supported} onChange={(update) => updateCategory(identity, update)} />
-                      </div>
-                    );
-                  })}
-                </fieldset>
-              ) : null}
-              {!outputNamesValid ? <p role="status" className="text-sm text-amber-900">Give each output a unique column name using letters, numbers, or underscores, and add a label.</p> : null}
-            </div>
-          </details>
-        </>
-      )}
-    </section>
-  );
-};
-
-const pivotDuplicateEffect = (policy: PivotForm['duplicatePolicy']): string => {
-  switch (policy) {
-    case 'ERROR': return 'stop the pivot with an error';
-    case 'SUM': return 'be added together';
-    case 'MIN': return 'keep the smallest value';
-    case 'MAX': return 'keep the largest value';
-    default: {
-      const exhaustive: never = policy;
-      return exhaustive;
-    }
-  }
-};
-
-const pivotMissingCellEffect = (policy: PivotForm['missingCellPolicy']): string =>
-  policy === 'NULL' ? 'stay empty' : 'stop the pivot with an error';
-
-const pivotUnlistedCategoryEffect = (policy: PivotForm['unlistedCategoryPolicy']): string =>
-  policy === 'ERROR' ? 'stop the pivot with an error' : 'be skipped and reported';
-
-const PivotCategoryOutput = (props: {
-  readonly category: PivotCategoryForm;
-  readonly disabled: boolean;
-  readonly onChange: (update: Partial<PivotCategoryForm>) => void;
-}) => (
-  <div className="grid gap-2 sm:grid-cols-2">
-    <label className="grid gap-1 text-xs font-medium text-slate-600">
-      New column name
-      <input aria-label={`Pivot output name ${scalarLabel(props.category.key)}`} value={props.category.name} disabled={props.disabled} onChange={(event) => props.onChange({ name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5 text-sm" />
-    </label>
-    <label className="grid gap-1 text-xs font-medium text-slate-600">
-      New column label
-      <input aria-label={`Pivot output label ${scalarLabel(props.category.key)}`} value={props.category.label} disabled={props.disabled} onChange={(event) => props.onChange({ label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5 text-sm" />
-    </label>
-  </div>
-);
 
 const UnpivotEditor = (props: {
   readonly form: UnpivotForm;

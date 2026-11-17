@@ -15,14 +15,20 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/store/arango"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
-func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, compiled dataframeexecution.CompiledQuery) (arango.ExplainResult, error) {
-	client, err := arango.Open(ctx, opts.URL, opts.Database)
-	if err != nil {
-		return arango.ExplainResult{}, err
+func arangoTestSettings(t *testing.T) (*arangotest.Database, string) {
+	t.Helper()
+	database := arangotest.Shared(t)
+	project := os.Getenv("LOOM_ARANGO_PROJECT")
+	if project == "" {
+		project = "ARANGODB_PROTO"
 	}
-	defer client.Close(ctx)
+	return database, project
+}
+
+func explainCompiledQuery(ctx context.Context, client *arango.Client, compiled dataframeexecution.CompiledQuery) (arango.ExplainResult, error) {
 	return client.Explain(ctx, arango.ExplainRequest{Query: compiled.Query, BindVars: compiled.BindVars})
 }
 
@@ -32,9 +38,7 @@ func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, co
 // result before a later work package uses the measurements to enable a new
 // rewrite.
 func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run policy ablation against Arango")
-	}
+	database, project := arangoTestSettings(t)
 	fixtures, err := LoadDir(filepath.Join("fixtures"))
 	if err != nil {
 		t.Fatal(err)
@@ -61,25 +65,9 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 		{name: "defaults", policy: defaultPolicy},
 	}
 
-	url := os.Getenv("LOOM_ARANGO_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8529"
-	}
-	database := os.Getenv("LOOM_ARANGO_DATABASE")
-	if database == "" {
-		database = "fhir_proto"
-	}
-	project := os.Getenv("LOOM_ARANGO_PROJECT")
-	if project == "" {
-		project = "ARANGODB_PROTO"
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(ctx)
+	client := database.Client
 	var expectedHash string
 	var expectedRows []map[string]any
 	for _, candidate := range policies {
@@ -132,9 +120,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 // fixtures intentionally use an oracle project; this test rewrites only the
 // project bind to the loaded local dataset and leaves route semantics intact.
 func TestTraversalSharingAblationAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run traversal sharing profile")
-	}
+	database, project := arangoTestSettings(t)
 	fixtures, err := LoadDir(filepath.Join("fixtures"))
 	if err != nil {
 		t.Fatal(err)
@@ -143,25 +129,10 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	for _, fixture := range fixtures {
 		byID[fixture.ID] = fixture
 	}
-	url := os.Getenv("LOOM_ARANGO_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8529"
-	}
-	database := os.Getenv("LOOM_ARANGO_DATABASE")
-	if database == "" {
-		database = "fhir_proto"
-	}
-	project := os.Getenv("LOOM_ARANGO_PROJECT")
-	if project == "" {
-		project = "ARANGODB_PROTO"
-	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(ctx)
+	client := database.Client
 	for _, fixtureID := range []string{"patient-sibling-targets", "patient-deep-filter"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -237,9 +208,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 // dataframe so WP3 can make a generic payload decision instead of relying on
 // one resource-specific query.
 func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run prepared-selector profile")
-	}
+	database, project := arangoTestSettings(t)
 	fixtures, err := LoadDir(filepath.Join("fixtures"))
 	if err != nil {
 		t.Fatal(err)
@@ -248,26 +217,10 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 	for _, fixture := range fixtures {
 		byID[fixture.ID] = fixture
 	}
-	url := os.Getenv("LOOM_ARANGO_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8529"
-	}
-	database := os.Getenv("LOOM_ARANGO_DATABASE")
-	if database == "" {
-		database = "fhir_proto"
-	}
-	project := os.Getenv("LOOM_ARANGO_PROJECT")
-	if project == "" {
-		project = "ARANGODB_PROTO"
-	}
-	opts := arango.ConnectionOptions{URL: url, Database: database}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(ctx)
+	client := database.Client
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-observation-pivot", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -323,7 +276,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				}
 				warm := append([]float64(nil), executeSeconds[1:]...)
 				sort.Float64s(warm)
-				explain, err := explainCompiledQuery(ctx, opts, compiled)
+				explain, err := explainCompiledQuery(ctx, client, compiled)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -342,9 +295,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 // this test: fusion must be added only after a compatible group and a profile
 // benefit are demonstrated.
 func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run rich-consumer profile")
-	}
+	database, project := arangoTestSettings(t)
 	fixtures, err := LoadDir(filepath.Join("fixtures"))
 	if err != nil {
 		t.Fatal(err)
@@ -353,26 +304,10 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 	for _, fixture := range fixtures {
 		byID[fixture.ID] = fixture
 	}
-	url := os.Getenv("LOOM_ARANGO_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8529"
-	}
-	database := os.Getenv("LOOM_ARANGO_DATABASE")
-	if database == "" {
-		database = "fhir_proto"
-	}
-	project := os.Getenv("LOOM_ARANGO_PROJECT")
-	if project == "" {
-		project = "ARANGODB_PROTO"
-	}
-	opts := arango.ConnectionOptions{URL: url, Database: database}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(ctx)
+	client := database.Client
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -415,7 +350,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			}
 			warm := append([]float64(nil), executeSeconds[1:]...)
 			sort.Float64s(warm)
-			explain, err := explainCompiledQuery(ctx, opts, compiled)
+			explain, err := explainCompiledQuery(ctx, client, compiled)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -429,9 +364,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 // with the typed identity-safe set projection while keeping traversal sharing
 // and prepared selectors fixed. It is the WP5 evidence gate.
 func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
-	if os.Getenv("LOOM_COMPILER_ARANGO_INTEGRATION") == "" {
-		t.Skip("set LOOM_COMPILER_ARANGO_INTEGRATION=1 to run compact-set profile")
-	}
+	database, project := arangoTestSettings(t)
 	fixtures, err := LoadDir(filepath.Join("fixtures"))
 	if err != nil {
 		t.Fatal(err)
@@ -440,26 +373,10 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 	for _, fixture := range fixtures {
 		byID[fixture.ID] = fixture
 	}
-	url := os.Getenv("LOOM_ARANGO_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8529"
-	}
-	database := os.Getenv("LOOM_ARANGO_DATABASE")
-	if database == "" {
-		database = "fhir_proto"
-	}
-	project := os.Getenv("LOOM_ARANGO_PROJECT")
-	if project == "" {
-		project = "ARANGODB_PROTO"
-	}
-	opts := arango.ConnectionOptions{URL: url, Database: database}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close(ctx)
+	client := database.Client
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-specimen-file", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
 		if !ok {
@@ -520,7 +437,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				}
 				warm := append([]float64(nil), executeSeconds[1:]...)
 				sort.Float64s(warm)
-				explain, err := explainCompiledQuery(ctx, opts, compiled)
+				explain, err := explainCompiledQuery(ctx, client, compiled)
 				if err != nil {
 					t.Fatal(err)
 				}

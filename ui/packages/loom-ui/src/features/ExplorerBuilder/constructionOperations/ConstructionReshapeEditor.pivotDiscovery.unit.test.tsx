@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ConstructionReshapeEditor,
@@ -33,6 +33,7 @@ const capabilitiesFor = (
   draftDigest: 'draft-digest-1',
   outputId: 'table-1',
   stageId: stage.id,
+  sourceInput: { supported: false, stageId: stage.id, reasonCode: 'TEST_FIXTURE_NO_CHOICES', choices: [] },
   baseConstruction: { version: 1, steps: [] },
   stages: [stage],
   selectedStage: stage,
@@ -46,6 +47,7 @@ const renderEditor = (args: {
   readonly capabilities?: ConstructionReshapeEditorProps['capabilities'];
   readonly editingStep?: ConstructionReshapeStep;
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
+  readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
 }) => {
   const onCandidateChange = (args.onCandidateChange
     ?? vi.fn()) as ReturnType<typeof vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>>;
@@ -58,7 +60,7 @@ const renderEditor = (args: {
       disabled={false}
       onCandidateChange={onCandidateChange}
       onEditStep={vi.fn()}
-      onDiscoverCategories={vi.fn()}
+      onDiscoverCategories={args.onDiscoverCategories ?? vi.fn()}
     />,
   );
   return { onCandidateChange, view };
@@ -164,5 +166,29 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
     const pivot = pivotFrom(onCandidateChange.mock.lastCall?.[0]);
     expect(pivot.categories).toEqual([]);
     expect(pivot.discovery).toEqual({ maxCategories: 128 });
+  });
+
+  it('cancels a scheduled category lookup when discovery becomes propose-time', async () => {
+    vi.useFakeTimers();
+    try {
+      const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+      const { onCandidateChange } = renderEditor({ onCandidateChange: vi.fn(), onDiscoverCategories });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByLabelText('Pivot group Site'));
+      fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'age-id' } });
+      fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'flag-id' } });
+      expect(screen.getByTestId('construction-reshape-pivot-discovery-status')).toHaveAttribute('aria-busy', 'true');
+
+      fireEvent.click(screen.getByLabelText('Discover categories when proposing'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+      expect(onDiscoverCategories).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+      expect(onCandidateChange.mock.lastCall?.[0]).toBeDefined();
+      expect(pivotFrom(onCandidateChange.mock.lastCall?.[0]).discovery).toEqual({ maxCategories: 256 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

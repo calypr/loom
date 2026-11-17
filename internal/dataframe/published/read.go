@@ -22,9 +22,14 @@ type ClickHouseQueryer interface {
 	QueryRowsArgsVisit(context.Context, string, []string, func(map[string]any) error, ...any) error
 }
 
+type ReaderCatalog interface {
+	bundlepublication.BundleCatalog
+	bundlepublication.ExactExecutionCatalog
+}
+
 type Reader struct {
 	ClickHouse             ClickHouseQueryer
-	Catalog                bundlepublication.BundleCatalog
+	Catalog                ReaderCatalog
 	Logger                 *slog.Logger
 	MaxPage                int
 	ActiveManifestResolver publication.ActiveResolver

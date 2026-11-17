@@ -1,0 +1,381 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "draft-transaction-0",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "conflict",
+        "update": "none",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-0",
+        "queries": [
+          "read",
+          "archive"
+        ],
+        "result": "draft-conflict",
+        "backendConflict": true,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": true,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-1",
+      "outcomes": {
+        "begin": "conflict",
+        "read": "none",
+        "archive": "none",
+        "update": "none",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-1",
+        "queries": [],
+        "result": "draft-conflict",
+        "backendConflict": true,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": false,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-2",
+      "outcomes": {
+        "begin": "ok",
+        "read": "conflict",
+        "archive": "none",
+        "update": "none",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-2",
+        "queries": [
+          "read"
+        ],
+        "result": "draft-conflict",
+        "backendConflict": true,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": true,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-3",
+      "outcomes": {
+        "begin": "ok",
+        "read": "missing",
+        "archive": "none",
+        "update": "none",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-3",
+        "queries": [
+          "read"
+        ],
+        "result": "draft-conflict",
+        "backendConflict": false,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": true,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-4",
+      "outcomes": {
+        "begin": "ok",
+        "read": "other",
+        "archive": "none",
+        "update": "none",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-4",
+        "queries": [
+          "read"
+        ],
+        "result": "other-error",
+        "backendConflict": false,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": true,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-5",
+      "outcomes": {
+        "begin": "other",
+        "read": "none",
+        "archive": "none",
+        "update": "none",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-5",
+        "queries": [],
+        "result": "other-error",
+        "backendConflict": false,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": false,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-6",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "ok",
+        "update": "ok",
+        "commit": "conflict"
+      },
+      "expected": {
+        "id": "draft-transaction-6",
+        "queries": [
+          "read",
+          "archive",
+          "update"
+        ],
+        "result": "draft-conflict",
+        "backendConflict": true,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": false,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-7",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "ok",
+        "update": "conflict",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-7",
+        "queries": [
+          "read",
+          "archive",
+          "update"
+        ],
+        "result": "draft-conflict",
+        "backendConflict": true,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": true,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-8",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "ok",
+        "update": "missing",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-8",
+        "queries": [
+          "read",
+          "archive",
+          "update"
+        ],
+        "result": "draft-conflict",
+        "backendConflict": false,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": true,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-9",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "ok",
+        "update": "other",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-9",
+        "queries": [
+          "read",
+          "archive",
+          "update"
+        ],
+        "result": "other-error",
+        "backendConflict": false,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": true,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-10",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "ok",
+        "update": "ok",
+        "commit": "ok"
+      },
+      "expected": {
+        "id": "draft-transaction-10",
+        "queries": [
+          "read",
+          "archive",
+          "update"
+        ],
+        "result": "success",
+        "backendConflict": false,
+        "history": true,
+        "head": true,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": false,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-11",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "ok",
+        "update": "ok",
+        "commit": "reject"
+      },
+      "expected": {
+        "id": "draft-transaction-11",
+        "queries": [
+          "read",
+          "archive",
+          "update"
+        ],
+        "result": "other-error",
+        "backendConflict": false,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": false,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-12",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "ok",
+        "update": "ok",
+        "commit": "unknown"
+      },
+      "expected": {
+        "id": "draft-transaction-12",
+        "queries": [
+          "read",
+          "archive",
+          "update"
+        ],
+        "result": "other-error",
+        "backendConflict": false,
+        "history": true,
+        "head": true,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": false,
+        "transactions": 1
+      }
+    },
+    {
+      "id": "draft-transaction-13",
+      "outcomes": {
+        "begin": "ok",
+        "read": "ok",
+        "archive": "other",
+        "update": "none",
+        "commit": "none"
+      },
+      "expected": {
+        "id": "draft-transaction-13",
+        "queries": [
+          "read",
+          "archive"
+        ],
+        "result": "other-error",
+        "backendConflict": false,
+        "history": false,
+        "head": false,
+        "exactHistory": true,
+        "exactHead": true,
+        "stablePublished": true,
+        "exactReturned": true,
+        "callbackError": true,
+        "transactions": 1
+      }
+    }
+  ]
+}
