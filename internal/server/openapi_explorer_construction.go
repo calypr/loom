@@ -177,7 +177,7 @@ func (r *HTTPRoutes) SearchExplorerConstructionChoices(ctx context.Context, requ
 		return loomapi.SearchExplorerConstructionChoices200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerConstructionChoices", err)
-	return loomapi.NewSearchExplorerConstructionChoicesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewSearchExplorerConstructionChoicesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedExpandChoices(ctx context.Context, request loomapi.SearchExplorerRelatedExpandChoicesRequestObject) (loomapi.SearchExplorerRelatedExpandChoicesResponseObject, error) {
@@ -186,7 +186,7 @@ func (r *HTTPRoutes) SearchExplorerRelatedExpandChoices(ctx context.Context, req
 		return loomapi.SearchExplorerRelatedExpandChoices200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedExpandChoices", err)
-	return loomapi.NewSearchExplorerRelatedExpandChoicesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewSearchExplorerRelatedExpandChoicesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedFieldChoices(ctx context.Context, request loomapi.SearchExplorerRelatedFieldChoicesRequestObject) (loomapi.SearchExplorerRelatedFieldChoicesResponseObject, error) {
@@ -195,7 +195,7 @@ func (r *HTTPRoutes) SearchExplorerRelatedFieldChoices(ctx context.Context, requ
 		return loomapi.SearchExplorerRelatedFieldChoices200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedFieldChoices", err)
-	return loomapi.NewSearchExplorerRelatedFieldChoicesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewSearchExplorerRelatedFieldChoicesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedExpandContributors(ctx context.Context, request loomapi.SearchExplorerRelatedExpandContributorsRequestObject) (loomapi.SearchExplorerRelatedExpandContributorsResponseObject, error) {
@@ -204,7 +204,7 @@ func (r *HTTPRoutes) SearchExplorerRelatedExpandContributors(ctx context.Context
 		return loomapi.SearchExplorerRelatedExpandContributors200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedExpandContributors", err)
-	return loomapi.NewSearchExplorerRelatedExpandContributorsErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewSearchExplorerRelatedExpandContributorsErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) SearchExplorerPopulationRoutes(ctx context.Context, request loomapi.SearchExplorerPopulationRoutesRequestObject) (loomapi.SearchExplorerPopulationRoutesResponseObject, error) {
@@ -213,7 +213,7 @@ func (r *HTTPRoutes) SearchExplorerPopulationRoutes(ctx context.Context, request
 		return loomapi.SearchExplorerPopulationRoutes200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerPopulationRoutes", err)
-	return loomapi.NewSearchExplorerPopulationRoutesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewSearchExplorerPopulationRoutesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) GetExplorerColumnSource(ctx context.Context, request loomapi.GetExplorerColumnSourceRequestObject) (loomapi.GetExplorerColumnSourceResponseObject, error) {
@@ -222,5 +222,5 @@ func (r *HTTPRoutes) GetExplorerColumnSource(ctx context.Context, request loomap
 		return loomapi.GetExplorerColumnSource200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerColumnSource", err)
-	return loomapi.NewGetExplorerColumnSourceErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewGetExplorerColumnSourceErrorResponse(status, failure)
 }

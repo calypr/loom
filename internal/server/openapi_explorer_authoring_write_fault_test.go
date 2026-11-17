@@ -495,7 +495,7 @@ func TestPublishRepositoryLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T
 		if errors.Is(err, authscope.ErrForbidden) {
 			t.Fatalf("storage fault classified as permission denial: %v", err)
 		}
-		status, body := explorerLegacyResponse(err)
+		status, body := explorerErrorResponse(err)
 		if status != http.StatusServiceUnavailable {
 			t.Fatalf("storage fault legacy status=%d; want %d (named 503-class, route has a 503 arm)", status, http.StatusServiceUnavailable)
 		}
@@ -511,7 +511,7 @@ func TestPublishRepositoryLegacyAuthorizerFaultNotMaskedAsForbidden(t *testing.T
 		if !errors.Is(err, authscope.ErrForbidden) {
 			t.Fatalf("legacy denial err=%v; want authscope.ErrForbidden", err)
 		}
-		status, _ := explorerLegacyResponse(err)
+		status, _ := explorerErrorResponse(err)
 		if status != http.StatusForbidden {
 			t.Fatalf("legacy denial status=%d; want %d (denials must never become 5xx)", status, http.StatusForbidden)
 		}

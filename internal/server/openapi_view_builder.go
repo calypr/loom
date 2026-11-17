@@ -132,8 +132,8 @@ func viewBuilderJSON(value explorer.ViewBuilderState) (loomapi.RawJSON, error) {
 
 func (r *HTTPRoutes) GetProjectViewBuilder(ctx context.Context, request loomapi.GetProjectViewBuilderRequestObject) (loomapi.GetProjectViewBuilderResponseObject, error) {
 	fail := func(err error) (loomapi.GetProjectViewBuilderResponseObject, error) {
-		status, legacy := explorerLegacyResponse(err)
-		return loomapi.NewGetProjectViewBuilderErrorResponse(status, legacy)
+		status, failure := explorerErrorResponse(err)
+		return loomapi.NewGetProjectViewBuilderErrorResponse(status, failure)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := ""
@@ -154,8 +154,8 @@ func (r *HTTPRoutes) GetProjectViewBuilder(ctx context.Context, request loomapi.
 
 func (r *HTTPRoutes) AdoptProjectViewBuilder(ctx context.Context, request loomapi.AdoptProjectViewBuilderRequestObject) (loomapi.AdoptProjectViewBuilderResponseObject, error) {
 	fail := func(err error) (loomapi.AdoptProjectViewBuilderResponseObject, error) {
-		status, legacy := explorerLegacyResponse(err)
-		return loomapi.NewAdoptProjectViewBuilderErrorResponse(status, legacy)
+		status, failure := explorerErrorResponse(err)
+		return loomapi.NewAdoptProjectViewBuilderErrorResponse(status, failure)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := authResourcePathFromParam(request.Params.AuthResourcePath)
@@ -202,8 +202,8 @@ func (r *HTTPRoutes) AdoptProjectViewBuilder(ctx context.Context, request loomap
 
 func (r *HTTPRoutes) SaveProjectViewDefaults(ctx context.Context, request loomapi.SaveProjectViewDefaultsRequestObject) (loomapi.SaveProjectViewDefaultsResponseObject, error) {
 	fail := func(err error) (loomapi.SaveProjectViewDefaultsResponseObject, error) {
-		status, legacy := explorerLegacyResponse(err)
-		return loomapi.NewSaveProjectViewDefaultsErrorResponse(status, legacy)
+		status, failure := explorerErrorResponse(err)
+		return loomapi.NewSaveProjectViewDefaultsErrorResponse(status, failure)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := authResourcePathFromParam(request.Params.AuthResourcePath)
@@ -236,8 +236,8 @@ func (r *HTTPRoutes) SaveProjectViewDefaults(ctx context.Context, request loomap
 
 func (r *HTTPRoutes) SaveProjectViewConfig(ctx context.Context, request loomapi.SaveProjectViewConfigRequestObject) (loomapi.SaveProjectViewConfigResponseObject, error) {
 	fail := func(err error) (loomapi.SaveProjectViewConfigResponseObject, error) {
-		status, legacy := explorerLegacyResponse(err)
-		return loomapi.NewSaveProjectViewConfigErrorResponse(status, legacy)
+		status, failure := explorerErrorResponse(err)
+		return loomapi.NewSaveProjectViewConfigErrorResponse(status, failure)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := authResourcePathFromParam(request.Params.AuthResourcePath)
@@ -270,8 +270,8 @@ func (r *HTTPRoutes) SaveProjectViewConfig(ctx context.Context, request loomapi.
 
 func (r *HTTPRoutes) DeleteProjectViewConfig(ctx context.Context, request loomapi.DeleteProjectViewConfigRequestObject) (loomapi.DeleteProjectViewConfigResponseObject, error) {
 	fail := func(err error) (loomapi.DeleteProjectViewConfigResponseObject, error) {
-		status, legacy := explorerLegacyResponse(err)
-		return loomapi.NewDeleteProjectViewConfigErrorResponse(status, legacy)
+		status, failure := explorerErrorResponse(err)
+		return loomapi.NewDeleteProjectViewConfigErrorResponse(status, failure)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := authResourcePathFromParam(request.Params.AuthResourcePath)

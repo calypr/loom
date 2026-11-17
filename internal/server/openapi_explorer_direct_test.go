@@ -7,52 +7,46 @@ import (
 	"strings"
 	"testing"
 
-	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-func TestLegacyErrorMessagePreservesStructuredLifecycleMessage(t *testing.T) {
-	var response loomapi.LegacyErrorResponse
-	if err := response.Error.FromLegacyErrorBody(loomapi.LegacyErrorBody{Code: "COMPILATION_FAILED", Message: "catalog field is unavailable"}); err != nil {
-		t.Fatal(err)
+func TestExplorerErrorResponsePreservesLifecycleDetails(t *testing.T) {
+	status, response := explorerErrorResponse(legacyOperationFailureDetails(http.StatusConflict, "COMPILATION_FAILED", "catalog field is unavailable", map[string]any{"retryable": false}, nil))
+	if status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", status)
 	}
-	if got := legacyErrorMessage(response); got != "catalog field is unavailable" {
-		t.Fatalf("legacy error message = %q", got)
+	if response.Error.Code != "COMPILATION_FAILED" || response.Error.Message != "catalog field is unavailable" {
+		t.Fatalf("error = %#v", response.Error)
+	}
+	if response.Error.Details == nil || (*response.Error.Details)["retryable"] != false {
+		t.Fatalf("details = %#v, want explicit retryable=false", response.Error.Details)
 	}
 }
 
 func TestExplorerLegacyResponseUnknownErrorIsDescriptive(t *testing.T) {
 	private := errors.New("private socket detail")
-	status, response := explorerLegacyResponse(private)
+	status, response := explorerErrorResponse(private)
 	if status != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", status, http.StatusInternalServerError)
 	}
-	body, err := response.Error.AsLegacyErrorBody()
-	if err != nil {
-		t.Fatal(err)
+	if response.Error.Code != "INTERNAL_ERROR" {
+		t.Fatalf("code = %q, want INTERNAL_ERROR", response.Error.Code)
 	}
-	if body.Code != "INTERNAL_ERROR" {
-		t.Fatalf("code = %q, want INTERNAL_ERROR", body.Code)
+	if !strings.Contains(response.Error.Message, "unexpected internal error") || !strings.Contains(response.Error.Message, "request ID") {
+		t.Fatalf("message = %q, want descriptive internal-error guidance", response.Error.Message)
 	}
-	if !strings.Contains(body.Message, "unexpected internal error") || !strings.Contains(body.Message, "request ID") {
-		t.Fatalf("message = %q, want descriptive internal-error guidance", body.Message)
-	}
-	if strings.Contains(body.Message, private.Error()) {
-		t.Fatalf("response leaked private cause: %q", body.Message)
+	if strings.Contains(response.Error.Message, private.Error()) {
+		t.Fatalf("response leaked private cause: %q", response.Error.Message)
 	}
 }
 
 func TestExplorerLegacyResponseFillsEmptyInternalMessage(t *testing.T) {
-	status, response := explorerLegacyResponse(legacyOperationFailure(http.StatusInternalServerError, "", "", nil))
+	status, response := explorerErrorResponse(legacyOperationFailure(http.StatusInternalServerError, "", "", nil))
 	if status != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", status, http.StatusInternalServerError)
 	}
-	body, err := response.Error.AsLegacyErrorBody()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if body.Code != "INTERNAL_ERROR" || !strings.Contains(body.Message, "unexpected internal error") {
-		t.Fatalf("body = %#v, want descriptive INTERNAL_ERROR", body)
+	if response.Error.Code != "INTERNAL_ERROR" || !strings.Contains(response.Error.Message, "unexpected internal error") {
+		t.Fatalf("body = %#v, want descriptive INTERNAL_ERROR", response.Error)
 	}
 }
 
@@ -70,7 +64,10 @@ func TestAuthoringErrorMapsPublicationInProgressToConflict(t *testing.T) {
 	if response.Error.Code != "PUBLICATION_IN_PROGRESS" || response.Error.Diagnostic == nil {
 		t.Fatalf("error response = %#v", response)
 	}
-	if got := response.Error.AdditionalProperties["details"].(map[string]any)["executionId"]; got != "execution-a" {
+	if response.Error.Details == nil {
+		t.Fatal("error omitted publication details")
+	}
+	if got := (*response.Error.Details)["executionId"]; got != "execution-a" {
 		t.Fatalf("executionId = %v, want execution-a", got)
 	}
 	if got := (*response.Error.Diagnostic.Details)["retryable"]; got != true {

@@ -3573,6 +3573,28 @@ export type ExplorerAuthoringError = z.infer<
   typeof explorerAuthoringErrorSchema
 >;
 
+const explorerErrorDiagnosticWireSchema = z.object({
+  severity: z.string().min(1),
+  stage: z.string().min(1),
+  code: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  jsonPath: z.string().optional(),
+  message: z.string().min(1),
+  details: unknownRecordSchema.optional(),
+  requestId: z.string().optional(),
+}).strict();
+
+export const explorerErrorResponseSchema = z.object({
+  error: z.object({
+    code: z.string().min(1),
+    message: z.string().min(1),
+    requestId: z.string().optional(),
+    diagnostic: explorerErrorDiagnosticWireSchema.optional(),
+    details: unknownRecordSchema.optional(),
+  }).passthrough(),
+  diagnostics: z.array(explorerErrorDiagnosticWireSchema).optional(),
+}).strict();
+export type ExplorerErrorResponse = z.infer<typeof explorerErrorResponseSchema>;
+
 export const assertExplorerBuilderState = (value: unknown) =>
   explorerBuilderStateSchema.parse(value);
 export const assertExplorerBuilderCompileResult = (value: unknown) =>

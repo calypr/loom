@@ -7,6 +7,7 @@ import {
   assertExplorerBuilderState,
   assertExplorerStateV1,
   explorerAuthoringCapabilitiesSchema,
+  explorerErrorResponseSchema,
   explorerBuilderCommandsResultSchema,
   explorerBuilderSuggestionsResultSchema,
   explorerBuilderSchemaFieldsResultSchema,
@@ -886,7 +887,10 @@ const requestError = async (
 ): Promise<ExplorerAuthoringApiError> => {
   const payload = await parseJSON(response);
   const record = isRecord(payload) ? payload : {};
-  const nested = isRecord(record.error) ? record.error : record;
+  const parsedEnvelope = explorerErrorResponseSchema.safeParse(payload);
+  const nested: Record<string, unknown> = parsedEnvelope.success
+    ? parsedEnvelope.data.error
+    : isRecord(record.error) ? record.error : record;
   const code = typeof nested.code === 'string' ? nested.code : undefined;
   const message = typeof nested.message === 'string'
     ? nested.message
@@ -905,7 +909,9 @@ const requestError = async (
     status: response.status,
     code,
     message,
-    diagnostics: diagnosticsFrom(record.diagnostics ?? nested.diagnostics),
+    diagnostics: diagnosticsFrom(parsedEnvelope.success
+      ? parsedEnvelope.data.diagnostics ?? parsedEnvelope.data.error.diagnostics ?? (parsedEnvelope.data.error.diagnostic ? [parsedEnvelope.data.error.diagnostic] : undefined)
+      : record.diagnostics ?? nested.diagnostics),
     requestId: responseRequestId?.trim() || payloadRequestId?.trim() || callerRequestId,
     details,
     retryable: explicitRetryable ?? (response.status === 408 || response.status === 429 || response.status >= 500),

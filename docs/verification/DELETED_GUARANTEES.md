@@ -229,3 +229,7 @@ The retired endpoint capability catalog and resolution repository have no remain
 #### Retired TableShape compiler representation assertions
 
 The removed translator cloned source column IDs into Pivot outputs, used a project-plus-key Unpivot identity tuple, embedded category presence inline, and emitted one post-group Pivot limit. Current Construction tests assert explicit unique output IDs, the exact source-key tuple within the project-scoped source, category-presence input sidecars with original source paths, and both post-group and final sorted-output limits. Literal S04 rows, traces, exclusions, authorization partitions, scalar presence, and the independent legacy-to-current identity bijection remain checked. These representation assertions do not promise identical internal plans or raw renderer ordering across the retired and current translators.
+
+### WP-20 / FE-20: Explorer error union retirement
+
+Explorer routes no longer emit the string-or-object `LegacyErrorResponse` union or the service-specific 401 schema; they use `ErrorResponse` with structured code/message and optional details/diagnostics. The old string-constructor and legacy Explorer mapper assertions are replaced by structured-body assertions with identical route statuses, explicit retryability, diagnostic preservation, and cause redaction. Recipe-execution's non-Explorer legacy 403/404 schema and exact 404 string body remain covered. No status-code or rendered UI guarantee is retired.

@@ -71,5 +71,5 @@ func (r *HTTPRoutes) ProposeExplorerPopulationMemberRemoval(ctx context.Context,
 		return loomapi.ProposeExplorerPopulationMemberRemoval200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerPopulationMemberRemoval", err)
-	return loomapi.NewProposeExplorerPopulationMemberRemovalErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewProposeExplorerPopulationMemberRemovalErrorResponse(status, failure)
 }

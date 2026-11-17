@@ -833,7 +833,8 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 		body.RequestId = &requestID
 	}
 	if details != nil {
-		body.AdditionalProperties = map[string]interface{}{"details": details}
+		converted := map[string]interface{}(details)
+		body.Details = &converted
 	}
 	return status, loomapi.ErrorResponse{Error: body, Diagnostics: &diagnostics}
 }

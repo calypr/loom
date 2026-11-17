@@ -64,5 +64,5 @@ func (r *HTTPRoutes) ProposeExplorerSourceRelationship(ctx context.Context, requ
 		return loomapi.ProposeExplorerSourceRelationship200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerSourceRelationship", err)
-	return loomapi.NewProposeExplorerSourceRelationshipErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewProposeExplorerSourceRelationshipErrorResponse(status, failure)
 }

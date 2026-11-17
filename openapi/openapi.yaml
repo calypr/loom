@@ -83,7 +83,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SelectionRevision'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -114,7 +114,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SelectionPage'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -145,7 +145,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ExplicitGroupRevisionSummary'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -165,7 +165,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthoringCapability'
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
@@ -189,7 +189,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CandidateSearchResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
@@ -212,7 +212,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SchemaFieldSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
@@ -236,7 +236,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SemanticInventoryBrowseResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
@@ -261,7 +261,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/FrameSourceOptionsResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -286,7 +286,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionChoiceSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -311,7 +311,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelatedExpandChoiceSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -336,7 +336,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelatedFieldChoiceSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -361,7 +361,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelatedExpandContributorChoiceSearchResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -390,7 +390,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RowDefinitionChoicesResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -415,7 +415,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RowDefinitionProposal'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -440,7 +440,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionCapabilitiesResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -465,7 +465,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionCategoryDiscoveryResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -490,7 +490,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionInputsResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -515,7 +515,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/AuthoringNetworkResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -541,7 +541,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SourceRelationshipProposal'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -570,7 +570,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ColumnPolicyProposal'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -596,7 +596,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionProposalResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -622,7 +622,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/PopulationMemberRemovalProposalResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -648,7 +648,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConstructionChoiceProposalResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -674,7 +674,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/PopulationRoutesResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -699,7 +699,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ColumnSourceResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -718,7 +718,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BuilderState'
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -746,7 +746,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApplyCommandsResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -773,7 +773,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RowChangeAssessmentResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -802,7 +802,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CompileResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -829,7 +829,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PreviewResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -860,7 +860,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CellTraceResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -887,7 +887,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RowLineageResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -913,7 +913,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/InterpretationPreviewResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -942,7 +942,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ConfiguredColumnContextResponse'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -969,7 +969,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/InterpretationRevision'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -996,7 +996,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PopulationMappingResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1026,7 +1026,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PublishResponse'
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1051,7 +1051,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Artifact'}
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1081,7 +1081,7 @@ paths:
           content:
             application/zip:
               schema: {type: string, format: binary}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
@@ -1525,10 +1525,10 @@ paths:
                 items:
                   type: object
                   additionalProperties: true
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
     post:
       operationId: createExplorer
       summary: Create an interactive Explorer.
@@ -1545,13 +1545,13 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1565,11 +1565,11 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/generations/{generation}/explorer-config:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1596,13 +1596,13 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/view-builder:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1615,14 +1615,14 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/view-builder/adopt:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1637,14 +1637,14 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/view-builder/defaults:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1664,14 +1664,14 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/view-builder/configs/{explorerId}:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1692,14 +1692,14 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
     delete:
       operationId: deleteProjectViewConfig
       summary: Delete a non-default saved view while retaining publication history.
@@ -1715,14 +1715,14 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/LegacyBadRequest'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '403': {$ref: '#/components/responses/LegacyForbidden'}
-        '404': {$ref: '#/components/responses/LegacyNotFound'}
-        '409': {$ref: '#/components/responses/LegacyConflict'}
-        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
-        '500': {$ref: '#/components/responses/LegacyInternalError'}
-        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ExplorerUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
 components:
   parameters:
     Project:
@@ -1803,6 +1803,11 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    ExplorerUnauthorized:
+      description: Authentication credentials are absent or invalid for an Explorer operation.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
     ServiceBadRequest:
       description: A required path, query, multipart, JSON, or NDJSON value is missing or invalid.
       content:
@@ -1853,11 +1858,6 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
-    LegacyBadRequest:
-      description: The legacy Explorer request is malformed or missing required input.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
     LegacyUnauthorized:
       description: Authentication credentials are absent or invalid.
       content:
@@ -1870,26 +1870,6 @@ components:
           schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
     LegacyNotFound:
       description: The Explorer or repository-owned Explorer configuration was not found.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
-    LegacyConflict:
-      description: The Explorer already exists or repository deployment state changed or is inconsistent.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
-    LegacyUnprocessable:
-      description: The Explorer workspace or deployment is syntactically valid but cannot be compiled, materialized, or published.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
-    LegacyInternalError:
-      description: Reading or persisting the Explorer failed unexpectedly.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
-    LegacyUnavailable:
-      description: Repository compilation, materialization, or release activation is not configured or unavailable.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/LegacyErrorResponse'}
@@ -7127,4 +7107,7 @@ components:
         code: {type: string, minLength: 1}
         message: {type: string, minLength: 1}
         requestId: {type: string}
+        details:
+          type: object
+          additionalProperties: true
         diagnostic: {$ref: '#/components/schemas/Diagnostic'}

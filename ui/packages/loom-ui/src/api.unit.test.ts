@@ -1933,6 +1933,50 @@ describe('Loom project paths', () => {
     });
   });
 
+  it('parses the common Explorer error envelope for list/get/create calls', async () => {
+    const calls: ReadonlyArray<{
+      name: string;
+      status: number;
+      error: { code: string; message: string; requestId: string; details: { retryable: boolean } };
+      invoke: (client: ReturnType<typeof createLoomClient>) => Promise<unknown>;
+    }> = [
+      {
+        name: 'list', status: 503,
+        error: { code: 'EXPLORER_STORAGE_UNAVAILABLE', message: 'Explorer storage is unavailable', requestId: 'body-1', details: { retryable: false } },
+        invoke: (client) => client.listExplorers({ project: 'NCPI_ACCEPTANCE' }),
+      },
+      {
+        name: 'get', status: 403,
+        error: { code: 'FORBIDDEN', message: 'forbidden', requestId: 'body-2', details: { retryable: false } },
+        invoke: (client) => client.getExplorer({ project: 'NCPI_ACCEPTANCE', explorerId: 'default' }),
+      },
+      {
+        name: 'create', status: 503,
+        error: { code: 'EXPLORER_STORAGE_UNAVAILABLE', message: 'Explorer storage is unavailable', requestId: 'body-3', details: { retryable: false } },
+        invoke: (client) => client.createExplorer({ project: 'NCPI_ACCEPTANCE', name: 'default' }),
+      },
+    ];
+
+    for (const call of calls) {
+      for (const useHeader of [false, true]) {
+        const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ error: call.error }), {
+          status: call.status,
+          headers: { 'content-type': 'application/json', ...(useHeader ? { 'x-request-id': 'request-header-1' } : {}) },
+        }));
+        const client = createLoomClient({ fetch });
+        await expect(call.invoke(client)).rejects.toMatchObject({
+          status: call.status,
+          code: call.error.code,
+          message: call.error.message,
+          requestId: useHeader ? 'request-header-1' : call.error.requestId,
+          details: call.error.details,
+          retryable: false,
+        });
+      }
+    }
+  });
+
+
   it('preserves standalone project identifiers', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } }),

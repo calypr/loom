@@ -62,7 +62,7 @@ func (r *HTTPRoutes) ListExplorerRowDefinitionChoices(ctx context.Context, reque
 		return loomapi.ListExplorerRowDefinitionChoices200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "listExplorerRowDefinitionChoices", err)
-	return loomapi.NewListExplorerRowDefinitionChoicesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewListExplorerRowDefinitionChoicesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) ProposeExplorerRowDefinition(ctx context.Context, request loomapi.ProposeExplorerRowDefinitionRequestObject) (loomapi.ProposeExplorerRowDefinitionResponseObject, error) {
@@ -71,5 +71,5 @@ func (r *HTTPRoutes) ProposeExplorerRowDefinition(ctx context.Context, request l
 		return loomapi.ProposeExplorerRowDefinition200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerRowDefinition", err)
-	return loomapi.NewProposeExplorerRowDefinitionErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewProposeExplorerRowDefinitionErrorResponse(status, failure)
 }

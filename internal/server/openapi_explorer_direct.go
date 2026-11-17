@@ -19,12 +19,11 @@ import (
 // It is a server-side transport value; lifecycle errors are mapped into it at
 // the generated OpenAPI boundary.
 type explorerLegacyOperationError struct {
-	status      int
-	code        string
-	message     string
-	details     map[string]any
-	stringValue bool
-	cause       error
+	status  int
+	code    string
+	message string
+	details map[string]any
+	cause   error
 }
 
 func (e *explorerLegacyOperationError) Error() string {
@@ -43,10 +42,6 @@ func (e *explorerLegacyOperationError) Unwrap() error {
 
 func legacyOperationFailure(status int, code, message string, cause error) error {
 	return &explorerLegacyOperationError{status: status, code: code, message: message, cause: cause}
-}
-
-func legacyStringFailure(status int, message string, cause error) error {
-	return &explorerLegacyOperationError{status: status, message: message, stringValue: true, cause: cause}
 }
 
 func lifecycleLegacyFailure(err error) error {
@@ -82,7 +77,7 @@ func legacyOperationFailureDetails(status int, code, message string, details map
 	return &explorerLegacyOperationError{status: status, code: code, message: message, details: details, cause: cause}
 }
 
-func explorerLegacyResponse(err error) (int, loomapi.LegacyErrorResponse) {
+func explorerErrorResponse(err error) (int, loomapi.ErrorResponse) {
 	var operation *explorerLegacyOperationError
 	if errors.As(err, &operation) {
 		code, message := operation.code, operation.message
@@ -94,22 +89,20 @@ func explorerLegacyResponse(err error) (int, loomapi.LegacyErrorResponse) {
 				message = "unexpected internal error in Explorer operation; inspect the server log for the request ID"
 			}
 		}
-		if operation.stringValue {
-			var response loomapi.LegacyErrorResponse
-			_ = response.Error.FromLegacyErrorResponseError0(message)
-			return operation.status, response
-		}
-		var response loomapi.LegacyErrorResponse
-		body := loomapi.LegacyErrorBody{Code: code, Message: message}
+		body := loomapi.ErrorBody{Code: code, Message: message}
 		if len(operation.details) > 0 {
-			body.AdditionalProperties = map[string]interface{}{"details": operation.details}
+			details := make(map[string]interface{}, len(operation.details))
+			for key, value := range operation.details {
+				details[key] = value
+			}
+			body.Details = &details
 		}
-		_ = response.Error.FromLegacyErrorBody(body)
-		return operation.status, response
+		return operation.status, loomapi.ErrorResponse{Error: body}
 	}
-	var response loomapi.LegacyErrorResponse
-	_ = response.Error.FromLegacyErrorBody(loomapi.LegacyErrorBody{Code: "INTERNAL_ERROR", Message: "unexpected internal error in Explorer operation; inspect the server log for the request ID"})
-	return http.StatusInternalServerError, response
+	return http.StatusInternalServerError, loomapi.ErrorResponse{Error: loomapi.ErrorBody{
+		Code:    "INTERNAL_ERROR",
+		Message: "unexpected internal error in Explorer operation; inspect the server log for the request ID",
+	}}
 }
 
 func (r *explorerHTTPHandlers) listExplorers(ctx context.Context, rawProject string) (loomapi.ListExplorers200JSONResponse, error) {
@@ -225,12 +218,12 @@ func (r *explorerHTTPHandlers) getExplorer(ctx context.Context, rawProject, rawI
 func (r *explorerHTTPHandlers) publishRepositoryExplorerConfig(ctx context.Context, request loomapi.PublishRepositoryExplorerConfigRequestObject) (loomapi.PublishRepositoryExplorerConfig200JSONResponse, error) {
 	var result loomapi.PublishRepositoryExplorerConfig200JSONResponse
 	if r == nil || r.application == nil || r.authorizer == nil {
-		return result, legacyStringFailure(http.StatusInternalServerError, "Explorer lifecycle is not configured", nil)
+		return result, legacyOperationFailure(http.StatusInternalServerError, "INTERNAL_ERROR", "Explorer lifecycle is not configured", nil)
 	}
 	project := projectid.Canonical(string(request.Project))
 	generation := strings.TrimSpace(string(request.Generation))
 	if project == "" || generation == "" {
-		return result, legacyStringFailure(http.StatusBadRequest, "project and generation are required", nil)
+		return result, legacyOperationFailure(http.StatusBadRequest, "MALFORMED_REQUEST", "project and generation are required", nil)
 	}
 	authResourcePath := ""
 	if request.Params.AuthResourcePath != nil {
@@ -241,32 +234,22 @@ func (r *explorerHTTPHandlers) publishRepositoryExplorerConfig(ctx context.Conte
 		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
 		}
-		return result, legacyStringFailure(http.StatusForbidden, "forbidden", err)
+		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
 	}
 	if request.Body == nil {
-		return result, legacyStringFailure(http.StatusUnprocessableEntity, "workspace is required", nil)
+		return result, legacyOperationFailure(http.StatusUnprocessableEntity, "INVALID_WORKSPACE", "workspace is required", nil)
 	}
 	workspace := authoringv2.Workspace(*request.Body)
 	if err := workspace.ValidateForPublication(); err != nil {
-		return result, legacyStringFailure(http.StatusUnprocessableEntity, err.Error(), err)
+		return result, legacyOperationFailure(http.StatusUnprocessableEntity, "INVALID_WORKSPACE", err.Error(), err)
 	}
 	commit := strings.TrimSpace(request.Params.XLoomSourceCommit)
 	if commit == "" {
-		return result, legacyStringFailure(http.StatusBadRequest, "X-Loom-Source-Commit is required", nil)
+		return result, legacyOperationFailure(http.StatusBadRequest, "MALFORMED_REQUEST", "X-Loom-Source-Commit is required", nil)
 	}
 	value, err := r.application.PublishRepository(ctx, lifecycle.RepositoryPublishRequest{Project: project, Generation: generation, Workspace: workspace, Commit: commit, Actor: subjectFromContext(ctx)})
 	if err != nil {
 		return result, lifecycleLegacyFailure(err)
 	}
 	return loomapi.PublishRepositoryExplorerConfig200JSONResponse(loomapi.RawJSON{"project": project, "generation": generation, "explorerId": "default", "receiptId": value.Receipt.ID, "revisionId": value.Revision.ID, "executionId": value.Execution.ID, "recipe": value.Receipt.Bundle.Name, "translationVersion": value.Receipt.Bundle.TranslationVersion, "activated": true}), nil
-}
-
-func legacyErrorMessage(value loomapi.LegacyErrorResponse) string {
-	if message, err := value.Error.AsLegacyErrorResponseError0(); err == nil {
-		return message
-	}
-	if body, err := value.Error.AsLegacyErrorBody(); err == nil && strings.TrimSpace(body.Message) != "" {
-		return body.Message
-	}
-	return "Explorer lifecycle failed"
 }

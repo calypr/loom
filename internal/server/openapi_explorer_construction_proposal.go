@@ -184,7 +184,7 @@ func (r *HTTPRoutes) GetExplorerConstructionCapabilities(ctx context.Context, re
 		return loomapi.GetExplorerConstructionCapabilities200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionCapabilities", err)
-	return loomapi.NewGetExplorerConstructionCapabilitiesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewGetExplorerConstructionCapabilitiesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) DiscoverExplorerConstructionCategories(ctx context.Context, request loomapi.DiscoverExplorerConstructionCategoriesRequestObject) (loomapi.DiscoverExplorerConstructionCategoriesResponseObject, error) {
@@ -193,7 +193,7 @@ func (r *HTTPRoutes) DiscoverExplorerConstructionCategories(ctx context.Context,
 		return loomapi.DiscoverExplorerConstructionCategories200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "discoverExplorerConstructionCategories", err)
-	return loomapi.NewDiscoverExplorerConstructionCategoriesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewDiscoverExplorerConstructionCategoriesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) ProposeExplorerConstruction(ctx context.Context, request loomapi.ProposeExplorerConstructionRequestObject) (loomapi.ProposeExplorerConstructionResponseObject, error) {
@@ -202,5 +202,5 @@ func (r *HTTPRoutes) ProposeExplorerConstruction(ctx context.Context, request lo
 		return loomapi.ProposeExplorerConstruction200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerConstruction", err)
-	return loomapi.NewProposeExplorerConstructionErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewProposeExplorerConstructionErrorResponse(status, failure)
 }

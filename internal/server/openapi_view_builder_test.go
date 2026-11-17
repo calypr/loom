@@ -128,7 +128,7 @@ func TestViewBuilderExecutionAuthorizationKeepsBackendFailuresDistinct(t *testin
 				}
 				return
 			}
-			status, _ := explorerLegacyResponse(err)
+			status, _ := explorerErrorResponse(err)
 			if status != test.status {
 				t.Fatalf("status=%d err=%v", status, err)
 			}

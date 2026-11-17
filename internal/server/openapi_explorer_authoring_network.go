@@ -32,5 +32,5 @@ func (r *HTTPRoutes) DescribeExplorerAuthoringNetwork(ctx context.Context, reque
 		return loomapi.DescribeExplorerAuthoringNetwork200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "describeExplorerAuthoringNetwork", err)
-	return loomapi.NewDescribeExplorerAuthoringNetworkErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewDescribeExplorerAuthoringNetworkErrorResponse(status, failure)
 }

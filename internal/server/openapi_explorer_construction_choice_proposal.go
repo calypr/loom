@@ -76,5 +76,5 @@ func (r *HTTPRoutes) ProposeExplorerConstructionChoice(ctx context.Context, requ
 		return loomapi.ProposeExplorerConstructionChoice200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerConstructionChoice", err)
-	return loomapi.NewProposeExplorerConstructionChoiceErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewProposeExplorerConstructionChoiceErrorResponse(status, failure)
 }

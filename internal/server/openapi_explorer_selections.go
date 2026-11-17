@@ -108,7 +108,7 @@ func (r *HTTPRoutes) CreateExplorerSelection(ctx context.Context, request loomap
 		return loomapi.CreateExplorerSelection201JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "createExplorerSelection", err)
-	return loomapi.NewCreateExplorerSelectionErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewCreateExplorerSelectionErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) GetExplorerSelection(ctx context.Context, request loomapi.GetExplorerSelectionRequestObject) (loomapi.GetExplorerSelectionResponseObject, error) {
@@ -123,5 +123,5 @@ func (r *HTTPRoutes) GetExplorerSelection(ctx context.Context, request loomapi.G
 		return loomapi.GetExplorerSelection200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerSelection", err)
-	return loomapi.NewGetExplorerSelectionErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewGetExplorerSelectionErrorResponse(status, failure)
 }

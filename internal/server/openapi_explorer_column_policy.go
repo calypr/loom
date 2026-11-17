@@ -4,7 +4,6 @@ import (
 	"context"
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	"net/http"
 )
 
 func (h *explorerHTTPHandlers) proposeColumnPolicyDirect(ctx context.Context, project, explorerID string, body *loomapi.ColumnPolicyProposalRequest) (loomapi.ColumnPolicyProposal, error) {
@@ -33,8 +32,5 @@ func (r *HTTPRoutes) ProposeExplorerColumnPolicy(ctx context.Context, request lo
 		return loomapi.ProposeExplorerColumnPolicy200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerColumnPolicy", err)
-	if status == http.StatusUnauthorized {
-		return loomapi.NewProposeExplorerColumnPolicyErrorResponse(status, authoringUnauthorizedResponse(failure))
-	}
 	return loomapi.NewProposeExplorerColumnPolicyErrorResponse(status, failure)
 }

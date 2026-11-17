@@ -38,5 +38,5 @@ func (r *HTTPRoutes) GetExplorerConstructionInputs(ctx context.Context, request 
 		return loomapi.GetExplorerConstructionInputs200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionInputs", err)
-	return loomapi.NewGetExplorerConstructionInputsErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewGetExplorerConstructionInputsErrorResponse(status, failure)
 }

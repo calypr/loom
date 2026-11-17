@@ -43,5 +43,5 @@ func (r *HTTPRoutes) BrowseExplorerFrameSourceOptions(ctx context.Context, reque
 		return loomapi.BrowseExplorerFrameSourceOptions200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "browseExplorerFrameSourceOptions", err)
-	return loomapi.NewBrowseExplorerFrameSourceOptionsErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewBrowseExplorerFrameSourceOptionsErrorResponse(status, failure)
 }

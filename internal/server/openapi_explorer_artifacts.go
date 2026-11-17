@@ -67,7 +67,7 @@ func (r *HTTPRoutes) PrepareExplorerArtifact(ctx context.Context, request loomap
 		return loomapi.PrepareExplorerArtifact200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "prepareExplorerArtifact", err)
-	return loomapi.NewPrepareExplorerArtifactErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewPrepareExplorerArtifactErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) DownloadExplorerArtifact(ctx context.Context, request loomapi.DownloadExplorerArtifactRequestObject) (loomapi.DownloadExplorerArtifactResponseObject, error) {
@@ -80,5 +80,5 @@ func (r *HTTPRoutes) DownloadExplorerArtifact(ctx context.Context, request looma
 	if errors.As(err, &lifecycleErr) && lifecycleErr.Code == "ARTIFACT_EXPIRED" {
 		status = http.StatusGone
 	}
-	return loomapi.NewDownloadExplorerArtifactErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewDownloadExplorerArtifactErrorResponse(status, failure)
 }

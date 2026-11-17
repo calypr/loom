@@ -11,8 +11,8 @@ func (r *HTTPRoutes) ListExplorers(ctx context.Context, request loomapi.ListExpl
 	if err == nil {
 		return loomapi.ListExplorers200JSONResponse(value), nil
 	}
-	status, legacy := explorerLegacyResponse(err)
-	return loomapi.NewListExplorersErrorResponse(status, legacy)
+	status, failure := explorerErrorResponse(err)
+	return loomapi.NewListExplorersErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) CreateExplorer(ctx context.Context, request loomapi.CreateExplorerRequestObject) (loomapi.CreateExplorerResponseObject, error) {
@@ -20,8 +20,8 @@ func (r *HTTPRoutes) CreateExplorer(ctx context.Context, request loomapi.CreateE
 	if err == nil {
 		return loomapi.CreateExplorer201JSONResponse(value), nil
 	}
-	status, legacy := explorerLegacyResponse(err)
-	return loomapi.NewCreateExplorerErrorResponse(status, legacy)
+	status, failure := explorerErrorResponse(err)
+	return loomapi.NewCreateExplorerErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) GetExplorer(ctx context.Context, request loomapi.GetExplorerRequestObject) (loomapi.GetExplorerResponseObject, error) {
@@ -29,8 +29,8 @@ func (r *HTTPRoutes) GetExplorer(ctx context.Context, request loomapi.GetExplore
 	if err == nil {
 		return loomapi.GetExplorer200JSONResponse(value), nil
 	}
-	status, legacy := explorerLegacyResponse(err)
-	return loomapi.NewGetExplorerErrorResponse(status, legacy)
+	status, failure := explorerErrorResponse(err)
+	return loomapi.NewGetExplorerErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) PublishRepositoryExplorerConfig(ctx context.Context, request loomapi.PublishRepositoryExplorerConfigRequestObject) (loomapi.PublishRepositoryExplorerConfigResponseObject, error) {
@@ -38,8 +38,8 @@ func (r *HTTPRoutes) PublishRepositoryExplorerConfig(ctx context.Context, reques
 	if err == nil {
 		return loomapi.PublishRepositoryExplorerConfig200JSONResponse(value), nil
 	}
-	status, legacy := explorerLegacyResponse(err)
-	return loomapi.NewPublishRepositoryExplorerConfigErrorResponse(status, legacy)
+	status, failure := explorerErrorResponse(err)
+	return loomapi.NewPublishRepositoryExplorerConfigErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) GetExplorerAuthoringCapability(ctx context.Context, request loomapi.GetExplorerAuthoringCapabilityRequestObject) (loomapi.GetExplorerAuthoringCapabilityResponseObject, error) {
@@ -48,7 +48,7 @@ func (r *HTTPRoutes) GetExplorerAuthoringCapability(ctx context.Context, request
 		return loomapi.GetExplorerAuthoringCapability200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerAuthoringCapability", err)
-	return loomapi.NewGetExplorerAuthoringCapabilityErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewGetExplorerAuthoringCapabilityErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) SearchExplorerCandidates(ctx context.Context, request loomapi.SearchExplorerCandidatesRequestObject) (loomapi.SearchExplorerCandidatesResponseObject, error) {
@@ -57,7 +57,7 @@ func (r *HTTPRoutes) SearchExplorerCandidates(ctx context.Context, request looma
 		return loomapi.SearchExplorerCandidates200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerCandidates", err)
-	return loomapi.NewSearchExplorerCandidatesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewSearchExplorerCandidatesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) SearchExplorerSchemaFields(ctx context.Context, request loomapi.SearchExplorerSchemaFieldsRequestObject) (loomapi.SearchExplorerSchemaFieldsResponseObject, error) {
@@ -66,7 +66,7 @@ func (r *HTTPRoutes) SearchExplorerSchemaFields(ctx context.Context, request loo
 		return loomapi.SearchExplorerSchemaFields200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerSchemaFields", err)
-	return loomapi.NewSearchExplorerSchemaFieldsErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewSearchExplorerSchemaFieldsErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) GetExplorerBuilder(ctx context.Context, request loomapi.GetExplorerBuilderRequestObject) (loomapi.GetExplorerBuilderResponseObject, error) {
@@ -75,7 +75,7 @@ func (r *HTTPRoutes) GetExplorerBuilder(ctx context.Context, request loomapi.Get
 		return loomapi.GetExplorerBuilder200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerBuilder", err)
-	return loomapi.NewGetExplorerBuilderErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewGetExplorerBuilderErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) ApplyExplorerBuilderCommands(ctx context.Context, request loomapi.ApplyExplorerBuilderCommandsRequestObject) (loomapi.ApplyExplorerBuilderCommandsResponseObject, error) {
@@ -84,7 +84,7 @@ func (r *HTTPRoutes) ApplyExplorerBuilderCommands(ctx context.Context, request l
 		return loomapi.ApplyExplorerBuilderCommands200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "applyExplorerBuilderCommands", err)
-	return loomapi.NewApplyExplorerBuilderCommandsErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewApplyExplorerBuilderCommandsErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) AssessExplorerRowChange(ctx context.Context, request loomapi.AssessExplorerRowChangeRequestObject) (loomapi.AssessExplorerRowChangeResponseObject, error) {
@@ -93,7 +93,7 @@ func (r *HTTPRoutes) AssessExplorerRowChange(ctx context.Context, request loomap
 		return loomapi.AssessExplorerRowChange200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "assessExplorerRowChange", err)
-	return loomapi.NewAssessExplorerRowChangeErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewAssessExplorerRowChangeErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) ReconcileExplorerBuilder(ctx context.Context, request loomapi.ReconcileExplorerBuilderRequestObject) (loomapi.ReconcileExplorerBuilderResponseObject, error) {
@@ -104,7 +104,7 @@ func (r *HTTPRoutes) ReconcileExplorerBuilder(ctx context.Context, request looma
 		return loomapi.ReconcileExplorerBuilder200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "reconcileExplorerBuilder", err)
-	return loomapi.NewReconcileExplorerBuilderErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewReconcileExplorerBuilderErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) PreviewExplorer(ctx context.Context, request loomapi.PreviewExplorerRequestObject) (loomapi.PreviewExplorerResponseObject, error) {
@@ -115,7 +115,7 @@ func (r *HTTPRoutes) PreviewExplorer(ctx context.Context, request loomapi.Previe
 		return loomapi.PreviewExplorer200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "previewExplorer", err)
-	return loomapi.NewPreviewExplorerErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewPreviewExplorerErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) TraceExplorerCell(ctx context.Context, request loomapi.TraceExplorerCellRequestObject) (loomapi.TraceExplorerCellResponseObject, error) {
@@ -124,7 +124,7 @@ func (r *HTTPRoutes) TraceExplorerCell(ctx context.Context, request loomapi.Trac
 		return loomapi.TraceExplorerCell200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerCell", err)
-	return loomapi.NewTraceExplorerCellErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewTraceExplorerCellErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) TraceExplorerRowLineage(ctx context.Context, request loomapi.TraceExplorerRowLineageRequestObject) (loomapi.TraceExplorerRowLineageResponseObject, error) {
@@ -133,7 +133,7 @@ func (r *HTTPRoutes) TraceExplorerRowLineage(ctx context.Context, request loomap
 		return loomapi.TraceExplorerRowLineage200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerRowLineage", err)
-	return loomapi.NewTraceExplorerRowLineageErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewTraceExplorerRowLineageErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) CheckExplorerPopulationMapping(ctx context.Context, request loomapi.CheckExplorerPopulationMappingRequestObject) (loomapi.CheckExplorerPopulationMappingResponseObject, error) {
@@ -144,7 +144,7 @@ func (r *HTTPRoutes) CheckExplorerPopulationMapping(ctx context.Context, request
 		return loomapi.CheckExplorerPopulationMapping200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "checkExplorerPopulationMapping", err)
-	return loomapi.NewCheckExplorerPopulationMappingErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewCheckExplorerPopulationMappingErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) PublishExplorer(ctx context.Context, request loomapi.PublishExplorerRequestObject) (loomapi.PublishExplorerResponseObject, error) {
@@ -155,19 +155,7 @@ func (r *HTTPRoutes) PublishExplorer(ctx context.Context, request loomapi.Publis
 		return loomapi.PublishExplorer200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "publishExplorer", err)
-	return loomapi.NewPublishExplorerErrorResponse(status, openAPIErrorResponseBody(status, failure))
-}
-
-func authoringUnauthorizedResponse(failure loomapi.ErrorResponse) loomapi.ServiceUnauthorizedJSONResponse {
-	body := loomapi.ServiceErrorResponse{Error: loomapi.ServiceErrorBody{Code: failure.Error.Code, Message: failure.Error.Message, RequestId: failure.Error.RequestId}}
-	if failure.Error.AdditionalProperties != nil {
-		details := map[string]interface{}{}
-		for key, value := range failure.Error.AdditionalProperties {
-			details[key] = value
-		}
-		body.Error.Details = &details
-	}
-	return loomapi.ServiceUnauthorizedJSONResponse(body)
+	return loomapi.NewPublishExplorerErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) ListInterpretationLibraries(ctx context.Context, request loomapi.ListInterpretationLibrariesRequestObject) (loomapi.ListInterpretationLibrariesResponseObject, error) {
@@ -176,7 +164,7 @@ func (r *HTTPRoutes) ListInterpretationLibraries(ctx context.Context, request lo
 		return loomapi.ListInterpretationLibraries200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "listInterpretationLibraries", err)
-	return loomapi.NewListInterpretationLibrariesErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewListInterpretationLibrariesErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) CreateInterpretationRevision(ctx context.Context, request loomapi.CreateInterpretationRevisionRequestObject) (loomapi.CreateInterpretationRevisionResponseObject, error) {
@@ -185,7 +173,7 @@ func (r *HTTPRoutes) CreateInterpretationRevision(ctx context.Context, request l
 		return loomapi.CreateInterpretationRevision201JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "createInterpretationRevision", err)
-	return loomapi.NewCreateInterpretationRevisionErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewCreateInterpretationRevisionErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) GetInterpretationRevision(ctx context.Context, request loomapi.GetInterpretationRevisionRequestObject) (loomapi.GetInterpretationRevisionResponseObject, error) {
@@ -194,7 +182,7 @@ func (r *HTTPRoutes) GetInterpretationRevision(ctx context.Context, request loom
 		return loomapi.GetInterpretationRevision200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getInterpretationRevision", err)
-	return loomapi.NewGetInterpretationRevisionErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewGetInterpretationRevisionErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) PreviewInterpretationCandidate(ctx context.Context, request loomapi.PreviewInterpretationCandidateRequestObject) (loomapi.PreviewInterpretationCandidateResponseObject, error) {
@@ -203,7 +191,7 @@ func (r *HTTPRoutes) PreviewInterpretationCandidate(ctx context.Context, request
 		return loomapi.PreviewInterpretationCandidate200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "previewInterpretationCandidate", err)
-	return loomapi.NewPreviewInterpretationCandidateErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewPreviewInterpretationCandidateErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) ResolveConfiguredColumnContext(ctx context.Context, request loomapi.ResolveConfiguredColumnContextRequestObject) (loomapi.ResolveConfiguredColumnContextResponseObject, error) {
@@ -212,7 +200,7 @@ func (r *HTTPRoutes) ResolveConfiguredColumnContext(ctx context.Context, request
 		return loomapi.ResolveConfiguredColumnContext200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "resolveConfiguredColumnContext", err)
-	return loomapi.NewResolveConfiguredColumnContextErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewResolveConfiguredColumnContextErrorResponse(status, failure)
 }
 
 func (r *HTTPRoutes) CreateInterpretationRevisionFromColumn(ctx context.Context, request loomapi.CreateInterpretationRevisionFromColumnRequestObject) (loomapi.CreateInterpretationRevisionFromColumnResponseObject, error) {
@@ -221,5 +209,5 @@ func (r *HTTPRoutes) CreateInterpretationRevisionFromColumn(ctx context.Context,
 		return loomapi.CreateInterpretationRevisionFromColumn201JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "createInterpretationRevisionFromColumn", err)
-	return loomapi.NewCreateInterpretationRevisionFromColumnErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewCreateInterpretationRevisionFromColumnErrorResponse(status, failure)
 }

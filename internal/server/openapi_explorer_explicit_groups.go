@@ -48,5 +48,5 @@ func (r *HTTPRoutes) CreateExplorerExplicitGroupRevision(ctx context.Context, re
 		return loomapi.CreateExplorerExplicitGroupRevision201JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "createExplorerExplicitGroupRevision", err)
-	return loomapi.NewCreateExplorerExplicitGroupRevisionErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewCreateExplorerExplicitGroupRevisionErrorResponse(status, failure)
 }

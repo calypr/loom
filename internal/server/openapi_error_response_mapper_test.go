@@ -71,34 +71,29 @@ func TestGeneratedErrorMappersPreserveInputWireBodies(t *testing.T) {
 		}
 		testWire(t, 400, authoring, mapped.VisitProposeExplorerColumnPolicyResponse)
 	})
-	t.Run("401 service envelope retains details field path retryability and request id", func(t *testing.T) {
-		mapped, err := loomapi.NewProposeExplorerColumnPolicyErrorResponse(401, loomapi.ServiceUnauthorizedJSONResponse(service))
+	t.Run("401 Explorer envelope retains diagnostics details and request id", func(t *testing.T) {
+		mapped, err := loomapi.NewProposeExplorerColumnPolicyErrorResponse(401, authoring)
 		if err != nil {
 			t.Fatal(err)
 		}
-		testWire(t, 401, service, mapped.VisitProposeExplorerColumnPolicyResponse)
+		testWire(t, 401, authoring, mapped.VisitProposeExplorerColumnPolicyResponse)
 	})
-	t.Run("legacy string body", func(t *testing.T) {
-		legacy := loomapi.LegacyErrorResponse{}
-		if err := legacy.Error.FromLegacyErrorResponseError0("legacy string failure"); err != nil {
-			t.Fatal(err)
-		}
-		mapped, err := loomapi.NewListExplorersErrorResponse(403, legacy)
+	t.Run("Explorer 403 common error body", func(t *testing.T) {
+		body := loomapi.ErrorResponse{Error: loomapi.ErrorBody{Code: "FORBIDDEN", Message: "forbidden"}}
+		mapped, err := loomapi.NewListExplorersErrorResponse(403, body)
 		if err != nil {
 			t.Fatal(err)
 		}
-		testWire(t, 403, legacy, mapped.VisitListExplorersResponse)
+		testWire(t, 403, body, mapped.VisitListExplorersResponse)
 	})
-	t.Run("legacy object body", func(t *testing.T) {
-		legacy := loomapi.LegacyErrorResponse{}
-		if err := legacy.Error.FromLegacyErrorBody(loomapi.LegacyErrorBody{Code: "CONFLICT", Message: "already exists", AdditionalProperties: map[string]interface{}{"retryable": false}}); err != nil {
-			t.Fatal(err)
-		}
-		mapped, err := loomapi.NewCreateExplorerErrorResponse(409, legacy)
+	t.Run("Explorer 409 common body retains details", func(t *testing.T) {
+		details := map[string]interface{}{"retryable": false}
+		body := loomapi.ErrorResponse{Error: loomapi.ErrorBody{Code: "CONFLICT", Message: "already exists", Details: &details}}
+		mapped, err := loomapi.NewCreateExplorerErrorResponse(409, body)
 		if err != nil {
 			t.Fatal(err)
 		}
-		testWire(t, 409, legacy, mapped.VisitCreateExplorerResponse)
+		testWire(t, 409, body, mapped.VisitCreateExplorerResponse)
 	})
 	t.Run("GraphQL RawJSON", func(t *testing.T) {
 		body := loomapi.RawJSON{"data": nil, "errors": []interface{}{map[string]interface{}{"message": "query failed", "extensions": map[string]interface{}{"code": "GRAPHQL_VALIDATION_FAILED"}}}}

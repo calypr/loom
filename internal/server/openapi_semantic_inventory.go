@@ -68,5 +68,5 @@ func (r *HTTPRoutes) BrowseExplorerSemanticInventory(ctx context.Context, reques
 		return loomapi.BrowseExplorerSemanticInventory200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "browseExplorerSemanticInventory", err)
-	return loomapi.NewBrowseExplorerSemanticInventoryErrorResponse(status, openAPIErrorResponseBody(status, failure))
+	return loomapi.NewBrowseExplorerSemanticInventoryErrorResponse(status, failure)
 }
