@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -33,14 +32,6 @@ import (
 // checkable independently of other verification workers.
 
 const nameBindingDatabasePrefix = "loom_verify_nlb_"
-const runKnownFailuresEnvArango = "LOOM_RUN_KNOWN_FAILURES"
-
-func skipKnownIssueUnlessEnabled(t *testing.T, issueID string) {
-	t.Helper()
-	if os.Getenv(runKnownFailuresEnvArango) != "1" {
-		t.Skipf("%s: known failure; set %s=1 to run the red regression assertion", issueID, runKnownFailuresEnvArango)
-	}
-}
 
 type nameBindingExecSpec struct {
 	id                 string
@@ -183,7 +174,6 @@ func TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango(t *testing.T)
 // TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango checks latest
 // selector ordering and canonicalization for a legacy READY execution.
 func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
-	skipKnownIssueUnlessEnabled(t, "ARC-C14")
 	ctx, client, registry := nameBindingOpen(t, 60*time.Second)
 
 	project := "nlb-case-project"

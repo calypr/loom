@@ -370,7 +370,6 @@ func ecwFindAcquire(t *testing.T, catalog *ecwCatalog, executionID, readerID str
 // pinned execution is retained, unrelated stale work is reclaimed, and the
 // reconcile pass completes without error.
 func TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango(t *testing.T) {
-	skipKnownIssueUnlessEnabled(t, "ARC-C13")
 	client, registry, ctx, suffix := ecwSetup(t)
 
 	base := time.Now().UTC()

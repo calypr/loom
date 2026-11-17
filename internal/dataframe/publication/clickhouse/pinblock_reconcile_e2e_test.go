@@ -2,7 +2,6 @@ package clickhouse
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -12,15 +11,6 @@ import (
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
-
-const runKnownFailuresEnv = "LOOM_RUN_KNOWN_FAILURES"
-
-func skipKnownIssueUnlessEnabled(t *testing.T, issueID string) {
-	t.Helper()
-	if os.Getenv(runKnownFailuresEnv) != "1" {
-		t.Skipf("%s: known failure; set %s=1 to run the red regression assertion", issueID, runKnownFailuresEnv)
-	}
-}
 
 // These tests exercise reconciliation with a live read pin. The intended
 // behavior is to retain the pinned execution and continue reclaiming unrelated
@@ -134,7 +124,6 @@ func pbxSeed(t *testing.T, registry *pubarango.Registry, ctx context.Context, ex
 // With two stale executions and a pin on X, Reconcile should retain X, reclaim
 // unrelated Y, and return no error.
 func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
-	skipKnownIssueUnlessEnabled(t, "ARC-C13")
 	registry, ctx, suffix := pbxSetup(t)
 
 	base := time.Now().UTC()
@@ -228,7 +217,6 @@ func TestStalePinAbsentReclaimsAllAgainstArango(t *testing.T) {
 // historical name while checking that a single pinned candidate does not abort
 // reconciliation or cause its table to be dropped.
 func TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango(t *testing.T) {
-	skipKnownIssueUnlessEnabled(t, "ARC-C13")
 	registry, ctx, suffix := pbxSetup(t)
 
 	base := time.Now().UTC()

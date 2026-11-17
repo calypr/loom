@@ -107,9 +107,8 @@ whole reconciliation run, leaving unrelated reclaimable executions untouched.
 The no-pin control reclaims them. Retained cases are
 `TestStalePinBlocksEntireReconcileAgainstArango`,
 `TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango`, and
-`TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango`. Enable
-`LOOM_RUN_KNOWN_FAILURES=1` with owned service credentials to run their red
-assertions. Their normal skips are explicitly unverified, never passes.
+`TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango`. With owned service credentials these assertions run normally and remain red
+until the product defect is repaired.
 
 ### ARC-C14 — legacy READY selection chooses the older execution
 
@@ -117,8 +116,8 @@ assertions. Their normal skips are explicitly unverified, never passes.
 with a newer ReadyAt and no PublishedAt canonicalizes as published, but the
 selector returns an older execution.
 `TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango` retains the red
-assertion behind `LOOM_RUN_KNOWN_FAILURES=1`; its normal skip leaves one
-Phase-1 baseline guarantee unverified.
+assertion in normal integration runs. It leaves one Phase-1 baseline
+guarantee red until the product defect is repaired.
 
 ### ARC-E12 — end-to-end CI cadence
 

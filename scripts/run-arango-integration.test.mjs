@@ -29,25 +29,15 @@ test('external preconditions remain explicit unverified cases', () => {
         { Test: 'TestUnexpected', Action: 'skip' },
     ]), { required: 'TestReal' }), /Unexpected skipped case/);
 });
-test('known product failures remain explicit incomplete evidence, never test passes', () => {
-    const events = [
-        { Action: 'pass' },
-        { Test: 'TestReal', Action: 'run' }, { Test: 'TestReal', Action: 'pass' },
-        { Test: 'TestStalePinBlocksEntireReconcileAgainstArango', Action: 'skip' },
-        { Test: 'TestStalePinBlocksEntireReconcileAgainstArango', Action: 'output', Output: '    ARC-C13: known failure; opt in to run assertion\n' },
-    ];
-    const result = checkEvents(stream(events), { required: 'TestReal' });
-    assert.deepEqual(result.unverified, [{
-        test: 'TestStalePinBlocksEntireReconcileAgainstArango',
-        reason: 'ARC-C13: known failure; opt in to run assertion',
-        issue: 'ARC-C13',
-    }]);
-    assert.throws(() => checkEvents(stream([
-        { Action: 'pass' },
-        { Test: 'TestReal', Action: 'run' }, { Test: 'TestReal', Action: 'pass' },
-        { Test: 'TestStalePinBlocksEntireReconcileAgainstArango', Action: 'skip' },
-        { Test: 'TestStalePinBlocksEntireReconcileAgainstArango', Action: 'output', Output: 'skipped for another reason\n' },
-    ]), { required: 'TestReal' }), /must name ARC-C13/);
+test('known product regressions cannot be skipped even with an issue ID', () => {
+    for (const reason of ['ARC-C13: known failure', 'skipped for another reason']) {
+        assert.throws(() => checkEvents(stream([
+            { Action: 'pass' },
+            { Test: 'TestReal', Action: 'run' }, { Test: 'TestReal', Action: 'pass' },
+            { Test: 'TestStalePinBlocksEntireReconcileAgainstArango', Action: 'skip' },
+            { Test: 'TestStalePinBlocksEntireReconcileAgainstArango', Action: 'output', Output: reason },
+        ]), { required: 'TestReal' }), /Unexpected skipped case/);
+    }
 });
 test('only a database successfully created by this run becomes cleanup-owned', async () => {
     const owned = [];

@@ -51,17 +51,8 @@ const external = new Set([
     'TestCompoundEdgeIndexExplainAgainstArango',
     'TestReceiptPreviewExplainAgainstArango',
     ...dualStore,
-    'TestStalePinBlocksEntireReconcileAgainstArango',
-    'TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango',
-    'TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango',
-    'TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango',
 ]);
-const knownFailureSkips = new Map([
-    ['TestStalePinBlocksEntireReconcileAgainstArango', 'ARC-C13'],
-    ['TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango', 'ARC-C13'],
-    ['TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango', 'ARC-C13'],
-    ['TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango', 'ARC-C14'],
-]);
+
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
     ['compiler', './internal/dataframe/compiler', 'TestPivotPresenceArangoAudit'],
@@ -111,9 +102,6 @@ export function checkEvents(stdout, profile) {
     const skipped = events.filter(e => e.Test && e.Action === 'skip').map(e => ({ test: e.Test, reason: events.filter(o => o.Test === e.Test && o.Action === 'output').map(o => o.Output).join('').trim() }));
     for (const skip of skipped) {
         assert.ok(external.has(skip.test), `Unexpected skipped case: ${skip.test}`);
-        const issue = knownFailureSkips.get(skip.test);
-        if (issue) assert.ok(skip.reason.includes(issue), `${skip.test} skip must name ${issue}; got: ${skip.reason}`);
-        if (issue) skip.issue = issue;
     }
     return { passes, unverified: skipped };
 }
@@ -168,16 +156,22 @@ export async function runArango(output) {
             child(profile, true);
             for (const extra of profile.alsoPackages || []) child({ ...profile, package: extra.package }, true, `${profile.id}-${extra.package.split('/').at(-1)}`);
         }
+        const failures = [];
+        const verify = (profile, id, profileEnv) => {
+            try { child(profile, false, id, profileEnv); }
+            catch (error) { failures.push({ id, error: error.message }); }
+        };
         for (const profile of profiles) {
             const profileEnv = profile.id === 'store'
                 ? { ...env, LOOM_TEST_ARANGO_URL: '', LOOM_TEST_ARANGO_DATABASE: '', LOOM_TEST_REQUIRED: '' }
                 : env;
-            child(profile, false, profile.id, profileEnv);
+            verify(profile, profile.id, profileEnv);
             for (const extra of profile.alsoPackages || []) {
-                child({ ...profile, package: extra.package, required: extra.required, alsoRequired: [] }, false, `${profile.id}-${extra.package.split('/').at(-1)}`, profileEnv);
+                verify({ ...profile, package: extra.package, required: extra.required, alsoRequired: [] }, `${profile.id}-${extra.package.split('/').at(-1)}`, profileEnv);
             }
         }
-        evidence.status = evidence.profiles.some(p => p.unverified?.length) ? 'passed-with-explicit-unverified-external-cases' : 'passed';
+        evidence.failures = failures;
+        evidence.status = failures.length ? 'failed' : evidence.profiles.some(p => p.unverified?.length) ? 'passed-with-explicit-unverified-external-cases' : 'passed';
     } catch (error) { evidence.status = 'failed'; evidence.error = error.message; }
     finally {
         for (const name of owned.reverse()) {
