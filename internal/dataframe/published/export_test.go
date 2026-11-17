@@ -280,3 +280,7 @@ func TestStreamExactExportPropagatesCancellationWithoutSuccess(t *testing.T) {
 		t.Fatalf("release count = %d, want 1", catalog.release)
 	}
 }
+
+func (c *exactExportCatalog) FindExecutionBySelector(_ context.Context, project, generation string, selector publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
+	return findTestExecutionBySelector(c.execution, project, generation, selector)
+}

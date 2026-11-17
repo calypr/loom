@@ -33,8 +33,8 @@ func (r *Reader) CurrentProjectDataset(ctx context.Context, project string, sele
 	if err != nil {
 		return Materialization{}, err
 	}
-	if exact, ok := r.Catalog.(bundlepublication.ExactExecutionCatalog); ok && activeGeneration != "" {
-		execution, output, err := exact.FindExecutionBySelector(ctx, project, activeGeneration, selector)
+	if activeGeneration != "" {
+		execution, output, err := r.Catalog.FindExecutionBySelector(ctx, project, activeGeneration, selector)
 		if err != nil {
 			if errors.Is(err, bundlepublication.ErrBundleNotFound) {
 				return Materialization{}, dataframeerrors.NewError(dataframeerrors.CodeDatasetNotFound, "")
