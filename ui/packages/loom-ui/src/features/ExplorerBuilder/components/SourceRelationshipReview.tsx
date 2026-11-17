@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import type { SourceRuleCreate } from '../../../types';
 import type { LoomClient } from '../../../api';
 import type {
   ExplorerBuilderCommand,
@@ -43,9 +44,10 @@ interface BaseProps {
 }
 
 type Props = BaseProps & (
-  { readonly change: SourceRelationshipChange; readonly sourceStep?: never; readonly sourceSteps?: never } |
-  { readonly change?: never; readonly sourceStep: NonNullable<ExplorerBuilderCommand['sourceStep']>; readonly sourceSteps?: never } |
-  { readonly change?: never; readonly sourceStep?: never; readonly sourceSteps: ReadonlyArray<NonNullable<ExplorerBuilderCommand['sourceStep']>> }
+  { readonly change: SourceRelationshipChange; readonly sourceStep?: never; readonly sourceSteps?: never; readonly sourceRule?: never } |
+  { readonly change?: never; readonly sourceStep: NonNullable<ExplorerBuilderCommand['sourceStep']>; readonly sourceSteps?: never; readonly sourceRule?: never } |
+  { readonly change?: never; readonly sourceStep?: never; readonly sourceSteps: ReadonlyArray<NonNullable<ExplorerBuilderCommand['sourceStep']>>; readonly sourceRule?: never } |
+  { readonly change?: never; readonly sourceStep?: never; readonly sourceSteps?: never; readonly sourceRule: SourceRuleCreate }
 );
 
 // The owner mounts this inspector with the full draft/snapshot/output identity
@@ -81,7 +83,7 @@ export function SourceRelationshipReview(props: Props) {
       const proposal = await props.client.proposeSourceRelationship({
         project: props.project, explorerId: props.explorerId, authResourcePath: props.authResourcePath,
         snapshotToken: props.snapshotToken, expectedDraftVersion: props.draftVersion,
-        expectedDraftDigest: props.draftDigest, outputId: props.outputId, ...(props.change ? { change: props.change } : props.sourceSteps ? { sourceSteps: [...props.sourceSteps] } : { sourceStep: props.sourceStep }),
+        expectedDraftDigest: props.draftDigest, outputId: props.outputId, ...(props.change ? { change: props.change } : props.sourceRule ? { sourceRule: props.sourceRule } : props.sourceSteps ? { sourceSteps: [...props.sourceSteps] } : { sourceStep: props.sourceStep }),
       }, controller.signal);
       if (token !== sequence.current || controller.signal.aborted) return;
       if (proposal.outputId !== props.outputId || proposal.snapshotToken !== props.snapshotToken ||
@@ -121,8 +123,8 @@ export function SourceRelationshipReview(props: Props) {
   const visibleResult = props.prepared ?? result;
   const externallyPreparing = props.preparing ?? false;
   const visibleError = props.preparationError ?? error;
-  const sourceEdit = Boolean(props.sourceStep || props.sourceSteps);
-  const creatingColumnRule = props.sourceStep?.createIdentifierRule === true;
+  const sourceEdit = Boolean(props.sourceRule || props.sourceStep || props.sourceSteps);
+  const creatingColumnRule = Boolean(props.sourceRule);
   const addedColumnIds = creatingColumnRule && visibleResult
     ? new Set(visibleResult.proposal.affectedColumns) : undefined;
   const addedColumns = addedColumnIds

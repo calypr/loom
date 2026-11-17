@@ -20,6 +20,7 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 		OutputID             string                                  `json:"outputId"`
 		Change               *authoringv2.ImportedRelationshipChange `json:"change,omitempty"`
 		SourceStep           *authoringv2.ImportedSourceStepChange   `json:"sourceStep,omitempty"`
+		SourceRule           *authoringv2.SourceRuleCreate           `json:"sourceRule,omitempty"`
 		SourceSteps          []authoringv2.ImportedSourceStepChange  `json:"sourceSteps,omitempty"`
 		IncludePreview       *bool                                   `json:"includePreview,omitempty"`
 		Limit                *int                                    `json:"limit,omitempty"`
@@ -31,7 +32,7 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &supplied); err != nil {
 		return err
 	}
-	for _, name := range []string{"change", "sourceStep", "sourceSteps"} {
+	for _, name := range []string{"change", "sourceStep", "sourceSteps", "sourceRule"} {
 		if value, ok := supplied[name]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return fmt.Errorf("%s must be a typed object", name)
 		}
@@ -46,11 +47,14 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 	if wire.SourceStep != nil {
 		count++
 	}
+	if wire.SourceRule != nil {
+		count++
+	}
 	if wire.SourceSteps != nil {
 		count++
 	}
 	if count != 1 {
-		return fmt.Errorf("exactly one change, sourceStep, or sourceSteps is required")
+		return fmt.Errorf("exactly one change, sourceStep, sourceSteps, or sourceRule is required")
 	}
 	if value, ok := supplied["limit"]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 		return fmt.Errorf("limit must be a positive integer when provided")
@@ -58,7 +62,7 @@ func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 	if wire.Limit != nil && *wire.Limit < 1 {
 		return fmt.Errorf("limit must be positive when provided")
 	}
-	*r = SourceRelationshipProposalRequest{SnapshotToken: wire.SnapshotToken, ExpectedDraftVersion: wire.ExpectedDraftVersion, ExpectedDraftDigest: wire.ExpectedDraftDigest, OutputID: wire.OutputID, SourceStep: wire.SourceStep, SourceSteps: wire.SourceSteps}
+	*r = SourceRelationshipProposalRequest{SnapshotToken: wire.SnapshotToken, ExpectedDraftVersion: wire.ExpectedDraftVersion, ExpectedDraftDigest: wire.ExpectedDraftDigest, OutputID: wire.OutputID, SourceStep: wire.SourceStep, SourceRule: wire.SourceRule, SourceSteps: wire.SourceSteps}
 	if wire.IncludePreview != nil {
 		r.IncludePreview = *wire.IncludePreview
 	}
@@ -113,6 +117,9 @@ func (r SourceRelationshipProposalRequest) validateSourceSelection() error {
 	if r.SourceStep != nil {
 		count++
 	}
+	if r.SourceRule != nil {
+		count++
+	}
 	if r.SourceSteps != nil {
 		count++
 	}
@@ -120,7 +127,10 @@ func (r SourceRelationshipProposalRequest) validateSourceSelection() error {
 		count++
 	}
 	if count != 1 {
-		return fmt.Errorf("exactly one change, sourceStep, or sourceSteps is required")
+		return fmt.Errorf("exactly one change, sourceStep, sourceSteps, or sourceRule is required")
+	}
+	if r.SourceRule != nil {
+		return r.SourceRule.Validate()
 	}
 	if r.SourceSteps != nil {
 		return authoringv2.ValidateImportedSourceStepBatch(r.SourceSteps)
@@ -143,8 +153,9 @@ func (r SourceRelationshipProposalRequest) MarshalJSON() ([]byte, error) {
 		OutputID             string                                  `json:"outputId"`
 		Change               *authoringv2.ImportedRelationshipChange `json:"change,omitempty"`
 		SourceStep           *authoringv2.ImportedSourceStepChange   `json:"sourceStep,omitempty"`
+		SourceRule           *authoringv2.SourceRuleCreate           `json:"sourceRule,omitempty"`
 		SourceSteps          []authoringv2.ImportedSourceStepChange  `json:"sourceSteps,omitempty"`
 		Limit                int                                     `json:"limit,omitempty"`
 		IncludePreview       bool                                    `json:"includePreview,omitempty"`
-	}{r.SnapshotToken, r.ExpectedDraftVersion, r.ExpectedDraftDigest, r.OutputID, change, r.SourceStep, r.SourceSteps, r.Limit, r.IncludePreview})
+	}{r.SnapshotToken, r.ExpectedDraftVersion, r.ExpectedDraftDigest, r.OutputID, change, r.SourceStep, r.SourceRule, r.SourceSteps, r.Limit, r.IncludePreview})
 }

@@ -37,27 +37,11 @@ func TestImportedSourceCommandsRejectUnresolvedOrInjectedState(t *testing.T) {
 	}
 }
 
-func TestIdentifierRuleCreationRequiresSingleSourceProposal(t *testing.T) {
-	const params = `{"dynamic":{"name":"identifiers","source":{"select":"root.identifier[]"},"key":{"select":"item.system"},"value":{"select":"item.value"}}}`
-	raw := `{"stepId":"output","enabled":true,"createIdentifierRule":true,"parameters":` + params + `}`
-	var change ImportedSourceStepChange
-	if err := json.Unmarshal([]byte(raw), &change); err != nil || !change.CreateIdentifierRule {
-		t.Fatalf("source proposal change could not be parsed: %v", err)
-	}
-	if err := ValidateImportedSourceStepBatch([]ImportedSourceStepChange{change}); err == nil {
-		t.Fatal("batch accepted identifier creation")
-	}
-	var command Command
-	rawCommand := `{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":` + raw + `}`
-	if err := json.Unmarshal([]byte(rawCommand), &command); err != nil {
-		t.Fatal(err)
-	}
-	request := ApplyCommandsRequest{
-		CommandID: "create-identifier-rule", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot",
-		ExpectedDraftVersion: 1, ExpectedDraftDigest: "digest", Commands: []Command{command},
-	}
-	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "requires a source proposal") {
-		t.Fatalf("direct command error = %v", err)
+func TestSourceRuleCreateRejectsMismatchedKind(t *testing.T) {
+	var rule SourceRuleCreate
+	raw := `{"kind":"EXTENSION_COLUMN","parameters":{"dynamic":{"name":"identifiers","source":{"select":"root.identifier[]"}}}}`
+	if err := json.Unmarshal([]byte(raw), &rule); err == nil || !strings.Contains(err.Error(), "must match") {
+		t.Fatalf("mismatched source rule error = %v", err)
 	}
 }
 

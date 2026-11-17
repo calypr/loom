@@ -68,17 +68,17 @@ func TestSourcePlanDescribesNativeOutputStagesWithStableOwnerPaths(t *testing.T)
 	}
 }
 
-func TestImportedIdentifierDynamicAdditionIsValidatedAppliedAndHydrated(t *testing.T) {
+func TestImportedIdentifierRuleAdditionIsValidatedAppliedAndHydrated(t *testing.T) {
 	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
 	key := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}
 	value := recipe.Expression{Select: "item.value"}
 	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
 		Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &key, Value: &value,
 	}}
-	addition := authoringv2.ImportedSourceDynamicAddition{StepID: "dynamicAdditions[0]", Enabled: true, Parameters: parameters}
+	addition := authoringv2.ImportedSourceRuleAddition{Kind: "DYNAMIC_COLUMN", StepID: "ruleAdditions[0]", Enabled: true, Parameters: parameters}
 	plan := SourcePlan(output)
-	plan.DynamicAdditions = []authoringv2.ImportedSourceDynamicAddition{addition}
-	plan.Steps = append(plan.Steps, dynamicAdditionStep(addition))
+	plan.RuleAdditions = []authoringv2.ImportedSourceRuleAddition{addition}
+	plan.Steps = append(plan.Steps, ruleAdditionStep(addition))
 
 	effective, err := ApplySourcePlan(output, &plan)
 	if err != nil {
@@ -91,7 +91,7 @@ func TestImportedIdentifierDynamicAdditionIsValidatedAppliedAndHydrated(t *testi
 	if err != nil {
 		t.Fatalf("hydrate generated Identifier addition: %v", err)
 	}
-	if len(hydrated.DynamicAdditions) != 1 || len(hydrated.Steps) != len(plan.Steps) || hydrated.Steps[len(hydrated.Steps)-1].ID != addition.StepID {
+	if len(hydrated.RuleAdditions) != 1 || len(hydrated.Steps) != len(plan.Steps) || hydrated.Steps[len(hydrated.Steps)-1].ID != addition.StepID {
 		t.Fatalf("hydrated source plan lost editable addition: %#v", hydrated)
 	}
 

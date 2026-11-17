@@ -539,7 +539,7 @@ export const ImportedSourceSteps = ({
               selectedOutputKey={activeValues.selectedOutputKey} outputFocusRequest={activeValues.outputFocusRequest}
               catalogOutputs={catalogOutputsForStep?.(activeStep.id) ?? []} pivotOutputs={pivotOutputsForStep?.(activeStep.id) ?? []}
               outputRevision={outputRevision}
-              structuredIdentifierRule={importedSource?.dynamicAdditions?.some(addition => addition.stepId === activeStep.id)}
+              structuredIdentifierRule={importedSource?.ruleAdditions?.some(addition => addition.stepId === activeStep.id)}
               parameters={activeValues.parameters} disabled={isDisabled} resourceTypeChoices={resourceTypeChoices} sourcePathChoices={sourcePathChoices} fieldPathChoices={fieldPathChoices} fieldKindChoices={fieldKindChoices} onChange={(parameters) => updateActive({ parameters, parametersChanged: true })} /> : null}
             {activeStep.kind === 'FIELD_GROUP' ? (() => {
               const pivotSteps = steps?.filter((step) =>

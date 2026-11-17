@@ -9,22 +9,20 @@ import (
 // ImportedSourceStepChange edits only the bounded settings of a registered
 // source operation. Its expressions and relationships remain server-owned.
 type ImportedSourceStepChange struct {
-	Parameters           *ImportedSourceParameters `json:"parameters,omitempty"`
-	StepID               string                    `json:"stepId"`
-	Enabled              bool                      `json:"enabled"`
-	CreateIdentifierRule bool                      `json:"createIdentifierRule,omitempty"`
-	MaxColumns           *int                      `json:"maxColumns,omitempty"`
-	ValueMode            string                    `json:"valueMode,omitempty"`
+	Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
+	StepID     string                    `json:"stepId"`
+	Enabled    bool                      `json:"enabled"`
+	MaxColumns *int                      `json:"maxColumns,omitempty"`
+	ValueMode  string                    `json:"valueMode,omitempty"`
 }
 
 func (c *ImportedSourceStepChange) UnmarshalJSON(raw []byte) error {
 	var wire struct {
-		Parameters           *ImportedSourceParameters `json:"parameters,omitempty"`
-		StepID               string                    `json:"stepId"`
-		Enabled              *bool                     `json:"enabled"`
-		MaxColumns           *int                      `json:"maxColumns,omitempty"`
-		ValueMode            string                    `json:"valueMode,omitempty"`
-		CreateIdentifierRule bool                      `json:"createIdentifierRule,omitempty"`
+		Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
+		StepID     string                    `json:"stepId"`
+		Enabled    *bool                     `json:"enabled"`
+		MaxColumns *int                      `json:"maxColumns,omitempty"`
+		ValueMode  string                    `json:"valueMode,omitempty"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
@@ -32,7 +30,7 @@ func (c *ImportedSourceStepChange) UnmarshalJSON(raw []byte) error {
 	if wire.Enabled == nil {
 		return fmt.Errorf("sourceStep.enabled is required")
 	}
-	*c = ImportedSourceStepChange{Parameters: wire.Parameters, StepID: wire.StepID, Enabled: *wire.Enabled, MaxColumns: wire.MaxColumns, ValueMode: wire.ValueMode, CreateIdentifierRule: wire.CreateIdentifierRule}
+	*c = ImportedSourceStepChange{Parameters: wire.Parameters, StepID: wire.StepID, Enabled: *wire.Enabled, MaxColumns: wire.MaxColumns, ValueMode: wire.ValueMode}
 	return c.Validate()
 }
 
@@ -45,11 +43,6 @@ func (c ImportedSourceStepChange) Validate() error {
 	}
 	if c.MaxColumns != nil && *c.MaxColumns < 1 {
 		return fmt.Errorf("sourceStep.maxColumns must be positive")
-	}
-	if c.CreateIdentifierRule {
-		if c.StepID != "output" || !c.Enabled || c.MaxColumns != nil || c.ValueMode != "" || c.Parameters == nil || c.Parameters.Dynamic == nil {
-			return fmt.Errorf("creating an identifier rule requires enabled=true, stepId=output, and dynamic parameters")
-		}
 	}
 	return nil
 }
@@ -167,9 +160,6 @@ func ValidateImportedSourceStepBatch(changes []ImportedSourceStepChange) error {
 		}
 		if seen[change.StepID] {
 			return fmt.Errorf("sourceSteps repeats stepId %q", change.StepID)
-		}
-		if change.CreateIdentifierRule {
-			return fmt.Errorf("dynamic additions must be created through the source proposal endpoint")
 		}
 		seen[change.StepID] = true
 	}

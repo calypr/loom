@@ -146,14 +146,14 @@ type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSe
 type Config struct {
 	// DefaultDataframeWorkspace returns the lossless imported workspace that
 	// backs the native graphical builder's reserved default dataframe owner.
-	DefaultDataframeWorkspace    func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error)
-	AuthoringNetwork             func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
-	EditImportedRelationship     func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
-	CreateImportedIdentifierRule func(context.Context, string, AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
-	EditImportedSource           func(context.Context, string, AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
-	EditImportedSources          func(context.Context, string, AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
-	RemoveImportedField          func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
-	RemoveImportedOutput         func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
+	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error)
+	AuthoringNetwork          func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
+	EditImportedRelationship  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
+	CreateImportedSourceRule  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.SourceRuleCreate) (authoringv2.Document, error)
+	EditImportedSource        func(context.Context, string, AuthorizedCapability, authoringv2.Document, *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
+	EditImportedSources       func(context.Context, string, AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
+	RemoveImportedField       func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
+	RemoveImportedOutput      func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
 	// SelectionMembersCollection is a deployment-owned runtime binding. It is
 	// never copied into authoring intent, recipes, or receipt identity.
 	SelectionMembersCollection         string

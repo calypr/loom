@@ -44,7 +44,7 @@ test('create an identifier column rule, preview its values, and reopen it from R
       }, 'identifier rule is saved');
       const savedDocument = saved.workspace.documents[0];
       assert.deepEqual(savedDocument.importedRecipe, before.workspace.documents[0].importedRecipe);
-      const [addition] = savedDocument.importedSource.dynamicAdditions;
+      const [addition] = savedDocument.importedSource.ruleAdditions;
       assert.equal(addition.parameters.dynamic.name, 'identifiers');
       assert.equal(savedDocument.importedSource.steps.find(step => step.id === addition.stepId).editable, true);
 
@@ -70,7 +70,7 @@ test('create an identifier column rule, preview its values, and reopen it from R
       await page.click('[data-testid="imported-source-step-apply"]');
       await page.until(async () => {
         const draft = await readDraft();
-        const rule = draft.workspace.documents[0].importedSource.dynamicAdditions[0];
+        const rule = draft.workspace.documents[0].importedSource.ruleAdditions[0];
         return rule.stepId === addition.stepId && rule.parameters.dynamic.key.call === 'last_segment';
       }, 'edited rule keeps its saved step identity');
     } finally {

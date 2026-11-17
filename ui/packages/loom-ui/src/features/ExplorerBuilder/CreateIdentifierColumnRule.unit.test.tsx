@@ -24,9 +24,7 @@ describe('creating an identifier column rule', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review column rule' }));
 
     expect(renderReview).toHaveBeenCalledWith({
-      createIdentifierRule: true,
-      stepId: 'output',
-      enabled: true,
+      kind: 'DYNAMIC_COLUMN',
       parameters: { dynamic: {
         name: 'external_ids',
         source: { select: 'root.identifier[]' },

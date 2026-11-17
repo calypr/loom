@@ -1375,12 +1375,12 @@ const BuilderWorkspaceContent = ({
             if (recipeMutationAllowed()) recipeEditToken.current = recipeOwner.begin({ kind: 'createColumnRule' });
           }}
           onCancel={() => cancelRecipeRelationship(false)}
-          renderReview={(sourceStep, onCancel) => <SourceRelationshipReview
+          renderReview={(sourceRule, onCancel) => <SourceRelationshipReview
             client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
             snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
             outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
             requestControllerRef={sourceRelationshipRequest}
-            sourceStep={sourceStep} sharedPreview onPreviewStart={beginSourceReview}
+            sourceRule={sourceRule} sharedPreview onPreviewStart={beginSourceReview}
             onApply={async (commands) => {
               const saved = await applySourceRecipe(commands);
               if (saved) closeConstructionWorkspace();

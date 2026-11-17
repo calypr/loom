@@ -1,11 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import type { ExplorerBuilderCommand, ImportedSourceParameters } from '../../types';
+import type { ImportedSourceParameters, SourceRuleCreate } from '../../types';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
 import { isIdentifierColumnRule } from './sourceColumnRule';
 
 const ruleNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-type RuleChange = NonNullable<ExplorerBuilderCommand['sourceStep']>;
 
 const initialRule: ImportedSourceParameters = {
   dynamic: {
@@ -21,7 +19,7 @@ export function CreateIdentifierColumnRule({ disabled, reviewing, onReview, onCa
   readonly reviewing: boolean;
   readonly onReview: () => void;
   readonly onCancel: () => void;
-  readonly renderReview: (change: RuleChange, leaveReview: () => void) => ReactNode;
+  readonly renderReview: (rule: SourceRuleCreate, leaveReview: () => void) => ReactNode;
 }) {
   const [parameters, setParameters] = useState(initialRule);
   const rule = parameters.dynamic;
@@ -38,7 +36,7 @@ export function CreateIdentifierColumnRule({ disabled, reviewing, onReview, onCa
         <p className="text-xs text-amber-800">Use letters, numbers, and underscores in the rule name and prefix. Start with a letter or underscore.</p>
       ) : null}
       {reviewing ? renderReview(
-        { createIdentifierRule: true, stepId: 'output', enabled: true, parameters },
+        { kind: 'DYNAMIC_COLUMN', parameters },
         onCancel,
       ) : (
         <button type="button" disabled={disabled || !canReview}

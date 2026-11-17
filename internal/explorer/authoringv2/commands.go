@@ -652,9 +652,6 @@ func (c Command) validate() error {
 			if c.SourceStep == nil {
 				return fmt.Errorf("sourceStep is required")
 			}
-			if c.SourceStep.CreateIdentifierRule {
-				return fmt.Errorf("createIdentifierRule requires a source proposal")
-			}
 			return c.SourceStep.Validate()
 		}
 		if c.SourceStep != nil {
