@@ -9,7 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -145,15 +145,15 @@ func queryapiGenderRows() []map[string]any {
 	return []map[string]any{{"_key": "p1", "gender": "female"}}
 }
 
-func queryapiSelector(valuePath string) *model.FhirFieldSelectorInput {
-	return &model.FhirFieldSelectorInput{ValuePath: valuePath}
+func queryapiSelector(valuePath string) *dataframemodel.FhirFieldSelectorInput {
+	return &dataframemodel.FhirFieldSelectorInput{ValuePath: valuePath}
 }
 
-func queryapiGenderInput() model.FhirDataframeInput {
-	return model.FhirDataframeInput{
+func queryapiGenderInput() dataframemodel.FhirDataframeInput {
+	return dataframemodel.FhirDataframeInput{
 		Project:          "P1",
 		RootResourceType: "Patient",
-		RootFields:       []*model.FhirFieldSelectInput{{Name: "gender", Selector: queryapiSelector("gender")}},
+		RootFields:       []*dataframemodel.FhirFieldSelectInput{{Name: "gender", Selector: queryapiSelector("gender")}},
 	}
 }
 
@@ -188,7 +188,7 @@ type runOutcome struct {
 
 // runAsync starts Run on its own goroutine so the test goroutine can advance
 // the controlled clock while the cursor is held open.
-func runAsync(service *Service, input model.FhirDataframeInput) <-chan runOutcome {
+func runAsync(service *Service, input dataframemodel.FhirDataframeInput) <-chan runOutcome {
 	done := make(chan runOutcome, 1)
 	go func() {
 		result, err := service.Run(context.Background(), input, nil)
@@ -369,7 +369,7 @@ func TestRunPreservesResultAndSeparateDiagnostics(t *testing.T) {
 func TestRunFailedCompileNeverInvokesBackend(t *testing.T) {
 	for _, test := range []struct {
 		name     string
-		input    model.FhirDataframeInput
+		input    dataframemodel.FhirDataframeInput
 		wantCode dataframeerrors.ErrorCode
 	}{
 		{
@@ -377,16 +377,16 @@ func TestRunFailedCompileNeverInvokesBackend(t *testing.T) {
 			// name; the failure is a compiler-internal fault under the current
 			// classification contract.
 			name: "compiler rejects reserved projection name",
-			input: model.FhirDataframeInput{
+			input: dataframemodel.FhirDataframeInput{
 				Project: "P1", RootResourceType: "Patient",
-				RootFields: []*model.FhirFieldSelectInput{{Name: "_key", Selector: queryapiSelector("gender")}},
+				RootFields: []*dataframemodel.FhirFieldSelectInput{{Name: "_key", Selector: queryapiSelector("gender")}},
 			},
 			wantCode: dataframeerrors.CodeBackendUnavailable,
 		},
 		{
 			// The request-preparation boundary rejects this before compilation.
 			name: "preparation rejects cross-grain row grain",
-			input: func() model.FhirDataframeInput {
+			input: func() dataframemodel.FhirDataframeInput {
 				grain := "specimen"
 				input := queryapiGenderInput()
 				input.RowGrain = &grain

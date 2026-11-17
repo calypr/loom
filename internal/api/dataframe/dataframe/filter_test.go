@@ -5,11 +5,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 )
 
 func TestConvertFiltersDecodesGraphQLJSONValues(t *testing.T) {
-	filters := convertFilters([]*model.DataframeFilterInput{
+	filters := convertFilters([]*dataframemodel.DataframeFilterInput{
 		{Column: "project", Op: "EQ", Value: json.RawMessage(`"HTAN_INT-BForePC"`)},
 		{Column: "status", Op: "IN", Value: json.RawMessage(`["active","pending"]`)},
 		{Column: "score", Op: "GTE", Value: json.RawMessage(`10`)},

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -110,7 +110,7 @@ func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (datafr
 	return queries[0], nil
 }
 
-func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
+func (s *Service) Run(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
 	started := s.clockNow()
 	normalizedInput, scope, generation, err := s.prepareRunInput(ctx, input)
 	if err != nil {

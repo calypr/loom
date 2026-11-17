@@ -58,10 +58,9 @@ RESPONSIBILITIES = {'internal/testkit/arangotest': 'Provide isolated Arango and 
                            'services.',
  'internal/api/graphql/graph': 'Own GraphQL HTTP handler construction, error presentation, and generated executor '
                                'binding.',
- 'internal/api/graphql/graph/dataframe': 'Adapt published ClickHouse dataframe discovery, row, aggregate, and export '
-                                         'operations to GraphQL.',
- 'internal/api/graphql/graph/query': 'Resolve and authorize Arango-backed FHIR dataframe and graph query requests for '
-                                     'GraphQL.',
+ 'internal/api/dataframe': 'Own typed dataframe request and publication representations.',
+ 'internal/api/dataframe/dataframe': 'Resolve and authorize published dataframe rows, aggregates, and export.',
+ 'internal/api/dataframe/query': 'Resolve and authorize Arango-backed FHIR dataframe and graph requests.',
  'internal/api/graphql/graph/resolver': 'Implement gqlgen field resolvers and map GraphQL values to query and '
                                         'lifecycle services.',
  'internal/api/http': 'Own shared Fiber server setup, middleware, request IDs, errors, health, and readiness behavior.',
@@ -158,7 +157,21 @@ RESPONSIBILITIES = {'internal/testkit/arangotest': 'Provide isolated Arango and 
 # current source tree. Removed-package records preserve the evidence needed to
 # understand why a source disappeared; keep records pin the reviewed boundary
 # to a live package.
-COMPLETED_DECISIONS = ({'source': 'internal/dataframe/compiler',
+COMPLETED_DECISIONS = ({'source': 'internal/api/graphql/graph/dataframe',
+  'disposition': 'moved',
+  'destination': 'internal/api/dataframe/dataframe',
+  'rationale': 'Own dataframe services and their request types independently of the GraphQL adapter',
+  'contracts': 'existing GraphQL contract and Go callers',
+  'verification': 'pre/post package and importer audits; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/api/graphql/graph/query',
+  'disposition': 'moved',
+  'destination': 'internal/api/dataframe/query',
+  'rationale': 'Own dataframe services and their request types independently of the GraphQL adapter',
+  'contracts': 'existing GraphQL contract and Go callers',
+  'verification': 'pre/post package and importer audits; full package audit',
+  'status': 'complete'},
+ {'source': 'internal/dataframe/compiler',
   'disposition': 'keep',
   'destination': 'internal/dataframe/compiler',
   'rationale': 'WP-22 keeps category scan eligibility and semantic proof orchestration in compiler while moving query '

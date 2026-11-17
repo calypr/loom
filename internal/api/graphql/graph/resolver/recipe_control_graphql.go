@@ -12,7 +12,8 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/api/authpolicy"
-	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -320,13 +321,13 @@ func executionModel(value RecipeExecution) *model.DataframeRecipeExecution {
 	for _, output := range value.Outputs {
 		errorText, errorCode, errorRetryable := dataframeapi.PersistedFailure(output.Error, output.ErrorCode, output.ErrorRetryable)
 		item := &model.DataframeRecipeExecutionOutput{Name: output.Name, State: model.DataframeRecipeExecutionState(output.State), RowCount: output.RowCount, Error: errorText, ErrorCode: errorCode, ErrorRetryable: errorRetryable}
-		columns := make([]*model.DataframeColumn, 0, len(output.Columns))
+		columns := make([]*dataframemodel.DataframeColumn, 0, len(output.Columns))
 		for _, column := range output.Columns {
 			columns = append(columns, dataframeapi.ColumnFromPhysical(column))
 		}
 		item.Columns = columns
 		if output.Selector.Valid() {
-			item.Selector = &model.DataframeSelector{Recipe: output.Selector.Recipe, TranslationVersion: output.Selector.TranslationVersion, Output: output.Selector.Output}
+			item.Selector = &dataframemodel.DataframeSelector{Recipe: output.Selector.Recipe, TranslationVersion: output.Selector.TranslationVersion, Output: output.Selector.Output}
 		}
 		if output.Phase != "" {
 			item.Phase = &output.Phase

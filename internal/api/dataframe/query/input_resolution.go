@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -14,7 +14,7 @@ import (
 
 // prepareRunInput resolves field references and returns the effective scope
 // and selected generation alongside the GraphQL-shaped input.
-func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, authscope.ReadScope, string, error) {
+func (s *Service) prepareRunInput(ctx context.Context, input dataframemodel.FhirDataframeInput) (dataframemodel.FhirDataframeInput, authscope.ReadScope, string, error) {
 	input.Project = projectid.Canonical(input.Project)
 	if input.Project == "" {
 		return input, authscope.ReadScope{}, "", dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -51,7 +51,7 @@ func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframe
 	return input, scope.Clone(), generation, nil
 }
 
-func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, step *model.FhirTraversalStepInput) error {
+func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, step *dataframemodel.FhirTraversalStepInput) error {
 	if step == nil {
 		return nil
 	}
@@ -66,7 +66,7 @@ func (s *Service) resolveTraversalInputRefs(ctx context.Context, project, datase
 	return nil
 }
 
-func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, fields []*model.FhirFieldSelectInput, filters []*model.FhirFilterInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput) error {
+func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGeneration string, scope authscope.ReadScope, resourceType string, fields []*dataframemodel.FhirFieldSelectInput, filters []*dataframemodel.FhirFilterInput, pivots []*dataframemodel.FhirPivotInput, aggregates []*dataframemodel.FhirAggregateInput, slices []*dataframemodel.FhirRepresentativeSliceInput) error {
 	discovered, err := s.discoverFields(ctx, catalog.PopulatedFieldOptions{
 		Project:                       project,
 		DatasetGeneration:             datasetGeneration,
@@ -90,7 +90,7 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 			field.Selector = selectorInputFromExpression(selectorText)
 		}
 		if len(field.FallbackFieldRefs) > 0 {
-			fallbacks := make([]*model.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
+			fallbacks := make([]*dataframemodel.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
 			for _, ref := range field.FallbackFieldRefs {
 				selectorText, err := resolveFieldRef(resourceType, discovered, ref)
 				if err != nil {
@@ -174,7 +174,7 @@ func (s *Service) resolveNodeInputRefs(ctx context.Context, project, datasetGene
 				field.Selector = selectorInputFromExpression(selectorText)
 			}
 			if len(field.FallbackFieldRefs) > 0 {
-				fallbacks := make([]*model.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
+				fallbacks := make([]*dataframemodel.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
 				for _, ref := range field.FallbackFieldRefs {
 					selectorText, err := resolveFieldRef(resourceType, discovered, ref)
 					if err != nil {
@@ -257,13 +257,13 @@ func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *
 	}, nil
 }
 
-func selectorInputFromExpression(expression string) *model.FhirFieldSelectorInput {
+func selectorInputFromExpression(expression string) *dataframemodel.FhirFieldSelectorInput {
 	parts := decomposeSelector(expression)
-	var where *model.FhirFieldPredicateInput
+	var where *dataframemodel.FhirFieldPredicateInput
 	if parts.Where != nil {
-		where = &model.FhirFieldPredicateInput{
+		where = &dataframemodel.FhirFieldPredicateInput{
 			Path:  parts.Where.Path,
-			Op:    model.FhirFieldPredicateOperation(parts.Where.Op),
+			Op:    dataframemodel.FhirFieldPredicateOperation(parts.Where.Op),
 			Value: parts.Where.Value,
 		}
 	}
@@ -273,7 +273,7 @@ func selectorInputFromExpression(expression string) *model.FhirFieldSelectorInpu
 		sourcePath = &trimmed
 	}
 
-	return &model.FhirFieldSelectorInput{
+	return &dataframemodel.FhirFieldSelectorInput{
 		SourcePath: sourcePath,
 		Where:      where,
 		ValuePath:  parts.ValuePath,

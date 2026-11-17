@@ -1,7 +1,7 @@
 package queryapi
 
 import (
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/catalog"
 )
 
@@ -12,21 +12,21 @@ func derefString(value *string) string {
 	return *value
 }
 
-func predicatePathFromInput(input *model.FhirFieldPredicateInput) string {
+func predicatePathFromInput(input *dataframemodel.FhirFieldPredicateInput) string {
 	if input == nil {
 		return ""
 	}
 	return input.Path
 }
 
-func predicateOpFromInput(input *model.FhirFieldPredicateInput) string {
+func predicateOpFromInput(input *dataframemodel.FhirFieldPredicateInput) string {
 	if input == nil {
 		return ""
 	}
 	return input.Op.String()
 }
 
-func predicateValueFromInput(input *model.FhirFieldPredicateInput) string {
+func predicateValueFromInput(input *dataframemodel.FhirFieldPredicateInput) string {
 	if input == nil {
 		return ""
 	}

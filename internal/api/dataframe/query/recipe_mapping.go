@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -21,7 +21,7 @@ import (
 // Field references must have been resolved by PrepareRunInput first.  Keeping
 // that boundary explicit prevents an unresolved catalog name from becoming an
 // executable selector or an accidental storage-specific path.
-func RecipeBundleFromInput(in model.FhirDataframeInput) (recipe.Bundle, error) {
+func RecipeBundleFromInput(in dataframemodel.FhirDataframeInput) (recipe.Bundle, error) {
 	if strings.TrimSpace(in.RootResourceType) == "" {
 		return recipe.Bundle{}, fmt.Errorf("rootResourceType is required")
 	}
@@ -51,7 +51,7 @@ func RecipeBundleFromInput(in model.FhirDataframeInput) (recipe.Bundle, error) {
 	return bundle, nil
 }
 
-func recipeOutputFromInput(resourceType string, fields []*model.FhirFieldSelectInput, filters []*model.FhirFilterInput, pivots []*model.FhirPivotInput, aggregates []*model.FhirAggregateInput, slices []*model.FhirRepresentativeSliceInput, catalogProjections []*model.FhirCatalogProjectionInput, traversals []*model.FhirTraversalStepInput) (recipe.Output, error) {
+func recipeOutputFromInput(resourceType string, fields []*dataframemodel.FhirFieldSelectInput, filters []*dataframemodel.FhirFilterInput, pivots []*dataframemodel.FhirPivotInput, aggregates []*dataframemodel.FhirAggregateInput, slices []*dataframemodel.FhirRepresentativeSliceInput, catalogProjections []*dataframemodel.FhirCatalogProjectionInput, traversals []*dataframemodel.FhirTraversalStepInput) (recipe.Output, error) {
 	rf, err := recipeFieldsFromInput(fields)
 	if err != nil {
 		return recipe.Output{}, fmt.Errorf("root fields: %w", err)
@@ -83,7 +83,7 @@ func recipeOutputFromInput(resourceType string, fields []*model.FhirFieldSelectI
 	return recipe.Output{RootResourceType: resourceType, Fields: rf, Filters: rfilt, Pivots: rp, Aggregates: ra, Slices: rs, CatalogProjections: rcp, Traversals: rt}, nil
 }
 
-func recipeCatalogProjectionsFromInput(in []*model.FhirCatalogProjectionInput) ([]recipe.CatalogProjection, error) {
+func recipeCatalogProjectionsFromInput(in []*dataframemodel.FhirCatalogProjectionInput) ([]recipe.CatalogProjection, error) {
 	out := make([]recipe.CatalogProjection, 0, len(in))
 	for index, item := range in {
 		if item == nil {
@@ -101,7 +101,7 @@ func recipeCatalogProjectionsFromInput(in []*model.FhirCatalogProjectionInput) (
 	return out, nil
 }
 
-func recipeFieldsFromInput(in []*model.FhirFieldSelectInput) ([]recipe.Field, error) {
+func recipeFieldsFromInput(in []*dataframemodel.FhirFieldSelectInput) ([]recipe.Field, error) {
 	out := make([]recipe.Field, 0, len(in))
 	for index, item := range in {
 		if item == nil {
@@ -127,7 +127,7 @@ func recipeFieldsFromInput(in []*model.FhirFieldSelectInput) ([]recipe.Field, er
 	return out, nil
 }
 
-func recipeFiltersFromInput(in []*model.FhirFilterInput) ([]recipe.Filter, error) {
+func recipeFiltersFromInput(in []*dataframemodel.FhirFilterInput) ([]recipe.Filter, error) {
 	out := make([]recipe.Filter, 0, len(in))
 	for index, item := range in {
 		if item == nil {
@@ -153,30 +153,30 @@ func recipeFiltersFromInput(in []*model.FhirFilterInput) ([]recipe.Filter, error
 	return out, nil
 }
 
-func recipeFilterValue(input *model.FhirFilterValueInput) (recipe.FilterValue, error) {
+func recipeFilterValue(input *dataframemodel.FhirFilterValueInput) (recipe.FilterValue, error) {
 	if input == nil {
 		return recipe.FilterValue{}, fmt.Errorf("value is required")
 	}
 	value := recipe.FilterValue{Kind: recipe.FilterValueKind(input.Kind.String())}
 	switch input.Kind {
-	case model.FhirFilterValueKindString:
+	case dataframemodel.FhirFilterValueKindString:
 		value.String = input.String
-	case model.FhirFilterValueKindCode:
+	case dataframemodel.FhirFilterValueKindCode:
 		if input.Code != nil {
 			value.Code = &recipe.CodeValue{System: derefString(input.Code.System), Code: input.Code.Code, Display: derefString(input.Code.Display)}
 		}
-	case model.FhirFilterValueKindBoolean:
+	case dataframemodel.FhirFilterValueKindBoolean:
 		value.Boolean = input.Boolean
-	case model.FhirFilterValueKindInteger:
+	case dataframemodel.FhirFilterValueKindInteger:
 		if input.Integer != nil {
 			converted := int64(*input.Integer)
 			value.Integer = &converted
 		}
-	case model.FhirFilterValueKindDecimal:
+	case dataframemodel.FhirFilterValueKindDecimal:
 		value.Decimal = input.Decimal
-	case model.FhirFilterValueKindDate:
+	case dataframemodel.FhirFilterValueKindDate:
 		value.Date = input.Date
-	case model.FhirFilterValueKindDateTime:
+	case dataframemodel.FhirFilterValueKindDateTime:
 		value.DateTime = input.DateTime
 	default:
 		return recipe.FilterValue{}, fmt.Errorf("unsupported value kind %q", input.Kind)
@@ -187,7 +187,7 @@ func recipeFilterValue(input *model.FhirFilterValueInput) (recipe.FilterValue, e
 	return value, nil
 }
 
-func recipePivotsFromInput(in []*model.FhirPivotInput) ([]recipe.Pivot, error) {
+func recipePivotsFromInput(in []*dataframemodel.FhirPivotInput) ([]recipe.Pivot, error) {
 	out := make([]recipe.Pivot, 0, len(in))
 	for index, item := range in {
 		if item == nil {
@@ -210,7 +210,7 @@ func recipePivotsFromInput(in []*model.FhirPivotInput) ([]recipe.Pivot, error) {
 	return out, nil
 }
 
-func recipeAggregatesFromInput(in []*model.FhirAggregateInput) ([]recipe.Aggregate, error) {
+func recipeAggregatesFromInput(in []*dataframemodel.FhirAggregateInput) ([]recipe.Aggregate, error) {
 	out := make([]recipe.Aggregate, 0, len(in))
 	for index, item := range in {
 		if item == nil {
@@ -235,7 +235,7 @@ func recipeAggregatesFromInput(in []*model.FhirAggregateInput) ([]recipe.Aggrega
 	return out, nil
 }
 
-func recipeSlicesFromInput(in []*model.FhirRepresentativeSliceInput) ([]recipe.RepresentativeSlice, error) {
+func recipeSlicesFromInput(in []*dataframemodel.FhirRepresentativeSliceInput) ([]recipe.RepresentativeSlice, error) {
 	out := make([]recipe.RepresentativeSlice, 0, len(in))
 	for index, item := range in {
 		if item == nil {
@@ -259,7 +259,7 @@ func recipeSlicesFromInput(in []*model.FhirRepresentativeSliceInput) ([]recipe.R
 	return out, nil
 }
 
-func recipeTraversalsFromInput(in []*model.FhirTraversalStepInput) ([]recipe.Traversal, error) {
+func recipeTraversalsFromInput(in []*dataframemodel.FhirTraversalStepInput) ([]recipe.Traversal, error) {
 	out := make([]recipe.Traversal, 0, len(in))
 	for index, item := range in {
 		if item == nil {
@@ -278,7 +278,7 @@ func recipeTraversalsFromInput(in []*model.FhirTraversalStepInput) ([]recipe.Tra
 	return out, nil
 }
 
-func recipeSelectorExpression(in *model.FhirFieldSelectorInput) (recipe.Expression, error) {
+func recipeSelectorExpression(in *dataframemodel.FhirFieldSelectorInput) (recipe.Expression, error) {
 	if in == nil {
 		return recipe.Expression{}, fmt.Errorf("selector is required")
 	}

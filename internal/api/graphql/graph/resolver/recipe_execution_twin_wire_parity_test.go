@@ -10,7 +10,7 @@ import (
 	"sort"
 	"testing"
 
-	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )

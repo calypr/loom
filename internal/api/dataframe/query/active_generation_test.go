@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataset"
@@ -96,12 +96,12 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 		Dataframes:             dataframes,
 	})
 
-	if _, err := service.Run(context.Background(), model.FhirDataframeInput{
+	if _, err := service.Run(context.Background(), dataframemodel.FhirDataframeInput{
 		Project: project, RootResourceType: "Patient",
 	}, nil); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if _, _, _, err := service.prepareRunInput(context.Background(), model.FhirDataframeInput{
+	if _, _, _, err := service.prepareRunInput(context.Background(), dataframemodel.FhirDataframeInput{
 		Project: project, RootResourceType: "Patient",
 	}); err != nil {
 		t.Fatalf("PrepareRunInput() error = %v", err)

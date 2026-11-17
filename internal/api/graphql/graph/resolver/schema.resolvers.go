@@ -12,13 +12,14 @@ import (
 
 	"github.com/calypr/loom/generated/graphql/graph/executor"
 	"github.com/calypr/loom/generated/graphql/graph/model"
-	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 // RunFhirDataframe is the resolver for the runFhirDataframe field.
-func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input model.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error) {
+func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error) {
 	result, err := r.query.Run(ctx, input, limit)
 	if err != nil {
 		return nil, err
@@ -135,12 +136,12 @@ func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, 
 }
 
 // ProjectDataframeDatasets is the resolver for the projectDataframeDatasets field.
-func (r *queryResolver) ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*model.DataframeMaterialization, error) {
+func (r *queryResolver) ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*dataframemodel.DataframeMaterialization, error) {
 	values, err := r.dataframes.ProjectDatasets(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*model.DataframeMaterialization, 0, len(values))
+	result := make([]*dataframemodel.DataframeMaterialization, 0, len(values))
 	for _, value := range values {
 		result = append(result, dataframeapi.Model(value))
 	}
@@ -148,7 +149,7 @@ func (r *queryResolver) ProjectDataframeDatasets(ctx context.Context, projectID 
 }
 
 // DataframeDataset is the resolver for the dataframeDataset field.
-func (r *queryResolver) DataframeDataset(ctx context.Context, input model.DataframeDatasetInput) (*model.DataframeMaterialization, error) {
+func (r *queryResolver) DataframeDataset(ctx context.Context, input dataframemodel.DataframeDatasetInput) (*dataframemodel.DataframeMaterialization, error) {
 	value, err := r.dataframes.Dataset(ctx, input)
 	if err != nil {
 		return nil, err
@@ -157,7 +158,7 @@ func (r *queryResolver) DataframeDataset(ctx context.Context, input model.Datafr
 }
 
 // DataframeRows is the resolver for the dataframeRows field.
-func (r *queryResolver) DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error) {
+func (r *queryResolver) DataframeRows(ctx context.Context, input dataframemodel.DataframeRowsInput) (*model.DataframeRowConnection, error) {
 	page, err := r.dataframes.Rows(ctx, input)
 	if err != nil {
 		return nil, err
@@ -179,7 +180,7 @@ func (r *queryResolver) DataframeRows(ctx context.Context, input model.Dataframe
 }
 
 // DataframeAggregate is the resolver for the dataframeAggregate field.
-func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error) {
+func (r *queryResolver) DataframeAggregate(ctx context.Context, input dataframemodel.DataframeAggregateInput) (*model.DataframeAggregateResult, error) {
 	result, err := r.dataframes.AggregateInput(ctx, input)
 	if err != nil {
 		return nil, err
@@ -192,7 +193,7 @@ func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.Data
 }
 
 // DataframeAggregations is the resolver for the dataframeAggregations field.
-func (r *queryResolver) DataframeAggregations(ctx context.Context, input model.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error) {
+func (r *queryResolver) DataframeAggregations(ctx context.Context, input dataframemodel.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error) {
 	result, err := r.dataframes.AggregationsInput(ctx, input)
 	if err != nil {
 		return nil, err

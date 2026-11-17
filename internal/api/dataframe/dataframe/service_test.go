@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
 func TestResolveSelectorRequiresCompleteExplicitSelector(t *testing.T) {
-	selector, err := resolveSelector(&model.DataframeSelectorInput{Recipe: "documents", TranslationVersion: "v2", Output: "Patient"})
+	selector, err := resolveSelector(&dataframemodel.DataframeSelectorInput{Recipe: "documents", TranslationVersion: "v2", Output: "Patient"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -13,27 +13,30 @@ import (
 func TestRecipeBundleFromInputMapsRichGraphQLShape(t *testing.T) {
 	gender := "gender"
 	wantGender := "female"
-	input := model.FhirDataframeInput{
+	input := dataframemodel.FhirDataframeInput{
 		Project:          "P1",
 		RootResourceType: "Patient",
-		RootFields: []*model.FhirFieldSelectInput{{
+		RootFields: []*dataframemodel.FhirFieldSelectInput{{
 			Name: "gender", FieldRef: &gender,
-			Selector: &model.FhirFieldSelectorInput{ValuePath: "gender"},
+			Selector: &dataframemodel.FhirFieldSelectorInput{ValuePath: "gender"},
 		}},
-		RootFilters: []*model.FhirFilterInput{{
-			Select: "gender", Operator: model.FhirFilterOperatorEquals,
-			Values: []*model.FhirFilterValueInput{{Kind: model.FhirFilterValueKindString, String: &wantGender}},
+		RootFilters: []*dataframemodel.FhirFilterInput{{
+			Select: "gender", Operator: dataframemodel.FhirFilterOperatorEquals,
+			Values: []*dataframemodel.FhirFilterValueInput{{Kind: dataframemodel.FhirFilterValueKindString, String: &wantGender}},
 		}},
-		RootAggregates: []*model.FhirAggregateInput{{
-			Name: "condition_count", Operation: model.FhirAggregateOperationCount,
+		RootAggregates: []*dataframemodel.FhirAggregateInput{{
+			Name: "condition_count", Operation: dataframemodel.FhirAggregateOperationCount,
 		}},
-		Traverse: []*model.FhirTraversalStepInput{{
+		Traverse: []*dataframemodel.FhirTraversalStepInput{{
 			EdgeLabel: "subject_Patient", ToResourceType: "Condition", Alias: "condition",
-			MatchMode: func() *model.FhirTraversalMatchMode { value := model.FhirTraversalMatchModeRequired; return &value }(),
-			Filters: []*model.FhirFilterInput{{
-				Select: "id", Operator: model.FhirFilterOperatorExists,
+			MatchMode: func() *dataframemodel.FhirTraversalMatchMode {
+				value := dataframemodel.FhirTraversalMatchModeRequired
+				return &value
+			}(),
+			Filters: []*dataframemodel.FhirFilterInput{{
+				Select: "id", Operator: dataframemodel.FhirFilterOperatorExists,
 			}},
-			Aggregates: []*model.FhirAggregateInput{{Name: "count", Operation: model.FhirAggregateOperationCount}},
+			Aggregates: []*dataframemodel.FhirAggregateInput{{Name: "count", Operation: dataframemodel.FhirAggregateOperationCount}},
 		}},
 	}
 	bundle, err := RecipeBundleFromInput(input)
@@ -56,10 +59,10 @@ func TestRecipeBundleFromInputMapsRichGraphQLShape(t *testing.T) {
 
 func TestRecipeBundleFromInputRejectsIncompleteAggregatePredicate(t *testing.T) {
 	path := "gender"
-	input := model.FhirDataframeInput{
+	input := dataframemodel.FhirDataframeInput{
 		Project: "P1", RootResourceType: "Patient",
-		RootAggregates: []*model.FhirAggregateInput{{
-			Name: "count", Operation: model.FhirAggregateOperationCount,
+		RootAggregates: []*dataframemodel.FhirAggregateInput{{
+			Name: "count", Operation: dataframemodel.FhirAggregateOperationCount,
 			PredicatePath: &path,
 		}},
 	}
@@ -71,19 +74,19 @@ func TestRecipeBundleFromInputRejectsIncompleteAggregatePredicate(t *testing.T) 
 func TestRecipeBundleFromInputMapsCatalogResolutionContracts(t *testing.T) {
 	family := "observation_code_value"
 	path := "code.coding[].code"
-	input := model.FhirDataframeInput{
+	input := dataframemodel.FhirDataframeInput{
 		Project: "P1", RootResourceType: "Patient",
-		RootCatalogProjections: []*model.FhirCatalogProjectionInput{{
+		RootCatalogProjections: []*dataframemodel.FhirCatalogProjectionInput{{
 			Name: "populated", IncludePaths: []string{"identifier.*"}, Kinds: []string{"scalar"},
-			Naming: model.FhirColumnNamingPath, ValueMode: model.FhirValueModeFirst, MaxColumns: 32,
+			Naming: dataframemodel.FhirColumnNamingPath, ValueMode: dataframemodel.FhirValueModeFirst, MaxColumns: 32,
 		}},
-		RootPivots: []*model.FhirPivotInput{{
-			Name: "observations", ColumnSelector: &model.FhirFieldSelectorInput{ValuePath: "code"}, ValueSelector: &model.FhirFieldSelectorInput{ValuePath: "value"},
-			Discovery: &model.FhirPivotDiscoveryInput{Family: &family, Path: &path, MaxColumns: 16},
+		RootPivots: []*dataframemodel.FhirPivotInput{{
+			Name: "observations", ColumnSelector: &dataframemodel.FhirFieldSelectorInput{ValuePath: "code"}, ValueSelector: &dataframemodel.FhirFieldSelectorInput{ValuePath: "value"},
+			Discovery: &dataframemodel.FhirPivotDiscoveryInput{Family: &family, Path: &path, MaxColumns: 16},
 		}},
-		Traverse: []*model.FhirTraversalStepInput{{
+		Traverse: []*dataframemodel.FhirTraversalStepInput{{
 			EdgeLabel: "subject_Patient", ToResourceType: "Observation", Alias: "observation",
-			CatalogProjections: []*model.FhirCatalogProjectionInput{{Name: "observation_fields", IncludePaths: []string{"value*"}, Naming: model.FhirColumnNamingPathSuffix, ValueMode: model.FhirValueModeFirst, MaxColumns: 8}},
+			CatalogProjections: []*dataframemodel.FhirCatalogProjectionInput{{Name: "observation_fields", IncludePaths: []string{"value*"}, Naming: dataframemodel.FhirColumnNamingPathSuffix, ValueMode: dataframemodel.FhirValueModeFirst, MaxColumns: 8}},
 		}},
 	}
 	bundle, err := RecipeBundleFromInput(input)
@@ -103,9 +106,9 @@ func TestRecipeBundleFromInputMapsCatalogResolutionContracts(t *testing.T) {
 }
 
 func TestGraphQLRecipeResolutionUsesScopedCatalogBeforeSemanticTyping(t *testing.T) {
-	input := model.FhirDataframeInput{
+	input := dataframemodel.FhirDataframeInput{
 		Project: "P1", RootResourceType: "Patient",
-		RootCatalogProjections: []*model.FhirCatalogProjectionInput{{Name: "populated", IncludePaths: []string{"gender"}, Kinds: []string{"scalar"}, Naming: model.FhirColumnNamingPath, ValueMode: model.FhirValueModeFirst, MaxColumns: 4}},
+		RootCatalogProjections: []*dataframemodel.FhirCatalogProjectionInput{{Name: "populated", IncludePaths: []string{"gender"}, Kinds: []string{"scalar"}, Naming: dataframemodel.FhirColumnNamingPath, ValueMode: dataframemodel.FhirValueModeFirst, MaxColumns: 4}},
 	}
 	bundle, err := RecipeBundleFromInput(input)
 	if err != nil {

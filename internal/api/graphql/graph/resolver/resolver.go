@@ -5,8 +5,8 @@ import (
 	"log/slog"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
-	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
+	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"

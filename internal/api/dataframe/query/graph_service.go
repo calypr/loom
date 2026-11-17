@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -32,7 +32,7 @@ type FHIRGraphQuery struct {
 	Project           string
 	AuthResourcePaths []string
 	RootResourceType  string
-	RootFilters       []*model.FhirFilterInput
+	RootFilters       []*dataframemodel.FhirFilterInput
 	Traverse          []FHIRGraphTraversal
 	Limit             int
 }
@@ -41,8 +41,8 @@ type FHIRGraphTraversal struct {
 	EdgeLabel      string
 	ToResourceType string
 	Alias          string
-	MatchMode      model.FhirTraversalMatchMode
-	Filters        []*model.FhirFilterInput
+	MatchMode      dataframemodel.FhirTraversalMatchMode
+	Filters        []*dataframemodel.FhirFilterInput
 	Traverse       []FHIRGraphTraversal
 }
 
@@ -127,7 +127,7 @@ func normalizeFHIRGraphTraversals(in []FHIRGraphTraversal, depth int) (int, int,
 			return 0, maxDepth, dataframeerrors.NewError(dataframeerrors.CodeInvalidTraversal, "")
 		}
 		if !step.MatchMode.IsValid() {
-			step.MatchMode = model.FhirTraversalMatchModeRequired
+			step.MatchMode = dataframemodel.FhirTraversalMatchModeRequired
 		}
 		childCount, childDepth, err := normalizeFHIRGraphTraversals(step.Traverse, depth+1)
 		if err != nil {
@@ -141,24 +141,24 @@ func normalizeFHIRGraphTraversals(in []FHIRGraphTraversal, depth int) (int, int,
 	return total, maxDepth, nil
 }
 
-func graphDataframeInput(in FHIRGraphQuery) model.FhirDataframeInput {
-	return model.FhirDataframeInput{
+func graphDataframeInput(in FHIRGraphQuery) dataframemodel.FhirDataframeInput {
+	return dataframemodel.FhirDataframeInput{
 		Project: in.Project, AuthResourcePaths: cloneStrings(in.AuthResourcePaths),
 		RootResourceType: in.RootResourceType, RootFilters: in.RootFilters,
 		Traverse: graphTraversalInputs(in.Traverse),
 	}
 }
 
-func graphTraversalInputs(in []FHIRGraphTraversal) []*model.FhirTraversalStepInput {
-	out := make([]*model.FhirTraversalStepInput, 0, len(in))
+func graphTraversalInputs(in []FHIRGraphTraversal) []*dataframemodel.FhirTraversalStepInput {
+	out := make([]*dataframemodel.FhirTraversalStepInput, 0, len(in))
 	for i := range in {
 		step := in[i]
 		mode := step.MatchMode
 		if !mode.IsValid() {
-			mode = model.FhirTraversalMatchModeRequired
+			mode = dataframemodel.FhirTraversalMatchModeRequired
 		}
 		children := graphTraversalInputs(step.Traverse)
-		out = append(out, &model.FhirTraversalStepInput{
+		out = append(out, &dataframemodel.FhirTraversalStepInput{
 			EdgeLabel: step.EdgeLabel, ToResourceType: step.ToResourceType,
 			Alias: step.Alias, MatchMode: &mode, Filters: step.Filters,
 			Traverse: children,

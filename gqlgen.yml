@@ -26,3 +26,69 @@ models:
   JSON:
     model:
       - encoding/json.RawMessage
+  DataframeAggregateInput:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeAggregateInput
+  DataframeAggregationSpecInput:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeAggregationSpecInput
+  DataframeAggregationsInput:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeAggregationsInput
+  DataframeColumn:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeColumn
+  DataframeDatasetInput:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeDatasetInput
+  DataframeFilterInput:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeFilterInput
+  DataframeMaterialization:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeMaterialization
+  DataframeMaterializationState:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeMaterializationState
+  DataframeRowsInput:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeRowsInput
+  DataframeSelector:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeSelector
+  DataframeSelectorInput:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeSelectorInput
+  DataframeSortInput:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeSortInput
+  FhirAggregateInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirAggregateInput
+  FhirAggregateOperation:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirAggregateOperation
+  FhirCatalogProjectionInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirCatalogProjectionInput
+  FhirCodeValueInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirCodeValueInput
+  FhirColumnNaming:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirColumnNaming
+  FhirDataframeInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirDataframeInput
+  FhirFieldPredicateInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFieldPredicateInput
+  FhirFieldPredicateOperation:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFieldPredicateOperation
+  FhirFieldSelectInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFieldSelectInput
+  FhirFieldSelectorInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFieldSelectorInput
+  FhirFilterInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFilterInput
+  FhirFilterOperator:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFilterOperator
+  FhirFilterQuantifier:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFilterQuantifier
+  FhirFilterValueInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFilterValueInput
+  FhirFilterValueKind:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirFilterValueKind
+  FhirPivotDiscoveryInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirPivotDiscoveryInput
+  FhirPivotInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirPivotInput
+  FhirRepresentativeSliceInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirRepresentativeSliceInput
+  FhirTraversalMatchMode:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirTraversalMatchMode
+  FhirTraversalStepInput:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirTraversalStepInput
+  FhirValueMode:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirValueMode

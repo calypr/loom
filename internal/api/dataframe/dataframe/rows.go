@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
@@ -42,7 +42,7 @@ func (s *Service) ProjectDatasets(ctx context.Context, projectID string) ([]dfma
 	return result, nil
 }
 
-func (s *Service) Dataset(ctx context.Context, input model.DataframeDatasetInput) (*dfmaterialization.Materialization, error) {
+func (s *Service) Dataset(ctx context.Context, input dataframemodel.DataframeDatasetInput) (*dfmaterialization.Materialization, error) {
 	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (s *Service) Dataset(ctx context.Context, input model.DataframeDatasetInput
 	return &value, nil
 }
 
-func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfmaterialization.Page, error) {
+func (s *Service) Rows(ctx context.Context, input dataframemodel.DataframeRowsInput) (dfmaterialization.Page, error) {
 	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return dfmaterialization.Page{}, err
@@ -75,7 +75,7 @@ func (s *Service) Rows(ctx context.Context, input model.DataframeRowsInput) (dfm
 	return page, nil
 }
 
-func resolveSelector(input *model.DataframeSelectorInput) (dfmaterialization.DataframeSelector, error) {
+func resolveSelector(input *dataframemodel.DataframeSelectorInput) (dfmaterialization.DataframeSelector, error) {
 	if input == nil {
 		return dfmaterialization.DataframeSelector{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidSelector, "", dataframeerrors.WithFieldPath("input", "selector"))
 	}
@@ -100,7 +100,7 @@ func resolvePublishedSelector(input *dfmaterialization.DataframeSelector) (dfmat
 	return selector, nil
 }
 
-func convertFilters(filters []*model.DataframeFilterInput) []dfmaterialization.Filter {
+func convertFilters(filters []*dataframemodel.DataframeFilterInput) []dfmaterialization.Filter {
 	converted := make([]dfmaterialization.Filter, 0, len(filters))
 	for _, filter := range filters {
 		if filter == nil {
@@ -117,7 +117,7 @@ func convertFilters(filters []*model.DataframeFilterInput) []dfmaterialization.F
 	return converted
 }
 
-func convertSort(input model.DataframeRowsInput) *dfmaterialization.Sort {
+func convertSort(input dataframemodel.DataframeRowsInput) *dfmaterialization.Sort {
 	if input.Sort == nil {
 		return nil
 	}

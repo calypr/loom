@@ -16,7 +16,7 @@ import (
 // export.go), which becomes the ClickHouse `auth_resource_path IN ?` bind list
 // in published/page.go (and Stream), bypassing the boundary-normalization
 // contract that repair-7 applied at
-// internal/api/graphql/graph/query/input_resolution.go via
+// internal/api/dataframe/query/input_resolution.go via
 // authscope.NormalizeAuthResourcePaths. The reviewer's threat: a principal
 // that mixes a control-byte entry into its declared paths reaches the IN-list
 // with that raw NUL entry, so a NUL-bearing grant still participates in the

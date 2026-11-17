@@ -10,6 +10,7 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	"github.com/calypr/loom/internal/api/dataframe"
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -406,18 +407,18 @@ type ComplexityRoot struct {
 		PreviewDataframeRecipe          func(childComplexity int, input model.PreviewDataframeRecipeInput) int
 		RegisterDataframeRecipeRevision func(childComplexity int, input model.RegisterDataframeRecipeRevisionInput) int
 		RunDataframeRecipe              func(childComplexity int, input model.RunDataframeRecipeInput) int
-		RunFhirDataframe                func(childComplexity int, input model.FhirDataframeInput, limit *int) int
+		RunFhirDataframe                func(childComplexity int, input dataframe.FhirDataframeInput, limit *int) int
 		ValidateDataframeRecipe         func(childComplexity int, input model.ValidateDataframeRecipeInput) int
 	}
 
 	Query struct {
-		DataframeAggregate       func(childComplexity int, input model.DataframeAggregateInput) int
-		DataframeAggregations    func(childComplexity int, input model.DataframeAggregationsInput) int
-		DataframeDataset         func(childComplexity int, input model.DataframeDatasetInput) int
+		DataframeAggregate       func(childComplexity int, input dataframe.DataframeAggregateInput) int
+		DataframeAggregations    func(childComplexity int, input dataframe.DataframeAggregationsInput) int
+		DataframeDataset         func(childComplexity int, input dataframe.DataframeDatasetInput) int
 		DataframeRecipeExecution func(childComplexity int, id string) int
 		DataframeRecipeRevision  func(childComplexity int, projectID string, name string, digest string) int
 		DataframeRecipeRevisions func(childComplexity int, projectID string, name string) int
-		DataframeRows            func(childComplexity int, input model.DataframeRowsInput) int
+		DataframeRows            func(childComplexity int, input dataframe.DataframeRowsInput) int
 		ExplainDataframeRecipe   func(childComplexity int, input model.ExplainDataframeRecipeInput) int
 		ExplainFhirGraph         func(childComplexity int, input model.FhirGraphQueryInput, live *bool) int
 		FhirGraph                func(childComplexity int, input model.FhirGraphQueryInput) int
@@ -1950,7 +1951,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.RunFhirDataframe(childComplexity, args["input"].(model.FhirDataframeInput), args["limit"].(*int)), true
+		return e.ComplexityRoot.Mutation.RunFhirDataframe(childComplexity, args["input"].(dataframe.FhirDataframeInput), args["limit"].(*int)), true
 	case "Mutation.validateDataframeRecipe":
 		if e.ComplexityRoot.Mutation.ValidateDataframeRecipe == nil {
 			break
@@ -1973,7 +1974,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.DataframeAggregate(childComplexity, args["input"].(model.DataframeAggregateInput)), true
+		return e.ComplexityRoot.Query.DataframeAggregate(childComplexity, args["input"].(dataframe.DataframeAggregateInput)), true
 	case "Query.dataframeAggregations":
 		if e.ComplexityRoot.Query.DataframeAggregations == nil {
 			break
@@ -1984,7 +1985,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.DataframeAggregations(childComplexity, args["input"].(model.DataframeAggregationsInput)), true
+		return e.ComplexityRoot.Query.DataframeAggregations(childComplexity, args["input"].(dataframe.DataframeAggregationsInput)), true
 	case "Query.dataframeDataset":
 		if e.ComplexityRoot.Query.DataframeDataset == nil {
 			break
@@ -1995,7 +1996,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.DataframeDataset(childComplexity, args["input"].(model.DataframeDatasetInput)), true
+		return e.ComplexityRoot.Query.DataframeDataset(childComplexity, args["input"].(dataframe.DataframeDatasetInput)), true
 	case "Query.dataframeRecipeExecution":
 		if e.ComplexityRoot.Query.DataframeRecipeExecution == nil {
 			break
@@ -2039,7 +2040,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.DataframeRows(childComplexity, args["input"].(model.DataframeRowsInput)), true
+		return e.ComplexityRoot.Query.DataframeRows(childComplexity, args["input"].(dataframe.DataframeRowsInput)), true
 	case "Query.explainDataframeRecipe":
 		if e.ComplexityRoot.Query.ExplainDataframeRecipe == nil {
 			break

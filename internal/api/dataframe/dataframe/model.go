@@ -3,20 +3,20 @@ package dataframe
 import (
 	"encoding/json"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/api/columncapabilities"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func Model(value materialization.Materialization) *model.DataframeMaterialization {
+func Model(value materialization.Materialization) *dataframemodel.DataframeMaterialization {
 	revision := value.Revision
 	if revision == "" {
 		revision = value.ID
 	}
-	columns := make([]*model.DataframeColumn, 0, len(value.Columns))
+	columns := make([]*dataframemodel.DataframeColumn, 0, len(value.Columns))
 	for _, column := range value.Columns {
 		if column.Name == "auth_resource_path" || column.Name == "__loom_row_id" {
 			continue
@@ -34,16 +34,16 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 		count := int(value.RowCount)
 		rowCount = &count
 	}
-	result := &model.DataframeMaterialization{
+	result := &dataframemodel.DataframeMaterialization{
 		ID: value.ID, Name: value.Name, Revision: revision,
 		ProjectID: projectid.Canonical(value.Project), DatasetGeneration: value.DatasetGeneration,
-		State: model.DataframeMaterializationState(value.State), Columns: columns,
+		State: dataframemodel.DataframeMaterializationState(value.State), Columns: columns,
 		RowCount:  rowCount,
 		CreatedAt: value.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z07:00"),
 		ReadyAt:   readyAt, Error: failure, ErrorCode: failureCode, ErrorRetryable: failureRetryable,
 	}
 	if value.Selector.Valid() {
-		result.Selector = &model.DataframeSelector{Recipe: value.Selector.Recipe, TranslationVersion: value.Selector.TranslationVersion, Output: value.Selector.Output}
+		result.Selector = &dataframemodel.DataframeSelector{Recipe: value.Selector.Recipe, TranslationVersion: value.Selector.TranslationVersion, Output: value.Selector.Output}
 	}
 	return result
 }
@@ -51,13 +51,13 @@ func Model(value materialization.Materialization) *model.DataframeMaterializatio
 // ColumnFromPhysical adapts candidate execution metadata before activation.
 // It intentionally mirrors the published materialization representation while
 // retaining semantic identity for browser-side configuration.
-func ColumnFromPhysical(column publication.PhysicalColumn) *model.DataframeColumn {
+func ColumnFromPhysical(column publication.PhysicalColumn) *dataframemodel.DataframeColumn {
 	return ColumnModel(materialization.Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated})
 }
 
-func ColumnModel(column materialization.Column) *model.DataframeColumn {
+func ColumnModel(column materialization.Column) *dataframemodel.DataframeColumn {
 	capabilities := columncapabilities.Resolve(column.ClickHouse, column.LogicalType, column.Nullable, column.Repeated)
-	return &model.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: capabilities.Logical, Nullable: capabilities.Nullable, Repeated: capabilities.Repeated, Filterable: capabilities.Filterable, Sortable: capabilities.Sortable, Aggregatable: capabilities.Aggregatable}
+	return &dataframemodel.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: capabilities.Logical, Nullable: capabilities.Nullable, Repeated: capabilities.Repeated, Filterable: capabilities.Filterable, Sortable: capabilities.Sortable, Aggregatable: capabilities.Aggregatable}
 }
 
 func PersistedFailure(raw, code string, retryable bool) (message, failureCode *string, failureRetryable *bool) {

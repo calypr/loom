@@ -33,8 +33,8 @@ under `internal`:
 The generated executors expose gqlgen's resolver interfaces. gqlgen requires
 resolver receivers and preserved resolver implementations to share one Go
 package, so its resolver directories also contain thin GraphQL adapter glue.
-Application behavior remains in `internal/api/graphql/graph/query`,
-`internal/api/graphql/graph/dataframe`, and the internal dataframe services.
+Application behavior remains in `internal/api/dataframe/query`,
+`internal/api/dataframe/dataframe`, and the internal dataframe services.
 Database access and compiler logic do not belong in `generated/`.
 
 Resolver implementations are the narrow exception to the no-edit rule: gqlgen
@@ -48,8 +48,8 @@ The handwritten GraphQL inputs and runtime wiring are deliberately separate:
 | --- | --- |
 | `internal/api/graphql/graph/schema/` | Handwritten primary GraphQL schema. |
 | `internal/api/graphql/graph/` | HTTP handler and shared GraphQL error presentation. |
-| `internal/api/graphql/graph/query/` | Arango graph and FHIR dataframe request services. |
-| `internal/api/graphql/graph/dataframe/` | Published-dataframe reads, aggregates, export, and GraphQL model mapping. |
+| `internal/api/dataframe/query/` | Arango graph and FHIR dataframe request services. |
+| `internal/api/dataframe/dataframe/` | Published-dataframe reads, aggregates, export, and GraphQL model mapping. |
 
 ## Sources of truth and outputs
 

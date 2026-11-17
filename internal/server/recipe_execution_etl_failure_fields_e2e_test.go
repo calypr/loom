@@ -14,7 +14,8 @@ import (
 	"testing"
 
 	gqlmodel "github.com/calypr/loom/generated/graphql/graph/model"
-	"github.com/calypr/loom/internal/api/graphql/graph/dataframe"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
+	"github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -38,7 +39,7 @@ import (
 // REPAIR-20b (adversarial review ses_e65cad76effe REQUEST-CHANGES, F-1/F-2/
 // F-3/F-5): parity means the twin's FULL encoding chain, not a raw copy. The
 // twin encodes the failure trio through dataframeapi.PersistedFailure
-// (internal/api/graphql/graph/dataframe/model.go:73-84) exactly as
+// (internal/api/dataframe/dataframe/model.go:73-84) exactly as
 // executionModel consumes it (recipe_control_graphql.go:319,334), whose
 // code-less branch is errors.SanitizePersistedFailure
 // (internal/dataframe/errors/errors.go:271-277): whitespace-only raw text
@@ -455,14 +456,14 @@ func fr20TwinWire(t *testing.T, execution publication.BundleExecution) map[strin
 			RowCount: output.RowCount,
 		}
 		item.Error, item.ErrorCode, item.ErrorRetryable = dataframe.PersistedFailure(output.Error, output.ErrorCode, output.ErrorRetryable)
-		columns := make([]*gqlmodel.DataframeColumn, 0, len(output.Columns))
+		columns := make([]*dataframemodel.DataframeColumn, 0, len(output.Columns))
 		for _, column := range output.Columns {
 			columns = append(columns, dataframe.ColumnFromPhysical(column))
 		}
 		item.Columns = columns
 		var selector dataset.DataframeSelector = output.Selector
 		if selector.Valid() {
-			item.Selector = &gqlmodel.DataframeSelector{Recipe: selector.Recipe, TranslationVersion: selector.TranslationVersion, Output: selector.Output}
+			item.Selector = &dataframemodel.DataframeSelector{Recipe: selector.Recipe, TranslationVersion: selector.TranslationVersion, Output: selector.Output}
 		}
 		if output.Phase != "" {
 			phase := output.Phase

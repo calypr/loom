@@ -9,7 +9,7 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/api/columncapabilities"
-	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	executionresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"

@@ -327,8 +327,8 @@ Project-owned views and their published revisions continue to be refreshed trans
 | [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
 | [`internal/api/graphql/graph`](internal/api/graphql/graph) | GraphQL HTTP transport and error presentation. |
-| [`internal/api/graphql/graph/query`](internal/api/graphql/graph/query) | Arango graph and FHIR dataframe API services. |
-| [`internal/api/graphql/graph/dataframe`](internal/api/graphql/graph/dataframe) | Published-dataframe reads, aggregates, export, and GraphQL model mapping. |
+| [`internal/api/dataframe/query`](internal/api/dataframe/query) | Arango graph and FHIR dataframe API services. |
+| [`internal/api/dataframe/dataframe`](internal/api/dataframe/dataframe) | Published-dataframe reads, aggregates, export, and GraphQL model mapping. |
 
 ## Build, generation, and tests
 

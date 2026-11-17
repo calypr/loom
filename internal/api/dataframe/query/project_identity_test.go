@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -77,7 +77,7 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 
 	for _, project := range []string{canonical, legacy} {
 		t.Run(project, func(t *testing.T) {
-			if _, err := service.Run(ctx, model.FhirDataframeInput{Project: project, RootResourceType: "Patient"}, nil); err != nil {
+			if _, err := service.Run(ctx, dataframemodel.FhirDataframeInput{Project: project, RootResourceType: "Patient"}, nil); err != nil {
 				t.Fatalf("Run(%q) error = %v", project, err)
 			}
 			response, err := service.Introspect(ctx, IntrospectionRequest{Project: project, RootResourceType: "Patient"})

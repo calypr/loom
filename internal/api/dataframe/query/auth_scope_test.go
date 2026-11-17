@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -57,7 +57,7 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 		Dataframes: dataframes,
 	})
 
-	result, err := service.Run(dataframeBuilderRestrictedEmptyContext(), model.FhirDataframeInput{
+	result, err := service.Run(dataframeBuilderRestrictedEmptyContext(), dataframemodel.FhirDataframeInput{
 		Project:          "P1",
 		RootResourceType: "Patient",
 	}, nil)

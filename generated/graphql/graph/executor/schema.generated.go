@@ -14,24 +14,25 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	"github.com/calypr/loom/internal/api/dataframe"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // region    ************************** generated!.gotpl **************************
 
 type MutationResolver interface {
-	RunFhirDataframe(ctx context.Context, input model.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error)
+	RunFhirDataframe(ctx context.Context, input dataframe.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error)
 	RunDataframeRecipe(ctx context.Context, input model.RunDataframeRecipeInput) (*model.DataframeRecipeResult, error)
 	ValidateDataframeRecipe(ctx context.Context, input model.ValidateDataframeRecipeInput) (*model.DataframeRecipeValidation, error)
 	PreviewDataframeRecipe(ctx context.Context, input model.PreviewDataframeRecipeInput) (*model.DataframeRecipePreview, error)
 	RegisterDataframeRecipeRevision(ctx context.Context, input model.RegisterDataframeRecipeRevisionInput) (*model.DataframeRecipeRevision, error)
 }
 type QueryResolver interface {
-	ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*model.DataframeMaterialization, error)
-	DataframeDataset(ctx context.Context, input model.DataframeDatasetInput) (*model.DataframeMaterialization, error)
-	DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error)
-	DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error)
-	DataframeAggregations(ctx context.Context, input model.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error)
+	ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*dataframe.DataframeMaterialization, error)
+	DataframeDataset(ctx context.Context, input dataframe.DataframeDatasetInput) (*dataframe.DataframeMaterialization, error)
+	DataframeRows(ctx context.Context, input dataframe.DataframeRowsInput) (*model.DataframeRowConnection, error)
+	DataframeAggregate(ctx context.Context, input dataframe.DataframeAggregateInput) (*model.DataframeAggregateResult, error)
+	DataframeAggregations(ctx context.Context, input dataframe.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error)
 	DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error)
 	DataframeRecipeRevision(ctx context.Context, projectID string, name string, digest string) (*model.DataframeRecipeRevision, error)
 	DataframeRecipeRevisions(ctx context.Context, projectID string, name string) ([]*model.DataframeRecipeRevision, error)
@@ -91,8 +92,8 @@ func (ec *executionContext) field_Mutation_runFhirDataframe_args(ctx context.Con
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.FhirDataframeInput, error) {
-			return ec.unmarshalNFhirDataframeInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirDataframeInput(ctx, v)
+		func(ctx context.Context, v any) (dataframe.FhirDataframeInput, error) {
+			return ec.unmarshalNFhirDataframeInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirDataframeInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -141,8 +142,8 @@ func (ec *executionContext) field_Query_dataframeAggregate_args(ctx context.Cont
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.DataframeAggregateInput, error) {
-			return ec.unmarshalNDataframeAggregateInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregateInput(ctx, v)
+		func(ctx context.Context, v any) (dataframe.DataframeAggregateInput, error) {
+			return ec.unmarshalNDataframeAggregateInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregateInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -155,8 +156,8 @@ func (ec *executionContext) field_Query_dataframeAggregations_args(ctx context.C
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.DataframeAggregationsInput, error) {
-			return ec.unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsInput(ctx, v)
+		func(ctx context.Context, v any) (dataframe.DataframeAggregationsInput, error) {
+			return ec.unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationsInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -169,8 +170,8 @@ func (ec *executionContext) field_Query_dataframeDataset_args(ctx context.Contex
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.DataframeDatasetInput, error) {
-			return ec.unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeDatasetInput(ctx, v)
+		func(ctx context.Context, v any) (dataframe.DataframeDatasetInput, error) {
+			return ec.unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeDatasetInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -249,8 +250,8 @@ func (ec *executionContext) field_Query_dataframeRows_args(ctx context.Context, 
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
-		func(ctx context.Context, v any) (model.DataframeRowsInput, error) {
-			return ec.unmarshalNDataframeRowsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowsInput(ctx, v)
+		func(ctx context.Context, v any) (dataframe.DataframeRowsInput, error) {
+			return ec.unmarshalNDataframeRowsInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRowsInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -353,8 +354,8 @@ func (ec *executionContext) _DataframeAggregateResult_materialization(ctx contex
 			return obj.Materialization, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterialization(ctx, selections, v)
 		},
 		true,
 		true,
@@ -431,8 +432,8 @@ func (ec *executionContext) _DataframeAggregationsResult_materialization(ctx con
 			return obj.Materialization, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterialization(ctx, selections, v)
 		},
 		true,
 		true,
@@ -474,7 +475,7 @@ func (ec *executionContext) fieldContext_DataframeAggregationsResult_aggregation
 	return graphql.NewScalarFieldContext("DataframeAggregationsResult", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_semanticPath(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_semanticPath(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -497,7 +498,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_semanticPath(_ context.
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_name(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -520,7 +521,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_name(_ context.Context,
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_clickhouseType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_clickhouseType(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -543,7 +544,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_clickhouseType(_ contex
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_logicalType(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_logicalType(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -566,7 +567,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_logicalType(_ context.C
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_nullable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_nullable(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -589,7 +590,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_nullable(_ context.Cont
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_repeated(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_repeated(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -612,7 +613,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_repeated(_ context.Cont
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_filterable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_filterable(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -635,7 +636,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_filterable(_ context.Co
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_sortable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_sortable(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -658,7 +659,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_sortable(_ context.Cont
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeColumn_aggregatable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeColumn_aggregatable(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -906,7 +907,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_richSo
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeMaterialization_id(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_id(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -929,7 +930,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_id(_ context.C
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type ID does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_name(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -952,7 +953,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_name(_ context
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_revision(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_revision(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -975,7 +976,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_revision(_ con
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_projectId(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_projectId(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -998,7 +999,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_projectId(_ co
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_datasetGeneration(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_datasetGeneration(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1021,7 +1022,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_datasetGenerat
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_state(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_state(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1033,8 +1034,8 @@ func (ec *executionContext) _DataframeMaterialization_state(ctx context.Context,
 			return obj.State, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v model.DataframeMaterializationState) graphql.Marshaler {
-			return ec.marshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationState(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v dataframe.DataframeMaterializationState) graphql.Marshaler {
+			return ec.marshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterializationState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1044,7 +1045,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_state(_ contex
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type DataframeMaterializationState does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_columns(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_columns(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1056,8 +1057,8 @@ func (ec *executionContext) _DataframeMaterialization_columns(ctx context.Contex
 			return obj.Columns, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
-			return ec.marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumnᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*dataframe.DataframeColumn) graphql.Marshaler {
+			return ec.marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeColumnᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1076,7 +1077,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_columns(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeMaterialization_rowCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_rowCount(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1099,7 +1100,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_rowCount(_ con
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_createdAt(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_createdAt(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1122,7 +1123,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_createdAt(_ co
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_readyAt(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_readyAt(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1145,7 +1146,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_readyAt(_ cont
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_error(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_error(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1168,7 +1169,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_error(_ contex
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_errorCode(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_errorCode(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1191,7 +1192,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_errorCode(_ co
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_errorRetryable(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_errorRetryable(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1214,7 +1215,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_errorRetryable
 	return graphql.NewScalarFieldContext("DataframeMaterialization", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeMaterialization_selector(ctx context.Context, field graphql.CollectedField, obj *model.DataframeMaterialization) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeMaterialization_selector(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeMaterialization) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1226,8 +1227,8 @@ func (ec *executionContext) _DataframeMaterialization_selector(ctx context.Conte
 			return obj.Selector, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSelector) graphql.Marshaler {
-			return ec.marshalODataframeSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelector(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeSelector) graphql.Marshaler {
+			return ec.marshalODataframeSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSelector(ctx, selections, v)
 		},
 		true,
 		false,
@@ -2425,8 +2426,8 @@ func (ec *executionContext) _DataframeRecipeExecutionOutput_columns(ctx context.
 			return obj.Columns, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
-			return ec.marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumnᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*dataframe.DataframeColumn) graphql.Marshaler {
+			return ec.marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeColumnᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -2526,8 +2527,8 @@ func (ec *executionContext) _DataframeRecipeExecutionOutput_selector(ctx context
 			return obj.Selector, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeSelector) graphql.Marshaler {
-			return ec.marshalODataframeSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelector(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeSelector) graphql.Marshaler {
+			return ec.marshalODataframeSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSelector(ctx, selections, v)
 		},
 		true,
 		false,
@@ -5223,8 +5224,8 @@ func (ec *executionContext) _DataframeRowConnection_materialization(ctx context.
 			return obj.Materialization, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterialization(ctx, selections, v)
 		},
 		true,
 		true,
@@ -5367,7 +5368,7 @@ func (ec *executionContext) fieldContext_DataframeRowConnection_pageInfo(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeSelector_recipe(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSelector) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeSelector_recipe(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeSelector) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5390,7 +5391,7 @@ func (ec *executionContext) fieldContext_DataframeSelector_recipe(_ context.Cont
 	return graphql.NewScalarFieldContext("DataframeSelector", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeSelector_translationVersion(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSelector) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeSelector_translationVersion(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeSelector) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5413,7 +5414,7 @@ func (ec *executionContext) fieldContext_DataframeSelector_translationVersion(_ 
 	return graphql.NewScalarFieldContext("DataframeSelector", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeSelector_output(ctx context.Context, field graphql.CollectedField, obj *model.DataframeSelector) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeSelector_output(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeSelector) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6153,7 +6154,7 @@ func (ec *executionContext) _Mutation_runFhirDataframe(ctx context.Context, fiel
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().RunFhirDataframe(ctx, fc.Args["input"].(model.FhirDataframeInput), fc.Args["limit"].(*int))
+			return ec.Resolvers.Mutation().RunFhirDataframe(ctx, fc.Args["input"].(dataframe.FhirDataframeInput), fc.Args["limit"].(*int))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.FhirDataframeResult) graphql.Marshaler {
@@ -6376,8 +6377,8 @@ func (ec *executionContext) _Query_projectDataframeDatasets(ctx context.Context,
 			return ec.Resolvers.Query().ProjectDataframeDatasets(ctx, fc.Args["projectId"].(string))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*dataframe.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterializationᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6417,11 +6418,11 @@ func (ec *executionContext) _Query_dataframeDataset(ctx context.Context, field g
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().DataframeDataset(ctx, fc.Args["input"].(model.DataframeDatasetInput))
+			return ec.Resolvers.Query().DataframeDataset(ctx, fc.Args["input"].(dataframe.DataframeDatasetInput))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
-			return ec.marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeMaterialization) graphql.Marshaler {
+			return ec.marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterialization(ctx, selections, v)
 		},
 		true,
 		false,
@@ -6461,7 +6462,7 @@ func (ec *executionContext) _Query_dataframeRows(ctx context.Context, field grap
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().DataframeRows(ctx, fc.Args["input"].(model.DataframeRowsInput))
+			return ec.Resolvers.Query().DataframeRows(ctx, fc.Args["input"].(dataframe.DataframeRowsInput))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeRowConnection) graphql.Marshaler {
@@ -6505,7 +6506,7 @@ func (ec *executionContext) _Query_dataframeAggregate(ctx context.Context, field
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().DataframeAggregate(ctx, fc.Args["input"].(model.DataframeAggregateInput))
+			return ec.Resolvers.Query().DataframeAggregate(ctx, fc.Args["input"].(dataframe.DataframeAggregateInput))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeAggregateResult) graphql.Marshaler {
@@ -6549,7 +6550,7 @@ func (ec *executionContext) _Query_dataframeAggregations(ctx context.Context, fi
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().DataframeAggregations(ctx, fc.Args["input"].(model.DataframeAggregationsInput))
+			return ec.Resolvers.Query().DataframeAggregations(ctx, fc.Args["input"].(dataframe.DataframeAggregationsInput))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeAggregationsResult) graphql.Marshaler {
@@ -6971,8 +6972,8 @@ func (ec *executionContext) fieldContext_Query___schema(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
-func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Context, obj any) (model.DataframeAggregateInput, error) {
-	var it model.DataframeAggregateInput
+func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Context, obj any) (dataframe.DataframeAggregateInput, error) {
+	var it dataframe.DataframeAggregateInput
 	if obj == nil {
 		return it, nil
 	}
@@ -6998,7 +6999,7 @@ func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Co
 			it.ProjectID = data
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
+			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7012,7 +7013,7 @@ func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Co
 			it.GroupBy = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7036,8 +7037,8 @@ func (ec *executionContext) unmarshalInputDataframeAggregateInput(ctx context.Co
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputDataframeAggregationSpecInput(ctx context.Context, obj any) (model.DataframeAggregationSpecInput, error) {
-	var it model.DataframeAggregationSpecInput
+func (ec *executionContext) unmarshalInputDataframeAggregationSpecInput(ctx context.Context, obj any) (dataframe.DataframeAggregationSpecInput, error) {
+	var it dataframe.DataframeAggregationSpecInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7112,8 +7113,8 @@ func (ec *executionContext) unmarshalInputDataframeAggregationSpecInput(ctx cont
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context.Context, obj any) (model.DataframeAggregationsInput, error) {
-	var it model.DataframeAggregationsInput
+func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context.Context, obj any) (dataframe.DataframeAggregationsInput, error) {
+	var it dataframe.DataframeAggregationsInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7139,21 +7140,21 @@ func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context
 			it.ProjectID = data
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
+			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Selector = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Filters = data
 		case "specs":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("specs"))
-			data, err := ec.unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationSpecInputᚄ(ctx, v)
+			data, err := ec.unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationSpecInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7163,8 +7164,8 @@ func (ec *executionContext) unmarshalInputDataframeAggregationsInput(ctx context
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Context, obj any) (model.DataframeDatasetInput, error) {
-	var it model.DataframeDatasetInput
+func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Context, obj any) (dataframe.DataframeDatasetInput, error) {
+	var it dataframe.DataframeDatasetInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7190,7 +7191,7 @@ func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Cont
 			it.ProjectID = data
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
+			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7200,8 +7201,8 @@ func (ec *executionContext) unmarshalInputDataframeDatasetInput(ctx context.Cont
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputDataframeFilterInput(ctx context.Context, obj any) (model.DataframeFilterInput, error) {
-	var it model.DataframeFilterInput
+func (ec *executionContext) unmarshalInputDataframeFilterInput(ctx context.Context, obj any) (dataframe.DataframeFilterInput, error) {
+	var it dataframe.DataframeFilterInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7306,8 +7307,8 @@ func (ec *executionContext) unmarshalInputDataframeRecipeBindingsInput(ctx conte
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context, obj any) (model.DataframeRowsInput, error) {
-	var it model.DataframeRowsInput
+func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context, obj any) (dataframe.DataframeRowsInput, error) {
+	var it dataframe.DataframeRowsInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7337,7 +7338,7 @@ func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context
 			it.ProjectID = data
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx, v)
+			data, err := ec.unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7351,14 +7352,14 @@ func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context
 			it.Columns = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Filters = data
 		case "sort":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sort"))
-			data, err := ec.unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSortInput(ctx, v)
+			data, err := ec.unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSortInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7382,8 +7383,8 @@ func (ec *executionContext) unmarshalInputDataframeRowsInput(ctx context.Context
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputDataframeSelectorInput(ctx context.Context, obj any) (model.DataframeSelectorInput, error) {
-	var it model.DataframeSelectorInput
+func (ec *executionContext) unmarshalInputDataframeSelectorInput(ctx context.Context, obj any) (dataframe.DataframeSelectorInput, error) {
+	var it dataframe.DataframeSelectorInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7426,8 +7427,8 @@ func (ec *executionContext) unmarshalInputDataframeSelectorInput(ctx context.Con
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputDataframeSortInput(ctx context.Context, obj any) (model.DataframeSortInput, error) {
-	var it model.DataframeSortInput
+func (ec *executionContext) unmarshalInputDataframeSortInput(ctx context.Context, obj any) (dataframe.DataframeSortInput, error) {
+	var it dataframe.DataframeSortInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7515,8 +7516,8 @@ func (ec *executionContext) unmarshalInputExplainDataframeRecipeInput(ctx contex
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirAggregateInput(ctx context.Context, obj any) (model.FhirAggregateInput, error) {
-	var it model.FhirAggregateInput
+func (ec *executionContext) unmarshalInputFhirAggregateInput(ctx context.Context, obj any) (dataframe.FhirAggregateInput, error) {
+	var it dataframe.FhirAggregateInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7546,7 +7547,7 @@ func (ec *executionContext) unmarshalInputFhirAggregateInput(ctx context.Context
 			it.Name = data
 		case "operation":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("operation"))
-			data, err := ec.unmarshalNFhirAggregateOperation2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirAggregateOperation(ctx, v)
+			data, err := ec.unmarshalNFhirAggregateOperation2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirAggregateOperation(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7588,7 +7589,7 @@ func (ec *executionContext) unmarshalInputFhirAggregateInput(ctx context.Context
 			it.PredicateEquals = data
 		case "valueMode":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("valueMode"))
-			data, err := ec.unmarshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirValueMode(ctx, v)
+			data, err := ec.unmarshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirValueMode(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7598,8 +7599,8 @@ func (ec *executionContext) unmarshalInputFhirAggregateInput(ctx context.Context
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirCatalogProjectionInput(ctx context.Context, obj any) (model.FhirCatalogProjectionInput, error) {
-	var it model.FhirCatalogProjectionInput
+func (ec *executionContext) unmarshalInputFhirCatalogProjectionInput(ctx context.Context, obj any) (dataframe.FhirCatalogProjectionInput, error) {
+	var it dataframe.FhirCatalogProjectionInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7662,14 +7663,14 @@ func (ec *executionContext) unmarshalInputFhirCatalogProjectionInput(ctx context
 			it.Kinds = data
 		case "naming":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("naming"))
-			data, err := ec.unmarshalNFhirColumnNaming2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirColumnNaming(ctx, v)
+			data, err := ec.unmarshalNFhirColumnNaming2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirColumnNaming(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Naming = data
 		case "valueMode":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("valueMode"))
-			data, err := ec.unmarshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirValueMode(ctx, v)
+			data, err := ec.unmarshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirValueMode(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7686,8 +7687,8 @@ func (ec *executionContext) unmarshalInputFhirCatalogProjectionInput(ctx context
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirCodeValueInput(ctx context.Context, obj any) (model.FhirCodeValueInput, error) {
-	var it model.FhirCodeValueInput
+func (ec *executionContext) unmarshalInputFhirCodeValueInput(ctx context.Context, obj any) (dataframe.FhirCodeValueInput, error) {
+	var it dataframe.FhirCodeValueInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7730,8 +7731,8 @@ func (ec *executionContext) unmarshalInputFhirCodeValueInput(ctx context.Context
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirDataframeInput(ctx context.Context, obj any) (model.FhirDataframeInput, error) {
-	var it model.FhirDataframeInput
+func (ec *executionContext) unmarshalInputFhirDataframeInput(ctx context.Context, obj any) (dataframe.FhirDataframeInput, error) {
+	var it dataframe.FhirDataframeInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7785,49 +7786,49 @@ func (ec *executionContext) unmarshalInputFhirDataframeInput(ctx context.Context
 			it.RowGrain = data
 		case "rootFields":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootFields"))
-			data, err := ec.unmarshalOFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.RootFields = data
 		case "rootFilters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootFilters"))
-			data, err := ec.unmarshalOFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.RootFilters = data
 		case "rootPivots":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootPivots"))
-			data, err := ec.unmarshalOFhirPivotInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirPivotInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirPivotInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.RootPivots = data
 		case "rootAggregates":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootAggregates"))
-			data, err := ec.unmarshalOFhirAggregateInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirAggregateInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirAggregateInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirAggregateInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.RootAggregates = data
 		case "rootSlices":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootSlices"))
-			data, err := ec.unmarshalOFhirRepresentativeSliceInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirRepresentativeSliceInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirRepresentativeSliceInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirRepresentativeSliceInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.RootSlices = data
 		case "rootCatalogProjections":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootCatalogProjections"))
-			data, err := ec.unmarshalOFhirCatalogProjectionInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirCatalogProjectionInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirCatalogProjectionInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirCatalogProjectionInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.RootCatalogProjections = data
 		case "traverse":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("traverse"))
-			data, err := ec.unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalStepInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalStepInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7851,8 +7852,8 @@ func (ec *executionContext) unmarshalInputFhirDataframeInput(ctx context.Context
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirFieldPredicateInput(ctx context.Context, obj any) (model.FhirFieldPredicateInput, error) {
-	var it model.FhirFieldPredicateInput
+func (ec *executionContext) unmarshalInputFhirFieldPredicateInput(ctx context.Context, obj any) (dataframe.FhirFieldPredicateInput, error) {
+	var it dataframe.FhirFieldPredicateInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7882,7 +7883,7 @@ func (ec *executionContext) unmarshalInputFhirFieldPredicateInput(ctx context.Co
 			it.Path = data
 		case "op":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("op"))
-			data, err := ec.unmarshalNFhirFieldPredicateOperation2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldPredicateOperation(ctx, v)
+			data, err := ec.unmarshalNFhirFieldPredicateOperation2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldPredicateOperation(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7899,8 +7900,8 @@ func (ec *executionContext) unmarshalInputFhirFieldPredicateInput(ctx context.Co
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirFieldSelectInput(ctx context.Context, obj any) (model.FhirFieldSelectInput, error) {
-	var it model.FhirFieldSelectInput
+func (ec *executionContext) unmarshalInputFhirFieldSelectInput(ctx context.Context, obj any) (dataframe.FhirFieldSelectInput, error) {
+	var it dataframe.FhirFieldSelectInput
 	if obj == nil {
 		return it, nil
 	}
@@ -7943,7 +7944,7 @@ func (ec *executionContext) unmarshalInputFhirFieldSelectInput(ctx context.Conte
 			it.FieldRef = data
 		case "selector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selector"))
-			data, err := ec.unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectorInput(ctx, v)
+			data, err := ec.unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7964,14 +7965,14 @@ func (ec *executionContext) unmarshalInputFhirFieldSelectInput(ctx context.Conte
 			it.FallbackFieldRefs = data
 		case "fallbackSelectors":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("fallbackSelectors"))
-			data, err := ec.unmarshalNFhirFieldSelectorInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectorInputᚄ(ctx, v)
+			data, err := ec.unmarshalNFhirFieldSelectorInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectorInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.FallbackSelectors = data
 		case "valueMode":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("valueMode"))
-			data, err := ec.unmarshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirValueMode(ctx, v)
+			data, err := ec.unmarshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirValueMode(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -7981,8 +7982,8 @@ func (ec *executionContext) unmarshalInputFhirFieldSelectInput(ctx context.Conte
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirFieldSelectorInput(ctx context.Context, obj any) (model.FhirFieldSelectorInput, error) {
-	var it model.FhirFieldSelectorInput
+func (ec *executionContext) unmarshalInputFhirFieldSelectorInput(ctx context.Context, obj any) (dataframe.FhirFieldSelectorInput, error) {
+	var it dataframe.FhirFieldSelectorInput
 	if obj == nil {
 		return it, nil
 	}
@@ -8008,7 +8009,7 @@ func (ec *executionContext) unmarshalInputFhirFieldSelectorInput(ctx context.Con
 			it.SourcePath = data
 		case "where":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("where"))
-			data, err := ec.unmarshalOFhirFieldPredicateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldPredicateInput(ctx, v)
+			data, err := ec.unmarshalOFhirFieldPredicateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldPredicateInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8025,8 +8026,8 @@ func (ec *executionContext) unmarshalInputFhirFieldSelectorInput(ctx context.Con
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirFilterInput(ctx context.Context, obj any) (model.FhirFilterInput, error) {
-	var it model.FhirFilterInput
+func (ec *executionContext) unmarshalInputFhirFilterInput(ctx context.Context, obj any) (dataframe.FhirFilterInput, error) {
+	var it dataframe.FhirFilterInput
 	if obj == nil {
 		return it, nil
 	}
@@ -8063,21 +8064,21 @@ func (ec *executionContext) unmarshalInputFhirFilterInput(ctx context.Context, o
 			it.FieldRef = data
 		case "operator":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("operator"))
-			data, err := ec.unmarshalNFhirFilterOperator2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterOperator(ctx, v)
+			data, err := ec.unmarshalNFhirFilterOperator2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterOperator(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Operator = data
 		case "quantifier":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("quantifier"))
-			data, err := ec.unmarshalOFhirFilterQuantifier2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterQuantifier(ctx, v)
+			data, err := ec.unmarshalOFhirFilterQuantifier2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterQuantifier(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Quantifier = data
 		case "values":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("values"))
-			data, err := ec.unmarshalNFhirFilterValueInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterValueInputᚄ(ctx, v)
+			data, err := ec.unmarshalNFhirFilterValueInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterValueInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8087,8 +8088,8 @@ func (ec *executionContext) unmarshalInputFhirFilterInput(ctx context.Context, o
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirFilterValueInput(ctx context.Context, obj any) (model.FhirFilterValueInput, error) {
-	var it model.FhirFilterValueInput
+func (ec *executionContext) unmarshalInputFhirFilterValueInput(ctx context.Context, obj any) (dataframe.FhirFilterValueInput, error) {
+	var it dataframe.FhirFilterValueInput
 	if obj == nil {
 		return it, nil
 	}
@@ -8107,7 +8108,7 @@ func (ec *executionContext) unmarshalInputFhirFilterValueInput(ctx context.Conte
 		switch k {
 		case "kind":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
-			data, err := ec.unmarshalNFhirFilterValueKind2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterValueKind(ctx, v)
+			data, err := ec.unmarshalNFhirFilterValueKind2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterValueKind(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8121,7 +8122,7 @@ func (ec *executionContext) unmarshalInputFhirFilterValueInput(ctx context.Conte
 			it.String = data
 		case "code":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("code"))
-			data, err := ec.unmarshalOFhirCodeValueInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirCodeValueInput(ctx, v)
+			data, err := ec.unmarshalOFhirCodeValueInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirCodeValueInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8217,7 +8218,7 @@ func (ec *executionContext) unmarshalInputFhirGraphQueryInput(ctx context.Contex
 			it.RootResourceType = data
 		case "rootFilters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("rootFilters"))
-			data, err := ec.unmarshalNFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalNFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8292,14 +8293,14 @@ func (ec *executionContext) unmarshalInputFhirGraphTraversalInput(ctx context.Co
 			it.Alias = data
 		case "matchMode":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("matchMode"))
-			data, err := ec.unmarshalNFhirTraversalMatchMode2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalMatchMode(ctx, v)
+			data, err := ec.unmarshalNFhirTraversalMatchMode2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalMatchMode(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.MatchMode = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalNFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalNFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8316,8 +8317,8 @@ func (ec *executionContext) unmarshalInputFhirGraphTraversalInput(ctx context.Co
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirPivotDiscoveryInput(ctx context.Context, obj any) (model.FhirPivotDiscoveryInput, error) {
-	var it model.FhirPivotDiscoveryInput
+func (ec *executionContext) unmarshalInputFhirPivotDiscoveryInput(ctx context.Context, obj any) (dataframe.FhirPivotDiscoveryInput, error) {
+	var it dataframe.FhirPivotDiscoveryInput
 	if obj == nil {
 		return it, nil
 	}
@@ -8360,8 +8361,8 @@ func (ec *executionContext) unmarshalInputFhirPivotDiscoveryInput(ctx context.Co
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirPivotInput(ctx context.Context, obj any) (model.FhirPivotInput, error) {
-	var it model.FhirPivotInput
+func (ec *executionContext) unmarshalInputFhirPivotInput(ctx context.Context, obj any) (dataframe.FhirPivotInput, error) {
+	var it dataframe.FhirPivotInput
 	if obj == nil {
 		return it, nil
 	}
@@ -8398,14 +8399,14 @@ func (ec *executionContext) unmarshalInputFhirPivotInput(ctx context.Context, ob
 			it.FieldRef = data
 		case "columnSelector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("columnSelector"))
-			data, err := ec.unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectorInput(ctx, v)
+			data, err := ec.unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.ColumnSelector = data
 		case "valueSelector":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("valueSelector"))
-			data, err := ec.unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectorInput(ctx, v)
+			data, err := ec.unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectorInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8419,7 +8420,7 @@ func (ec *executionContext) unmarshalInputFhirPivotInput(ctx context.Context, ob
 			it.Columns = data
 		case "discovery":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("discovery"))
-			data, err := ec.unmarshalOFhirPivotDiscoveryInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotDiscoveryInput(ctx, v)
+			data, err := ec.unmarshalOFhirPivotDiscoveryInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirPivotDiscoveryInput(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8429,8 +8430,8 @@ func (ec *executionContext) unmarshalInputFhirPivotInput(ctx context.Context, ob
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirRepresentativeSliceInput(ctx context.Context, obj any) (model.FhirRepresentativeSliceInput, error) {
-	var it model.FhirRepresentativeSliceInput
+func (ec *executionContext) unmarshalInputFhirRepresentativeSliceInput(ctx context.Context, obj any) (dataframe.FhirRepresentativeSliceInput, error) {
+	var it dataframe.FhirRepresentativeSliceInput
 	if obj == nil {
 		return it, nil
 	}
@@ -8488,7 +8489,7 @@ func (ec *executionContext) unmarshalInputFhirRepresentativeSliceInput(ctx conte
 			it.WhereEquals = data
 		case "fields":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("fields"))
-			data, err := ec.unmarshalNFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectInputᚄ(ctx, v)
+			data, err := ec.unmarshalNFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8498,8 +8499,8 @@ func (ec *executionContext) unmarshalInputFhirRepresentativeSliceInput(ctx conte
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputFhirTraversalStepInput(ctx context.Context, obj any) (model.FhirTraversalStepInput, error) {
-	var it model.FhirTraversalStepInput
+func (ec *executionContext) unmarshalInputFhirTraversalStepInput(ctx context.Context, obj any) (dataframe.FhirTraversalStepInput, error) {
+	var it dataframe.FhirTraversalStepInput
 	if obj == nil {
 		return it, nil
 	}
@@ -8564,56 +8565,56 @@ func (ec *executionContext) unmarshalInputFhirTraversalStepInput(ctx context.Con
 			it.Alias = data
 		case "matchMode":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("matchMode"))
-			data, err := ec.unmarshalOFhirTraversalMatchMode2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalMatchMode(ctx, v)
+			data, err := ec.unmarshalOFhirTraversalMatchMode2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalMatchMode(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.MatchMode = data
 		case "fields":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("fields"))
-			data, err := ec.unmarshalNFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectInputᚄ(ctx, v)
+			data, err := ec.unmarshalNFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Fields = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalOFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Filters = data
 		case "pivots":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("pivots"))
-			data, err := ec.unmarshalOFhirPivotInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirPivotInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirPivotInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Pivots = data
 		case "aggregates":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("aggregates"))
-			data, err := ec.unmarshalOFhirAggregateInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirAggregateInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirAggregateInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirAggregateInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Aggregates = data
 		case "slices":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("slices"))
-			data, err := ec.unmarshalOFhirRepresentativeSliceInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirRepresentativeSliceInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirRepresentativeSliceInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirRepresentativeSliceInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Slices = data
 		case "catalogProjections":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("catalogProjections"))
-			data, err := ec.unmarshalOFhirCatalogProjectionInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirCatalogProjectionInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirCatalogProjectionInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirCatalogProjectionInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.CatalogProjections = data
 		case "traverse":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("traverse"))
-			data, err := ec.unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalStepInputᚄ(ctx, v)
+			data, err := ec.unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalStepInputᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -8948,7 +8949,7 @@ func (ec *executionContext) _DataframeAggregationsResult(ctx context.Context, se
 
 var dataframeColumnImplementors = []string{"DataframeColumn"}
 
-func (ec *executionContext) _DataframeColumn(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeColumn) graphql.Marshaler {
+func (ec *executionContext) _DataframeColumn(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeColumn) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeColumnImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -9104,7 +9105,7 @@ func (ec *executionContext) _DataframeCompilerPlanDiagnostics(ctx context.Contex
 
 var dataframeMaterializationImplementors = []string{"DataframeMaterialization"}
 
-func (ec *executionContext) _DataframeMaterialization(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeMaterialization) graphql.Marshaler {
+func (ec *executionContext) _DataframeMaterialization(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeMaterialization) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeMaterializationImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11108,7 +11109,7 @@ func (ec *executionContext) _DataframeRowConnection(ctx context.Context, sel ast
 
 var dataframeSelectorImplementors = []string{"DataframeSelector"}
 
-func (ec *executionContext) _DataframeSelector(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeSelector) graphql.Marshaler {
+func (ec *executionContext) _DataframeSelector(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeSelector) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeSelectorImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11924,7 +11925,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 
 // region    ***************************** type.gotpl *****************************
 
-func (ec *executionContext) unmarshalNDataframeAggregateInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregateInput(ctx context.Context, v any) (model.DataframeAggregateInput, error) {
+func (ec *executionContext) unmarshalNDataframeAggregateInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregateInput(ctx context.Context, v any) (dataframe.DataframeAggregateInput, error) {
 	res, err := ec.unmarshalInputDataframeAggregateInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -11943,13 +11944,13 @@ func (ec *executionContext) marshalNDataframeAggregateResult2ᚖgithubᚗcomᚋc
 	return ec._DataframeAggregateResult(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationSpecInputᚄ(ctx context.Context, v any) ([]*model.DataframeAggregationSpecInput, error) {
+func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationSpecInputᚄ(ctx context.Context, v any) ([]*dataframe.DataframeAggregationSpecInput, error) {
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.DataframeAggregationSpecInput, len(vSlice))
+	res := make([]*dataframe.DataframeAggregationSpecInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationSpecInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationSpecInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -11957,12 +11958,12 @@ func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚕᚖgithub
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationSpecInput(ctx context.Context, v any) (*model.DataframeAggregationSpecInput, error) {
+func (ec *executionContext) unmarshalNDataframeAggregationSpecInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationSpecInput(ctx context.Context, v any) (*dataframe.DataframeAggregationSpecInput, error) {
 	res, err := ec.unmarshalInputDataframeAggregationSpecInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsInput(ctx context.Context, v any) (model.DataframeAggregationsInput, error) {
+func (ec *executionContext) unmarshalNDataframeAggregationsInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationsInput(ctx context.Context, v any) (dataframe.DataframeAggregationsInput, error) {
 	res, err := ec.unmarshalInputDataframeAggregationsInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -11981,11 +11982,11 @@ func (ec *executionContext) marshalNDataframeAggregationsResult2ᚖgithubᚗcom�
 	return ec._DataframeAggregationsResult(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeColumn) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []*dataframe.DataframeColumn) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumn(ctx, sel, v[i])
+		return ec.marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeColumn(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -11997,7 +11998,7 @@ func (ec *executionContext) marshalNDataframeColumn2ᚕᚖgithubᚗcomᚋcalypr�
 	return ret
 }
 
-func (ec *executionContext) marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeColumn(ctx context.Context, sel ast.SelectionSet, v *model.DataframeColumn) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeColumn(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeColumn) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12017,21 +12018,21 @@ func (ec *executionContext) marshalNDataframeCompilerPlanDiagnostics2ᚖgithub�
 	return ec._DataframeCompilerPlanDiagnostics(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeDatasetInput(ctx context.Context, v any) (model.DataframeDatasetInput, error) {
+func (ec *executionContext) unmarshalNDataframeDatasetInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeDatasetInput(ctx context.Context, v any) (dataframe.DataframeDatasetInput, error) {
 	res, err := ec.unmarshalInputDataframeDatasetInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInput(ctx context.Context, v any) (*model.DataframeFilterInput, error) {
+func (ec *executionContext) unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeFilterInput(ctx context.Context, v any) (*dataframe.DataframeFilterInput, error) {
 	res, err := ec.unmarshalInputDataframeFilterInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeMaterialization) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeMaterialization2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterializationᚄ(ctx context.Context, sel ast.SelectionSet, v []*dataframe.DataframeMaterialization) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx, sel, v[i])
+		return ec.marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterialization(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -12043,7 +12044,7 @@ func (ec *executionContext) marshalNDataframeMaterialization2ᚕᚖgithubᚗcom�
 	return ret
 }
 
-func (ec *executionContext) marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeMaterialization) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12053,13 +12054,13 @@ func (ec *executionContext) marshalNDataframeMaterialization2ᚖgithubᚗcomᚋc
 	return ec._DataframeMaterialization(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationState(ctx context.Context, v any) (model.DataframeMaterializationState, error) {
-	var res model.DataframeMaterializationState
+func (ec *executionContext) unmarshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterializationState(ctx context.Context, v any) (dataframe.DataframeMaterializationState, error) {
+	var res dataframe.DataframeMaterializationState
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterializationState(ctx context.Context, sel ast.SelectionSet, v model.DataframeMaterializationState) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeMaterializationState2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterializationState(ctx context.Context, sel ast.SelectionSet, v dataframe.DataframeMaterializationState) graphql.Marshaler {
 	return v
 }
 
@@ -12674,12 +12675,12 @@ func (ec *executionContext) marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcal
 	return ec._DataframeRowConnection(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNDataframeRowsInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowsInput(ctx context.Context, v any) (model.DataframeRowsInput, error) {
+func (ec *executionContext) unmarshalNDataframeRowsInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRowsInput(ctx context.Context, v any) (dataframe.DataframeRowsInput, error) {
 	res, err := ec.unmarshalInputDataframeRowsInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelectorInput(ctx context.Context, v any) (*model.DataframeSelectorInput, error) {
+func (ec *executionContext) unmarshalNDataframeSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSelectorInput(ctx context.Context, v any) (*dataframe.DataframeSelectorInput, error) {
 	res, err := ec.unmarshalInputDataframeSelectorInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
@@ -12689,37 +12690,37 @@ func (ec *executionContext) unmarshalNExplainDataframeRecipeInput2githubᚗcom�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirAggregateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirAggregateInput(ctx context.Context, v any) (*model.FhirAggregateInput, error) {
+func (ec *executionContext) unmarshalNFhirAggregateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirAggregateInput(ctx context.Context, v any) (*dataframe.FhirAggregateInput, error) {
 	res, err := ec.unmarshalInputFhirAggregateInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirAggregateOperation2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirAggregateOperation(ctx context.Context, v any) (model.FhirAggregateOperation, error) {
-	var res model.FhirAggregateOperation
+func (ec *executionContext) unmarshalNFhirAggregateOperation2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirAggregateOperation(ctx context.Context, v any) (dataframe.FhirAggregateOperation, error) {
+	var res dataframe.FhirAggregateOperation
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNFhirAggregateOperation2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirAggregateOperation(ctx context.Context, sel ast.SelectionSet, v model.FhirAggregateOperation) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirAggregateOperation2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirAggregateOperation(ctx context.Context, sel ast.SelectionSet, v dataframe.FhirAggregateOperation) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) unmarshalNFhirCatalogProjectionInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirCatalogProjectionInput(ctx context.Context, v any) (*model.FhirCatalogProjectionInput, error) {
+func (ec *executionContext) unmarshalNFhirCatalogProjectionInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirCatalogProjectionInput(ctx context.Context, v any) (*dataframe.FhirCatalogProjectionInput, error) {
 	res, err := ec.unmarshalInputFhirCatalogProjectionInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirColumnNaming2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirColumnNaming(ctx context.Context, v any) (model.FhirColumnNaming, error) {
-	var res model.FhirColumnNaming
+func (ec *executionContext) unmarshalNFhirColumnNaming2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirColumnNaming(ctx context.Context, v any) (dataframe.FhirColumnNaming, error) {
+	var res dataframe.FhirColumnNaming
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNFhirColumnNaming2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirColumnNaming(ctx context.Context, sel ast.SelectionSet, v model.FhirColumnNaming) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirColumnNaming2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirColumnNaming(ctx context.Context, sel ast.SelectionSet, v dataframe.FhirColumnNaming) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) unmarshalNFhirDataframeInput2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirDataframeInput(ctx context.Context, v any) (model.FhirDataframeInput, error) {
+func (ec *executionContext) unmarshalNFhirDataframeInput2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirDataframeInput(ctx context.Context, v any) (dataframe.FhirDataframeInput, error) {
 	res, err := ec.unmarshalInputFhirDataframeInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -12738,23 +12739,23 @@ func (ec *executionContext) marshalNFhirDataframeResult2ᚖgithubᚗcomᚋcalypr
 	return ec._FhirDataframeResult(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNFhirFieldPredicateOperation2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldPredicateOperation(ctx context.Context, v any) (model.FhirFieldPredicateOperation, error) {
-	var res model.FhirFieldPredicateOperation
+func (ec *executionContext) unmarshalNFhirFieldPredicateOperation2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldPredicateOperation(ctx context.Context, v any) (dataframe.FhirFieldPredicateOperation, error) {
+	var res dataframe.FhirFieldPredicateOperation
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNFhirFieldPredicateOperation2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldPredicateOperation(ctx context.Context, sel ast.SelectionSet, v model.FhirFieldPredicateOperation) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirFieldPredicateOperation2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldPredicateOperation(ctx context.Context, sel ast.SelectionSet, v dataframe.FhirFieldPredicateOperation) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) unmarshalNFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectInputᚄ(ctx context.Context, v any) ([]*model.FhirFieldSelectInput, error) {
+func (ec *executionContext) unmarshalNFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirFieldSelectInput, error) {
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirFieldSelectInput, len(vSlice))
+	res := make([]*dataframe.FhirFieldSelectInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirFieldSelectInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirFieldSelectInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -12762,18 +12763,18 @@ func (ec *executionContext) unmarshalNFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋ
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalNFhirFieldSelectInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectInput(ctx context.Context, v any) (*model.FhirFieldSelectInput, error) {
+func (ec *executionContext) unmarshalNFhirFieldSelectInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectInput(ctx context.Context, v any) (*dataframe.FhirFieldSelectInput, error) {
 	res, err := ec.unmarshalInputFhirFieldSelectInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirFieldSelectorInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectorInputᚄ(ctx context.Context, v any) ([]*model.FhirFieldSelectorInput, error) {
+func (ec *executionContext) unmarshalNFhirFieldSelectorInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectorInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirFieldSelectorInput, error) {
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirFieldSelectorInput, len(vSlice))
+	res := make([]*dataframe.FhirFieldSelectorInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectorInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectorInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -12781,18 +12782,18 @@ func (ec *executionContext) unmarshalNFhirFieldSelectorInput2ᚕᚖgithubᚗcom�
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalNFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectorInput(ctx context.Context, v any) (*model.FhirFieldSelectorInput, error) {
+func (ec *executionContext) unmarshalNFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectorInput(ctx context.Context, v any) (*dataframe.FhirFieldSelectorInput, error) {
 	res, err := ec.unmarshalInputFhirFieldSelectorInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInputᚄ(ctx context.Context, v any) ([]*model.FhirFilterInput, error) {
+func (ec *executionContext) unmarshalNFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirFilterInput, error) {
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirFilterInput, len(vSlice))
+	res := make([]*dataframe.FhirFilterInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -12800,28 +12801,28 @@ func (ec *executionContext) unmarshalNFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyp
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalNFhirFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInput(ctx context.Context, v any) (*model.FhirFilterInput, error) {
+func (ec *executionContext) unmarshalNFhirFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInput(ctx context.Context, v any) (*dataframe.FhirFilterInput, error) {
 	res, err := ec.unmarshalInputFhirFilterInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirFilterOperator2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterOperator(ctx context.Context, v any) (model.FhirFilterOperator, error) {
-	var res model.FhirFilterOperator
+func (ec *executionContext) unmarshalNFhirFilterOperator2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterOperator(ctx context.Context, v any) (dataframe.FhirFilterOperator, error) {
+	var res dataframe.FhirFilterOperator
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNFhirFilterOperator2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterOperator(ctx context.Context, sel ast.SelectionSet, v model.FhirFilterOperator) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirFilterOperator2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterOperator(ctx context.Context, sel ast.SelectionSet, v dataframe.FhirFilterOperator) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) unmarshalNFhirFilterValueInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterValueInputᚄ(ctx context.Context, v any) ([]*model.FhirFilterValueInput, error) {
+func (ec *executionContext) unmarshalNFhirFilterValueInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterValueInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirFilterValueInput, error) {
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirFilterValueInput, len(vSlice))
+	res := make([]*dataframe.FhirFilterValueInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirFilterValueInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterValueInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirFilterValueInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterValueInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -12829,18 +12830,18 @@ func (ec *executionContext) unmarshalNFhirFilterValueInput2ᚕᚖgithubᚗcomᚋ
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalNFhirFilterValueInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterValueInput(ctx context.Context, v any) (*model.FhirFilterValueInput, error) {
+func (ec *executionContext) unmarshalNFhirFilterValueInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterValueInput(ctx context.Context, v any) (*dataframe.FhirFilterValueInput, error) {
 	res, err := ec.unmarshalInputFhirFilterValueInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirFilterValueKind2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterValueKind(ctx context.Context, v any) (model.FhirFilterValueKind, error) {
-	var res model.FhirFilterValueKind
+func (ec *executionContext) unmarshalNFhirFilterValueKind2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterValueKind(ctx context.Context, v any) (dataframe.FhirFilterValueKind, error) {
+	var res dataframe.FhirFilterValueKind
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNFhirFilterValueKind2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterValueKind(ctx context.Context, sel ast.SelectionSet, v model.FhirFilterValueKind) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirFilterValueKind2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterValueKind(ctx context.Context, sel ast.SelectionSet, v dataframe.FhirFilterValueKind) graphql.Marshaler {
 	return v
 }
 
@@ -12984,38 +12985,38 @@ func (ec *executionContext) unmarshalNFhirGraphTraversalInput2ᚖgithubᚗcomᚋ
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirPivotInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotInput(ctx context.Context, v any) (*model.FhirPivotInput, error) {
+func (ec *executionContext) unmarshalNFhirPivotInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirPivotInput(ctx context.Context, v any) (*dataframe.FhirPivotInput, error) {
 	res, err := ec.unmarshalInputFhirPivotInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirRepresentativeSliceInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirRepresentativeSliceInput(ctx context.Context, v any) (*model.FhirRepresentativeSliceInput, error) {
+func (ec *executionContext) unmarshalNFhirRepresentativeSliceInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirRepresentativeSliceInput(ctx context.Context, v any) (*dataframe.FhirRepresentativeSliceInput, error) {
 	res, err := ec.unmarshalInputFhirRepresentativeSliceInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirTraversalMatchMode2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalMatchMode(ctx context.Context, v any) (model.FhirTraversalMatchMode, error) {
-	var res model.FhirTraversalMatchMode
+func (ec *executionContext) unmarshalNFhirTraversalMatchMode2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalMatchMode(ctx context.Context, v any) (dataframe.FhirTraversalMatchMode, error) {
+	var res dataframe.FhirTraversalMatchMode
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNFhirTraversalMatchMode2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalMatchMode(ctx context.Context, sel ast.SelectionSet, v model.FhirTraversalMatchMode) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirTraversalMatchMode2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalMatchMode(ctx context.Context, sel ast.SelectionSet, v dataframe.FhirTraversalMatchMode) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) unmarshalNFhirTraversalStepInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalStepInput(ctx context.Context, v any) (*model.FhirTraversalStepInput, error) {
+func (ec *executionContext) unmarshalNFhirTraversalStepInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalStepInput(ctx context.Context, v any) (*dataframe.FhirTraversalStepInput, error) {
 	res, err := ec.unmarshalInputFhirTraversalStepInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirValueMode(ctx context.Context, v any) (model.FhirValueMode, error) {
-	var res model.FhirValueMode
+func (ec *executionContext) unmarshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirValueMode(ctx context.Context, v any) (dataframe.FhirValueMode, error) {
+	var res dataframe.FhirValueMode
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirValueMode(ctx context.Context, sel ast.SelectionSet, v model.FhirValueMode) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirValueMode2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirValueMode(ctx context.Context, sel ast.SelectionSet, v dataframe.FhirValueMode) graphql.Marshaler {
 	return v
 }
 
@@ -13059,16 +13060,16 @@ func (ec *executionContext) unmarshalNValidateDataframeRecipeInput2githubᚗcom�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInputᚄ(ctx context.Context, v any) ([]*model.DataframeFilterInput, error) {
+func (ec *executionContext) unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeFilterInputᚄ(ctx context.Context, v any) ([]*dataframe.DataframeFilterInput, error) {
 	if v == nil {
 		return nil, nil
 	}
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.DataframeFilterInput, len(vSlice))
+	res := make([]*dataframe.DataframeFilterInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeFilterInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNDataframeFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeFilterInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -13076,7 +13077,7 @@ func (ec *executionContext) unmarshalODataframeFilterInput2ᚕᚖgithubᚗcomᚋ
 	return res, nil
 }
 
-func (ec *executionContext) marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *model.DataframeMaterialization) graphql.Marshaler {
+func (ec *executionContext) marshalODataframeMaterialization2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeMaterialization(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeMaterialization) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -13132,14 +13133,14 @@ func (ec *executionContext) marshalODataframeRecipeRevision2ᚖgithubᚗcomᚋca
 	return ec._DataframeRecipeRevision(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalODataframeSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSelector(ctx context.Context, sel ast.SelectionSet, v *model.DataframeSelector) graphql.Marshaler {
+func (ec *executionContext) marshalODataframeSelector2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSelector(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeSelector) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._DataframeSelector(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeSortInput(ctx context.Context, v any) (*model.DataframeSortInput, error) {
+func (ec *executionContext) unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeSortInput(ctx context.Context, v any) (*dataframe.DataframeSortInput, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -13147,16 +13148,16 @@ func (ec *executionContext) unmarshalODataframeSortInput2ᚖgithubᚗcomᚋcalyp
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalOFhirAggregateInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirAggregateInputᚄ(ctx context.Context, v any) ([]*model.FhirAggregateInput, error) {
+func (ec *executionContext) unmarshalOFhirAggregateInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirAggregateInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirAggregateInput, error) {
 	if v == nil {
 		return nil, nil
 	}
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirAggregateInput, len(vSlice))
+	res := make([]*dataframe.FhirAggregateInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirAggregateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirAggregateInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirAggregateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirAggregateInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -13164,16 +13165,16 @@ func (ec *executionContext) unmarshalOFhirAggregateInput2ᚕᚖgithubᚗcomᚋca
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalOFhirCatalogProjectionInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirCatalogProjectionInputᚄ(ctx context.Context, v any) ([]*model.FhirCatalogProjectionInput, error) {
+func (ec *executionContext) unmarshalOFhirCatalogProjectionInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirCatalogProjectionInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirCatalogProjectionInput, error) {
 	if v == nil {
 		return nil, nil
 	}
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirCatalogProjectionInput, len(vSlice))
+	res := make([]*dataframe.FhirCatalogProjectionInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirCatalogProjectionInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirCatalogProjectionInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirCatalogProjectionInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirCatalogProjectionInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -13181,7 +13182,7 @@ func (ec *executionContext) unmarshalOFhirCatalogProjectionInput2ᚕᚖgithubᚗ
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalOFhirCodeValueInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirCodeValueInput(ctx context.Context, v any) (*model.FhirCodeValueInput, error) {
+func (ec *executionContext) unmarshalOFhirCodeValueInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirCodeValueInput(ctx context.Context, v any) (*dataframe.FhirCodeValueInput, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -13189,7 +13190,7 @@ func (ec *executionContext) unmarshalOFhirCodeValueInput2ᚖgithubᚗcomᚋcalyp
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalOFhirFieldPredicateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldPredicateInput(ctx context.Context, v any) (*model.FhirFieldPredicateInput, error) {
+func (ec *executionContext) unmarshalOFhirFieldPredicateInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldPredicateInput(ctx context.Context, v any) (*dataframe.FhirFieldPredicateInput, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -13197,16 +13198,16 @@ func (ec *executionContext) unmarshalOFhirFieldPredicateInput2ᚖgithubᚗcomᚋ
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalOFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectInputᚄ(ctx context.Context, v any) ([]*model.FhirFieldSelectInput, error) {
+func (ec *executionContext) unmarshalOFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirFieldSelectInput, error) {
 	if v == nil {
 		return nil, nil
 	}
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirFieldSelectInput, len(vSlice))
+	res := make([]*dataframe.FhirFieldSelectInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirFieldSelectInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirFieldSelectInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -13214,7 +13215,7 @@ func (ec *executionContext) unmarshalOFhirFieldSelectInput2ᚕᚖgithubᚗcomᚋ
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFieldSelectorInput(ctx context.Context, v any) (*model.FhirFieldSelectorInput, error) {
+func (ec *executionContext) unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFieldSelectorInput(ctx context.Context, v any) (*dataframe.FhirFieldSelectorInput, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -13222,16 +13223,16 @@ func (ec *executionContext) unmarshalOFhirFieldSelectorInput2ᚖgithubᚗcomᚋc
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalOFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInputᚄ(ctx context.Context, v any) ([]*model.FhirFilterInput, error) {
+func (ec *executionContext) unmarshalOFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirFilterInput, error) {
 	if v == nil {
 		return nil, nil
 	}
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirFilterInput, len(vSlice))
+	res := make([]*dataframe.FhirFilterInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirFilterInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -13239,23 +13240,23 @@ func (ec *executionContext) unmarshalOFhirFilterInput2ᚕᚖgithubᚗcomᚋcalyp
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalOFhirFilterQuantifier2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterQuantifier(ctx context.Context, v any) (*model.FhirFilterQuantifier, error) {
+func (ec *executionContext) unmarshalOFhirFilterQuantifier2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterQuantifier(ctx context.Context, v any) (*dataframe.FhirFilterQuantifier, error) {
 	if v == nil {
 		return nil, nil
 	}
-	var res = new(model.FhirFilterQuantifier)
+	var res = new(dataframe.FhirFilterQuantifier)
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOFhirFilterQuantifier2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirFilterQuantifier(ctx context.Context, sel ast.SelectionSet, v *model.FhirFilterQuantifier) graphql.Marshaler {
+func (ec *executionContext) marshalOFhirFilterQuantifier2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirFilterQuantifier(ctx context.Context, sel ast.SelectionSet, v *dataframe.FhirFilterQuantifier) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return v
 }
 
-func (ec *executionContext) unmarshalOFhirPivotDiscoveryInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotDiscoveryInput(ctx context.Context, v any) (*model.FhirPivotDiscoveryInput, error) {
+func (ec *executionContext) unmarshalOFhirPivotDiscoveryInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirPivotDiscoveryInput(ctx context.Context, v any) (*dataframe.FhirPivotDiscoveryInput, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -13263,16 +13264,16 @@ func (ec *executionContext) unmarshalOFhirPivotDiscoveryInput2ᚖgithubᚗcomᚋ
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalOFhirPivotInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotInputᚄ(ctx context.Context, v any) ([]*model.FhirPivotInput, error) {
+func (ec *executionContext) unmarshalOFhirPivotInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirPivotInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirPivotInput, error) {
 	if v == nil {
 		return nil, nil
 	}
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirPivotInput, len(vSlice))
+	res := make([]*dataframe.FhirPivotInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirPivotInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirPivotInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirPivotInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirPivotInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -13280,16 +13281,16 @@ func (ec *executionContext) unmarshalOFhirPivotInput2ᚕᚖgithubᚗcomᚋcalypr
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalOFhirRepresentativeSliceInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirRepresentativeSliceInputᚄ(ctx context.Context, v any) ([]*model.FhirRepresentativeSliceInput, error) {
+func (ec *executionContext) unmarshalOFhirRepresentativeSliceInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirRepresentativeSliceInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirRepresentativeSliceInput, error) {
 	if v == nil {
 		return nil, nil
 	}
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirRepresentativeSliceInput, len(vSlice))
+	res := make([]*dataframe.FhirRepresentativeSliceInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirRepresentativeSliceInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirRepresentativeSliceInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirRepresentativeSliceInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirRepresentativeSliceInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -13297,32 +13298,32 @@ func (ec *executionContext) unmarshalOFhirRepresentativeSliceInput2ᚕᚖgithub�
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalOFhirTraversalMatchMode2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalMatchMode(ctx context.Context, v any) (*model.FhirTraversalMatchMode, error) {
+func (ec *executionContext) unmarshalOFhirTraversalMatchMode2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalMatchMode(ctx context.Context, v any) (*dataframe.FhirTraversalMatchMode, error) {
 	if v == nil {
 		return nil, nil
 	}
-	var res = new(model.FhirTraversalMatchMode)
+	var res = new(dataframe.FhirTraversalMatchMode)
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOFhirTraversalMatchMode2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalMatchMode(ctx context.Context, sel ast.SelectionSet, v *model.FhirTraversalMatchMode) graphql.Marshaler {
+func (ec *executionContext) marshalOFhirTraversalMatchMode2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalMatchMode(ctx context.Context, sel ast.SelectionSet, v *dataframe.FhirTraversalMatchMode) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return v
 }
 
-func (ec *executionContext) unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalStepInputᚄ(ctx context.Context, v any) ([]*model.FhirTraversalStepInput, error) {
+func (ec *executionContext) unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalStepInputᚄ(ctx context.Context, v any) ([]*dataframe.FhirTraversalStepInput, error) {
 	if v == nil {
 		return nil, nil
 	}
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]*model.FhirTraversalStepInput, len(vSlice))
+	res := make([]*dataframe.FhirTraversalStepInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNFhirTraversalStepInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirTraversalStepInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNFhirTraversalStepInput2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirTraversalStepInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}

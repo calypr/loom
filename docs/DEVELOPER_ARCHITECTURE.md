@@ -186,7 +186,7 @@ The current runtime call path is:
 GraphQL request
   -> internal/api/graphql/graph HTTP handler
   -> generated gqlgen executor and internal resolver binding
-  -> internal/api/graphql/graph/query.Service
+  -> internal/api/dataframe/query.Service
   -> dataframe/execution.Service
   -> dataframe/spec request contracts
   -> dataframe/semantic logical plan
@@ -211,7 +211,7 @@ The ClickHouse read path is parallel but separate:
 GraphQL request
   -> internal/api/graphql/graph HTTP handler
   -> generated graph executor and internal resolver binding
-  -> internal/api/graphql/graph/dataframe.Service
+  -> internal/api/dataframe/dataframe.Service
   -> dataframe/published.Reader
   -> ClickHouse
 ```

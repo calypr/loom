@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 

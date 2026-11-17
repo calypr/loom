@@ -17,8 +17,9 @@ import (
 	"time"
 
 	compilerfixture "github.com/calypr/loom/conformance/compiler"
-	"github.com/calypr/loom/generated/graphql/graph/model"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
+	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -107,7 +108,7 @@ func main() {
 			fatalf("read variables %q: %v", *variables, err)
 		}
 		var payload struct {
-			Input model.FhirDataframeInput `json:"input"`
+			Input dataframemodel.FhirDataframeInput `json:"input"`
 		}
 		if err := json.Unmarshal(data, &payload); err != nil {
 			fatalf("decode GraphQL variables %q: %v", *variables, err)

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	graph "github.com/calypr/loom/internal/api/graphql/graph"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"

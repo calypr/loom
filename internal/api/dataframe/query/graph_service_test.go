@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 )
 
 func TestNormalizeFHIRGraphQueryDefaultsRequiredAndLimit(t *testing.T) {
@@ -18,7 +18,7 @@ func TestNormalizeFHIRGraphQueryDefaultsRequiredAndLimit(t *testing.T) {
 	if query.Limit != FhirGraphDefaultLimit {
 		t.Fatalf("limit = %d, want %d", query.Limit, FhirGraphDefaultLimit)
 	}
-	if query.Traverse[0].MatchMode != model.FhirTraversalMatchModeRequired {
+	if query.Traverse[0].MatchMode != dataframemodel.FhirTraversalMatchModeRequired {
 		t.Fatalf("match mode = %q, want REQUIRED", query.Traverse[0].MatchMode)
 	}
 }

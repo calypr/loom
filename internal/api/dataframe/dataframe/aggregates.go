@@ -9,13 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
+	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
-func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggregateInput) (dfmaterialization.AggregateResult, error) {
+func (s *Service) AggregateInput(ctx context.Context, input dataframemodel.DataframeAggregateInput) (dfmaterialization.AggregateResult, error) {
 	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return dfmaterialization.AggregateResult{}, err
@@ -28,7 +28,7 @@ func (s *Service) AggregateInput(ctx context.Context, input model.DataframeAggre
 	return result.legacy, result.err
 }
 
-func (s *Service) AggregationsInput(ctx context.Context, input model.DataframeAggregationsInput) (dfmaterialization.AggregationsResult, error) {
+func (s *Service) AggregationsInput(ctx context.Context, input dataframemodel.DataframeAggregationsInput) (dfmaterialization.AggregationsResult, error) {
 	selector, err := resolveSelector(input.Selector)
 	if err != nil {
 		return dfmaterialization.AggregationsResult{}, err
@@ -87,8 +87,8 @@ type aggregateCall struct {
 	project  string
 	selector dfmaterialization.DataframeSelector
 	filters  []dfmaterialization.Filter
-	legacy   model.DataframeAggregateInput
-	rich     model.DataframeAggregationsInput
+	legacy   dataframemodel.DataframeAggregateInput
+	rich     dataframemodel.DataframeAggregationsInput
 	result   chan aggregateCallResult
 }
 

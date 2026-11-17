@@ -19,7 +19,7 @@ import (
 
 	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
-	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"

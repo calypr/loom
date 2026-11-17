@@ -66,7 +66,7 @@ const (
 
 const (
 	fb20SourceReader     = "recipe_execution_reader.go"
-	fb20SourceService    = "../dataframe/service.go"
+	fb20SourceService    = "../../../dataframe/dataframe/service.go"
 	fb20SourceCapability = "../../../../server/explorer_capability.go"
 	fb20SourceTwin       = "../../../../server/openapi_recipe_execution.go"
 )
