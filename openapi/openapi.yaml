@@ -3212,6 +3212,7 @@ components:
       properties:
         kind: {type: string, enum: [DYNAMIC_COLUMN, EXTENSION_COLUMN, CATALOG_PROJECTION]}
         occurrenceId: {type: string, minLength: 1}
+        maxColumns: {type: integer, minimum: 1, maximum: 128}
         stepId: {type: string, minLength: 1}
         enabled: {type: boolean}
         parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
@@ -3895,6 +3896,7 @@ components:
       properties:
         kind: {type: string, enum: [DYNAMIC_COLUMN, EXTENSION_COLUMN, CATALOG_PROJECTION]}
         occurrenceId: {type: string, minLength: 1}
+        maxColumns: {type: integer, minimum: 1, maximum: 128}
         parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     SourceRelationshipProposalRequest:
       type: object

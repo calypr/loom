@@ -8,7 +8,6 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -299,55 +298,49 @@ func applySourceRules(output *recipe.Output, additions []authoringv2.ImportedSou
 	}
 	occurrences := indexTraversalOccurrences(output.Traversals)
 	for _, addition := range additions {
-		resourceType, alias, columns := output.RootResourceType, "root", &output.DynamicColumns
+		resourceType, alias := output.RootResourceType, "root"
+		dynamics, extensions, catalogs := &output.DynamicColumns, &output.ExtensionColumns, &output.CatalogProjections
 		if addition.OccurrenceID != "" {
 			traversal := occurrences[addition.OccurrenceID]
 			if traversal == nil {
 				return &authoringv2.UnavailableSourceRuleOccurrence{StepID: addition.StepID, OccurrenceID: addition.OccurrenceID}
 			}
-			resourceType, alias, columns = traversal.ToResourceType, strings.TrimSpace(traversal.Alias), &traversal.DynamicColumns
+			resourceType, alias = traversal.ToResourceType, strings.TrimSpace(traversal.Alias)
+			dynamics, extensions, catalogs = &traversal.DynamicColumns, &traversal.ExtensionColumns, &traversal.CatalogProjections
 			if alias == "" {
 				alias = traversal.Name
 			}
 		}
-		if addition.Kind != SourcePlanDynamicColumn {
-			return fmt.Errorf("source rule kind %q is unavailable", addition.Kind)
-		}
-		dynamic := relativeSourceRuleParameters(addition.OccurrenceID, addition.Parameters).Dynamic
-		if err := ValidateIdentifierDynamic(resourceType, dynamic); err != nil {
+		params := relativeSourceRuleParameters(addition.OccurrenceID, addition.Parameters)
+		if err := validateRuleAddition(addition.Kind, resourceType, params); err != nil {
 			return fmt.Errorf("source step %q: %w", addition.StepID, err)
 		}
 		if !addition.Enabled {
 			continue
 		}
-		source := dynamic.Source
-		source.Select = alias + "." + source.Select
-		*columns = append(*columns, recipe.DynamicColumn{
-			Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, Source: source,
-			Key: dynamic.Key, Value: dynamic.Value, MaxColumns: 128,
-		})
+		limit := authoringv2.MaxImportedRuleColumns
+		if addition.MaxColumns != nil {
+			limit = *addition.MaxColumns
+		}
+		switch addition.Kind {
+		case SourcePlanDynamicColumn:
+			dynamic := params.Dynamic
+			*dynamics = append(*dynamics, recipe.DynamicColumn{
+				Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix,
+				Source: recipe.Expression{Select: alias + "." + dynamic.Source.Select},
+				Key:    dynamic.Key, Value: dynamic.Value, MaxColumns: limit,
+			})
+		case SourcePlanExtensionColumn:
+			extension := params.Extension
+			*extensions = append(*extensions, recipe.ExtensionColumn{
+				Name: extension.Name, ColumnPrefix: extension.ColumnPrefix,
+				Source: recipe.Expression{Select: alias + "." + extension.Source.Select}, MaxColumns: limit,
+			})
+		case SourcePlanCatalogProjection:
+			*catalogs = append(*catalogs, catalogRuleProjection(params.Catalog, limit))
+		}
 	}
 	return nil
-}
-
-// ValidateIdentifierDynamic keeps this first generated-column action bound to
-// the occurrence’s FHIR Identifier datatype and its paired system/value selectors.
-func ValidateIdentifierDynamic(resourceType string, dynamic *authoringv2.ImportedDynamicParameters) error {
-	if dynamic == nil || dynamic.Name == "" || dynamic.Name != strings.TrimSpace(dynamic.Name) {
-		return fmt.Errorf("identifier dynamic column requires a trimmed name")
-	}
-	if !reflect.DeepEqual(dynamic.Source, recipe.Expression{Select: "identifier[]"}) || dynamic.Value == nil || !reflect.DeepEqual(*dynamic.Value, recipe.Expression{Select: "item.value"}) || dynamic.Key == nil {
-		return fmt.Errorf("identifier columns must use identifier[] with its paired system and value")
-	}
-	fullSystem := recipe.Expression{Select: "item.system"}
-	lastSystem := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{fullSystem}}
-	if !reflect.DeepEqual(*dynamic.Key, fullSystem) && !reflect.DeepEqual(*dynamic.Key, lastSystem) {
-		return fmt.Errorf("identifier column key must use the full system URI or its last segment")
-	}
-	_, err := fhirschema.ValidateIdentifierBinding(resourceType, fhirschema.IdentifierBinding{
-		OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:loom:identifier-system", LogicalType: "string",
-	})
-	return err
 }
 
 func relativeSourceRuleParameters(occurrenceID string, params *authoringv2.ImportedSourceParameters) *authoringv2.ImportedSourceParameters {
@@ -362,19 +355,19 @@ func relativeSourceRuleParameters(occurrenceID string, params *authoringv2.Impor
 }
 
 func ruleAdditionStep(addition authoringv2.ImportedSourceRuleAddition, parentID string) authoringv2.ImportedSourceStep {
-	name := ""
+	name, title, summary := "", "", "Generate columns from this source rule."
 	switch addition.Kind {
 	case SourcePlanDynamicColumn:
-		name = addition.Parameters.Dynamic.Name
-	case "EXTENSION_COLUMN":
-		name = addition.Parameters.Extension.Name
-	case "CATALOG_PROJECTION":
-		name = addition.Parameters.Catalog.Name
+		name, title, summary = addition.Parameters.Dynamic.Name, "Dynamic columns", "Discover columns from this keyed source."
+	case SourcePlanExtensionColumn:
+		name, title = addition.Parameters.Extension.Name, "Extension columns"
+	case SourcePlanCatalogProjection:
+		name, title = addition.Parameters.Catalog.Name, "Catalog columns"
 	}
 	return authoringv2.ImportedSourceStep{
 		ID: addition.StepID, Kind: addition.Kind, SourceKey: name, ParentID: parentID, OccurrenceID: addition.OccurrenceID,
-		Title: "Dynamic columns: " + name, Summary: "Discover columns from this keyed source.",
-		Enabled: addition.Enabled, Editable: true, Parameters: addition.Parameters,
+		Title: title + ": " + name, Summary: summary,
+		Enabled: addition.Enabled, Editable: true, Parameters: addition.Parameters, MaxColumns: addition.MaxColumns,
 	}
 }
 

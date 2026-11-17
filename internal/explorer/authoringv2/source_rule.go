@@ -2,10 +2,13 @@ package authoringv2
 
 import "fmt"
 
+const MaxImportedRuleColumns = 128
+
 type SourceRuleCreate struct {
 	Kind         string                    `json:"kind"`
 	OccurrenceID string                    `json:"occurrenceId,omitempty"`
 	Parameters   *ImportedSourceParameters `json:"parameters"`
+	MaxColumns   *int                      `json:"maxColumns,omitempty"`
 }
 
 func (c *SourceRuleCreate) UnmarshalJSON(raw []byte) error {
@@ -34,6 +37,9 @@ func (c SourceRuleCreate) Validate() error {
 	}
 	if c.Parameters == nil {
 		return fmt.Errorf("source rule requires parameters")
+	}
+	if c.MaxColumns != nil && (*c.MaxColumns < 1 || *c.MaxColumns > MaxImportedRuleColumns) {
+		return fmt.Errorf("source rule maxColumns must be between 1 and %d", MaxImportedRuleColumns)
 	}
 	return c.Parameters.Validate(c.Kind)
 }

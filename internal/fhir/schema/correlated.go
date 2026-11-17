@@ -408,58 +408,9 @@ func inferQuantityUnitSelector(valueResource, valuePath string) (Selector, bool)
 // only nested extension[] segments are accepted. This makes URLPath depth and
 // lexical traversal unambiguous.
 func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (ExtensionBindingSpec, error) {
-	if !HasResource(resourceType) {
-		return ExtensionBindingSpec{}, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
-	}
-	ownerPath := CanonicalizePath(binding.OwnerPath)
-	if ownerPath == "" {
-		return ExtensionBindingSpec{}, fmt.Errorf("ownerPath is required")
-	}
-	parts := strings.Split(ownerPath, ".")
-	baseParts := make([]string, 0, len(parts))
-	currentResource := resourceType
-	startedExtension := false
-	extensionDepth := 0
-	for index, part := range parts {
-		resolved, ok := ResolvePath(currentResource, part)
-		if !ok {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q is not represented in resource %q", part, currentResource)
-		}
-		name := strings.TrimSuffix(part, "[]")
-		isExtension := name == "extension" && strings.HasSuffix(part, "[]")
-		if isExtension {
-			if resolved.Property.Kind != "array" || resolved.Property.ItemRef != "Extension" {
-				return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q must be a repeated Extension", part)
-			}
-			startedExtension = true
-			extensionDepth++
-			currentResource = "Extension"
-			continue
-		}
-		if startedExtension {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q follows an extension boundary and is not allowed", part)
-		}
-		if !strings.HasSuffix(part, "[]") && index == len(parts)-1 {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath must end at a repeated extension")
-		}
-		baseParts = append(baseParts, part)
-		switch resolved.Property.Kind {
-		case "array":
-			if strings.TrimSpace(resolved.Property.ItemRef) == "" {
-				return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q must resolve to a repeated object", part)
-			}
-			currentResource = resolved.Property.ItemRef
-		case "object":
-			if strings.TrimSpace(resolved.Property.Ref) == "" {
-				return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q must resolve to a named object", part)
-			}
-			currentResource = resolved.Property.Ref
-		default:
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath segment %q is not an object boundary", part)
-		}
-	}
-	if extensionDepth == 0 {
-		return ExtensionBindingSpec{}, fmt.Errorf("ownerPath must contain at least one repeated extension")
+	ownerSelector, extensionDepth, err := extensionOwnerPath(resourceType, binding.OwnerPath)
+	if err != nil {
+		return ExtensionBindingSpec{}, err
 	}
 	if len(binding.URLPath) != extensionDepth {
 		return ExtensionBindingSpec{}, fmt.Errorf("urlPath must contain one URL per extension boundary (got %d, want %d)", len(binding.URLPath), extensionDepth)
@@ -505,6 +456,83 @@ func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (Ex
 		urlSelectors[index], _ = ParseSelector("url")
 	}
 	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, CanonicalJSONValue: binding.CanonicalJSONValue, ValueFallbacks: value.ValueFallbacks, FallbackOnBlankString: value.FallbackOnBlankString, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+}
+
+// ValidateExtensionOwnerPath checks the owner of an extension family before its
+// individual URL chains and value types are discovered.
+func ValidateExtensionOwnerPath(resourceType, path string) error {
+	_, _, err := extensionOwnerPath(resourceType, path)
+	return err
+}
+
+func extensionOwnerPath(resourceType, path string) (Selector, int, error) {
+	if !HasResource(resourceType) {
+		return Selector{}, 0, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)
+	}
+	ownerPath := CanonicalizePath(path)
+	if ownerPath == "" {
+		return Selector{}, 0, fmt.Errorf("ownerPath is required")
+	}
+	parts := strings.Split(ownerPath, ".")
+	baseParts := make([]string, 0, len(parts))
+	currentResource := resourceType
+	startedExtension := false
+	extensionDepth := 0
+	for index, part := range parts {
+		resolved, ok := ResolvePath(currentResource, part)
+		if !ok {
+			return Selector{}, 0, fmt.Errorf("ownerPath segment %q is not represented in resource %q", part, currentResource)
+		}
+		name := strings.TrimSuffix(part, "[]")
+		isExtension := name == "extension" && strings.HasSuffix(part, "[]")
+		if isExtension {
+			if resolved.Property.Kind != "array" || resolved.Property.ItemRef != "Extension" {
+				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must be a repeated Extension", part)
+			}
+			startedExtension = true
+			extensionDepth++
+			currentResource = "Extension"
+			continue
+		}
+		if startedExtension {
+			return Selector{}, 0, fmt.Errorf("ownerPath segment %q follows an extension boundary and is not allowed", part)
+		}
+		if !strings.HasSuffix(part, "[]") && index == len(parts)-1 {
+			return Selector{}, 0, fmt.Errorf("ownerPath must end at a repeated extension")
+		}
+		baseParts = append(baseParts, part)
+		switch resolved.Property.Kind {
+		case "array":
+			if strings.TrimSpace(resolved.Property.ItemRef) == "" {
+				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must resolve to a repeated object", part)
+			}
+			currentResource = resolved.Property.ItemRef
+		case "object":
+			if strings.TrimSpace(resolved.Property.Ref) == "" {
+				return Selector{}, 0, fmt.Errorf("ownerPath segment %q must resolve to a named object", part)
+			}
+			currentResource = resolved.Property.Ref
+		default:
+			return Selector{}, 0, fmt.Errorf("ownerPath segment %q is not an object boundary", part)
+		}
+	}
+	if extensionDepth == 0 {
+		return Selector{}, 0, fmt.Errorf("ownerPath must contain at least one repeated extension")
+	}
+	ownerSelector := Selector{}
+	if len(baseParts) > 0 {
+		basePath := strings.Join(baseParts, ".")
+		var err error
+		ownerSelector, err = ParseSelector(basePath)
+		if err != nil {
+			return Selector{}, 0, fmt.Errorf("ownerPath base: %w", err)
+		}
+		resolved, ok := ResolvePath(resourceType, basePath)
+		if !ok || resolved.Property.Kind != "array" || strings.TrimSpace(resolved.Property.ItemRef) == "" {
+			return Selector{}, 0, fmt.Errorf("ownerPath base %q must resolve to a repeated object", basePath)
+		}
+	}
+	return ownerSelector, extensionDepth, nil
 }
 
 func normalizeCorrelatedLogicalType(input string) (string, bool) {

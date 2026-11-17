@@ -34,6 +34,7 @@ type ImportedSourceRuleAddition struct {
 	StepID       string                    `json:"stepId"`
 	Enabled      bool                      `json:"enabled"`
 	Parameters   *ImportedSourceParameters `json:"parameters"`
+	MaxColumns   *int                      `json:"maxColumns,omitempty"`
 }
 
 // ImportedSourceStep identifies one source-plan stage. ParentID preserves the
@@ -87,7 +88,7 @@ func (p ImportedSourcePlan) Validate() error {
 		if addition.StepID != fmt.Sprintf("ruleAdditions[%d]", index) {
 			return fmt.Errorf("ruleAdditions[%d].stepId must be its stable append-order identity", index)
 		}
-		if err := (SourceRuleCreate{Kind: addition.Kind, OccurrenceID: addition.OccurrenceID, Parameters: addition.Parameters}).Validate(); err != nil {
+		if err := (SourceRuleCreate{Kind: addition.Kind, OccurrenceID: addition.OccurrenceID, Parameters: addition.Parameters, MaxColumns: addition.MaxColumns}).Validate(); err != nil {
 			return fmt.Errorf("ruleAdditions[%d]: %w", index, err)
 		}
 		rules[addition.StepID] = addition

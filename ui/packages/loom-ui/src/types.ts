@@ -1834,6 +1834,7 @@ export const explorerBuilderDocumentSchema = z
       ruleAdditions: z.array(z.object({
         kind: z.enum(["DYNAMIC_COLUMN", "EXTENSION_COLUMN", "CATALOG_PROJECTION"]),
         occurrenceId: opaqueIdSchema.optional(),
+        maxColumns: z.number().int().min(1).max(128).optional(),
         stepId: opaqueIdSchema,
         enabled: z.boolean(),
         parameters: importedSourceParametersSchema,
@@ -2764,6 +2765,7 @@ export type SourceRelationshipChange = z.infer<typeof sourceRelationshipChangeSc
 const sourceRuleCreateSchema = z.object({
   kind: z.enum(['DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'CATALOG_PROJECTION']),
   occurrenceId: opaqueIdSchema.optional(),
+  maxColumns: z.number().int().min(1).max(128).optional(),
   parameters: importedSourceParametersSchema,
 }).strict().superRefine((rule, context) => {
   validateEditableSourceParameters(rule.parameters, context);

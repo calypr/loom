@@ -49,9 +49,13 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 	}
 	baseStepCount := len(SourcePlan(original).Steps)
 	if rule != nil {
+		limit := authoringv2.MaxImportedRuleColumns
+		if rule.MaxColumns != nil {
+			limit = *rule.MaxColumns
+		}
 		addition := authoringv2.ImportedSourceRuleAddition{
 			StepID: fmt.Sprintf("ruleAdditions[%d]", len(plan.RuleAdditions)),
-			Kind:   rule.Kind, OccurrenceID: rule.OccurrenceID, Enabled: true, Parameters: relativeSourceRuleParameters(rule.OccurrenceID, rule.Parameters),
+			Kind:   rule.Kind, OccurrenceID: rule.OccurrenceID, Enabled: true, Parameters: relativeSourceRuleParameters(rule.OccurrenceID, rule.Parameters), MaxColumns: &limit,
 		}
 		plan.RuleAdditions = append(plan.RuleAdditions, addition)
 	}
@@ -81,14 +85,17 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			if addition.StepID != change.StepID {
 				continue
 			}
-			if change.MaxColumns != nil || change.ValueMode != "" {
-				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("dynamic addition edits do not support a column limit or value mode")
+			if change.ValueMode != "" {
+				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("source rule edits do not support a value policy")
 			}
 			if change.Parameters != nil {
 				if err := change.Parameters.Validate(addition.Kind); err != nil {
 					return authoringv2.ImportedSourcePlan{}, err
 				}
 				addition.Parameters = relativeSourceRuleParameters(addition.OccurrenceID, change.Parameters)
+			}
+			if change.MaxColumns != nil {
+				addition.MaxColumns = change.MaxColumns
 			}
 			addition.Enabled = change.Enabled
 			additionFound = true
