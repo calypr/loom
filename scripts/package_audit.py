@@ -188,18 +188,15 @@ COMPLETED_DECISIONS = ({'source': 'internal/dataframe/compiler',
  {'source': 'internal/explorer',
   'disposition': 'keep',
   'destination': 'internal/explorer',
-  'rationale': 'WP-21 retires the standalone View Builder API while keeping immutable project catalog preparation with '
-               'Explorer revision ownership',
-  'contracts': 'exact source-publication catalog identities and metadata; retired endpoint promises recorded in '
-               'DELETED_GUARANTEES',
+  'rationale': 'Restore saved-view and project-default services after the deployed IDP frontend disproved WP-21 consumer absence',
+  'contracts': 'saved-view CRUD; project defaults; exact source-publication catalog identities; authorization and revision conflicts',
   'verification': 'pre/post package audits; historical full-JSON parity; publication tests; native Builder lifecycle; '
                   'full package audit',
   'status': 'complete'},
  {'source': 'internal/explorer/arango',
   'disposition': 'keep',
   'destination': 'internal/explorer/arango',
-  'rationale': 'WP-21 removes presentation-only mutations and rehomes retained project catalog settings with their '
-               'publication transaction',
+  'rationale': 'Retain saved-view mutations and defaults with the existing publication settings transaction and collection',
   'contracts': 'persisted settings JSON and keys unchanged; release/config/catalog atomicity; CAS; exact retry; stored '
                'defaults preserved',
   'verification': 'pre/post package audits; real Arango publication retry/rebind/collision/CAS tests; native Builder '

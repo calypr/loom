@@ -9273,6 +9273,31 @@ type CreateInterpretationRevisionParams struct {
 	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// AdoptProjectViewBuilderParams defines parameters for AdoptProjectViewBuilder.
+type AdoptProjectViewBuilderParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// DeleteProjectViewConfigParams defines parameters for DeleteProjectViewConfig.
+type DeleteProjectViewConfigParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath   *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+	ExpectedRevisionId string            `form:"expectedRevisionId" json:"expectedRevisionId"`
+}
+
+// SaveProjectViewConfigParams defines parameters for SaveProjectViewConfig.
+type SaveProjectViewConfigParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
+// SaveProjectViewDefaultsParams defines parameters for SaveProjectViewDefaults.
+type SaveProjectViewDefaultsParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // CreateDatasetGenerationMultipartRequestBody defines body for CreateDatasetGeneration for multipart/form-data ContentType.
 type CreateDatasetGenerationMultipartRequestBody CreateDatasetGenerationMultipartBody
 
@@ -9392,6 +9417,12 @@ type PublishRepositoryExplorerConfigJSONRequestBody = Workspace
 
 // CreateInterpretationRevisionJSONRequestBody defines body for CreateInterpretationRevision for application/json ContentType.
 type CreateInterpretationRevisionJSONRequestBody = InterpretationRevisionCreateRequest
+
+// SaveProjectViewConfigJSONRequestBody defines body for SaveProjectViewConfig for application/json ContentType.
+type SaveProjectViewConfigJSONRequestBody = RawJSON
+
+// SaveProjectViewDefaultsJSONRequestBody defines body for SaveProjectViewDefaults for application/json ContentType.
+type SaveProjectViewDefaultsJSONRequestBody = RawJSON
 
 // ExecuteDataframeGraphQLJSONRequestBody defines body for ExecuteDataframeGraphQL for application/json ContentType.
 type ExecuteDataframeGraphQLJSONRequestBody = RawJSON
@@ -11578,6 +11609,21 @@ type ServerInterface interface {
 
 	// (GET /api/v1/projects/{project}/interpretation-revisions/{revisionId})
 	GetInterpretationRevision(c fiber.Ctx, project Project, revisionId string) error
+	// GetProjectViewBuilder Read project views and exact published dataframe metadata.
+	// (GET /api/v1/projects/{project}/view-builder)
+	GetProjectViewBuilder(c fiber.Ctx, project Project) error
+	// AdoptProjectViewBuilder Attach existing publication metadata without reloading data.
+	// (POST /api/v1/projects/{project}/view-builder/adopt)
+	AdoptProjectViewBuilder(c fiber.Ctx, project Project, params AdoptProjectViewBuilderParams) error
+	// DeleteProjectViewConfig Delete a non-default saved view while retaining publication history.
+	// (DELETE /api/v1/projects/{project}/view-builder/configs/{explorerId})
+	DeleteProjectViewConfig(c fiber.Ctx, project Project, explorerId ExplorerId, params DeleteProjectViewConfigParams) error
+	// SaveProjectViewConfig Save presentation against an existing published dataframe.
+	// (PUT /api/v1/projects/{project}/view-builder/configs/{explorerId})
+	SaveProjectViewConfig(c fiber.Ctx, project Project, explorerId ExplorerId, params SaveProjectViewConfigParams) error
+	// SaveProjectViewDefaults Choose the default saved view and dataframe.
+	// (PUT /api/v1/projects/{project}/view-builder/defaults)
+	SaveProjectViewDefaults(c fiber.Ctx, project Project, params SaveProjectViewDefaultsParams) error
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(c fiber.Ctx) error
@@ -13850,6 +13896,238 @@ func (siw *ServerInterfaceWrapper) GetInterpretationRevision(c fiber.Ctx) error 
 	return handler(c)
 }
 
+// GetProjectViewBuilder operation middleware
+func (siw *ServerInterfaceWrapper) GetProjectViewBuilder(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetProjectViewBuilder(c, project)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// AdoptProjectViewBuilder operation middleware
+func (siw *ServerInterfaceWrapper) AdoptProjectViewBuilder(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AdoptProjectViewBuilderParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.AdoptProjectViewBuilder(c, project, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// DeleteProjectViewConfig operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProjectViewConfig(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteProjectViewConfigParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "expectedRevisionId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "expectedRevisionId", query, &params.ExpectedRevisionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter expectedRevisionId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.DeleteProjectViewConfig(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SaveProjectViewConfig operation middleware
+func (siw *ServerInterfaceWrapper) SaveProjectViewConfig(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SaveProjectViewConfigParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SaveProjectViewConfig(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SaveProjectViewDefaults operation middleware
+func (siw *ServerInterfaceWrapper) SaveProjectViewDefaults(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SaveProjectViewDefaultsParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SaveProjectViewDefaults(c, project, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // GetApolloSandbox operation middleware
 func (siw *ServerInterfaceWrapper) GetApolloSandbox(c fiber.Ctx) error {
 
@@ -14120,6 +14398,16 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId", wrapper.GetExplorer)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/generations/:generation/explorer-config", wrapper.PublishRepositoryExplorerConfig)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/view-builder", wrapper.GetProjectViewBuilder)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/view-builder/adopt", wrapper.AdoptProjectViewBuilder)
+
+	router.Put(options.BaseURL+"/api/v1/projects/:project/view-builder/defaults", wrapper.SaveProjectViewDefaults)
+
+	router.Delete(options.BaseURL+"/api/v1/projects/:project/view-builder/configs/:explorerId", wrapper.DeleteProjectViewConfig)
+
+	router.Put(options.BaseURL+"/api/v1/projects/:project/view-builder/configs/:explorerId", wrapper.SaveProjectViewConfig)
 
 }
 
@@ -19548,6 +19836,509 @@ func (response GetInterpretationRevision503JSONResponse) VisitGetInterpretationR
 	return ctx.JSON(&response)
 }
 
+type GetProjectViewBuilderRequestObject struct {
+	Project Project `json:"project"`
+}
+
+type GetProjectViewBuilderResponseObject interface {
+	VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error
+}
+
+type GetProjectViewBuilder200JSONResponse RawJSON
+
+func (response GetProjectViewBuilder200JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetProjectViewBuilder400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetProjectViewBuilder400JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetProjectViewBuilder401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response GetProjectViewBuilder401JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetProjectViewBuilder403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetProjectViewBuilder403JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetProjectViewBuilder404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetProjectViewBuilder404JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetProjectViewBuilder409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetProjectViewBuilder409JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetProjectViewBuilder422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response GetProjectViewBuilder422JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type GetProjectViewBuilder500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetProjectViewBuilder500JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetProjectViewBuilder503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetProjectViewBuilder503JSONResponse) VisitGetProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilderRequestObject struct {
+	Project Project `json:"project"`
+	Params  AdoptProjectViewBuilderParams
+}
+
+type AdoptProjectViewBuilderResponseObject interface {
+	VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error
+}
+
+type AdoptProjectViewBuilder200JSONResponse RawJSON
+
+func (response AdoptProjectViewBuilder200JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilder400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response AdoptProjectViewBuilder400JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilder401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response AdoptProjectViewBuilder401JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilder403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response AdoptProjectViewBuilder403JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilder404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response AdoptProjectViewBuilder404JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilder409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response AdoptProjectViewBuilder409JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilder422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response AdoptProjectViewBuilder422JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilder500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response AdoptProjectViewBuilder500JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type AdoptProjectViewBuilder503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response AdoptProjectViewBuilder503JSONResponse) VisitAdoptProjectViewBuilderResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfigRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     DeleteProjectViewConfigParams
+}
+
+type DeleteProjectViewConfigResponseObject interface {
+	VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error
+}
+
+type DeleteProjectViewConfig200JSONResponse RawJSON
+
+func (response DeleteProjectViewConfig200JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response DeleteProjectViewConfig400JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response DeleteProjectViewConfig401JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response DeleteProjectViewConfig403JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response DeleteProjectViewConfig404JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response DeleteProjectViewConfig409JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response DeleteProjectViewConfig422JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response DeleteProjectViewConfig500JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type DeleteProjectViewConfig503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response DeleteProjectViewConfig503JSONResponse) VisitDeleteProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfigRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     SaveProjectViewConfigParams
+	Body       *SaveProjectViewConfigJSONRequestBody
+}
+
+type SaveProjectViewConfigResponseObject interface {
+	VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error
+}
+
+type SaveProjectViewConfig200JSONResponse RawJSON
+
+func (response SaveProjectViewConfig200JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SaveProjectViewConfig400JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response SaveProjectViewConfig401JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SaveProjectViewConfig403JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SaveProjectViewConfig404JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SaveProjectViewConfig409JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SaveProjectViewConfig422JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SaveProjectViewConfig500JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewConfig503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SaveProjectViewConfig503JSONResponse) VisitSaveProjectViewConfigResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaultsRequestObject struct {
+	Project Project `json:"project"`
+	Params  SaveProjectViewDefaultsParams
+	Body    *SaveProjectViewDefaultsJSONRequestBody
+}
+
+type SaveProjectViewDefaultsResponseObject interface {
+	VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error
+}
+
+type SaveProjectViewDefaults200JSONResponse RawJSON
+
+func (response SaveProjectViewDefaults200JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SaveProjectViewDefaults400JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults401JSONResponse struct {
+	ExplorerUnauthorizedJSONResponse
+}
+
+func (response SaveProjectViewDefaults401JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SaveProjectViewDefaults403JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SaveProjectViewDefaults404JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SaveProjectViewDefaults409JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SaveProjectViewDefaults422JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SaveProjectViewDefaults500JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SaveProjectViewDefaults503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SaveProjectViewDefaults503JSONResponse) VisitSaveProjectViewDefaultsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type GetApolloSandboxRequestObject struct {
 }
 
@@ -20118,6 +20909,21 @@ type StrictServerInterface interface {
 
 	// (GET /api/v1/projects/{project}/interpretation-revisions/{revisionId})
 	GetInterpretationRevision(ctx context.Context, request GetInterpretationRevisionRequestObject) (GetInterpretationRevisionResponseObject, error)
+	// GetProjectViewBuilder Read project views and exact published dataframe metadata.
+	// (GET /api/v1/projects/{project}/view-builder)
+	GetProjectViewBuilder(ctx context.Context, request GetProjectViewBuilderRequestObject) (GetProjectViewBuilderResponseObject, error)
+	// AdoptProjectViewBuilder Attach existing publication metadata without reloading data.
+	// (POST /api/v1/projects/{project}/view-builder/adopt)
+	AdoptProjectViewBuilder(ctx context.Context, request AdoptProjectViewBuilderRequestObject) (AdoptProjectViewBuilderResponseObject, error)
+	// DeleteProjectViewConfig Delete a non-default saved view while retaining publication history.
+	// (DELETE /api/v1/projects/{project}/view-builder/configs/{explorerId})
+	DeleteProjectViewConfig(ctx context.Context, request DeleteProjectViewConfigRequestObject) (DeleteProjectViewConfigResponseObject, error)
+	// SaveProjectViewConfig Save presentation against an existing published dataframe.
+	// (PUT /api/v1/projects/{project}/view-builder/configs/{explorerId})
+	SaveProjectViewConfig(ctx context.Context, request SaveProjectViewConfigRequestObject) (SaveProjectViewConfigResponseObject, error)
+	// SaveProjectViewDefaults Choose the default saved view and dataframe.
+	// (PUT /api/v1/projects/{project}/view-builder/defaults)
+	SaveProjectViewDefaults(ctx context.Context, request SaveProjectViewDefaultsRequestObject) (SaveProjectViewDefaultsResponseObject, error)
 	// GetApolloSandbox Render the Apollo GraphQL sandbox.
 	// (GET /apollo)
 	GetApolloSandbox(ctx context.Context, request GetApolloSandboxRequestObject) (GetApolloSandboxResponseObject, error)
@@ -21972,6 +22778,159 @@ func (sh *strictHandler) GetInterpretationRevision(ctx fiber.Ctx, project Projec
 		return err
 	} else if validResponse, ok := response.(GetInterpretationRevisionResponseObject); ok {
 		if err := validResponse.VisitGetInterpretationRevisionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetProjectViewBuilder operation middleware
+func (sh *strictHandler) GetProjectViewBuilder(ctx fiber.Ctx, project Project) error {
+	var request GetProjectViewBuilderRequestObject
+
+	request.Project = project
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetProjectViewBuilder(ctx.Context(), request.(GetProjectViewBuilderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetProjectViewBuilder")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetProjectViewBuilderResponseObject); ok {
+		if err := validResponse.VisitGetProjectViewBuilderResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// AdoptProjectViewBuilder operation middleware
+func (sh *strictHandler) AdoptProjectViewBuilder(ctx fiber.Ctx, project Project, params AdoptProjectViewBuilderParams) error {
+	var request AdoptProjectViewBuilderRequestObject
+
+	request.Project = project
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.AdoptProjectViewBuilder(ctx.Context(), request.(AdoptProjectViewBuilderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdoptProjectViewBuilder")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(AdoptProjectViewBuilderResponseObject); ok {
+		if err := validResponse.VisitAdoptProjectViewBuilderResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeleteProjectViewConfig operation middleware
+func (sh *strictHandler) DeleteProjectViewConfig(ctx fiber.Ctx, project Project, explorerId ExplorerId, params DeleteProjectViewConfigParams) error {
+	var request DeleteProjectViewConfigRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteProjectViewConfig(ctx.Context(), request.(DeleteProjectViewConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteProjectViewConfig")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteProjectViewConfigResponseObject); ok {
+		if err := validResponse.VisitDeleteProjectViewConfigResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SaveProjectViewConfig operation middleware
+func (sh *strictHandler) SaveProjectViewConfig(ctx fiber.Ctx, project Project, explorerId ExplorerId, params SaveProjectViewConfigParams) error {
+	var request SaveProjectViewConfigRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	var body SaveProjectViewConfigJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SaveProjectViewConfig(ctx.Context(), request.(SaveProjectViewConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SaveProjectViewConfig")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SaveProjectViewConfigResponseObject); ok {
+		if err := validResponse.VisitSaveProjectViewConfigResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SaveProjectViewDefaults operation middleware
+func (sh *strictHandler) SaveProjectViewDefaults(ctx fiber.Ctx, project Project, params SaveProjectViewDefaultsParams) error {
+	var request SaveProjectViewDefaultsRequestObject
+
+	request.Project = project
+	request.Params = params
+
+	var body SaveProjectViewDefaultsJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SaveProjectViewDefaults(ctx.Context(), request.(SaveProjectViewDefaultsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SaveProjectViewDefaults")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SaveProjectViewDefaultsResponseObject); ok {
+		if err := validResponse.VisitSaveProjectViewDefaultsResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -27294,6 +28253,491 @@ func NewGetInterpretationRevisionErrorResponse(status int, body any) (GetInterpr
 	}
 }
 
+// NewGetProjectViewBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetProjectViewBuilderErrorResponse(status int, body any) (GetProjectViewBuilderResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "GetProjectViewBuilder", status)
+	}
+}
+
+// NewAdoptProjectViewBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewAdoptProjectViewBuilderErrorResponse(status int, body any) (AdoptProjectViewBuilderResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "AdoptProjectViewBuilder", status)
+	}
+}
+
+// NewDeleteProjectViewConfigErrorResponse maps a documented JSON error status to its generated response type.
+func NewDeleteProjectViewConfigErrorResponse(status int, body any) (DeleteProjectViewConfigResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "DeleteProjectViewConfig", status)
+	}
+}
+
+// NewSaveProjectViewConfigErrorResponse maps a documented JSON error status to its generated response type.
+func NewSaveProjectViewConfigErrorResponse(status int, body any) (SaveProjectViewConfigResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "SaveProjectViewConfig", status)
+	}
+}
+
+// NewSaveProjectViewDefaultsErrorResponse maps a documented JSON error status to its generated response type.
+func NewSaveProjectViewDefaultsErrorResponse(status int, body any) (SaveProjectViewDefaultsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ExplorerUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = ExplorerUnauthorizedJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults401JSONResponse{ExplorerUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "SaveProjectViewDefaults", status)
+	}
+}
+
 // NewGetApolloSandboxErrorResponse maps a documented JSON error status to its generated response type.
 func NewGetApolloSandboxErrorResponse(status int, body any) (GetApolloSandboxResponseObject, error) {
 	switch status {
@@ -28042,102 +29486,107 @@ var swaggerSpec = []string{
 	"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",
-	"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",
-	"N1r/gns7fx2Kd2tHWibis/dn47Pn357/PwAA//8=",
+	"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",
+	"7PG3x/8LAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -153,6 +153,7 @@ profiles.find(p => p.id === 'explorer').alsoRequired = [
     'TestDraftCASPublicApplyConflictClassAgainstArango',
     'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango',
     'TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango',
+    'TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango',
     'TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango',
     'TestPublishProjectConfigsRejectsCollisionsImmutableConflictAndReleaseCASAgainstArango',
     'TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstArango',

@@ -79,7 +79,7 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 	var active dataset.ActiveRelease
 	err = s.client.WithTransaction(ctx, store.TransactionCollections{
 		Read:  []string{publicationarango.BundleExecutionsCollection},
-		Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection, ProjectCatalogSettingsCollection},
+		Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection, ViewBuilderSettingsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		execution, err := readProjectConfigExecution(txCtx, tx, executionID)
 		if err != nil {
@@ -93,12 +93,12 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 		if err != nil {
 			return err
 		}
-		var settings *projectCatalogSettingsRow
+		var settings *viewBuilderSettingsRow
 		if request.CatalogSnapshot != nil {
 			if err := validateExpectedProjectConfigHeads(request, project, owners); err != nil {
 				return err
 			}
-			settings, err = readProjectCatalogSettings(txCtx, tx, project)
+			settings, err = readViewBuilderSettings(txCtx, tx, project)
 			if err != nil {
 				return err
 			}
@@ -192,7 +192,7 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 			}
 			updatedSettings := settingsAfterCatalogPublish(settings, project, request.RecipeName, request.CatalogSnapshot.ID)
 			if updatedSettings.Version != settingsVersion(settings) {
-				if err := writeProjectCatalogSettings(txCtx, tx, settings, updatedSettings); err != nil {
+				if err := writeViewBuilderSettings(txCtx, tx, settings, updatedSettings); err != nil {
 					return err
 				}
 			}
@@ -212,7 +212,7 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 		return nil
 	})
 	if err != nil {
-		return dataset.ActiveRelease{}, fmt.Errorf("publish project configs for %s/%s: %w", project, request.Release.Generation, normalizeProjectConfigConflict(err))
+		return dataset.ActiveRelease{}, fmt.Errorf("publish project configs for %s/%s: %w", project, request.Release.Generation, normalizeViewBuilderConflict(err))
 	}
 	return active, nil
 }
@@ -466,24 +466,24 @@ func validateExpectedProjectConfigHeads(request explorer.ProjectConfigPublishReq
 	return nil
 }
 
-func settingsCatalogID(settings *projectCatalogSettingsRow, recipeName string) string {
+func settingsCatalogID(settings *viewBuilderSettingsRow, recipeName string) string {
 	if settings == nil {
 		return ""
 	}
 	return settings.value.Catalogs[recipeName]
 }
 
-func settingsVersion(settings *projectCatalogSettingsRow) int64 {
+func settingsVersion(settings *viewBuilderSettingsRow) int64 {
 	if settings == nil {
 		return 0
 	}
 	return settings.value.Version
 }
 
-func settingsAfterCatalogPublish(current *projectCatalogSettingsRow, project, recipeName, revisionID string) explorer.ProjectCatalogSettings {
-	settings := emptyProjectCatalogSettings(project)
+func settingsAfterCatalogPublish(current *viewBuilderSettingsRow, project, recipeName, revisionID string) explorer.ViewBuilderSettings {
+	settings := emptyViewBuilderSettings(project)
 	if current != nil {
-		settings = cloneProjectCatalogSettings(current.value)
+		settings = cloneViewBuilderSettings(current.value)
 	}
 	if settings.Catalogs == nil {
 		settings.Catalogs = map[string]string{}

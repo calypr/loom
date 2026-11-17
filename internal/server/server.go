@@ -759,11 +759,11 @@ func run(ctx context.Context, serverConfig Config) error {
 				if execution.State.Canonical() != publication.BundlePublished || execution.ReceiptID != operationID || execution.Project != project || execution.DatasetGeneration != generation {
 					return "", 0, fmt.Errorf("configured recipe did not publish the candidate generation")
 				}
-				catalogSnapshot, err := explorer.PrepareProjectConfigCatalogSnapshot(resolved, execution, commit)
+				catalogSnapshot, err := explorer.PrepareViewBuilderCatalogSnapshot(resolved, execution, commit)
 				if err != nil {
 					return "", 0, fmt.Errorf("prepare view builder catalog snapshot: %w", err)
 				}
-				settings, err := explorerStore.GetProjectCatalogSettings(ctx, project)
+				settings, err := explorerStore.GetViewBuilderSettings(ctx, project)
 				if err != nil {
 					return "", 0, fmt.Errorf("load project view builder settings: %w", err)
 				}

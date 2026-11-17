@@ -18,7 +18,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 	if err != nil {
 		t.Fatalf("publish source and catalog anchor: %v", err)
 	}
-	settings, err := explorers.GetProjectCatalogSettings(ctx, project)
+	settings, err := explorers.GetViewBuilderSettings(ctx, project)
 	if err != nil || settings.Version != 1 || settings.Catalogs["recipe-a"] != first.CatalogSnapshot.ID {
 		t.Fatalf("published anchor=%+v, err=%v", settings, err)
 	}
@@ -29,7 +29,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 	if _, err := explorers.PublishProjectConfigs(ctx, first); err != nil {
 		t.Fatalf("retry exact source publication: %v", err)
 	}
-	retried, err := explorers.GetProjectCatalogSettings(ctx, project)
+	retried, err := explorers.GetViewBuilderSettings(ctx, project)
 	if err != nil || retried.Version != settings.Version || retried.Catalogs["recipe-a"] != settings.Catalogs["recipe-a"] {
 		t.Fatalf("exact retry changed catalog anchor: %+v, err=%v", retried, err)
 	}
@@ -40,7 +40,7 @@ func TestProjectConfigCatalogAnchorPublishRetryAndRebindAgainstArango(t *testing
 	if _, err := explorers.PublishProjectConfigs(ctx, second); err != nil {
 		t.Fatalf("rebind catalog to new source execution: %v", err)
 	}
-	updated, err := explorers.GetProjectCatalogSettings(ctx, project)
+	updated, err := explorers.GetViewBuilderSettings(ctx, project)
 	if err != nil || updated.Version != settings.Version+1 || updated.Catalogs["recipe-a"] != second.CatalogSnapshot.ID {
 		t.Fatalf("source rebind did not advance catalog anchor: %+v, err=%v", updated, err)
 	}
