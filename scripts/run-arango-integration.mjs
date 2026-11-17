@@ -46,6 +46,7 @@ export const profiles = [
 // The store package's retained cases require external seeded data. Its ordinary
 // unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
+profiles.find(p => p.id === 'execution').alsoRequired = ['TestPublicationRowStreamRejectsPayloadMetadataSmuggling'];
 profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
 profiles.find(p => p.id === 'explorer').alsoRequired = [
     'TestDraftCASConcurrentWritersAgainstArango',

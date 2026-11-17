@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full dev-down verify-inventory verify-api verify-formal verify-browser
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full dev-down verify-inventory verify-api verify-formal verify-browser test-ui test-go test-integration
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -164,6 +164,21 @@ dev-down:
 clean:
 	rm -rf bin
 
+# Direct product test entry points. Integration tests require owned Arango and ClickHouse services.
+test-ui:
+	npm --prefix ui test
+
+test-go:
+	$(GO) test ./...
+
+test-integration:
+	@test -n "$$LOOM_TEST_ARANGO_URL" || (echo "Set LOOM_TEST_ARANGO_URL to an owned dev instance" >&2; exit 1)
+	@test -n "$$LOOM_CLICKHOUSE_URL" || (echo "Set LOOM_CLICKHOUSE_URL to an owned dev instance" >&2; exit 1)
+	$(GO) test -json -timeout=10m -count=1 -run '^(TestGraphRowsIndependentFixtureAgainstArango|TestDerivedArithmeticPoliciesAgainstArango|TestCurrentDraftAppendRowsAgainstArangoClickHouse|TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestSavedRelatedRouteRowsAgainstArango|TestSavedRelatedRouteProposalApplyRestoreAndFreshRead|TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead|TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible|TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave|TestApplyConstructionProposalCaptureFailureKeepsSaveAndOmitsAcceptedPreview|TestApplyConstructionProposalCapturesEmptyPreviewAsEmptyRowsArray|TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly|TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP|TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP|TestCoreAuthoringProtocolVerticalWitness|TestCoreAuthoringProtocolCompetingSaveDuringReconcile|TestCoreAuthoringProtocolErrorBoundaries)$$' ./internal/server | node scripts/assert-go-tests.mjs TestGraphRowsIndependentFixtureAgainstArango TestDerivedArithmeticPoliciesAgainstArango TestCurrentDraftAppendRowsAgainstArangoClickHouse TestPublicationRowsAndFreshViewerAgainstArangoClickHouse TestSavedRelatedRouteRowsAgainstArango TestSavedRelatedRouteProposalApplyRestoreAndFreshRead TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave TestApplyConstructionProposalCaptureFailureKeepsSaveAndOmitsAcceptedPreview TestApplyConstructionProposalCapturesEmptyPreviewAsEmptyRowsArray TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP TestCoreAuthoringProtocolVerticalWitness TestCoreAuthoringProtocolCompetingSaveDuringReconcile TestCoreAuthoringProtocolErrorBoundaries
+	$(GO) test -json -timeout=10m -count=1 -run '^TestReconcileDanglesActiveReleaseAgainstArangoClickHouse$$' ./internal/dataframe/publication/arango | node scripts/assert-go-tests.mjs TestReconcileDanglesActiveReleaseAgainstArangoClickHouse
+	$(GO) test -json -timeout=10m -count=1 -run '^(TestDraftCASConcurrentWritersAgainstArango|TestDraftCASAfterWinnerCommitAgainstArango|TestDraftCASPublicApplyConflictClassAgainstArango|TestDraftCASUpdateFailureRollsBackHistoryAgainstArango)$$' ./internal/explorer/arango | node scripts/assert-go-tests.mjs TestDraftCASConcurrentWritersAgainstArango TestDraftCASAfterWinnerCommitAgainstArango TestDraftCASPublicApplyConflictClassAgainstArango TestDraftCASUpdateFailureRollsBackHistoryAgainstArango
+	node scripts/run-arango-integration.mjs --out "$${RUNNER_TEMP:-/tmp}/loom-arango-integration-$$$$"
+
 # Builder checkpoints. Full repository coverage remains in tests.yaml.
 VERIFY_FEATURE ?= ownership
 API_FEATURE ?= all
@@ -171,16 +186,14 @@ API_FEATURE ?= all
 verify-inventory:
 	node scripts/verify-builder-formal-core.mjs --phase inventory
 
-verify-fast:
-	node scripts/verify-builder-formal-core.mjs --phase behavior --feature $(VERIFY_FEATURE)
+verify-fast: test-ui
 
-verify-api:
-	node scripts/verify-builder-formal-core.mjs --phase api --feature $(API_FEATURE)
+verify-api: test-integration
 
 verify-formal:
 	node scripts/verify-builder-formal-core.mjs --self-test
 
-verify-current: verify-fast verify-api verify-formal
+verify-current: test-ui test-go test-integration
 
 verify-full: verify-api verify-formal
 	CI=true node scripts/verify-builder-formal-core.mjs --phase behavior

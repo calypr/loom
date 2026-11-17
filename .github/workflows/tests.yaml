@@ -26,19 +26,18 @@ jobs:
       - name: Type-check UI tests
         working-directory: ui
         run: npm run typecheck:tests --workspace @calypr/loom-ui
-      - name: Check feature attachments
-        run: node scripts/verify-builder-formal-core.mjs --phase behavior --list
       - name: Run all UI behavioral tests
-        run: node scripts/verify-builder-formal-core.mjs --phase behavior --out "$RUNNER_TEMP/loom-ui-behavior"
+        working-directory: ui
+        run: npm run test --workspace @calypr/loom-ui -- --reporter=json --outputFile="$RUNNER_TEMP/vitest.json"
       - name: Build UI
         working-directory: ui
         run: npm run build
-      - name: Preserve behavior evidence
+      - name: Preserve Vitest results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ui-behavior
-          path: ${{ runner.temp }}/loom-ui-behavior
+          name: vitest-results
+          path: ${{ runner.temp }}/vitest.json
           if-no-files-found: warn
 
   go-unit:
@@ -51,6 +50,13 @@ jobs:
         with:
           go-version: 1.26.5
           cache: true
+      - name: Record Go test names
+        run: go test -list . ./... > "$RUNNER_TEMP/go-test-list.txt"
+      - name: Preserve Go test names
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-list
+          path: ${{ runner.temp }}/go-test-list.txt
       - name: Run all ordinary Go packages and catalog witnesses
         run: |
           package_list=$(go list . ./internal/... ./cmd/... ./generated/... ./conformance/...)
@@ -91,19 +97,10 @@ jobs:
         env:
           LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
         run: node scripts/run-arango-integration.mjs --out "$RUNNER_TEMP/arango-proof"
-      - name: Verify actual derived arithmetic policy source faults
+      - name: Verify derived arithmetic policies against Arango
         env:
           LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
-        run: node scripts/lib/formal-derived-policy.mjs --out "$RUNNER_TEMP/derived-policy-proof"
-      - name: Preserve actual Arango proof and external gaps
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: arango-proof
-          path: |
-            ${{ runner.temp }}/arango-proof
-            ${{ runner.temp }}/derived-policy-proof
-          if-no-files-found: warn
+        run: go test -json -timeout=10m -count=1 -run '^TestDerivedArithmeticPoliciesAgainstArango$' ./internal/server | node scripts/assert-go-tests.mjs TestDerivedArithmeticPoliciesAgainstArango
 
   go-publication-rows:
     name: Compiled publication rows across Arango and ClickHouse
@@ -154,32 +151,11 @@ jobs:
       - name: Compile server tests separately from runtime proof
         run: go test -timeout=10m -run '^$' ./internal/server
       - name: Verify literal compiled and stored rows through fresh Viewer
-        run: node scripts/verify-builder-formal-core.mjs --phase api --feature publication-rows --out "$RUNNER_TEMP/publication-proof"
+        run: go test -json -timeout=10m -count=1 -run '^TestPublicationRowsAndFreshViewerAgainstArangoClickHouse$' ./internal/server | node scripts/assert-go-tests.mjs TestPublicationRowsAndFreshViewerAgainstArangoClickHouse
       - name: Verify active release tables survive cleanup races
-        run: node scripts/verify-builder-formal-core.mjs --phase api --feature release-dangle-reconcile --out "$RUNNER_TEMP/release-dangle-proof"
-      - name: Verify current draft APPEND rows and actual source faults
-        run: node scripts/lib/formal-append-rows.mjs --out "$RUNNER_TEMP/append-proof"
-      - name: Preserve current draft APPEND evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: append-rows
-          path: ${{ runner.temp }}/append-proof
-          if-no-files-found: warn
-      - name: Preserve active release cleanup evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-dangle-reconcile
-          path: ${{ runner.temp }}/release-dangle-proof
-          if-no-files-found: warn
-      - name: Preserve publication evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: publication-rows
-          path: ${{ runner.temp }}/publication-proof
-          if-no-files-found: warn
+        run: go test -json -timeout=10m -count=1 -run '^TestReconcileDanglesActiveReleaseAgainstArangoClickHouse$' ./internal/dataframe/publication/arango | node scripts/assert-go-tests.mjs TestReconcileDanglesActiveReleaseAgainstArangoClickHouse
+      - name: Verify current draft APPEND rows
+        run: go test -json -timeout=10m -count=1 -run '^TestCurrentDraftAppendRowsAgainstArangoClickHouse$' ./internal/server | node scripts/assert-go-tests.mjs TestCurrentDraftAppendRowsAgainstArangoClickHouse
 
   go-clickhouse:
     name: Go ClickHouse integration tests
@@ -242,18 +218,6 @@ jobs:
       - name: Install UI dependencies
         working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Record executable routes and fail on a broken retained closure
-        # --out writes the document only after the full inventory succeeds, via an
-        # atomic rename, so a broken retained dependency closure fails without
-        # leaving a truncated or stale file for the always() upload to publish.
-        run: node scripts/verify-builder-formal-core.mjs --phase inventory --out "$RUNNER_TEMP"
-      - name: Preserve verification inventory
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: verification-inventory
-          path: ${{ runner.temp }}/verification-inventory.json
-          if-no-files-found: error
       - name: Run retained non-Playwright tests
         run: |
           export LOOM_E2E_CHROME="$(command -v google-chrome)"
