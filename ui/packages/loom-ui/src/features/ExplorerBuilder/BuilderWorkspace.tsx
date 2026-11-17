@@ -17,7 +17,6 @@ import {
   useResolvePopulationSelectionQuery,
   useGetExplorerCandidateSuggestionsV2Mutation,
   usePreviewExplorerAuthoringV2Mutation,
-  usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
   useLoomClient,
 } from '../../react';
@@ -95,6 +94,7 @@ import {
   type PreviewLimit,
 } from './authoring/previewRecovery';
 import { useCommandQueue } from './authoring/useCommandQueue';
+import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { shouldSyncServerDraft } from './authoring/serverDraftSync';
 import { useRootChange } from './authoring/useRootChange';
@@ -266,14 +266,6 @@ type PreviewRequest = {
   readonly receiptRefreshes: number;
 };
 
-type PublicationAcknowledgementIdentity = {
-  readonly ownerKey: string;
-  readonly explorerId: string;
-  readonly draftDigest: string;
-  readonly intentFingerprint: string;
-  readonly snapshotToken: string;
-};
-
 type AutomaticPreviewExecution = {
   cancelled: boolean;
   compileGeneration?: number;
@@ -384,8 +376,6 @@ const BuilderWorkspaceContent = ({
   const workspaceHostRef = useCallback((node: HTMLElement | null) => {
     workspaceAttached.current = node !== null;
   }, []);
-  const publicationOwnerKeyRef = useRef(ownerKey);
-  publicationOwnerKeyRef.current = ownerKey;
   const selectedTableStorageKey = `loom.builder.selected-table:${ownerKey}`;
   const rememberedOutputId = useMemo(() => {
     try {
@@ -418,7 +408,6 @@ const BuilderWorkspaceContent = ({
     useGetExplorerCandidateSuggestionsV2Mutation();
   const [previewBuilder, previewStatus] =
     usePreviewExplorerAuthoringV2Mutation();
-  const [publishBuilder] = usePublishExplorerAuthoringV2Mutation();
   const builderDataKey = builder.data
     ? builderDataKeyFor(
         builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
@@ -481,10 +470,6 @@ const BuilderWorkspaceContent = ({
     readonly key: string;
     readonly message: string;
   }>();
-  const [lastPublished, setLastPublished] = useState<{
-    readonly ownerKey: string;
-    readonly draftDigest: string;
-  }>();
   const [occurrenceInspectorHost, setOccurrenceInspectorHost] = useState<HTMLElement | null>(null);
   const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
@@ -504,7 +489,6 @@ const BuilderWorkspaceContent = ({
     readonly message: string;
   }>();
   const [populationVariantPending, setPopulationVariantPending] = useState(false);
-  const [publishing, setPublishing] = useState(false);
   const [firstTableName, setFirstTableName] = useState('');
   const [tableCreatorOpen, setTableCreatorOpen] = useState(false);
   const [firstTableProgress, setFirstTableProgress] =
@@ -739,6 +723,144 @@ const BuilderWorkspaceContent = ({
   const incomplete = state.tables.some(
     (table) => !table.document.rootResourceType,
   );
+
+  const reconcileCurrent = useCallback(async (
+    owner?: AutomaticPreviewExecution,
+    outputId?: string,
+  ): Promise<ExplorerBuilderCompileResult | undefined> => {
+    if (!workspaceAttached.current) return undefined;
+    const submitted = latestState.current;
+    if (
+      !submitted.catalog.snapshotToken ||
+      submitted.tables.length === 0 ||
+      submitted.tables.some((candidate) => !candidate.document.rootResourceType)
+    )
+      return undefined;
+    const generation = ++compileGeneration.current;
+    const submittedFingerprint = intentFingerprint(
+      workspaceFromState(submitted),
+    );
+    const requestIsCurrent = () => workspaceAttached.current && reconcileResultIsCurrent({
+      generation,
+      currentGeneration: compileGeneration.current,
+      submittedExplorerId: submitted.explorerId,
+      currentExplorerId: latestState.current.explorerId,
+      submittedFingerprint,
+      currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
+    });
+    let snapshotToken = submitted.catalog.snapshotToken;
+    let draftVersion = submitted.draftVersion;
+    let draftDigest = submitted.draftDigest;
+    let attempt = 1;
+    let staleRefreshes = 0;
+    const maxAttempts = 3;
+    const maxStaleRefreshes = 2;
+    if (!owner) dispatch({ type: 'compiling' });
+    for (;;) {
+      if (owner?.cancelled || !requestIsCurrent()) return undefined;
+      const request = reconcileBuilder({
+        project: projectId,
+        explorerId: submitted.explorerId,
+        authResourcePath,
+        snapshotToken,
+        draftVersion,
+        draftDigest,
+        ...(outputId ? { outputId } : {}),
+        requestId: `builder-${generation}-${attempt}`,
+      });
+      activeCompile.current = request;
+      if (owner) {
+        owner.compileGeneration = generation;
+        owner.compileRequest = request;
+      }
+      try {
+        const value = await request.unwrap();
+        if (owner?.cancelled || !requestIsCurrent()) return undefined;
+        const current = latestState.current;
+        const acceptance = reconcileAcceptance(value, {
+          generation,
+          currentGeneration: compileGeneration.current,
+          submittedExplorerId: submitted.explorerId,
+          currentExplorerId: current.explorerId,
+          submittedFingerprint,
+          currentFingerprint: intentFingerprint(workspaceFromState(current)),
+        }, { snapshotToken, ...(outputId ? { outputId } : {}) });
+        if (acceptance === 'obsolete') return undefined;
+        if (acceptance === 'mismatch') {
+          dispatch({
+            type: 'repair',
+            diagnostics: [{
+              severity: 'error',
+              code: 'RECONCILE_RECEIPT_MISMATCH',
+              message: 'Loom returned a compile receipt for a different snapshot or output.',
+            }],
+          });
+          return undefined;
+        }
+        dispatch({ type: 'compiled', value });
+        return acceptance === 'accepted' ? value : undefined;
+      } catch (error) {
+        const apiError = error as ExplorerAuthoringApiError;
+        if (
+          owner?.cancelled ||
+          !requestIsCurrent() ||
+          apiError.code === 'CLIENT_CANCELLED'
+        )
+          return undefined;
+        const recovery = reconcileRecoveryAction(apiError, {
+          attempt,
+          maxAttempts,
+          staleRefreshes,
+          maxStaleRefreshes,
+        });
+        if (recovery === 'refresh-and-stop') {
+          const refreshed = await refetchBuilder({ reload: true });
+          if (owner?.cancelled || !requestIsCurrent()) return undefined;
+          if (refreshed.data) {
+            syncBuilderData(refreshed.data, 'hydrate');
+            setMessage(undefined);
+          } else {
+            dispatch({
+              type: 'repair',
+              diagnostics: diagnosticsFromError(apiError),
+            });
+          }
+          return undefined;
+        }
+        if (recovery === 'refresh-and-retry') {
+          const refreshed = await refetchBuilder({ reload: true });
+          if (owner?.cancelled || !requestIsCurrent() || !refreshed.data) return undefined;
+          syncBuilderData(refreshed.data, 'catalog');
+          snapshotToken = refreshed.data.catalog.snapshotToken;
+          draftVersion = refreshed.data.draftVersion;
+          draftDigest = refreshed.data.draftDigest;
+          staleRefreshes += 1;
+          attempt += 1;
+          continue;
+        }
+        if (recovery === 'retry') {
+          attempt += 1;
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          continue;
+        }
+        dispatch({
+          type: 'repair',
+          diagnostics: diagnosticsFromError(apiError),
+        });
+        return undefined;
+      } finally {
+        if (activeCompile.current === request) activeCompile.current = undefined;
+        if (owner?.compileRequest === request) owner.compileRequest = undefined;
+      }
+    }
+  }, [
+    authResourcePath,
+    dispatch,
+    projectId,
+    reconcileBuilder,
+    refetchBuilder,
+    syncBuilderData,
+  ]);
 
   const { pendingCommands, commandRecipeAdmission, relatedExpandQueryOwnerRef, applyCommandsWithResult, applyCommands } = useCommandQueue({
     builderOwnerKeyFor,
@@ -1024,6 +1146,27 @@ const BuilderWorkspaceContent = ({
           else recipeOwner.fail(attempt, 'The construction change was not saved.'); },
       };
     } },
+  });
+  const blockingDiagnostics = state.diagnostics.some(
+    (diagnostic) => diagnostic.severity === 'error',
+  );
+  const { publishing, publishDisabled, publish } = usePublish({
+    ownerKey,
+    projectId,
+    authResourcePath,
+    state,
+    latestState,
+    workspaceAttached,
+    compileGeneration,
+    dispatch,
+    reconcileCurrent,
+    refetchBuilder,
+    syncBuilderData,
+    setMessage,
+    incomplete,
+    blockingDiagnostics,
+    recipeOwner,
+    constructionLifecycle,
   });
   const combineRootNodeId = table?.document.rootResourceType
     ? derivedOccurrences(table, state.catalog)[0]?.nodeId
@@ -1951,9 +2094,6 @@ const BuilderWorkspaceContent = ({
     [ensureSuggestions],
   );
   const suggestionIdentity = `${state.explorerId}:${state.catalog.snapshotToken}:${state.selectedOccurrenceId}`;
-  const blockingDiagnostics = state.diagnostics.some(
-    (diagnostic) => diagnostic.severity === 'error',
-  );
   const unsupportedSourceProjectionDiagnostic = state.diagnostics.find(
     isUnsupportedUnknownSourceProjectionDiagnostic,
   );
@@ -1966,17 +2106,6 @@ const BuilderWorkspaceContent = ({
     !outputAvailability.hasVisibleOutputColumn ||
     blockingDiagnostics ||
     constructionLifecycle.proposal.status !== 'idle';
-  const publishDisabled =
-    (lastPublished?.ownerKey === ownerKey &&
-      lastPublished.draftDigest === state.draftDigest) ||
-    incomplete ||
-    blockingDiagnostics ||
-    recipeOwner.state.status !== 'saved' ||
-    constructionLifecycle.proposal.status !== 'idle' ||
-    state.tables.some((candidate) =>
-      !effectiveOutputAvailability(candidate.document).hasAnyOutputColumn,
-    );
-
   const addTable = () => {
     if (!recipeMutationAllowed()) return;
     if (
@@ -2106,143 +2235,6 @@ const BuilderWorkspaceContent = ({
       setMessage(`Explorer deletion failed: ${apiError.message}${suffix}`);
     }
   };
-  const reconcileCurrent = useCallback(async (
-    owner?: AutomaticPreviewExecution,
-    outputId?: string,
-  ): Promise<ExplorerBuilderCompileResult | undefined> => {
-    if (!workspaceAttached.current) return undefined;
-    const submitted = latestState.current;
-    if (
-      !submitted.catalog.snapshotToken ||
-      submitted.tables.length === 0 ||
-      submitted.tables.some((candidate) => !candidate.document.rootResourceType)
-    )
-      return undefined;
-    const generation = ++compileGeneration.current;
-    const submittedFingerprint = intentFingerprint(
-      workspaceFromState(submitted),
-    );
-    const requestIsCurrent = () => workspaceAttached.current && reconcileResultIsCurrent({
-      generation,
-      currentGeneration: compileGeneration.current,
-      submittedExplorerId: submitted.explorerId,
-      currentExplorerId: latestState.current.explorerId,
-      submittedFingerprint,
-      currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
-    });
-    let snapshotToken = submitted.catalog.snapshotToken;
-    let draftVersion = submitted.draftVersion;
-    let draftDigest = submitted.draftDigest;
-    let attempt = 1;
-    let staleRefreshes = 0;
-    const maxAttempts = 3;
-    const maxStaleRefreshes = 2;
-    if (!owner) dispatch({ type: 'compiling' });
-    for (;;) {
-      if (owner?.cancelled || !requestIsCurrent()) return undefined;
-      const request = reconcileBuilder({
-        project: projectId,
-        explorerId: submitted.explorerId,
-        authResourcePath,
-        snapshotToken,
-        draftVersion,
-        draftDigest,
-        ...(outputId ? { outputId } : {}),
-        requestId: `builder-${generation}-${attempt}`,
-      });
-      activeCompile.current = request;
-      if (owner) {
-        owner.compileGeneration = generation;
-        owner.compileRequest = request;
-      }
-      try {
-        const value = await request.unwrap();
-        if (owner?.cancelled || !requestIsCurrent()) return undefined;
-        const current = latestState.current;
-        const acceptance = reconcileAcceptance(value, {
-          generation,
-          currentGeneration: compileGeneration.current,
-          submittedExplorerId: submitted.explorerId,
-          currentExplorerId: current.explorerId,
-          submittedFingerprint,
-          currentFingerprint: intentFingerprint(workspaceFromState(current)),
-        }, { snapshotToken, ...(outputId ? { outputId } : {}) });
-        if (acceptance === 'obsolete') return undefined;
-        if (acceptance === 'mismatch') {
-          dispatch({
-            type: 'repair',
-            diagnostics: [{
-              severity: 'error',
-              code: 'RECONCILE_RECEIPT_MISMATCH',
-              message: 'Loom returned a compile receipt for a different snapshot or output.',
-            }],
-          });
-          return undefined;
-        }
-        dispatch({ type: 'compiled', value });
-        return acceptance === 'accepted' ? value : undefined;
-      } catch (error) {
-        const apiError = error as ExplorerAuthoringApiError;
-        if (
-          owner?.cancelled ||
-          !requestIsCurrent() ||
-          apiError.code === 'CLIENT_CANCELLED'
-        )
-          return undefined;
-        const recovery = reconcileRecoveryAction(apiError, {
-          attempt,
-          maxAttempts,
-          staleRefreshes,
-          maxStaleRefreshes,
-        });
-        if (recovery === 'refresh-and-stop') {
-          const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled || !requestIsCurrent()) return undefined;
-          if (refreshed.data) {
-            syncBuilderData(refreshed.data, 'hydrate');
-            setMessage(undefined);
-          } else {
-            dispatch({
-              type: 'repair',
-              diagnostics: diagnosticsFromError(apiError),
-            });
-          }
-          return undefined;
-        }
-        if (recovery === 'refresh-and-retry') {
-          const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled || !requestIsCurrent() || !refreshed.data) return undefined;
-          syncBuilderData(refreshed.data, 'catalog');
-          snapshotToken = refreshed.data.catalog.snapshotToken;
-          draftVersion = refreshed.data.draftVersion;
-          draftDigest = refreshed.data.draftDigest;
-          staleRefreshes += 1;
-          attempt += 1;
-          continue;
-        }
-        if (recovery === 'retry') {
-          attempt += 1;
-          await new Promise((resolve) => window.setTimeout(resolve, 250));
-          continue;
-        }
-        dispatch({
-          type: 'repair',
-          diagnostics: diagnosticsFromError(apiError),
-        });
-        return undefined;
-      } finally {
-        if (activeCompile.current === request) activeCompile.current = undefined;
-        if (owner?.compileRequest === request) owner.compileRequest = undefined;
-      }
-    }
-  }, [
-    authResourcePath,
-    dispatch,
-    projectId,
-    reconcileBuilder,
-    refetchBuilder,
-    syncBuilderData,
-  ]);
   const executePreview = useCallback(
     async (
       request: PreviewRequest,
@@ -2608,123 +2600,6 @@ const BuilderWorkspaceContent = ({
     publishing ||
     createStatus.isLoading ||
     deleteStatus.isLoading;
-  const executePublish = useCallback(
-    async (receiptId: string) => {
-      let activeReceiptId = receiptId;
-      let refreshes = 0;
-      const publicationOwnerIsCurrent = () =>
-        workspaceAttached.current && publicationOwnerKeyRef.current === ownerKey;
-      for (;;) {
-        if (!publicationOwnerIsCurrent()) return;
-        const submitted = latestState.current;
-        const generation = compileGeneration.current;
-        const submittedFingerprint = intentFingerprint(workspaceFromState(submitted));
-        const publicationIsCurrent = () => publicationOwnerIsCurrent() && reconcileResultIsCurrent({
-          generation,
-          currentGeneration: compileGeneration.current,
-          submittedExplorerId: submitted.explorerId,
-          currentExplorerId: latestState.current.explorerId,
-          submittedFingerprint,
-          currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
-        });
-        const acknowledgementIdentity: PublicationAcknowledgementIdentity = {
-          ownerKey,
-          explorerId: submitted.explorerId,
-          draftDigest: submitted.draftDigest,
-          intentFingerprint: submittedFingerprint,
-          snapshotToken: submitted.catalog.snapshotToken,
-        };
-        const acknowledgementIsCurrent = () =>
-          publicationOwnerIsCurrent() &&
-          publicationOwnerKeyRef.current === acknowledgementIdentity.ownerKey &&
-          latestState.current.explorerId === acknowledgementIdentity.explorerId &&
-          latestState.current.draftDigest === acknowledgementIdentity.draftDigest &&
-          latestState.current.catalog.snapshotToken === acknowledgementIdentity.snapshotToken &&
-          intentFingerprint(workspaceFromState(latestState.current)) === acknowledgementIdentity.intentFingerprint;
-        try {
-          await publishBuilder({
-            project: projectId,
-            explorerId: latestState.current.explorerId,
-            authResourcePath,
-            receiptId: activeReceiptId,
-          }).unwrap();
-          if (!acknowledgementIsCurrent()) return;
-          setLastPublished({
-            ownerKey,
-            draftDigest: submitted.draftDigest,
-          });
-          dispatch({ type: 'published' });
-          setMessage(undefined);
-          return;
-        } catch (error) {
-          if (!publicationOwnerIsCurrent()) return;
-          const apiError = error as ExplorerAuthoringApiError;
-          if (isStaleSnapshot(apiError.code) && refreshes === 0) {
-            if (!publicationIsCurrent()) return;
-            refreshes += 1;
-            const refreshed = await refetchBuilder({ reload: true });
-            if (!refreshed.data || !publicationIsCurrent()) return;
-            latestState.current = builderAuthoringReducer(latestState.current, {
-              type: 'catalogRefreshed',
-              catalog: refreshed.data.catalog,
-            });
-            syncBuilderData(refreshed.data, 'catalog');
-            const receipt = await reconcileCurrent();
-            if (!receipt || !publicationOwnerIsCurrent()) return;
-            activeReceiptId = receipt.receiptId;
-            continue;
-          }
-          const suffix = apiError.code ? ` (${apiError.code})` : '';
-          setMessage(
-            `Publication failed; the previously active Viewer revision remains available: ${apiError.message}${suffix}`,
-          );
-          return;
-        }
-      }
-    },
-    [
-      authResourcePath,
-      dispatch,
-      ownerKey,
-      projectId,
-      publishBuilder,
-      reconcileCurrent,
-      refetchBuilder,
-      syncBuilderData,
-    ],
-  );
-
-  const publish = async () => {
-    if (publishDisabled || publishing) return;
-    setPublishing(true);
-    try {
-      const receiptCoversEveryTable = state.receipt !== undefined &&
-        state.tables.every((candidate) => state.receipt?.outputs.some(
-          (output) => output.outputId === candidate.outputId,
-        ));
-      const receipt =
-        state.receipt && state.reconciliation === 'resolved' && receiptCoversEveryTable
-          ? state.receipt
-          : await reconcileCurrent();
-      if (!receipt) return;
-      const publishable = state.tables.every((candidate) =>
-        receipt.outputs.some(
-          (output) =>
-            output.outputId === candidate.outputId && output.columns.length > 0,
-        ),
-      );
-      if (!publishable) {
-        setMessage(
-          'Every table needs at least one output column before publishing.',
-        );
-        return;
-      }
-      await executePublish(receipt.receiptId);
-    } finally {
-      setPublishing(false);
-    }
-  };
-
   const emptyExplorerProject = !effectiveExplorerId &&
     !explorers.isLoading &&
     !explorers.error &&
