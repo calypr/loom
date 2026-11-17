@@ -24,7 +24,7 @@ var PerformanceStageNames = []string{
 	"generation_upload",
 	"explorer_publish",
 	"explorer_viewer",
-	"graphql",
+	"dataframe_rest",
 }
 
 type PerformanceObservation struct {
@@ -56,6 +56,12 @@ func PerformanceStageSeconds(stages []StageReport) map[string]float64 {
 	}
 	result := make(map[string]float64, len(allowed))
 	for _, stage := range stages {
+		if stage.Name == "graphql" {
+			if _, exists := result["dataframe_rest"]; !exists && stage.Seconds >= 0 {
+				result["dataframe_rest"] = stage.Seconds
+			}
+			continue
+		}
 		if _, ok := allowed[stage.Name]; ok && stage.Seconds >= 0 {
 			result[stage.Name] = stage.Seconds
 		}
@@ -69,7 +75,7 @@ func performanceFloor(name string) (float64, bool) {
 		return IngestionFloorSeconds, true
 	case "explorer_publish", "publication":
 		return PublicationFloorSeconds, true
-	case "explorer_viewer", "graphql", "probe":
+	case "explorer_viewer", "dataframe_rest", "probe":
 		return ProbeFloorSeconds, true
 	default:
 		return 0, false

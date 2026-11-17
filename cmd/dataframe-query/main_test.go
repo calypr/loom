@@ -13,8 +13,11 @@ import (
 	"time"
 )
 
-func TestExecutePostsGraphQLJSON(t *testing.T) {
+func TestExecutePostsJSON(t *testing.T) {
 	client := &http.Client{Transport: roundTripper(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/api/v1/projects/P1/dataframes/run" {
+			t.Fatalf("request path = %s", request.URL.Path)
+		}
 		if request.Method != http.MethodPost {
 			t.Fatalf("method = %s", request.Method)
 		}
@@ -25,22 +28,22 @@ func TestExecutePostsGraphQLJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(body), `"query":"query { ping }"`) {
+		if !strings.Contains(string(body), `"project":"P1"`) {
 			t.Fatalf("unexpected request body: %s", body)
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
-			Body:       io.NopCloser(strings.NewReader(`{"data":{"ping":"pong"}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"rows":[],"rowCount":0}`)),
 			Header:     make(http.Header),
 		}, nil
 	})}
 
-	body, err := execute(client, "http://example.test/graphql", []byte(`{"query":"query { ping }","variables":{}}`))
+	body, err := execute(client, "http://example.test/api/v1/projects/P1/dataframes/run", []byte(`{"input":{"project":"P1"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != `{"data":{"ping":"pong"}}` {
+	if string(body) != `{"rows":[],"rowCount":0}` {
 		t.Fatalf("body = %s", body)
 	}
 }
@@ -138,7 +141,7 @@ func TestWithLimitRejectsMalformedInput(t *testing.T) {
 }
 
 func TestExecuteSendsExactOverriddenLimitBody(t *testing.T) {
-	const wantBody = `{"query":"query { ping }","variables":{"input":{"filters":[{"value":9007199254740993}],"threshold":1.5e3},"limit":1000}}`
+	const wantBody = `{"input":{"filters":[{"value":9007199254740993}],"threshold":1.5e3},"limit":1000}`
 
 	var sent string
 	client := &http.Client{Transport: roundTripper(func(request *http.Request) (*http.Response, error) {
@@ -150,7 +153,7 @@ func TestExecuteSendsExactOverriddenLimitBody(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
-			Body:       io.NopCloser(strings.NewReader(`{"data":{"ping":"pong"}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"rows":[],"rowCount":0}`)),
 			Header:     make(http.Header),
 		}, nil
 	})}
@@ -159,11 +162,7 @@ func TestExecuteSendsExactOverriddenLimitBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := encodeGraphQLRequest([]byte("query { ping }"), variables)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := execute(client, "http://example.test/graphql", payload); err != nil {
+	if _, err := execute(client, "http://example.test/api/v1/projects/P1/dataframes/run", variables); err != nil {
 		t.Fatal(err)
 	}
 	if sent != wantBody {
@@ -189,99 +188,10 @@ func TestWithLimitPreservesLargeNumbers(t *testing.T) {
 	}
 }
 
-func TestInspectDataframeResponse(t *testing.T) {
-	metrics := inspectDataframeResponse([]byte(`{"data":{"runFhirDataframe":{"rowCount":25,"rows":[{"id":"1"}]}}}`), time.Second)
-	if metrics.Rows != 25 {
-		t.Fatalf("rows = %d, want 25", metrics.Rows)
-	}
-	if metrics.Bytes == 0 || metrics.RowsPerSecond != 25 {
-		t.Fatalf("metrics = %+v", metrics)
-	}
-}
-
-func TestInspectDataframeResponseFallsBackToRowsLength(t *testing.T) {
-	metrics := inspectDataframeResponse([]byte(`{"data":{"runFhirDataframe":{"rows":[{"id":"1"},{"id":"2"}]}}}`), 2*time.Second)
-	if metrics.Rows != 2 || metrics.RowsPerSecond != 1 {
-		t.Fatalf("metrics = %+v", metrics)
-	}
-}
-
-func TestClassifyGraphQLEnvelopeAcceptsDataOnly(t *testing.T) {
-	if err := classifyGraphQLEnvelope([]byte(`{"data":{"runFhirDataframe":{"rowCount":2,"rows":[{"id":"1"},{"id":"2"}]}}}`)); err != nil {
-		t.Fatalf("want success for data-only response, got %v", err)
-	}
-	if err := classifyGraphQLEnvelope([]byte(`{"data":{"runFhirDataframe":{"rowCount":0,"rows":[]}},"errors":null}`)); err != nil {
-		t.Fatalf("want success for an empty-but-successful query, got %v", err)
-	}
-	if err := classifyGraphQLEnvelope([]byte(`{"data":{"runFhirDataframe":{"rowCount":1,"rows":[{}]}},"errors":[]}`)); err != nil {
-		t.Fatalf("want success for an empty errors array, got %v", err)
-	}
-}
-
-func TestClassifyGraphQLEnvelopeRejectsHTTPOkErrors(t *testing.T) {
-	err := classifyGraphQLEnvelope([]byte(`{"errors":[{"message":"Unknown type FhirDataframeInput","locations":[{"line":1,"column":10}]}]}`))
-	if err == nil {
-		t.Fatal("want error for HTTP-200 GraphQL errors with no data")
-	}
-	message := err.Error()
-	for _, want := range []string{"GraphQL operation reported errors", "Unknown type FhirDataframeInput", "line 1, column 10"} {
-		if !strings.Contains(message, want) {
-			t.Fatalf("error %q missing %q", message, want)
-		}
-	}
-}
-
-func TestClassifyGraphQLEnvelopeRejectsPartialSuccess(t *testing.T) {
-	err := classifyGraphQLEnvelope([]byte(`{"data":{"runFhirDataframe":{"rowCount":2,"rows":[{"id":"1"},{"id":"2"}]}},"errors":[{"message":"traversal failed","path":["runFhirDataframe","rows",1]}]}`))
-	if err == nil {
-		t.Fatal("want error when data and errors are both present")
-	}
-	message := err.Error()
-	for _, want := range []string{"incomplete", "traversal failed", "runFhirDataframe.rows.1"} {
-		if !strings.Contains(message, want) {
-			t.Fatalf("error %q missing %q", message, want)
-		}
-	}
-}
-
-func TestClassifyGraphQLEnvelopeRejectsMissingPayload(t *testing.T) {
-	for _, body := range []string{
-		`{"data":null}`,
-		`{"data":{"runFhirDataframe":null}}`,
-		`{"data":{"runFhirDataframe":false}}`,
-		`{"data":{"runFhirDataframe":42}}`,
-		`{"data":{"runFhirDataframe":[]}}`,
-		`{"data":{"runFhirDataframe":"not a dataframe"}}`,
-		`{"data":{"ping":"pong"}}`,
-		`{}`,
-		`{"errors":[{"message":"boom"}],"data":null}`,
-	} {
-		if err := classifyGraphQLEnvelope([]byte(body)); err == nil {
-			t.Fatalf("want error for body %s", body)
-		} else if !strings.Contains(err.Error(), "no dataframe payload") {
-			t.Fatalf("error for %s should name the missing payload: %v", body, err)
-		}
-	}
-}
-
-func TestClassifyGraphQLEnvelopeRejectsUnusableBody(t *testing.T) {
-	for _, body := range []string{
-		`<html>502 Bad Gateway</html>`,
-		`[]`,
-		`{"errors":"boom"}`,
-	} {
-		if err := classifyGraphQLEnvelope([]byte(body)); err == nil {
-			t.Fatalf("want error for body %s", body)
-		} else if !strings.Contains(err.Error(), "invalid GraphQL response") {
-			t.Fatalf("error for %s should name the malformed envelope: %v", body, err)
-		}
-	}
-}
-
-func TestRunSucceedsForDataOnlyResponse(t *testing.T) {
+func TestRunSucceedsForDataframeResponse(t *testing.T) {
 	paths := writeRequestFiles(t)
 	var stdout, stderr bytes.Buffer
-	err := run(append(paths, "-print-response=true"), clientForResponses(http.StatusOK, `{"data":{"runFhirDataframe":{"rowCount":2,"rows":[{"id":"1"},{"id":"2"}]}}}`), &stdout, &stderr)
+	err := run(append(paths, "-print-response=true"), clientForResponses(http.StatusOK, `{"rowCount":2,"rows":[{"id":"1"},{"id":"2"}]}`), &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("err = %v (stderr=%s)", err, stderr.String())
 	}
@@ -292,11 +202,11 @@ func TestRunSucceedsForDataOnlyResponse(t *testing.T) {
 }
 
 func TestRunRejectsNonObjectPayloadWithoutPrintingSuccess(t *testing.T) {
-	for _, payload := range []string{"false", "42", "[]", `"not a dataframe"`} {
+	for _, payload := range []string{"false", "42", "[]", `"not a dataframe"`, `{"error":{"message":"cursor expired"}}`} {
 		t.Run(payload, func(t *testing.T) {
 			paths := writeRequestFiles(t)
 			var stdout, stderr bytes.Buffer
-			body := `{"data":{"runFhirDataframe":` + payload + `}}`
+			body := payload
 			err := run(paths, clientForResponses(http.StatusOK, body), &stdout, &stderr)
 			if err == nil {
 				t.Fatal("expected an unusable dataframe response to fail")
@@ -308,49 +218,14 @@ func TestRunRejectsNonObjectPayloadWithoutPrintingSuccess(t *testing.T) {
 	}
 }
 
-func TestRunFailsForHTTPOkGraphQLErrorsWithoutPrintingResponse(t *testing.T) {
-	paths := writeRequestFiles(t)
-	var stdout, stderr bytes.Buffer
-	err := run(append(paths, "-print-response=false"), clientForResponses(http.StatusOK, `{"errors":[{"message":"project not found","path":["runFhirDataframe"]}]}`), &stdout, &stderr)
-	if err == nil {
-		t.Fatal("want nonzero result for HTTP-200 GraphQL errors")
-	}
-	if !strings.Contains(err.Error(), "project not found") || !strings.Contains(err.Error(), "runFhirDataframe") {
-		t.Fatalf("error missing diagnostics: %v", err)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout should be empty when the request failed:\n%s", stdout.String())
-	}
-	// The payload is preserved for diagnosis even though printing is disabled.
-	if !strings.Contains(stderr.String(), "project not found") {
-		t.Fatalf("stderr missing preserved payload:\n%s", stderr.String())
-	}
-}
-
-func TestRunMarksPartialSuccessIncomplete(t *testing.T) {
-	paths := writeRequestFiles(t)
-	var stdout, stderr bytes.Buffer
-	err := run(paths, clientForResponses(http.StatusOK, `{"data":{"runFhirDataframe":{"rowCount":3,"rows":[{"id":"1"}]}},"errors":[{"message":"row 2 dropped"}]}`), &stdout, &stderr)
-	if err == nil {
-		t.Fatal("want nonzero result for data plus errors")
-	}
-	combined := err.Error() + stderr.String() + stdout.String()
-	if !strings.Contains(combined, "incomplete") {
-		t.Fatalf("output does not mark the result incomplete:\n%s", combined)
-	}
-	if strings.Contains(stdout.String(), "rows=3") {
-		t.Fatalf("stdout presents partial data as a complete result:\n%s", stdout.String())
-	}
-}
-
 func TestRunStopsAtFailingRequestIndex(t *testing.T) {
 	paths := writeRequestFiles(t)
 	requests := 0
 	client := &http.Client{Transport: roundTripper(func(*http.Request) (*http.Response, error) {
 		requests++
-		body := `{"data":{"runFhirDataframe":{"rowCount":1,"rows":[{"id":"1"}]}}}`
+		body := `{"rowCount":1,"rows":[{"id":"1"}]}`
 		if requests == 3 {
-			body = `{"errors":[{"message":"cursor expired"}]}`
+			body = `{"error":{"code":"STALE_CURSOR","message":"cursor expired"}}`
 		}
 		return httpResponse(http.StatusOK, body), nil
 	})}
@@ -385,7 +260,7 @@ func TestRunKeepsTimeoutBehavior(t *testing.T) {
 	paths := writeRequestFiles(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
-		fmt.Fprint(w, `{"data":{"runFhirDataframe":{"rowCount":1,"rows":[{}]}}}`)
+		fmt.Fprint(w, `{"rowCount":1,"rows":[{}]}`)
 	}))
 	defer server.Close()
 
@@ -403,15 +278,11 @@ func TestRunKeepsTimeoutBehavior(t *testing.T) {
 func writeRequestFiles(t *testing.T) []string {
 	t.Helper()
 	dir := t.TempDir()
-	queryPath := filepath.Join(dir, "query.graphql")
-	variablesPath := filepath.Join(dir, "variables.json")
-	if err := os.WriteFile(queryPath, []byte("query { runFhirDataframe { rowCount rows } }"), 0o600); err != nil {
+	requestPath := filepath.Join(dir, "request.json")
+	if err := os.WriteFile(requestPath, []byte(`{"limit":1,"input":{"project":"META"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(variablesPath, []byte(`{"limit":1,"input":{"project":"META"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return []string{"-query", queryPath, "-variables", variablesPath}
+	return []string{"-request", requestPath}
 }
 
 func clientForResponses(statusCode int, body string) func(time.Duration) *http.Client {

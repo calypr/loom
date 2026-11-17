@@ -95,13 +95,12 @@ func TestGeneratedErrorMappersPreserveInputWireBodies(t *testing.T) {
 		}
 		testWire(t, 409, body, mapped.VisitCreateExplorerResponse)
 	})
-	t.Run("GraphQL RawJSON", func(t *testing.T) {
-		body := loomapi.RawJSON{"data": nil, "errors": []interface{}{map[string]interface{}{"message": "query failed", "extensions": map[string]interface{}{"code": "GRAPHQL_VALIDATION_FAILED"}}}}
-		mapped, err := loomapi.NewExecuteGraphQLErrorResponse(400, body)
+	t.Run("dataframe rows 409 service body", func(t *testing.T) {
+		mapped, err := loomapi.NewPostDataframeRowsErrorResponse(409, service)
 		if err != nil {
 			t.Fatal(err)
 		}
-		testWire(t, 400, body, mapped.VisitExecuteGraphQLResponse)
+		testWire(t, 409, service, mapped.VisitPostDataframeRowsResponse)
 	})
 	t.Run("recipe execution 503 service body", func(t *testing.T) {
 		mapped, err := loomapi.NewGetRecipeExecutionErrorResponse(503, service)

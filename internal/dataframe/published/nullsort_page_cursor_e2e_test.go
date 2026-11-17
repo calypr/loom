@@ -23,7 +23,7 @@ package published
 // the source gate below retires this artifact loudly if page.go drifts.
 //
 // User-visible path quoted by the source gate below:
-//   - internal/api/graphql/graph/dataframe/rows.go forwards the CLIENT-chosen
+//   - internal/api/dataframe/dataframe/rows.go forwards the CLIENT-chosen
 //     sort column verbatim: `Sort: convertSort(input)` into
 //     `s.reader.Page(ctx, value, dfmaterialization.PageRequest{...})`.
 //   - internal/dataframe/published/page.go builds that cursor and its
@@ -102,8 +102,8 @@ func TestFB24NullSortPageEnumerationIsComplete(t *testing.T) {
 			"(`%s` IS NULL OR `%s` %s ? OR (`%s` = ? AND `__loom_row_id` > ?))",
 			"`%s` %s NULLS LAST, `__loom_row_id` ASC",
 		},
-		"errors.go": {`dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")`},
-		"../../api/graphql/graph/dataframe/rows.go": {"Sort: convertSort(input)"},
+		"errors.go":                                 {`dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")`},
+		"../../api/dataframe/dataframe/rows.go":     {"Sort: convertSort(input)"},
 		"../publication/clickhouse/bundle_store.go": {`columnType = "Nullable(" + columnType + ")"`},
 	} {
 		body, err := readFileForGate(path)

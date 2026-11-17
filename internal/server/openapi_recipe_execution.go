@@ -9,8 +9,7 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/api/columncapabilities"
-	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
-	executionresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -22,10 +21,10 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (publicatio
 	if r.releases == nil {
 		return publication.BundleExecution{}, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
 	}
-	resolveScope := executionresolver.RecipeExecutionScopeResolver(func(ctx context.Context, scopes *authscope.ScopeResolver, principal *authscope.Principal, project, generation string, declared []string) (authscope.ReadScope, error) {
+	resolveScope := dataframeapi.RecipeExecutionScopeResolver(func(ctx context.Context, scopes *authscope.ScopeResolver, principal *authscope.Principal, project, generation string, declared []string) (authscope.ReadScope, error) {
 		return recipeExecutionReadScope(ctx, scopes, principal, project, generation, declared)
 	})
-	reader := executionresolver.NewAuthorizedRecipeExecutionRecordReader(r.releases, r.scopes, resolveScope, true)
+	reader := dataframeapi.NewAuthorizedRecipeExecutionRecordReader(r.releases, r.scopes, resolveScope, true)
 	return reader(ctx, strings.TrimSpace(id))
 }
 
@@ -53,7 +52,7 @@ func recipeExecutionResponse(execution publication.BundleExecution) loomapi.Reci
 			RowCount: output.RowCount,
 			Columns:  columns,
 		}
-		mirroredError := executionresolver.RecipeExecutionOutputMessage(execution.Error, output.State)
+		mirroredError := dataframeapi.RecipeExecutionOutputMessage(execution.Error, output.State)
 		item.Error, item.ErrorCode, item.ErrorRetryable = dataframeapi.PersistedFailure(mirroredError, output.FailureCode, output.FailureRetryable)
 		if output.FailurePhase != "" {
 			item.Phase = &output.FailurePhase
@@ -89,7 +88,7 @@ var recipeExecutionReadScope = func(ctx context.Context, scopes *authscope.Scope
 }
 
 func recipeExecutionErrorResponse(ctx context.Context, err error) (loomapi.GetRecipeExecutionResponseObject, error) {
-	var failure *executionresolver.RecipeExecutionReadFailure
+	var failure *dataframeapi.RecipeExecutionReadFailure
 	if errors.As(err, &failure) {
 		if failure.Authorization {
 			return recipeExecutionAuthorizationResponse(ctx, failure.Err)

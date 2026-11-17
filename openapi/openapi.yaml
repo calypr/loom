@@ -5,6 +5,93 @@ info:
 servers:
   - url: /
 paths:
+  /api/v1/projects/{project}/dataframes/rows:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: postDataframeRows
+      summary: Page through the selected published dataframe.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DataframeRowsInput'}
+      responses:
+        '200':
+          description: Successful dataframe query.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DataframeRowConnection'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '429': {$ref: '#/components/responses/ServiceTooManyRequests'}
+        '499': {$ref: '#/components/responses/ServiceClientClosedRequest'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+        '504': {$ref: '#/components/responses/ServiceGatewayTimeout'}
+  /api/v1/projects/{project}/dataframes/aggregations:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: postDataframeAggregations
+      summary: Evaluate named aggregations against the selected published dataframe.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DataframeAggregationsInput'}
+      responses:
+        '200':
+          description: Successful dataframe query.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DataframeAggregationsResult'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '429': {$ref: '#/components/responses/ServiceTooManyRequests'}
+        '499': {$ref: '#/components/responses/ServiceClientClosedRequest'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+        '504': {$ref: '#/components/responses/ServiceGatewayTimeout'}
+  /api/v1/projects/{project}/dataframes/run:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: postFhirDataframe
+      summary: Compile and run an authorized FHIR dataframe query.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FhirDataframeRequest'}
+      responses:
+        '200':
+          description: Successful dataframe query.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FhirDataframeResult'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '429': {$ref: '#/components/responses/ServiceTooManyRequests'}
+        '499': {$ref: '#/components/responses/ServiceClientClosedRequest'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+        '504': {$ref: '#/components/responses/ServiceGatewayTimeout'}
   /api/v1/projects/{project}/interpretation-libraries:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1377,163 +1464,6 @@ paths:
         '403': {$ref: '#/components/responses/LegacyForbidden'}
         '404': {$ref: '#/components/responses/LegacyNotFound'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
-  /graphql/graph:
-    get:
-      operationId: getGraphQLPlayground
-      summary: Render the GraphQL playground.
-      responses:
-        '200': {$ref: '#/components/responses/HTML'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
-    post:
-      operationId: executeGraphQL
-      summary: Execute a graph or FHIR GraphQL operation.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RawJSON'}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400':
-          description: The GraphQL HTTP request envelope or transport parameters are malformed.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '409':
-          description: The GraphQL operation used stale cursor, revision, or publication identity.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '422':
-          description: The GraphQL document could not be parsed or validated for execution.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '403':
-          description: The operation resolved to a typed authorization denial (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '404':
-          description: The operation resolved to a typed not-found class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '413':
-          description: The operation resolved to a typed size-limit class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '429':
-          description: The operation resolved to a typed plan-cost limit class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '499':
-          description: The operation resolved to a typed client-cancellation class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '504':
-          description: The operation resolved to a typed preview/execution timeout class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '500':
-          description: GraphQL execution failed before a normal GraphQL response could be produced.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '503':
-          description: The GraphQL backend or authorization service is unavailable.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-  /graphql/dataframe:
-    post:
-      operationId: executeDataframeGraphQL
-      summary: Execute a dataframe GraphQL operation.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/RawJSON'}
-      responses:
-        '200':
-          description: Successful response.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '400':
-          description: The GraphQL HTTP request envelope or transport parameters are malformed.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '409':
-          description: The GraphQL operation used stale cursor, revision, or publication identity.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '422':
-          description: The GraphQL document could not be parsed or validated for execution.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '403':
-          description: The operation resolved to a typed authorization denial (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '404':
-          description: The operation resolved to a typed not-found class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '413':
-          description: The operation resolved to a typed size-limit class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '429':
-          description: The operation resolved to a typed plan-cost limit class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '499':
-          description: The operation resolved to a typed client-cancellation class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '504':
-          description: The operation resolved to a typed preview/execution timeout class (see the errors extension code in the GraphQL envelope).
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '500':
-          description: GraphQL execution failed before a normal GraphQL response could be produced.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-        '503':
-          description: The GraphQL backend or authorization service is unavailable.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/RawJSON'}
-  /apollo:
-    get:
-      operationId: getApolloSandbox
-      summary: Render the Apollo GraphQL sandbox.
-      responses:
-        '200': {$ref: '#/components/responses/HTML'}
-        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
-        '404': {$ref: '#/components/responses/ServiceNotFound'}
   /api/v1/projects/{project}/explorers:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1835,6 +1765,21 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
+    ServiceTooManyRequests:
+      description: The query plan exceeds the request cost limits.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
+    ServiceClientClosedRequest:
+      description: The client canceled the query.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
+    ServiceGatewayTimeout:
+      description: The query exceeded its server-side deadline.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
     ServiceBadRequest:
       description: A required path, query, multipart, JSON, or NDJSON value is missing or invalid.
       content:
@@ -1906,6 +1851,478 @@ components:
         text/html:
           schema: {type: string}
   schemas:
+    DataframeMaterializationState:
+      type: string
+      enum: [PENDING, LOADING, READY, FAILED]
+      x-go-type: dataframe.DataframeMaterializationState
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeColumn:
+      type: object
+      required: [semanticPath, name, clickhouseType, logicalType, nullable, repeated, filterable, sortable, aggregatable]
+      properties:
+        semanticPath: {type: string}
+        name: {type: string}
+        clickhouseType: {type: string}
+        logicalType: {type: string}
+        nullable: {type: boolean}
+        repeated: {type: boolean}
+        filterable: {type: boolean}
+        sortable: {type: boolean}
+        aggregatable: {type: boolean}
+      x-go-type: dataframe.DataframeColumn
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeSelector:
+      type: object
+      required: [recipe, translationVersion, output]
+      properties:
+        recipe: {type: string}
+        translationVersion: {type: string}
+        output: {type: string}
+      x-go-type: dataframe.DataframeSelector
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeMaterialization:
+      type: object
+      required: [id, name, revision, projectId, datasetGeneration, state, columns, rowCount, createdAt, readyAt, error, errorCode, errorRetryable, selector]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        revision: {type: string}
+        projectId: {type: string}
+        datasetGeneration: {type: string}
+        state: {$ref: '#/components/schemas/DataframeMaterializationState'}
+        columns: {type: array, items: {$ref: '#/components/schemas/DataframeColumn'}}
+        rowCount: {type: integer, nullable: true}
+        createdAt: {type: string}
+        readyAt: {type: string, nullable: true}
+        error: {type: string, nullable: true}
+        errorCode: {type: string, nullable: true}
+        errorRetryable: {type: boolean, nullable: true}
+        selector: {$ref: '#/components/schemas/DataframeSelector', nullable: true}
+      x-go-type: dataframe.DataframeMaterialization
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframePageInfo:
+      type: object
+      required: [hasNextPage, endCursor]
+      properties:
+        hasNextPage: {type: boolean}
+        endCursor: {type: string, nullable: true}
+      x-go-type: dataframe.DataframePageInfo
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeRowConnection:
+      type: object
+      required: [materialization, columns, rows, rowIds, totalCount, pageInfo]
+      properties:
+        materialization: {$ref: '#/components/schemas/DataframeMaterialization'}
+        columns: {type: array, items: {type: string}}
+        rows: {type: array, items: {type: object, additionalProperties: true}, x-go-type: json.RawMessage}
+        rowIds: {type: array, items: {type: string}}
+        totalCount: {type: integer, nullable: true}
+        pageInfo: {$ref: '#/components/schemas/DataframePageInfo'}
+      x-go-type: dataframe.DataframeRowConnection
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeSelectorInput:
+      type: object
+      required: [recipe, translationVersion, output]
+      properties:
+        recipe: {type: string}
+        translationVersion: {type: string}
+        output: {type: string}
+      x-go-type: dataframe.DataframeSelectorInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeFilterInput:
+      type: object
+      required: [column, op, value]
+      properties:
+        column: {type: string}
+        op: {type: string}
+        value: {x-go-type: json.RawMessage}
+      x-go-type: dataframe.DataframeFilterInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeSortInput:
+      type: object
+      required: [column]
+      properties:
+        column: {type: string}
+        desc: {type: boolean, default: false}
+      x-go-type: dataframe.DataframeSortInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeRowsInput:
+      type: object
+      required: [selector]
+      properties:
+        projectId: {type: string}
+        selector: {$ref: '#/components/schemas/DataframeSelectorInput'}
+        columns: {type: array, items: {type: string}}
+        filters: {type: array, items: {$ref: '#/components/schemas/DataframeFilterInput'}}
+        sort: {$ref: '#/components/schemas/DataframeSortInput'}
+        first: {type: integer, default: 100}
+        after: {type: string}
+      x-go-type: dataframe.DataframeRowsInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeAggregationsResult:
+      type: object
+      required: [materialization, aggregations]
+      properties:
+        materialization: {$ref: '#/components/schemas/DataframeMaterialization'}
+        aggregations:
+          type: array
+          items:
+            type: object
+            required: [name, kind, columns, rows]
+            properties:
+              name: {type: string}
+              kind: {type: string}
+              columns: {type: array, items: {type: string}}
+              rows: {type: array, items: {type: object, additionalProperties: true}}
+              missingCount: {type: integer, nullable: true}
+              truncated: {type: boolean}
+          x-go-type: json.RawMessage
+      x-go-type: dataframe.DataframeAggregationsResult
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeAggregationSpecInput:
+      type: object
+      required: [name, kind, column]
+      properties:
+        name: {type: string}
+        kind: {type: string}
+        column: {type: string}
+        size: {type: integer}
+        interval: {type: number, format: double}
+        dateInterval: {type: integer}
+        excludeSelfFilter: {type: boolean, default: false}
+      x-go-type: dataframe.DataframeAggregationSpecInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeAggregationsInput:
+      type: object
+      required: [selector, specs]
+      properties:
+        projectId: {type: string}
+        selector: {$ref: '#/components/schemas/DataframeSelectorInput'}
+        filters: {type: array, items: {$ref: '#/components/schemas/DataframeFilterInput'}}
+        specs: {type: array, items: {$ref: '#/components/schemas/DataframeAggregationSpecInput'}}
+      x-go-type: dataframe.DataframeAggregationsInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeOptimizationDecision:
+      type: object
+      required: [rule, enabled, candidateSets, estimatedBaselineWork, estimatedOptimizedWork, estimatedSavings, reason]
+      properties:
+        rule: {type: string}
+        enabled: {type: boolean}
+        candidateSets: {type: integer}
+        estimatedBaselineWork: {type: integer}
+        estimatedOptimizedWork: {type: integer}
+        estimatedSavings: {type: integer}
+        reason: {type: string}
+      x-go-type: dataframe.DataframeOptimizationDecision
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeOptimizationPolicy:
+      type: object
+      required: [name, enabled, minimumSavings, decisions]
+      properties:
+        name: {type: string}
+        enabled: {type: boolean}
+        minimumSavings: {type: integer}
+        decisions: {type: array, items: {$ref: '#/components/schemas/DataframeOptimizationDecision'}}
+      x-go-type: dataframe.DataframeOptimizationPolicy
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeRichSourceReuse:
+      type: object
+      required: [sourceSet, aggregateConsumers, pivotConsumers, sliceConsumers, totalConsumers]
+      properties:
+        sourceSet: {type: string}
+        aggregateConsumers: {type: integer}
+        pivotConsumers: {type: integer}
+        sliceConsumers: {type: integer}
+        totalConsumers: {type: integer}
+      x-go-type: dataframe.DataframeRichSourceReuse
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeCompilerPlanDiagnostics:
+      type: object
+      required: [traversalSets, sharedTraversalCount, requiredMatchReuseCount, scopedSharingCandidateGroups, scopedSharingCandidateSets, potentialSharingOpportunityGroups, potentialSharingOpportunitySets, optimizationPolicy, richSourceReuse]
+      properties:
+        traversalSets: {type: integer}
+        sharedTraversalCount: {type: integer}
+        requiredMatchReuseCount: {type: integer}
+        scopedSharingCandidateGroups: {type: integer}
+        scopedSharingCandidateSets: {type: integer}
+        potentialSharingOpportunityGroups: {type: integer}
+        potentialSharingOpportunitySets: {type: integer}
+        optimizationPolicy: {$ref: '#/components/schemas/DataframeOptimizationPolicy'}
+        richSourceReuse: {type: array, items: {$ref: '#/components/schemas/DataframeRichSourceReuse'}}
+      x-go-type: dataframe.DataframeCompilerPlanDiagnostics
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    DataframeQueryDiagnostics:
+      type: object
+      required: [inputResolutionMs, requestPreparationMs, compilationMs, arangoQueryMs, rowMaterializationMs, resultAssemblyMs, totalMs, plan]
+      properties:
+        inputResolutionMs: {type: number, format: double}
+        requestPreparationMs: {type: number, format: double}
+        compilationMs: {type: number, format: double}
+        arangoQueryMs: {type: number, format: double}
+        rowMaterializationMs: {type: number, format: double}
+        resultAssemblyMs: {type: number, format: double}
+        totalMs: {type: number, format: double}
+        plan: {$ref: '#/components/schemas/DataframeCompilerPlanDiagnostics'}
+      x-go-type: dataframe.DataframeQueryDiagnostics
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirDataframeResult:
+      type: object
+      required: [columns, rows, rowCount, diagnostics]
+      properties:
+        columns: {type: array, items: {type: string}}
+        rows: {type: array, items: {type: object, additionalProperties: true}, x-go-type: json.RawMessage}
+        rowCount: {type: integer}
+        diagnostics: {$ref: '#/components/schemas/DataframeQueryDiagnostics'}
+      x-go-type: dataframe.FhirDataframeResult
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFieldPredicateOperation:
+      type: string
+      enum: [CONTAINS]
+      x-go-type: dataframe.FhirFieldPredicateOperation
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFieldPredicateInput:
+      type: object
+      required: [path, value]
+      properties:
+        path: {type: string}
+        op: {$ref: '#/components/schemas/FhirFieldPredicateOperation'}
+        value: {type: string}
+      x-go-type: dataframe.FhirFieldPredicateInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFieldSelectorInput:
+      type: object
+      required: [valuePath]
+      properties:
+        sourcePath: {type: string}
+        where: {$ref: '#/components/schemas/FhirFieldPredicateInput'}
+        valuePath: {type: string}
+      x-go-type: dataframe.FhirFieldSelectorInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirValueMode:
+      type: string
+      enum: [AUTO, FIRST, ALL, DISTINCT]
+      x-go-type: dataframe.FhirValueMode
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFieldSelectInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        fieldRef: {type: string}
+        selector: {$ref: '#/components/schemas/FhirFieldSelectorInput'}
+        selectionHint: {type: string}
+        fallbackFieldRefs: {type: array, items: {type: string}, default: []}
+        fallbackSelectors: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectorInput'}, default: []}
+        valueMode: {$ref: '#/components/schemas/FhirValueMode'}
+      x-go-type: dataframe.FhirFieldSelectInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterOperator:
+      type: string
+      enum: [EQUALS, NOT_EQUALS, IN, EXISTS, MISSING, CONTAINS_TEXT, GT, GTE, LT, LTE]
+      x-go-type: dataframe.FhirFilterOperator
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterQuantifier:
+      type: string
+      enum: [ANY, ALL, NONE]
+      x-go-type: dataframe.FhirFilterQuantifier
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterValueKind:
+      type: string
+      enum: [STRING, CODE, BOOLEAN, INTEGER, DECIMAL, DATE, DATE_TIME]
+      x-go-type: dataframe.FhirFilterValueKind
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirCodeValueInput:
+      type: object
+      required: [code]
+      properties:
+        system: {type: string}
+        code: {type: string}
+        display: {type: string}
+      x-go-type: dataframe.FhirCodeValueInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterValueInput:
+      type: object
+      required: [kind]
+      properties:
+        kind: {$ref: '#/components/schemas/FhirFilterValueKind'}
+        string: {type: string}
+        code: {$ref: '#/components/schemas/FhirCodeValueInput'}
+        boolean: {type: boolean}
+        integer: {type: integer}
+        decimal: {type: number, format: double}
+        date: {type: string}
+        dateTime: {type: string}
+      x-go-type: dataframe.FhirFilterValueInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirFilterInput:
+      type: object
+      required: [select, operator]
+      properties:
+        select: {type: string}
+        fieldRef: {type: string}
+        operator: {$ref: '#/components/schemas/FhirFilterOperator'}
+        quantifier: {$ref: '#/components/schemas/FhirFilterQuantifier'}
+        values: {type: array, items: {$ref: '#/components/schemas/FhirFilterValueInput'}, default: []}
+      x-go-type: dataframe.FhirFilterInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirPivotDiscoveryInput:
+      type: object
+      required: [maxColumns]
+      properties:
+        family: {type: string}
+        path: {type: string}
+        maxColumns: {type: integer}
+      x-go-type: dataframe.FhirPivotDiscoveryInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirPivotInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        fieldRef: {type: string}
+        columnSelector: {$ref: '#/components/schemas/FhirFieldSelectorInput'}
+        valueSelector: {$ref: '#/components/schemas/FhirFieldSelectorInput'}
+        columns: {type: array, items: {type: string}, default: []}
+        discovery: {$ref: '#/components/schemas/FhirPivotDiscoveryInput'}
+      x-go-type: dataframe.FhirPivotInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirAggregateOperation:
+      type: string
+      enum: [COUNT, COUNT_DISTINCT, EXISTS, DISTINCT_VALUES]
+      x-go-type: dataframe.FhirAggregateOperation
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirAggregateInput:
+      type: object
+      required: [name, operation]
+      properties:
+        name: {type: string}
+        operation: {$ref: '#/components/schemas/FhirAggregateOperation'}
+        fieldRef: {type: string}
+        fhirPath: {type: string}
+        predicateFieldRef: {type: string}
+        predicatePath: {type: string}
+        predicateEquals: {type: string}
+        valueMode: {$ref: '#/components/schemas/FhirValueMode'}
+      x-go-type: dataframe.FhirAggregateInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirRepresentativeSliceInput:
+      type: object
+      required: [name, limit]
+      properties:
+        name: {type: string}
+        limit: {type: integer}
+        whereFieldRef: {type: string}
+        wherePath: {type: string}
+        whereEquals: {type: string}
+        fields: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectInput'}, default: []}
+      x-go-type: dataframe.FhirRepresentativeSliceInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirColumnNaming:
+      type: string
+      enum: [PATH, PATH_SUFFIX]
+      x-go-type: dataframe.FhirColumnNaming
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirCatalogProjectionInput:
+      type: object
+      required: [name, maxColumns]
+      properties:
+        name: {type: string}
+        includePaths: {type: array, items: {type: string}, default: []}
+        excludePaths: {type: array, items: {type: string}, default: []}
+        kinds: {type: array, items: {type: string}, default: []}
+        naming: {$ref: '#/components/schemas/FhirColumnNaming'}
+        valueMode: {$ref: '#/components/schemas/FhirValueMode'}
+        maxColumns: {type: integer}
+      x-go-type: dataframe.FhirCatalogProjectionInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirTraversalMatchMode:
+      type: string
+      enum: [OPTIONAL, REQUIRED]
+      x-go-type: dataframe.FhirTraversalMatchMode
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirTraversalStepInput:
+      type: object
+      required: [edgeLabel, toResourceType, alias]
+      properties:
+        edgeLabel: {type: string}
+        toResourceType: {type: string}
+        alias: {type: string}
+        matchMode: {$ref: '#/components/schemas/FhirTraversalMatchMode'}
+        fields: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectInput'}, default: []}
+        filters: {type: array, items: {$ref: '#/components/schemas/FhirFilterInput'}, default: []}
+        pivots: {type: array, items: {$ref: '#/components/schemas/FhirPivotInput'}, default: []}
+        aggregates: {type: array, items: {$ref: '#/components/schemas/FhirAggregateInput'}, default: []}
+        slices: {type: array, items: {$ref: '#/components/schemas/FhirRepresentativeSliceInput'}, default: []}
+        catalogProjections: {type: array, items: {$ref: '#/components/schemas/FhirCatalogProjectionInput'}, default: []}
+        traverse: {type: array, items: {$ref: '#/components/schemas/FhirTraversalStepInput'}, default: []}
+      x-go-type: dataframe.FhirTraversalStepInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirDataframeInput:
+      type: object
+      required: [rootResourceType]
+      properties:
+        project: {type: string}
+        authResourcePath: {type: string}
+        authResourcePaths: {type: array, items: {type: string}}
+        rootResourceType: {type: string}
+        rowGrain: {type: string}
+        rootFields: {type: array, items: {$ref: '#/components/schemas/FhirFieldSelectInput'}}
+        rootFilters: {type: array, items: {$ref: '#/components/schemas/FhirFilterInput'}}
+        rootPivots: {type: array, items: {$ref: '#/components/schemas/FhirPivotInput'}}
+        rootAggregates: {type: array, items: {$ref: '#/components/schemas/FhirAggregateInput'}}
+        rootSlices: {type: array, items: {$ref: '#/components/schemas/FhirRepresentativeSliceInput'}}
+        rootCatalogProjections: {type: array, items: {$ref: '#/components/schemas/FhirCatalogProjectionInput'}}
+        traverse: {type: array, items: {$ref: '#/components/schemas/FhirTraversalStepInput'}}
+        limit: {type: integer}
+        cursor: {type: string}
+      x-go-type: dataframe.FhirDataframeInput
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/api/dataframe
+    FhirDataframeRequest:
+      type: object
+      required: [input]
+      properties:
+        input: {$ref: '#/components/schemas/FhirDataframeInput'}
+        limit: {type: integer, default: 25}
     SourceManifestFile:
       type: object
       additionalProperties: false

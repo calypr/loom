@@ -46,25 +46,20 @@ const gate = () => {
 };
 function harness(options: { runtime?: ExplorerRuntimeV1; respond?: (index: number) => Promise<Artifact>; activeOutputId?: string; customActions?: Readonly<Record<string, LoomViewerActionHandler>>; customActionsFor?: (client: LoomClient) => Readonly<Record<string, LoomViewerActionHandler>> } = {}) {
   const requests: Array<{ url: string; method: string; body: Record<string, unknown> }> = [];
-  const graphql: Array<Record<string, unknown>> = [];
+  const dataframeRequests: Array<Record<string, unknown>> = [];
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.endsWith('/graphql/graph')) {
-      const payload = JSON.parse(String(init?.body)) as { variables: { input: { selector: { output: string }; filters?: Array<{ column: string; op: string; value: unknown }> } } };
-      const { input: queryInput } = payload.variables;
-      graphql.push({ ...queryInput });
+    if (url.endsWith('/dataframes/rows')) {
+      const queryInput: { selector: { output: string }; filters?: Array<{ column: string; op: string; value: unknown }> } = JSON.parse(String(init?.body));
+      dataframeRequests.push({ ...queryInput });
       const table = tableData[queryInput.selector.output];
       if (!table) throw new Error(`Unknown output ${queryInput.selector.output}`);
       const filtered = queryInput.filters?.some(filter => filter.column === 'gender' && filter.op === 'EQ' && filter.value === 'female');
       const rows = filtered ? table.rows.slice(0, 1) : [...table.rows];
       const rowIds = filtered ? table.rowIds.slice(0, 1) : [...table.rowIds];
       return new Response(JSON.stringify({
-        data: {
-          dataframeRows: {
-            columns: table.columns, rows, rowIds, totalCount: rows.length,
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
-        },
+        columns: table.columns, rows, rowIds, totalCount: rows.length,
+        pageInfo: { hasNextPage: false, endCursor: null },
       }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     if (!url.endsWith('/artifacts')) throw new Error(`Unexpected transport: ${url}`);
@@ -95,7 +90,7 @@ function harness(options: { runtime?: ExplorerRuntimeV1; respond?: (index: numbe
   const exportOutput = vi.spyOn(client, 'exportOutput');
   const customActions = options.customActionsFor?.(client) ?? options.customActions;
   const view = render(<LoomExplorerViewer project="org/project" explorerId="explorer-main" client={client} {...(options.activeOutputId ? { activeOutputId: options.activeOutputId } : {})} {...(customActions ? { customActions } : {})} />);
-  return { ...view, requests, graphql, query, prepare, client, exportOutput };
+  return { ...view, requests, dataframeRequests, query, prepare, client, exportOutput };
 }
 type CapturedDownload = { readonly fileName: string; readonly blob: Blob | undefined };
 const downloadsOn = () => {
@@ -466,13 +461,13 @@ describe('Viewer export action output targeting', () => {
   });
 
   it('shows an action error and makes no export request or download for an output that is not published', async () => {
-    const { exportOutput, graphql, requests, downloads, created } = actionHarness();
+    const { exportOutput, dataframeRequests, requests, downloads, created } = actionHarness();
     await screen.findByText('encounter-confirmed');
-    const graphqlBefore = graphql.length;
+    const dataframeRequestsBefore = dataframeRequests.length;
     fireEvent.click(screen.getByRole('button', { name: 'Export stale table' }));
     await unresolvedAlert(exportOutput, 'Export stale table', 'visits-42');
     expect(exportOutput).not.toHaveBeenCalled();
-    expect(graphql).toHaveLength(graphqlBefore);
+    expect(dataframeRequests).toHaveLength(dataframeRequestsBefore);
     expect(requests).toHaveLength(0);
     expect(created).not.toHaveBeenCalled();
     expect(downloads).toHaveLength(0);
@@ -481,13 +476,13 @@ describe('Viewer export action output targeting', () => {
   // runtimeActionSchema accepts any string, so '' is a published shape. It names no table, so
   // it must not be read as "no target" and quietly export whatever tab the reader is on.
   it('shows an action error and makes no export request for an empty-string output', async () => {
-    const { exportOutput, graphql, requests, downloads, created } = actionHarness();
+    const { exportOutput, dataframeRequests, requests, downloads, created } = actionHarness();
     await screen.findByText('encounter-confirmed');
-    const graphqlBefore = graphql.length;
+    const dataframeRequestsBefore = dataframeRequests.length;
     fireEvent.click(screen.getByRole('button', { name: 'Export empty target' }));
     await unresolvedAlert(exportOutput, 'Export empty target');
     expect(exportOutput).not.toHaveBeenCalled();
-    expect(graphql).toHaveLength(graphqlBefore);
+    expect(dataframeRequests).toHaveLength(dataframeRequestsBefore);
     expect(requests).toHaveLength(0);
     expect(created).not.toHaveBeenCalled();
     expect(downloads).toHaveLength(0);

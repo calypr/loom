@@ -3,16 +3,15 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
+	"strings"
 	"testing"
 
-	"github.com/calypr/loom/generated/graphql/graph/model"
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
-	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 // blankProjectRegistryFailures prove the engine-level project guard fires
@@ -87,10 +86,20 @@ func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 			_, err := control.Resolve(ctx, name, b)
 			return err
 		}},
+		{"validate", func(ctx context.Context, name string, b recipe.RuntimeBindings) error {
+			_, err := control.Validate(ctx, name, b)
+			return err
+		}},
+		{"explain", func(ctx context.Context, name string, b recipe.RuntimeBindings) error {
+			_, err := control.Explain(ctx, name, b)
+			return err
+		}},
 	} {
 		t.Run(leg.name, func(t *testing.T) {
-			err := leg.call(context.Background(), "patients", recipe.RuntimeBindings{Project: "  ", DatasetGeneration: "generation-a"})
-			assertTypedProjectRequired(t, err, "control."+leg.name)
+			for _, project := range []string{"", "  "} {
+				err := leg.call(context.Background(), "patients", recipe.RuntimeBindings{Project: project, DatasetGeneration: "generation-a"})
+				assertTypedProjectRequired(t, err, "control."+leg.name)
+			}
 		})
 	}
 	if registry.loads != 0 {
@@ -100,7 +109,8 @@ func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 
 // (b) Authorizer parity: whitespace-only == empty, both non-retryable typed.
 func TestRecipeAuthorizationTreatsWhitespaceProjectAsEmpty(t *testing.T) {
-	authorizer := recipeAuthorization{}
+	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ResourceAccess: fencedFaultClient{}})
+	authorizer := recipeAuthorization{resolver: resolver}
 	for name, authorize := range map[string]func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error){
 		"read":  authorizer.AuthorizeRead,
 		"write": authorizer.AuthorizeWrite,
@@ -117,189 +127,14 @@ func TestRecipeAuthorizationTreatsWhitespaceProjectAsEmpty(t *testing.T) {
 	}
 }
 
-type blankProjectFamilyControl struct{ calls int }
-
-func (c *blankProjectFamilyControl) Validate(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Validation, error) {
-	c.calls++
-	return dataframeexecution.Validation{}, errors.New("control validate consulted")
-}
-
-func (c *blankProjectFamilyControl) Explain(context.Context, string, recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {
-	c.calls++
-	return semantic.RecipePlanExplanation{}, errors.New("control explain consulted")
-}
-
-func (c *blankProjectFamilyControl) ExplainPhysical(context.Context, string, recipe.RuntimeBindings, bool) (dataframeexecution.PhysicalExplanation, error) {
-	c.calls++
-	return dataframeexecution.PhysicalExplanation{}, errors.New("control explain physical consulted")
-}
-
-func (c *blankProjectFamilyControl) rawFault() error {
-	c.calls++
-	return errors.New("arango: invalid collection name '  _fhir_document'")
-}
-
-func (c *blankProjectFamilyControl) Resolve(context.Context, string, recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
-	return semantic.ResolvedRecipePlan{}, c.rawFault()
-}
-
-func (c *blankProjectFamilyControl) Preview(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
-	return dataframeexecution.Preview{}, c.rawFault()
-}
-
-func (c *blankProjectFamilyControl) Run(context.Context, string, recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
-	return dataframeexecution.Preview{}, c.rawFault()
-}
-
-// (b) Family legs: run/preview/preflight must reject whitespace-only with the
-// same typed PROJECT_REQUIRED the family already publishes for empty, before
-// the control plane is consulted.
-func TestRecipeFamilyLegsRejectWhitespaceProjectBeforeControl(t *testing.T) {
-	legs := []struct {
-		name string
-		call func(graphresolver.Resolver, string) error
-	}{
-		{"runDataframeRecipe", func(r graphresolver.Resolver, project string) error {
-			_, err := r.Mutation().RunDataframeRecipe(context.Background(), model.RunDataframeRecipeInput{
-				Name:     "patients",
-				Bindings: &model.DataframeRecipeBindingsInput{Project: project},
-			})
-			return err
-		}},
-		{"previewDataframeRecipe", func(r graphresolver.Resolver, project string) error {
-			_, err := r.Mutation().PreviewDataframeRecipe(context.Background(), model.PreviewDataframeRecipeInput{
-				Name:     "patients",
-				Bindings: &model.DataframeRecipeBindingsInput{Project: project},
-			})
-			return err
-		}},
-		{"preflightDataframeRecipe", func(r graphresolver.Resolver, project string) error {
-			_, err := r.Query().PreflightDataframeRecipe(context.Background(), model.PreflightDataframeRecipeInput{
-				Name:     "patients",
-				Bindings: &model.DataframeRecipeBindingsInput{Project: project},
-			})
-			return err
-		}},
+func TestRecipeControlForeignFaultStaysInternal(t *testing.T) {
+	err := errors.New("arango: invalid collection name")
+	status, response := mapServiceError(err, context.Background())
+	if status != http.StatusInternalServerError || response.Error.Code != string(dataframeerrors.CodeInternalError) {
+		t.Fatalf("foreign control fault mapped to %d %s", status, response.Error.Code)
 	}
-	for _, leg := range legs {
-		t.Run(leg.name, func(t *testing.T) {
-			control := &blankProjectFamilyControl{}
-			resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-				RecipeControl:    control,
-				RecipeAuthorizer: recipeAuthorization{},
-			})
-			emptyErr := leg.call(*resolver, "")
-			emptyUser := assertTypedProjectRequired(t, emptyErr, leg.name+" empty")
-			blankErr := leg.call(*resolver, "  ")
-			blankUser := assertTypedProjectRequired(t, blankErr, leg.name+" whitespace")
-			if blankUser.Code() != emptyUser.Code() || blankUser.Retryable() != emptyUser.Retryable() ||
-				dataframeerrors.PublicMessage(blankErr) != dataframeerrors.PublicMessage(emptyErr) {
-				t.Fatalf("whitespace leg diverges from empty leg: %s/%v/%q vs %s/%v/%q",
-					blankUser.Code(), blankUser.Retryable(), dataframeerrors.PublicMessage(blankErr),
-					emptyUser.Code(), emptyUser.Retryable(), dataframeerrors.PublicMessage(emptyErr))
-			}
-			if control.calls != 0 {
-				t.Fatalf("family must classify whitespace project before control plane, got %d control calls", control.calls)
-			}
-		})
-	}
-}
-
-type blankProjectRevisionStore struct{ calls int }
-
-func (s *blankProjectRevisionStore) Register(context.Context, string, recipe.Bundle, string) (recipe.RecipeRevision, error) {
-	s.calls++
-	return recipe.RecipeRevision{}, errors.New("revision registry consulted for blank project")
-}
-
-func (s *blankProjectRevisionStore) Get(context.Context, string, string, string) (recipe.RecipeRevision, error) {
-	s.calls++
-	return recipe.RecipeRevision{}, recipe.ErrRecipeRevisionNotFound
-}
-
-func (s *blankProjectRevisionStore) List(context.Context, string, string) ([]recipe.RecipeRevision, error) {
-	s.calls++
-	return nil, nil
-}
-
-// (b2) Revision-side family legs: register/revision(s)/explain must classify
-// whitespace-only exactly like empty, at the authorizer, before the revision
-// registry or control plane is consulted.
-func TestRecipeRevisionFamilyLegsRejectWhitespaceProjectBeforeStore(t *testing.T) {
-	legs := []struct {
-		name string
-		call func(graphresolver.Resolver, string) error
-	}{
-		{"registerDataframeRecipeRevision", func(r graphresolver.Resolver, project string) error {
-			_, err := r.Mutation().RegisterDataframeRecipeRevision(context.Background(), model.RegisterDataframeRecipeRevisionInput{
-				ProjectID: project,
-				Recipe:    []byte(`{"recipeSchemaVersion":1,"name":"files","translationVersion":"1","fragments":{"fragments":{}},"outputs":[]}`),
-			})
-			return err
-		}},
-		{"dataframeRecipeRevisions", func(r graphresolver.Resolver, project string) error {
-			_, err := r.Query().DataframeRecipeRevisions(context.Background(), project, "patients")
-			return err
-		}},
-		{"dataframeRecipeRevision", func(r graphresolver.Resolver, project string) error {
-			_, err := r.Query().DataframeRecipeRevision(context.Background(), project, "patients", "sha256:deadbeef")
-			return err
-		}},
-		{"explainDataframeRecipe", func(r graphresolver.Resolver, project string) error {
-			_, err := r.Query().ExplainDataframeRecipe(context.Background(), model.ExplainDataframeRecipeInput{
-				Name:     "patients",
-				Bindings: &model.DataframeRecipeBindingsInput{Project: project},
-			})
-			return err
-		}},
-	}
-	for _, leg := range legs {
-		t.Run(leg.name, func(t *testing.T) {
-			store := &blankProjectRevisionStore{}
-			control := &blankProjectFamilyControl{}
-			resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-				RecipeControl:    control,
-				RecipeRevisions:  store,
-				RecipeAuthorizer: recipeAuthorization{},
-			})
-			emptyErr := leg.call(*resolver, "")
-			emptyUser := assertTypedProjectRequired(t, emptyErr, leg.name+" empty")
-			blankErr := leg.call(*resolver, "  ")
-			blankUser := assertTypedProjectRequired(t, blankErr, leg.name+" whitespace")
-			if blankUser.Code() != emptyUser.Code() || blankUser.Retryable() != emptyUser.Retryable() ||
-				dataframeerrors.PublicMessage(blankErr) != dataframeerrors.PublicMessage(emptyErr) {
-				t.Fatalf("whitespace leg diverges from empty leg: %s/%v/%q vs %s/%v/%q",
-					blankUser.Code(), blankUser.Retryable(), dataframeerrors.PublicMessage(blankErr),
-					emptyUser.Code(), emptyUser.Retryable(), dataframeerrors.PublicMessage(emptyErr))
-			}
-			if store.calls != 0 || control.calls != 0 {
-				t.Fatalf("family must classify whitespace project before store/control, got store=%d control=%d", store.calls, control.calls)
-			}
-		})
-	}
-}
-
-// (c) Foreign faults still surface untouched: genuinely unclassifiable
-// control errors keep falling through to INTERNAL_ERROR.
-func TestRecipeControlForeignFaultStillFallsThroughToInternal(t *testing.T) {
-	control := &blankProjectFamilyControl{}
-	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		RecipeControl:    control,
-		RecipeAuthorizer: recipeAuthorization{},
-	})
-	_, err := resolver.Mutation().RunDataframeRecipe(context.Background(), model.RunDataframeRecipeInput{
-		Name:     "patients",
-		Bindings: &model.DataframeRecipeBindingsInput{Project: "HTAN_INT/project-a"},
-	})
-	if err == nil {
-		t.Fatal("foreign control fault accepted")
-	}
-	normalized := dataframeerrors.Normalize(err)
-	if normalized == nil || normalized.Code() != string(dataframeerrors.CodeInternalError) {
-		t.Fatalf("foreign fault must fall through to INTERNAL_ERROR, got %#v (raw=%v)", normalized, err)
-	}
-	if _, ok := dataframeerrors.AsUserError(err); ok {
-		t.Fatal("foreign fault must not be classified at the resolver; presentation normalizes it")
+	if strings.Contains(response.Error.Message, err.Error()) {
+		t.Fatalf("foreign control fault exposed backend text: %q", response.Error.Message)
 	}
 }
 

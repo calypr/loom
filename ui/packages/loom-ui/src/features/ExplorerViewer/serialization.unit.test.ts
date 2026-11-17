@@ -204,17 +204,17 @@ describe('Explorer Viewer missing-value filter contract', () => {
     }
   });
 
-  it('sends the missing bucket over GraphQL as a non-null IS_NULL value', async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
-      data: {
-        dataframeRows: {
-          materialization: { id: 'mat-1', state: 'READY' },
-          columns: ['status'], rows: [], totalCount: 0,
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-        dataframeAggregations: { aggregations: [] },
-      },
-    }), { status: 200 }));
+  it('sends the missing bucket over REST as a non-null IS_NULL value', async () => {
+    const materialization = {
+      id: 'mat-1', revision: 'revision-1', projectId: 'NCPI_ACCEPTANCE', datasetGeneration: 'generation-1', state: 'READY',
+      selector: { recipe: 'cohort', translationVersion: 'v1', output: 'patients' },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        materialization, columns: ['status'], rows: [], totalCount: 0,
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ materialization, aggregations: [] }), { status: 200 }));
     const state = viewerReducer(createViewerReducerState(contractRuntime), {
       type: 'setFilter', outputId: 'patients', column: 'status', selection: missingSelection(),
     });
@@ -222,10 +222,9 @@ describe('Explorer Viewer missing-value filter contract', () => {
 
     await createLoomClient({ fetch }).queryOutput(request);
 
-    const payload = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as {
-      variables: { input: { filters: ReadonlyArray<LoomOutputFilter> }; facetInput?: { filters: ReadonlyArray<LoomOutputFilter> } };
-    };
-    for (const filters of [payload.variables.input.filters, payload.variables.facetInput?.filters ?? []]) {
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetch.mock.calls) {
+      const { filters }: { filters: ReadonlyArray<LoomOutputFilter> } = JSON.parse(String(init?.body));
       const status = filters.filter((filter) => filter.column === 'status');
       expect(status).toEqual([{ column: 'status', op: 'IS_NULL', value: {} }]);
       expect(status[0]?.value).not.toBeNull();

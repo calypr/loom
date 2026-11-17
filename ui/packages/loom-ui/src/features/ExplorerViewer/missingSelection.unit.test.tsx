@@ -53,23 +53,20 @@ const statusFacet = (literalTerm: boolean): Record<string, unknown> => ({
 
 const harness = (options: { readonly literalTerm?: boolean } = {}) => {
   const inputs: Array<Record<string, unknown>> = [];
-  const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-    const payload = JSON.parse(String(init?.body)) as {
-      variables: { input: Record<string, unknown> };
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const materialization = {
+      id: 'mat-1', revision: 'revision-1', projectId: 'NCPI_ACCEPTANCE', datasetGeneration: 'generation-1', state: 'READY',
+      selector: { recipe: 'cohort', translationVersion: 'v1', output: 'patients' },
     };
-    inputs.push(payload.variables.input);
+    if (String(input).endsWith('/aggregations')) {
+      return new Response(JSON.stringify({ materialization, aggregations: [statusFacet(options.literalTerm ?? false)] }), { status: 200 });
+    }
+    inputs.push(JSON.parse(String(init?.body)));
     return new Response(JSON.stringify({
-      data: {
-        dataframeRows: {
-          materialization: { id: 'mat-1', state: 'READY' },
-          columns: ['patient_id', 'status'],
-          rows: [{ patient_id: 'p-1', status: 'active' }],
-          totalCount: 12,
-          pageInfo: { hasNextPage: true, endCursor: 'cursor-1' },
-        },
-        dataframeAggregations: { aggregations: [statusFacet(options.literalTerm ?? false)] },
-      },
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
+      materialization, columns: ['patient_id', 'status'],
+      rows: [{ patient_id: 'p-1', status: 'active' }], totalCount: 12,
+      pageInfo: { hasNextPage: true, endCursor: 'cursor-1' },
+    }), { status: 200 });
   });
   const client = createLoomClient({ baseUrl: 'http://loom.test', fetch: fetcher as typeof fetch });
   vi.spyOn(client, 'getExplorer').mockResolvedValue(runtime);
@@ -80,7 +77,7 @@ const harness = (options: { readonly literalTerm?: boolean } = {}) => {
   render(<LoomExplorerViewer project="NCPI_ACCEPTANCE" explorerId="default" client={client} />);
   const statusFilters = (index: number): ReadonlyArray<CapturedFilter> =>
     ((inputs[index]?.filters ?? []) as ReadonlyArray<CapturedFilter>).filter((filter) => filter.column === 'status');
-  // Each distinct request identity loads exactly once, so a new GraphQL input means
+  // Each distinct request identity loads exactly once, so a new row request means
   // the new selection landed in the request the table is rendered from. The baseline
   // is the last verified request rather than the count at call time: an undebounced
   // selection can already have fired its request before this helper runs.

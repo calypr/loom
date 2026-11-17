@@ -20,7 +20,7 @@ import (
 )
 
 // This file is the REST twin of the GraphQL authorization control in
-// internal/api/graphql/graph/resolver/recipe_execution_reader_authz_e2e_test.go.
+// the retired transport tests.
 //
 // History. The characterization phase recorded the shipped defect: when
 // HTTPRoutes.scopes was nil the handler served foreign-project execution
@@ -77,7 +77,7 @@ const twinRowCount = int64(7373737)
 
 const (
 	twinHandlerFile = "openapi_recipe_execution.go"
-	twinReaderFile  = "../api/graphql/graph/resolver/recipe_execution_reader.go"
+	twinReaderFile  = "../api/dataframe/dataframe/recipe_execution.go"
 	twinRoutePrefix = "/api/v1/dataframe/recipe-executions/"
 )
 

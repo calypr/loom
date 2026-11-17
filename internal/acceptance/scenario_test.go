@@ -483,16 +483,6 @@ func TestPublicationOutputRequiresNamedQueryableOutput(t *testing.T) {
 	}
 }
 
-func TestPatientColumnPrefersStableIdentity(t *testing.T) {
-	materialization := map[string]any{"columns": []any{
-		map[string]any{"name": "project_id"},
-		map[string]any{"name": "patient_id"},
-	}}
-	if got := patientColumn(materialization); got != "patient_id" {
-		t.Fatalf("patient sort column = %q", got)
-	}
-}
-
 func TestCompareColumnsRejectsMissingOracleColumn(t *testing.T) {
 	columns := []dfpublication.PhysicalColumn{{Name: "patient_id"}}
 	if err := compareColumns(columns, []string{"patient_id"}); err != nil {
@@ -528,58 +518,51 @@ func TestVerifyRowProfilesExplainsCohortDrift(t *testing.T) {
 	}
 }
 
-func TestVerifyGraphQLRejectsMalformedRequiredFields(t *testing.T) {
-	cases := []struct {
-		name          string
-		mutateDataset func(map[string]any)
-		mutateRows    func(map[string]any)
+func TestVerifyPublishedDataframeRejectsMalformedRequiredFields(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any)
 	}{
-		{name: "dataset rowCount missing", mutateDataset: func(dataset map[string]any) { delete(dataset, "rowCount") }},
-		{name: "dataset rowCount wrong shape", mutateDataset: func(dataset map[string]any) { dataset["rowCount"] = map[string]any{} }},
-		{name: "dataframeRows missing", mutateRows: func(rows map[string]any) { delete(rows, "dataframeRows") }},
-		{name: "dataframeRows wrong shape", mutateRows: func(rows map[string]any) { rows["dataframeRows"] = "wrong" }},
-		{name: "totalCount missing", mutateRows: func(rows map[string]any) { delete(rows["dataframeRows"].(map[string]any), "totalCount") }},
-		{name: "totalCount wrong shape", mutateRows: func(rows map[string]any) { rows["dataframeRows"].(map[string]any)["totalCount"] = map[string]any{} }},
-		{name: "rows missing", mutateRows: func(rows map[string]any) { delete(rows["dataframeRows"].(map[string]any), "rows") }},
-		{name: "rows wrong shape", mutateRows: func(rows map[string]any) { rows["dataframeRows"].(map[string]any)["rows"] = map[string]any{} }},
-	}
-	for _, test := range cases {
+		{name: "valid"},
+		{name: "materialization missing", mutate: func(rows map[string]any) { delete(rows, "materialization") }},
+		{name: "materialization wrong shape", mutate: func(rows map[string]any) { rows["materialization"] = "wrong" }},
+		{name: "dataset rowCount missing", mutate: func(rows map[string]any) { delete(rows["materialization"].(map[string]any), "rowCount") }},
+		{name: "dataset rowCount wrong shape", mutate: func(rows map[string]any) { rows["materialization"].(map[string]any)["rowCount"] = map[string]any{} }},
+		{name: "totalCount missing", mutate: func(rows map[string]any) { delete(rows, "totalCount") }},
+		{name: "totalCount wrong shape", mutate: func(rows map[string]any) { rows["totalCount"] = map[string]any{} }},
+		{name: "rows missing", mutate: func(rows map[string]any) { delete(rows, "rows") }},
+		{name: "rows wrong shape", mutate: func(rows map[string]any) { rows["rows"] = map[string]any{} }},
+	} {
 		t.Run(test.name, func(t *testing.T) {
-			server := newLocalTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var request struct {
-					Query string `json:"query"`
-				}
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-					t.Errorf("decode request: %v", err)
-					return
-				}
-				response := map[string]any{"data": map[string]any{}}
-				switch {
-				case strings.Contains(request.Query, "dataframeDataset"):
-					response["data"].(map[string]any)["dataframeDataset"] = map[string]any{
-						"state": "READY", "rowCount": 1, "columns": []any{},
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var response map[string]any
+				switch r.Method + " " + r.URL.Path {
+				case "POST /api/v1/projects/project/dataframes/rows":
+					response = map[string]any{
+						"materialization": map[string]any{"state": "READY", "rowCount": 1},
+						"totalCount":      1, "rows": []any{map[string]any{"patient_id": "p1"}},
 					}
-					if test.mutateDataset != nil {
-						test.mutateDataset(response["data"].(map[string]any)["dataframeDataset"].(map[string]any))
+					if test.mutate != nil {
+						test.mutate(response)
 					}
-				case strings.Contains(request.Query, "dataframeRows"):
-					response["data"].(map[string]any)["dataframeRows"] = map[string]any{
-						"columns": []any{}, "rows": []any{}, "totalCount": 1,
-					}
-					if test.mutateRows != nil {
-						test.mutateRows(response["data"].(map[string]any))
-					}
+				case "POST /api/v1/projects/project/dataframes/aggregations":
+					response = map[string]any{"aggregations": []any{map[string]any{"name": "patient_values"}}}
 				default:
-					response["data"].(map[string]any)["ok"] = true
+					http.NotFound(w, r)
+					return
 				}
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(response)
 			}))
 			defer server.Close()
 			cfg := ScenarioConfig{Connections: Connections{LoomURL: server.URL}, Namespace: Namespace{Project: "project"}, HTTPClient: &http.Client{}}
-			_, err := verifyGraphQL(context.Background(), cfg, publication{Recipe: "recipe", TranslationVersion: "v1", Output: "output"}, Oracle{RowCount: 1, UniquePatientCount: 1})
-			if err == nil {
-				t.Fatal("malformed GraphQL response was accepted")
+			_, err := verifyPublishedDataframe(context.Background(), cfg, publication{Recipe: "recipe", TranslationVersion: "v1", Output: "output"}, Oracle{RowCount: 1, UniquePatientCount: 1})
+			if test.mutate == nil {
+				if err != nil {
+					t.Fatalf("valid response rejected: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "published dataframe") {
+				t.Fatalf("expected dataframe response validation failure, got %v", err)
 			}
 		})
 	}

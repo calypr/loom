@@ -12,25 +12,25 @@ func TestComparePerformanceRequiresAbsoluteFloorAndRepeatBaseConfirmation(t *tes
 		"generation_upload": 4,
 		"explorer_publish":  10,
 		"explorer_viewer":   .2,
-		"graphql":           .2,
+		"dataframe_rest":    .2,
 	}
 	current := map[string]float64{
 		"generation_upload": 9,
 		"explorer_publish":  21,
 		"explorer_viewer":   .5,
-		"graphql":           .5,
+		"dataframe_rest":    .5,
 	}
 	repeatBase := map[string]float64{
 		"generation_upload": 5,
 		"explorer_publish":  12,
 		"explorer_viewer":   .3,
-		"graphql":           .3,
+		"dataframe_rest":    .3,
 	}
 	repeatCurrent := map[string]float64{
 		"generation_upload": 11,
 		"explorer_publish":  25,
 		"explorer_viewer":   .7,
-		"graphql":           .7,
+		"dataframe_rest":    .7,
 	}
 	got := ComparePerformanceRuns(base, current, repeatBase, repeatCurrent)
 	if len(got) != 4 {
@@ -41,7 +41,7 @@ func TestComparePerformanceRequiresAbsoluteFloorAndRepeatBaseConfirmation(t *tes
 			t.Fatalf("observation=%#v", observation)
 		}
 	}
-	if got[0].Name != "explorer_publish" {
+	if got[0].Name != "dataframe_rest" {
 		t.Fatalf("observations are not sorted: %#v", got)
 	}
 	if !PerformanceFailure(got) {
@@ -65,13 +65,13 @@ func TestComparePerformanceAppliesMetricFloors(t *testing.T) {
 		"generation_upload": 2.5,
 		"explorer_publish":  2.5,
 		"explorer_viewer":   .05,
-		"graphql":           .05,
+		"dataframe_rest":    .05,
 	}
 	current := map[string]float64{
 		"generation_upload": 4.9,
 		"explorer_publish":  4.9,
 		"explorer_viewer":   .099,
-		"graphql":           .099,
+		"dataframe_rest":    .099,
 	}
 	for _, observation := range ComparePerformanceRuns(base, current, current, current) {
 		if observation.Suspected {
@@ -98,13 +98,13 @@ func TestPerformanceStageSecondsSelectsContractStages(t *testing.T) {
 		{Name: "arango_counts", Seconds: 99},
 		{Name: "graphql", Seconds: .4},
 	})
-	if len(got) != 2 || got["generation_upload"] != 1.2 || got["graphql"] != .4 {
+	if len(got) != 2 || got["generation_upload"] != 1.2 || got["dataframe_rest"] != .4 {
 		t.Fatalf("metrics=%#v", got)
 	}
 }
 
 func TestComparePerformanceDoesNotFailWithoutBase(t *testing.T) {
-	if got := ComparePerformanceRuns(nil, map[string]float64{"graphql": 8}, nil, nil); len(got) != 0 || PerformanceFailure(got) {
+	if got := ComparePerformanceRuns(nil, map[string]float64{"dataframe_rest": 8}, nil, nil); len(got) != 0 || PerformanceFailure(got) {
 		t.Fatalf("got=%#v", got)
 	}
 }
@@ -132,13 +132,13 @@ func TestComparePerformanceReportFilesRequiresRepeatToFail(t *testing.T) {
 	}
 }
 
-func writePerformanceTestReport(t *testing.T, dir, name string, ingestion, publication, viewer, graphql float64) string {
+func writePerformanceTestReport(t *testing.T, dir, name string, ingestion, publication, viewer, dataframeREST float64) string {
 	t.Helper()
 	report := Report{Status: "PASSED", Stages: []StageReport{
 		{Name: "generation_upload", Seconds: ingestion},
 		{Name: "explorer_publish", Seconds: publication},
 		{Name: "explorer_viewer", Seconds: viewer},
-		{Name: "graphql", Seconds: graphql},
+		{Name: "dataframe_rest", Seconds: dataframeREST},
 	}}
 	raw, err := json.Marshal(report)
 	if err != nil {
