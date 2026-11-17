@@ -136,7 +136,7 @@ func (r *HTTPRoutes) GetProjectViewBuilder(ctx context.Context, request loomapi.
 		return loomapi.NewGetProjectViewBuilderErrorResponse(status, failure)
 	}
 	project := projectid.Canonical(string(request.Project))
-	resource := ""
+	resource := authResourcePathFromParam(request.Params.AuthResourcePath)
 	h := r.explorer
 	if err := h.authorizeViewBuilder(ctx, project, resource, false); err != nil {
 		return fail(err)

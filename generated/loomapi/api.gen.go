@@ -9360,6 +9360,12 @@ type CreateInterpretationRevisionParams struct {
 	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// GetProjectViewBuilderParams defines parameters for GetProjectViewBuilder.
+type GetProjectViewBuilderParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // AdoptProjectViewBuilderParams defines parameters for AdoptProjectViewBuilder.
 type AdoptProjectViewBuilderParams struct {
 	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
@@ -11698,7 +11704,7 @@ type ServerInterface interface {
 	GetInterpretationRevision(c fiber.Ctx, project Project, revisionId string) error
 	// GetProjectViewBuilder Read project views and exact published dataframe metadata.
 	// (GET /api/v1/projects/{project}/view-builder)
-	GetProjectViewBuilder(c fiber.Ctx, project Project) error
+	GetProjectViewBuilder(c fiber.Ctx, project Project, params GetProjectViewBuilderParams) error
 	// AdoptProjectViewBuilder Attach existing publication metadata without reloading data.
 	// (POST /api/v1/projects/{project}/view-builder/adopt)
 	AdoptProjectViewBuilder(c fiber.Ctx, project Project, params AdoptProjectViewBuilderParams) error
@@ -13997,8 +14003,24 @@ func (siw *ServerInterfaceWrapper) GetProjectViewBuilder(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetProjectViewBuilderParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
 	handler := func(c fiber.Ctx) error {
-		return siw.Handler.GetProjectViewBuilder(c, project)
+		return siw.Handler.GetProjectViewBuilder(c, project, params)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -19925,6 +19947,7 @@ func (response GetInterpretationRevision503JSONResponse) VisitGetInterpretationR
 
 type GetProjectViewBuilderRequestObject struct {
 	Project Project `json:"project"`
+	Params  GetProjectViewBuilderParams
 }
 
 type GetProjectViewBuilderResponseObject interface {
@@ -22874,10 +22897,11 @@ func (sh *strictHandler) GetInterpretationRevision(ctx fiber.Ctx, project Projec
 }
 
 // GetProjectViewBuilder operation middleware
-func (sh *strictHandler) GetProjectViewBuilder(ctx fiber.Ctx, project Project) error {
+func (sh *strictHandler) GetProjectViewBuilder(ctx fiber.Ctx, project Project, params GetProjectViewBuilderParams) error {
 	var request GetProjectViewBuilderRequestObject
 
 	request.Project = project
+	request.Params = params
 
 	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
 		return sh.ssi.GetProjectViewBuilder(ctx.Context(), request.(GetProjectViewBuilderRequestObject))
@@ -29662,21 +29686,21 @@ var swaggerSpec = []string{
 	"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",
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

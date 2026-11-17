@@ -322,3 +322,13 @@ Retired specifically: the old keyword-named Pivot browser script's native duplic
 The no-external-consumer premise was disproved by the deployed IDP frontend: its Explorer SSR loader, browser default selection, navigation, and saved-view editor call `/api/v1/projects/{project}/view-builder`. The five routes, saved config/default mutations, catalog adoption, authorization, and persistence tests are restored. Stored settings retain their original collection, keys, defaults, and publication transaction; no migration is required by this restoration. The earlier WP-21 retirement descriptions are historical and superseded here.
 
 `TestRetiredStandaloneViewBuilderRoutesReturnNotFound` is retired because route removal broke a real consumer; restored HTTP tests prove authorization and malformed-request behavior instead. The catalog-anchor retry/rebind integration witness is retained under `GetViewBuilderSettings`, alongside the restored save/default/delete/rebind integration lifecycle. Moving the editor into the portable Loom UI package does not remove this server contract.
+
+## Portable saved-view ownership
+
+The IDP editor/default widgets, draft helpers, and schemas move into the Loom UI
+package; their editor and draft tests move with them. IDP's former Core RTK API
+test file is replaced by portable client CAS/catalog/default/path tests and host
+authentication/SSR/cache-invalidation checks. Conflict recovery remains covered
+by the portable component and shared request-error tests. No user behavior
+promise is intentionally retired. IDP retains thin authenticated transport,
+routing, and SSR adapters; the duplicated implementation is deleted.

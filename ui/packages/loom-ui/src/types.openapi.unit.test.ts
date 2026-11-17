@@ -12,13 +12,14 @@ const openApiSchema = z.object({
 }).passthrough();
 
 const openApiDocumentSchema = z.object({
+  paths: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   components: z.object({
     schemas: z.record(z.string(), openApiSchema),
   }),
 }).passthrough();
 
 const document = openApiDocumentSchema.parse(parse(readFileSync(
-  new URL('../../../../openapi/openapi.yaml', import.meta.url),
+  process.env.LOOM_OPENAPI_CONTRACT_PATH ?? new URL('../../../../openapi/openapi.yaml', import.meta.url),
   'utf8',
 )));
 
@@ -47,6 +48,21 @@ const openApiObjectShapeFor = (
 const isZodSchema = (value: unknown): value is z.ZodTypeAny => value instanceof z.ZodType;
 
 describe('Zod schemas and OpenAPI components', () => {
+  it('keeps saved view operations in the Loom contract', () => {
+    const paths = document.paths ?? {};
+    const operations = [
+      [paths['/api/v1/projects/{project}/view-builder'], 'get', 'getProjectViewBuilder'],
+      [paths['/api/v1/projects/{project}/view-builder/adopt'], 'post', 'adoptProjectViewBuilder'],
+      [paths['/api/v1/projects/{project}/view-builder/defaults'], 'put', 'saveProjectViewDefaults'],
+      [paths['/api/v1/projects/{project}/view-builder/configs/{explorerId}'], 'put', 'saveProjectViewConfig'],
+      [paths['/api/v1/projects/{project}/view-builder/configs/{explorerId}'], 'delete', 'deleteProjectViewConfig'],
+    ] as const;
+    for (const [path, method, operationId] of operations) {
+      expect(path?.[method], `${method} ${operationId} must remain in OpenAPI`).toMatchObject({ operationId });
+    }
+    expect(document.components.schemas).toHaveProperty('RawJSON');
+  });
+
   it('keeps matching object properties and required sets in sync', () => {
     const matchedSchemas = Object.entries(runtimeTypes).flatMap(([schemaName, schema]) => {
       if (!schemaName.endsWith('Schema') || !(schema instanceof z.ZodObject)) return [];

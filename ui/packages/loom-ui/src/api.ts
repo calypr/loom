@@ -1,3 +1,10 @@
+import { viewBuilderStateSchema, type ProjectViewBuilderState, type SaveProjectViewConfigRequest, type SaveProjectViewDefaultsRequest } from './projectViewBuilder';
+
+export interface ProjectViewBuilderArgs { readonly project: string; readonly authResourcePath?: string }
+export interface SaveProjectViewConfigArgs extends ProjectViewBuilderArgs { readonly configId: string; readonly request: SaveProjectViewConfigRequest }
+export interface DeleteProjectViewConfigArgs extends ProjectViewBuilderArgs { readonly configId: string; readonly expectedRevisionId: string }
+export interface SaveProjectViewDefaultsArgs extends ProjectViewBuilderArgs { readonly request: SaveProjectViewDefaultsRequest }
+
 import {
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
   SEMANTIC_FIELD_PRESENTATION_REVISION,
@@ -649,6 +656,11 @@ export interface LoomClient {
     args: ExplorerAuthoringStateArgs,
     options?: { readonly signal?: AbortSignal; readonly reload?: boolean },
   ) => Promise<ExplorerBuilderState>;
+  readonly getProjectViewBuilder: (args: ProjectViewBuilderArgs, options?: { readonly signal?: AbortSignal; readonly reload?: boolean }) => Promise<ProjectViewBuilderState>;
+  readonly saveProjectViewConfig: (args: SaveProjectViewConfigArgs, signal?: AbortSignal) => Promise<ProjectViewBuilderState>;
+  readonly deleteProjectViewConfig: (args: DeleteProjectViewConfigArgs, signal?: AbortSignal) => Promise<ProjectViewBuilderState>;
+  readonly saveProjectViewDefaults: (args: SaveProjectViewDefaultsArgs, signal?: AbortSignal) => Promise<ProjectViewBuilderState>;
+  readonly adoptProjectViewBuilderCatalogs: (args: ProjectViewBuilderArgs, signal?: AbortSignal) => Promise<ProjectViewBuilderState>;
   readonly getCapability: (
     args: ExplorerAuthoringStateArgs,
     signal?: AbortSignal,
@@ -843,8 +855,21 @@ export const canonicalProject = (project: string): string => {
   return value;
 };
 
-const encodedProject = (project: string): string =>
+export const encodeLoomProjectPath = (project: string): string =>
   encodeURIComponent(encodeURIComponent(canonicalProject(project)));
+const encodedProject = encodeLoomProjectPath;
+export const projectViewBuilderPath = (project: string, authResourcePath?: string): string => {
+  const value = authResourcePath?.trim();
+  const query = value ? `?${new URLSearchParams({ auth_resource_path: value }).toString()}` : '';
+  return `/api/v1/projects/${encodedProject(project)}/view-builder${query}`;
+};
+export const getProjectViewBuilderState = async (get: (path: string) => Promise<unknown>, project: string, authResourcePath?: string): Promise<ProjectViewBuilderState> => {
+  const response = await get(projectViewBuilderPath(project, authResourcePath));
+  const payload = typeof response === 'object' && response !== null && 'data' in response
+    ? response.data
+    : response;
+  return viewBuilderStateSchema.parse(payload);
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -1372,6 +1397,33 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     `${authoringPath(args, suffix)}${authResourcePathQuery(args.authResourcePath)}`;
   const durableProjectPath = (args: ExplorerAuthoringProjectArgs): string =>
     `${projectPath(args)}${authResourcePathQuery(args.authResourcePath)}`;
+  const viewBuilderPath = (args: ProjectViewBuilderArgs): string =>
+    projectViewBuilderPath(args.project, args.authResourcePath);
+  const parseProjectViewBuilder = (value: unknown): ProjectViewBuilderState => {
+    try { return viewBuilderStateSchema.parse(value); }
+    catch { throw new LoomRequestError({ status: 502, code: 'INVALID_VIEW_BUILDER_STATE', message: 'Loom returned invalid saved view settings.', retryable: false }); }
+  };
+  const viewBuilderCacheKey = (args: ProjectViewBuilderArgs): string => `view-builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`;
+  const updatedProjectViewBuilder = (args: ProjectViewBuilderArgs, value: unknown): ProjectViewBuilderState => {
+    const state = parseProjectViewBuilder(value);
+    evictCached(viewBuilderCacheKey(args));
+    return state;
+  };
+  const getProjectViewBuilder = (args: ProjectViewBuilderArgs, queryOptions: { readonly signal?: AbortSignal; readonly reload?: boolean } = {}) =>
+    getCached(viewBuilderCacheKey(args),
+      (signal) => request(viewBuilderPath(args), { signal }), parseProjectViewBuilder, queryOptions.signal, queryOptions.reload);
+  const saveProjectViewConfig = async (args: SaveProjectViewConfigArgs, signal?: AbortSignal) =>
+    updatedProjectViewBuilder(args, await request(`${projectViewBuilderPath(args.project)}/configs/${encodeURIComponent(args.configId)}${authResourcePathQuery(args.authResourcePath)}`, { method: 'PUT', body: JSON.stringify(args.request), signal }));
+  const deleteProjectViewConfig = async (args: DeleteProjectViewConfigArgs, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ expectedRevisionId: args.expectedRevisionId });
+    const auth = args.authResourcePath?.trim();
+    const path = `${projectViewBuilderPath(args.project)}/configs/${encodeURIComponent(args.configId)}?${query.toString()}${auth ? `&${new URLSearchParams({ auth_resource_path: auth }).toString()}` : ''}`;
+    return updatedProjectViewBuilder(args, await request(path, { method: 'DELETE', signal }));
+  };
+  const saveProjectViewDefaults = async (args: SaveProjectViewDefaultsArgs, signal?: AbortSignal) =>
+    updatedProjectViewBuilder(args, await request(`${projectViewBuilderPath(args.project)}/defaults${authResourcePathQuery(args.authResourcePath)}`, { method: 'PUT', body: JSON.stringify(args.request), signal }));
+  const adoptProjectViewBuilderCatalogs = async (args: ProjectViewBuilderArgs, signal?: AbortSignal) =>
+    updatedProjectViewBuilder(args, await request(`${projectViewBuilderPath(args.project)}/adopt${authResourcePathQuery(args.authResourcePath)}`, { method: 'POST', signal }));
   const withJson = (body: unknown, signal?: AbortSignal, requestId?: string): RequestInit => ({
     method: 'POST',
     body: JSON.stringify(body),
@@ -1925,6 +1977,11 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     proposePopulationMemberRemoval,
     createExplicitGroupRevision,
     getBuilder,
+    getProjectViewBuilder,
+    saveProjectViewConfig,
+    deleteProjectViewConfig,
+    saveProjectViewDefaults,
+    adoptProjectViewBuilderCatalogs,
     getCapability,
     getExplorer,
     applyCommands,

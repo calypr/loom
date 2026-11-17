@@ -13,6 +13,7 @@ export default defineConfig({
         'loom-ui': resolve(directory, 'src/index.ts'),
         viewer: resolve(directory, 'src/viewer-entry.ts'),
         builder: resolve(directory, 'src/builder-entry.ts'),
+        'saved-views': resolve(directory, 'src/saved-views-entry.ts'),
       },
       external: ['react', 'react-dom', 'react/jsx-runtime'],
       output: {

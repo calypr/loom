@@ -11,3 +11,10 @@ export * from './types';
 export type { CreateSelectionArgs, GetSelectionArgs } from './api';
 export type { ResourceRef, SelectionSourceIntent, SelectionRevision, SelectionPage } from './selection';
 export * from './features/ExplorerBuilder';
+
+export { ExplorerViewBuilder as LoomSavedViewBuilder } from './features/ExplorerViewBuilder/ExplorerViewBuilder';
+export type { ExplorerViewBuilderProps as LoomSavedViewBuilderProps } from './features/ExplorerViewBuilder/ExplorerViewBuilder';
+export * from './projectViewBuilder';
+export { projectViewBuilderPath, getProjectViewBuilderState, encodeLoomProjectPath } from './api';
+export type { ProjectViewBuilderArgs, SaveProjectViewConfigArgs, DeleteProjectViewConfigArgs, SaveProjectViewDefaultsArgs } from './api';
+export { selectedProjectViewId, selectedProjectViewTab, useProjectViewTab } from './projectViewSelection';

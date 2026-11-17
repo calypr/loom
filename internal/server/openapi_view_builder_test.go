@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -163,5 +164,88 @@ func TestViewBuilderScopedEditorCapability(t *testing.T) {
 	}
 	if err := handlers.authorizeViewBuilder(ctx, "project-a", "foreign-project", true); err == nil {
 		t.Fatal("foreign scope override was accepted")
+	}
+}
+
+func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
+	const project = "HTAN_INT/BForePC"
+	const authResourcePath = "/programs/HTAN_INT/projects/BForePC"
+
+	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
+			return []string{authResourcePath}, nil
+		},
+	})
+	principal := &authscope.Principal{
+		Subject:           "editor",
+		Projects:          []string{project},
+		AuthResourcePaths: []string{authResourcePath},
+	}
+	store := &viewBuilderHTTPStore{
+		testExplorerStore: newTestExplorerStore(),
+		settings:          explorer.ViewBuilderSettings{Catalogs: map[string]string{}},
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlers := newExplorerHTTPHandlers(
+		authscope.ScopeAuthorizer{Resolver: resolver},
+		func(context.Context, *authscope.Principal, string) error { return nil },
+		service,
+	)
+	app := fiber.New()
+	app.Use(func(c fiber.Ctx) error {
+		c.SetContext(authscope.ContextWithPrincipal(c.Context(), principal))
+		return c.Next()
+	})
+	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{explorer: handlers}, nil), loomapi.FiberServerOptions{})
+
+	get := func(query string) (int, bool) {
+		t.Helper()
+		path := "/api/v1/projects/HTAN_INT%252FBForePC/view-builder"
+		if query != "" {
+			path += "?" + query
+		}
+		result := requestJSON(t, app, http.MethodGet, path, "")
+		var body struct {
+			CanEdit bool `json:"canEdit"`
+		}
+		if err := json.Unmarshal([]byte(result.Body), &body); err != nil {
+			t.Fatalf("decode GET response %q: %v", result.Body, err)
+		}
+		return result.StatusCode, body.CanEdit
+	}
+
+	status, canEdit := get(url.Values{"auth_resource_path": {authResourcePath}}.Encode())
+	if status != http.StatusOK || !canEdit {
+		t.Fatalf("scoped editor GET status=%d canEdit=%v; want HTTP 200 and canEdit=true", status, canEdit)
+	}
+	status, canEdit = get("")
+	if status != http.StatusOK || !canEdit {
+		t.Fatalf("scoped GET without auth_resource_path status=%d canEdit=%v; want legacy project fallback to remain editable", status, canEdit)
+	}
+	status, canEdit = get(url.Values{"auth_resource_path": {"/programs/OTHER/projects/foreign"}}.Encode())
+	if status != http.StatusOK || canEdit {
+		t.Fatalf("GET with foreign auth_resource_path status=%d canEdit=%v; want HTTP 200 and canEdit=false", status, canEdit)
+	}
+
+	unscopedStore := &viewBuilderHTTPStore{
+		testExplorerStore: newTestExplorerStore(),
+		settings:          explorer.ViewBuilderSettings{Catalogs: map[string]string{}},
+	}
+	unscopedApp := viewBuilderTestApp(t, unscopedStore, nil, nil)
+	status, canEdit = func() (int, bool) {
+		result := requestJSON(t, unscopedApp, http.MethodGet, "/api/v1/projects/project-a/view-builder", "")
+		var body struct {
+			CanEdit bool `json:"canEdit"`
+		}
+		if err := json.Unmarshal([]byte(result.Body), &body); err != nil {
+			t.Fatalf("decode unscoped GET response %q: %v", result.Body, err)
+		}
+		return result.StatusCode, body.CanEdit
+	}()
+	if status != http.StatusOK || !canEdit {
+		t.Fatalf("unscoped GET status=%d canEdit=%v; want HTTP 200 and canEdit=true", status, canEdit)
 	}
 }

@@ -1609,6 +1609,8 @@ paths:
     get:
       operationId: getProjectViewBuilder
       summary: Read project views and exact published dataframe metadata.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
       responses:
         '200':
           description: Project-owned view state and published dataframe catalog.
