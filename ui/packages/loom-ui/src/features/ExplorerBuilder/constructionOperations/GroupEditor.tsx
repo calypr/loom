@@ -35,8 +35,6 @@ const groupAggregateKindFromInput = (value: string): GroupAggregateKind | undefi
   }
 };
 
-
-
 const GroupRowValuesEditor = (props: {
   readonly form: GroupForm;
   readonly inputColumns: ReadonlyArray<ReshapeColumn>;
@@ -66,9 +64,7 @@ const GroupRowValuesEditor = (props: {
     !(choice.inputColumnId && selectedRowValueInputIDs.has(choice.inputColumnId)) &&
     !(fieldChoiceIdentity(choice) && selectedRowValueBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
     (!normalizedRowValueSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath} ${choice.sourceRole}`.toLocaleLowerCase().includes(normalizedRowValueSearch)));
-  // Resolved input columns already have exact stage authority, even when a
-  // pinned source cannot expose live FHIR field choices. Keep these separate
-  // from signed choices rather than inventing a raw-field binding.
+
   const signedInputColumnIds = new Set(props.groupRowValueChoices.flatMap((choice) => choice.inputColumnId ? [choice.inputColumnId] : []));
   const visibleInputColumns = props.inputColumns.filter((column) =>
     !props.groupKeyInputColumnIds.has(column.id) && !selectedRowValueInputIDs.has(column.id) && !signedInputColumnIds.has(column.id) &&

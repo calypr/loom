@@ -5,9 +5,6 @@ import (
 	"strings"
 )
 
-// ExplainAssessment is a deterministic compiler-facing summary of one Arango
-// explain response. Plan 0 is the primary plan when Result.Plan is present;
-// alternative plans follow in response order.
 type ExplainAssessment struct {
 	Plans                 []ExplainPlanEstimate
 	FullCollectionScans   []ExplainCollectionScan
@@ -22,17 +19,12 @@ type ExplainPlanEstimate struct {
 	EstimatedNrItems float64
 }
 
-// ExplainCollectionScan records an EnumerateCollectionNode. Such a node is a
-// full collection enumeration indicator even when a different node elsewhere
-// in the plan uses an index.
 type ExplainCollectionScan struct {
 	Plan       int
 	NodeID     int64
 	Collection string
 }
 
-// ExplainIndexSummary groups equivalent indexes across plan nodes while
-// retaining every plan/node use.
 type ExplainIndexSummary struct {
 	Collection string
 	ID         string
@@ -47,8 +39,6 @@ type ExplainIndexLocation struct {
 	NodeID int64
 }
 
-// AssessExplainResult converts parsed explain data into stable findings without
-// issuing queries or depending on an Arango client.
 func AssessExplainResult(result ExplainResult) ExplainAssessment {
 	plans := explainPlans(result)
 	assessment := ExplainAssessment{

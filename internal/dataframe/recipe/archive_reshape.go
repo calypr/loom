@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-// archivedTableReshape freezes the retired stored wire for identity verification only.
-// Current validation rejects this payload; it has no lowering path.
 type archivedTableReshape struct {
 	Kind         archivedReshapeKind   `json:"kind"`
 	GroupedPivot *archivedGroupedPivot `json:"groupedPivot,omitempty"`

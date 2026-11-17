@@ -1,5 +1,3 @@
-// Package authpolicy centralizes authorization-sentinel classification while
-// retaining operation-specific concealment and project-level policy.
 package authpolicy
 
 import (
@@ -22,9 +20,6 @@ const (
 	OperationExplorerAuthorization Operation = "explorer_authorization"
 )
 
-// Classify maps shared authorization and dependency sentinels according to
-// operation context. Unknown errors are returned unchanged for the caller's
-// broader dependency policy.
 func Classify(err error, operation Operation) error {
 	if err == nil {
 		return nil
@@ -49,8 +44,6 @@ func Classify(err error, operation Operation) error {
 	}
 }
 
-// classifyExplorerAuthorization preserves the route adapter's historical
-// status ordering while returning the shared retryable/denial error contract.
 func classifyExplorerAuthorization(err error) error {
 	if err == nil {
 		return nil

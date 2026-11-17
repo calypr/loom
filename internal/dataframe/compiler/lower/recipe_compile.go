@@ -1,9 +1,5 @@
 package lower
 
-// This file contains the canonical recipe lowering boundary. Persisted
-// recipes are a frontend: after resolution each output is lowered to the same
-// ir.PhysicalPlan used by the GraphQL dataframe compiler.
-
 import (
 	"fmt"
 	"strings"
@@ -18,10 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
-// CompiledRecipe is orchestration metadata around one canonical physical plan
-// per output.  It deliberately contains no recipe-specific traversal,
-// projection, or renderer structures.  Output order is the persisted recipe
-// order and therefore part of the stable materialization contract.
 type CompiledRecipe struct {
 	Version              int
 	RecipeDigest         string
@@ -30,15 +22,10 @@ type CompiledRecipe struct {
 	ScopeDigest          string
 	SourceGeneration     string
 	Outputs              []CompiledRecipeOutput
-	// WorkspaceDependencies contains the topologically compiled, unselected
-	// outputs required by the selected public outputs. It is execution support
-	// only; public output ordering remains in Outputs.
+
 	WorkspaceDependencies []CompiledRecipeOutput
 }
 
-// CompiledRecipeOutput is the canonical compiler result for one output.
-// Columns is metadata for the stream/materialization layer; all query
-// semantics live in Plan.
 type CompiledRecipeOutput struct {
 	Name               string
 	TranslationVersion string
@@ -46,53 +33,30 @@ type CompiledRecipeOutput struct {
 	RowGrain           spec.RowGrain
 	RootColumnNaming   recipe.RootColumnNaming
 	Columns            []string
-	// OutputSchema is the compiler-owned ordered projection schema. It is
-	// captured from the finalized physical RETURN projections rather than
-	// reconstructed by a transport adapter from the semantic recipe tree.
-	// Internal projections remain present here so execution and diagnostics can
-	// distinguish them from the public dataframe contract.
+
 	OutputSchema []CompiledOutputColumn
-	// WorkspaceOutputSources records compiler-resolved sibling schemas for a
-	// terminal Combine. These refs are structural only; execution requires a
-	// server-owned workspace capture before an artifact can be read.
+
 	WorkspaceOutputSources []WorkspaceOutputSource
-	// ScopeEvidence is present only for a compiler-validated complete, unbounded
-	// output relation. ScopeEvidenceIdentity is the exact output, scope, and
-	// finalized schema identity used when issuing it.
+
 	ScopeEvidence         *ir.WholeRelationScopeEvidence
 	ScopeEvidenceIdentity *ir.WholeRelationScopeIdentity
-	// RowIdentity describes the stable semantic identity used by publication
-	// targets. It is metadata only; the physical plan remains authoritative for
-	// the returned values.
+
 	RowIdentity *spec.RowIdentity
-	// DynamicColumns is post-query validation metadata. The physical plan
-	// contains the bounded projections; observed-key/type checks remain above
-	// the backend execution boundary.
+
 	DynamicColumns []DynamicColumnMetadata
-	// Stages exposes the exact typed schemas and operation capabilities used
-	// to compile an ordered construction sequence.
+
 	Stages []CompiledStageDescriptor
 	Plan   ir.PhysicalPlan
-	// OptimizedPlan is populated by the request orchestrator after all outputs
-	// have been lowered. Keeping it separate from Plan lets preview windows be
-	// rendered repeatedly without re-running the optimizer or lowering stage.
+
 	OptimizedPlan *ir.PhysicalPlan
 }
 
-// WorkspaceOutputSource binds an exact same-bundle output ID to its
-// compiler-owned finalized schema. It contains no client-declared schema or
-// receipt/head identity.
 type WorkspaceOutputSource struct {
 	InputIndex int
 	OutputID   string
 	Schema     []CompiledOutputColumn
 }
 
-// CompiledOutputColumn describes one finalized physical projection. Kind and
-// Cardinality are logical, backend-neutral values; Internal projections are
-// never exposed by dataframe transports.
-// CompiledSourceOrigin records authoring ownership at the existing lowering
-// boundary. Paths are structural recipe paths, never inferred display labels.
 type CompiledSourceOrigin struct {
 	SourceKey    string
 	OutputKey    string
@@ -109,31 +73,24 @@ type CompiledOutputColumn struct {
 	ID    string
 	Name  string
 	Label string
-	// SemanticValueKind distinguishes public labels whose row identity is
-	// carried by hidden semantic tuples rather than by the display scalar.
+
 	SemanticValueKind string
-	// SemanticPath is the stable FHIR/provenance identity for this column.
-	// Physical names are deliberately excluded so storage renames do not
-	// invalidate Explorer configuration.
+
 	SemanticPath string
 	Kind         string
 	Cardinality  string
 	Nullable     bool
-	// NormalizedUnit is the compiler-resolved identity of the value in this
-	// column. It does not describe source conversion rules or selectors.
+
 	NormalizedUnit *unit.UnitIdentity
 	Internal       bool
 	Identity       bool
 	Discovered     bool
 	SourceChild    *lineage.SourceChild
-	// PresenceCompanionName identifies a compiler-owned hidden boolean column
-	// that preserves whether this scalar existed before stage materialization.
+
 	PresenceCompanionName string
-	// RelatedRecordAnchor marks the hidden exact terminal document identity
-	// emitted by RELATED_EXPAND. It is copied only by row-preserving stages.
+
 	RelatedRecordAnchor *CompiledRelatedRecordAnchor
-	// RootContributorResourceType marks a compiler-proven root identity or a
-	// hidden, globally deduplicated set of contributing root identities.
+
 	RootContributorResourceType string
 }
 
@@ -144,7 +101,6 @@ type CompiledRelatedRecordAnchor struct {
 	TargetResourceType string
 }
 
-// CloneCompiledOutputSchema copies output metadata, including optional unit identities.
 func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputColumn {
 	cloned := append([]CompiledOutputColumn(nil), columns...)
 	for index := range cloned {
@@ -183,10 +139,6 @@ type DynamicColumnMetadata struct {
 	Discovered       bool
 }
 
-// outputSelectionError types a rejected caller-supplied output selection.
-// Selections arrive through request bindings, so the fault is a non-retryable
-// request defect; the requested identifier reaches transports only via the
-// typed details map, mirroring execution.previewAdmissionError.
 func outputSelectionError(message string, details map[string]any) error {
 	options := []dataframeerrors.ErrorOption{dataframeerrors.WithRetryable(false)}
 	if details != nil {
@@ -195,14 +147,6 @@ func outputSelectionError(message string, details map[string]any) error {
 	return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, message, options...)
 }
 
-// CompileResolvedRecipePlan lowers every resolved recipe output into the
-// canonical physical IR.  The optimizer and renderer are intentionally not
-// called here: callers can apply an explicit PhysicalOptimizationPolicy and
-// execution window at the same boundary used by generic dataframe requests.
-//
-// Dynamic maps are lowered into bounded named projections below. Their
-// observed-key/type checks remain metadata for post-query validation; no
-// runtime map-shaped AQL is emitted.
 func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.PhysicalOptimizationPolicy) (CompiledRecipe, error) {
 	semanticPlan := resolved.SemanticPlan
 	if semanticPlan.Version <= 0 || strings.TrimSpace(semanticPlan.RecipeDigest) == "" {
@@ -288,8 +232,7 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 		compiledByName[output.Name] = compiled
 		resolvedSchemas[output.Name] = CloneCompiledOutputSchema(compiled.OutputSchema)
 	}
-	// Public output order remains authored order even when the compiler had to
-	// resolve forward references first.
+
 	for _, output := range semanticPlan.Outputs {
 		if len(selected) > 0 && !selected[output.Name] {
 			continue
@@ -325,10 +268,7 @@ func pruneUnmaterializedDynamicColumns(metadata []DynamicColumnMetadata, schema 
 			return metadata
 		}
 	}
-	// A reshape or aggregate can consume dynamic source columns without
-	// carrying the hidden runtime-key inventory. In that case the final row no
-	// longer has metadata to validate, and keeping the checks would reject an
-	// otherwise valid derived output.
+
 	return nil
 }
 

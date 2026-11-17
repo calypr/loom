@@ -202,9 +202,7 @@ func TestStoredWorkspaceMigrationCASFailureRollsBackHistoryAndProjectionAgainstA
 			if err := insertWorkspaceProjection(txCtx, tx, projection); err != nil {
 				return err
 			}
-			// Simulate a competing head update inside this transaction. SaveDraft's
-			// revision-bound CAS then misses, requiring Arango to roll back history,
-			// projection, and this update together.
+
 			return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key
 UPDATE d WITH {draftVersion:@next} IN @@c RETURN NEW`, 1, map[string]any{
 				"@c": ExplorersCollection, "key": explorerKey(before.Project, before.ExplorerID), "next": before.DraftVersion + 1,

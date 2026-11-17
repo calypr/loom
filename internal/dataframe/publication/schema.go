@@ -2,8 +2,6 @@ package publication
 
 import "fmt"
 
-// WithPublicationMetadata adds the scope columns owned by the publisher.
-// It returns a new slice and never trusts a source project's metadata column.
 func WithPublicationMetadata(columns []LogicalColumn) ([]LogicalColumn, error) {
 	result := make([]LogicalColumn, 0, len(columns)+2)
 	result = append(result,

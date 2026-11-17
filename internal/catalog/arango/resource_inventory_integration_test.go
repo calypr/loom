@@ -70,8 +70,7 @@ func TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen(t *testing.T)
 	})
 
 	client := owned.Client
-	// This proof owns its fixture prerequisites even on an empty test database.
-	// Do not truncate existing collections: fixture rows remain UUID-scoped.
+
 	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{
 		{Name: "Observation"}, {Name: "Patient"},
 	}}); err != nil {

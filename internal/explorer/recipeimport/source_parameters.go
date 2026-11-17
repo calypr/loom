@@ -6,7 +6,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// sourceParameters projects existing recipe facts without introducing another AST.
 func sourceParameters(output recipe.Output) map[string]*authoringv2.ImportedSourceParameters {
 	result := map[string]*authoringv2.ImportedSourceParameters{}
 	if cloned, err := cloneOutput(output); err == nil {
@@ -85,8 +84,6 @@ func expressionPresent(e recipe.Expression) bool {
 	return e.Select != "" || e.Call != "" || e.Literal != nil || e.Document != nil
 }
 
-// applyParameterOverrides edits the deep-cloned pin by ORIGINAL paths, before
-// enablement removes entries. Children never shift their persisted identities.
 func applyParameterOverrides(output *recipe.Output, steps map[string]authoringv2.ImportedSourceStep) error {
 	if p := steps["output"].Parameters; p != nil && p.Output != nil {
 		output.RowGrain = p.Output.RowGrain
@@ -235,8 +232,6 @@ func cloneOptionalString(value *string) *string {
 	return &cloned
 }
 
-// ImportedFieldSlot is an exact original field location and its compiler naming
-// symbol. Name is recipe syntax, never a presentation label or fuzzy match.
 type ImportedFieldSlot struct {
 	FieldID, SourceStepID, Name string
 	Field                       recipe.Field

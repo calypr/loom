@@ -314,8 +314,6 @@ func isImportedRecipeColumn(column authoringv2.Column) bool {
 	return column.Source.Kind == authoringv2.SourceImported && column.Source.Imported != nil
 }
 
-// pinnedFieldBindingIDs uses structural compiler provenance plus the exact
-// authored symbol. It never maps by labels, sampled values, or first match.
 func pinnedFieldBindingIDs(output recipe.Output, columns []lower.CompiledOutputColumn) (map[string]string, error) {
 	result := map[string]string{}
 	for _, slot := range recipeimport.ImportedFieldSlots(output) {
@@ -332,10 +330,7 @@ func pinnedFieldBindingIDs(output recipe.Output, columns []lower.CompiledOutputC
 			return nil, fmt.Errorf("pinned field %q has ambiguous compiled provenance", slot.FieldID)
 		}
 		if matches == 0 {
-			// A source field hidden by the pin's collision policy has no emitted
-			// column to preserve. Give that exact immutable slot its own dormant ID;
-			// never borrow the winner's identity. Renaming it can expose this field
-			// without retargeting the column that previously shadowed it.
+
 			raw, err := json.Marshal(struct {
 				Output, FieldID string
 				Field           recipe.Field
@@ -354,9 +349,6 @@ type importedProjectionFact struct {
 	ColumnID, Owner, Kind, Key, SemanticKey, LeafKey string
 }
 
-// importedProjectionFacts combines compiler-proven ownership with native value
-// keys. Names are used only to locate a projection inside its proven native
-// owner; they never serve as a persisted identity or select an arbitrary owner.
 func importedProjectionFacts(document authoringv2.Document, original recipe.Output, plan *authoringv2.ImportedSourcePlan, compiled lower.CompiledRecipeOutput, native semantic.OutputPlan, catalog authoringv2.CatalogSnapshot) ([]importedProjectionFact, error) {
 	document.ImportedSource = plan
 	document.Columns = nil
@@ -395,9 +387,7 @@ func importedProjectionFacts(document authoringv2.Document, original recipe.Outp
 		}
 		count := 0
 		if origin.SourceKind == "EXTENSION_COLUMN" {
-			// Extension outputs are correlated pivots in the current compiler.
-			// Their native identity is the exact opaque mapping key carried by
-			// SourceOrigin, not a DynamicMap's sanitized URL leaf.
+
 			key = origin.OutputKey
 			scope, _ := recipeimport.SourceOriginScope(origin.SourcePath)
 			var walk func(semantic.SemanticNode, string, string)
@@ -526,10 +516,7 @@ func rebindImportedGeneratedProjectionIDs(candidate *lower.CompiledRecipeOutput,
 	for key, group := range newGroups {
 		old := oldGroups[key]
 		if len(old) == 0 {
-			// New keys have no pristine legacy ID. Assign their owner/key identity
-			// immediately at first creation, before a mutable public name can leak
-			// into a downstream binding. Typed extensions always carry their native
-			// structural leaf, even before another leaf shares the same lookup key.
+
 			leaves := map[string]bool{}
 			for _, fact := range group {
 				leaf := ""

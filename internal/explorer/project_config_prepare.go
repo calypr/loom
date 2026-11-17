@@ -28,16 +28,10 @@ type projectConfigSnapshot struct {
 	availableByOutput    map[string]map[string]EmittedColumn
 }
 
-// PrepareProjectConfigs binds the definitions for one recipe to an already
-// published execution. It never materializes a recipe and never infers public
-// schema facts from the publication's physical columns.
 func PrepareProjectConfigs(configs []ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) ([]ProjectConfigPublication, error) {
 	return prepareProjectConfigs(configs, resolved, executionValue, sourceCommit, false)
 }
 
-// PrepareProjectConfigsForPublication preserves project-owned views when the
-// new schema no longer exposes a saved binding. Affected views carry a
-// diagnostic and are omitted from runtime until the project repairs them.
 func PrepareProjectConfigsForPublication(configs []ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) ([]ProjectConfigPublication, error) {
 	return prepareProjectConfigs(configs, resolved, executionValue, sourceCommit, true)
 }
@@ -280,9 +274,7 @@ func projectConfigOutputMetadata(
 				Cardinality: schemaColumn.Cardinality, Nullable: schemaColumn.Nullable,
 				ResultUnit: cloneProjectConfigUnit(schemaColumn.NormalizedUnit), Shape: shape,
 				SourcePath: schemaColumn.SemanticPath,
-				// Source recipe compilation proves the schema and type, but does
-				// not claim the authored losslessness or ML-readiness of an
-				// Explorer Builder workspace.
+
 				Lossless: false, MLReady: false,
 				Filterable: filterable, Chartable: chartable,
 			}
@@ -458,7 +450,7 @@ func projectConfigPhysicalColumns(output string, public map[string]EmittedColumn
 		}
 		filtered = append(filtered, column)
 	}
-	// Preserve the compiler's output order rather than the map iteration order.
+
 	ordered := make([]publication.PhysicalColumn, 0, len(filtered))
 	for _, column := range columns {
 		if _, ok := public[column.Name]; ok {
@@ -580,8 +572,7 @@ func projectConfigPresentationJSON(config ProjectConfig, project string, emitted
 		Explorer: ConfigExplorer{ID: config.ID, Title: config.Title, Management: "repository"},
 		Views:    views, SharedFilters: config.SharedFilters, FileActions: config.FileActions,
 	}
-	// ConfigV2's legacy Recipe field is not omitempty. This explicit field
-	// shadows it in JSON so the presentation packet has no embedded recipe.
+
 	type presentationConfig struct {
 		ConfigV2
 		Recipe json.RawMessage `json:"recipe,omitempty"`

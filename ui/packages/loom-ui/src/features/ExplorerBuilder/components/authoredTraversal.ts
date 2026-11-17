@@ -3,7 +3,6 @@ import type { DraftTable } from '../authoring/model';
 import { routePath } from '../constructionWorkspace/routeDisplay';
 import { constructionHistorySteps, constructionRowMeaning } from '../constructionWorkspace/constructionHistory';
 
-/** A read projection of the complete authoritative document, never a saved canvas. */
 export function authoredTraversal(table: DraftTable, catalog: ExplorerBuilderCatalog) {
   const occurrences: Array<{
     id: string; parentId?: string; resourceType: string; relationship?: string;

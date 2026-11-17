@@ -459,8 +459,6 @@ func TestGenerationProfilerSeparatesCatalogDocumentsAndKeys(t *testing.T) {
 		t.Fatalf("catalog keys must isolate legacy and each generation: legacy=%q generationA=%q generationB=%q", legacyDocument.Key, generationADocument.Key, generationBDocument.Key)
 	}
 
-	// These generation values collide under sanitizeCollectionKey, which is why
-	// a direct sanitized suffix would not be a safe immutable namespace.
 	if got, want := sanitizeCollectionKey("generation/a"), sanitizeCollectionKey("generation a"); got != want {
 		t.Fatalf("test setup expected sanitized generation collision: %q != %q", got, want)
 	}

@@ -8,15 +8,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// resolveConstructionPivotDiscoveries freezes every declared PIVOT discovery in
-// a proposal candidate into concrete categories. A discovery PIVOT has no
-// categories in the authored candidate, so it cannot reach analyze or compile
-// until this stage has produced the exact value-bearing category evidence for
-// its category/value pair.
-//
-// Steps are resolved in order so a later PIVOT can consume the concrete outputs
-// of an earlier resolved PIVOT. The returned set names steps that were resolved
-// here, which lets category verification skip a redundant second scan.
 func (s *Service) resolveConstructionPivotDiscoveries(
 	ctx context.Context,
 	base constructionBase,
@@ -108,9 +99,6 @@ func constructionPivotDiscoveryOutcomeError(stepID string, discovery Constructio
 	}
 }
 
-// constructionPivotDiscoveryEvidence maps compiler-observed categories to the
-// resolver's typed evidence. Output names are deterministic and unique against
-// the Pivot's group-key output names and each other.
 func constructionPivotDiscoveryEvidence(
 	discovered []ConstructionDiscoveredCategory,
 	groupKeyIDs []string,
@@ -142,10 +130,6 @@ func constructionPivotDiscoveryEvidence(
 	return evidence, nil
 }
 
-// constructionUnresolvedPivotDiscovery reports a saved construction that still
-// carries a discovery declaration. Such a document has no concrete outputs and
-// cannot be previewed or loaded as compiled data; callers must propose it again
-// so the lifecycle can freeze the observed categories.
 func constructionUnresolvedPivotDiscovery(construction *authoringv2.Construction) string {
 	if construction == nil {
 		return ""

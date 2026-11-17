@@ -6,15 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// withCategoryScanSourceFilterPushdown duplicates leading construction
-// equality filters onto direct root projections. The stage filters remain in
-// place as the semantic checks; this copy lets Arango reject nonmatching root
-// documents before materializing the full source projection.
-//
-// Pushdown stops at the first non-filter stage or any filter shape that is not
-// a bound scalar equality over a direct pass-through projection. This keeps
-// filters from crossing derived expressions, row reshapes, or other work that
-// can change evaluation behavior.
 func withCategoryScanSourceFilterPushdown(plan ir.PhysicalPlan) ir.PhysicalPlan {
 	sequence := plan.StageSequence
 	if sequence == nil || len(sequence.Stages) == 0 || len(plan.Operations) < 2 ||

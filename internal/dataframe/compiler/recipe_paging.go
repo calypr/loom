@@ -28,9 +28,6 @@ const (
 	previewProjectionMaxQueryRatioPercent = 75
 )
 
-// CompiledOutputPage contains immutable query templates for bounded root
-// execution. RootKeys selects the next root page even when those roots emit no
-// output rows. Rows executes the complete output for exactly that page.
 type CompiledOutputPage struct {
 	RootKeysQuery    string
 	RootKeysBindVars map[string]any
@@ -40,18 +37,12 @@ type CompiledOutputPage struct {
 	RowsDiagnostics  ir.CompilerPlanDiagnostics
 }
 
-// CompiledOutputPagePartition is one projection of the same selected-root
-// preview rows. Every partition carries the root key so callers can merge
-// columns without relying on query result order.
 type CompiledOutputPagePartition struct {
 	ProjectionNames []string
 	RowsQuery       string
 	RowsBindVars    map[string]any
 }
 
-// CompileRecipeOutputPageWithPolicy builds typed key-discovery and selected-
-// root templates. Page binds are compiler-owned and callers may only replace
-// their values between executions.
 func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, pageSize int, policy ir.PhysicalOptimizationPolicy) (CompiledOutputPage, error) {
 	if workspaceOutputCaptureRequired(output) {
 		return CompiledOutputPage{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
@@ -144,8 +135,7 @@ func previewProjectionPartitionEligible(plan ir.PhysicalPlan) bool {
 			}
 			terminal = operation.Return
 		default:
-			// Cardinality-changing, grouped, and specialized terminals need an
-			// output-row identity proof beyond the source _key.
+
 			return false
 		}
 	}
@@ -440,10 +430,7 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 		ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Source: source, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{Name: "_key", Value: left}}}},
 	)
 	out.Operations = append(append([]ir.PhysicalOperation(nil), out.Operations[:insertAt]...), pageOperations...)
-	// Root-key discovery deliberately stops before the typed construction
-	// stages. Its RETURN contains only _key, so carrying the final row schema
-	// through validation would incorrectly require every source-stage column.
-	// The selected-roots rows plan retains this sequence and executes it fully.
+
 	out.StageSequence = nil
 	if err := ir.ValidateGenericPhysicalPlanScope(out); err != nil {
 		return ir.PhysicalPlan{}, err
@@ -451,13 +438,6 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 	return out, nil
 }
 
-// rootPageConstructionFilters moves only a leading run of FILTER stages over
-// source-projection columns into root-key discovery. Their producers and
-// filters run after the keyset predicate and before the sort/limit, so a
-// root-correlated related set is evaluated only for roots after the cursor.
-// Filters after a transforming stage, or filters whose source projection is
-// not available directly from the root or one exact root-correlated set,
-// remain in the selected-root query.
 func rootPageConstructionFilters(plan ir.PhysicalPlan) ([]ir.PhysicalOperation, *ir.PhysicalRootPageCandidateSeed) {
 	sequence := plan.StageSequence
 	if sequence == nil || len(sequence.Stages) == 0 || len(plan.Operations) == 0 {
@@ -506,8 +486,7 @@ func rootPageConstructionFilters(plan ir.PhysicalPlan) ([]ir.PhysicalOperation, 
 					Variable: stage.InputRowVariable, Expression: ir.ClonePhysicalExpression(*projection.Expression),
 				},
 			})
-			// The reduced root query binds the projected value itself, not the
-			// stage's row object, so the stage column path must be dropped.
+
 			filter.Predicate.Left = ir.PhysicalValue{Variable: stage.InputRowVariable}
 		} else {
 			filter.Predicate.Left = projection.Value
@@ -523,10 +502,6 @@ func rootPageConstructionFilters(plan ir.PhysicalPlan) ([]ir.PhysicalOperation, 
 	return operations, candidateSeed
 }
 
-// rootPageRelatedCandidateSeed builds a candidate-only reverse lookup for a
-// positive filter over one directly related FIRST reduction. The root-key
-// query retains the original correlated SET and filter, so this subplan may
-// overproduce keys but cannot decide row membership.
 func rootPageRelatedCandidateSeed(plan *ir.PhysicalPlan, stage ir.PhysicalConstructionStage, projection ir.PhysicalProjection, producer *ir.PhysicalOperation, root string) *ir.PhysicalRootPageCandidateSeed {
 	if plan == nil || producer == nil || producer.Set == nil || producer.Set.Projection == nil || producer.Set.Reduction == nil || stage.Filter == nil ||
 		stage.Filter.Expression != nil || stage.Filter.Predicate.Operator != "EQUALS" ||
@@ -782,10 +757,6 @@ func rootPageConstructionFilter(stage ir.PhysicalConstructionStage, projections 
 	return *filter, projection, producer, true
 }
 
-// rootPageProjectionSetProducer finds the single typed set reduction that
-// supplies this projection and is correlated directly to the root. Requiring
-// the reduction field itself to match prevents a neighboring set or another
-// projected value from being pulled into root-key discovery.
 func rootPageProjectionSetProducer(projection ir.PhysicalProjection, operations []ir.PhysicalOperation, root string) *ir.PhysicalOperation {
 	if projection.Expression != nil || projection.Value.Variable == "" || projection.Value.BindKey != "" || len(projection.Value.Path) != 1 {
 		return nil
@@ -935,15 +906,13 @@ func rootPageKeyLookupSafe(plan ir.PhysicalPlan) bool {
 			case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageUnpivotOp,
 				ir.PhysicalStageExpandOp, ir.PhysicalStageRelatedSourceOp, ir.PhysicalStageRelatedExpandOp,
 				ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedFieldOp:
-				// These stages operate independently on each selected root row.
+
 			case ir.PhysicalStagePivotOp, ir.PhysicalStageGroupOp, ir.PhysicalStageCodedGroupOp,
 				ir.PhysicalStageCohortGroupOp:
-				// These stages combine rows from different roots, so root-local
-				// lookup would change their group or category semantics.
+
 				return false
 			default:
-				// A new stage kind must prove row-local semantics before using this
-				// optimization.
+
 				return false
 			}
 		}
@@ -957,27 +926,21 @@ func rootPageKeyLookupSafe(plan ir.PhysicalPlan) bool {
 		case ir.PhysicalTraversalOp, ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp,
 			ir.PhysicalSetOp, ir.PhysicalUnnestOp, ir.PhysicalUnpivotOp, ir.PhysicalSortOp, ir.PhysicalLimitOp,
 			ir.PhysicalReturnOp:
-			// These operations preserve independent execution for each selected
-			// root, including row-local expansion and projection.
+
 		default:
-			// Unknown or specialized operations use the established collection
-			// filter path until their paging semantics are explicitly verified.
+
 			return false
 		}
 	}
 	return true
 }
 
-// rootPageInsertionIndex returns the boundary after scoped root predicates and
-// before the first cardinality-changing or navigation operation.
 func rootPageInsertionIndex(operations []ir.PhysicalOperation) int {
-	index := 5 // ROOT_SCAN plus the canonical four-operation root scope block.
+	index := 5
 	for index < len(operations) {
 		operation := operations[index]
 		if operation.Kind == ir.PhysicalExpressionLetOp {
-			// A population LET is immediately followed by its root eligibility
-			// filter. Projection-only LETs are intentionally left out of the
-			// key-discovery prefix so paging does not evaluate them early.
+
 			if index+1 >= len(operations) || operations[index+1].Kind != ir.PhysicalFilterOp {
 				break
 			}

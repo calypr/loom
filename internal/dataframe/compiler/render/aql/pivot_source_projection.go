@@ -2,9 +2,6 @@ package aql
 
 import "github.com/calypr/loom/internal/dataframe/compiler/ir"
 
-// A source Pivot consumes its keys, category, value and row-value inputs;
-// other source columns cannot contribute to any later stage. Keep diagnostic
-// plans intact because their consumers also inspect the source rows.
 func pruneUnusedSourcePivotProjections(plan *ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage) {
 	if sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil || len(stages) == 0 {
 		return

@@ -38,8 +38,7 @@ func (s *Service) prepareImportedSource(ctx context.Context, project, explorerID
 	if err != nil {
 		return nil, unprocessable("commands", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
-	// Compile the whole workspace: later operations and other tables may depend
-	// on columns removed by this source change.
+
 	if _, err := s.compile(ctx, compileRequest{Project: project, ExplorerID: explorerID, Workspace: candidate, SnapshotToken: authorized.Snapshot.Token, RequestID: "source-edit-validation"}); err != nil {
 		return nil, err
 	}

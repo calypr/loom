@@ -18,9 +18,6 @@ import (
 
 const sourceFileIssueLimit = 100
 
-// validateSourceLoadFile checks the complete file before any candidate writes.
-// Hashing shares this streaming pass; only one row and bounded diagnostics stay
-// in memory. The subsequent import uses the same row builder.
 func validateSourceLoadFile(ctx context.Context, localPath, filePath, project, authResourcePath, generation, schemaPath string) (digest string, rows int64, validation *SourceFileValidationError, err error) {
 	resourceType, err := canonicalSourceResourceType(filePath)
 	if err != nil {

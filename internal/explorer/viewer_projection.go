@@ -45,12 +45,6 @@ func viewerProjectionIntegrity(component string, cause error) error {
 	return &ViewerProjectionIntegrityError{Component: component, Cause: cause}
 }
 
-// buildViewerProjection is the single translation from immutable Explorer
-// publication state to the renderer-facing contract. It intentionally does
-// not require an authored ConfigView: a valid recipe is enough to produce a
-// default table that a client can extend with presentation choices.
-// BuildViewerProjection is the pure immutable-revision to Viewer wire
-// projection. It performs no persistence lookup and has no service state.
 func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	if revision == nil {
 		return nil, nil
@@ -71,8 +65,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 		}
 	}
 	if len(bundle.Outputs) == 0 {
-		// A revision without a recipe is not an executable query. The caller
-		// still returns a valid ExplorerState response with runtime: null.
+
 		return nil, nil
 	}
 
@@ -118,10 +111,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 			emittedOrder[column.OutputID] = append(emittedOrder[column.OutputID], column.PublicColumn)
 		}
 		emitted[column.OutputID][column.PublicColumn] = column
-		// Emissions are a compatibility fallback for outputs whose publication
-		// metadata has no columns at all. Once DatasetMetadata or Materialization
-		// metadata supplies any column for an output, it is authoritative and
-		// historical emissions must not manufacture additional runtime columns.
+
 		if !authoritativeColumns[column.OutputID] {
 			if physicalColumns[column.OutputID] == nil {
 				physicalColumns[column.OutputID] = map[string]publication.PhysicalColumn{}
@@ -135,8 +125,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 			}
 		}
 	}
-	// Labels are frozen by the public output contract. They are indexed by the
-	// authored physical column, never reconstructed from compiler identities.
+
 	contractColumns := map[string]map[string]PublicOutputColumn{}
 	contractOrder := map[string][]string{}
 	if len(revision.PublicOutputContract) > 0 {
@@ -178,8 +167,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	unavailableViews := projectConfigUnavailableViewIDs(revision.Diagnostics)
 	for _, view := range views {
 		if _, unavailable := unavailableViews[view.ID]; unavailable {
-			// A stale fixed filter must fail closed with its whole view. Merely
-			// omitting that binding would broaden the displayed result set.
+
 			continue
 		}
 		if view.Output == "" {
@@ -200,9 +188,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 				return ExplorerRuntimeColumnV1{}, false
 			}
 			emission := emitted[view.Output][name]
-			// Runtime is an intersection of compiler emissions and authoritative
-			// materialized columns. Physical schema metadata is never promoted into
-			// a user-visible column by itself.
+
 			if emission.PublicColumn == "" || strings.TrimSpace(emission.EmissionID) == "" {
 				return ExplorerRuntimeColumnV1{}, false
 			}
@@ -268,10 +254,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 		}
 		_, hasPublicContract := contractColumns[view.Output]
 		if hasPublicContract {
-			// Compilation owns the public schema and its order. Legacy Viewer
-			// configuration may still supply presentation choices for matching
-			// columns, but it cannot hide or reorder columns created by a later
-			// table-shape compilation.
+
 			for index, name := range ordered {
 				column, ok := ensureColumn(name)
 				if !ok {

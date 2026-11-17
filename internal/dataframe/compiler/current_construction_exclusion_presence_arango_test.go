@@ -30,7 +30,7 @@ func TestCurrentPivotNullMissingExclusionPartitionAgainstArango(t *testing.T) {
 	}
 	project := "loom_null_missing_exclusion_" + uuid.NewString()
 	const generation = "generation-current-null-missing-exclusion"
-	// Remove only this test's three records, including after a failed assertion.
+
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()

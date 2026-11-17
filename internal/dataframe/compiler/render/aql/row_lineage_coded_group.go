@@ -78,9 +78,6 @@ func (r *physicalPlanRenderer) renderCodedGroupRowLineage(
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-// codedGroupTupleRows emits one row per source record and exact coding tuple.
-// Its COLLECT has no INTO clause, so duplicate Coding entries from one root
-// collapse without materializing contributor lists.
 func (r *physicalPlanRenderer) codedGroupTupleRows(
 	stage ir.PhysicalConstructionStage,
 	sourceQuery string,

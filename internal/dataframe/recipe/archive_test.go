@@ -137,7 +137,7 @@ func TestArchiveDecoderRejectsMalformedKnownUnionAndUnknownFields(t *testing.T) 
 func TestArchiveEncodingDoesNotExpandFragments(t *testing.T) {
 	b := decodeTestArchive(t, []byte(archivedRecipeGolden))
 	b.Fragments = &FragmentLibrary{Fragments: map[string]Fragment{"unused": {Name: "unused", Version: "1", Expr: Expression{Literal: json.RawMessage(`"x"`)}}}}
-	// Use a known literal expression wire rather than current expansion/canonicalization.
+
 	canonical, err := b.ArchiveCanonicalJSON()
 	if err != nil {
 		t.Fatal(err)

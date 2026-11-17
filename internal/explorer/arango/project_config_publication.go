@@ -53,9 +53,6 @@ type projectConfigOwnerPlan struct {
 	reactivate  bool
 }
 
-// PublishProjectConfigs stores project-owned definitions and their immutable
-// execution-backed revisions, then switches the release and all config heads
-// in one Arango transaction.
 func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.ProjectConfigPublishRequest) (dataset.ActiveRelease, error) {
 	if request.CatalogSnapshot != nil {
 		normalized, err := canonicalProjectConfigRevision(*request.CatalogSnapshot)
@@ -137,8 +134,6 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 			}
 		}
 
-		// All owner, prior-revision, immutable-key, and execution guards happen
-		// before the first write. A lost release CAS therefore changes nothing.
 		active, err = datasetarango.CompareAndSwapActivateRelease(txCtx, tx, request.Release, request.ExpectedReleaseRevision)
 		if err != nil {
 			return err
@@ -159,7 +154,7 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 			}
 			if existing := revisions[revision.ID]; existing.ID != "" && existing.Status == explorer.RevisionActive {
 				if plan.owner != nil && plan.owner.value.ActiveRevisionID == revision.ID {
-					continue // ACK-loss retry of the already-active exact revision.
+					continue
 				}
 				return fmt.Errorf("project config revision %q is active without its owner pointer", revision.ID)
 			}
@@ -217,9 +212,6 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 	return active, nil
 }
 
-// canonicalProjectConfigPublications makes request revisions use the exact
-// JSON representation the store persists before immutable-content comparison.
-// The copied slice keeps this boundary from mutating the caller's request.
 func canonicalProjectConfigPublications(configs []explorer.ProjectConfigPublication) ([]explorer.ProjectConfigPublication, error) {
 	canonical := append([]explorer.ProjectConfigPublication(nil), configs...)
 	for index := range canonical {
@@ -311,7 +303,7 @@ func validateProjectConfigRequest(request explorer.ProjectConfigPublishRequest) 
 	currentRecipeBindings := 0
 	for _, binding := range request.Release.Publications {
 		if binding.Selector.Recipe != request.RecipeName || binding.Generation != request.Release.Generation {
-			continue // Preserve stale historical selectors for the same recipe.
+			continue
 		}
 		if binding.Stale || binding.ExecutionID != executionID {
 			return "", "", fmt.Errorf("release recipe %q contains a stale or mismatched current-generation binding", request.RecipeName)
@@ -362,9 +354,7 @@ func validateProjectConfigExecution(request explorer.ProjectConfigPublishRequest
 	}
 	for _, config := range request.Configs {
 		revision := config.Revision
-		// Recipe is the resolved snapshot and ResolvedSchemaDigest describes
-		// compiler resolution. Compare the stored recipe digest and retained
-		// final schema identity to the execution instead.
+
 		if revision.RecipeDigest != execution.RecipeDigest || revision.Dataset.SchemaDigest != execution.SchemaDigest ||
 			revision.Recipe.Name != execution.Name || revision.Recipe.TranslationVersion != execution.TranslationVersion {
 			return fmt.Errorf("project config %q revision is not pinned to the published recipe", config.Definition.ID)

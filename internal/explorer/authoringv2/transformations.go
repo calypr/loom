@@ -33,8 +33,6 @@ type aggregateTransformNode struct {
 	rowRootEligible bool
 }
 
-// AggregateTransformationCapabilitiesForCatalog derives choices from the
-// resolved catalog candidates and generated FHIR schema.
 func AggregateTransformationCapabilitiesForCatalog(catalog CatalogSnapshot, candidateID string) AggregateTransformationCapabilities {
 	nodes, candidates := catalogAggregateTransformationInputs(catalog)
 	return aggregateTransformationCapabilities(nodes, candidates, candidateID)
@@ -66,8 +64,6 @@ func catalogAggregateTransformationInputs(catalog CatalogSnapshot) ([]aggregateT
 	return nodes, candidates
 }
 
-// AggregateTransformationCapabilitiesForCatalogCandidates returns one independent
-// result per catalog candidate, in catalog order, preparing shared temporal choices once.
 func AggregateTransformationCapabilitiesForCatalogCandidates(catalog CatalogSnapshot) []AggregateTransformationCapabilities {
 	nodes, candidates := catalogAggregateTransformationInputs(catalog)
 	resourceByNode := make(map[string]string, len(nodes))
@@ -114,8 +110,6 @@ func AggregateTransformationCapabilitiesForCatalogCandidates(catalog CatalogSnap
 	return results
 }
 
-// AggregateTransformationCapabilitiesForCapability derives choices from the
-// capability snapshot used at compilation time.
 func AggregateTransformationCapabilitiesForCapability(snapshot capability.Snapshot, candidateID string) AggregateTransformationCapabilities {
 	nodes := make([]aggregateTransformNode, 0, len(snapshot.Nodes))
 	for _, node := range snapshot.Nodes {
@@ -199,12 +193,10 @@ func finishAggregateTransformationCapabilities(result AggregateTransformationCap
 	return result
 }
 
-// SupportsTimestamp reports whether the exact scalar timestamp is advertised.
 func (c TemporalReductionCapabilities) SupportsTimestamp(resourceType, fieldPath string) bool {
 	return temporalFieldAvailable(c.TimestampFields, resourceType, fieldPath)
 }
 
-// SupportsAnchor reports whether the exact root-row anchor is advertised.
 func (c TemporalReductionCapabilities) SupportsAnchor(resourceType, fieldPath string) bool {
 	return temporalFieldAvailable(c.AnchorFields, resourceType, fieldPath)
 }

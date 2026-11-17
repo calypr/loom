@@ -60,7 +60,7 @@ func TestWorkspaceProjectionCurrentPacketsBypassReader(t *testing.T) {
 	}
 }
 func TestWorkspaceProjectionImmutablePacketsRemainExact(t *testing.T) {
-	// These bytes intentionally cannot be decoded, even while the old persisted decoder remains installed.
+
 	raw := json.RawMessage(`{"legacyPacket":"immutable-original"}`)
 	revision := Revision{ID: "revision", Project: "tenant", ExplorerID: "explorer", AuthoringBundle: raw, IntentDigest: "original-intent", CompilationReceiptID: "original-receipt", SourceGeneration: "generation"}
 	before, _ := json.Marshal(revision)
@@ -109,7 +109,7 @@ func TestWorkspaceProjectionRejectsSourceAndContentTampering(t *testing.T) {
 			} else {
 				v.SetInt(v.Int() + 1)
 			}
-			p.ID = p.ContentID() // Even internally consistent content must match the requested source.
+			p.ID = p.ContentID()
 			if _, err := p.Validate(source); err == nil {
 				t.Fatal("accepted mismatched source")
 			}

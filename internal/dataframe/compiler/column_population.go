@@ -19,9 +19,6 @@ type CompiledColumnPopulationScan struct {
 	ColumnIDs []string
 }
 
-// CompileColumnPopulationScan computes exact current-stage non-null presence
-// in one pass. It projects only the requested scalar outputs at the terminal
-// stage; upstream operations and authorization remain in the compiled plan.
 func CompileColumnPopulationScan(output lower.CompiledRecipeOutput, stageID string, columnIDs []string, policy ir.PhysicalOptimizationPolicy) (CompiledColumnPopulationScan, error) {
 	if stageID == "" || len(columnIDs) == 0 || len(columnIDs) > MaxColumnPopulationBatch {
 		return CompiledColumnPopulationScan{}, fmt.Errorf("column population requires a stage and 1..%d columns", MaxColumnPopulationBatch)

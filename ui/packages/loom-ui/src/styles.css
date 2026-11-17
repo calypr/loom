@@ -125,7 +125,6 @@
   border-bottom: 0;
 }
 
-/* Builder-only accents follow the loom-wide border reset above. */
 .loom-ui-root .construction-table-tabs {
   background-color: transparent;
 }
@@ -205,7 +204,6 @@
   border-bottom: 1px solid #eef2f7;
 }
 
-/* Keep interactive feedback consistent inside Loom and its body-level portals. */
 :where(
   .loom-ui-root,
   body:has(.loom-ui-root) > [data-mantine-shared-portal-node]:has([role="dialog"], [role="menu"], [role="menuitem"]),
@@ -351,7 +349,6 @@
   }
 }
 
-/* One contextual editor shares the workspace with the traversal bar and result. */
 .loom-ui-root .construction-result-region { display: grid; gap: .75rem; min-width: 0; }
 .loom-ui-root .construction-main-panel,
 .loom-ui-root .construction-side-panel,
@@ -577,8 +574,6 @@
   .loom-ui-root .construction-active-editor:has(> .construction-inspector-portal-host) { overflow: hidden; }
 }
 
-
-/* Split-pane resize handles */
 .loom-ui-root .construction-resize-handle { display: none; }
 @media (min-width: 1100px) {
   .loom-ui-root .construction-resize-handle { display: block; touch-action: none; background: #e5e7eb; transition: background-color .12s ease; }

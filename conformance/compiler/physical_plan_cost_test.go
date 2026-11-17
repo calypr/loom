@@ -7,10 +7,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// TestPhysicalPlanOptimizationCorpus is a structural regression gate. It does
-// not pretend to replace live Arango PROFILE; it prevents future compiler
-// changes from silently removing the generic rewrites that PROFILE is meant
-// to measure.
 func TestPhysicalPlanOptimizationCorpus(t *testing.T) {
 	fixtures, err := LoadDir(filepath.Join("fixtures"))
 	if err != nil {

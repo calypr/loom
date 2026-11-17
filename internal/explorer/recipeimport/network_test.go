@@ -157,8 +157,6 @@ func TestCompiledNetworkProvenanceDistinguishesRepeatedPatientOccurrences(t *tes
 	}
 }
 
-// This fixture supplies independently chosen catalog fields. The resolver and
-// compiler must retain exact owning occurrences for all five default outputs.
 type networkDiscovery struct{}
 
 func (networkDiscovery) Fields(_ context.Context, _ recipeschema.Scope, resource string) ([]recipeschema.FieldCandidate, error) {

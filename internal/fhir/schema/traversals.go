@@ -1,6 +1,5 @@
 package schema
 
-// LookupTraversal returns a defensive copy of the generated traversal record.
 func LookupTraversal(fromType, edgeLabel, toType string) (TraversalSpec, bool) {
 	spec, ok := generatedTraversals[traversalKey(fromType, edgeLabel, toType)]
 	if !ok {

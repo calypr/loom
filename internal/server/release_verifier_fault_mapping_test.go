@@ -1,10 +1,5 @@
 package server
 
-// Durable control (F-B14 revision, round 41): the production verifier adapter
-// must map a deterministic not-found to dataset.ErrPublicationRecordMissing so
-// release activation can classify it as a non-retryable contract miss, while
-// every other catalog error stays a raw store fault for retryable handling.
-
 import (
 	"context"
 	"errors"

@@ -9,10 +9,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// TestGDCFixtureCoversRichShape keeps the checked-in benchmark representative
-// of the dataframe users actually want to build. It is intentionally a corpus
-// test, not a compiler test: as physical feature families land, the same
-// request remains the parity and Arango-cost benchmark target.
 func TestGDCFixtureCoversRichShape(t *testing.T) {
 	fixtures, err := LoadDir(filepath.Join("fixtures"))
 	if err != nil {

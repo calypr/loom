@@ -14,10 +14,6 @@ import (
 	storearango "github.com/calypr/loom/internal/store/arango"
 )
 
-// The full frozen ResearchSubject output is captured from the failed native
-// default-recipe receipt. Only opaque choice tokens are replaced by fixture IDs;
-// all source families, projections, traversal and operation semantics remain.
-// Expected rows below are independent literal fixture facts, not query output.
 func graphRowsCheckDefaultRelatedInventory(t *testing.T, ctx context.Context, client *storearango.Client, generation, mode string) {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/graph_rows_default_related_field.json")
@@ -93,9 +89,7 @@ func graphRowsCheckDefaultRelatedInventory(t *testing.T, ctx context.Context, cl
 		}
 		return
 	}
-	// This row-preserving operation also retains every pre-existing public
-	// value. Literal expectations below independently prove the important lists
-	// and scalar values, rather than deriving them from this comparison.
+
 	baseline := output
 	construction := *output.Construction
 	construction.Steps = append([]recipe.ConstructionStep{}, construction.Steps[:1]...)

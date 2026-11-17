@@ -8,11 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// withConstructionPreviewRootIDFilter adds an indexed root-id equality for a
-// first-stage construction filter over the exact root.payload.id projection.
-// The construction filter remains in the stage sequence as the value-level
-// check. Loom ingestion stores the same unmodified FHIR id in the document id
-// and payload.id fields, so this root predicate can safely narrow the scan.
 func withConstructionPreviewRootIDFilter(output lower.CompiledRecipeOutput, plan ir.PhysicalPlan) ir.PhysicalPlan {
 	filter, ok := constructionPreviewRootIDFilter(output, plan)
 	if !ok {

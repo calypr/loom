@@ -7,8 +7,6 @@ func NewWorkspace(title string) Workspace {
 		Explorer: ExplorerMetadata{Title: title}, Documents: []Document{}, Tabs: []Tab{}}
 }
 
-// DecodeCurrentWorkspace accepts the current stored representation without
-// interpreting a historical source encoding or advancing a semantics version.
 func DecodeCurrentWorkspace(raw []byte) (Workspace, error) {
 	var workspace Workspace
 	if err := strictDecode(raw, &workspace); err != nil {
@@ -32,7 +30,6 @@ func DecodeCurrentWorkspace(raw []byte) (Workspace, error) {
 	return workspace, nil
 }
 
-// CloneCurrentWorkspace detaches current input without upgrading historical intent.
 func CloneCurrentWorkspace(workspace Workspace) (Workspace, error) {
 	if workspaceHasArchivedShape(workspace) {
 		return Workspace{}, fmt.Errorf("tableShape requires explicit stored-data migration")
@@ -46,7 +43,6 @@ func CloneCurrentWorkspace(workspace Workspace) (Workspace, error) {
 	return cloneWorkspace(workspace)
 }
 
-// PrepareWorkspaceForCompilation normalizes presentation on detached current input.
 func PrepareWorkspaceForCompilation(workspace Workspace, _ CatalogSnapshot) (Workspace, error) {
 	prepared, err := CloneCurrentWorkspace(workspace)
 	if err != nil {

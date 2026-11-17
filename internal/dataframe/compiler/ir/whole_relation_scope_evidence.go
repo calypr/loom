@@ -10,9 +10,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// WholeRelationScopeIdentity is compiler-owned identity for a finalized
-// whole-relation output. The lowerer supplies OutputID and the digest of its
-// final schema after constructing the physical plan.
 type WholeRelationScopeIdentity struct {
 	OutputID          string
 	Project           string
@@ -22,10 +19,6 @@ type WholeRelationScopeIdentity struct {
 	SchemaDigest      string
 }
 
-// WholeRelationScopeEvidence is an opaque proof that one exact typed physical
-// plan reads only the complete authorized source scope and has no bounded
-// output window. Issuance always means whole-scope evidence; it does not attest
-// row-level auth_resource_path metadata on grouped output rows.
 type WholeRelationScopeEvidence struct {
 	planFingerprint string
 	identity        WholeRelationScopeIdentity
@@ -34,11 +27,6 @@ type WholeRelationScopeEvidence struct {
 	digest          string
 }
 
-// NewWholeRelationScopeEvidence issues evidence only for complete unbounded
-// typed AQL source plans whose reads have explicit scope contracts. The plan
-// fingerprint is computed here so a caller cannot assert a digest for a
-// different plan. Cohort and coded group stages use their typed custom-source
-// contracts in addition to generic operation-graph scope validation.
 func NewWholeRelationScopeEvidence(plan PhysicalPlan, identity WholeRelationScopeIdentity) (WholeRelationScopeEvidence, error) {
 	if err := plan.Validate(); err != nil {
 		return WholeRelationScopeEvidence{}, fmt.Errorf("whole-relation evidence physical plan: %w", err)
@@ -65,8 +53,6 @@ func NewWholeRelationScopeEvidence(plan PhysicalPlan, identity WholeRelationScop
 	return WholeRelationScopeEvidence{planFingerprint: fingerprint, identity: identity, issuerKind: issuerKind, digest: digest}, nil
 }
 
-// Matches reports whether this evidence was issued for the exact current plan
-// and output identity. It is safe to persist Digest only after this check.
 func (e WholeRelationScopeEvidence) Matches(plan PhysicalPlan, identity WholeRelationScopeIdentity) bool {
 	if e.digest == "" || e.planFingerprint == "" || physicalPlanFingerprint(plan) != e.planFingerprint ||
 		!sameWholeRelationScopeIdentity(e.identity, identity) {
@@ -82,8 +68,6 @@ func (e WholeRelationScopeEvidence) Matches(plan PhysicalPlan, identity WholeRel
 	}
 }
 
-// Digest returns a stable digest of the validated plan fingerprint and exact
-// output identity. The zero value returns an empty digest.
 func (e WholeRelationScopeEvidence) Digest() string {
 	return e.digest
 }

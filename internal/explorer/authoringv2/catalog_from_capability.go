@@ -130,10 +130,7 @@ func catalogAvailability(value *capability.Availability) *CatalogAvailability {
 }
 
 func catalogProjectionModes(values []capability.ProjectionMode) []string {
-	// ALL and DISTINCT are stable authoring-v2 spellings. Legacy workspaces
-	// keep decoding ALL as array projection; DISTINCT is only needed when the
-	// capability snapshot can prove distinct-array semantics, so no persisted
-	// workspace version migration is needed here.
+
 	out := make([]string, len(values))
 	for i, value := range values {
 		switch value {

@@ -46,16 +46,13 @@ const sourceStepLabel = (step: ImportedSourceStep): string => {
   if (parameters?.traversal) return `Related ${parameters.traversal.toResourceType.replace(/([a-z])([A-Z])/g, '$1 $2')} records · ${parameters.traversal.name}`;
   if (step.kind !== 'TRAVERSAL') return step.title;
   const target = /^Traversal to (.+?)(?: via .+)?$/.exec(step.title)?.[1];
-  // The plan supplies resource names, not clinical relationship descriptions.
-  // Keep unfamiliar names literal; never infer a clinical meaning from a path.
+
   return target ? `Related ${target.replace(/([a-z])([A-Z])/g, '$1 $2')} records` : step.title;
 };
 
 type SourceStepEntry = { readonly step: ImportedSourceStep; readonly number: number };
 type SourceStepGroup = { readonly id: string; readonly columns: boolean; readonly entries: SourceStepEntry[] };
 
-// Group only adjacent projections in the same source scope. Traversals and row
-// operations remain boundaries; flattening these groups preserves recipe order.
 export const groupSourceSteps = (steps: ReadonlyArray<ImportedSourceStep>): SourceStepGroup[] => {
   const groups: SourceStepGroup[] = [];
   const columnKinds = new Set(['FIELD_GROUP', 'CATALOG_PROJECTION', 'DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'PIVOT']);

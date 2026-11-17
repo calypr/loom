@@ -39,7 +39,7 @@ func TestSavedExtensionIdentitiesSurviveCorrelatedCompiler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// These IDs are from the saved draft before the query lowering changed.
+
 	expected := map[string]string{"sha256": "import_0f168b510db1a4a305688b94", "source_path": "import_7732e25ef1f51e1498d5710e"}
 	schemas := map[string][]recipe.StageColumn{}
 	for _, output := range source.resolved.Compiled.Outputs {

@@ -27,9 +27,6 @@ const (
 	RowDefinitionSelectionExpanded      RowDefinitionSelectionKind = "EXPANDED"
 )
 
-// RowDefinitionSelection is the closed browser-intent union. It contains only
-// opaque identities and user-selected policies; schema paths are resolved by
-// RowChoiceResolver after the snapshot and output have been checked.
 type RowDefinitionSelection struct {
 	Kind          RowDefinitionSelectionKind `json:"kind"`
 	FieldGroup    *FieldGroupSelection       `json:"fieldGroup,omitempty"`
@@ -205,8 +202,6 @@ const (
 	RowChoiceExpanded   RowChoiceKind = "EXPANDED"
 )
 
-// RowChoiceResolveRequest is the server-side identity used to verify a choice
-// against one output and one immutable capability snapshot.
 type RowChoiceResolveRequest struct {
 	Project      string
 	ExplorerID   string
@@ -257,8 +252,6 @@ type ExplicitGroupRevisionChoice struct {
 	UnassignedMemberPolicies  []authoringv2.UnassignedMemberPolicy `json:"unassignedMemberPolicies"`
 }
 
-// ExplicitGroupRevisionProof contains the immutable identities a group
-// adapter validates before a proposal can use a revision.
 type ExplicitGroupRevisionProof struct {
 	RevisionID                string
 	Project                   string
@@ -278,9 +271,6 @@ type ExplicitGroupRevisionResolver interface {
 	ValidateCompilationReceipt(context.Context, ExplicitGroupRevisionProof, *explorer.CompilationReceipt) error
 }
 
-// ProposeRowDefinition compiles a complete candidate workspace without saving
-// the draft. The candidate receipt ID is the proposal ID; no mutable proposal
-// store is involved.
 func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitionProposalRequest) (RowDefinitionProposal, error) {
 	if err := request.Validate(); err != nil {
 		return RowDefinitionProposal{}, malformed("row-definition-proposal", err.Error(), err)
@@ -390,9 +380,7 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := s.validateExplicitGroupReceipt(ctx, candidateGroupProof, candidateReceipt); err != nil {
 		return RowDefinitionProposal{}, err
 	}
-	// Source row proposals are restricted to ordinary documents. Project the
-	// exact receipt-verified candidate through the existing route adapter rather
-	// than guessing rows from the requested mode or the comparison sample.
+
 	candidateDocument := proposalDocument(verifiedCandidate, request.OutputID)
 	if candidateDocument == nil {
 		return RowDefinitionProposal{}, conflict("row-definition-proposal", "INVALID_ROW_DEFINITION_PROPOSAL", "candidate output missing", nil, nil)
@@ -436,8 +424,7 @@ func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request Row
 			}},
 		}
 		if existing := document.Rows.Groups; existing != nil && document.Rows.Kind == authoringv2.RowDefinitionGroups && existing.Source.Kind == authoringv2.GroupSourceExplicit {
-			// A policy or revision edit changes the pinned row source, not the
-			// stage boundary or the member fields already chosen for cohort rows.
+
 			groups.AfterStepID = existing.AfterStepID
 			groups.RowValues = append([]authoringv2.ExplicitGroupRowValue(nil), existing.RowValues...)
 		} else if document.Construction != nil && len(document.Construction.Steps) > 0 {

@@ -141,7 +141,7 @@ func readMedicationFixture(t *testing.T) (medicationFixtureScope, map[string]med
 					file.Close()
 					t.Fatal(err)
 				}
-				edge.Generation = scope.Generation // Dataset loaders attach this scope to extracted edges.
+				edge.Generation = scope.Generation
 				edges = append(edges, edge)
 			}
 		}

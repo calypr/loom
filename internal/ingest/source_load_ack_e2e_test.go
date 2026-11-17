@@ -55,8 +55,7 @@ func TestSourceFileLostReceiptAcknowledgementPreservesAcceptedRows(t *testing.T)
 			return
 		}
 		if response.StatusCode < 300 && bytes.Contains(body, []byte("file_claims: UNSET")) && dropped.CompareAndSwap(false, true) {
-			// Arango has committed the receipt. Lose its acknowledgement before the
-			// caller can observe it, exercising the actual upload recovery path.
+
 			connection, _, err := w.(http.Hijacker).Hijack()
 			if err != nil {
 				t.Errorf("hijack: %v", err)

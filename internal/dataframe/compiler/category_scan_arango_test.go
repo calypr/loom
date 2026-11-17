@@ -178,9 +178,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 	if !strings.Contains(valueScan.Query, "HAS(") || !strings.Contains(valueScan.Query, "@__loom_category_value_column") {
 		t.Fatalf("value-aware category scan did not carry source presence and filter the selected value:\n%s", valueScan.Query)
 	}
-	// MISSING categories with a non-null pivot value are preserved as their own
-	// present=false category; the value filter only removes rows whose pivot
-	// value is null.
+
 	assertMissingAndNull(valueScan)
 
 	existsScan := compileScan(makeOutput("construction_category_presence_exists", "keep_active_exists", recipe.FilterExists), "keep_active_exists", false)
@@ -233,8 +231,7 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 		{id: "other-project", resourceType: "Observation", authPath: allowedPath, project: project + "_foreign", generation: generation, includeQuantity: true, quantity: map[string]any{"code": "foreign-project"}},
 		{id: "other-generation", resourceType: "Observation", authPath: allowedPath, project: project, generation: generation + "_foreign", includeQuantity: true, quantity: map[string]any{"code": "foreign-generation"}},
 		{id: "denied-scope", resourceType: "Observation", authPath: "/category/denied", project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "denied"}},
-		// ResourceType mismatches cannot be produced by the supported FHIR
-		// ingest path; this guard makes the shared type-ordered index explicit.
+
 		{id: "wrong-type", resourceType: "Patient", authPath: allowedPath, project: project, generation: generation, includeQuantity: true, quantity: map[string]any{"code": "wrong-type"}},
 	}
 	documents := make([]json.RawMessage, 0, len(fixtures))

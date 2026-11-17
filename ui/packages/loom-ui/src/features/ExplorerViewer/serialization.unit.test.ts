@@ -35,10 +35,6 @@ const runtime: ExplorerRuntimeV1 = {
   diagnostics: [],
 };
 
-// Each filterable column exercises every source state. The contract under test is
-// that publication writes an absent property and an explicit null into the same
-// ClickHouse Nullable column, so both become SQL NULL and only populated values
-// compare as data.
 type ContractRow = Record<string, unknown> & { readonly __rowId: string };
 const contractRows: ReadonlyArray<ContractRow> = [
   { __rowId: 'status-absent', project: 'NCPI', note: 'queued' },
@@ -50,8 +46,6 @@ const contractRows: ReadonlyArray<ContractRow> = [
   { __rowId: 'note-observed', project: 'NCPI', status: 'entered', note: 'observed' },
 ];
 
-// Independent of the serializer: absent property and explicit null collapse to
-// NULL; the reader joins every clause with AND.
 const matchesFilter = (row: ContractRow, filter: LoomOutputFilter): boolean => {
   const value = Object.prototype.hasOwnProperty.call(row, filter.column) ? row[filter.column] : null;
   switch (filter.op) {

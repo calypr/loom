@@ -14,7 +14,7 @@ func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 		if spec.Truncate {
 			t.Fatalf("%s truncates persisted Explorer state", spec.Name)
 		}
-		// Projections are addressed only by their source-derived primary key.
+
 		if len(spec.Indexes) == 0 && spec.Name != workspaceProjectionCollection {
 			t.Fatalf("%s has no indexes", spec.Name)
 		}

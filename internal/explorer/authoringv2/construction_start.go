@@ -2,8 +2,6 @@ package authoringv2
 
 import "fmt"
 
-// StartDocumentConstruction initializes a staged sequence from current source
-// columns. Historical post-source operations require the stored-data migration.
 func StartDocumentConstruction(document Document) (Document, error) {
 	if document.ArchiveRetiredShape != nil {
 		return document, fmt.Errorf("tableShape requires explicit stored-data migration")

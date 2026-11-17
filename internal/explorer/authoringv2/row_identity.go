@@ -2,10 +2,6 @@ package authoringv2
 
 import "fmt"
 
-// RowIdentityPlan is a derived description of the authoritative source and
-// ordered construction. It carries no query expressions or editable state.
-// Counts deliberately remain unknown until a receipt-bound execution supplies
-// evidence; a preview sample cannot establish universal cardinality.
 type RowIdentityPlan struct {
 	OutputID         string                  `json:"outputId"`
 	SourceDefinition RowDefinition           `json:"sourceDefinition"`
@@ -24,8 +20,7 @@ type RowIdentity struct {
 	KeyColumnIDs          []string `json:"keyColumnIds,omitempty"`
 	GroupRevisionID       string   `json:"groupRevisionId,omitempty"`
 	MissingPolicy         string   `json:"missingPolicy,omitempty"`
-	// Global uniqueness is never implied by expansion: identical related
-	// resources reached by different input rows retain separate row pairs.
+
 	Scope string `json:"scope"`
 }
 
@@ -55,9 +50,6 @@ type RelationshipRowEffect struct {
 	Multiplicity      string         `json:"multiplicity"`
 }
 
-// DescribeRowIdentity must receive the effective document resolved from the
-// pinned recipe and its overlay for imported sources. It never modifies Rows
-// to pretend a construction stage changed the source row definition.
 func DescribeRowIdentity(document Document) RowIdentityPlan {
 	plan := RowIdentityPlan{OutputID: document.Output.ID, SourceDefinition: document.Rows,
 		Stages: []RowIdentityStage{}, Relationships: []RelationshipRowEffect{}}
@@ -149,7 +141,7 @@ func DescribeRowIdentity(document Document) RowIdentityPlan {
 				stage.Meaning = "One row per complete Group key tuple; summaries and retained contributor values do not change that tuple."
 			}
 		default:
-			// Do not substitute a root name for row identity we cannot describe.
+
 			stage.Identity = RowIdentity{Kind: "OPERATION_DEFINED", InputStageID: inputID, Scope: "INPUT_STAGE"}
 			stage.Effect = "OPERATION_DEFINED"
 			stage.Meaning = "This operation defines its own row identity."

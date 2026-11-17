@@ -23,9 +23,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// This case proves the generated HTTP boundary and lifecycle ownership using
-// explicit fake compilation/execution adapters. Native compiler semantics and
-// real source edits have a separate resolver test; this is not browser proof.
 func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	ctx := context.Background()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -328,7 +325,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 	if final.DraftVersion != saved.DraftVersion || final.DraftDigest != saved.DraftDigest || !bytes.Equal(final.DraftConfig, saved.DraftConfig) {
 		t.Fatal("stale HTTP Apply changed saved state")
 	}
-	// The same public receipt proposal reviews earlier bounded source settings.
+
 	stepBody := fmt.Sprintf(`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","sourceStep":{"stepId":"fields","enabled":true}}`, snapshot.Token, saved.DraftVersion, saved.DraftDigest)
 	stepResponse := requestJSON(t, app, http.MethodPost, basePath+"/source-relationship-proposals", stepBody)
 	if stepResponse.StatusCode != http.StatusOK {

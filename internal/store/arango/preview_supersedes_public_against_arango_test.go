@@ -82,7 +82,7 @@ func TestPreviewSupersededPublicMigrationVersionedAgainstArango(t *testing.T) {
 			database := "loom_test_wp19_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
-			// Open is used only to create this test's unique database; the API under test uses the resulting client.
+
 			defer wp19DeleteOwnedDatabase(t, endpoint, database)
 			client, err := Open(ctx, endpoint, database)
 			if err != nil {

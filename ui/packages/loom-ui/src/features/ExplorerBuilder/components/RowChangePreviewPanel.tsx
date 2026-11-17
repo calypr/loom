@@ -26,7 +26,7 @@ export const RowChangePreviewPanel = ({
   readonly onApply: () => void;
   readonly onCancel: () => void;
 }) => {
-  // Only a ready preview has an authoritative count, so loading and error carry none.
+
   const impact = status === 'ready' && preview
     ? rowCountImpactSummary(preview, `${candidateRoot} row root`, PARTIAL_VALIDATION_MESSAGE)
     : '';

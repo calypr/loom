@@ -13,8 +13,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// PrepareViewBuilderCatalogSnapshot stores one immutable compiler snapshot for
-// a recipe execution without creating an Explorer owner or a user view config.
 func PrepareViewBuilderCatalogSnapshot(
 	resolved execution.Resolved,
 	executionValue publication.BundleExecution,
@@ -46,9 +44,6 @@ func PrepareViewBuilderCatalogSnapshot(
 	return revision, nil
 }
 
-// InitialProjectConfigForRecipe creates the one-time project-owned starter
-// definition. Empty table bindings let the existing projection expose every
-// compiler-public column for each output.
 func InitialProjectConfigForRecipe(bundle recipe.Bundle) (ProjectConfig, error) {
 	if strings.TrimSpace(bundle.Name) == "" || len(bundle.Outputs) == 0 {
 		return ProjectConfig{}, invalidViewBuilder("initial project config requires a named recipe with outputs")
@@ -70,9 +65,6 @@ func InitialProjectConfigForRecipe(bundle recipe.Bundle) (ProjectConfig, error) 
 	return config, nil
 }
 
-// PrepareViewBuilderConfig validates a saved presentation against one exact
-// immutable catalog revision and derives a new revision without compilation or
-// materialization. Actor participates in the content ID for audit attribution.
 func PrepareViewBuilderConfig(config ProjectConfig, snapshot Revision, actor string) (ProjectConfigPublication, error) {
 	if err := config.validate(); err != nil {
 		return ProjectConfigPublication{}, invalidViewBuilder("invalid project config: %v", err)
@@ -126,8 +118,7 @@ func projectConfigRevisionFromSnapshot(
 	diagnostics []Diagnostic,
 	actor string,
 ) (Revision, error) {
-	// Each view owns its metadata value; editing a returned revision must not
-	// mutate the retained catalog or another view prepared from it.
+
 	raw, err := json.Marshal(snapshot)
 	if err != nil {
 		return Revision{}, fmt.Errorf("clone publication snapshot: %w", err)

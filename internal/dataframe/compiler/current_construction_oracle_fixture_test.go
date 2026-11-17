@@ -10,8 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// Current recipe fixtures deliberately name source slots and stage outputs;
-// they do not accept a retired TableReshape/TableShape payload or translate one.
 func currentOracleSource(name string) recipe.Output {
 	names := []string{"source_id", "group_text", "group_number", "string_category", "numeric_category", "numeric_value", "flag_value", "text_value", "unrelated"}
 	selectors := []string{"root.id", "root.status", "root.valueInteger", "root.code.text", "root.valueInteger", "root.valueQuantity.value", "root.valueBoolean", "root.valueString", "root.issued"}

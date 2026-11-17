@@ -431,7 +431,6 @@ export interface ProposeRowDefinitionArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
-
 export type ConstructionAuthoringStateArgs = ExplorerAuthoringStateArgs & {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
@@ -553,9 +552,9 @@ export const populationMemberRemovalProposalResponseSchema = z.object({
 export type PopulationMemberRemovalProposalResponse = z.infer<typeof populationMemberRemovalProposalResponseSchema>;
 
 export interface LoomClientOptions {
-  /** URL prefix for the Loom service. `/` is the standalone no-auth default. */
+
   readonly baseUrl?: string;
-  /** Inject Calypr's authenticated fetch implementation when embedded. */
+
   readonly fetch?: typeof globalThis.fetch;
   readonly headers?: HeadersInit;
   readonly credentials?: RequestCredentials;
@@ -586,7 +585,7 @@ export type LoomOutputFilterOperator =
 export interface LoomOutputFilter {
   readonly column: string;
   readonly op: LoomOutputFilterOperator;
-  /** The published reader ignores this value for existence and missingness filters. */
+
   readonly value: unknown;
 }
 
@@ -778,7 +777,7 @@ export interface LoomClient {
     args: PrepareArtifactArgs,
     signal?: AbortSignal,
   ) => Promise<Artifact>;
-  /** Native-download URL for a completed artifact. */
+
   readonly artifactDownloadURL: (args: DownloadArtifactArgs) => string;
   readonly listInterpretationLibraries: (
     args: ExplorerAuthoringProjectArgs,

@@ -36,9 +36,7 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 	preparedCatalogCalls := 0
 
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		// This intentionally has no ScopeResolver. The one-shot GraphQL recipe
-		// is already catalog- and scope-resolved before reaching execution, so
-		// execution must not perform a second recipe preparation pass.
+
 		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
 			if got, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok || got {
 				t.Fatalf("dataframe AQL unrestricted bind = %#v, want false", bindVars["auth_resource_paths_unrestricted"])

@@ -5,20 +5,12 @@ import (
 	"strings"
 )
 
-// ConstructionPivotDiscoveryCategory is one category observed for a PIVOT's
-// exact category/value pair. Name and Label are the public output name and
-// label the resolver should use; they are not persisted evidence.
 type ConstructionPivotDiscoveryCategory struct {
 	Key   TableScalar
 	Name  string
 	Label string
 }
 
-// ResolveConstructionPivotDiscovery freezes a PIVOT discovery declaration into
-// concrete categories and stage outputs. The caller must supply complete,
-// value-bearing evidence for the pivot's exact category/value pair, usually
-// from the compiler category scan. The resolver derives stable output IDs and
-// clears the declaration before validation and lowering.
 func ResolveConstructionPivotDiscovery(step ConstructionStep, input []StageColumn, evidence []ConstructionPivotDiscoveryCategory) (ConstructionStep, error) {
 	if step.Operation.Kind != ConstructionOperationPivot || step.Operation.Pivot == nil {
 		return ConstructionStep{}, fmt.Errorf("discovery resolution requires a PIVOT step")

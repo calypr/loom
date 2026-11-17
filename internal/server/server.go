@@ -53,7 +53,6 @@ import (
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// Run starts the Loom HTTP server using the process command-line flags.
 func Run() {
 	options, err := parseServerOptions(os.Args[1:], flag.ContinueOnError)
 	if err != nil {
@@ -355,7 +354,7 @@ func withPreviewQueryTimeout(query dataframeexecution.QueryRows) dataframeexecut
 
 func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		// Category discovery is Pivot-only and uses the extended query runtime limit.
+
 		scanCtx, cancel := context.WithTimeout(ctx, pivotCategoryScanTimeout)
 		defer cancel()
 		scanCtx = withPivotPreviewQueryBudget(scanCtx)
@@ -415,51 +414,15 @@ func configuredColumnPopulationScanner(logger *slog.Logger, recipeEngine *datafr
 	}
 }
 
-// newExplorerReleaseActivator builds the dataset release activation hook for
-// the repository publish path (lifecycle repository_publish.go ActivateRelease).
-// It reads the live release revision and submits it as the store's
-// compare-and-swap input, so a concurrent winning publication makes the
-// store's own guard reject: internal/dataset/arango/release_store.go
-// activateReleaseAQL compares it with `FILTER currentRevision ==
-// @expected_revision OR alreadyActive`, and the emptied result becomes
-// dataset.ErrReleaseActivationConflict (release_store.go:99-100), which the
-// lifecycle types as the repair-34 409 repository_publish
-// PUBLICATION_ACTIVATION_CONFLICT with the prior revision retained.
-//
-// devReleaseCASFault is the dev-only repository sibling of the
-// prepareExplorerRelease fault (LOOM_DEV_ACTIVATION_CONFLICT_ONCE) below: it
-// is armed only through applyDevFaultOverrides, therefore only under the
-// local no-auth mode. Consumed exactly once, it corrupts the expected-revision
-// CAS input after a successful Active read so the release CAS legitimately
-// loses while the retained candidate release stays durable. The seam sits
-// above the store on purpose: the second, Explorer-side activation leg
-// (internal/explorer/arango/activation.go compositeActivationReadAQL guards
-// plus activateRevisionAndOwner) never yields dataset.ErrReleaseActivationConflict
-// — every guard on that leg produces only explorer.ErrDraftConflict or plain
-// faults — so the sentinel this contract classifies can only come from the
-// release CAS input computed here. A rival document could not be activated
-// instead: activateReleaseAQL's alreadyActive guard makes same-content
-// re-activation a zero-write no-op, so bumping the pointer revision would
-// require minting a competing release document that no publish flow created
-// (invented state) and would itself leave the dataset pointer on the rival
-// while the Explorer pointer stayed on the prior revision (split-brain).
-// The fault therefore corrupts one number instead: the store still decides
-// the outcome, zero writes happen on the loss, and no successful activation
-// is ever hidden behind a synthetic error.
 func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseService, devReleaseCASFault *atomic.Bool) func(context.Context, string, string, []publicationcontract.DataframeSelector) error {
 	return func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
 		expectedRevision := int64(0)
-		// Consume the one-shot arm at request entry, never conditionally: an
-		// armed request whose Active read has no pointer to corrupt must not
-		// leave the fault live to silently hijack a LATER publish request.
+
 		devFaultArmed := devReleaseCASFault != nil && devReleaseCASFault.CompareAndSwap(true, false)
 		active, err := releaseService.Active(ctx, project)
 		if err == nil {
 			expectedRevision = active.Revision
-			// Feed a stale expected revision so the real
-			// store CAS loses exactly once. Corrupt only after a successful
-			// Active read: with no prior pointer the store rejects on the
-			// missing-pointer precondition instead of the compare-and-swap.
+
 			if devFaultArmed {
 				expectedRevision++
 			}
@@ -558,8 +521,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
 		return classifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, visit))
 	}})
-	// The lifecycle client already owns this Arango database. Reusing it avoids
-	// a second connection that can fail independently during optional startup.
+
 	publishedRegistry, err := bundlearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create published dataframe registry: %w", err)
@@ -578,9 +540,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			return fmt.Errorf("create ClickHouse client: %w", err)
 		}
 		defer clickhouse.Close()
-		// The Arango-backed dataframe loader publishes into this database. Create
-		// it during server startup so a fresh ClickHouse instance does not require
-		// an operator to run a separate DDL/API step before materialization.
+
 		if err := clickhouse.EnsureDatabase(ctx); err != nil {
 			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
 			publicationReady = false
@@ -698,10 +658,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			Project: project, Generation: generation, GitCommit: generation,
 			OptionalSelectors: selectors,
 		})
-		// Return a deliberately stale CAS revision exactly once in the isolated
-		// dev fault scenario. The candidate remains retained for audit, while
-		// PublishAuthoring's atomic activation fails without moving the prior
-		// active release pointer or exposing candidate rows.
+
 		if err == nil && activationConflictOnce.CompareAndSwap(true, false) {
 			expectedRevision++
 		}

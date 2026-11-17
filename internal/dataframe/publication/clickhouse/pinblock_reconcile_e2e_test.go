@@ -12,22 +12,6 @@ import (
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
-// These tests exercise reconciliation with a live read pin. The intended
-// behavior is to retain the pinned execution and continue reclaiming unrelated
-// stale executions. ARC-C13 tracks the current production failure to do so.
-//
-// Opt-in, same idiom as reconcile_toctou_e2e_test.go / abort_ackloss_e2e_test.go.
-// The tests own UUID databases named loom_verify_pbx_<hex> and delete only
-// those. Run against the owned stack from inside the api container:
-//
-//	docker exec loom-dev-qwen-current-loom-api-1 sh -c \
-//	  'cd /workspace && LOOM_TEST_ARANGO_URL=http://arangodb:8529 go test \
-//	   -count=1 -run "TestStalePin" -v ./internal/dataframe/publication/clickhouse/'
-
-// pbxClickHouse records the physical tables handed to DropTable so the tests
-// can observe which stale executions the reconciler actually reclaimed. Every
-// other driver method is a no-op; a dead context aborts the drop the way the
-// real driver would (matching tocFakeClickHouse.DropTable).
 type pbxClickHouse struct {
 	mu      sync.Mutex
 	dropped []string
@@ -83,9 +67,6 @@ func pbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
 	return registry, ctx, database.Name[len("loom_verify_pbx_"):]
 }
 
-// pbxExecution builds a stale FAILED execution under a distinct identity, so X
-// and Y get distinct identity keys (separate bundle leases) and distinct
-// pointer names while sharing the single FAILED page visited by Reconcile.
 func pbxExecution(tag, suffix, physicalTable string, updatedAt time.Time) pubpublication.BundleExecution {
 	identity := pubpublication.BundleIdentity{
 		Name: "pbx-" + tag, TranslationVersion: "1", OutputName: "main",
@@ -102,10 +83,6 @@ func pbxExecution(tag, suffix, physicalTable string, updatedAt time.Time) pubpub
 	}
 }
 
-// pbxSeed stores the stale row under a seed-held lease then frees the key —
-// the identical registry state a stale candidate presents to a reconciler
-// (same idiom as fb1Seed). No pointer is ever created, so both executions are
-// un-advertised and the cleanup slot is free.
 func pbxSeed(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution) {
 	t.Helper()
 	acquired, err := registry.AcquireBundleLease(ctx, exec.Key, "seed", time.Now().UTC().Add(2*time.Minute))
@@ -120,9 +97,6 @@ func pbxSeed(t *testing.T, registry *pubarango.Registry, ctx context.Context, ex
 	}
 }
 
-// TestStalePinBlocksEntireReconcileAgainstArango keeps its historical name.
-// With two stale executions and a pin on X, Reconcile should retain X, reclaim
-// unrelated Y, and return no error.
 func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
 	registry, ctx, suffix := pbxSetup(t)
 
@@ -140,7 +114,6 @@ func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
 	if err != nil || !acquired {
 		t.Fatalf("precondition: real AcquireExecutionReadPin(X) failed: acquired=%v err=%v", acquired, err)
 	}
-	// Deliberately no ReleaseExecutionReadPin: this models a crashed reader.
 
 	ch := &pbxClickHouse{}
 	store, err := NewBundleStore(ch, registry)
@@ -166,11 +139,6 @@ func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
 	}
 }
 
-// TestStalePinAbsentReclaimsAllAgainstArango is the CONTROL and must PASS: the
-// same two stale executions, identical seeding, NO pin. Production Reconcile
-// returns nil and BOTH tables are dropped, pinning that the stranding in the
-// finding test is caused by the pin rather than harness ordering, paging, or
-// execution order.
 func TestStalePinAbsentReclaimsAllAgainstArango(t *testing.T) {
 	registry, ctx, suffix := pbxSetup(t)
 
@@ -213,9 +181,6 @@ func TestStalePinAbsentReclaimsAllAgainstArango(t *testing.T) {
 	t.Logf("CONTROL OK: with no pins, the identical production Reconcile reclaimed BOTH stale executions (dropped=%v); each row marked %q. This is the exact sibling that the pin-aborted run in the finding test stranded.", dropped, "stale execution reconciled")
 }
 
-// TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango keeps its
-// historical name while checking that a single pinned candidate does not abort
-// reconciliation or cause its table to be dropped.
 func TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango(t *testing.T) {
 	registry, ctx, suffix := pbxSetup(t)
 

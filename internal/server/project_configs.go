@@ -6,9 +6,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// projectConfigsForSourcePublication reads only saved project-owned
-// definitions. It seeds a generic, editable config only for a recipe with no
-// catalog anchor yet; deleting every view later must not recreate one.
 func projectConfigsForSourcePublication(
 	owners []explorer.Explorer,
 	recipeName string,

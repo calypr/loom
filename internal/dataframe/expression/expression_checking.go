@@ -1,6 +1,3 @@
-// Package expression contains the typed, backend-neutral expression AST used
-// by dataframe recipes.  It intentionally has no knowledge of AQL, SQL, or
-// output names: a physical compiler consumes the checked tree later.
 package expression
 
 import (
@@ -413,5 +410,3 @@ func mergeBranchTypes(a, b Type) (Type, error) {
 	a.Cardinality = mergeCardinality(a.Cardinality, b.Cardinality)
 	return a, nil
 }
-
-// Constructors keep callers from manufacturing malformed tagged nodes.

@@ -15,9 +15,6 @@ import (
 
 var errReleaseBindingUnavailable = errors.New("active release binding is unavailable")
 
-// CurrentProjectDataset returns the one pointer-visible, successful output for
-// a project and exact selector. Project identity is explicit at this boundary;
-// this reader never unions tables from different projects.
 func (r *Reader) CurrentProjectDataset(ctx context.Context, project string, selector DataframeSelector) (Materialization, error) {
 	project = strings.TrimSpace(project)
 	if r == nil || r.Catalog == nil {
@@ -131,9 +128,6 @@ func (r *Reader) currentMaterialization(ctx context.Context, execution bundlepub
 	return result, true, nil
 }
 
-// CurrentProjectDatasets returns every available current output for one
-// project. A broken optional release binding is omitted; a required binding or
-// transient catalog failure still aborts the list.
 func (r *Reader) CurrentProjectDatasets(ctx context.Context, project string) ([]Materialization, error) {
 	project = strings.TrimSpace(project)
 	if r == nil || r.Catalog == nil {

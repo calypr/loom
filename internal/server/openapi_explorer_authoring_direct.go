@@ -52,12 +52,6 @@ func authResourcePathFromParam(value *loomapi.AuthResourcePath) string {
 	return string(*value)
 }
 
-// Authorizer storage faults are reported with the repo's backend-unavailable
-// named fault rather than 403, so a store/client failure is never mistaken for
-// a permission decision. The name follows the shared taxonomy: authscope
-// authorizes the boundary with ErrAuthorizationBackendUnavailable and the
-// dataframe layer maps it to dataframeerrors.CodeBackendUnavailable (see
-// internal/api/http/errors.go:53-55 and internal/api/authpolicy/policy.go:36-37).
 const (
 	authoringBackendUnavailableCode    = "BACKEND_UNAVAILABLE"
 	authoringBackendUnavailableMessage = "authorization backend unavailable"
@@ -778,9 +772,7 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 	var authoringErr *explorer.AuthoringError
 	hasLifecycleError := errors.As(err, &lifecycleErr)
 	hasAuthoringError := errors.As(err, &authoringErr)
-	// A transport adapter may wrap a lifecycle error with a more precise
-	// transport status (for example PREVIEW_TIMEOUT/504). Honor that outer
-	// classification before inspecting its cause chain.
+
 	if hasAuthoringError && (!hasLifecycleError || errors.Is(authoringErr, lifecycleErr)) {
 		typed = true
 		status = authoringErr.Status

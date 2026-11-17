@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Reject successful packages that did not execute the explicitly selected tests.
 import assert from 'node:assert/strict';
 
 const expected = process.argv.slice(2);

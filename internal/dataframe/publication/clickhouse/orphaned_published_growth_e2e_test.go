@@ -1,28 +1,5 @@
 package clickhouse
 
-// F-B19 durable regression control (Repair-4 shipped). A recipe edit mints a
-// new bundle Key (the Key folds RecipeDigest/SchemaDigest/ReceiptID —
-// internal/dataframe/publication/bundle.go) under the SAME PointerName
-// (bundle.go). Pre-repair the superseded PUBLISHED execution was
-// immortal (sweep visited only {RUNNING, VALIDATING, FAILED}), producing one
-// permanently retained bundle+table per recipe edit and a monotonically
-// widening name-latest mis-bind surface (F-B6 amplifier) — archived
-// FAILED-ON-PURPOSE witnesses: parent runs e00a7032/e3712285, Round 15.
-//
-// Post-REPAIR natural-PASS (this artifact's shipped expectation): the
-// binding-aware recurring janitor arm enumerates PUBLISHED (only while an
-// ActiveReleaseReader is wired, the server.go production shape) and RETIRES a
-// superseded orphan: FAILED with the "superseded execution reconciled"
-// marker and its ClickHouse table dropped, while the pointer-named live
-// execution and its table stay untouched. The REGRESSION direction keeps the
-// archived CONFIRMED red text verbatim in structure: an immortal PUBLISHED
-// orphan surviving a full sweep fails the test again.
-//
-// Safety sibling (TestPointerOrphanedPublishedJanitorRespectsActiveRelease-
-// BindingsAgainstArango): a binding of the ACTIVE release to the orphan
-// vetoes retirement (no claim, no drop); removing the binding and re-sweeping
-// converges through binding-aware cleanup on real stores.
-
 import (
 	"context"
 	"strings"
@@ -98,11 +75,6 @@ type orphPublication struct {
 	rows     int
 }
 
-// orphNewPublication builds a publication whose PointerName is fixed by
-// (project, generation, recipe, version, output) while recipeDigest/
-// schemaDigest/receiptId vary per edit — the shipped two identities then map
-// to the same pointer but different Keys exactly as a real recipe edit does
-// (bundle.go).
 func orphNewPublication(recipeDigest, schemaDigest, receiptID string) orphPublication {
 	identity := pubpublication.PublicationIdentity{
 		Name: "orph-recipe", TranslationVersion: "v1", OutputName: "orph_out",
@@ -128,9 +100,6 @@ func orphNewPublication(recipeDigest, schemaDigest, receiptID string) orphPublic
 	return orphPublication{identity: identity, outputs: outputs, rows: 3}
 }
 
-// orphBundleIdentity mirrors the production identity->bundle mapping used by
-// the publication runner (same field set as publish_partial_pointer's
-// factory) so Key/PointerName derive from shipped code.
 func orphBundleIdentity(id pubpublication.PublicationIdentity) pubpublication.BundleIdentity {
 	return pubpublication.BundleIdentity{
 		Name: id.Name, TranslationVersion: id.TranslationVersion, OutputName: id.OutputName,
@@ -167,9 +136,6 @@ func orphProductionPublish(ctx context.Context, store *ClickHouseBundleStore, p 
 	return pubpublication.Publish(ctx, store, p.identity, p.outputs, pubpublication.Limits{})
 }
 
-// orphReleaseReader mirrors the production wiring (server.go calls
-// bundleStore.SetActiveReleaseReader(lifecycleStore)); the harness controls
-// what the janitor sees as the ACTIVE release.
 type orphReleaseReader struct {
 	active dataset.ActiveRelease
 	err    error
@@ -181,9 +147,6 @@ func (r *orphReleaseReader) ReadActiveRelease(context.Context, string) (dataset.
 	return r.active, r.err
 }
 
-// orphPublishRecipeEdit drives two production publications that share one
-// PointerName: edit 1 then the recipe edit (new Key). Returns the observed
-// executions, tables and identity strings for assertions.
 func orphPublishRecipeEdit(t *testing.T, h *orphHarness, store *ClickHouseBundleStore) (firstExec, secondExec pubpublication.BundleExecution, firstTable, secondTable, firstKey, secondKey, firstPointer string) {
 	t.Helper()
 	first := orphNewPublication("sha256:orph-recipe-v1", "sha256:orph-schema-v1", "orph-receipt-1")
@@ -247,8 +210,7 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}
-	// Production wiring mirror: server.go wires the lifecycle store; here no
-	// release is active, so the janitor must retire the superseded orphan.
+
 	store.SetActiveReleaseReader(&orphReleaseReader{err: dataset.ErrNoActiveRelease})
 
 	_, secondExec, firstTable, secondTable, firstKey, secondKey, _ := orphPublishRecipeEdit(t, h, store)
@@ -280,8 +242,6 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 		t.Fatalf("unexpected: orphan marker %q lacks the superseded janitor marker", orphanExec.Error)
 	}
 
-	// The live (pointer-named) execution and its table must be untouched by
-	// the janitor arm, and name-latest must resolve to it.
 	live, err := h.registry.FindExecutionByKey(ctx, secondKey)
 	if err != nil || live.State.Canonical() != pubpublication.BundlePublished {
 		t.Fatalf("janitor arm harmed the live execution %s: state=%+v err=%v", secondKey, live, err)
@@ -299,10 +259,6 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 	t.Logf("VERDICT PREVENTED (Repair-4): pointer-orphaned PUBLISHED execution %q retired by the binding-aware janitor arm (FAILED, marker %q, table dropped) while the pointer-named live execution %s (rows=%d) and its table survived; name-latest resolves to the live execution.", firstKey, orphanExec.Error, secondKey, selOutput2.RowCount)
 }
 
-// TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstArango
-// is the e2e safety sibling: an ACTIVE-release binding on the orphan vetoes
-// retirement; after removing the binding, the next sweep converges — the
-// m-po-fixed shape on real stores.
 func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstArango(t *testing.T) {
 	h := orphOpen(t)
 	ctx := h.ctx
@@ -315,8 +271,6 @@ func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstAran
 
 	firstExec, _, firstTable, _, firstKey, _, _ := orphPublishRecipeEdit(t, h, store)
 
-	// Bind the ACTIVE release to the orphan: the janitor must not claim or
-	// drop it (m-po-janitor-blind would).
 	reader.active = dataset.ActiveRelease{
 		Release: dataset.ProjectRelease{
 			Project:      "orph-project",
@@ -337,7 +291,6 @@ func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstAran
 	}
 	t.Logf("ORPH_OBSERVED bound sweep: orphan %s untouched (binding veto, pre-claim filter), reader calls=%d", firstKey, reader.calls)
 
-	// Remove the binding: the next sweep must converge (recurring janitor).
 	reader.active = dataset.ActiveRelease{}
 	reader.err = dataset.ErrNoActiveRelease
 	if err := store.Reconcile(ctx, time.Now().Add(24*time.Hour)); err != nil {

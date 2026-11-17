@@ -22,8 +22,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// importedRecipeSources resolves immutable source identities at the server
-// boundary. Builder requests never supply executable recipes or source schemas.
 type importedRecipeSources struct {
 	registry       exec.Reader
 	engine         *dataframeexecution.Engine
@@ -306,8 +304,6 @@ func (r importedRecipeSources) SourceStage(ctx context.Context, request lifecycl
 	return explorer.ReceiptConstructionStage{}, fmt.Errorf("the pinned source has no dataframe %q", ref.Output)
 }
 
-// Legacy recipes predate authoring IDs. Bind their compiler-proven public
-// columns to stable server identities without changing source expressions.
 func bindImportedSourceIDs(output string, schema []lower.CompiledOutputColumn) []lower.CompiledOutputColumn {
 	bound := append([]lower.CompiledOutputColumn(nil), schema...)
 	for i := range bound {

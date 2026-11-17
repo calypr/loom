@@ -7,13 +7,8 @@ import (
 
 const maxImportedSourcePlanSteps = 4096
 
-// Positional identities grow with traversal depth. Allow the longest path
-// representable by a bounded source plan rather than imposing a hop limit.
 const maxImportedSourcePlanIDBytes = maxImportedSourcePlanSteps * 32
 
-// ImportedSourcePlan describes editable or inspectable stages of one pinned
-// native recipe output. Recipe expressions stay on the server; clients persist
-// only stable stage identities and bounded overrides.
 type ImportedSourceFieldBinding struct {
 	FieldID  string `json:"fieldId"`
 	ColumnID string `json:"columnId"`
@@ -26,8 +21,6 @@ type ImportedSourcePlan struct {
 	Relationships *ImportedRelationshipOverlay `json:"relationships,omitempty"`
 }
 
-// ImportedSourceRuleAddition stores a user-created column rule.
-// IDs are append-only positional identities so edits never depend on names.
 type ImportedSourceRuleAddition struct {
 	Kind         string                    `json:"kind"`
 	OccurrenceID string                    `json:"occurrenceId,omitempty"`
@@ -37,8 +30,6 @@ type ImportedSourceRuleAddition struct {
 	MaxColumns   *int                      `json:"maxColumns,omitempty"`
 }
 
-// ImportedSourceStep identifies one source-plan stage. ParentID preserves the
-// owning traversal without flattening its fields into unrelated operations.
 type ImportedSourceStep struct {
 	Parameters   *ImportedSourceParameters `json:"parameters,omitempty"`
 	ID           string                    `json:"id"`
@@ -55,8 +46,6 @@ type ImportedSourceStep struct {
 	ValueMode    string                    `json:"valueMode,omitempty"`
 }
 
-// Validate checks the durable shape of the source plan. ApplySourcePlan also
-// checks every descriptor and override against the exact pinned recipe output.
 func (p ImportedSourcePlan) Validate() error {
 	if p.Relationships != nil {
 		if err := p.Relationships.Validate(); err != nil {

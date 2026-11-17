@@ -1,7 +1,3 @@
-// The upstream jsonschemagraph module exposes these document contracts only
-// from an unpublished package path. Keeping the adapter here makes the Loom
-// server build reproducibly from the public module graph while preserving the
-// existing vertex/edge wire shape.
 package ingest
 
 import (

@@ -1,6 +1,5 @@
 import { useBrowserSubscription } from './useBrowserSubscription';
 
-/** Owns the browser lifecycle subscription for an unsaved Builder draft. */
 export const useDirtyBeforeUnload = (dirty: boolean): void => {
   useBrowserSubscription((_onStoreChange) => {
     if (!dirty) return () => {};

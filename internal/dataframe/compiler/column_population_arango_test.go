@@ -130,8 +130,7 @@ func TestColumnPopulationMatchesExactArangoStageRows(t *testing.T) {
 	records = append(records, root(base, "falsey_values", map[string]any{
 		"valueInteger": 0, "valueBoolean": false, "status": "",
 	}, project, generation, "allowed"))
-	// The source and stage projections see all records, including the 51st
-	// value. A preview-shaped LIMIT 50 would incorrectly report amount empty.
+
 	got := execute(base, records)[0]
 	want := map[string]any{
 		"populated_0": true, "populated_1": true, "populated_2": true,

@@ -1,7 +1,6 @@
 import {useState} from 'react';
 import { useCommitLifecycle } from './useBrowserSubscription';
 
-/** Resolves a host owned by the surrounding page and tracks its DOM lifetime. */
 export const usePortalHost = (id: string): HTMLElement | null => {
   const [host, setHost] = useState<HTMLElement | null>(null);
 

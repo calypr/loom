@@ -8,8 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 )
 
-// previewProjectionRows assembles a complete page before exposing any row.
-// All queries must run under the same read snapshot.
 func previewProjectionRows(ctx context.Context, query QueryRows, partitions []compiler.CompiledOutputPagePartition, keys []string, batchSize int) ([]map[string]any, error) {
 	var rows []map[string]any
 	var identities []string

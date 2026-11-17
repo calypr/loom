@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkEvents, ownDatabase, runBounded, sourceFingerprint } from './run-arango-integration.mjs';
+import { checkEvents, ownDatabase, profiles, runBounded, sourceFingerprint } from './run-arango-integration.mjs';
 const stream = events => events.map(e => JSON.stringify(e)).join('\n');
 test('real case must pass; empty package and skip cannot masquerade as proof', () => {
     const profile = { required: 'TestReal' };
@@ -56,6 +56,26 @@ test('every additional real database witness must execute and pass', () => {
         assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== name)), profile), /did not run/);
         assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== name || e.Action !== 'pass')), profile), /did not pass/);
     }
+});
+
+test('preview index migration runs against the owned Arango database', () => {
+    const profile = profiles.find(candidate => candidate.id === 'preview-index-migration');
+    const generalStoreProfile = profiles.find(candidate => candidate.id === 'store');
+    assert.equal(profile?.package, './internal/store/arango');
+    const migrationTests = [
+        'TestPreviewSupersededIndexMigrationAgainstArango',
+        'TestPreviewSupersededPublicMigrationVersionedAgainstArango',
+        'TestOpenExistingMissingDatabaseDoesNotCreateAgainstArango',
+    ];
+    assert.deepEqual([profile?.required, ...profile.alsoRequired], migrationTests);
+    const migrationRun = new RegExp(`^${profile.run}$`);
+    const generalSkip = new RegExp(generalStoreProfile.skip);
+    for (const name of migrationTests) {
+        assert.ok(migrationRun.test(name));
+        assert.ok(generalSkip.test(name));
+    }
+    assert.ok(!migrationRun.test('TestReceiptArangoStoreUsesImmutableTenantScopedQueries'));
+    assert.ok(!generalSkip.test('TestReceiptArangoStoreUsesImmutableTenantScopedQueries'));
 });
 
 test('source fingerprint covers dependency manifests and embedded Go test fixtures', () => {

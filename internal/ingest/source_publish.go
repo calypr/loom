@@ -15,16 +15,11 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// SourceFile is one canonical, repository-owned META resource file. The file
-// part in the HTTP request carries the bytes; Path and SHA256 bind those bytes
-// to the immutable source manifest.
 type SourceFile struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
 }
 
-// SourceManifest is the caller's immutable Git source identity plus the
-// selected files. Commit is provenance; SourceRevision is the numeric Loom CAS.
 type SourceManifest struct {
 	Repository string       `json:"repository"`
 	Commit     string       `json:"commit"`
@@ -61,7 +56,6 @@ func (e *SourcePublishLimitError) Error() string {
 	return "source publication exceeds configured " + e.Limit + " limit"
 }
 
-// SourcePublishReceipt is returned by the file-authoritative publish API.
 type SourcePublishReceipt struct {
 	OperationID    string `json:"operation_id"`
 	SourceRevision int64  `json:"source_revision"`

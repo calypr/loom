@@ -6,10 +6,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// Category discovery truncates the candidate at the Pivot. Every upstream step
-// that survives still owns the source projections it consumes, so dropping them
-// makes an otherwise-valid pipeline fail to compile. Only projections owned by
-// steps removed by the truncation may be discarded.
 func TestPruneConstructionCategorySourceProjectionsKeepsRetainedOwnerSteps(t *testing.T) {
 	projection := func(columnID, ownerStepID string) authoringv2.ConstructionSourceProjection {
 		return authoringv2.ConstructionSourceProjection{

@@ -7,11 +7,6 @@ import (
 	"fmt"
 )
 
-// StoredWorkspaceMigration is an offline migration result. The raw-input digest
-// identifies the bytes read from storage; the original canonical digests identify
-// the workspace representation understood by the old receipt verifier; and the
-// migrated digest identifies the bytes safe to persist as the current workspace.
-// A changed migrated digest invalidates receipts bound to the old canonical digest.
 type StoredWorkspaceMigration struct {
 	Workspace                        Workspace
 	CanonicalJSON                    []byte
@@ -24,10 +19,6 @@ type StoredWorkspaceMigration struct {
 	DigestChanged                    bool
 }
 
-// MigrateStoredWorkspace decodes historical persisted workspace shapes and
-// applies all deterministic compilation migrations using the caller's pinned
-// catalog. This is an offline-only entrypoint for an explicit storage migration;
-// request decoding must continue to use DecodeWorkspace's strict current contract.
 func MigrateStoredWorkspace(raw []byte, catalog CatalogSnapshot) (StoredWorkspaceMigration, error) {
 	var result StoredWorkspaceMigration
 	inputSum := sha256.Sum256(raw)
@@ -63,8 +54,7 @@ func MigrateStoredWorkspace(raw []byte, catalog CatalogSnapshot) (StoredWorkspac
 	if err != nil {
 		return result, fmt.Errorf("canonicalize migrated workspace: %w", err)
 	}
-	// Decode the canonical bytes into an owned value. The returned workspace and
-	// bytes must not alias caller-owned raw data or migration intermediates.
+
 	var detached Workspace
 	if err := json.Unmarshal(canonical, &detached); err != nil {
 		return result, fmt.Errorf("decode migrated canonical workspace: %w", err)
@@ -80,11 +70,6 @@ func MigrateStoredWorkspace(raw []byte, catalog CatalogSnapshot) (StoredWorkspac
 	return result, nil
 }
 
-// DecodeStoredWorkspaceForMigration is deliberately separate from the runtime
-// DecodeWorkspace API so removing its persisted-draft compatibility fallback
-// cannot disable the one-time storage migration. The fallback accepts only the
-// repository's known historical persisted shapes and still applies current
-// workspace validation after version migrations.
 func DecodeStoredWorkspaceForMigration(raw []byte) (Workspace, error) {
 	var workspace Workspace
 	if err := strictDecode(raw, &workspace); err == nil {

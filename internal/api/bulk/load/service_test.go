@@ -295,11 +295,6 @@ func activationManifest(t *testing.T, project, generation string) publication.Ma
 	return manifest
 }
 
-// Reviewer-proven defect: the documented 409 arm of
-// POST /datasets/{project}/generations/{generation}/activate served an opaque
-// 500. Activation of a not-yet-staged generation must be a typed
-// GENERATION_NOT_READY conflict end to end: service guard -> domain sentinel
-// -> normalizeError boundary -> MapDataframeError 409 non-retryable.
 func TestActivateGenerationLoadingManifestMapsTo409(t *testing.T) {
 	ref, err := publication.NewRef("project-a", "generation-a")
 	if err != nil {

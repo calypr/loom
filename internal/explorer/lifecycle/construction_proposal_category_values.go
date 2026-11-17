@@ -9,16 +9,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// verifyConstructionProposalPivotCategories rejects authored Pivot categories
-// that cannot produce a cell in the current category/value scan. Discovery is
-// independent of proposal, so this check reuses the same compiler-owned scan
-// instead of trusting client-supplied category keys.
-//
-// Every Pivot in the candidate is checked, not only the changed step. An
-// unchanged Pivot keeps its existing owned input chain and is probed against the
-// candidate prefix. When that probe cannot produce a complete proof, the
-// unchanged Pivot is reported as a non-fatal diagnostic so a change elsewhere is
-// not rejected for an unrelated saved step.
 func (s *Service) verifyConstructionProposalPivotCategories(
 	ctx context.Context,
 	request ConstructionProposalRequest,
@@ -27,13 +17,6 @@ func (s *Service) verifyConstructionProposalPivotCategories(
 	return s.verifyConstructionProposalPivotCategoriesExcept(ctx, request, candidate, nil, nil)
 }
 
-// verifyConstructionProposalPivotCategoriesExcept skips steps whose categories
-// were just frozen from a complete discovery scan. Re-scanning them would repeat
-// the same value-bearing proof and reject only on a racing row change.
-//
-// A failure on the changed Pivot remains fatal. The same failure on an unchanged
-// Pivot becomes a ConstructionProposalDiagnostic: the caller learns that one
-// saved Pivot category proof was skipped without losing the unrelated edit.
 func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 	ctx context.Context,
 	request ConstructionProposalRequest,
@@ -86,8 +69,7 @@ func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 		if changed {
 			discoveryRequest.PivotSources = append([]ConstructionPivotSourceSelection(nil), request.PivotSources...)
 		} else {
-			// An unchanged Pivot must not consume the edited Pivot's signed source
-			// choices. Compile its candidate prefix with its own owned inputs.
+
 			discoveryRequest.compileCandidate = true
 		}
 		discovery, err := s.DiscoverConstructionCategories(ctx, discoveryRequest)
@@ -99,10 +81,7 @@ func (s *Service) verifyConstructionProposalPivotCategoriesExcept(
 				fmt.Sprintf("Pivot %s categories were not verified because the category probe failed: %v", step.ID, err)))
 			continue
 		}
-		// LIMIT_EXCEEDED and MISSING_UNSUPPORTED cannot prove an authored
-		// category absent. For the changed Pivot, refuse rather than admit an
-		// unverified category. For an unchanged Pivot, skip the proof and report
-		// it so an unrelated saved step does not reject the edit.
+
 		switch discovery.Outcome {
 		case constructionCategoryDiscoveryComplete:
 			if len(discovery.Categories) == 0 {
@@ -176,9 +155,6 @@ func constructionProposalPivotProbeDiagnostic(stepID, outcome, message string) C
 	}
 }
 
-// constructionProposalCategoryKey is the local canonical identity for a Pivot
-// category key. authoringv2.TableScalar.identity is unexported, so encode every
-// kind explicitly and preserve typed zero payloads (*int64(0), false, 0.0).
 func constructionProposalCategoryKey(value authoringv2.TableScalar) string {
 	switch value.Kind {
 	case authoringv2.TableScalarString:
@@ -210,9 +186,6 @@ func constructionProposalCategoryKey(value authoringv2.TableScalar) string {
 	}
 }
 
-// A label edit preserves an existing Pivot's category/value semantics. Require
-// its entire owned input ancestry and source projections to remain unchanged;
-// otherwise the candidate prefix still needs a complete category proof.
 func constructionPivotLabelOnlyEdit(base, candidate authoringv2.Construction, stepID string) bool {
 	if base.Version != candidate.Version || !reflect.DeepEqual(base.SourceProjections, candidate.SourceProjections) {
 		return false

@@ -48,9 +48,6 @@ func Model(value materialization.Materialization) *dataframemodel.DataframeMater
 	return result
 }
 
-// ColumnFromPhysical adapts candidate execution metadata before activation.
-// It intentionally mirrors the published materialization representation while
-// retaining semantic identity for browser-side configuration.
 func ColumnFromPhysical(column publication.PhysicalColumn) *dataframemodel.DataframeColumn {
 	return ColumnModel(materialization.Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated})
 }

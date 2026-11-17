@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-// CanonicalConstructionScalarLogicalType maps an authored or correlated
-// logical type to the canonical lower-case kind the table reshape lowerer
-// compiles. It returns false for every kind the physical table scalar layer
-// cannot represent, so construction validation and lowering share one gate.
 func CanonicalConstructionScalarLogicalType(value string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "string":

@@ -14,15 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// Companion control for the LOOM_DEV_REPOSITORY_ACTIVATION_CONFLICT_ONCE dev
-// fault (internal/server repository_activation_conflict_dev_test.go). The dev
-// fault feeds a stale expected revision into the dataset release CAS, so the
-// store returns dataset.ErrReleaseActivationConflict from s.config.ActivateRelease.
-// This test pins what PublishRepository must therefore leave behind: the prior
-// Explorer revision stays ACTIVE and keeps the active pointer, while the
-// losing candidate revision stays retained and is fail-marked with the
-// repair-34 non-retryable PUBLICATION_ACTIVATION_CONFLICT diagnostic.
-
 func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevision(t *testing.T) {
 	visible := true
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
@@ -65,9 +56,6 @@ func TestRepositoryPublishReleaseCASConflictKeepsPriorPointerAndFailsLosingRevis
 		t.Fatalf("baseline owner active pointer = %q, want %q", store.repositoryOwner.ActiveRevisionID, first.Revision.ID)
 	}
 
-	// A lost release compare-and-swap on the next repository publish: the
-	// dev fault's faithful signature is the store's own error sentinel from
-	// the ActivateRelease leg, never a synthetic wrapper error.
 	activateErr = fmt.Errorf("activate release: arango preconditions emptied: a stale expected revision never wins the CAS: %w", dataset.ErrReleaseActivationConflict)
 	_, err = publish("commit-conflict")
 	var lifecycleErr *Error

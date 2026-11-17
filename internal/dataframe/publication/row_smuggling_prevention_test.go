@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// TestFB23PublicationRowMetadataSmugglingPrevented covers the publication
-// boundary's reserved-column and project metadata rules. The real-Arango
-// execution test TestPublicationRowStreamRejectsPayloadMetadataSmuggling
-// covers compiler-derived row identity and authorization scope.
 func TestFB23PublicationRowMetadataSmugglingPrevented(t *testing.T) {
 	identity := PublicationIdentity{Project: "prj-auth", AuthResourcePaths: []string{"p1", "p2"}}
 

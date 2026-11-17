@@ -23,8 +23,6 @@ type ProjectConfigRecipeRef struct {
 	Name string `json:"name"`
 }
 
-// ProjectConfig is one project-owned Viewer presentation of a registered
-// dataframe recipe. It intentionally contains no recipe definition.
 type ProjectConfig struct {
 	ID            string                    `json:"id"`
 	Title         string                    `json:"title"`
@@ -58,8 +56,6 @@ type ProjectConfigPublisher interface {
 	PublishProjectConfigs(context.Context, ProjectConfigPublishRequest) (dataset.ActiveRelease, error)
 }
 
-// DecodeProjectConfigs accepts the chart catalog format and rejects unknown,
-// duplicate, and trailing JSON so a typo cannot silently remove presentation.
 func DecodeProjectConfigs(raw []byte) (ProjectConfigCatalog, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return ProjectConfigCatalog{}, errors.New("project config catalog is required")
@@ -112,8 +108,6 @@ func DecodeProjectConfigs(raw []byte) (ProjectConfigCatalog, error) {
 	return catalog, nil
 }
 
-// Digest returns the content identity of one config definition. Map keys are
-// sorted by encoding/json; authored slices retain their meaningful order.
 func (config ProjectConfig) Digest() (string, error) {
 	if err := config.validate(); err != nil {
 		return "", err

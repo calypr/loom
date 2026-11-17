@@ -15,10 +15,6 @@ var editableSourceExpressionFunctions = map[string]struct{}{
 	"coalesce": {}, "coalesce_string": {}, "join": {}, "concat": {}, "uuid5": {},
 }
 
-// validateSourceParameterExpressionEdits lets imported parameters round-trip
-// legacy expressions, while allowing edits only to expressions the structured
-// editor can author. Opaque subexpressions must remain the same syntax tree at
-// the same position.
 func validateSourceParameterExpressionEdits(original, edited *authoringv2.ImportedSourceParameters) error {
 	if original == nil || edited == nil {
 		return nil

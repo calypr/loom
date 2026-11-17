@@ -106,8 +106,7 @@ func (p *RepositorySourceLoader) Publish(ctx context.Context, project, operation
 	}
 	record.ExecutionID, record.SourceRevision, record.ManifestHash, record.State = executionID, revision, manifestHash, SourceLoadPublished
 	if err := p.completeSourceLoadPublication(workCtx, record, owner); err != nil {
-		// An unknown acknowledgement must never undo the release. A retry runs the
-		// same generation/operation and reconciles through release activation CAS.
+
 		latest, found, readErr := p.readSourceLoad(ctx, record.Key)
 		if readErr == nil && found && latest.State == SourceLoadPublished {
 			return sourceLoadPublicationReceipt(latest, true), nil

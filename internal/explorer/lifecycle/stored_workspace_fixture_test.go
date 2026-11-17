@@ -13,8 +13,6 @@ import (
 	"testing"
 )
 
-// migrateStoredWorkspaceFixture seeds current state after explicit offline conversion.
-// It does not claim to exercise database CAS, archive, history or projection transactions.
 func migrateStoredWorkspaceFixture(t *testing.T, raw []byte, catalog authoringv2.CatalogSnapshot) authoringv2.StoredWorkspaceMigration {
 	t.Helper()
 	if _, err := authoringv2.DecodeWorkspace(raw); err == nil {
@@ -67,7 +65,7 @@ func TestBuilderRequiresExplicitStoredMigrationForLegacyNilSteps(t *testing.T) {
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != beforeVersion || !bytes.Equal(store.created.DraftConfig, legacy) {
 		t.Fatal("Builder lazily rewrote a legacy draft")
 	}
-	// Seed the post-migration state; real CAS/archive/history semantics are covered by the Arango migration suite.
+
 	store.created.DraftConfig, store.created.DraftDigest = migration.CanonicalJSON, migration.MigratedCanonicalDigest
 	for i := 0; i < 2; i++ {
 		state, err := service.Builder(context.Background(), BuilderRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID})
@@ -149,7 +147,7 @@ func TestLegacyReceiptRemainsReadableButCannotPreviewOrPublish(t *testing.T) {
 	if previewCalls != 0 || materializeCalls != 0 || releaseCalls != 0 || sinkCalls != 0 || store.published {
 		t.Fatalf("legacy receipt reached execution/activation: preview=%d materialize=%d release=%d sink=%d published=%v", previewCalls, materializeCalls, releaseCalls, sinkCalls, store.published)
 	}
-	// Raw scoped lookup and artifact-route admission retain original identity; execution eligibility is separate.
+
 	raw, err := service.store.CompilationReceiptForExplorer(context.Background(), receipt.Project, receipt.ExplorerID, receipt.ID)
 	if err != nil {
 		t.Fatal(err)

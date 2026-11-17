@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// This serialized counterexample freezes the old canonical bytes in paths the
-// operation/stage canonicalizers deliberately do not descend into. The GROUP_ROWS
-// Subplan member value is invalid by the current exact member-payload validator;
-// the companion payload test documents that boundary.
 func TestCanonicalExecutionPhysicalPlanPreservesLegacyOmittedSubplans(t *testing.T) {
 	groupSource := PhysicalSource{SemanticNode: "group-member-subplan", ResourceType: "Condition"}
 	constructionSource := PhysicalSource{SemanticNode: "cell-trace-construction-subplan", ResourceType: "Observation"}

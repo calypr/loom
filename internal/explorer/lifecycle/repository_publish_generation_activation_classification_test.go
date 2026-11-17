@@ -14,19 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// The second compare-and-swap of the repository publish (store.ActivateRepositoryGeneration)
-// must follow the same classification contract pinned for its sibling leg above it
-// (ActivateRelease, pinned in publish_release_requirements_classification_test.go and
-// repository_publish_activation_conflict_test.go): deterministic lost races get a fixed
-// text 409 without retry bait, and transport faults get a retryable unavailable — never a
-// 409 whose message echoes the raw store text ("activate ExplorerConfigV2: dial tcp …").
-// The store wraps every generation-activation failure in this one site, so the raw echo
-// was reachable only through here and the promise derives from the sibling contract plus
-// the error-classification commits (fault -> redacted retryable, conflict -> deterministic
-// fixed text). The sentinel marks losing the composite activation guard: the guard-read
-// miss (activation.go `if !found`) plus the zero-replaced/zero-updated guards in the same
-// transaction — every site means a concurrent Explorer update won the switch.
-
 func repositoryPublishIntoGenerationActivation(t *testing.T, generationErr error) (*Error, *fakeStore, error) {
 	t.Helper()
 	visible := true

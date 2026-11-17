@@ -67,9 +67,6 @@ func (r ConstructionColumnPopulationRequest) Validate() error {
 	return nil
 }
 
-// GetConstructionColumnPopulation reports exact scalar non-null presence for
-// columns on the current compiled stage. Snapshot and authorization are
-// revalidated on every call before any cached value can be returned.
 func (s *Service) GetConstructionColumnPopulation(ctx context.Context, request ConstructionColumnPopulationRequest) (ConstructionColumnPopulationResponse, error) {
 	if err := request.Validate(); err != nil {
 		return ConstructionColumnPopulationResponse{}, malformed("construction-column-population", err.Error(), err)

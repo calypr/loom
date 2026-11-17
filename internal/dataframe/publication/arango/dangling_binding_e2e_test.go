@@ -20,10 +20,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// These tests exercise real release reads against an owned Arango database.
-// They check that an unavailable optional binding does not hide a healthy
-// dataset and that required or unclassified failures remain fail-closed.
-
 const danglingBindingDatabasePrefix = "loom_verify_db_"
 
 func danglingDatasetDocumentKey(kind string, values ...string) string {
@@ -36,12 +32,6 @@ func danglingDatasetDocumentKey(kind string, values ...string) string {
 	return kind + "_" + hex.EncodeToString(hash.Sum(nil))
 }
 
-// danglingOpen mirrors the owned-database env-gated harness of
-// name_latest_binding_e2e_test.go (skip when LOOM_TEST_ARANGO_URL is
-// unset, store.Open creates loom_verify_db_<uuid> - see internal/store/arango/
-// client.go - and HTTP DELETE /_api/database drops it in t.Cleanup).
-// It additionally bootstraps the dataset lifecycle collection so the real
-// datasetstore.Store and published.Reader run against the same database.
 func danglingOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Registry, *datasetstore.Store) {
 	t.Helper()
 	database := arangotest.Owned(t, danglingBindingDatabasePrefix)
@@ -72,11 +62,6 @@ type danglingExecSpec struct {
 	output     string
 }
 
-// danglingSeedExecution writes one PUBLISHED execution through the production
-// lease + SaveExecution path (bundle_registry.go), as the sibling
-// F-B6 harness does; outputs carry VerifiedAt/PhysicalTable so
-// BundleOutputRecord.Queryable() (bundle.go) is true without relying
-// on Canonicalize Legacy backfill.
 func danglingSeedExecution(t *testing.T, ctx context.Context, registry *Registry, spec danglingExecSpec) publication.BundleExecution {
 	t.Helper()
 	key := "dbind-key-" + spec.id
@@ -115,13 +100,6 @@ func danglingSeedExecution(t *testing.T, ctx context.Context, registry *Registry
 	return execution
 }
 
-// danglingSeedRelease saves an immutable release through the PRODUCTION
-// datasetstore.Store.SaveRelease (release_store.go) and then activates
-// it by patching the active_release placeholder that SaveRelease inserted
-// (release_store.go, manifest_lifecycle.go). Production
-// ReadActiveRelease (release_store.go, readActiveReleaseAQL) is
-// the gate: it must return the released bindings, which also validates the
-// replicated document-key derivation.
 func danglingSeedRelease(t *testing.T, ctx context.Context, client *store.Client, lifecycle *datasetstore.Store, project, generation string, bindings []dataset.ReleasePublication) dataset.ProjectRelease {
 	t.Helper()
 	release := dataset.ProjectRelease{
@@ -158,10 +136,6 @@ RETURN {activated: true}`, 32, map[string]interface{}{
 	return saved
 }
 
-// danglingPatchBindingStale directly rewrites the bindings array of the saved
-// release document (binding-level "recorded stale" - the state the hypothesised
-// all=false path would have produced). Direct doc write is authorized by the
-// brief; nothing on the read side recomputes this flag.
 func danglingPatchBindingStale(t *testing.T, ctx context.Context, client *store.Client, release dataset.ProjectRelease) {
 	t.Helper()
 	releaseKey := danglingDatasetDocumentKey("release", release.ID)
@@ -181,10 +155,6 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 	}
 }
 
-// danglingCorruptDropOutputs removes the PublishedOutput row from the
-// execution document. PublishedOutput is a row of the execution document's
-// embedded outputs array (bundle.go; BootstrapSpec registers no separate
-// output collection), so deleting the row is UPDATE outputs=[].
 func danglingCorruptDropOutputs(t *testing.T, ctx context.Context, client *store.Client, executionID string) {
 	t.Helper()
 	removed := false
@@ -200,8 +170,6 @@ RETURN {removed: true}`, 32, map[string]interface{}{"@collection": BundleExecuti
 	}
 }
 
-// danglingCorruptDeleteExecution makes the binding dangling: the execution
-// document no longer exists while the release still binds its ID.
 func danglingCorruptDeleteExecution(t *testing.T, ctx context.Context, client *store.Client, executionID string) {
 	t.Helper()
 	removed := false
@@ -247,30 +215,6 @@ func danglingSelector(output string, recipe string) published.DataframeSelector 
 	return published.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
 }
 
-// TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango is the F-B7 regression.
-//
-// Pre-stated independent expectations (derived from the line-exact audit
-// above, declared BEFORE running):
-//
-//	E1  Fresh two-binding release: CurrentProjectDatasets returns exactly 2
-//	    materializations sorted by Name ("out-a" then "out-b"), State READY,
-//	    ID "<execID>:<output>" (types.go), err == nil.
-//	E2  Un-naming the bad execution's visibility pointer changes nothing on
-//	    either read path, because releaseMaterialization (current.go)
-//	    never calls GetPointer. The claim "verifyPublishedExecution
-//	    rechecks pointer naming" is false: no such function.
-//	E3  Deleting the bad optional binding's PublishedOutput row: the list keeps
-//	    the healthy materialization and omits only the unavailable optional one.
-//	E4  Deleting the whole bad optional execution has the same result. Required
-//	    bindings and transient catalog failures still abort the whole list.
-//	E5  The single-selector path activeReleaseDataset (current.go) skips
-//	    the broken OTHER binding by selector before materializing, so the
-//	    healthy selector keeps resolving fresh independently => per-viewer
-//	    degradation DISPROVEN; the list and single-selector paths stay independent.
-//
-// Verdict rules: CONFIRMED iff one bad binding demonstrably degrades the
-// healthy binding's freshness or forces stale fallback in the list path;
-// DISPROVEN iff the healthy binding reports fresh independently.
 func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.T) {
 	ctx, client, registry, lifecycle := danglingOpen(t, 120*time.Second)
 
@@ -279,7 +223,6 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	healthyExec := danglingSeedExecution(t, ctx, registry, danglingExecSpec{id: "dbind-exec-healthy", project: project, generation: generation, recipe: "dbind-recipe-a", output: "out-a"})
 	badExec := danglingSeedExecution(t, ctx, registry, danglingExecSpec{id: "dbind-exec-bad", project: project, generation: generation, recipe: "dbind-recipe-b", output: "out-b"})
 
-	// Pointer naming per the production visibility path (bundle.go).
 	if err := registry.CompareAndSwapPointer(ctx, healthyExec.PointerName(), "", healthyExec.ID); err != nil {
 		t.Fatalf("point healthy pointer: %v", err)
 	}
@@ -297,7 +240,6 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	healthySelector := danglingSelector("out-a", "dbind-recipe-a")
 	badSelector := danglingSelector("out-b", "dbind-recipe-b")
 
-	// E1
 	t.Log("EXPECT E1: fresh list = 2 materializations [out-a out-b], State READY, err==nil")
 	list, err := reader.CurrentProjectDatasets(ctx, project)
 	if err != nil || len(list) != 2 || list[0].Name != "out-a" || list[1].Name != "out-b" {
@@ -308,7 +250,6 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	}
 	t.Logf("OBSERVED E1 fresh baseline: %s", danglingMaterializationDigest(list))
 
-	// E2: un-name the bad pointer (pointer -> a non-existent execution).
 	if err := registry.CompareAndSwapPointer(ctx, badExec.PointerName(), badExec.ID, "dbind-orphan-target"); err != nil {
 		t.Fatalf("un-name bad pointer: %v", err)
 	}
@@ -322,7 +263,6 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	}
 	t.Logf("OBSERVED E2 pointer-unnamed control: %s (pointer re-check claim has no code behind it)", danglingMaterializationDigest(list))
 
-	// E3: delete the PublishedOutput row of the bad optional execution.
 	danglingCorruptDropOutputs(t, ctx, client, badExec.ID)
 	t.Log("EXPECT E3: healthy out-a remains in the list; only unavailable optional out-b is omitted")
 	list, err = reader.CurrentProjectDatasets(ctx, project)
@@ -332,7 +272,6 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 		t.Errorf("F-B7 regression: broken optional out-b hid healthy out-a: list=%s err=%v", danglingMaterializationDigest(list), err)
 	}
 
-	// E5a: despite E3, healthy single-selector read must be independent.
 	t.Log("EXPECT E5: healthy single read unaffected by the OTHER binding's corruption")
 	single, err := reader.CurrentProjectDataset(ctx, project, healthySelector)
 	if err != nil || single.ID != healthyExec.ID+":out-a" || single.PhysicalTable != "ch_dbind_exec_healthy" {
@@ -340,7 +279,6 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	}
 	t.Logf("OBSERVED E5a: healthy single read while binding out-b corrupt: {Name=%q ID=%q PhysicalTable=%q} -> per-viewer demotion DISPROVEN", single.Name, single.ID, single.PhysicalTable)
 
-	// E4: now delete the bad execution document entirely (true dangling optional binding).
 	danglingCorruptDeleteExecution(t, ctx, client, badExec.ID)
 	t.Log("EXPECT E4: healthy out-a remains listed after dangling optional out-b is removed")
 	list, err = reader.CurrentProjectDatasets(ctx, project)
@@ -353,14 +291,12 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 		t.Fatalf("E4 precondition: bad execution should be absent: err=%v", err)
 	}
 
-	// E5b: bad single-selector read errors (it can never serve stale).
 	if _, err := reader.CurrentProjectDataset(ctx, project, badSelector); err == nil {
 		t.Fatalf("E5b violated: dangling binding resolver returned success")
 	} else {
 		t.Logf("OBSERVED E5b: bad selector read err=[%s] userCode=%q (loud error, never stale data)", danglingErrorChain(err), danglingUserErrorCode(err))
 	}
 
-	// E5c: healthy single selector STILL fine after full dangling state.
 	if single, err := reader.CurrentProjectDataset(ctx, project, healthySelector); err != nil || single.ID != healthyExec.ID+":out-a" {
 		t.Fatalf("E5c violated: healthy single read degraded by foreign dangling binding: %+v err=%v", single, err)
 	} else {
@@ -370,42 +306,6 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	t.Logf("F-B7 prevented: unavailable optional bindings were omitted while the healthy binding remained current; droppedOutputHealthy=%v danglingHealthy=%v", droppedOutputListKeepsHealthy, danglingListKeepsHealthy)
 }
 
-// TestRequiredBindingSilentDemotion adjudicates the required-set variant:
-// "requiredReleaseBindings/releaseBindingsFrom (release.go): if a
-// binding with Required=true gets stale, does the caller error or silently
-// serve stale?" Those functions do not exist (release.go ends at ). The
-// real required verification happens at create time: release.go makes
-// an unverifiable selector a ReleaseRequirementsError, and carried-forward
-// prior bindings lose Required at . At read time stale/generation filters
-// run first; Required only preserves fail-closed behavior for a deterministic
-// unavailable active binding instead of omitting it as optional.
-//
-// Pre-stated independent expectations (declared BEFORE running):
-//
-//	R1  required=true binding carries Stale=true in the release doc:
-//	    CurrentProjectDatasets returns ONLY the non-stale sibling, err==nil:
-//	    the required binding is SILENTLY dropped (no error, no
-//	    ErrReleaseRequirementsUnmet) - current.go + 212 (result
-//	    non-empty). Caller behavior = silent skip, NOT error.
-//	R2  Single read of the required-stale selector: UserError DATASET_NOT_FOUND
-//	    (current.go skip + ), NOT a required-verification error, and
-//	    no stale data is served.
-//	R3  ALL bindings stale: CurrentProjectDatasets -> UserError
-//	    DATASET_NOT_FOUND (current.go). Silent empty, still no
-//	    requirements error at read time.
-//	R4  Control: required=true + Stale=false but execution corrupted ->
-//	    CurrentProjectDatasets still errors, unlike the broken optional binding.
-//	R5  Flipping Required true/false on a pre-marked stale binding remains
-//	    behaviorally inert because the stale filter runs before materialization.
-//
-// Verdict: "silently serve stale" is DISPROVEN if the reader never returns a
-// stale/generation-mismatched value and instead skips it; "caller errors on
-// required-stale" is DISPROVEN iff R1/R3 show nil error. Both are read-side
-// correctness properties, so the test PASSES when the reader behaves as the
-// audit predicts; the verbatim caller behavior is logged as the report's
-// evidence. Behavior is PASS (correct): requirement enforcement lives at
-// release.go (create), and the reader refuses to serve stale or
-// foreign-generation data by construction (current.go).
 func TestRequiredBindingSilentDemotion(t *testing.T) {
 	ctx, client, registry, lifecycle := danglingOpen(t, 120*time.Second)
 
@@ -429,24 +329,19 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 		t.Fatalf("R0 baseline broken: list=%s err=%v", danglingMaterializationDigest(list), err)
 	}
 
-	// R4 control first, while Stale=false: corrupt the REQUIRED binding's
-	// execution and confirm the caller ERRORS loudly (not silent stale).
 	danglingCorruptDropOutputs(t, ctx, client, requiredExec.ID)
 	t.Log("EXPECT R4: required=true + Stale=false + corrupted execution -> CurrentProjectDatasets returns error (not silent stale)")
 	var r4ErrChain string
 	list, err = reader.CurrentProjectDatasets(ctx, project)
 	r4Loud := err != nil && len(list) == 0 && strings.Contains(danglingErrorChain(err), "has no queryable output")
 	r4ErrChain = danglingErrorChain(err)
-	// Repair the execution for the stale-flag cases by deleting it: the
-	// stale=true path (R1-R3) never touches the catalog for the stale
-	// binding, so deletion keeps the two mechanisms cleanly separated.
+
 	danglingCorruptDeleteExecution(t, ctx, client, requiredExec.ID)
 	if !r4Loud {
 		t.Fatalf("R4 violated: corrupted required binding did not force a loud whole-list error: list=%s err=[%s]", danglingMaterializationDigest(list), r4ErrChain)
 	}
 	t.Logf("OBSERVED R4 verbatim: corrupted required binding -> caller behavior = ERROR, chain=[%s] userCode=%q", r4ErrChain, danglingUserErrorCode(err))
 
-	// R1: mark the required binding stale in the release document.
 	staleBindings := []dataset.ReleasePublication{
 		{Selector: requiredSelector, ExecutionID: requiredExec.ID, Generation: generation, Required: true, Stale: true, VerifiedAt: time.Now().UTC()},
 		{Selector: optionalSelector, ExecutionID: optionalExec.ID, Generation: generation, Required: false, Stale: false, VerifiedAt: time.Now().UTC()},
@@ -461,7 +356,6 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 		t.Fatalf("R1 violated: expected silently-skipped required-stale binding (nil error, [out-o]); got list=%s err=%v", danglingMaterializationDigest(list), err)
 	}
 
-	// R5: Required does not override the pre-marked stale filter.
 	inertBindings := make([]dataset.ReleasePublication, len(staleBindings))
 	copy(inertBindings, staleBindings)
 	inertBindings[0].Required = false
@@ -472,7 +366,6 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 	}
 	t.Log("OBSERVED R5: Required=true->false on the stale binding changed nothing; stale bindings are filtered before the Required error policy")
 
-	// R2: single read of the required-stale selector.
 	t.Log("EXPECT R2: single required-stale selector -> UserError code DATASET_NOT_FOUND, NOT ErrReleaseRequirementsUnmet; no stale value served")
 	single, err := reader.CurrentProjectDataset(ctx, project, requiredSelector)
 	code := danglingUserErrorCode(err)
@@ -481,7 +374,6 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 	}
 	t.Logf("OBSERVED R2 verbatim: required-stale single read -> err=[%s] userCode=%q -> silently serves NOT-FOUND (never stale data)", danglingErrorChain(err), code)
 
-	// R3: all bindings stale.
 	allStale := make([]dataset.ReleasePublication, len(staleBindings))
 	copy(allStale, staleBindings)
 	allStale[1].Stale = true

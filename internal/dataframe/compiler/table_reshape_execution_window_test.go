@@ -279,8 +279,7 @@ func TestPhysicalValidationRejectsSourceLimitBeforeReshape(t *testing.T) {
 			KeyOutput: "measure", KeyLabel: "Measure", ValueOutput: "amount", ValueLabel: "Amount", NullRowPolicy: recipe.UnpivotNullPreserve,
 		},
 	})
-	// Exercise the still-supported physical terminal reshape invariant using the
-	// current Construction-lowered Unpivot payload, without a retired recipe API.
+
 	unpivot := findUnpivot(t, plan)
 	terminal := operationIndex(plan, ir.PhysicalReturnOp)
 	unpivot.InputProjections = plan.Operations[terminal].Return.Projections

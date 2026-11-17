@@ -16,10 +16,6 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 )
 
-// TestOpenAPIAdapterStatusesMatchDeclaredResponses links the status switches
-// in each strict adapter to the same embedded OpenAPI operation that generated
-// the response union. Authentication failures are handled by the shared HTTP
-// middleware, so a declared 401 need not be repeated in every adapter switch.
 func TestOpenAPIAdapterStatusesMatchDeclaredResponses(t *testing.T) {
 	declared, err := declaredOpenAPIStatuses()
 	if err != nil {
@@ -354,8 +350,7 @@ func collectAdapterStatuses(body *ast.BlockStmt, operationName string, statuses 
 		}
 		return true
 	})
-	// Local helper results count only when returned by this adapter itself.
-	// Keep the existing direct-factory scan for invoked failure closures.
+
 	ast.Inspect(body, func(node ast.Node) bool {
 		if _, closure := node.(*ast.FuncLit); closure {
 			return false

@@ -23,8 +23,6 @@ const (
 	constructionSemanticGroupChoicePageLimit = 5
 )
 
-// ConstructionSemanticGroupChoice is an ephemeral, exact family choice for
-// the selected Group stage. The durable operation stores a resolved binding.
 type ConstructionSemanticGroupChoice struct {
 	ChoiceID     string `json:"choiceId"`
 	BindingID    string `json:"bindingId"`
@@ -165,7 +163,7 @@ func semanticGroupFamilyReady(family catalog.SemanticInventoryFamily) bool {
 	return plan.Readiness.Addable() && plan.Source != nil && plan.Source.Lookup != nil && plan.Source.Lookup.Binding != nil && plan.Source.Lookup.Key != nil
 }
 
-var semanticGroupCodingPathSets sync.Map // root resource type -> map[string]bool
+var semanticGroupCodingPathSets sync.Map
 
 func constructionSemanticGroupCodingPath(rootResourceType string, family catalog.SemanticInventoryFamily) (string, bool) {
 	if family.ResourceType != rootResourceType || family.Source.Type != rootResourceType || family.Source.Path == "" {

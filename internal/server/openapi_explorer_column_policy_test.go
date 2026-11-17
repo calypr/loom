@@ -19,8 +19,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// Generated transport and receipt/CAS coverage, with explicit compilation and
-// execution stubs. Real value-policy results belong to independent Arango/native cases.
 func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 	ctx := context.Background()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}

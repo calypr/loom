@@ -8,9 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 )
 
-// ViewBuilderCatalogFromRevision derives the editable frame catalog from one
-// immutable execution-backed revision. It never consults a mutable view list
-// or promotes physical columns into public fields.
 func ViewBuilderCatalogFromRevision(revision Revision) (ViewBuilderCatalog, error) {
 	switch revision.Status {
 	case RevisionReady, RevisionActive, RevisionSuperseded:
@@ -125,7 +122,7 @@ func ViewBuilderCatalogFromRevision(revision Revision) (ViewBuilderCatalog, erro
 				return ViewBuilderCatalog{}, invalidViewBuilder("catalog output %q column %q has no compiler emission", recipeOutput.Name, column.Column)
 			}
 			if _, ok := physicalByOutput[recipeOutput.Name][column.Column]; !ok {
-				// A physical column that disappeared is not an editable frame field.
+
 				continue
 			}
 			emission := emittedByOutput[recipeOutput.Name][column.Column]

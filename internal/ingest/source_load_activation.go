@@ -10,10 +10,6 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-// prepareLegacySourceLoadActivation removes only the legacy mutable-source
-// marker after the candidate is staged. The source revision and lease checks
-// share an Arango transaction with the lifecycle pointer update, so an
-// in-flight legacy publisher cannot be silently reclassified.
 func (p *RepositorySourceLoader) prepareLegacySourceLoadActivation(ctx context.Context, record sourceLoadRecord) error {
 	if record.SourceMode != "mutable" {
 		return nil

@@ -7,8 +7,6 @@ import (
 
 type resolvedColumnPolicy struct{ columnID, projectionMode string }
 
-// ResolveColumnPolicyProposal accepts server-resolved policy facts, never an
-// authored document. The original column, occurrence and field stay intact.
 func (c *Command) ResolveColumnPolicyProposal(columnID, projectionMode string) error {
 	if c == nil || c.Type != CommandApplyColumnPolicyProposal || strings.TrimSpace(columnID) == "" || strings.TrimSpace(columnID) != columnID {
 		return fmt.Errorf("column policy requires an exact resolved column identity")

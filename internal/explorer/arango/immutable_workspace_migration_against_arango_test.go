@@ -164,8 +164,6 @@ func TestImmutableWorkspaceMigrationAgainstArango(t *testing.T) {
 		t.Fatalf("legacy repository workspace was not replaced by current projection: %#v err=%v", legacyWorkspace, err)
 	}
 
-	// The existing startup adapter now sees a current workspace and creates the
-	// missing repository owner without invoking any legacy workspace decoder.
 	if err := adapter.MigrateLegacyRepositoryConfigs(ctx); err != nil {
 		t.Fatalf("startup legacy repository owner migration: %v", err)
 	}

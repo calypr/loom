@@ -10,20 +10,12 @@ import (
 )
 
 const (
-	// constructionBaseCacheFormatVersion invalidates entries when the cached
-	// value shape or the meaning of a key field changes.
 	constructionBaseCacheFormatVersion = 1
 
 	defaultConstructionBaseCacheTTL     = 5 * time.Minute
 	defaultConstructionBaseCacheEntries = 16
 )
 
-// constructionBaseCacheKey includes every request input that can change a
-// compiled construction base. The authorization scope digest is included so a
-// broader or narrower read scope cannot reuse another scope's compilation. The
-// snapshot identity digests are included even though the token is content
-// addressed, so a resolver that ever reuses a token across a generation/schema
-// change cannot leak an older compilation into a newer snapshot.
 type constructionBaseCacheKey struct {
 	Format                   int
 	Project                  string
@@ -46,9 +38,6 @@ type constructionBaseCacheKey struct {
 	AuthorizationScopeDigest string
 }
 
-// constructionBaseCacheValue holds only the expensive compile-derived state.
-// The owner, workspace, document, construction, snapshot, authorization, and
-// catalog are revalidated or rebuilt for every request.
 type constructionBaseCacheValue struct {
 	receipt *explorer.CompilationReceipt
 	stages  []explorer.ReceiptConstructionStage

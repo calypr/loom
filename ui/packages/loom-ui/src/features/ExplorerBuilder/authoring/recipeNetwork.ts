@@ -37,8 +37,7 @@ export const createRecipeNetworkLoader = <Response extends RecipeNetworkIdentity
 }: RecipeNetworkOptions<Response>): (() => void) => {
   const loadRecipeNetwork = () => {
     if (firstTableProgress.kind !== 'idle' || !table) return;
-    // The portal may commit after current bindings; this existing ref action also
-    // completes a pending restoration without issuing another metadata request.
+
     completePendingRecipeFocus(table.outputId);
     if (networkRequestOwner.current === relationshipOwner) return;
     networkRequestOwner.current = relationshipOwner;

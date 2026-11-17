@@ -26,8 +26,7 @@ func TestDefaultSourceParameterCoverageAndAtomicEdits(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Freezing occurrence identities is existing import behavior; settings must
-			// not change any other pinned syntax on a no-op hydration.
+
 			legacy := cloneSourcePlan(plan)
 			for i := range legacy.Steps {
 				legacy.Steps[i].Parameters = nil
@@ -129,7 +128,7 @@ func TestDefaultSourceParameterCoverageAndAtomicEdits(t *testing.T) {
 func TestSourceParametersRetainLegacyPathsAndRejectFieldRetargeting(t *testing.T) {
 	out := outputNamed(t, defaultSourcePlanFixture(t), "ResearchSubject")
 	p := SourcePlan(out)
-	// A genuine pre-extension plan omitted output settings and parameters.
+
 	p.Steps = p.Steps[1:]
 	for i := range p.Steps {
 		p.Steps[i].Parameters = nil

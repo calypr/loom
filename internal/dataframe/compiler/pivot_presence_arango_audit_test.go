@@ -18,9 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestPivotPresenceArangoAudit executes the presence matrix against real AQL and
-// reports which offered columns would reach MISSING_UNSUPPORTED when the source
-// contains absent or explicit-null values. It is diagnostic and env-gated.
 func TestPivotPresenceArangoAudit(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {

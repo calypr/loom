@@ -82,15 +82,6 @@ type graphSchemaDocument struct {
 	} `json:"$defs"`
 }
 
-// loadGeneratedBuilderTraversals derives the same parent -> related-child
-// orientation exposed by Loom's populated-reference catalog. A graph-schema
-// link describes the stored forward FHIR reference (child -> parent), while
-// the dataframe builder intentionally follows its generated reverse route
-// (parent -> child) through INBOUND fhir_edge traversal. This coverage stays
-// on that broad route family; the one separately proven forward contract
-// (ResearchSubject --study--> ResearchStudy) has focused storage-route and
-// extractor regressions. Other forward links remain unproven and must not be
-// blessed by this generic coverage loop.
 func loadGeneratedBuilderTraversals(t *testing.T) []fhirschema.CompilerTraversal {
 	t.Helper()
 	path := filepath.Join("..", "..", "schemas", "graph-fhir.json")

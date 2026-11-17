@@ -15,8 +15,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// recipeExecution returns the durable record after the shared project and
-// generation-scope checks. REST applies its own legacy state projection below.
 func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (publication.BundleExecution, error) {
 	if r.releases == nil {
 		return publication.BundleExecution{}, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
@@ -76,13 +74,6 @@ func recipeExecutionResponse(execution publication.BundleExecution) loomapi.Reci
 	return response
 }
 
-// recipeExecutionReadScope consults the wired resolver for the auth paths an
-// execution declares. The variable is the test seam for the CoversExecutionPaths
-// defense-in-depth gate against resolver drift: a production resolver's
-// Restricted success always echoes the requested path set back (scope_resolver.go
-// ResolveReadScopeForGeneration), so the subset loop that makes Covers the
-// sole disclosure gate is otherwise unreachable in e2e. The default remains
-// the authentic resolver call; production behavior is unchanged.
 var recipeExecutionReadScope = func(ctx context.Context, scopes *authscope.ScopeResolver, principal *authscope.Principal, project, datasetGeneration string, declared []string) (authscope.ReadScope, error) {
 	return scopes.ResolveReadScopeForGeneration(ctx, principal, project, datasetGeneration, declared)
 }
@@ -143,8 +134,6 @@ func recipeExecutionAuthorizationStatus(err error) int {
 	}
 }
 
-// Preserve the mixed service envelope and reject non-string legacy403/404
-// bodies exactly as the previous adapter did, without a JSON round trip.
 func recipeExecutionServiceResponse(status int, response loomapi.ServiceErrorResponse) (loomapi.GetRecipeExecutionResponseObject, error) {
 	if status == http.StatusServiceUnavailable {
 		return loomapi.NewGetRecipeExecutionErrorResponse(status, response)

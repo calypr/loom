@@ -776,9 +776,7 @@ func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testin
 		case query.PreviewGroupProjection.ScopeCountQuery:
 			return visit(map[string]any{"count": int64(1024)})
 		case assessmentQuery:
-			// The first 512 rows are low diversity. A later tail can contain a
-			// unique Coding projection for every row; the sample is cost advice,
-			// never the source of the factored query's output values.
+
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
 		default:
 			t.Fatalf("unexpected query %q", queryText)

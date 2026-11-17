@@ -57,9 +57,6 @@ func CategoryScanRefusalCodeOf(err error) (CategoryScanRefusalCode, bool) {
 	return refusal.Code, true
 }
 
-// CategoryScanProof binds a scan to the exact finalized output contract and
-// executable query. It is immutable compiler output, suitable for inclusion
-// in a later signed receipt without reconstructing either plan or schema.
 type CategoryScanProof struct {
 	Version                    int
 	Output                     string
@@ -105,8 +102,6 @@ func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, colu
 	return compileCategoryScan(output, output.OutputSchema, column, lower.CompiledOutputColumn{}, "", "", "", maxValues, policy, false)
 }
 
-// CompileCategoryScanOutputRequiringValue restricts a final-output category
-// scan to categories that have at least one non-null pivot value.
 func CompileCategoryScanOutputRequiringValue(output lower.CompiledRecipeOutput, columnName, valueColumnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	columnName, valueColumnName = strings.TrimSpace(columnName), strings.TrimSpace(valueColumnName)
 	column, err := categoryScanColumn(output.OutputSchema, columnName)
@@ -123,19 +118,10 @@ func CompileCategoryScanOutputRequiringValue(output lower.CompiledRecipeOutput, 
 	return compileCategoryScan(output, output.OutputSchema, column, value, "", column.ID, value.Name, maxValues, policy, true)
 }
 
-// CompileCategoryScanStageWithPolicy compiles the exact prefix ending at a
-// compiler-owned construction stage and binds the proof to the selected
-// category and value columns. This variant discovers categories independently
-// of whether the value column is populated. Use
-// CompileCategoryScanStageRequiringValue before creating Pivot output columns.
 func CompileCategoryScanStageWithPolicy(output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	return compileCategoryScanStageWithValuePolicy(output, stageID, categoryColumnID, valueColumnID, maxValues, policy, false)
 }
 
-// CompileCategoryScanStageRequiringValue restricts discovery to categories
-// that have at least one non-null pivot value. This is the contract a Pivot
-// needs before it creates an output column: a category with no value would
-// otherwise produce an always-empty column.
 func CompileCategoryScanStageRequiringValue(output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	return compileCategoryScanStageWithValuePolicy(output, stageID, categoryColumnID, valueColumnID, maxValues, policy, true)
 }
@@ -247,10 +233,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 			categoryScanPreservesSourceCategories(physical, stageID, categoryColumnID, column) ||
 			(stageID == "" && categoryScanDirectRootSource(physical, column))
 		if sourceProjectionEquivalent && !requireValue {
-			// The proof remains bound to the requested terminal stage, while the
-			// category query uses the cheaper source projection after proving that
-			// every row in the stage prefix still represents a source parent and
-			// carries this exact root category unchanged.
+
 			physical.StageSequence = nil
 			physical = narrowSourceCategoryScanProjection(physical, column.Name)
 		} else if stageID == recipe.ConstructionSourceProjectionID && requireValue {
@@ -291,8 +274,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		}
 	}
 	if categoryIndex != nil && len(categoryIndex.StoredValues) != 0 {
-		// The category index is also the direct-root Pivot index for this path;
-		// do not schedule the older field-only source prewarm alongside it.
+
 		previewCoveringIndex = nil
 	}
 
@@ -509,8 +491,7 @@ func categoryScanRootProjectionSource(plan ir.PhysicalPlan) (*ir.PhysicalRootSca
 				correlatedVariables[set.Prepared.Variable] = struct{}{}
 			}
 		default:
-			// Top-level traversals and unnests change row grain; only nested
-			// correlated sets are safe before a direct root projection.
+
 			return nil, nil, false
 		}
 	}

@@ -17,8 +17,6 @@ const previewSupersedesMigrationLedger = "loom_schema_migrations"
 var previewQuantityCategoryLegacyFields = []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
 var previewQuantityCategoryStoredValues = []string{"payload.valueQuantity"}
 
-// PreviewSupersededIndex is one exact compiler-owned legacy definition and its
-// type-aware replacement. The definition is copied from Arango's inventory.
 type PreviewSupersededIndex struct {
 	Collection        string   `json:"collection"`
 	OldID             string   `json:"oldID"`
@@ -33,8 +31,6 @@ type PreviewSupersededIndex struct {
 	Kind              string   `json:"kind"`
 }
 
-// PreviewIndexInventoryEntry reports compiler-owned definitions that were not
-// classified as a known superseded or current type-aware category index.
 type PreviewIndexInventoryEntry struct {
 	Collection   string   `json:"collection"`
 	ID           string   `json:"id"`
@@ -44,8 +40,6 @@ type PreviewIndexInventoryEntry struct {
 	StoredValues []string `json:"storedValues"`
 }
 
-// PreviewSupersedesAudit is read-only. OtherOwnedIndexes includes compiler-
-// named indexes outside the two replacement shapes; callers must preserve them.
 type PreviewSupersedesAudit struct {
 	SchemaVersion           int                          `json:"schemaVersion"`
 	MigrationVersion        string                       `json:"migrationVersion"`
@@ -60,9 +54,6 @@ type PreviewSupersedesAudit struct {
 	WouldRecordVersion      bool                         `json:"wouldRecordVersion"`
 }
 
-// AuditPreviewSupersededIndexes inventories exact supported legacy
-// replacements without creating collections or indexes. It can run before
-// any migration is applied and is safe against shared databases.
 func (c *Client) AuditPreviewSupersededIndexes(ctx context.Context) (PreviewSupersedesAudit, error) {
 	if c == nil || c.db == nil {
 		return PreviewSupersedesAudit{}, errors.New("preview-index audit requires an open database")
@@ -142,8 +133,7 @@ func auditPreviewIndexCollection(collection string, indexes []driver.IndexRespon
 		}
 		if current, exists := byName[candidate.NewName]; exists {
 			if !previewCoveringIndexMatchesDefinition(current, candidate.NewFields, candidate.NewStoredValues) {
-				// Keep the collision visible as an audit error via an impossible
-				// marker; migration will fail closed in migratePreviewSupersededIndex.
+
 				candidate.ReplacementExists = true
 				candidate.ReplacementID = current.ID
 				candidate.Kind += ":replacement-name-conflict"

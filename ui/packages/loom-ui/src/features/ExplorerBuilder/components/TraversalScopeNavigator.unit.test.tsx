@@ -124,7 +124,7 @@ it('hides duplicated action controls while requested', () => {
 it('lists unresolved pinned fields once', () => {
   const importedTable: DraftTable = { ...table, document: { ...table.document,
     importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' },
-    columns: [{ columnId: 'legacy-id', column: 'legacy', label: 'Legacy field', source: { kind: 'imported', imported: { outputColumn: 'legacy' } } }],
+    columns: [{ columnId: 'legacy-id', occurrenceId: 'base', column: 'legacy', label: 'Legacy field', source: { kind: 'imported', imported: { outputColumn: 'legacy' } } }],
   } };
   render(<TraversalScopeNavigator {...props()} table={importedTable} />);
   expect(screen.getByText('Unresolved source scope (0 operations, 1 fields)')).toBeInTheDocument();

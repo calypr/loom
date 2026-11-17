@@ -1,10 +1,5 @@
 package explorer
 
-// This file contains the immutable boundary between Explorer authoring and
-// execution. A receipt is a durable, server-owned description of one exact
-// compilation. It deliberately contains a resolved semantic recipe, not
-// physical plans, rendered AQL, bind variables, or storage identifiers.
-
 import (
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,13 +15,10 @@ import (
 )
 
 const (
-	// CompilationReceiptFormatVersion changes when the persisted receipt shape
-	// or its execution invariants change incompatibly.
 	CompilationReceiptFormatVersion         = 6
 	previousCompilationReceiptFormatVersion = 5
 	legacyCompilationReceiptFormatVersion   = 3
-	// CompilationReceiptCompilerContractVersion changes when compilation
-	// semantics change in a way that can alter a resolved receipt.
+
 	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v21"
 	legacyCompilationReceiptV20CompilerContractVersion = "loom.explorer.compiler/v20"
 	legacyCompilationReceiptV19CompilerContractVersion = "loom.explorer.compiler/v19"
@@ -40,28 +32,17 @@ const (
 	legacyCompilationReceiptOlderContractVersion       = "loom.explorer.compiler/v11"
 	legacyCompilationReceiptV10ContractVersion         = "loom.explorer.compiler/v10"
 
-	// Short aliases make the current contract convenient for repositories and
-	// callers that do not need to distinguish the receipt prefix.
 	CurrentReceiptFormatVersion       = CompilationReceiptFormatVersion
 	CurrentCompilerContractVersion    = CompilationReceiptCompilerContractVersion
 	CurrentCompilationContractVersion = CompilationReceiptCompilerContractVersion
 )
 
-// ErrReceiptRecompileRequired is returned for an old receipt that has no
-// resolved recipe artifact. Such a receipt cannot be safely upgraded by an
-// execution request because doing so would reinterpret authoring intent.
 var ErrReceiptRecompileRequired = errors.New("RECEIPT_RECOMPILE_REQUIRED")
 
-// ReceiptContractSupportedForExecution distinguishes read compatibility from
-// execution compatibility. Historical artifacts remain readable for inspection
-// and recompilation. Execution requires the current fingerprint contract, which
-// also authenticates source-only dynamic scalar/list validation after Group.
 func ReceiptContractSupportedForExecution(r CompilationReceipt) bool {
 	return r.ReceiptFormatVersion == CompilationReceiptFormatVersion && r.CompilerContractVersion == CompilationReceiptCompilerContractVersion && !r.Bundle.HasArchivedReshape() && r.TableShapeProposal == nil
 }
 
-// CompilationArtifactDigest returns the content identity used for canonical
-// JSON artifacts embedded in a receipt, such as the public output contract.
 func CompilationArtifactDigest(raw json.RawMessage) (string, error) {
 	canonical, err := canonicalRaw(raw)
 	if err != nil {
@@ -74,10 +55,6 @@ func CompilationArtifactDigest(raw json.RawMessage) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// CompilationReceipt is immutable once persisted and content-addressed by
-// ReceiptID. NormalizedBundle is authoring intent retained for export and
-// compatibility; Bundle is the resolved recipe used by execution. Neither
-// field contains a physical IR or rendered query.
 type CompilationReceipt struct {
 	ConstructionProposal            *ConstructionProposalBinding            `json:"constructionProposal,omitempty"`
 	PopulationMemberRemovalProposal *PopulationMemberRemovalProposalBinding `json:"populationMemberRemovalProposal,omitempty"`
@@ -107,13 +84,9 @@ type CompilationReceipt struct {
 	EmittedColumns                  []EmittedColumn                         `json:"emittedColumns"`
 	OutputFingerprints              map[string]string                       `json:"outputFingerprints,omitempty"`
 	ConstructionStages              map[string][]ReceiptConstructionStage   `json:"constructionStages,omitempty"`
-	// OutputColumnProvenance is the durable publication behavior for every
-	// compiler output column. Recipe Discovered flags are compiler-local and
-	// intentionally do not cross the authoring recipe JSON boundary.
+
 	OutputColumnProvenance map[string]map[string]string `json:"outputColumnProvenance,omitempty"`
-	// CompiledOutputSchemas preserves the lowerer's exact finalized schema for
-	// every output in this workspace receipt. It is used only as server-owned
-	// source metadata when another draft output consumes a WORKSPACE_OUTPUT.
+
 	CompiledOutputSchemas      map[string][]ReceiptCompiledOutputColumn `json:"compiledOutputSchemas,omitempty"`
 	Warnings                   []CompilationWarning                     `json:"warnings,omitempty"`
 	ColumnPolicyProposal       *ColumnPolicyProposalBinding             `json:"columnPolicyProposal,omitempty"`
@@ -124,9 +97,6 @@ type CompilationReceipt struct {
 	CreatedAt                  time.Time                                `json:"createdAt"`
 }
 
-// ReceiptCompiledOutputColumn is the minimal stable schema projection needed
-// to describe a sibling output. IDs and logical facts come from lower's final
-// OutputSchema; no physical storage names are exposed to authoring clients.
 type ReceiptCompiledOutputColumn struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name"`
@@ -138,9 +108,6 @@ type ReceiptCompiledOutputColumn struct {
 	Identity    bool   `json:"identity,omitempty"`
 }
 
-// RowDefinitionProposalBinding freezes the exact draft and output from which a
-// candidate row-definition workspace was compiled. It is optional because
-// ordinary compilation receipts are not row-definition proposals.
 type RowDefinitionProposalBinding struct {
 	DraftVersion             int64  `json:"draftVersion"`
 	DraftDigest              string `json:"draftDigest"`
@@ -160,9 +127,6 @@ func (b RowDefinitionProposalBinding) Validate(intentDigest, snapshotToken strin
 	return validateDraftProposalDigests("row-definition", b.CandidateWorkspaceDigest, b.SnapshotToken, intentDigest, snapshotToken)
 }
 
-// TableShapeProposalBinding freezes the exact draft and output from which a
-// candidate table-shape workspace was compiled. It is optional because
-// ordinary compilation receipts are not table-shape proposals.
 type TableShapeProposalBinding struct {
 	DraftVersion             int64  `json:"draftVersion"`
 	DraftDigest              string `json:"draftDigest"`
@@ -204,9 +168,6 @@ func validateDraftProposalDigests(kind, candidateWorkspaceDigest, bindingSnapsho
 	return nil
 }
 
-// PopulationMemberRemovalProposalBinding freezes one exact immutable source
-// selection change and the compiled workspace that previews it. It is absent
-// from ordinary compilation receipts.
 type PopulationMemberRemovalProposalBinding struct {
 	DraftVersion                 int64       `json:"draftVersion"`
 	DraftDigest                  string      `json:"draftDigest"`
@@ -252,9 +213,6 @@ func (b PopulationMemberRemovalProposalBinding) Validate(intentDigest, snapshotT
 	return nil
 }
 
-// ConstructionProposalBinding freezes the saved base and exact typed candidate
-// for an operation proposal. CandidateWorkspaceDigest covers all stage inputs,
-// including immutable table revisions.
 type ConstructionProposalBinding struct {
 	DraftVersion             int64    `json:"draftVersion"`
 	DraftDigest              string   `json:"draftDigest"`
@@ -303,8 +261,6 @@ func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string
 	return nil
 }
 
-// ReceiptConstructionStage preserves the exact inferred schema and supported
-// operation set for a stable stage in a compiled output.
 type ReceiptConstructionStage struct {
 	ID                      string                                      `json:"id"`
 	InputStageID            string                                      `json:"inputStageId"`
@@ -319,9 +275,6 @@ type ReceiptConstructionStage struct {
 	GroupFieldSourceContext *ReceiptConstructionGroupFieldSourceContext `json:"groupFieldSourceContext,omitempty"`
 }
 
-// ReceiptConstructionGroupFieldSourceContext is copied from the lowerer's
-// compiled stage descriptor so lifecycle can reauthorize Group sources
-// against the exact row expansion shape at proposal and apply time.
 type ReceiptConstructionGroupFieldSourceContext struct {
 	SourceStageID        string                                        `json:"sourceStageId"`
 	SourceShapeID        string                                        `json:"sourceShapeId"`
@@ -364,9 +317,6 @@ type ReceiptConstructionGroupFieldOwner struct {
 	StepIndex         int    `json:"stepIndex"`
 }
 
-// ReceiptConstructionCodedGroupChoice is attached only to a current
-// construction-capabilities response. Its choice ID is snapshot-bound; the
-// persisted operation stores the exact source path facts separately.
 type ReceiptConstructionCodedGroupChoice struct {
 	ChoiceID     string `json:"choiceId"`
 	OccurrenceID string `json:"occurrenceId"`
@@ -410,7 +360,7 @@ type ReceiptConstructionStageColumn struct {
 	Label     string `json:"label"`
 	Type      string `json:"type,omitempty"`
 	SourceKey string `json:"sourceKey,omitempty"`
-	// Cardinality is empty only on receipts created before stage cardinality was recorded.
+
 	Cardinality expression.Cardinality `json:"cardinality,omitempty"`
 }
 
@@ -735,7 +685,7 @@ func validateReceiptCompiledOutputSchemas(
 	bundle recipe.Bundle,
 ) error {
 	if len(schemas) == 0 {
-		return nil // Older receipts remain readable; new compiles always populate this field.
+		return nil
 	}
 	if len(schemas) != len(bundle.Outputs) {
 		return fmt.Errorf("receipt compiled output schema set changed")
@@ -780,9 +730,6 @@ type IdentityMapping struct {
 	EmissionIDs    []string `json:"emissionIds"`
 }
 
-// CompilationWarning is the deterministic, request-independent diagnostic
-// subset that can be frozen in a receipt. Request IDs and timestamps must not
-// be included here because they would make equivalent receipts differ.
 type CompilationWarning struct {
 	Severity  string         `json:"severity,omitempty"`
 	Code      string         `json:"code"`
@@ -792,9 +739,6 @@ type CompilationWarning struct {
 	Details   map[string]any `json:"details,omitempty"`
 }
 
-// CompilationKey returns the idempotency identity for one authoring request.
-// It covers semantic inputs and compiler contracts, but not resolved output;
-// this permits a repository lookup before doing the expensive compilation.
 func CompilationKey(r CompilationReceipt) (string, error) {
 	identity := struct {
 		ReceiptFormatVersion            int                                     `json:"receiptFormatVersion"`
@@ -852,8 +796,6 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 	return digestIdentity("compile_", identity)
 }
 
-// ReceiptID returns the content identity for the complete immutable artifact.
-// ID, RequestID, and CreatedAt are intentionally excluded.
 func ReceiptID(r CompilationReceipt) (string, error) {
 	key, err := CompilationKey(r)
 	if err != nil {
@@ -862,8 +804,6 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 	return receiptIDWithCompilationKey(r, key)
 }
 
-// receiptIDWithCompilationKey reuses only a key verified during this same
-// validation call. Public identity functions always calculate their own key.
 func receiptIDWithCompilationKey(r CompilationReceipt, key string) (string, error) {
 	compiledConfig, err := canonicalRaw(r.CompiledConfig)
 	if err != nil {
@@ -929,12 +869,8 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 	return canonicalJSONBytes(raw)
 }
 
-// Validate checks that a receipt is a supported, executable artifact.
-// Validate authenticates persisted receipt content, including supported archives.
-// Executable consumers must additionally require the current compiler/recipe contract.
 func (r CompilationReceipt) Validate() error { return r.ValidateArchive() }
 
-// ValidateArchive verifies immutable content without reinterpreting retired recipe operations.
 func (r CompilationReceipt) ValidateArchive() error {
 	var verifiedCompilationKey string
 	if r.ColumnPolicyProposal != nil {
@@ -1155,7 +1091,6 @@ func validateResolvedInterpretations(project string, values []ResolvedInterpreta
 	return nil
 }
 
-// ValidateID verifies the stored ID against the receipt's content identity.
 func (r CompilationReceipt) ValidateID() error {
 	return r.validateIDWithCompilationKey("")
 }
@@ -1180,16 +1115,12 @@ func (r CompilationReceipt) validateIDWithCompilationKey(key string) error {
 	return nil
 }
 
-// SourceRelationshipProposalBinding binds a native source edit to the exact
-// saved workspace, output and capability snapshot reviewed in Preview.
 type SourceRelationshipProposalBinding RowDefinitionProposalBinding
 
 func (b SourceRelationshipProposalBinding) Validate(intentDigest, snapshotToken string) error {
 	return RowDefinitionProposalBinding(b).Validate(intentDigest, snapshotToken)
 }
 
-// ColumnPolicyProposalBinding permits only one catalog-validated policy change
-// on an existing ordinary source column in a receipt-bound workspace.
 type ColumnPolicyProposalBinding struct {
 	RowDefinitionProposalBinding
 	ColumnID       string `json:"columnId"`
@@ -1211,8 +1142,6 @@ func (b ColumnPolicyProposalBinding) Validate(intentDigest, snapshotToken string
 	return nil
 }
 
-// Successful syntax-only checks do not need another decoded tree and canonical
-// allocation. On invalid input retain the canonical decoder's exact error.
 func validateReceiptRawJSON(raw []byte) error {
 	if json.Valid(raw) {
 		return nil

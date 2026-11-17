@@ -17,9 +17,6 @@ const (
 	postQueryTargetKey    = "__loom_postquery_target"
 )
 
-// DynamicDriftError means a runtime key was not part of the dynamic-column
-// schema frozen from the field catalog. It carries schema metadata only, so
-// transport adapters can report the mismatch without exposing row values.
 type DynamicDriftError struct {
 	DynamicName    string
 	Key            string
@@ -53,9 +50,7 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 	if len(checks) == 0 {
 		return nil
 	}
-	// Frozen column types are compiled guarantees, so every present value is
-	// checked whether or not the runtime key metadata enumerates its key: the
-	// metadata may cover only another family.
+
 	for dynamicName, columns := range checks {
 		for _, column := range columns {
 			if column.ColumnName == "" {
@@ -69,9 +64,6 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 	return validateDynamicRuntimeInventories(row["__loom_dynamic_runtime_keys"], checks)
 }
 
-// A Group carries one inventory per actual contributing input row. Repeated
-// Groups nest these arrays; validate every leaf without overwriting earlier
-// inventories or exposing them as public columns.
 func validateDynamicRuntimeInventories(value any, checks map[string]map[string]DynamicColumnCheck) error {
 	if inventories, ok := value.([]any); ok {
 		for _, inventory := range inventories {

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Keep the dataframe pipeline directional. This is intentionally a small
-# source check rather than a Go test so it can run before compilation in CI.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 fail_if_matches() {

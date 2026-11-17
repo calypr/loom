@@ -102,22 +102,18 @@ superseded worklists. Current verification routes are in
 
 ### ARC-C13 — one read pin aborts unrelated reconciliation
 
-**Status: reproduced against Arango; open.** A pinned stale execution aborts the
-whole reconciliation run, leaving unrelated reclaimable executions untouched.
-The no-pin control reclaims them. Retained cases are
-`TestStalePinBlocksEntireReconcileAgainstArango`,
-`TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango`, and
-`TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango`. With owned service credentials these assertions run normally and remain red
-until the product defect is repaired.
+**Status: fixed and verified against Arango and ClickHouse.** Reconciliation
+skips a stale execution with a live read pin and continues reclaiming other
+eligible executions. A bundle-lease release failure still propagates. The
+live-pin, crash-window, and no-pin controls pass.
 
 ### ARC-C14 — legacy READY selection chooses the older execution
 
-**Status: reproduced against Arango; open.** A valid legacy READY execution
-with a newer ReadyAt and no PublishedAt canonicalizes as published, but the
-selector returns an older execution.
-`TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango` retains the red
-assertion in normal integration runs. It leaves one Phase-1 baseline
-guarantee red until the product defect is repaired.
+**Status: fixed and verified against Arango.** The selector orders publications
+by their effective publication time, using a legacy READY execution's ReadyAt
+when PublishedAt is absent.
+`TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango` exercises both
+ordering directions.
 
 ### ARC-E12 — end-to-end CI cadence
 

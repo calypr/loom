@@ -6,7 +6,6 @@ import (
 	"slices"
 )
 
-// CloneStrings copies a string slice, canonicalizing empty slices to nil.
 func CloneStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -253,9 +252,6 @@ func ClonePhysicalSubplan(subplan PhysicalSubplan) PhysicalSubplan {
 	return clonePhysicalSubplan(subplan)
 }
 
-// CanonicalExecutionPhysicalPlan returns the renderer-relevant plan contract.
-// Compiler diagnostics and semantic source locations are deliberately removed:
-// they explain a plan but do not change what the backend executes.
 func CanonicalExecutionPhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	out := clonePhysicalPlan(plan)
 	out.Source = PhysicalSource{}
@@ -402,10 +398,6 @@ func canonicalizePhysicalExpression(expression *PhysicalExpression) {
 	}
 }
 
-// canonicalizePhysicalExpressionChildren reuses the generated IR child
-// enumeration for expression recursion while handing subplans back to the
-// operation selector above. That boundary preserves which subplan operations
-// participate in the canonical execution form.
 func canonicalizePhysicalExpressionChildren(node Node) {
 	for _, child := range Children(node) {
 		switch child := child.(type) {

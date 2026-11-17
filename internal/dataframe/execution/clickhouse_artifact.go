@@ -12,9 +12,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 )
 
-// MaterializeClickHouseArtifact streams a complete AQL output into a private,
-// typed ClickHouse artifact. The artifact remains leased after this call and
-// must be released after the ClickHouse stage finishes reading it.
 func (s OutputStream) MaterializeClickHouseArtifact(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*chartifact.Artifact, error) {
 	capture, err := s.materializeClickHouseArtifact(ctx, manager, executionID, stageID, columns)
 	if err != nil {
@@ -135,9 +132,6 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	}, nil
 }
 
-// materializePreparedClickHouse resolves every exact input and composes the
-// query's scope evidence before opening a writer. Dependency leases remain
-// owned by withPreparedClickHouse until the complete source query is consumed.
 func (s OutputStream) materializePreparedClickHouse(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*materializedClickHouseCapture, error) {
 	var capture *materializedClickHouseCapture
 	captureStream := s
@@ -208,8 +202,6 @@ func (s OutputStream) materializePreparedClickHouse(ctx context.Context, manager
 	return capture, nil
 }
 
-// PrivateClickHouseArtifactSource identifies one exact resolved workspace
-// output to capture before a terminal ClickHouse operation.
 type PrivateClickHouseArtifactSource struct {
 	OutputID         string
 	Stream           OutputStream
@@ -217,8 +209,6 @@ type PrivateClickHouseArtifactSource struct {
 	ExpectedIdentity ir.ClickHouseArtifactIdentity
 }
 
-// PrivateClickHouseArtifactInput preserves the caller's source order when the
-// completed private captures are handed to the ClickHouse consumer.
 type PrivateClickHouseArtifactInput struct {
 	OutputID         string
 	Artifact         *chartifact.Artifact
@@ -228,10 +218,6 @@ type PrivateClickHouseArtifactInput struct {
 	ScopeEvidence    ir.WholeRelationScopeEvidence
 }
 
-// WithPrivateClickHouseArtifacts pins any published inputs, captures each
-// workspace output in order, invokes consume while every capture lease and
-// published pin is live, then releases every capture before returning. A
-// zero-length publishedRevisions list is valid for an all-workspace Combine.
 func WithPrivateClickHouseArtifacts(
 	ctx context.Context,
 	manager *chartifact.Manager,

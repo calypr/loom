@@ -43,15 +43,9 @@ type ServerConfig struct {
 	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
 	LocalWorkspaceWriteback       string                      `yaml:"local_workspace_writeback"`
 	LocalWorkspaceProject         string                      `yaml:"local_workspace_project"`
-	// DevActivationConflictOnce is intentionally not configurable through YAML.
-	// It is a one-shot fault injector for the isolated, --no-auth development
-	// stack and is ignored unless both server and auth are unauthenticated.
+
 	DevActivationConflictOnce bool `yaml:"-"`
-	// DevRepositoryActivationConflictOnce is the repository-publish sibling of
-	// DevActivationConflictOnce. It is intentionally not configurable through
-	// YAML, arms the one-shot corrupted-compare fault on the repository
-	// activation leg, and is honored only under the same local no-auth mode
-	// gate as the other dev fault switches.
+
 	DevRepositoryActivationConflictOnce bool          `yaml:"-"`
 	DevArtifactRowDelay                 time.Duration `yaml:"-"`
 }
@@ -152,10 +146,7 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		if err != nil {
 			return Config{}, err
 		}
-		// --no-auth is an explicit local-development override. Keep the
-		// configuration file authoritative for normal server settings, but honor
-		// this flag even when the server is started with --config (as the Helm
-		// local-development path does).
+
 		if noAuth {
 			cfg.Server.AllowUnauthenticated = true
 			cfg.Auth.AllowUnauthenticated = true
@@ -247,9 +238,6 @@ func applyEnvironment(cfg Config) (Config, error) {
 	return cfg, nil
 }
 
-// applyDevFaultOverrides is deliberately gated by the local no-auth mode.
-// These switches provide deterministic fault scenarios for the isolated dev
-// Compose stack without creating a production request or OpenAPI surface.
 func applyDevFaultOverrides(cfg *Config) error {
 	if cfg == nil || !cfg.Server.AllowUnauthenticated || !cfg.Auth.AllowUnauthenticated {
 		return nil

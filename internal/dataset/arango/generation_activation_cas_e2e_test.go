@@ -28,8 +28,6 @@ func gacOpen(t *testing.T, budget time.Duration) (context.Context, *Store) {
 	return ctx, lifecycle
 }
 
-// gacLoadStaged creates and reads back a staged manifest through the production
-// store so Activate receives a persisted candidate with valid metadata.
 func gacLoadStaged(t *testing.T, ctx context.Context, lifecycle *Store, project, generation, digest string) publication.Manifest {
 	t.Helper()
 	ref, err := publication.NewRef(project, generation)
@@ -61,10 +59,6 @@ func gacLoadStaged(t *testing.T, ctx context.Context, lifecycle *Store, project,
 	return read
 }
 
-// TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango exercises the
-// manifest-store contract: an explicit activation selects its requested staged
-// generation, switching generations is allowed, and activating the current
-// generation again is idempotent.
 func TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango(t *testing.T) {
 	ctx, lifecycle := gacOpen(t, 240*time.Second)
 	const project = "gac-activation-project"
@@ -93,8 +87,8 @@ func TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango(t *testing.T
 	}
 
 	activateAndAssert(g1)
-	activateAndAssert(g2) // Explicit cross-generation switching is supported.
-	activateAndAssert(g1) // Switching back to a previously active generation is supported.
+	activateAndAssert(g2)
+	activateAndAssert(g1)
 	activateAndAssert(g3)
-	activateAndAssert(g3) // Reactivating the current generation is idempotent.
+	activateAndAssert(g3)
 }

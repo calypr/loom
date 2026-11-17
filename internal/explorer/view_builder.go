@@ -81,7 +81,6 @@ type ViewBuilderRepository interface {
 	AdoptViewBuilderCatalogs(context.Context, string) error
 }
 
-// ViewBuilderFrameID binds a logical output ID to its recipe namespace.
 func ViewBuilderFrameID(recipeName, outputName string) string {
 	return strings.TrimSpace(recipeName) + "/" + strings.TrimSpace(outputName)
 }

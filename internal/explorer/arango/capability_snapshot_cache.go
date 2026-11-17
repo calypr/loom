@@ -19,8 +19,6 @@ type snapshotRevisionEntry struct {
 	bytes    int
 }
 
-// Entries own validated snapshots; callers only receive deep clones. The byte
-// budget counts encoded document bytes, in addition to the entry count bound.
 type snapshotRevisionCache struct {
 	mu         sync.Mutex
 	entries    map[string]*list.Element

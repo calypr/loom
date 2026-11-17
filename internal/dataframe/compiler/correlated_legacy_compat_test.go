@@ -14,8 +14,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// Scalar selectors now use null-preserving direct arrays; keep the complete
-// owner-scope query fingerprints alongside the executable owner fixtures.
 func TestCorrelatedPhysicalScalarSelectorAQLFingerprint(t *testing.T) {
 	binding := &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"}
 	projection, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{

@@ -11,7 +11,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// Used only by the test's independent emitted-bind parser.
 func categoryScanIdentifierByte(value byte) bool {
 	return value == '_' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
 }

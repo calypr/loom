@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-// ConstructionCombineKind names one bounded operation over immutable table
-// revisions. Every input is resolved by exact table, revision, and output ID.
 type ConstructionCombineKind string
 
 const (
@@ -22,10 +20,6 @@ const (
 	ConstructionCombineLeftJoin  ConstructionCombineJoinType = "LEFT"
 )
 
-// ConstructionCombineRightMatchPolicy makes duplicate-key behavior explicit.
-// PRESERVE_ALL retains every right match, including its expected row
-// multiplication. The compiler does not deduplicate or select an arbitrary
-// right row.
 type ConstructionCombineRightMatchPolicy string
 
 const ConstructionCombinePreserveAllMatches ConstructionCombineRightMatchPolicy = "PRESERVE_ALL"
@@ -37,10 +31,6 @@ const (
 	ConstructionCombineExcludeMatches ConstructionCombineMembershipMode = "EXCLUDE"
 )
 
-// ConstructionCombine describes one relational operation over the ordered
-// TABLE_REVISION inputs on its construction step. Output IDs are authored
-// identities; physical names and logical types are resolved from each exact
-// published revision before lowering.
 type ConstructionCombine struct {
 	Kind             ConstructionCombineKind             `json:"kind"`
 	Keys             []ConstructionCombineKey            `json:"keys,omitempty"`
@@ -50,25 +40,17 @@ type ConstructionCombine struct {
 	MembershipMode   ConstructionCombineMembershipMode   `json:"membershipMode,omitempty"`
 }
 
-// ConstructionCombineKey pairs a left and right stable column ID. Key order
-// defines tuple order when a compound key is used.
 type ConstructionCombineKey struct {
 	LeftColumnID  string `json:"leftColumnId"`
 	RightColumnID string `json:"rightColumnId"`
 }
 
-// ConstructionCombineProjection maps a stable output column ID to a stable
-// input column ID. APPEND uses one mapping per input/output pair so sources
-// with different column IDs can share one output schema.
 type ConstructionCombineProjection struct {
 	OutputColumnID string `json:"outputColumnId"`
 	InputIndex     int    `json:"inputIndex"`
 	InputColumnID  string `json:"inputColumnId"`
 }
 
-// Validate checks operation structure against ordered inputs and the complete
-// declared output schema. Column compatibility is checked after exact input
-// revisions have been resolved by the compiler.
 func (combine ConstructionCombine) Validate(inputCount int, outputs []StageColumn) error {
 	if inputCount < 2 {
 		return fmt.Errorf("combine requires at least two immutable table inputs")

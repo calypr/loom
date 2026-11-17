@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-// IdentifierBinding is the closed authoring shape for selecting one
-// namespace/value pair from the same repeated FHIR Identifier item.
 type IdentifierBinding struct {
 	OwnerPath   string `json:"ownerPath"`
 	SystemPath  string `json:"systemPath"`
@@ -15,8 +13,6 @@ type IdentifierBinding struct {
 	LogicalType string `json:"logicalType"`
 }
 
-// IdentifierBindingSpec contains selectors checked against generated FHIR
-// metadata and ready for dynamic-column lowering.
 type IdentifierBindingSpec struct {
 	ResourceType   string
 	OwnerSelector  Selector
@@ -28,9 +24,6 @@ type IdentifierBindingSpec struct {
 	ValuePrimitive PrimitiveKind
 }
 
-// ValidateIdentifierBinding validates a namespace/value pair against the
-// generated schema. The pair is deliberately restricted to Identifier.system
-// and Identifier.value, which FHIR defines as belonging to the same item.
 func ValidateIdentifierBinding(resourceType string, binding IdentifierBinding) (IdentifierBindingSpec, error) {
 	if !HasResource(resourceType) {
 		return IdentifierBindingSpec{}, fmt.Errorf("resource type %q is not represented by generated FHIR schema", resourceType)

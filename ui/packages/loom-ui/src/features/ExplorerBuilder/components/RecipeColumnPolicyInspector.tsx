@@ -7,7 +7,7 @@ type FieldSource = Extract<ExplorerBuilderColumn['source'], { kind: 'field' }>;
 type ProjectionMode = NonNullable<FieldSource['field']['projectionMode']>;
 
 export interface RecipeColumnPolicyInspectorProps {
-  /** Key this inspector by shared owner + column identity; draft form state is local to that edit. */
+
   readonly column: ExplorerBuilderColumn;
   readonly sourceNodeId: string;
   readonly candidate?: ExplorerBuilderCandidate;
@@ -19,11 +19,10 @@ export interface RecipeColumnPolicyInspectorProps {
   readonly error?: string;
   readonly onChange: (column: ExplorerBuilderColumn) => void;
   readonly onCancel: () => void;
-  /** Supply only when a typed, receipt-backed preview flow exists. No preview is fabricated locally. */
+
   readonly onPreview?: (column: ExplorerBuilderColumn) => void;
 }
 
-/** Metadata-bounded ordinary field policy edit; the whole original column is preserved. */
 export function RecipeColumnPolicyInspector(props: RecipeColumnPolicyInspectorProps) {
   const { column, candidate, sourceNodeId, disabled = false, busy = false } = props;
   const source = column.source;

@@ -156,6 +156,10 @@ clean:
 test-ui:
 	npm --prefix ui test
 
+.PHONY: lint-go-comments
+lint-go-comments:
+	$(GO) run ./cmd/check-go-comments
+
 test-go:
 	$(GO) test ./...
 

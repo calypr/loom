@@ -77,8 +77,7 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("render collection bind traversal: %w", err)
 	}
-	// Cohort rows keep collection names as scalar fields rather than IR child
-	// nodes, so they remain the one explicit stage-sequence exception.
+
 	if sequence := plan.StageSequence; sequence != nil {
 		for _, stage := range sequence.Stages {
 			if stage.CohortGroup == nil {

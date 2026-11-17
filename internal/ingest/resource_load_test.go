@@ -7,11 +7,6 @@ import (
 	"testing"
 )
 
-// TestLoadIncompleteErrorRejectsPartialResourceLoad pins the mutable resource
-// path's honest-error guarantee (docs/loom-reliability-contract.md:76). The
-// accumulation loops in loadResource leave the row-level counters set when
-// FailFast is disabled, so a load that inserted partial rows must surface a
-// typed error rather than the nil it returned before the incomplete-check existed.
 func TestLoadIncompleteErrorRejectsPartialResourceLoad(t *testing.T) {
 	if err := loadIncompleteError(LoadSummary{}); err != nil {
 		t.Fatalf("loadIncompleteError(clean) = %v, want nil", err)

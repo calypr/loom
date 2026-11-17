@@ -9,9 +9,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// AssessRowChange resolves capability evidence against one exact persisted
-// draft and compiles a ready candidate without mutating the draft. Applying the
-// candidate remains on the existing CAS command path.
 func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRequest) (AssessRowChangeResult, error) {
 	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 1 || strings.TrimSpace(request.DraftDigest) == "" || strings.TrimSpace(request.OutputID) == "" || strings.TrimSpace(request.RootNodeID) == "" {
 		return AssessRowChangeResult{}, malformed("row-change", "snapshotToken, draftVersion, draftDigest, outputId, and rootNodeId are required", nil)
@@ -88,9 +85,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if !receiptHasOutput(candidateReceipt.Bundle, request.OutputID) || validateReceiptOutputContract(candidateReceipt, request.OutputID) != nil {
 		return AssessRowChangeResult{}, conflict("row-change", "INVALID_COMPILATION_RECEIPT", "the row-change candidate receipt does not contain the requested output", nil, nil)
 	}
-	// The receipt can be scoped to this output and its upstream inputs. Expose
-	// only its exact candidate document; never persist the scoped workspace as
-	// the complete saved plan or reconstruct a root rebase in the browser.
+
 	verified, err := s.verifyProposalReceipt(ctx, "row-change", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &previewWorkspace)
 	if err != nil {
 		return AssessRowChangeResult{}, err
@@ -111,10 +106,6 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	return result, nil
 }
 
-// rowChangeReceiptWorkspace keeps the receipt scoped to the output being
-// replaced. Current-draft WORKSPACE_OUTPUT consumers remain unchanged in the
-// persisted candidate and may need separate repair after the source schema
-// changes.
 func rowChangeReceiptWorkspace(workspace authoringv2.Workspace, outputID string) (authoringv2.Workspace, error) {
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {

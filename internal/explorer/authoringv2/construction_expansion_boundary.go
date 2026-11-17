@@ -2,9 +2,6 @@ package authoringv2
 
 import "fmt"
 
-// Independent many-valued branches cannot be combined into a product by
-// repeatedly expanding the same retained root anchor. Onward expansion from
-// a compiler-proven related-record anchor remains a separate supported lane.
 func validateIndependentRelatedExpansions(steps []ConstructionStep) error {
 	for index, step := range steps {
 		current := step.Operation.RelatedExpand

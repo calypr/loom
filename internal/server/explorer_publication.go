@@ -14,9 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
-// explorerReceiptMaterializer keeps publication bound to the immutable
-// compilation receipt. The receipt is the only artifact crossing the HTTP to
-// execution boundary; its resolved recipe is lowered in memory by the execution package.
 func explorerReceiptMaterializer(recipeEngine *dataframeexecution.Engine, target publication.Target, registry *materializationarango.Registry, degradation error, logger *slog.Logger, batchRows, batchBytes int, qualityMaxRows, qualityMaxDistinctKeys int64) lifecycle.ReceiptMaterializer {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (lifecycle.Execution, error) {
 		if receipt == nil {

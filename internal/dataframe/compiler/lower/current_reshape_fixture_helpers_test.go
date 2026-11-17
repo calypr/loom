@@ -2,8 +2,6 @@ package lower
 
 import "github.com/calypr/loom/internal/dataframe/recipe"
 
-// These are test-only literal case declarations. They build the current
-// recipe.Construction contract directly and are never accepted by production.
 type oracleReshape struct {
 	Kind         string
 	GroupedPivot *oraclePivot
@@ -93,6 +91,3 @@ func bindOracleCurrentConstruction(output recipe.Output, shape *oracleReshape) r
 	output.Construction = construction
 	return output
 }
-
-// S04 appends arithmetic case declarations after constructing its Pivot case.
-// Bind them to explicit current DERIVE stages before entering the production frontend.

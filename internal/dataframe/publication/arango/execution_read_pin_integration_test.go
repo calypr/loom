@@ -11,8 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// This test is opt-in because it needs a real Arango instance. It exercises
-// the production AQL pin state document rather than a query-string fake.
 func TestExecutionReadPinArbitrationAgainstArango(t *testing.T) {
 	database := arangotest.Shared(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -66,8 +64,6 @@ func TestExecutionReadPinArbitrationAgainstArango(t *testing.T) {
 	}
 	_ = registry.ReleaseExecutionReadPin(ctx, executionID, expiredOwner)
 
-	// Both contenders start from an unclaimed state. The shared state document
-	// must make the outcomes mutually exclusive, even when requests overlap.
 	for race := 0; race < 50; race++ {
 		tracedExecution := "pin-race-" + uuid.NewString()
 		tracedReader, tracedCleanup := "reader-"+uuid.NewString(), "cleanup-"+uuid.NewString()

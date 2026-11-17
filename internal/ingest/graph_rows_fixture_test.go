@@ -9,9 +9,6 @@ import (
 	"testing"
 )
 
-// The graph execution fixtures also seed the native editor through production
-// ingestion. Exact compiler rows alone cannot prove that these source records
-// satisfy the generated R5 validation boundary.
 func TestGraphRowsFixturePassesProductionIngestionValidation(t *testing.T) {
 	directory := filepath.Join("..", "..", "testdata", "graph-rows")
 	raw, err := os.ReadFile(filepath.Join(directory, "oracle.json"))

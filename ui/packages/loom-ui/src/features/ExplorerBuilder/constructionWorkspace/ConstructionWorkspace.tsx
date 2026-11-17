@@ -539,9 +539,9 @@ export const ConstructionWorkspace = ({
   readonly history?: ConstructionHistoryProps;
   readonly rowSetup?: React.ReactNode;
   readonly navigation?: React.ReactNode;
-  /** Mounted outside disclosures so controller-owned portals remain available. */
+
   readonly controllers?: React.ReactNode;
-  /** Internal comparison variant; both use identical slots and handlers. */
+
   readonly composition?: 'inspector-right' | 'inspector-below';
   readonly network?: React.ReactNode;
   readonly rowExpression?: React.ReactNode;
@@ -731,7 +731,6 @@ export const ConstructionWorkspace = ({
           {panelControls('graph', 'Related records')}
           <div ref={editorFocusRef} tabIndex={-1} className="construction-authored-content">{network}</div>
         </section> : null}
-
 
         <section
           aria-label="Table result"

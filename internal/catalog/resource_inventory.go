@@ -33,8 +33,6 @@ func ResourceInventoryCoverageDigest(resourceTypes []string) (string, error) {
 	return canonicalDigest(types)
 }
 
-// NewResourceInventoryBuild validates and canonicalizes one complete count
-// projection, then assigns its immutable BuildID and document keys.
 func NewResourceInventoryBuild(project, datasetGeneration string, resourceTypes []string, counts []ResourceInventoryCount) (ResourceInventoryBuild, []ResourceInventoryCount, error) {
 	datasetGeneration = NormalizeDatasetGeneration(datasetGeneration)
 	if project == "" || datasetGeneration == "" || len(resourceTypes) == 0 {

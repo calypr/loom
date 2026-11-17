@@ -8,8 +8,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// Read* aliases make the capability boundary explicit while retaining the
-// Discover* naming used by the pre-existing catalog reader.
 func (s *Store) ReadResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	return s.DiscoverResourceInventory(ctx, opts)
 }
@@ -82,10 +80,7 @@ func relationshipObservation(project, datasetGeneration, auth, storageFrom, labe
 		diagnostic.Message = "relationship evidence count must be positive"
 		return catalog.RelationshipObservation{}, false, diagnostic
 	}
-	// Stored fhir_edge is always _from -> _to. Builder's normal projection is
-	// the inverse generated traversal, which is physically INBOUND from the
-	// stored target. Keep a direct generated traversal as a valid fallback for
-	// labels whose generated schema only exposes the storage orientation.
+
 	if _, found, err := fhirschema.ResolveCompilerTraversal(storageTo, label, storageFrom); found && err == nil {
 		return catalog.RelationshipObservation{Project: project, DatasetGeneration: datasetGeneration, AuthResourcePath: auth, FromType: storageTo, Label: label, ToType: storageFrom, EdgeCount: count, StorageFromType: storageFrom, StorageToType: storageTo, StorageDirection: "OUTBOUND", BuilderFromType: storageTo, BuilderToType: storageFrom, BuilderDirection: "INBOUND"}, true, diagnostic
 	}

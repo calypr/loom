@@ -234,7 +234,7 @@ func TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango(t *tes
 	thirdPublication := projectConfigPublication(t, project, "files", "recipe-a", "Edited Files", "revision-3-files", "generation-3", "execution-3", bundle)
 	third := projectConfigPublishRequest(t, ctx, client, generations, project, "generation-3", "execution-3", bundle,
 		"commit-3", active.Revision, thirdPublication)
-	third.ExpectedConfigRevisionIDs = map[string]string{"files": "revision-1-files"} // stale head
+	third.ExpectedConfigRevisionIDs = map[string]string{"files": "revision-1-files"}
 	third.CatalogSnapshot = viewBuilderTestCatalogSnapshot(t, thirdPublication)
 	if _, err := explorers.PublishProjectConfigs(ctx, third); !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("stale source owner head error = %v, want ErrDraftConflict", err)

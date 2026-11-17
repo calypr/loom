@@ -10,7 +10,6 @@ import type {
   ConstructionStep,
 } from '../../../types';
 
-// Extracted from ConstructionReshapeEditor.tsx: types declarations.
 export type CandidateIntent = Pick<
   ConstructionProposalRequest,
   'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'unpivotSources' | 'expandSources'
@@ -316,8 +315,6 @@ export interface ConstructionReshapeEditorEntry {
 
 export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'related-expand' | 'unpivot';
 
-
-// Extracted from ConstructionReshapeEditor.tsx: helpers declarations.
 export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'CODED_PIVOT', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
 
 export const capabilityFor = (
@@ -415,7 +412,6 @@ export const codingPathLabel = (path: string): string => path.split('.').map((se
 export const codedFamilyKey = (bindingId: string, sourcePath: string): string => `${bindingId}\u0000${sourcePath}`;
 export const codedCategoryKey = (familyKey: string, system: string, code: string): string => `${familyKey}\u0000${system}\u0000${code}`;
 
-// Extracted from ConstructionReshapeEditor.tsx: builders declarations.
 export const groupOutputColumns = (form: GroupForm, stage: ReshapeStage): ConstructionStep['outputs'] => {
   const keyOutputs = new Map<string, ConstructionStep['outputs'][number]>();
   for (const key of form.keys) {
@@ -593,8 +589,6 @@ export const pivotDiscoveryRequestIdentity = (form: PivotForm, stageId: string, 
     : undefined,
 ]);
 
-// Category edits and manual opt-outs belong to the step's category/value pair,
-// not to the row-key/source selection that scopes a discovery request.
 export const pivotCategoryMemoryKey = (form: PivotForm, stageId: string, contextKey: string): string => JSON.stringify([
   contextKey,
   stageId,

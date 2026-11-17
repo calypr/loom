@@ -1,10 +1,5 @@
 package dataset_test
 
-// TestReleaseRequirementsUnmetActivateAgainstArango exercises the service
-// contract for a staged generation whose required publication is not yet
-// queryable: activation returns the typed requirements error and leaves release
-// visibility unchanged.
-
 import (
 	"context"
 	"errors"
@@ -22,8 +17,6 @@ import (
 
 const r14DatabasePrefix = "loom_verify_r14_"
 
-// r14FakeVerifier implements the service's publication-verification seam and
-// reports the requested selector as pending and not queryable.
 type r14FakeVerifier struct {
 	calls  int
 	sought dataset.DataframeSelector
@@ -32,8 +25,7 @@ type r14FakeVerifier struct {
 func (v *r14FakeVerifier) VerifyPublication(_ context.Context, _, generation string, selector dataset.DataframeSelector) (dataset.PublicationVerification, error) {
 	v.calls++
 	v.sought = selector
-	// Echo the selector identity so the service sees a valid but incomplete
-	// verification result.
+
 	return dataset.PublicationVerification{
 		Selector:    selector,
 		ExecutionID: "r14-exec-pending",
@@ -45,8 +37,6 @@ func (v *r14FakeVerifier) VerifyPublication(_ context.Context, _, generation str
 
 var _ dataset.PublicationVerifier = (*r14FakeVerifier)(nil)
 
-// r14Open is the env-gated owned-database harness (SKIP-clean when
-// LOOM_TEST_ARANGO_URL is unset), opening only the dataset lifecycle collection.
 func r14Open(t *testing.T, budget time.Duration) (context.Context, *arangostore.Client, *datasetarango.Store) {
 	t.Helper()
 	database := arangotest.Owned(t, r14DatabasePrefix)
@@ -93,18 +83,14 @@ func r14StageManifest(t *testing.T, ctx context.Context, lifecycle *datasetarang
 	return nil
 }
 
-// r14Snapshot captures every lifecycle document (count), the project_release
-// document ids, the two pointer documents' revision-bearing fields (including
-// _rev), and the production ReadActiveRelease result. Two snapshots are equal
-// iff Activate did not change any pointer/revision/release state.
 type r14Snapshot struct {
 	totalDocs       int
 	releaseDocCount int
 	releaseIDs      []string
-	releasePointer  string // active_project_release canonical (recordType/_rev/revision/releaseId/releaseKey)
-	genPointer      string // active_generation canonical (recordType/_rev/manifestKey/releaseId/releaseRevision)
-	canonical       string // sorted per-doc "_key|recordType|_rev|revision|releaseId|releaseKey|manifestKey" join
-	activeErr       string // ReadActiveRelease error text ("<nil>" if ok)
+	releasePointer  string
+	genPointer      string
+	canonical       string
+	activeErr       string
 	activeRevision  int64
 	activeID        string
 }
@@ -169,9 +155,9 @@ func r14TakeSnapshot(t *testing.T, ctx context.Context, client *arangostore.Clie
 				r14Str(d, "_key"), rt, r14Str(d, "_rev"), r14Any(d, "manifestKey"), r14Any(d, "releaseId"), r14Any(d, "releaseRevision"))
 		}
 	}
-	// Fallback detection if the recordType strings ever rename.
+
 	if s.releasePointer == "" {
-		// active_project_release is the only doc carrying releaseKey.
+
 		for _, d := range docs {
 			if _, ok := d["releaseKey"]; ok {
 				s.releasePointer = r14CanonicalDoc(d)
@@ -198,9 +184,6 @@ func (s r14Snapshot) log(label string) {
 		s.releasePointer, s.genPointer, s.canonical)
 }
 
-// r14VerificationsDigest renders the ContractVerification slice embedded in the
-// *ReleaseRequirementsError, which is runtime evidence that the 503-boundary
-// record rests on a real, populated error surface (not an empty sentinel).
 func r14VerificationsDigest(vs []dataset.ContractVerification) string {
 	if len(vs) == 0 {
 		return "<empty Verifications>"
@@ -213,9 +196,6 @@ func r14VerificationsDigest(vs []dataset.ContractVerification) string {
 	return strings.Join(parts, "\n    ")
 }
 
-// TestReleaseRequirementsUnmetActivateAgainstArango drives ReleaseService
-// against a real datasetarango store with one required selector pending and
-// verifies the typed error and unchanged release visibility.
 func TestReleaseRequirementsUnmetActivateAgainstArango(t *testing.T) {
 	ctx, client, lifecycle := r14Open(t, 180*time.Second)
 

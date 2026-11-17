@@ -13,9 +13,6 @@ var (
 	ErrUnitDimensionIncompatible = errors.New("UNIT_DIMENSION_INCOMPATIBLE")
 )
 
-// UnitIdentity is the stable identity of a source or target unit. Display
-// labels are intentionally absent. FHIR Quantity.unit is a human label and
-// must never select a conversion rule.
 type UnitIdentity struct {
 	System string `json:"system"`
 	Code   string `json:"code"`
@@ -40,9 +37,6 @@ func (u UnitIdentity) Equal(other UnitIdentity) bool {
 	return a.System == b.System && a.Code == b.Code
 }
 
-// UnitDimension is a dimensional-analysis vector. The named exponents cover
-// the dimensions supported by the initial approved conversion library. A
-// conversion is valid only when every exponent matches the target.
 type UnitDimension struct {
 	Length      int `json:"length,omitempty"`
 	Mass        int `json:"mass,omitempty"`
@@ -65,9 +59,6 @@ const (
 	UnitConversionAffine   UnitConversionKind = "AFFINE"
 )
 
-// UnitRuleReference is the only unit rule shape accepted from an authoring
-// document. The compiler resolves it against the immutable registry below;
-// callers cannot supply executable coefficients or dimensions.
 type UnitRuleReference struct {
 	ID      string `json:"id"`
 	Version string `json:"version"`
@@ -80,17 +71,12 @@ type ApprovedUnitPolicy struct {
 	Rules    []UnitRuleReference
 }
 
-// UnitNormalization is the compiler-owned, resolved policy carried into the
-// backend-neutral semantic and physical plans.
 type UnitNormalization struct {
 	Target    UnitIdentity
 	Dimension UnitDimension
 	Rules     []UnitConversionRule
 }
 
-// UnitConversionRule is an immutable, pinned interpretation rule. Scale and
-// offset are applied as output = input*scale + offset. Identity and linear
-// rules require zero offset; affine rules may carry a non-zero offset.
 type UnitConversionRule struct {
 	ID        string             `json:"id"`
 	Version   string             `json:"version"`
@@ -102,9 +88,6 @@ type UnitConversionRule struct {
 	Offset    float64            `json:"offset"`
 }
 
-// ValidateUnitRuleReference validates the client-supplied part of a policy.
-// Coefficients and dimensions are resolved from the compiler-owned registry;
-// callers cannot make an arbitrary rule executable by choosing its numbers.
 func ValidateUnitRuleReference(rule UnitRuleReference) error {
 	if strings.TrimSpace(rule.ID) == "" || strings.TrimSpace(rule.Version) == "" {
 		return fmt.Errorf("unit conversion rule id and version are required")
@@ -181,9 +164,6 @@ func (policy ApprovedUnitPolicy) SupportsSources(sources []UnitIdentity) bool {
 	return true
 }
 
-// ResolveApprovedUnitRules replaces rule references with immutable registry
-// entries. Identity is the only target-relative rule: it derives source and
-// target from the policy target and still pins a named registry version.
 func ResolveApprovedUnitRules(references []UnitRuleReference, target UnitIdentity) (UnitDimension, []UnitConversionRule, error) {
 	if !target.Valid() {
 		return UnitDimension{}, nil, fmt.Errorf("%w: target system and code are required", ErrUnitIdentityUnknown)

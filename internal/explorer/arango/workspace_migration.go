@@ -50,10 +50,6 @@ type workspaceRepositoryMigration struct {
 	migrated authoringv2.StoredWorkspaceMigration
 }
 
-// MigrateStoredWorkspaces plans the complete migration before writing anything.
-// Immutable artifacts retain their original bytes; only precomputed authoring
-// projections are stored for them. Old receipts remain verifiable raw artifacts
-// and must be recompiled before execution by the strict current runtime.
 func MigrateStoredWorkspaces(ctx context.Context, client *store.Client, dryRun bool) (WorkspaceMigrationReport, error) {
 	return migrateWorkspaces(ctx, client, dryRun, workspaceEncodingTarget)
 }
@@ -125,7 +121,7 @@ UPDATE d WITH {workspace:@workspace, intentDigest:@digest} IN @@c RETURN NEW`, 1
 			return plan.report, explorer.ErrDraftConflict
 		}
 	}
-	// Rebuild the plan: a success marker must never hide a still-legacy owner.
+
 	final, err := adapter.planStoredWorkspaces(ctx, client, target)
 	if err != nil {
 		return plan.report, err
@@ -218,8 +214,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			continue
 		}
 		features := slices.DeleteFunc(slices.Clone(entry.Features), func(feature string) bool { return feature == "legacy-table-shape" })
-		// TableShape conversion belongs to WP-17. Its presence alone does not
-		// make a current workspace a WP-18 conversion candidate.
+
 		if target == workspaceEncodingTarget && entry.SemanticsVersion == authoringv2.CurrentSemanticsVersion && len(features) == 0 && entry.NilConstructionStepLists == 0 && entry.DigestRelation == "matches-decoded-canonical" {
 			continue
 		}

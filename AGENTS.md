@@ -66,6 +66,8 @@
 
 ## Project conventions
 
+- Remove Go comments that restate the code. Preserve generator markers and tool directives. For a public API guarantee or external constraint the code cannot express, start the comment group with `// Essential: <reason>`. Run `make lint-go-comments`.
+
 - Do not add frontend `useEffect` or move the same synchronization into `useLayoutEffect`. Derive state during rendering or update it through its owning action.
 - Keep authored contracts compact. Generate expanded reports on demand and keep disposable runtime artifacts out of Git.
 - GitNexus can help navigate the repository. Verify consequential findings in source and tests. Refresh a stale index before relying on it.

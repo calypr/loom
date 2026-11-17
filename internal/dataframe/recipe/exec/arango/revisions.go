@@ -19,8 +19,6 @@ import (
 
 const RevisionCollection = "loom_dataframe_recipe_revisions"
 
-// RevisionRegistry persists immutable project recipe revisions in the same
-// Arango database/client as the legacy name-addressed recipe registry.
 type RevisionRegistry struct {
 	client    Client
 	batchSize int

@@ -32,9 +32,6 @@ const (
 	ExplicitGroupRevisionComplete ExplicitGroupRevisionState = "COMPLETE"
 )
 
-// ExplicitGroupRevisionIDFor makes the idempotency key the primary identity
-// reservation. Concurrent retries for one project and key contend on the
-// same Arango document key.
 func ExplicitGroupRevisionIDFor(project, idempotencyKey string) ExplicitGroupRevisionID {
 	project = strings.TrimSpace(project)
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
@@ -48,8 +45,6 @@ func ExplicitGroupRevisionIDFor(project, idempotencyKey string) ExplicitGroupRev
 	return ExplicitGroupRevisionID("grouprev_" + hex.EncodeToString(hash.Sum(nil)))
 }
 
-// ExplicitGroupDefinition preserves each declared group independently of its
-// members, so a group with no members still has a durable identity and order.
 type ExplicitGroupDefinition struct {
 	ID      ExplicitGroupID `json:"id"`
 	Label   string          `json:"label"`
@@ -62,8 +57,6 @@ func (g ExplicitGroupDefinition) Canonical() ExplicitGroupDefinition {
 	return g
 }
 
-// ExplicitGroupMembership binds one group to one exact resource identity.
-// A resource may appear in more than one relation under different group IDs.
 type ExplicitGroupMembership struct {
 	GroupID ExplicitGroupID `json:"groupId"`
 	Ref     ResourceRef     `json:"ref"`
@@ -135,9 +128,6 @@ func (r ExplicitGroupRevision) Validate() error {
 	return nil
 }
 
-// ValidateSource prevents a group definition created against one source
-// selection from being attached to a different project, generation, type, or
-// authorization scope later.
 func (r ExplicitGroupRevision) ValidateSource(selection SelectionRevision) error {
 	r = r.Canonical()
 	if err := r.Validate(); err != nil {
@@ -164,8 +154,6 @@ func (r ExplicitGroupRevision) ValidateSourceSelection(selection SelectionRevisi
 	return nil
 }
 
-// CanonicalExplicitGroupDefinitions returns presentation order and rejects
-// ambiguous IDs or ordinals before a revision is staged.
 func CanonicalExplicitGroupDefinitions(groups []ExplicitGroupDefinition) ([]ExplicitGroupDefinition, error) {
 	canonical := append([]ExplicitGroupDefinition(nil), groups...)
 	ids := make(map[ExplicitGroupID]struct{}, len(canonical))
@@ -267,8 +255,6 @@ func StartExplicitGroupMembershipDigest(w interface{ Write([]byte) (int, error) 
 	writeDigestField(w, "loom-explicit-group-membership-v1")
 }
 
-// WriteExplicitGroupMembershipFrame writes the stable relation identity used
-// by both in-memory canonicalization and paged persistence finalization.
 func WriteExplicitGroupMembershipFrame(w interface{ Write([]byte) (int, error) }, membership ExplicitGroupMembership) {
 	membership = membership.Canonical()
 	writeDigestField(w, string(membership.GroupID))

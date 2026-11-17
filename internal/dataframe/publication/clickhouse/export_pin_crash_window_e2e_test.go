@@ -1,10 +1,5 @@
 package clickhouse
 
-// This suite drives exact export through the production reader while a real
-// Arango registry stores read pins. It checks that an abandoned export leaves
-// its caller-expiry pin, a completed export releases its pin, and reconciliation
-// preserves pinned outputs while cleaning unrelated stale executions.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -24,29 +19,12 @@ import (
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
-// TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango exercises
-// the real exact-export entry point against an owned Arango database and a
-// controlled ClickHouse queryer. It parks the export before its first renewal,
-// verifies the caller-expiry pin remains stored, then checks reconciliation
-// preserves the pinned execution while reclaiming an unrelated stale sibling.
-// A companion case allows renewal and release to finish, then verifies cleanup
-// succeeds for both executions.
-//
-// Each test uses a UUID-named loom_verify_ecw_<hex> database and removes it in
-// t.Cleanup. Required service URLs are set by the invoking integration profile.
-
 const (
-	// artifactExportHorizon is the caller-provided export pin horizon.
 	artifactExportHorizon = 24 * time.Hour
-	// This is the first-tick bound. The crash test's renewal
-	// interval sits far beyond it so the first tick cannot fire before the
-	// crash verdict is recorded.
+
 	productionFirstTickBound = 30 * time.Second
 )
 
-// ecwPinCall records one live pin operation the production entry point issued
-// through the wrapper. The wrapper decides nothing: every method delegates
-// verbatim to the real Registry AQL.
 type ecwPinCall struct {
 	executionID string
 	owner       string
@@ -101,9 +79,6 @@ func (c *ecwCatalog) snapshotReleases() []ecwPinCall {
 	return append([]ecwPinCall(nil), c.releases...)
 }
 
-// ecwQueryer is the published.Reader's ClickHouse seam. It records the stream
-// SQL and parks at the first scan visit so StreamExactExport stays in flight
-// (the crash window); releasing hold models graceful completion.
 type ecwQueryer struct {
 	started chan struct{}
 	hold    chan struct{}
@@ -129,7 +104,7 @@ func (q *ecwQueryer) QueryRowsArgsVisit(ctx context.Context, query string, _ []s
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_ = visit // zero-row scan: production Stream succeeds on an empty row set
+	_ = visit
 	return nil
 }
 
@@ -139,9 +114,6 @@ func (q *ecwQueryer) snapshotQueries() []string {
 	return append([]string(nil), q.queries...)
 }
 
-// ecwClickHouse records physical drops so the blast radius (which stale
-// executions the reconciler actually reclaimed) is observable, matching the
-// pbxClickHouse semantics including dead-context aborts.
 type ecwClickHouse struct {
 	mu      sync.Mutex
 	dropped []string
@@ -197,10 +169,6 @@ func ecwSetup(t *testing.T) (*storearango.Client, *pubarango.Registry, context.C
 	return client, registry, ctx, database.Name[len("loom_verify_ecw_"):]
 }
 
-// ecwExecution builds an execution under a distinct identity. published=true
-// makes it export-materializable (it must be in a successful state,
-// queryable output, receipt+schema); published=false seeds the stale FAILED
-// sibling that Reconcile visits.
 func ecwExecution(tag, suffix, physicalTable string, updatedAt time.Time, published bool) pubpublication.BundleExecution {
 	identity := pubpublication.BundleIdentity{
 		Name: "ecw-" + tag, TranslationVersion: "1", OutputName: "main",
@@ -227,8 +195,6 @@ func ecwExecution(tag, suffix, physicalTable string, updatedAt time.Time, publis
 	}
 }
 
-// ecwUpsertWithLease stores an execution row through the real leased
-// SaveExecution AQL, then frees the key (fb1Seed/pbxSeed idiom).
 func ecwUpsertWithLease(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution, leaseOwner string) {
 	t.Helper()
 	acquired, err := registry.AcquireBundleLease(ctx, exec.Key, leaseOwner, time.Now().UTC().Add(2*time.Minute))
@@ -244,15 +210,10 @@ func ecwUpsertWithLease(t *testing.T, registry *pubarango.Registry, ctx context.
 	}
 }
 
-// ecwRowQuerier is the narrow QueryRows surface of *storearango.Client used to
-// read the pins collection directly. There is no catalog GetExecutionReadPins
-// API, so the pin truth is the AQL document itself.
 type ecwRowQuerier interface {
 	QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit storearango.RowVisitor) error
 }
 
-// ecwStateKey reproduces the catalog state key used by the pin queries:
-// the pins collection document key for one execution.
 func ecwStateKey(executionID string) string {
 	sum := sha256.Sum256([]byte("state\x00" + executionID))
 	return "state_" + hex.EncodeToString(sum[:])
@@ -266,11 +227,6 @@ type ecwPinRow struct {
 	Expiries []string `json:"expiries"`
 }
 
-// ecwReadPins performs the direct AQL document read of the real
-// ExecutionReadPinsCollection entry: active counts pins with expiresAt >= now
-// (same comparison the production ClaimExecutionCleanup AQL applies at
-// far counts pins still live at horizon, used to
-// distinguish the caller's 24h horizon from the ticker's 2min horizon.
 func ecwReadPins(t *testing.T, querier ecwRowQuerier, executionID string, now, horizon time.Time) ecwPinRow {
 	t.Helper()
 	var row ecwPinRow
@@ -306,22 +262,13 @@ func ecwHasOwner(owners []string, owner string) bool {
 	return false
 }
 
-// ecwStartExactExport drives the REAL production entry point
-// published.Reader.StreamExactExport through a recording
-// catalog wrapper that delegates every catalog call verbatim to the real
-// Registry, and parks the export in flight at its first ClickHouse scan visit.
-// renewalInterval configures the caller-visible PinRenewalInterval; pass a
-// value >> productionFirstTickBound to model a crash inside the default
-// pre-first-tick window, or a millisecond-scale value to force real ticks.
 func ecwStartExactExport(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution, readerID string, horizon, renewalInterval time.Duration) (*ecwCatalog, *ecwQueryer, context.CancelFunc, <-chan error, time.Time) {
 	t.Helper()
 	catalog := &ecwCatalog{Registry: registry}
 	queryer := &ecwQueryer{started: make(chan struct{}), hold: make(chan struct{})}
 	reader := &pubpublished.Reader{Catalog: catalog, ClickHouse: queryer}
 	pinExpiresAt := time.Now().UTC().Add(horizon)
-	// Identity fields copied verbatim from the seeded identity so
-	// validateExactExportIdentity matches the real
-	// materialization the registry returns.
+
 	request := pubpublished.ExactExportRequest{
 		ExecutionID:        exec.ID,
 		OutputID:           "main",
@@ -352,8 +299,6 @@ func ecwStartExactExport(t *testing.T, registry *pubarango.Registry, ctx context
 	return catalog, queryer, cancel, done, pinExpiresAt
 }
 
-// ecwFindAcquire locates the acquisition the production entry point issued for
-// this execution/reader, or fails.
 func ecwFindAcquire(t *testing.T, catalog *ecwCatalog, executionID, readerID string) ecwPinCall {
 	t.Helper()
 	for _, call := range catalog.snapshotAcquires() {
@@ -365,10 +310,6 @@ func ecwFindAcquire(t *testing.T, catalog *ecwCatalog, executionID, readerID str
 	return ecwPinCall{}
 }
 
-// TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango retains its
-// historical name. It should prove that the crash-window pin survives, the
-// pinned execution is retained, unrelated stale work is reclaimed, and the
-// reconcile pass completes without error.
 func TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango(t *testing.T) {
 	client, registry, ctx, suffix := ecwSetup(t)
 
@@ -379,34 +320,23 @@ func TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango(t *testing.
 	ecwUpsertWithLease(t, registry, ctx, x, "ecw-seed")
 
 	const readerID = "artifact-export-crash-window"
-	// Renewal interval far beyond the 30s production first tick: the crash
-	// lands before the ticker's first case can ever run.
-	catalog, queryer, cancelExport, _, pinExpiresAt := ecwStartExactExport(t, registry, ctx, x, readerID, artifactExportHorizon, 10*time.Minute)
-	defer cancelExport() // models test-process teardown AFTER the crash verdict, not the crash itself
 
-	// Sleep far beyond any realistic first-tick arrival at 10min interval
-	// relative to the 250ms below: if a ticker could fire spuriously it
-	// would already have, so renewCount==0 measures the genuine window.
+	catalog, queryer, cancelExport, _, pinExpiresAt := ecwStartExactExport(t, registry, ctx, x, readerID, artifactExportHorizon, 10*time.Minute)
+	defer cancelExport()
+
 	time.Sleep(250 * time.Millisecond)
 
-	// Realism evidence 1: the REAL entry point's own acquire call executed
-	// with the caller TTL the artifact would pass (PinExpiresAt is honored
-	// verbatim).
 	acquire := ecwFindAcquire(t, catalog, x.ID, readerID)
 	if acquire.expires.Before(pinExpiresAt.Add(-time.Minute)) || acquire.expires.After(pinExpiresAt.Add(time.Minute)) {
 		t.Fatalf("acquire expiry %v not the artifact-passed caller TTL %v", acquire.expires, pinExpiresAt)
 	}
 
-	// Realism evidence 2: direct AQL document read proves the crash-window
-	// pin is on the REAL pins collection under the caller's 24h horizon.
 	early := ecwReadPins(t, client, x.ID, time.Now().UTC(), time.Now().UTC().Add(23*time.Hour))
 	if !early.Found || early.Active < 1 || early.Far < 1 || !ecwHasOwner(early.Owners, readerID) {
 		t.Fatalf("crash-window pin not observed on %s for %s/%s: %+v", pubarango.ExecutionReadPinsCollection, x.ID, readerID, early)
 	}
 	t.Logf("crash-window pin observed by direct AQL: active=%d far(>=23h)=%d owners=%v expiries=%v", early.Active, early.Far, early.Owners, early.Expiries)
 
-	// Realism evidence 3: no renewal ever ticked during the window and no
-	// other component targets this readerId (header rg evidence).
 	if renews := catalog.snapshotRenews(); len(renews) != 0 {
 		t.Fatalf("renewal ticker fired inside the simulated crash window (%v): not a pre-first-tick crash", renews)
 	}
@@ -417,10 +347,6 @@ func TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango(t *testing.
 		t.Fatalf("precondition: parked stream never scanned the exported physical table %q: %v", xTable, queries)
 	}
 
-	// The crashed export's execution subsequently goes stale/FAILED (a later
-	// run under the same identity failed), making it a Reconcile candidate
-	// while the orphaned pin is still live; Y is an unrelated pin-free stale
-	// sibling, exactly worker B's shape.
 	staleX := x
 	staleX.State = pubpublication.BundleFailed
 	staleX.UpdatedAt = base.Add(-70 * time.Minute)
@@ -461,13 +387,6 @@ func TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango(t *testing.
 	}
 }
 
-// TestExportCrashWithoutCrashRenewedPinExpiresFast is the must-PASS control:
-// the same real entry-point flow, but the export survives long enough for the
-// production renewal ticker to tick — observed in the
-// wrapper AND in the direct AQL read as the caller's 24h horizon being pulled
-// down to ~defaultReadPinTTL. The stream then completes and
-// the deferred release removes the pin; the identical
-// production Reconcile reclaims both stale executions with nil error.
 func TestExportCrashWithoutCrashRenewedPinExpiresFast(t *testing.T) {
 	client, registry, ctx, suffix := ecwSetup(t)
 
@@ -478,8 +397,7 @@ func TestExportCrashWithoutCrashRenewedPinExpiresFast(t *testing.T) {
 	ecwUpsertWithLease(t, registry, ctx, x, "ecw-seed")
 
 	const readerID = "artifact-export-renewed"
-	// Millisecond renewal interval forces the production ticker to take its
-	// production path: next = now.Add(defaultReadPinTTL).
+
 	catalog, queryer, cancelExport, exportDone, pinExpiresAt := ecwStartExactExport(t, registry, ctx, x, readerID, artifactExportHorizon, 10*time.Millisecond)
 	defer cancelExport()
 
@@ -488,8 +406,6 @@ func TestExportCrashWithoutCrashRenewedPinExpiresFast(t *testing.T) {
 		t.Fatalf("control precondition: caller TTL %v not honored at acquire: %v", pinExpiresAt, acquire.expires)
 	}
 
-	// The ticker must pull the 24h caller horizon down below the 23h bound
-	// (i.e. to ~defaultReadPinTTL) while the stream is still in flight.
 	deadline := time.Now().Add(30 * time.Second)
 	var pulled ecwPinRow
 	for {
@@ -519,7 +435,6 @@ func TestExportCrashWithoutCrashRenewedPinExpiresFast(t *testing.T) {
 	t.Logf("renewal realism observed: %d ticker renewals, latest expiresAt=%v (caller TTL was %v); AQL pin now active=%d far(>=23h)=%d owners=%v expiries=%v",
 		len(renews), lastRenew.expires.UTC().Format(time.RFC3339), pinExpiresAt.UTC().Format(time.RFC3339), pulled.Active, pulled.Far, pulled.Owners, pulled.Expiries)
 
-	// Graceful stream end runs the deferred release.
 	close(queryer.hold)
 	select {
 	case err := <-exportDone:
@@ -545,8 +460,6 @@ func TestExportCrashWithoutCrashRenewedPinExpiresFast(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	// Same stale transition as the crash test, then production Reconcile:
-	// with the renewed-then-released pin gone, the sweep completes normally.
 	staleX := x
 	staleX.State = pubpublication.BundleFailed
 	staleX.UpdatedAt = base.Add(-70 * time.Minute)

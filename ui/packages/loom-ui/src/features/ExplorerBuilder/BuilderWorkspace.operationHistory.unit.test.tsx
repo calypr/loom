@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/// <reference types="node" />
+
 import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -288,9 +288,6 @@ const operationHistoryTraceFileSchema = z.object({
   }).passthrough()),
 }).passthrough();
 
-// Keep the local Cancel/revert witness beside the two frozen schedules at
-// testSupport/operationHistoryJourneys.json. The latter are the operation
-// history cases retained from the 846dc7ffa verification snapshot.
 const localOperationHistoryCases = [{
   id: 'operation-history-cancel-reverts-accepted-history-filter',
   initial: {
@@ -960,7 +957,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
         continue;
       }
       if (action.kind === 'apply' || action.kind === 'applyAck') {
-        // Apply acknowledgement is checked by the shared Go model replay; this suite owns request construction.
+
         continue;
       }
       if (action.kind !== 'propose') throw new Error(`${contextFor(actionIndex)}: unsupported action ${action.kind}.`);
@@ -1043,8 +1040,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
   });
 
   it('reviews proposed removals before explicit Apply', () => {
-    // The server boundary supplies the resolved cascade. This test checks the
-    // real review UI, not whether the server computes that cascade correctly.
+
     const preview = previewFor('reviewed-cascade', 'table-1');
     const response: ConstructionProposalResponse = {
       proposalId: preview.receiptId, outputId: 'table-1', snapshotToken: catalog.snapshotToken,
@@ -1072,6 +1068,5 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     expect(onApply).toHaveBeenCalledOnce();
     expect(onCancel).not.toHaveBeenCalled();
   });
-
 
 });

@@ -17,44 +17,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// REPAIR-20 / REPAIR-20b (F-R3). Promise under test: GET
-// /api/v1/dataframe/recipe-executions/{id} (the legacy execution document
-// consumed by ETL, openapi_recipe_execution.go) publishes the same explicit
-// failure fields the GraphQL twin publishes from the same durable record —
-// execution error/errorCode/errorRetryable/phase and per-output
-// errorCode/errorRetryable/phase, with output.error MIRRORING twin semantics
-// exactly (recipe_execution_reader.go gates the execution.Error mirror: it
-// projects onto outputs that are not themselves healthy; durable
-// READY/PUBLISHED outputs publish no mirrored trio — REPAIR-20c closed the
-// lease-lost phantom-trio ledger entry on both twins). Durable writers:
-// publication/clickhouse/bundle_store.go failPhase:985-993 and the lease-lost
-// reconciliation at :1207-1213 persist these fields; the REST reader may not
-// silently drop them.
-//
-// REPAIR-20b (adversarial review ses_e65cad76effe REQUEST-CHANGES, F-1/F-2/
-// F-3/F-5): parity means the twin's FULL encoding chain, not a raw copy. The
-// twin encodes the failure trio through dataframeapi.PersistedFailure
-// (internal/api/dataframe/dataframe/model.go:73-84) exactly as
-// executionModel consumes it (recipe_control_graphql.go:319,334), whose
-// code-less branch is errors.SanitizePersistedFailure
-// (internal/dataframe/errors/errors.go:271-277): whitespace-only raw text
-// becomes present-empty/"INTERNAL_ERROR"-free ("","","",false), unknown raw
-// text NEVER echoes — it is Normalize-inferred to a public message/code/
-// retryable — and a persisted code substitutes the code's stable public
-// message (PublicMessage). The oracle for this file is the reviewer's 64-cell
-// comparison table (8 shapes x exec/output x 4 fields, verdict-level
-// equality per field, ABSENT vs null vs present+type+value; compare_r20.py
-// semantics) over shapes.json + the live executionModel twin wire. The twin
-// side is pinned separately in
-// the captured legacy wire contract
-// (real reader + executionModel == twin_golden.json), so the CONTROL this
-// file composes (reader + the same PersistedFailure constructor + the
-// non-empty Phase gate recipe_control_graphql.go:329-331/339-341) is anchored
-// to the genuine executionModel output.
-//
-// The 404/503 arms are re-proven here unchanged so the additive fields cannot
-// regress the concealment/outage contracts.
-
 const fr20ConcealedErr = "recipe execution not found"
 
 const (
@@ -68,13 +30,6 @@ const (
 	fr20OutputName   = "rows"
 )
 
-// matrix shapes (REPAIR-20b), verbatim from the adversarial review
-// /tmp/r20-out/shapes.json (committed at
-// testdata/r20_failure_parity/shapes.json; the twin resolver harness reads
-// the identical copy). Shapes 1,2 mirror bundle_store.go failPhase:985-993,
-// shape 5 mirrors the lease-lost reconciler :1207-1213; shapes 3,4,6,8 are
-// the reviewer's sanctioned synthetics pinning the sanitizer branches the
-// durable writers cannot currently produce.
 const fr20TestdataDir = "testdata/r20_failure_parity"
 
 type fr20Store struct {
@@ -93,9 +48,6 @@ func (s *fr20Store) GetExecution(_ context.Context, id string) (publication.Bund
 	return publication.BundleExecution{}, nil
 }
 
-// fr20FailedExecution is a FAILED execution exactly as the only failure sink
-// persists it (bundle_store.go failPhase:985-993): execution-level Error,
-// FailureCode, FailureRetryable, FailurePhase, and per-output Failure* fields.
 func fr20FailedExecution() publication.BundleExecution {
 	return publication.BundleExecution{
 		ID: fr20ExecID,
@@ -122,8 +74,6 @@ func fr20FailedExecution() publication.BundleExecution {
 	}
 }
 
-// fr20SucceededExecution is a healthy execution as the durable store holds it:
-// no Error, no FailureCode, no FailurePhase anywhere.
 func fr20SucceededExecution() publication.BundleExecution {
 	return publication.BundleExecution{
 		ID: fr20SuccessID,
@@ -194,8 +144,6 @@ func fr20PointerValue(t *testing.T, object map[string]any, key, want string) {
 	}
 }
 
-// fr20RequireExplicitBool pins "retryable is JSON true/false, not absent":
-// the decoded value must exist and be a real JSON boolean.
 func fr20RequireExplicitBool(t *testing.T, scope string, object map[string]any, key string, want bool) {
 	t.Helper()
 	raw, ok := object[key]
@@ -211,11 +159,6 @@ func fr20RequireExplicitBool(t *testing.T, scope string, object map[string]any, 
 	}
 }
 
-// Subject arm 1: the FAILED execution publishes the twin-encoded failure trio
-// (message/code/retryable exactly as the twin's PersistedFailure chain
-// encodes them for this record — derived here, never hardcoded) plus phase.
-// RED on a raw-copy handler: the wire text differs from the twin substitution
-// (F-1/F-2), or the keys are absent entirely (pre REPAIR-20).
 func TestFR20EtlFailureFieldsPublishedForFailedExecution(t *testing.T) {
 	store := &fr20Store{byID: map[string]publication.BundleExecution{fr20ExecID: fr20FailedExecution()}}
 
@@ -224,7 +167,6 @@ func TestFR20EtlFailureFieldsPublishedForFailedExecution(t *testing.T) {
 		t.Fatalf("control broken: twin chain must encode the persisted failure, got %v %v %v", expectMessage, expectCode, expectRetryable)
 	}
 
-	// SUBJECT: the REST/ETL twin over the real generated Fiber stack.
 	status, body, fields := fr20HTTPGet(t, store, fr20ExecID)
 	if status != http.StatusOK {
 		t.Fatalf("authorized member read of own FAILED execution must be 200, got %d %s", status, body)
@@ -268,11 +210,6 @@ func TestFR20EtlFailureFieldsPublishedForFailedExecution(t *testing.T) {
 	t.Logf("F-R20 VERDICT | PASS | REST twin publishes the twin-encoded failure fields (execution + output, output.error mirrors execution.error through the shared sanitizer chain)")
 }
 
-// Subject arm 2: the additive-optional contract. A SUCCESS execution gains NO
-// empty-string/zero failure fields — the twin Publishes none for a record with
-// no persisted failure (PersistedFailure returns all-nil when neither a raw
-// error nor a code is persisted; executionModel emits Phase only when
-// non-empty).
 func TestFR20EtlFailureFieldsAbsentForSucceededExecution(t *testing.T) {
 	store := &fr20Store{byID: map[string]publication.BundleExecution{fr20SuccessID: fr20SucceededExecution()}}
 	status, body, fields := fr20HTTPGet(t, store, fr20SuccessID)
@@ -298,9 +235,6 @@ func TestFR20EtlFailureFieldsAbsentForSucceededExecution(t *testing.T) {
 	}
 }
 
-// Subject arm 3: the concealment and outage arms stay byte-unchanged by the
-// additive fidelity (unknown id -> 404 concealed envelope; store fault ->
-// retryable 503 BACKEND_UNAVAILABLE).
 func TestFR20EtlFailureFieldsLeave404And503ArmsUnchanged(t *testing.T) {
 	_, body, fields := fr20HTTPGet(t, &fr20Store{byID: map[string]publication.BundleExecution{fr20ExecID: fr20FailedExecution()}}, fr20UnknownID)
 	if !strings.Contains(body, fr20ConcealedErr) || fields["id"] != nil || fields["errorCode"] != nil {
@@ -323,18 +257,12 @@ func TestFR20EtlFailureFieldsLeave404And503ArmsUnchanged(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// REPAIR-20b parity matrix (reviewer harness ses_e65cad76effe absorbed).
-// ---------------------------------------------------------------------------
-
 var fr20ParityFields = []string{"error", "errorCode", "errorRetryable", "phase"}
 
 type fr20Shape struct {
 	Name string `json:"name"`
 }
 
-// fr20ClassifyCell mirrors compare_r20.py cls(): ABSENT / null /
-// present(type) canonical-value, with python type names str/bool.
 type fr20Cell struct {
 	state string
 	kind  string
@@ -398,14 +326,6 @@ func fr20ReadTestdata(t *testing.T, name string) []byte {
 	return raw
 }
 
-// fr20JSONEqual is a canonical (order-insensitive) JSON tree equality check
-// used to anchor the composed CONTROL against the reviewer golden without
-// pinning key order.
-// TestFR20bEtlFailureFieldsWireContract is the durable oracle from the
-// adversarial review: 8 shapes x {execution, output[0]} x {error, errorCode,
-// errorRetryable, phase} = 64 verdict-level comparisons against the captured wire oracle for the generated REST response.
-// Pre-fix (raw-copy handler) this reproduces exactly the reviewer's 18
-// divergences; post root-fix it must end with 0 DIVERGE / 0 NULL_EQUIV.
 func TestFR20bEtlFailureFieldsWireContract(t *testing.T) {
 	var shapes []json.RawMessage
 	if err := json.Unmarshal(fr20ReadTestdata(t, "shapes.json"), &shapes); err != nil {
@@ -426,9 +346,7 @@ func TestFR20bEtlFailureFieldsWireContract(t *testing.T) {
 			t.Fatalf("shape header: %v", err)
 		}
 		name := header.Name
-		// Round-trip the same durable JSON into the real durable type the
-		// production catalog hands GetExecution back (reviewer harness
-		// discipline, shapes.json -> publication.BundleExecution).
+
 		var execution publication.BundleExecution
 		if err := json.Unmarshal(rawShape, &execution); err != nil {
 			t.Fatalf("%s: durable round-trip: %v", name, err)
@@ -452,8 +370,7 @@ func TestFR20bEtlFailureFieldsWireContract(t *testing.T) {
 		}
 		observedOutput := fr20FailedOutput(t, observed)
 		controlOutput := fr20FailedOutput(t, control)
-		// REPAIR-20c positive pins on every shape, both transports (RED on
-		// the lease-lost phantom-trio baseline, shape 5).
+
 		fr20AssertHealthyOutputsPublishNoFailureTrio(t, name, "twin", execution, control)
 		fr20AssertHealthyOutputsPublishNoFailureTrio(t, name, "rest", execution, observed)
 		for _, field := range fr20ParityFields {
@@ -480,17 +397,6 @@ func TestFR20bEtlFailureFieldsWireContract(t *testing.T) {
 	t.Logf("R20B VERDICT | PASS | 64/64 comparisons MATCH the twin oracle")
 }
 
-// fr20AssertHealthyOutputsPublishNoFailureTrio is the REST twin of
-// r20AssertHealthyOutputsPublishNoFailureTrio (resolver harness): the promise
-// authority openapi_recipe_execution.go:95-97 — a durable output in a
-// successful state (READY/PUBLISHED) that persisted no own failure code
-// publishes no error/errorCode/errorRetryable, even when the execution page
-// is FAILED. Shape 5 (lease-lost reconciler bundle_store.go:1207-1214:
-// execution fields set, outputs untouched and READY) is the reaching case;
-// the phantom trio was the reviewer-recorded twin-side defect (REPAIR-20c).
-// Genuine per-output failures persist a own FailureCode (failPhase
-// bundle_store.go:989-995, sole per-output failure writer) or carry an
-// unhealthy state, and both keep projecting.
 func fr20AssertHealthyOutputsPublishNoFailureTrio(t *testing.T, shapeName, transport string, durable publication.BundleExecution, body map[string]any) {
 	t.Helper()
 	outputs, ok := body["outputs"].([]any)
@@ -521,16 +427,6 @@ const (
 	fr20GenuinePhase      = "VALIDATING"
 )
 
-// TestFR20GenuineOutputFailureProjectsDespiteHealthyExecution is the REST
-// twin of the resolver package's suppression-mutant guard for REPAIR-20c.
-// A genuine per-output failure stamped exactly as the sole production
-// per-output failure writer persists it (failPhase bundle_store.go:989-995:
-// the output's OWN state plus persisted FailureCode/FailureRetryable/
-// FailurePhase) must still project the full trio plus phase on the generated
-// strict-stack body even though the execution page itself is healthy: (a)
-// output FAILED while the execution is PUBLISHED with no execution-level
-// error, (b) a READY output carrying a own persisted failure code (shape-6
-// direction). A "suppress all errors on ready/healthy" fix fails this test.
 func TestFR20GenuineOutputFailureProjectsDespiteHealthyExecution(t *testing.T) {
 	records := []struct {
 		name        string

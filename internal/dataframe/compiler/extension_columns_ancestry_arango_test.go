@@ -25,7 +25,7 @@ func TestNestedExtensionColumnsKeepValuesUnderTheirAncestorURLsAgainstArango(t *
 		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
 		ExtensionColumns: []recipe.ExtensionColumn{{
-			Name: "extensions", MaxColumns: 4, Source: recipe.Expression{Select: "root.extension[]"},
+			Name: "extensions", ColumnPrefix: extensionStringPointer(""), MaxColumns: 4, Source: recipe.Expression{Select: "root.extension[]"},
 			Columns: []recipe.ExtensionColumnMapping{
 				{Name: "left__leaf", URL: "urn:shared:leaf", URLPath: []string{"urn:left"}, SourcePath: "extension[].extension[]", ValuePath: "valueString", ValueType: "string"},
 				{Name: "right__leaf", URL: "urn:shared:leaf", URLPath: []string{"urn:right"}, SourcePath: "extension[].extension[]", ValuePath: "valueString", ValueType: "string"},

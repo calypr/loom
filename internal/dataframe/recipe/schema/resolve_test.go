@@ -372,8 +372,7 @@ func TestResolveDynamicOutputOverridesPreserveSiblingsAndFreezeExclusions(t *tes
 	if len(discovery.calls) != 1 || discovery.calls["Patient"] != 1 {
 		t.Fatalf("discovery calls = %#v", discovery.calls)
 	}
-	// A JSON save/reload must retain both the full discovered key inventory and
-	// the override that semantic resolution applies at compile time.
+
 	encoded, err := json.Marshal(resolved.Bundle)
 	if err != nil {
 		t.Fatal(err)

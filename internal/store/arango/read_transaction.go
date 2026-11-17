@@ -15,10 +15,6 @@ import (
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 )
 
-// WithReadSnapshot executes row queries in one read-only ArangoDB stream
-// transaction. Declared collections are strict: AQL that touches an
-// undeclared collection fails rather than silently weakening snapshot
-// isolation.
 func (c *Client) WithReadSnapshot(ctx context.Context, collections []string, fn TransactionFunc) error {
 	if fn == nil {
 		return fmt.Errorf("Arango read snapshot callback is required")
@@ -81,10 +77,6 @@ func (c *Client) WithReadSnapshot(ctx context.Context, collections []string, fn 
 	return nil
 }
 
-// ListReadSnapshotCollections returns the current non-system collections that
-// can be declared when a query may use dynamic DOCUMENT(handle) lookups. New
-// collections created after this inventory is read remain undeclared and are
-// rejected by the strict transaction.
 func (c *Client) ListReadSnapshotCollections(ctx context.Context) ([]string, error) {
 	collections, err := c.db.Collections(ctx)
 	if err != nil {
@@ -194,8 +186,6 @@ func (q readSnapshotQueryer) QueryRows(ctx context.Context, query string, batchS
 	}
 }
 
-// snapshotCursorPage keeps result values raw so arbitrary row schemas can be
-// decoded without changing the dataframe's transport types.
 type snapshotCursorPage struct {
 	Result  []json.RawMessage `json:"result"`
 	HasMore bool              `json:"hasMore"`

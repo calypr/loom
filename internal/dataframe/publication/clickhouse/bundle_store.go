@@ -26,9 +26,6 @@ var (
 	ErrBundleCheckpointUncertain = errors.New("bundle checkpoint outcome is uncertain")
 )
 
-// ClickHouseBundleStore publishes staged tables by advancing a durable logical
-// pointer in publication.BundleCatalog. ClickHouse itself has no cross-table transaction;
-// the pointer is therefore the visibility boundary.
 type ClickHouseBundleStore struct {
 	clickHouse         BundleClickHouseStore
 	catalog            publication.BundleCatalog
@@ -69,17 +66,6 @@ func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCata
 	}, nil
 }
 
-// SetActiveReleaseReader wires the narrow read surface Reconcile consults before
-// dropping an execution's physical tables (Repair-1b, F-B12 drop-path). The
-// reconcile sweep's pointer guard is a one-shot read taken before the cleanup
-// claim; a release Created+Activated afterwards (or a legacy/non-lease-guarded
-// writer publishing behind the guard) still ends with DropTable + FAILED
-// demotion while the ACTIVE release binds the execution, which hard-fails the
-// whole CurrentProjectDatasets response (published/current.go:206-208). A
-// live binding therefore vetoes the drop, and any binding-read failure is
-// treated fail-closed as a veto.
-// Without a reader the reconciler keeps its historical pointer-only guard;
-// production wiring supplies it (server.go).
 func (s *ClickHouseBundleStore) SetActiveReleaseReader(reader dataset.ActiveReleaseResolver) {
 	s.activeReleases = reader
 }
@@ -87,7 +73,6 @@ func (s *ClickHouseBundleStore) SetActiveReleaseReader(reader dataset.ActiveRele
 var _ publication.Target = (*ClickHouseBundleStore)(nil)
 var _ publication.Transaction = (*clickHouseBundleTx)(nil)
 
-// SupportsObjectValues reports the native JSON support of this target.
 func (s *ClickHouseBundleStore) SupportsObjectValues() bool { return true }
 
 func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
@@ -165,10 +150,7 @@ func (s *ClickHouseBundleStore) beginBundle(ctx context.Context, identity public
 					dataframeerrors.WithRetryable(true),
 				)
 			}
-			// A process crash can leave RUNNING metadata after its lease expires.
-			// Reconcile only this exact immutable identity before retrying it; the
-			// existing lease, pointer, read-pin, and active-release checks still
-			// decide whether its staging tables can be reclaimed.
+
 			reconcilerID := "retry-reconciler-" + uuid.NewString()
 			if err := s.reconcileExecution(ctx, existing, reconcilerID); err != nil {
 				return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
@@ -555,14 +537,11 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 	if t.columns == nil {
 		t.columns = make(map[string][]clickhouse.Column)
 	}
-	// Keep the caller-facing schema separate from the physical row identity
-	// column. InsertRows adds generated identities when it receives this view.
+
 	t.columns[name] = logicalColumns
 	return t.save(ctx)
 }
 
-// SetOutputMetadata persists semantic schema alongside the physical table
-// definition.
 func (t *clickHouseBundleTx) SetOutputMetadata(ctx context.Context, name string, columns []publication.LogicalColumn) error {
 	if t.idempotent {
 		return nil
@@ -603,8 +582,6 @@ func (t *clickHouseBundleTx) SetOutputMetadata(ctx context.Context, name string,
 	return t.save(ctx)
 }
 
-// SetSourceRowMetadata records the proven typed source identity before the
-// publication is committed. Selection refuses outputs without this mapping.
 func (t *clickHouseBundleTx) SetSourceRowMetadata(ctx context.Context, name string, metadata publication.SourceRowMetadata) error {
 	if t.idempotent {
 		return nil
@@ -639,8 +616,6 @@ func (t *clickHouseBundleTx) SetSourceRowMetadata(ctx context.Context, name stri
 	return t.save(ctx)
 }
 
-// FinalizeSchema removes discovered columns that were never populated and
-// persists the retained logical/physical schema before verification.
 func (t *clickHouseBundleTx) FinalizeSchema(ctx context.Context, schemas []publication.OutputSchema) error {
 	if t.idempotent {
 		return nil
@@ -862,7 +837,7 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) ([]publication.Publishe
 			return t.publishedOutputs(), t.stopLease()
 		}
 		if !conclusive {
-			t.closed = true // Prevent the runner from deleting possibly published tables.
+			t.closed = true
 			uncertain := dataframeerrors.Wrap(errors.Join(ErrBundleCommitUncertain, err, confirmErr), dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 			return nil, publication.WithPhase(errors.Join(uncertain, t.stopLease()), "COMMIT_POINTER", "")
 		}
@@ -881,9 +856,6 @@ func (t *clickHouseBundleTx) publishedOutputs() []publication.PublishedOutput {
 	return result
 }
 
-// confirmCommit distinguishes a lost success response from a transaction that
-// definitely did not publish. Inconsistent or unreadable metadata remains
-// uncertain so callers never delete tables that a live pointer may reference.
 func (t *clickHouseBundleTx) confirmCommit(ctx context.Context) (committed, conclusive bool, err error) {
 	execution, executionErr := t.store.catalog.GetExecution(ctx, t.execution.ID)
 	pointer, pointerErr := t.store.catalog.GetPointer(ctx, t.execution.PointerName())
@@ -920,9 +892,7 @@ func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
 		return errors.Join(claimErr, t.stopLease())
 	}
 	defer func() { _ = releaseCleanup() }()
-	// Same live veto as reconcileExecution (Repair-1b / F-B1 abort-drop arm):
-	// never DropTable a bundle the visibility pointer currently advertises or
-	// the ACTIVE release currently binds; read failures veto fail-closed.
+
 	if pointerNow, pointerNowErr := t.store.catalog.GetPointer(cleanupCtx, t.execution.PointerName()); pointerNowErr != nil {
 		if !errors.Is(pointerNowErr, publication.ErrBundleNotFound) {
 			t.closed = true
@@ -1066,9 +1036,7 @@ func toColumns(columns []publication.LogicalColumn) ([]clickhouse.Column, error)
 		case "code":
 			columnType = "String"
 		case "object":
-			// ClickHouse's native JSON type drops explicit null object paths.
-			// Store logical objects as JSON text so publication preserves the
-			// distinction between an absent key and a key whose value is null.
+
 			columnType = "String"
 			logicalType = "object"
 		}
@@ -1098,10 +1066,6 @@ func allOutputsQueryable(outputs []publication.BundleOutputRecord) bool {
 	return true
 }
 
-// Reconcile removes abandoned staging tables and repairs persisted publication
-// state left behind by an interrupted commit.
-// It is safe to call repeatedly during startup; published pointers and queued
-// commands that have not started are never touched.
 func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Time) error {
 	reconcilerID := "reconciler-" + uuid.NewString()
 	process := func(executions []publication.BundleExecution) error {
@@ -1113,10 +1077,7 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 		return nil
 	}
 	states := []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundleFailed}
-	// Enumerate superseded PUBLISHED executions only with an active-release
-	// resolver: cleanup must not drop data still bound by the active release.
-	// TestReconcileRetiresSupersededPublishedExecutions covers this admission
-	// guard and the post-claim pointer and binding checks in reconcileExecution.
+
 	if s.activeReleases != nil {
 		states = append(states, publication.BundlePublished)
 	}
@@ -1135,12 +1096,7 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, execution publication.BundleExecution, reconcilerID string) error {
 	superseded := execution.State.Canonical() == publication.BundlePublished
 	if superseded {
-		// Repair-4 (F-B19) pre-claim janitor filter: a PUBLISHED execution that
-		// its pointer still names, or that the ACTIVE release binds, is live —
-		// skip it without claiming (no lease/_rev churn on healthy published
-		// rows). This filter is an optimization only: the post-claim pointer and
-		// binding re-checks below remain the destruction gate. Read failures
-		// other than "no pointer"/"no active release" veto fail-closed.
+
 		if s.activeReleases == nil {
 			return nil
 		}
@@ -1184,19 +1140,14 @@ func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, executio
 	}
 	leaseCtx, releaseCleanup, claimErr := s.claimExecutionCleanup(cleanupCtx, execution.ID, reconcilerID)
 	if claimErr != nil {
-		return errors.Join(claimErr, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
+		releaseErr := s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
+		if errors.Is(claimErr, publication.ErrExecutionReadPinActive) {
+			return releaseErr
+		}
+		return errors.Join(claimErr, releaseErr)
 	}
 	defer func() { _ = releaseCleanup() }()
-	// Repair-1b (F-B12 drop-path): the pointer guard above and the cleanup
-	// claim are both historical facts by now. Re-read the pointer AND the
-	// active-release bindings immediately before destruction: a pointer that
-	// now names this execution, or any binding of the ACTIVE release to it,
-	// vetoes the drop. Any read failure other than "no pointer" /
-	// "no active release" vetoes fail-closed. Skipping only defers the sweep
-	// for a genuinely abandoned execution; dropping a bound one destroys
-	// advertised data and aborts CurrentProjectDatasets. The active-release
-	// veto, late pointer read, and fail-closed errors are covered by
-	// TestReconcileDeniesDropOfActiveReleaseBoundExecution.
+
 	if pointerNow, pointerNowErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName()); pointerNowErr != nil {
 		if !errors.Is(pointerNowErr, publication.ErrBundleNotFound) {
 			return errors.Join(pointerNowErr, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))

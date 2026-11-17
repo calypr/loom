@@ -172,7 +172,7 @@ FILTER (doc.project == @project OR doc.Project == @project) AND (doc.datasetGene
   AND (doc.name == @recipe OR doc.Name == @recipe) AND (doc.translationVersion == @translationVersion OR doc.TranslationVersion == @translationVersion)
   AND doc.state IN ["PUBLISHED", "READY"]
   AND LENGTH(FOR output IN doc.outputs FILTER output.name == @output OR output.Name == @output RETURN 1) > 0
-SORT doc.publishedAt DESC, doc.readyAt DESC, doc.updatedAt DESC LIMIT 1 RETURN doc`, map[string]interface{}{
+SORT NOT_NULL(doc.publishedAt, doc.readyAt) DESC, doc.readyAt DESC, doc.updatedAt DESC LIMIT 1 RETURN doc`, map[string]interface{}{
 		"@collection": BundleExecutionsCollection, "project": project, "generation": generation,
 		"recipe": selector.Recipe, "translationVersion": selector.TranslationVersion, "output": selector.Output,
 	})
@@ -234,9 +234,6 @@ func (r *Registry) GetPointer(ctx context.Context, name string) (publication.Bun
 	return *found, nil
 }
 
-// CompareAndSwapPointer performs the visibility update in Arango. The query
-// returns a small object so the generic QueryRows client can inspect whether
-// the expected version won the race.
 func (r *Registry) CompareAndSwapPointer(ctx context.Context, name, expected, next string) error {
 	var result struct {
 		Updated bool `json:"updated"`
@@ -265,8 +262,6 @@ RETURN {updated: true}`, r.batchSize, map[string]interface{}{"@collection": Bund
 	return nil
 }
 
-// PublishExecution atomically commits both the visibility pointer and the
-// PUBLISHED metadata. A failed compare-and-swap leaves both documents intact.
 func (r *Registry) PublishExecution(ctx context.Context, name, expected string, execution publication.BundleExecution) error {
 	data, err := json.Marshal(execution)
 	if err != nil {
@@ -276,11 +271,7 @@ func (r *Registry) PublishExecution(ctx context.Context, name, expected string, 
 	if err := json.Unmarshal(data, &executionDoc); err != nil {
 		return err
 	}
-	// The state UPDATE and the pointer UPSERT execute inside ONE Arango
-	// transaction so no observer (the reconcile sweep above all) can ever see
-	// a PUBLISHED execution whose visibility pointer does not yet name it.
-	// A failed compare-and-swap -- or any mid-request failure -- rolls the
-	// whole thing back: F-B12/F-B16 (two-answers class) root repair.
+
 	txClient, ok := r.client.(arangostore.TransactionalRowClient)
 	if !ok {
 		return fmt.Errorf("bundle publish requires a transactional Arango client")

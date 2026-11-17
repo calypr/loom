@@ -1,7 +1,5 @@
 //go:build ignore
 
-// Command children_codegen generates statically typed physical IR child helpers.
-// Usage: go run children_codegen.go <ir-source-dir> <output-go-file>
 package main
 
 import (
@@ -181,8 +179,7 @@ func Children(node Node) []Node {
  return children
 }
 `)
-	// Generate the roots first; helper generation discovers and emits every
-	// wrapper struct reachable by typed fields while stopping at Node types.
+
 	for _, name := range nodes[:5] {
 		g.ensureHelper(name)
 	}
@@ -394,7 +391,6 @@ func containsName(field *ast.Field, name string) bool {
 }
 func fatalf(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...); os.Exit(1) }
 
-// Kept separate so the generator's only output mutation is its explicit path.
 func formatSource(source string) ([]byte, error) { return format.Source([]byte(source)) }
 
 func sortedKeys(values map[string]string) []string {

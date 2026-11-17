@@ -3,13 +3,6 @@ import type { LoomClient } from '../src/api';
 
 const never = () => new Promise<never>(() => undefined);
 
-/**
- * Complete typed LoomClient double. Every production client method exists, so a
- * Builder render cannot fail with "method is not a function" when it starts
- * using a method the test does not care about. Override only the methods the
- * case exercises; untouched methods stay pending rather than resolving bogus
- * contract data.
- */
 const pending = (): Mock => vi.fn(never) as Mock;
 
 type LoomClientMockDefaults = LoomClient & { [Key in keyof LoomClient]-?: Mock };

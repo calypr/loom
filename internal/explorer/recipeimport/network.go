@@ -8,9 +8,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// HydrateNetwork reads the exact pinned output, then derives its effective
-// network from the project-local source plan. It does not reinterpret the
-// projected document route as imported authoring intent.
 func HydrateNetwork(d authoringv2.Document, pinned recipe.Output, catalog authoringv2.CatalogSnapshot) (authoringv2.AuthoringNetwork, error) {
 	if d.ImportedRecipe == nil {
 		return authoringv2.NetworkForDocument(d, catalog)
@@ -61,9 +58,7 @@ func HydrateNetwork(d authoringv2.Document, pinned recipe.Output, catalog author
 		}
 	}
 	walk(route, "", true)
-	// Only stable structural field IDs establish exact ownership. Old resolved
-	// schemas without source provenance remain UNKNOWN; never guess from titles,
-	// output names, or the historical base occurrence on imported columns.
+
 	bindings := map[string]authoringv2.NetworkColumnBinding{}
 	var bind func([]recipe.Field, []recipe.Traversal, string)
 	bind = func(fields []recipe.Field, items []recipe.Traversal, occurrence string) {
@@ -87,10 +82,8 @@ func HydrateNetwork(d authoringv2.Document, pinned recipe.Output, catalog author
 	return n, nil
 }
 
-// freezeOccurrences assigns the historical occurrence mapping before edits can
-// prune positional recipe arrays. It clones first and never mutates the pin.
 func freezeOccurrences(output recipe.Output) recipe.Output {
-	// Callers have already validated that recipe expressions marshal correctly.
+
 	clone, err := cloneOutput(output)
 	if err != nil {
 		return output
@@ -111,9 +104,6 @@ func freezeOccurrences(output recipe.Output) recipe.Output {
 	return clone
 }
 
-// ValidateRelationshipOverlay reauthorizes the persisted project-local overlay
-// against this exact catalog snapshot. The caller owns project/generation and
-// draft checks. Catalog identity is never reconstructed from a label.
 func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.ImportedSourcePlan, catalog authoringv2.CatalogSnapshot) error {
 	if plan == nil || plan.Relationships == nil {
 		return nil
@@ -211,8 +201,7 @@ func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.Importe
 		}
 		parents[a.OccurrenceID] = a.ParentOccurrenceID
 		routeEdges[a.OccurrenceID] = a.CatalogEdgeID
-		// The legacy traversal compiler resolves by label and target. Until it can
-		// consume an exact edge ID, ambiguous parallel edges cannot be authored.
+
 		if len(matchingEdges(catalog, parent, a.Relationship, a.ResourceType)) != 1 {
 			return fmt.Errorf("relationship %q is ambiguous in the current catalog", a.OccurrenceID)
 		}
@@ -227,8 +216,7 @@ func ValidateRelationshipOverlay(output recipe.Output, plan *authoringv2.Importe
 					supported = true
 				}
 			}
-			// Scalar VALUE describes each record. ALL/FIRST/DISTINCT here
-			// reduce matching records, not repeated items within one record.
+
 			if !supported && !c.Repeated && c.LogicalType != "object" {
 				for _, m := range c.ProjectionModes {
 					if m == "VALUE" {
@@ -267,7 +255,7 @@ func applyRelationshipOverlay(output recipe.Output, overlay *authoringv2.Importe
 	if err := overlay.Validate(); err != nil {
 		return recipe.Output{}, err
 	}
-	// Input has already been cloned and frozen before source-step pruning.
+
 	removed := map[string]bool{}
 	for _, id := range overlay.Removals {
 		removed[id] = true
@@ -289,8 +277,7 @@ func applyRelationshipOverlay(output recipe.Output, overlay *authoringv2.Importe
 			}
 			parent = &traversal.Traversals
 		}
-		// Pointers into slices can move after append. Reindex the complete tree
-		// after every addition; later additions can safely address an earlier one.
+
 		t := recipe.Traversal{Name: a.Relationship, Alias: a.OccurrenceID, OccurrenceID: a.OccurrenceID, ToResourceType: a.ResourceType, MatchMode: recipe.TraversalMatchMode(a.MatchMode)}
 		for _, f := range a.Fields {
 			path := strings.TrimPrefix(f.FieldPath, a.ResourceType+".")

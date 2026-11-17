@@ -21,8 +21,6 @@ const previewCoveringIndexCleanupTimeout = 3 * time.Second
 
 var ErrPreviewCoveringIndexLimit = errors.New("preview covering index limit reached")
 
-// PreviewCoveringIndex is a verified compiler-owned persistent index that
-// may be used to cover a bounded preview without creating a new index.
 type PreviewCoveringIndex struct {
 	Collection   string
 	Name         string
@@ -36,8 +34,6 @@ type previewIndexCollection interface {
 	DeleteIndexByID(context.Context, string) error
 }
 
-// ListPreviewCoveringIndexes returns only persistent, non-sparse,
-// non-unique indexes owned by the preview compiler for the named collection.
 func (c *Client) ListPreviewCoveringIndexes(ctx context.Context, collection string) ([]PreviewCoveringIndex, error) {
 	if c == nil || c.db == nil || collection == "" || !validIndexPath(collection) {
 		return nil, fmt.Errorf("invalid preview covering collection")
@@ -75,14 +71,11 @@ func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexRe
 	return definitions
 }
 
-// EnsurePreviewCoveringIndex adds one bounded, compiler-selected covering index.
-// The caller's AQL hint is non-forcing, so previews continue on the canonical
-// plan if index preparation is unavailable.
 func (c *Client) EnsurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
 	return c.ensurePreviewCoveringIndex(ctx, collection, name, fields)
 }
 
-// EnsurePreviewCoveringIndexWithStoredValues provisions a compiler-owned
+// Essential: EnsurePreviewCoveringIndexWithStoredValues provisions a compiler-owned
 // projection index. Stored values are validated and verified as part of the
 // exact index definition because Arango's ensure operation does not distinguish
 // otherwise identical field tuples by stored-value configuration.
@@ -200,8 +193,6 @@ func validPreviewCoveringIndexWithStoredValues(collection, name string, fields, 
 		validPreviewCoveringIndexStoredValuesDefinition(name, fields, storedValues)
 }
 
-// previewCoveringIndexName is kept in lockstep with the compiler's stable
-// field-only name derivation so replacement is limited to an exact owned spec.
 func previewCoveringIndexName(collection string, fields []string) string {
 	digest := sha256.Sum256([]byte(collection + "\x00" + strings.Join(fields, "\x00")))
 	return previewCoveringIndexPrefix + hex.EncodeToString(digest[:8])

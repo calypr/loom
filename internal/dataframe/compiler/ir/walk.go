@@ -3,10 +3,6 @@ package ir
 
 import "fmt"
 
-// Walk visits physical node occurrences in deterministic depth-first order.
-// A shared DAG node is revisited through each owner; only active-ancestry
-// cycles are rejected. The visitor may mutate the current node because
-// Children returns pointers to the source plan's actual values.
 func Walk(root Node, visit func(Node) error) error {
 	active := make(map[Node]bool)
 	var walk func(Node) error

@@ -16,7 +16,6 @@ import (
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
-// Keep the previous loop renderer as the differential execution oracle.
 func legacySelectorArray(source string, selector spec.Selector, setSource, firstOnly bool, binds map[string]any) string {
 	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
 	lines, current := []string{"FOR __root IN [" + source + "]"}, "__root"

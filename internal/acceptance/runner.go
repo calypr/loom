@@ -114,9 +114,6 @@ var (
 	errRunnerUninitialized   = errors.New("acceptance runner constructed without New")
 )
 
-// validateRequired holds the invariants New enforces at construction. Run
-// re-checks them at entry so a Runner built as a struct literal (bypassing
-// New) faults with a named error instead of dereferencing nil fields.
 func (cfg Config) validateRequired() error {
 	if cfg.Target == nil {
 		return errTargetRequired

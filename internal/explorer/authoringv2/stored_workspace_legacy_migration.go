@@ -7,9 +7,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// MigrateAggregateTemporalPolicy advances v8 workspaces to the split
-// contributor-window and ordering contract. Persisted source conversion runs
-// in DecodeWorkspace before this version boundary is applied.
 func MigrateAggregateTemporalPolicy(workspace Workspace) Workspace {
 	if workspace.SemanticsVersion == aggregateTemporalPolicySemanticsVersion-1 {
 		workspace.SemanticsVersion = aggregateTemporalPolicySemanticsVersion
@@ -17,10 +14,6 @@ func MigrateAggregateTemporalPolicy(workspace Workspace) Workspace {
 	return workspace
 }
 
-// MigrateLegacyContributors converts the private v3 aggregate where wire into
-// the v4 catalog-bound contributor intent. It is intentionally error-returning
-// and transactional: callers must have the pinned catalog before interpreting
-// a path, and an ambiguous draft is returned unchanged with an error.
 func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Workspace, error) {
 	if !workspaceHasLegacyContributors(workspace) {
 		return workspace, nil
@@ -82,9 +75,6 @@ func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Wo
 	return migrated, nil
 }
 
-// MigrateWorkspaceForCompilation applies compilation migrations to a detached
-// copy without normalizing presentation orders, so callers can validate the
-// original authored values before canonicalizing them.
 func MigrateWorkspaceForCompilation(workspace Workspace, catalog CatalogSnapshot) (Workspace, error) {
 	prepared, err := cloneStoredWorkspace(workspace)
 	if err != nil {
@@ -138,15 +128,11 @@ func contributorKindForCandidate(resourceType string, candidate CatalogCandidate
 	return ""
 }
 
-// MigrateLosslessDefaults upgrades mutable pre-v4 workspaces. Repeated field
-// repetition can migrate to INDEXED when the catalog proves it. Related
-// resource FIRST remains an explicit, unacknowledged lossy policy. Published
-// receipts are immutable and never pass through this migration.
 func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Workspace {
 	if workspace.SemanticsVersion >= CurrentSemanticsVersion && !workspaceHasLegacyContributors(workspace) {
 		return workspace
 	}
-	// Install the v6 root-record meaning before the current version is assigned.
+
 	workspace = migrateMissingRowsBeforeCurrent(workspace)
 	legacyContributors := workspaceHasLegacyContributors(workspace)
 	workspace.Documents = append([]Document(nil), workspace.Documents...)
@@ -165,9 +151,7 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 			if column.Source.Kind != SourceField || column.Source.Field == nil {
 				continue
 			}
-			// Columns are copied above, but their nested source payloads are
-			// pointers. Clone the payload before adding migration metadata so
-			// callers retain an immutable pre-migration workspace value.
+
 			column.Source = column.Source.Normalized()
 			mode := strings.ToUpper(strings.TrimSpace(column.Source.Field.ProjectionMode))
 			if mode == "" {
@@ -186,8 +170,7 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 			if mode != "FIRST" {
 				continue
 			}
-			// Semantics v2 made FIRST explicit. Only pre-v2 persisted drafts
-			// may reinterpret a repeated default FIRST as INDEXED.
+
 			if workspace.SemanticsVersion >= 2 {
 				continue
 			}
@@ -206,9 +189,7 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 			}
 		}
 	}
-	// A legacy aggregate predicate cannot be interpreted without the pinned
-	// catalog. MigrateLegacyContributors is the required boundary for it; do
-	// not silently claim v4 while retaining the private v3 meaning.
+
 	if !legacyContributors {
 		workspace.SemanticsVersion = CurrentSemanticsVersion
 	}
@@ -220,9 +201,7 @@ func cloneStoredWorkspace(value Workspace) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, err
 	}
-	// SourceWhere is a private persisted-draft compatibility payload and is
-	// intentionally omitted from current JSON. Preserve it for transactional
-	// legacy migration and frozen in-memory callers while keeping it unwritable.
+
 	for documentIndex := range value.Documents {
 		if documentIndex >= len(result.Documents) {
 			break
@@ -242,9 +221,6 @@ func cloneStoredWorkspace(value Workspace) (Workspace, error) {
 	return result, nil
 }
 
-// migrateMissingRowsBeforeCurrent installs the historical root-record behavior only
-// across the semantics-version boundary. It copies the document slice before
-// editing and deliberately leaves the version bump to its migration owner.
 func migrateMissingRowsBeforeCurrent(workspace Workspace) Workspace {
 	if workspace.SemanticsVersion >= explicitRowsSemanticsVersion {
 		return workspace

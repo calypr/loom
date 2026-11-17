@@ -33,11 +33,6 @@ type ConstructionCategoryDiscoveryRequest struct {
 	PivotSources          []ConstructionPivotSourceSelection `json:"pivotSources,omitempty"`
 	CandidateConstruction *authoringv2.Construction          `json:"candidateConstruction,omitempty"`
 
-	// compileCandidate lets proposal verification probe a candidate Pivot that
-	// is not the changed step. PivotSources alone trigger candidate compilation
-	// because they only apply to the edited Pivot; an unchanged Pivot must keep
-	// its existing owned input chain while still compiling against the candidate
-	// upstream stages.
 	compileCandidate bool
 }
 
@@ -174,8 +169,7 @@ func (s *Service) compileConstructionCategoryCandidate(
 	if pivotIndex < 0 || candidate.Steps[pivotIndex].Operation.Pivot == nil {
 		return constructionBase{}, "", unprocessable("construction-category-discovery", "PIVOT_SOURCE_REQUIRES_PIVOT", "the candidate Pivot was not preserved", nil)
 	}
-	// Keep the Pivot as the owner of its hidden input columns, but stop its
-	// downstream chain and replace its categories with one compiler-valid probe.
+
 	candidate.Steps = append([]authoringv2.ConstructionStep(nil), candidate.Steps[:pivotIndex+1]...)
 	candidate.SourceProjections = pruneConstructionCategorySourceProjections(candidate.SourceProjections, candidate.Steps)
 	pivotStep := &candidate.Steps[pivotIndex]
@@ -199,9 +193,7 @@ func (s *Service) compileConstructionCategoryCandidate(
 	}
 	probeID := "pivot_probe_" + strings.TrimPrefix(constructionPivotSourceHelperID(request.PivotStepID, "category-discovery"), "pivot_source_")
 	pivotPayload := pivotStep.Operation.Pivot
-	// The temporary probe replaces a discovery declaration with one explicit
-	// category. Discovery is mutually exclusive with explicit categories, so the
-	// declaration must be cleared before the probe candidate is validated.
+
 	pivotPayload.Discovery = nil
 	pivotPayload.Categories = []authoringv2.ConstructionPivotCategory{{Key: key, OutputColumnID: probeID}}
 	pivotPayload.DuplicatePolicy = authoringv2.ConstructionPivotDuplicateError
@@ -232,9 +224,6 @@ func (s *Service) compileConstructionCategoryCandidate(
 		ID: probeID, Name: "__category_discovery_probe", Label: "Category discovery probe", Type: value.Type,
 	})
 
-	// Category discovery compiles a temporary staged candidate just like a
-	// proposal. Materialize legacy public columns first so they have the stable
-	// ColumnIDs required by a staged construction.
 	document, err := authoringv2.StartDocumentConstruction(base.document)
 	if err != nil {
 		return constructionBase{}, "", unprocessable("construction-category-discovery", "INVALID_CONSTRUCTION_CANDIDATE", "the output cannot be upgraded for temporary category discovery", err)
@@ -270,10 +259,6 @@ func (s *Service) compileConstructionCategoryCandidate(
 	return base, inputStageID, nil
 }
 
-// pruneConstructionCategorySourceProjections keeps every projection owned by a
-// step that survives the truncated candidate, mirroring authoringv2's pruning.
-// Earlier Filter, Derive, Unpivot, Expand, or Group steps remain upstream of the
-// Pivot and require their owned source projections to compile.
 func pruneConstructionCategorySourceProjections(
 	projections []authoringv2.ConstructionSourceProjection,
 	steps []authoringv2.ConstructionStep,
@@ -555,14 +540,13 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 			dataframeerrors.CodePreviewResponseTooLarge,
 			dataframeerrors.CodePlanTooExpensive,
 			dataframeerrors.CodeUnauthenticated:
-			// The HTTP adapter maps these status-specific codes directly.
+
 			return err
 		}
 		if dataframeerrors.IsRetryableCode(dataframeerrors.ErrorCode(code)) {
 			return failureDetails(ClassUnavailable, stage, code, message, details, cause)
 		}
-		// Keep other typed dataframe errors intact so the transport adapter can
-		// preserve their established code and status mapping.
+
 		return err
 	}
 	return internal(stage, "CATEGORY_DISCOVERY_FAILED", "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID", cause)

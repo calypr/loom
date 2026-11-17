@@ -773,7 +773,7 @@ func TestReconcileFinalOutputMetadataRejectsMissingConstructedDependency(t *test
 func TestReconcileFinalOutputMetadataRejectsConstructedDependencyCycle(t *testing.T) {
 	translated, resolved := reconciliationFixture()
 	translated.Workspace.Documents[0].Construction.Steps[0].Operation.Derive.Left.ColumnID = "scaled_score"
-	// A staged operation cannot consume its own output; the cycle is rejected at the prior-stage boundary.
+
 	var missing *constructionInputMissingError
 	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !errors.As(err, &missing) || missing.ColumnID != "scaled_score" || missing.StepID != "scale_score" || missing.OutputID != "scaled_score" {
 		t.Fatalf("constructed self-dependency error = %v", err)
@@ -1667,8 +1667,7 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 		OutputFingerprints:     fingerprints,
 		OutputColumnProvenance: provenance,
 		EmittedColumns: []explorer.EmittedColumn{
-			// Presentation order is intentionally different from compiler field
-			// order. It must not invalidate an otherwise identical receipt.
+
 			{OutputID: "patients", PublicColumn: "patient_gender"},
 			{OutputID: "patients", PublicColumn: "patient_id"},
 			{OutputID: "specimens", PublicColumn: "specimen_id"},

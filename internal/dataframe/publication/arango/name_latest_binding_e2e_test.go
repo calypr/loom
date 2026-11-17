@@ -17,20 +17,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// These opt-in tests reproduce the registry-level discriminator gap behind
-// candidate F-B6 against a real ArangoDB in a fully owned database:
-//
-//	Registry.FindExecutionBySelector (bundle_registry.go) filters only
-//	project/generation/name/translationVersion/output plus state PUBLISHED|READY
-//	and returns publishedAt-DESC LIMIT 1. It never binds Key, RecipeDigest,
-//	SchemaDigest, or ReceiptID, so two PUBLISHED executions for the same
-//	selector are indistinguishable to the verifier path
-//	(internal/server/release_verifier.go -> dataset/release.go),
-//	which echoes whatever execution the finder returned.
-//
-// Databases use the loom_verify_nlb_ prefix so this suite's residue is
-// checkable independently of other verification workers.
-
 const nameBindingDatabasePrefix = "loom_verify_nlb_"
 
 type nameBindingExecSpec struct {
@@ -47,11 +33,6 @@ type nameBindingExecSpec struct {
 	publishedAt        time.Time
 }
 
-// nameBindingOpen mirrors the owned-database harness used by
-// internal/explorer/arango/selections_cleanup_e2e_test.go: opt-in via
-// LOOM_TEST_ARANGO_URL, uuid-suffixed name under the suite prefix, created via
-// store.Open (client.go creates the database when absent), dropped by
-// HTTP DELETE /_api/database/<name> in t.Cleanup.
 func nameBindingOpen(t *testing.T, budget time.Duration) (context.Context, *store.Client, *Registry) {
 	t.Helper()
 	database := arangotest.Owned(t, nameBindingDatabasePrefix)
@@ -67,11 +48,6 @@ func nameBindingOpen(t *testing.T, budget time.Duration) (context.Context, *stor
 	return ctx, database.Client, registry
 }
 
-// nameBindingSeedPublished writes one PUBLISHED execution through the
-// production catalog path: AcquireBundleLease then SaveExecution. SaveExecution
-// is lease-fenced (bundle_registry.go requires a live lease for the
-// execution Key), so production lease acquisition is the honest seed, matching
-// the lease-guarded flow the fake in bundle_registry_test.go asserts.
 func nameBindingSeedPublished(t *testing.T, ctx context.Context, registry *Registry, spec nameBindingExecSpec) publication.BundleExecution {
 	t.Helper()
 	owner := "nlb-publisher-" + spec.id
@@ -126,11 +102,6 @@ func nameBindingIdentity(exec publication.BundleExecution) string {
 		exec.UpdatedAt.UTC().Format(time.RFC3339Nano), outputs)
 }
 
-// TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango checks the
-// exact selector contract: after filtering by project, generation, recipe,
-// translation version, and output, the finder returns the newest published
-// execution. Key, recipe digest, schema digest, and receipt ID are not part of
-// DataframeSelector.
 func TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango(t *testing.T) {
 	ctx, _, registry := nameBindingOpen(t, 60*time.Second)
 
@@ -171,8 +142,6 @@ func TestFindExecutionBySelectorIgnoresRecipeIdentityAgainstArango(t *testing.T)
 	}
 }
 
-// TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango checks latest
-// selector ordering and canonicalization for a legacy READY execution.
 func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 	ctx, client, registry := nameBindingOpen(t, 60*time.Second)
 
@@ -189,9 +158,6 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 		receiptID: "receipt-case-lower", publishedAt: t1,
 	})
 
-	// Persist the same lower-case JSON fields emitted by the historical Go
-	// serializer, with only its legacy READY state. Canonicalization should
-	// expose it as PUBLISHED and derive PublishedAt from ReadyAt.
 	legacy := publication.BundleExecution{
 		ID: "nlb-case-legacy", Key: "nlb-case-key-legacy",
 		BundleIdentity: publication.BundleIdentity{
@@ -219,8 +185,7 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 	if err := json.Unmarshal(legacyDoc, &persistedLegacy); err != nil {
 		t.Fatalf("decode legacy execution: %v", err)
 	}
-	// Match the document key assigned by Registry.SaveExecution after JSON
-	// serialization; the execution body above remains the production codec.
+
 	persistedLegacy["_key"] = legacy.ID
 	if err := client.ExecuteAQL(ctx, `INSERT @doc INTO @@collection`, map[string]interface{}{"@collection": BundleExecutionsCollection, "doc": persistedLegacy}); err != nil {
 		t.Fatalf("insert legacy-shaped doc: %v", err)
@@ -234,13 +199,24 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 		t.Fatalf("latest exact-selector lookup returned execution %s (state=%q publishedAt=%v) and output %q; want legacy execution %q canonicalized to PUBLISHED at %s with output %q",
 			nameBindingIdentity(execution), execution.State, execution.PublishedAt, output.Name, legacy.ID, t2.Format(time.RFC3339Nano), selector.Output)
 	}
+
+	t3 := t2.Add(time.Hour)
+	newest := nameBindingSeedPublished(t, ctx, registry, nameBindingExecSpec{
+		id: "nlb-case-newest", key: "nlb-case-key-newest", project: project, generation: generation,
+		recipe: selector.Recipe, translationVersion: selector.TranslationVersion, output: selector.Output,
+		recipeDigest: "sha256:case-newest-recipe", schemaDigest: "sha256:case-newest-schema",
+		receiptID: "receipt-case-newest", publishedAt: t3,
+	})
+	execution, output, err = registry.FindExecutionBySelector(ctx, project, generation, selector)
+	if err != nil {
+		t.Fatalf("FindExecutionBySelector after newer publication: %v", err)
+	}
+	if execution.ID != newest.ID || execution.PublishedAt == nil || !execution.PublishedAt.Equal(t3) || output.Name != selector.Output {
+		t.Fatalf("latest exact-selector lookup returned execution %q at %v and output %q; want %q at %s with output %q",
+			execution.ID, execution.PublishedAt, output.Name, newest.ID, t3.Format(time.RFC3339Nano), selector.Output)
+	}
 }
 
-// nameBindingReplicatedVerificationStore is a line-for-line replica of
-// internal/server/release_verifier.go (publicationVerificationStore).
-// The original is unreachable from this package because internal/server/
-// server.go imports this package, so importing server from this test would
-// be an import cycle; the brief authorises replicating these ~15 lines.
 type nameBindingReplicatedVerificationStore struct {
 	executions publication.ExactExecutionCatalog
 }
@@ -292,12 +268,6 @@ func (r *nameBindingReleaseRepository) CompareAndSwapActivateRelease(context.Con
 	return dataset.ActiveRelease{}, errors.New("CompareAndSwapActivateRelease must not run during Create")
 }
 
-// TestVerifierToBindingChainEchoAgainstArango drives the seam the candidate
-// says is load-bearing: the (replicated) publicationVerificationStore over the
-// production registry, then production dataset.ReleaseService.Create, whose
-// publicationBinding echoes verification.ExecutionID into the release that
-// PublishAuthoring CAS-activates (explorer/arango/publication.go). It shows
-// the binding follows the newest doc while a distinct intended execution exists.
 func TestVerifierToBindingChainEchoAgainstArango(t *testing.T) {
 	ctx, _, registry := nameBindingOpen(t, 60*time.Second)
 
@@ -325,8 +295,7 @@ func TestVerifierToBindingChainEchoAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyPublication: %v", err)
 	}
-	// The intended distinct execution must still exist for the echo to mean
-	// anything: it is shadowed at the finder, not absent.
+
 	storedIntended, err := registry.GetExecution(ctx, intended.ID)
 	if err != nil {
 		t.Fatalf("intended execution %s missing: %v", intended.ID, err)

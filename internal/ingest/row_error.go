@@ -7,8 +7,6 @@ import (
 	fhir "github.com/calypr/loom/generated/fhir"
 )
 
-// RowError locates a rejected source row without including its payload in
-// the public diagnostic. The original validation cause remains unwrap-able.
 type RowError struct {
 	File         string
 	Row          int

@@ -52,15 +52,6 @@ func (w Workspace) canonicalJSON(allowArchive bool) ([]byte, error) {
 	return json.Marshal(n)
 }
 
-// NormalizePresentationOrders gives every table column one unambiguous,
-// contiguous presentation position. Authored order is the primary key and the
-// stable public column identity breaks ties. The normalized order also becomes
-// the recipe projection order, so presentation and execution cannot disagree.
-//
-// Duplicate presentation positions are valid mutable Builder input. Freezing
-// them here keeps equivalent requests from depending on frontend collection or
-// map iteration order and makes the normalized workspace safe to persist and
-// return to the Builder.
 func (w Workspace) NormalizePresentationOrders() Workspace {
 	n := w
 	n.Documents = make([]Document, len(w.Documents))

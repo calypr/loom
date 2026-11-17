@@ -102,8 +102,6 @@ const editSavedGroupAggregate = async (input: AdapterInput): Promise<void> => {
     throw new Error(`${operation} requires a summary input column.`);
   }
 
-  // The traversal-first workspace exposes saved construction operations through
-  // the recipe-step navigator rather than the old dataframe history list.
   const operationControl = await waitFor(() => {
     const item = [...document.querySelectorAll<HTMLElement>('[data-operation-id]')]
       .find((candidate) => candidate.getAttribute('data-operation-id') === groupStepId);
@@ -121,8 +119,6 @@ const editSavedGroupAggregate = async (input: AdapterInput): Promise<void> => {
     await selectValue(`Summary field ${aggregateIndex + 1}`, inputColumnId);
   }
 
-  // The mounted Builder proposes a changed construction as the user edits it.
-  // Wait for its visible ready state without applying or inspecting the proposal.
   await screen.findByTestId('construction-proposal-ready', {}, { timeout: 30_000 });
 };
 

@@ -11,8 +11,6 @@ import (
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 )
 
-// CollectionNamesReadOnly enumerates existing database collections without
-// creating or bootstrapping anything.
 func (c *Client) CollectionNamesReadOnly(ctx context.Context) ([]string, error) {
 	if c == nil || c.db == nil {
 		return nil, errors.New("collection audit requires an open database")
@@ -29,8 +27,6 @@ func (c *Client) CollectionNamesReadOnly(ctx context.Context) ([]string, error) 
 	return names, nil
 }
 
-// VisitCollectionDocumentsRaw streams exact persisted JSON from one existing
-// collection. It is read-only and leaves interpretation to its visitor.
 func (c *Client) VisitCollectionDocumentsRaw(ctx context.Context, collection string, visit func(json.RawMessage) error) (resultErr error) {
 	if c == nil || c.db == nil || collection == "" || visit == nil {
 		return errors.New("raw collection audit requires an open database, collection, and visitor")

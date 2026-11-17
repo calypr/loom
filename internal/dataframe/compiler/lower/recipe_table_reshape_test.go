@@ -73,8 +73,7 @@ func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *t
 }
 
 func TestCompileGroupedTablePivotDoesNotDuplicateSourceColumnIDAcrossCategories(t *testing.T) {
-	// Multiple current Construction categories sharing one source value must
-	// retain distinct explicit output IDs and resolved value types.
+
 	for _, test := range []struct {
 		name          string
 		valueColumn   string
@@ -92,9 +91,7 @@ func TestCompileGroupedTablePivotDoesNotDuplicateSourceColumnIDAcrossCategories(
 			categoryKinds: []string{string(expression.KindInteger), string(expression.KindInteger)},
 		},
 		{
-			// Saved receipts from single-category pivots were compiled with
-			// the clone identity and are revalidated at publication; that
-			// Current single-category outputs retain their explicit output ID.
+
 			name: "single category keeps saved identity", valueColumn: "value", valueID: "source_shared_value", policy: recipe.PivotDuplicateSum,
 			categories: []oraclePivotCategory{
 				{Key: tableScalarInteger(0), Output: "birth_zero", Label: "Zero"},
@@ -178,11 +175,7 @@ func assertUniquePivotOutputSchemaIDs(t *testing.T, schema []CompiledOutputColum
 }
 
 func TestLowerRecipeGroupedPivotLaterCategoriesDropSourceIdentityFields(t *testing.T) {
-	// Construction-lane value columns (recipe_construction.go source-projection
-	// stage columns) can carry source identity: a producer column ID plus
-	// lineage fields the root-lane fixtures cannot produce. Later categories
-	// materialized from the same shared value input must drop every identity
-	// field; the first category keeps them for saved-receipt byte compatibility.
+
 	child := &lineage.SourceChild{
 		Kind: lineage.IndexedValueChild, ParentColumnIDs: []string{"source_root"},
 		OccurrenceID: "base", SourcePath: "valueQuantity.value",

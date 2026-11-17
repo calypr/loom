@@ -9,10 +9,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// mergeAdditiveOutput appends columns compiled by the normal semantic compiler
-// onto a pinned imported output. The imported output keeps its identity,
-// expansion, and source fields; additive constructs are matched into existing
-// traversals by occurrence identity so repeated columns share one traversal.
 func mergeAdditiveOutput(dst *recipe.Output, src recipe.Output) {
 	dst.Fields = append(dst.Fields, src.Fields...)
 	dst.Filters = append(dst.Filters, src.Filters...)
@@ -170,12 +166,6 @@ func cloneRecipeOutput(output recipe.Output) (recipe.Output, error) {
 	return clone, nil
 }
 
-// importedCompileInputs adapts an imported route to the normal compiler. Imported
-// routes can retain an optional relationship label without one observed catalog
-// edge, and later catalog changes can make a label ambiguous. The pinned route
-// already proved which occurrence the imported output uses, so the synthetic
-// compile gets one deterministic edge for that occurrence instead of failing
-// route resolution before additive columns are lowered.
 func importedCompileInputs(snapshot capability.Snapshot, route authoringv2.RouteNode) (capability.Snapshot, authoringv2.RouteNode) {
 	cloned := snapshot.Clone()
 	rootID := importedRootNode(&cloned, route.ResourceType)

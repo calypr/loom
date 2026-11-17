@@ -560,7 +560,7 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(trigger);
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     expect(dialog).not.toHaveAttribute('aria-modal', 'true');
-    expect(container.contains(dialog)).toBe(false); // Escape the scrolling toolbar's clipping context.
+    expect(container.contains(dialog)).toBe(false);
     fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument();
     expect(document.activeElement).toBe(trigger);

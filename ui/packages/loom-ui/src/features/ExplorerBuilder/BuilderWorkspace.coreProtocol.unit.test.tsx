@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/// <reference types="node" />
+
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,9 +37,7 @@ type Gate<T> = {
   readonly promise: Promise<T>;
   readonly resolve: (value: T) => void;
   readonly reject: (error: unknown) => void;
-  // Set by the mocked trigger's abort contract; observable boundary evidence
-  // that BuilderWorkspace detached a request (react.tsx useMutation returns
-  // { unwrap, abort } and BuilderWorkspace owns every abort call site).
+
   aborted: boolean;
 };
 function gate<T>(): Gate<T> {
@@ -60,20 +58,14 @@ const harness = vi.hoisted(() => ({
   reconcileGates: [] as Gate<unknown>[],
   previewGates: [] as Gate<unknown>[],
   builderState: null as ExplorerBuilderState | null,
-  // Builder-query refetch control: production refetchBuilder({ reload: true })
-  // callers (conflict/stale forced refresh at BuilderWorkspace.tsx:900 etc.)
-  // must be able to resolve real data; the default keeps the legacy
-  // undefined-resolving behaviour so existing cases are unaffected.
+
   refetchCalls: [] as unknown[],
   refetchImpl: undefined as ((args?: unknown) => Promise<{ data?: unknown } | undefined>) | undefined,
   client: null as unknown as LoomClient,
 }));
 
 harness.client = createLoomClientMock({
-  // Resolves identity-echoed capabilities like the served flow:
-  // useConstructionLifecycle.ts:203-216 treats an identity-matched echo as
-  // 'ready'. A never-settling stub here deadlocks awaited act() whenever a
-  // state update schedules this load (observed: stale-generation case hang).
+
   getConstructionCapabilities: vi.fn(async (args: {
     readonly snapshotToken: string;
     readonly expectedDraftVersion: number;
@@ -156,8 +148,6 @@ harness.client = createLoomClientMock({
   })) as unknown as LoomClient['preview'],
 });
 
-// The mock triggers stand in for react.tsx mutation triggers; their payload and
-// response types remain the real ones (schemas are parsed at construction).
 function mutationTrigger(calls: unknown[], gates: { resolve: (value: unknown) => void; reject: (error: unknown) => void; promise: Promise<unknown> }[]) {
   return (args: unknown) => {
     calls.push(args);
@@ -356,10 +346,6 @@ const renderMountedBuilder = () => render(
   <BuilderWorkspace organization="BForePC" project="BForePC" explorerId="builder" />,
 );
 
-// Current Builder edits a saved column through the recipe column policy
-// inspector opened from "Value policy for <label>"; the old PreviewTable
-// "Columns" menu was removed. Applying the policy still advances the draft
-// through one column-scoped command, which is the behavior these cases probe.
 const editFirstColumnPolicy = async () => {
   const cancel = screen.queryByRole('button', { name: 'Cancel column edit' });
   if (cancel) fireEvent.click(cancel);
@@ -419,11 +405,8 @@ describe('mounted Builder core protocol admission', () => {
       }],
     }));
 
-    // The save commits while reconcile of head 1 is still in flight.
     harness.applyGates[0]!.resolve(ackForHead(2));
 
-    // The current identity (head 2) starts its own reconcile; superseded refreshes
-    // may re-issue it, and every such request carries the new head identity.
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(2), { timeout: 5000 });
     for (const call of harness.reconcileCalls.slice(1)) {
       expect(call).toEqual(expect.objectContaining({
@@ -434,8 +417,6 @@ describe('mounted Builder core protocol admission', () => {
       }));
     }
 
-    // Head 1's compile finally completes late — after the head advanced to B.
-    // Any live refresh keeps re-issuing the head-2 compile; answer them all.
     let resolvedReconciles = 0;
     await waitFor(() => {
       while (resolvedReconciles < harness.reconcileGates.length) {
@@ -451,8 +432,6 @@ describe('mounted Builder core protocol admission', () => {
       expect(call).toEqual(expect.objectContaining({ receiptId: 'receipt-core-2', outputId }));
     }
 
-    // Resolve previews; only a live refresh holding receipt-core-2 may be admitted,
-    // and the stale head-1 receipt never reaches the preview boundary.
     for (const settled of harness.previewGates) {
       settled.resolve(previewFor(2, 'receipt-core-2'));
     }
@@ -477,30 +456,16 @@ describe('mounted Builder core protocol admission', () => {
     }));
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-foreign'));
 
-    // The mismatched preview never becomes the table's current preview.
     await new Promise((resolve) => window.setTimeout(resolve, 250));
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
   });
 
-  // ---- C12/C13/C14 additions (CORE_PROTOCOL_VERIFICATION_PLAN.md rows) ----
-  // PreviewTable admission semantics traced from source (asserted through the
-  // rendered output, never through refs): while the automatic preview query
-  // holds an error the surface renders <p role="status"> "Preview did not
-  // complete for this draft: …" (PreviewTable.tsx:794-798); with no preview and
-  // no error it renders "Loading your table…" (PreviewTable.tsx:800-805); rows
-  // only exist inside data-testid="preview-table-content" (PreviewTable.tsx:808)
-  // which BuilderWorkspace feeds exclusively from state.preview whose outputId
-  // matches the selected table (BuilderWorkspace.tsx:1231-1232) and which the
-  // reducer only populates through the full-identity previewAccepted gate
-  // (authoring/reducer.ts:525-546).
-
   const flushMicrotasks = () => new Promise((resolve) => window.setTimeout(resolve, 0));
   const settleDelay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
   const explorerError = (message: string, code: string): unknown => ({ message, code, retryable: false });
-  // Terminal preview code: absent from previewRecovery.ts receipt/catalog/retry
-  // sets, so executePreview publishes it instead of taking a recovery branch.
+
   const previewErrorCode = 'CORE_PROTOCOL_PREVIEW_FAILED';
 
   const outputId2 = 'encounters';
@@ -560,9 +525,6 @@ describe('mounted Builder core protocol admission', () => {
     },
   });
 
-  // Receipt whose outputs exclude `encounters` so the switched output must
-  // earn its own compile (cache reuse in BuilderWorkspace.tsx:3036-3040 is
-  // gated on receipt.outputs containing the identity outputId).
   const switchCompilePatientsOnly = (receiptId: string): ExplorerBuilderCompileResult => explorerBuilderCompileResultSchema.parse({
     apiVersion,
     kind: 'ExplorerBuilderReceipt',
@@ -647,9 +609,7 @@ describe('mounted Builder core protocol admission', () => {
   };
 
   afterEach(() => {
-    // Vitest 4 does not run RTL auto-cleanup under this config (globals are
-    // injected but the cleanup side effect is not), so unmount explicitly;
-    // tab selection also persists through sessionStorage and must not leak.
+
     cleanup();
     window.sessionStorage.clear();
   });
@@ -662,14 +622,12 @@ describe('mounted Builder core protocol admission', () => {
     await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
     expect(harness.previewCalls[0]).toEqual(expect.objectContaining({ receiptId: 'receipt-core-1', outputId }));
 
-    // Generation A (head 1) is parked in its preview await while the save
-    // promotes head 2, which starts generation B.
     renameFirstColumn(headLabels[2]);
     await waitFor(() => expect(harness.applyCalls.length).toBe(1), { timeout: 5000 });
     harness.applyGates[0]!.resolve(ackForHead(2));
 
     let resolvedCompiles = 1;
-    let deliveredPreviews = 1; // gate 0 is generation A, held for the late success.
+    let deliveredPreviews = 1;
     await waitFor(() => {
       while (resolvedCompiles < harness.reconcileGates.length) {
         harness.reconcileGates[resolvedCompiles]!.resolve(compileForHead(2));
@@ -689,8 +647,6 @@ describe('mounted Builder core protocol admission', () => {
       deliveredPreviews += 1;
     }
 
-    // B is the active generation carrying its own error; A was detached at the
-    // request boundary when the save took over.
     expect(screen.getByText(/Preview did not complete for this draft/)).toHaveTextContent('core-preview-error-from-B');
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
     expect(harness.previewGates[0]!.aborted).toBe(true);
@@ -700,9 +656,6 @@ describe('mounted Builder core protocol admission', () => {
     const previewCallsAtHandoff = harness.previewCalls.length;
     const reconcileCallsAtHandoff = harness.reconcileCalls.length;
 
-    // A's late success must neither publish rows nor clear B's error state.
-    // Late delivery outside act, matching real timer arrival; a resolved
-    // never-settling gate awaited inside act() never returns.
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
     await settleDelay(25);
     await settleDelay(150);
@@ -742,23 +695,16 @@ describe('mounted Builder core protocol admission', () => {
       expect(harness.previewCalls.length).toBeGreaterThanOrEqual(2);
     }, { timeout: 5000 });
 
-    // B (head 2) is loading, holding no preview yet.
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
 
-    // A's late error is delivered after A was detached by the save. Gate
-    // settlement stays outside act(): awaiting a settled gate inside act()
-    // deadlocks; late arrivals legitimately land on the test's own timer.
     harness.previewGates[0]!.reject(explorerError('core-error-from-A-before-B', previewErrorCode));
     await settleDelay(25);
-    // The old error cannot be shown as B's state: no error surface appears and
-    // B keeps its loading state.
+
     expect(screen.queryByText(/Preview did not complete for this draft/)).toBeNull();
     expect(screen.queryByText(/core-error-from-A-before-B/)).toBeNull();
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
 
-    // The current generation finishes with its own rows: B's own preview
-    // settles with success (outside act; awaiting gates in act deadlocks).
     let deliveredB = 1;
     await waitFor(() => {
       while (deliveredB < harness.previewGates.length) {
@@ -775,9 +721,7 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('keeps an abandoned output preview out of the switched output and completes the switched output preview', async () => {
-    // Real output affordance: ConstructionTableNavigation's tab button
-    // (constructionWorkspace/ConstructionWorkspace.tsx:259-276) is unstubbed
-    // in this mount and drives selectTableFromUser → 'selectTable'.
+
     harness.builderState = hydratedStateWithTwoOutputs();
     renderMountedBuilder();
 
@@ -791,11 +735,9 @@ describe('mounted Builder core protocol admission', () => {
       receiptId: 'receipt-switch-baseline', outputId,
     }));
 
-    // Switch outputs while generation A (patients preview) is still in flight.
     fireEvent.click(screen.getByRole('button', { name: 'Encounters' }));
     await flushMicrotasks();
-    // The switch detaches A at the request boundary via the keyed query's
-    // controller.abort() → refresh cancel() → execution.previewRequest.abort().
+
     expect(harness.previewGates[0]!.aborted).toBe(true);
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(2), { timeout: 5000 });
     expect(harness.reconcileCalls[1]).toEqual(expect.objectContaining({
@@ -808,9 +750,6 @@ describe('mounted Builder core protocol admission', () => {
     }));
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
 
-    // A's completion must not populate the switched output's preview area.
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-switch-baseline'));
     await settleDelay(25);
     await settleDelay(150);
@@ -819,9 +758,6 @@ describe('mounted Builder core protocol admission', () => {
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
     expect(harness.previewCalls.length).toBe(2);
 
-    // The switched output finishes with its own rows.
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.previewGates[1]!.resolve(previewForSecondOutput('receipt-switch-encounters'));
     await settleDelay(25);
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(encountersMarker), { timeout: 5000 });
@@ -829,29 +765,22 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('aborts the in-flight preview request on unmount and admits nothing from the late preview success', async () => {
-    // C13 detach semantics only: abort cancels the transport request, it is
-    // not evidence of a server-side rollback (plan C13 acceptance row).
+
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const view = renderMountedBuilder();
       await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
-      // Gate settlement outside act(): awaiting a settling promise inside
-      // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
       harness.reconcileGates[0]!.resolve(compileForHead(1));
       await flushMicrotasks();
       await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
 
       view.unmount();
-      // react.tsx resourceFor subscribe cleanup aborts on a microtask.
+
       await flushMicrotasks();
-      // The owned preview request was actually aborted through the mock
-      // boundary (execution.previewRequest.abort() at BuilderWorkspace.tsx:2996).
+
       expect(harness.previewGates[0]!.aborted).toBe(true);
-      // Late success after detach: it must not surface anywhere and must not
-      // be retried. An unhandled rejection would fail this suite (vitest
-      // reports it), so a green run is the "no rejection surface" evidence.
-      // Gate settlement outside act(): awaiting a settling promise inside
-      // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
       harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
       await settleDelay(25);
       expect(harness.previewCalls.length).toBe(1);
@@ -871,12 +800,7 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('aborts the in-flight compile request on unmount and admits nothing from the late compile error', async () => {
-    // C13 boundary: no user-facing cancel control exists for a pending
-    // command, compile, or preview await in this mount — cancelAutomaticPreview
-    // is only reached through saves, Explorer switches, and query detach
-    // (BuilderWorkspace.tsx:755, :813, :2979) — so unmount is the observable
-    // detach path; command-await unmount shares the same trigger-abort chain
-    // through queueCommands and is not asserted here.
+
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const view = renderMountedBuilder();
@@ -884,14 +808,9 @@ describe('mounted Builder core protocol admission', () => {
 
       view.unmount();
       await flushMicrotasks();
-      // execution.compileRequest.abort() fired at BuilderWorkspace.tsx:2995.
+
       expect(harness.reconcileGates[0]!.aborted).toBe(true);
 
-      // Late error after detach: reconcileCurrent's owner-cancelled guard
-      // (BuilderWorkspace.tsx:2671) returns before the recovery counters, so
-      // nothing is admitted and no retry is issued.
-      // Gate settlement outside act(): awaiting a settling promise inside
-      // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
       harness.reconcileGates[0]!.reject(explorerError('core-compile-failed-while-detached', 'CORE_PROTOCOL_COMPILE_FAILED'));
       await settleDelay(25);
       expect(harness.reconcileCalls.length).toBe(1);
@@ -911,27 +830,20 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('lets only the current attempt complete when a reused receipt label spans three A-B-A preview attempts', async () => {
-    // C14: A→B→A with the identical receipt label reused for the first A and
-    // A''' (snapshotToken is identical throughout). The late stale-A preview
-    // and the current A''' preview are the very same payload object, so an
-    // outcome difference can only come from the identity machinery, not from
-    // values matching.
+
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     harness.reconcileGates[0]!.resolve(compileForHead(1));
     await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
     await flushMicrotasks();
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[1]), { timeout: 5000 });
 
-    // Attempt A: rename to the reused-A state; park its preview in flight.
     await renameColumnLabel(headLabels[1], attemptALabel);
     await waitFor(() => expect(harness.applyCalls.length).toBe(1), { timeout: 5000 });
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.applyGates[0]!.resolve(attemptAck(2));
     await flushMicrotasks();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(2), { timeout: 5000 });
@@ -939,43 +851,28 @@ describe('mounted Builder core protocol admission', () => {
     harness.reconcileGates[1]!.resolve(staleCompile);
     await waitFor(() => expect(harness.previewCalls.length).toBe(2), { timeout: 5000 });
 
-    // Attempt B.
     await renameColumnLabel(attemptALabel, attemptBLabel);
     await waitFor(() => expect(harness.applyCalls.length).toBe(2), { timeout: 5000 });
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.applyGates[1]!.resolve(attemptAck(3));
     await flushMicrotasks();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(3), { timeout: 5000 });
     harness.reconcileGates[2]!.resolve(attemptCompile(secondAttemptReceiptLabel, attemptBLabel));
     await waitFor(() => expect(harness.previewCalls.length).toBe(3), { timeout: 5000 });
 
-    // Attempt A''': identical intent to A, and the mock reuses A's receipt
-    // label so the request label matches A's preview request exactly.
     await renameColumnLabel(attemptBLabel, attemptALabel);
     await waitFor(() => expect(harness.applyCalls.length).toBe(3), { timeout: 5000 });
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.applyGates[2]!.resolve(attemptAck(4));
     await flushMicrotasks();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(4), { timeout: 5000 });
-    harness.reconcileGates[3]!.resolve(staleCompile); // byte-identical to the stale A compile
+    harness.reconcileGates[3]!.resolve(staleCompile);
     await waitFor(() => expect(harness.previewCalls.length).toBe(4), { timeout: 5000 });
     expect((harness.previewCalls[1] as { receiptId?: string }).receiptId).toBe(reusedReceiptLabel);
     expect((harness.previewCalls[3] as { receiptId?: string }).receiptId).toBe(reusedReceiptLabel);
 
-    // The stale first-A preview arrives after A''' started. Values match the
-    // current attempt exactly (same payload, same receipt label); what saves
-    // the UI is the attempt machinery: executePreview's owner?.cancelled /
-    // generation guards (BuilderWorkspace.tsx:2742, :2759-2760 — the receipt
-    // equality at :2761 passes for both attempts here), refresh's
-    // identityIsCurrent over draftVersion/draftDigest/previewRequestVersion
-    // (BuilderWorkspace.tsx:3000-3008, :3011), and the reducer's full-identity
-    // previewAccepted gate (authoring/reducer.ts:527-538). Only this
-    // generation difference can separate the two deliveries.
     const sharedPreview = attemptPreview(reusedReceiptLabel, attemptALabel);
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.previewGates[1]!.resolve(sharedPreview);
     await settleDelay(25);
     await settleDelay(150);
@@ -985,10 +882,6 @@ describe('mounted Builder core protocol admission', () => {
     expect(harness.previewCalls.length).toBe(4);
     expect(harness.reconcileCalls.length).toBe(4);
 
-    // The valid new A completes with the same payload the stale attempt was
-    // rejected for.
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.previewGates[3]!.resolve(sharedPreview);
     await settleDelay(25);
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(attemptAMarker), { timeout: 5000 });
@@ -996,51 +889,36 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('lets only the current attempt compile when a reused receipt label spans A-B-A reconcile attempts', async () => {
-    // C14 reconcile arm ("deliver the first A's stale ... reconcile after A'''
-    // started"). The stale first-A compile is the byte-identical payload the
-    // current attempt accepts. reconcileRecovery.ts reconcileResultIsCurrent
-    // (line 62) compares generation, explorerId, AND intent fingerprint — A'''
-    // and A share intent, so the fingerprint branch is satisfied by both; the
-    // equality that keeps the stale compile out is the generation counter plus
-    // reconcileCurrent's owner?.cancelled guards (BuilderWorkspace.tsx:2626,
-    // :2644), advanced by every save (compileGeneration.current += 1 at
-    // :817) and by the superseded-run cancel (:2989-2991).
+
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     harness.reconcileGates[0]!.resolve(compileForHead(1));
     await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
     await flushMicrotasks();
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[1]), { timeout: 5000 });
 
-    // Attempt A: park its compile (never resolve gate 1 yet).
     await renameColumnLabel(headLabels[1], attemptALabel);
     await waitFor(() => expect(harness.applyCalls.length).toBe(1), { timeout: 5000 });
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.applyGates[0]!.resolve(attemptAck(2));
     await flushMicrotasks();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(2), { timeout: 5000 });
 
-    // Attempt B.
     await renameColumnLabel(attemptALabel, attemptBLabel);
     await waitFor(() => expect(harness.applyCalls.length).toBe(2), { timeout: 5000 });
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.applyGates[1]!.resolve(attemptAck(3));
     await flushMicrotasks();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(3), { timeout: 5000 });
     harness.reconcileGates[2]!.resolve(attemptCompile(secondAttemptReceiptLabel, attemptBLabel));
     await waitFor(() => expect(harness.previewCalls.length).toBe(2), { timeout: 5000 });
 
-    // Attempt A''' with the reused receipt label, identical compile payload.
     await renameColumnLabel(attemptBLabel, attemptALabel);
     await waitFor(() => expect(harness.applyCalls.length).toBe(3), { timeout: 5000 });
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
+
     harness.applyGates[2]!.resolve(attemptAck(4));
     await flushMicrotasks();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(4), { timeout: 5000 });
@@ -1049,10 +927,6 @@ describe('mounted Builder core protocol admission', () => {
     await waitFor(() => expect(harness.previewCalls.length).toBe(3), { timeout: 5000 });
     expect((harness.previewCalls[2] as { receiptId?: string }).receiptId).toBe(reusedReceiptLabel);
 
-    // Stale first-A compile lands after A''' started: it must neither publish
-    // a receipt-backed preview, start a preview of its own, nor retry.
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.reconcileGates[1]!.resolve(sharedCompile);
     await settleDelay(25);
     await settleDelay(150);
@@ -1061,58 +935,11 @@ describe('mounted Builder core protocol admission', () => {
     expect(harness.reconcileCalls.length).toBe(4);
     expect(harness.previewCalls.length).toBe(3);
 
-    // The valid new A completes with the same payload the stale attempt was
-    // rejected for.
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.previewGates[2]!.resolve(attemptPreview(reusedReceiptLabel, attemptALabel));
     await settleDelay(25);
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(attemptAMarker), { timeout: 5000 });
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
   });
-
-  // ---- C12 / C13 remainder cases (CORE_PROTOCOL_VERIFICATION_PLAN.md:381-382) ----
-  // C12 row: "Start preview A; edit, switch output, change context or start B;
-  // finish A and B in both orders with success and error variants." Acceptance:
-  // "Old completion cannot replace current rows, clear B's loading state, show
-  // its error as B's, or release B's owner. Current B can finish."
-  // C13 row: "Cancel or unmount during command, compile, recovery and preview
-  // awaits; deliver late success/error." Acceptance: "No obsolete visible state
-  // admission or retry. Observe actual detach semantics; do not assert transport
-  // cancellation implies server rollback. Owned pending resources settle."
-  //
-  // Ownership-state trace driving these cases (file:line, BuilderWorkspace.tsx):
-  // - executePreview loop guard :2742 (owner?.cancelled || generation !==
-  //   previewGeneration.current); success echo-drop :2758-2764 (receiptId at
-  //   :2761); catch guard :2769-2774 (owner?.cancelled / generation /
-  //   CLIENT_CANCELLED) returns BEFORE previewRecoveryAction is consulted at
-  //   :2775; transient retry branch :2778-2782 (transientRetries += 1 at :2781,
-  //   counter declared at :2740).
-  // - reconcileCurrent counters :2620-2623 (attempt/staleRefreshes, maxAttempts
-  //   3, maxStaleRefreshes 2); its catch guard :2670-2675 returns before
-  //   reconcileRecoveryAction at :2676.
-  // - preview recovery budgets: authoring/previewRecovery.ts:40-43 (one receipt
-  //   refresh per class) and :44 (exactly one transient retry for adapter-
-  //   marked retryable errors). A non-cancelled 500 therefore DOES get one
-  //   re-issue; a non-cancelled 409 does not (409 is not retryable at all and
-  //   DRAFT_CONFLICT is in neither refresh set :10-21). The zero-retry
-  //   assertions below hold for detached owners only because the :2769-2774 /
-  //   :2670-2675 guards short-circuit before those counters can move.
-  // - adapter error typing mirrored by typedPreviewError: ui/packages/loom-ui/
-  //   src/api.ts requestError (:903-929); a boolean details.retryable wins, and
-  //   the 408 | 429 | >=500 list at :927 is only the DEFAULT the ?? falls back to
-  //   when the server is silent, so a 500 arrives retryable:true, a 409 arrives
-  //   retryable:false and an unlabelled 408/429 arrives retryable:true. The
-  //   typedPreviewError stub below simulates that status rule alone, with no
-  //   details override.
-  // - the real cancel path: applyCommandsWithResult calls cancelAutomaticPreview
-  //   synchronously at :813 (definition :649-651), selectExplorer at :755;
-  //   cancel() flips execution.cancelled and aborts the owned gate
-  //   (:2969-2989). Test-side aborted evidence: mock trigger's abort contract.
-  // - late preview errors can never move the CAS head: serverDraft.current is
-  //   written only by hydration/sync (:696-701, :777-780) and a save ack
-  //   (:842-845). No preview-error handler touches it, asserted live in the C13
-  //   409-cancel case via the next command's expectedDraft* fields.
 
   const typedPreviewError = (
     status: number,
@@ -1135,7 +962,7 @@ describe('mounted Builder core protocol admission', () => {
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
     harness.reconcileGates[0]!.resolve(compileForHead(1));
     await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
-    // Generation A (head 1) now parks on previewGates[0].unwrap().
+
     expect(harness.previewCalls[0]).toEqual(expect.objectContaining({ receiptId: 'receipt-core-1', outputId }));
     return view;
   };
@@ -1182,8 +1009,6 @@ describe('mounted Builder core protocol admission', () => {
     }, { timeout: 5000 });
   };
 
-  // Late preview deliveries land outside act(): awaiting a settling gate
-  // inside act() deadlocks the flush (proven on the stale-generation case).
   const actLatePreviewSettlement = async (settle: () => void) => {
     settle();
     await settleDelay(25);
@@ -1195,20 +1020,13 @@ describe('mounted Builder core protocol admission', () => {
     await startSaveSwitchingToHeadB();
     await driveHeadBCompile();
 
-    // Order one: generation B finishes with success first; its rows and header
-    // reach PreviewTable (rows live only inside data-testid
-    // "preview-table-content", header labels are the authored current head's).
     await settleAllHeadBPreviewsWithSuccess();
     expect(screen.getByTestId('preview-table-content')).toHaveTextContent(headLabels[2]);
     const previewCallsAtSettled = harness.previewCalls.length;
     const reconcileCallsAtSettled = harness.reconcileCalls.length;
 
-    // Order two completes when stale generation A finally succeeds late.
     await actLatePreviewSettlement(() => harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1')));
 
-    // Rendered proof of "Old completion cannot replace current rows ... or
-    // release B's owner.": B's rows/header stay, A's marker never appears, no
-    // error surface sneaks in, and B's own request was never aborted.
     expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[2]);
     expect(screen.getByTestId('preview-table-content')).toHaveTextContent(headLabels[2]);
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
@@ -1224,17 +1042,13 @@ describe('mounted Builder core protocol admission', () => {
     await startSaveSwitchingToHeadB();
     await driveHeadBCompile();
 
-    // B is the active generation with no preview yet.
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
     const previewCallsBefore = harness.previewCalls.length;
     const reconcileCallsBefore = harness.reconcileCalls.length;
 
-    // A completes late with success while still waiting on B.
     await actLatePreviewSettlement(() => harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1')));
 
-    // "clear B's loading state" is denied: the indicator survives and A's rows
-    // are nowhere on the surface; B has not been released.
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
@@ -1243,7 +1057,6 @@ describe('mounted Builder core protocol admission', () => {
     expect(harness.previewCalls.length).toBe(previewCallsBefore);
     expect(harness.reconcileCalls.length).toBe(reconcileCallsBefore);
 
-    // "Current B can finish."
     await settleAllHeadBPreviewsWithSuccess();
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
   });
@@ -1253,17 +1066,12 @@ describe('mounted Builder core protocol admission', () => {
     await startSaveSwitchingToHeadB();
     await driveHeadBCompile();
 
-    // Order one: B completes first with an error (terminal code, so
-    // previewRecoveryAction returns fail and the query holds B's own error).
     await rejectAllHeadBPreviews(bLateErrorLabel);
     const previewCallsBefore = harness.previewCalls.length;
     const reconcileCallsBefore = harness.reconcileCalls.length;
 
-    // Order two: A completes late with its own error.
     await actLatePreviewSettlement(() => harness.previewGates[0]!.reject(explorerError(aLateErrorLabel, previewErrorCode)));
 
-    // "show its error as B's" is denied: the status line still reads B's
-    // message verbatim, A's error text never mounted, rows stayed unadmitted.
     expect(screen.getByText(/Preview did not complete for this draft/)).toHaveTextContent(bLateErrorLabel);
     expect(screen.queryByText(new RegExp(aLateErrorLabel))).toBeNull();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
@@ -1278,8 +1086,6 @@ describe('mounted Builder core protocol admission', () => {
     await startSaveSwitchingToHeadB();
     await driveHeadBCompile();
 
-    // The opposite schedule: A errors late while B holds no preview yet; the
-    // error surface must stay closed and B keeps loading.
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
     await actLatePreviewSettlement(() => harness.previewGates[0]!.reject(explorerError(aLateErrorLabel, previewErrorCode)));
     expect(screen.queryByText(new RegExp(aLateErrorLabel))).toBeNull();
@@ -1287,7 +1093,6 @@ describe('mounted Builder core protocol admission', () => {
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
     expect(harness.previewGates[1]!.aborted).toBe(false);
 
-    // Then B finishes with its own error; the slot is filled exactly once, by B.
     await rejectAllHeadBPreviews(bLateErrorLabel);
     expect(screen.getByText(/Preview did not complete for this draft/)).toHaveTextContent(bLateErrorLabel);
     expect(screen.queryByText(new RegExp(aLateErrorLabel))).toBeNull();
@@ -1296,14 +1101,7 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C13 "Cancel or unmount during command, compile, recovery and preview awaits; deliver late success/error.": unmount during preview await then late 500 admits nothing and issues no retry', async () => {
-    // Observed adapter-call counts for THIS case: preview 1 -> 1 and reconcile
-    // 1 -> 1 across the late 500 delivery. A non-cancelled 500 is retryable at
-    // the adapter (api.ts:925) and previewRecovery.ts:44 would spend one
-    // transient retry via executePreview :2778-2782; the zero here is produced
-    // by the executePreview catch guard :2769-2774 (owner?.cancelled short-
-    // circuits before previewRecoveryAction at :2775), not by the status.
-    // Detach semantics only: abort is transport cancellation, not a server
-    // rollback claim (plan C13 acceptance sentence).
+
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const view = await startGenerationAWaitingOnPreview();
@@ -1315,9 +1113,6 @@ describe('mounted Builder core protocol admission', () => {
         typedPreviewError(500, 'INTERNAL_SERVER_ERROR', 'C13-late-500-after-unmount'),
       ));
 
-      // No obsolete admission and no automatic retry after detach: the owned
-      // execution settled (gate aborted, no re-issue, no unhandled rejection —
-      // vitest fails the suite on those, so a green run is that evidence).
       expect(harness.previewCalls.length).toBe(1);
       expect(harness.reconcileCalls.length).toBe(1);
 
@@ -1335,17 +1130,7 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C13 "Cancel or unmount during command, compile, recovery and preview awaits; deliver late success/error.": unmount during preview await then late 409 DRAFT_CONFLICT with advanced head admits nothing and issues no retry', async () => {
-    // Observed adapter-call counts for THIS case: preview 1 -> 1 and reconcile
-    // 1 -> 1 across the late 409 delivery. Trace: a 409 is not retryable at
-    // the adapter (api.ts:925 — only 408/429/>=500) and DRAFT_CONFLICT is in
-    // neither previewRecovery refresh set (:10-21), so even a live owner would
-    // see 'fail' with exactly one request; the detached owner additionally
-    // short-circuits at executePreview :2769-2774 (and reconcileCurrent
-    // :2670-2675 for the compile branch). Zero is the genuine behavior for
-    // this status, not an assumption. The conflict body's advanced head cannot
-    // be absorbed as current state here: serverDraft.current only moves via
-    // hydration/sync/ack (:696-701, :777-780, :842-845); the live-proof of
-    // that non-adoption through the next command CAS is the 409-cancel case.
+
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const view = await startGenerationAWaitingOnPreview();
@@ -1377,14 +1162,7 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C13 "Cancel or unmount during command, compile, recovery and preview awaits; deliver late success/error.": cancel via the real save path during preview await then late 500 admits nothing and B still finishes', async () => {
-    // Real cancel path: applyCommandsWithResult calls cancelAutomaticPreview
-    // synchronously (BuilderWorkspace.tsx:813, definition :649-651) before
-    // queueing the command; execution.cancelled + gate abort follow at
-    // :2969-2989. Observed adapter-call counts for THIS case: preview 1 -> 1
-    // and reconcile 1 -> 1 across the late 500 while the save is pending —
-    // zero retries because the catch guard :2769-2774 returns before
-    // previewRecoveryAction (:2775), even though an attached 500 would earn
-    // one transient retry (previewRecovery.ts:44, executePreview :2778-2782).
+
     await startGenerationAWaitingOnPreview();
 
     renameFirstColumn(headLabels[2]);
@@ -1395,17 +1173,12 @@ describe('mounted Builder core protocol admission', () => {
       typedPreviewError(500, 'INTERNAL_SERVER_ERROR', 'C13-late-500-after-save-cancel'),
     ));
 
-    // No obsolete visible state admitted while the save owns the surface.
     expect(harness.previewCalls.length).toBe(1);
     expect(harness.reconcileCalls.length).toBe(1);
     expect(screen.queryByText(/C13-late-500-after-save-cancel/)).toBeNull();
     expect(screen.queryByText(/Preview did not complete for this draft/)).toBeNull();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
 
-    // The save then lands and current B finishes cleanly through the real
-    // hooks — the preview-error slot stays uncontaminated by the dropped A 500.
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.applyGates[0]!.resolve(ackForHead(2));
     await flushMicrotasks();
     await driveHeadBCompile();
@@ -1417,15 +1190,7 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C13 "Cancel or unmount during command, compile, recovery and preview awaits; deliver late success/error.": cancel via the real save path during preview await then late 409 DRAFT_CONFLICT head is neither shown nor adopted by the next command CAS', async () => {
-    // Observed adapter-call counts for THIS case: preview 1 -> 1 and reconcile
-    // 1 -> 1 across the late 409 delivery (same guard evidence as the 500-
-    // cancel case; the 409 additionally has no retry budget in production at
-    // all: api.ts:925 marks it non-retryable, previewRecovery.ts:10-21 omits
-    // DRAFT_CONFLICT from the receipt/catalog refresh sets, so :40-44 yield
-    // 'fail'). The conflict body forges an advanced head (draftVersion 99);
-    // after the real ack advances the head to 2, the next command must bind to
-    // the ack head (serverDraft only moves at :696-701/:777-780/:842-845),
-    // proving the dropped 409 body never became current intent.
+
     await startGenerationAWaitingOnPreview();
 
     renameFirstColumn(headLabels[2]);
@@ -1445,8 +1210,6 @@ describe('mounted Builder core protocol admission', () => {
     expect(screen.queryByText(/Preview did not complete for this draft/)).toBeNull();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
 
-    // Gate settlement outside act(): awaiting a settling promise inside
-    // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.applyGates[0]!.resolve(ackForHead(2));
     await flushMicrotasks();
     await driveHeadBCompile();
@@ -1469,11 +1232,6 @@ describe('mounted Builder core protocol admission', () => {
     expect((harness.applyCalls[1] as { expectedDraftDigest?: string }).expectedDraftDigest).not.toBe('sha256:core-head-99-forged');
   });
 
-  // C13 remainder: a detached attempt whose late delivery would enter the
-  // transient-retry recovery loop must not resurrect that loop (plan row
-  // "cancel during command/recovery awaits"). Transient trigger: retryable
-  // error outside the receipt/catalog refresh sets (previewRecovery.ts
-  // `error.retryable && transientRetries < 1 → return 'retry'`).
   it('stops the preview recovery retry loop once the attempt is detached by a save handoff', async () => {
     renderMountedBuilder();
 
@@ -1481,13 +1239,11 @@ describe('mounted Builder core protocol admission', () => {
     harness.reconcileGates[0]!.resolve(compileForHead(1));
     await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
 
-    // Save promotes head 2; generation B takes over and detaches A at the
-    // request boundary before A's preview settles.
     renameFirstColumn(headLabels[2]);
     await waitFor(() => expect(harness.applyCalls.length).toBe(1), { timeout: 5000 });
     harness.applyGates[0]!.resolve(ackForHead(2));
     let resolvedCompiles = 1;
-    let settledPreviews = 1; // gate 0 = A, held for the late transient error.
+    let settledPreviews = 1;
     await waitFor(() => {
       while (resolvedCompiles < harness.reconcileGates.length) {
         harness.reconcileGates[resolvedCompiles]!.resolve(compileForHead(2));
@@ -1506,21 +1262,15 @@ describe('mounted Builder core protocol admission', () => {
     const previewCallsAtHandoff = harness.previewCalls.length;
     const reconcileCallsAtHandoff = harness.reconcileCalls.length;
 
-    // A's late transient error arrives after detachment: 'retry' would issue
-    // another preview request; the detached loop must not continue.
     harness.previewGates[0]!.reject({ message: 'core-transient-after-detach', code: 'CORE_PROTOCOL_TRANSIENT', retryable: true });
     await settleDelay(25);
     await settleDelay(200);
     expect(harness.previewCalls.length).toBe(previewCallsAtHandoff);
     expect(harness.reconcileCalls.length).toBe(reconcileCallsAtHandoff);
 
-    // Positive control: B remains fully functional (the client is not stuck).
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[2]), { timeout: 5000 });
   });
 
-  // C13 budget arm: the transient retry is real exactly once for the CURRENT
-  // attempt (previewRecovery.ts `error.retryable && transientRetries < 1`),
-  // not zero and not a storm.
   it('reissues the preview exactly once for a transient error on the current attempt and then renders rows', async () => {
     renderMountedBuilder();
 
@@ -1528,12 +1278,8 @@ describe('mounted Builder core protocol admission', () => {
     harness.reconcileGates[0]!.resolve(compileForHead(1));
     await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
 
-    // explorerError() is for terminal codes (retryable:false); the transient
-    // recovery branch needs retryable:true outside the refresh sets
-    // (previewRecovery.ts).
     harness.previewGates[0]!.reject({ message: 'core-transient-1', code: 'CORE_PROTOCOL_TRANSIENT', retryable: true });
-    // Retry must re-issue the preview (second call) and the transient budget
-    // must allow exactly one re-issue.
+
     await waitFor(() => expect(harness.previewCalls.length).toBe(2), { timeout: 5000 });
     expect(harness.previewCalls[1]).toEqual(expect.objectContaining({
       receiptId: 'receipt-core-1', outputId,
@@ -1541,12 +1287,10 @@ describe('mounted Builder core protocol admission', () => {
     harness.previewGates[1]!.resolve(previewFor(1, 'receipt-core-1'));
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[1]), { timeout: 5000 });
     await settleDelay(150);
-    // Budget boundary: no third request.
+
     expect(harness.previewCalls.length).toBe(2);
   });
 
-  // C13 remainder closed: the prior cases only asserted compile/preview
-  // detach; the command (apply) await is the third await named by the plan.
   it('admits nothing from a late command ack after unmount during the command await', async () => {
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
@@ -1557,7 +1301,6 @@ describe('mounted Builder core protocol admission', () => {
       harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
       await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[1]), { timeout: 5000 });
 
-      // Command in flight when the surface goes away.
       renameFirstColumn(headLabels[2]);
       await waitFor(() => expect(harness.applyCalls.length).toBe(1), { timeout: 5000 });
       const reconcileCallsBeforeDetach = harness.reconcileCalls.length;
@@ -1566,8 +1309,6 @@ describe('mounted Builder core protocol admission', () => {
       view.unmount();
       await flushMicrotasks();
 
-      // Late ack after detach: adoption would start head-2 follow-up work
-      // (reconcile/preview) and surface head-2 rows; neither may happen.
       harness.applyGates[0]!.resolve(ackForHead(2));
       await settleDelay(25);
       await settleDelay(150);
@@ -1586,12 +1327,6 @@ describe('mounted Builder core protocol admission', () => {
     }
   });
 
-  // C01: within one ownership context, a late Builder GET that re-delivers the
-  // last-seen (pre-save) draft cannot regress the admitted head or bind the
-  // next command to it, while a GET carrying a legitimately newer identity is
-  // still adopted. Pins under test: render-phase authoritative sync
-  // (BuilderWorkspace.tsx:695-702 after shouldSyncServerDraft) and the
-  // post-ack pin (BuilderWorkspace.tsx:850).
   it('cannot regress an admitted save with a late same-context Builder GET, and still adopts a genuinely newer draft identity', async () => {
     const view = renderMountedBuilder();
 
@@ -1611,9 +1346,6 @@ describe('mounted Builder core protocol admission', () => {
     await settleAllHeadBPreviewsWithSuccess();
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[2]), { timeout: 5000 });
 
-    // Late GET A: a fresh object byte-identical to the last-seen payload.
-    // Different object identity forces reads; deep-equal content keeps the
-    // data key equal to the post-ack pin (BuilderWorkspace.tsx:850).
     const lastSeen = harness.builderState!;
     harness.builderState = structuredClone(lastSeen);
     view.rerender(<BuilderWorkspace organization="BForePC" project="BForePC" explorerId="builder" />);
@@ -1632,14 +1364,9 @@ describe('mounted Builder core protocol admission', () => {
     expect(pendingPreview).toHaveAttribute('data-preview-proposal-id', 'column-policy-draft-2');
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
 
-    // Settle the check command: busy gating disables triggers while a command
-    // is pending (BuilderWorkspace.tsx:3082-3090).
     harness.applyGates[1]!.resolve(ackForHead(2));
     await settleDelay(25);
 
-    // Legitimate newer identity from the same context still hydrates: the pin
-    // must not freeze the draft at the acked head. The payload carries the
-    // current head-2 workspace so the visible surface stays B-coherent.
     harness.builderState = explorerBuilderStateSchema.parse({
       ...structuredClone(lastSeen),
       workspace: workspaceForHead(2),
@@ -1649,8 +1376,6 @@ describe('mounted Builder core protocol admission', () => {
     view.rerender(<BuilderWorkspace organization="BForePC" project="BForePC" explorerId="builder" />);
     await flushMicrotasks();
 
-    // The published payload carries head-2's original labels (the un-acked
-    // local rename is not in it), so the third rename reads from headLabels[2].
     renameColumnLabel(headLabels[2], 'C01 newer-identity check');
     await waitFor(() => expect(harness.applyCalls.length).toBe(3), { timeout: 5000 });
     expect(harness.applyCalls[2]).toEqual(expect.objectContaining({
@@ -1660,11 +1385,6 @@ describe('mounted Builder core protocol admission', () => {
     }));
   });
 
-  // C03: a command conflict must take the production forced-refresh branch
-  // (refetchBuilder({ reload: true }) at BuilderWorkspace.tsx:900), hydrate
-  // the refreshed draft through the render-phase sync (no replay of the
-  // failed intent), and the next visible command must carry the exact
-  // refreshed identity.
   it('forced-refreshes on a command conflict, never replays the stale intent, and binds the next command to the exact refreshed identity', async () => {
     renderMountedBuilder();
 
@@ -1674,17 +1394,13 @@ describe('mounted Builder core protocol admission', () => {
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[1]), { timeout: 5000 });
 
-    // Server-side reality: the head advanced to 2 underneath; the refreshed
-    // GET carries that coherent head.
     const refreshedV2 = explorerBuilderStateSchema.parse({
       ...structuredClone(harness.builderState),
       workspace: workspaceForHead(2),
       draftVersion: 2,
       draftDigest: headDigests[2],
     });
-    // A reload refetch publishes into the same resource slot the Builder GET
-    // query reads (react.tsx refresh path); simulate both halves together or
-    // the render-phase sync legitimately reverts to the un-refreshed slot.
+
     harness.refetchImpl = async () => {
       harness.builderState = refreshedV2;
       return { data: refreshedV2 };
@@ -1700,14 +1416,9 @@ describe('mounted Builder core protocol admission', () => {
     await waitFor(() => expect(harness.refetchCalls.length).toBe(1), { timeout: 5000 });
     expect(harness.refetchCalls[0]).toEqual({ reload: true });
 
-    // No replay of the failed command (BuilderWorkspace.tsx:903 returns after
-    // hydrating the refreshed draft).
     await settleDelay(100);
     expect(harness.applyCalls.length).toBe(1);
 
-    // The render-phase sync (BuilderWorkspace.tsx:696-702) adopts the
-    // refreshed identity without waiting for any follow-up request; settle an
-    // automatic head-2 compile/preview if the flow issues one.
     let settledCompiles = 1;
     while (settledCompiles < harness.reconcileGates.length) {
       harness.reconcileGates[settledCompiles]!.resolve(compileForHead(2));
@@ -1723,8 +1434,6 @@ describe('mounted Builder core protocol admission', () => {
     }
     await settleDelay(50);
 
-    // The published head-2 draft shows its own label; the refreshed identity
-    // must reach the next command's CAS exactly.
     renameColumnLabel(headLabels[2], 'C03 after refresh');
     await waitFor(() => expect(harness.applyCalls.length).toBe(2), { timeout: 5000 });
     expect(harness.applyCalls[1]).toEqual(expect.objectContaining({
@@ -1737,10 +1446,6 @@ describe('mounted Builder core protocol admission', () => {
     expect(screen.queryByText(/DRAFT_CONFLICT/)).toBeNull();
   });
 
-  // C02 probe: what does the mounted surface actually do when a second
-  // command is submitted while the first is still queued behind its await?
-  // (Queue identity-at-drain is asserted where the queue is actually formable;
-  // this probe records the observable gating through the harness.)
   it('gates a second UI command submission while the first command await is pending', async () => {
     renderMountedBuilder();
 
@@ -1756,14 +1461,9 @@ describe('mounted Builder core protocol admission', () => {
       snapshotToken, expectedDraftVersion: 1, expectedDraftDigest: headDigests[1],
     }));
 
-    // Same-tick double submit attempt: fresh label while command 1 is held.
     renameColumnLabel(headLabels[1], 'C02 second attempt');
     await settleDelay(75);
 
-    // Drain: the held command completes normally either way. A queued second
-    // command reaches the transport only after this drain (serial queue), so
-    // its CAS — read after the first ack at BuilderWorkspace.tsx:826-830 —
-    // must be the drained identity, not any submit-time value.
     harness.applyGates[0]!.resolve(ackForHead(2));
     await settleDelay(120);
     const submittedWhilePending = harness.applyCalls.length;
@@ -1773,25 +1473,16 @@ describe('mounted Builder core protocol admission', () => {
         snapshotToken, expectedDraftVersion: 2, expectedDraftDigest: headDigests[2],
       }));
       harness.applyGates[1]!.resolve(ackForHead(3 as unknown as 1 | 2));
-      // A column-policy apply is an admitted recipe command, so its ack opens
-      // the head-2 reconcile round; the saved draft keeps rendering no stale
-      // rows from the superseded preview while that round is in flight.
+
       await settleDelay(120);
       expect(harness.reconcileCalls.length).toBe(3);
-      // The acked commands supersede the committed preview round; the table
-      // shell stays mounted (rows unmount until a fresh receipt lands — no
-      // stale-row bleed under the advanced head, and no re-preview because
-      // renames do not invalidate the preview query themselves).
+
       expect(screen.getByTestId('preview-table-scroll')).toBeInTheDocument();
     } else {
-      // Queue-surface gate: while a command await is pending the second
-      // rename must not reach the transport (busy per BuilderWorkspace.tsx:3083).
+
       expect(submittedWhilePending).toBe(1);
     }
-    // No permanent busy wedge: with both commands acked and the third ack
-    // still unwired (a rename ack while the GET view stays head-1 re-renders
-    // nothing new), the harness records an accepted queue drain and the
-    // surface keeps rendering committed rows.
+
     expect(harness.applyCalls.length).toBe(submittedWhilePending);
     expect(harness.applyGates.length).toBe(submittedWhilePending);
     expect(harness.applyCalls[0]).toEqual(expect.objectContaining({
@@ -1799,17 +1490,6 @@ describe('mounted Builder core protocol admission', () => {
     }));
   });
 
-  // ---- C08/C09: reconcile recovery budgets inside the mounted core flow ----
-  // Decision source authoring/reconcileRecovery.ts:38-50; counter loop
-  // BuilderWorkspace.tsx reconcileCurrent (:2621-2624 maxAttempts 3,
-  // maxStaleRefreshes 2; recovery branches :2680-2760). attempt increments on
-  // EVERY continued iteration (both the stale refresh branch and the ordinary
-  // retry branch), while staleRefreshes only gates the stale branch — so a
-  // mixed retryable/stale sequence can issue up to five HTTP calls, exactly
-  // the counter interaction the plan (docs/verification, section :390) demands
-  // be modeled rather than assumed to stop at three. Gate rejects are
-  // delivered outside act() (settling a pending gate inside act() deadlocks
-  // the flush; established convention in this file).
   const staleCompileError = () =>
     explorerError('core-compile-stale-snapshot', 'STALE_SNAPSHOT');
   const transientCompileError = () => ({
@@ -1817,9 +1497,7 @@ describe('mounted Builder core protocol admission', () => {
     code: 'SERVER_ERROR',
     retryable: true,
   });
-  // A published catalog refresh: only the snapshot token moves, so recovery
-  // must carry the NEW token without perturbing the intent fingerprint
-  // (workspaceFromState covers stage/column intent, not the catalog token).
+
   const refreshedCatalogState = (round: number): unknown => ({
     ...(harness.builderState as Record<string, unknown>),
     catalog: {
@@ -1845,8 +1523,7 @@ describe('mounted Builder core protocol admission', () => {
 
     harness.reconcileGates[0]!.reject(staleCompileError());
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(2), { timeout: 5000 });
-    // The permitted retry carries the REFRESHED catalog CAS, not the
-    // submit-time token: refreshed values feed the retry (plan C08 wording).
+
     expect(harness.reconcileCalls[1]).toEqual(expect.objectContaining({
       snapshotToken: 'snapshot-refreshed-1',
       outputId,
@@ -1863,16 +1540,12 @@ describe('mounted Builder core protocol admission', () => {
     expect(attemptSuffix(harness.reconcileCalls[2])).toBe('3');
     expect(harness.refetchCalls).toEqual([{ reload: true }, { reload: true }]);
 
-    // Third stale error: staleRefreshes 2 === max — recovery is 'repair';
-    // stale refreshes stop at two, the repair banner reports the stale code,
-    // and no fourth compile goes out.
     harness.reconcileGates[2]!.reject(staleCompileError());
     await settleDelay(300);
     expect(harness.reconcileCalls.length).toBe(3);
     expect(harness.refetchCalls.length).toBe(2);
     expect(screen.getByRole('alert')).toHaveTextContent('core-compile-stale-snapshot');
 
-    // Surface is not wedged: a fresh user edit still reaches the transport.
     renameFirstColumn('C08 recovery edit');
     await waitFor(() => expect(harness.applyCalls).toHaveLength(1), { timeout: 5000 });
   });
@@ -1880,8 +1553,6 @@ describe('mounted Builder core protocol admission', () => {
   it('C08 a stale failure whose forced refresh yields no data stops without a second compile attempt', async () => {
     renderMountedBuilder();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
-    // refetchImpl stays undefined → the reload refetch resolves data-less,
-    // the documented missing/failed refresh data (plan C08) variant.
 
     harness.reconcileGates[0]!.reject(staleCompileError());
     await settleDelay(250);
@@ -1902,8 +1573,7 @@ describe('mounted Builder core protocol admission', () => {
 
     harness.reconcileGates[0]!.reject(explorerError('core-compile-draft-conflict', 'DRAFT_CONFLICT'));
     await settleDelay(300);
-    // refresh-and-stop: one reload hydrates the client, but no further
-    // compile issues — the head CAS moved underneath this intent.
+
     expect(harness.reconcileCalls.length).toBe(1);
     expect(harness.refetchCalls).toEqual([{ reload: true }]);
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
@@ -1914,8 +1584,7 @@ describe('mounted Builder core protocol admission', () => {
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
 
     harness.reconcileGates[0]!.reject(transientCompileError());
-    // Ordinary retry re-issues after the retry delay with the SAME catalog
-    // CAS: no forced refresh opens (stale codes alone refresh the catalog).
+
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(2), { timeout: 5000 });
     expect(attemptSuffix(harness.reconcileCalls[1])).toBe('2');
     expect(harness.reconcileCalls[1]).toEqual(expect.objectContaining({
@@ -1929,8 +1598,6 @@ describe('mounted Builder core protocol admission', () => {
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(3), { timeout: 5000 });
     expect(attemptSuffix(harness.reconcileCalls[2])).toBe('3');
 
-    // Third failure: attempt 3 is not < maxAttempts, so recovery is 'repair'
-    // — stops at three HTTP requests, banner reports the failure.
     harness.reconcileGates[2]!.reject(transientCompileError());
     await settleDelay(700);
     expect(harness.reconcileCalls.length).toBe(3);
@@ -1948,29 +1615,18 @@ describe('mounted Builder core protocol admission', () => {
     const firstRequest = harness.reconcileCalls[0] as { requestId: string };
 
     harness.reconcileGates[0]!.reject(transientCompileError());
-    // The ordinary retry re-issue must be observable before the save lands,
-    // so the save demonstrably races a LIVE attempt-2 (not a pre-decision
-    // stop that never reached the transport).
+
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(2), { timeout: 5000 });
     expect((harness.reconcileCalls[1] as { draftVersion?: number }).draftVersion).toBe(1);
-    // A save commits to head 2: the command path cancels the current
-    // automatic execution (BuilderWorkspace.tsx:813, :2978) and the head-2
-    // intent takes ownership. The loop-top guard (:2626 owner.cancelled /
-    // !requestIsCurrent) must end the old round before it re-issues again.
+
     await settleDelay(60);
     renameFirstColumn(headLabels[2]);
     await waitFor(() => expect(harness.applyCalls).toHaveLength(1), { timeout: 5000 });
     harness.applyGates[0]!.resolve(ackForHead(2));
 
-    // The stale round must now be forced THROUGH the recovery decisions
-    // with ownership already lost: rejecting attempt 2 makes the catch
-    // branch evaluate cancel/identity guards and the recovery counters.
-    // A discarded late success would spare the recovery path entirely.
     harness.reconcileGates[1]!.reject(transientCompileError());
     await settleDelay(600);
 
-    // The advanced head's own round takes over and completes (a later
-    // allowed attempt can finish, plan C09).
     await waitFor(() => {
       const headTwoCalls = harness.reconcileCalls.filter(
         (call) => (call as { draftVersion?: number }).draftVersion === 2,
@@ -1987,9 +1643,6 @@ describe('mounted Builder core protocol admission', () => {
     }
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[2]), { timeout: 5000 });
 
-    // The superseded round re-issued at most once (the attempt-2 call was
-    // already in flight against the transport before the save); it must
-    // never continue past the guard into attempt 3 with head-1 identity.
     const staleRoundCalls = harness.reconcileCalls.filter(
       (call) => (call as { requestId: string }).requestId === firstRequest.requestId,
     );
@@ -1998,8 +1651,7 @@ describe('mounted Builder core protocol admission', () => {
       (call, index) => index > 0 && (call as { draftVersion?: number }).draftVersion === 1,
     );
     if (lateHeadOneCalls.length === 1) {
-      // An already-dispatched attempt may still be recorded; no further
-      // head-1 attempt follows it.
+
       const suffixes = harness.reconcileCalls
         .filter((call) => (call as { draftVersion?: number }).draftVersion === 1)
         .map(attemptSuffix);
@@ -2019,7 +1671,6 @@ describe('mounted Builder core protocol admission', () => {
       return { data: refreshedCatalogState(refreshRound) };
     };
 
-    // ordinary, ordinary, stale, stale, ordinary.
     harness.reconcileGates[0]!.reject(transientCompileError());
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(2), { timeout: 5000 });
     expect(attemptSuffix(harness.reconcileCalls[1])).toBe('2');
@@ -2028,8 +1679,6 @@ describe('mounted Builder core protocol admission', () => {
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(3), { timeout: 5000 });
     expect(attemptSuffix(harness.reconcileCalls[2])).toBe('3');
 
-    // attempt 3 stale: the stale branch is gated by staleRefreshes, NOT by
-    // maxAttempts, so the loop continues (attempt 4) — beyond three HTTP calls.
     harness.reconcileGates[2]!.reject(staleCompileError());
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(4), { timeout: 5000 });
     expect(attemptSuffix(harness.reconcileCalls[3])).toBe('4');
@@ -2042,23 +1691,15 @@ describe('mounted Builder core protocol admission', () => {
     expect(attemptSuffix(harness.reconcileCalls[4])).toBe('5');
     expect(harness.refetchCalls).toEqual([{ reload: true }, { reload: true }]);
 
-    // Fifth failure is ordinary: the retry branch demands attempt < 3, and
-    // with attempt=5 the decision falls through to repair — no sixth call.
     harness.reconcileGates[4]!.reject(transientCompileError());
     await settleDelay(700);
     expect(harness.reconcileCalls.length).toBe(5);
     expect(screen.getByRole('alert')).toHaveTextContent('core-compile-transient-500');
-    // All five attempts belong to ONE round (same generation prefix).
+
     const prefixes = new Set(harness.reconcileCalls.map((c) => (c as { requestId?: string }).requestId!.replace(/-\d+$/, '')));
     expect(prefixes.size).toBe(1);
   });
 
-  // ---- C07: conflict forced-refresh across an owner/context change ----
-  // Same refresh-and-stop branch as the DRAFT_CONFLICT budget case, but the
-  // forced refresh await is held open while ownership changes, so the two
-  // recovery shapes are told apart by OBSERVABLES (hydration publication,
-  // follow-up requests), per the plan row: 'change owner/context during that
-  // await … whether state is hydrated, whether another request is sent'.
   const deferredRefresh = () => {
     const deferred: { resolve: (value: { data?: unknown }) => void } = { resolve: () => undefined };
     const promise = new Promise<{ data?: unknown }>((resolve) => {
@@ -2072,9 +1713,7 @@ describe('mounted Builder core protocol admission', () => {
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     const staleRefresh = deferredRefresh();
     harness.refetchImpl = () => staleRefresh.promise;
-    // Identity matches the POST-change head so the only reason hydration could
-    // be refused is the post-refetch freshness guard itself (digest/version
-    // mismatch would be an independent veto and would make the control weak).
+
     const stalePayload = {
       ...hydratingState(),
       draftVersion: 2,
@@ -2085,8 +1724,6 @@ describe('mounted Builder core protocol admission', () => {
     harness.reconcileGates[0]!.reject(explorerError('core-conflict-forced-refresh', 'DRAFT_CONFLICT'));
     await waitFor(() => expect(harness.refetchCalls).toEqual([{ reload: true }]), { timeout: 5000 });
 
-    // Context changes while the forced refresh is still in flight: a save
-    // advances the head through the command path (the owner-taking action).
     renameFirstColumn('C07 saved head two');
     await waitFor(() => expect(harness.applyCalls).toHaveLength(1), { timeout: 5000 });
     harness.applyGates[0]!.resolve(ackForHead(2));
@@ -2094,7 +1731,6 @@ describe('mounted Builder core protocol admission', () => {
       harness.reconcileCalls.some((c) => (c as { draftVersion?: number }).draftVersion === 2),
     ).toBe(true), { timeout: 5000 });
 
-    // The obsolete refresh FINISHES after the context change.
     staleRefresh.deferred.resolve({
       data: {
         ...stalePayload,
@@ -2106,15 +1742,11 @@ describe('mounted Builder core protocol admission', () => {
     });
     await settleDelay(300);
 
-    // refresh-and-stop distinguishes itself from retry: no compile follows
-    // the refresh in the OLD round (that round stays at one attempt) even
-    // though the refresh resolved successfully.
     const oldRound = harness.reconcileCalls.filter(
       (c) => (c as { draftVersion?: number }).draftVersion === 1,
     );
     expect(oldRound.length).toBe(1);
-    // A follow-up request exists only from the NEW owner's round (head 2),
-    // never a re-issue of the head-1 intent.
+
     const headOneRounds = harness.reconcileCalls.filter(
       (c) => (c as { requestId?: string }).requestId!.endsWith('-1')
         && (c as { draftVersion?: number }).draftVersion === 1,
@@ -2130,6 +1762,5 @@ describe('mounted Builder core protocol admission', () => {
     // witness this; the guard's work is proven by the fault run
     // (deleting the post-refetch guard reddens the head-1 count).
   });
-
 
 });

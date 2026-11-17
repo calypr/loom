@@ -231,7 +231,7 @@ func TestPinnedFieldRemovalUsesExactLegacySlotsAcrossRepeatedResourceOccurrences
 			{Name: "performer", Alias: "patient_performer", ToResourceType: "Patient", OccurrenceID: "patient_performer", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "patient_performer.id"}}}},
 		},
 	}
-	plan := recipeimport.SourcePlan(output) // Legacy source plan: no FieldBindings.
+	plan := recipeimport.SourcePlan(output)
 	columns := []lower.CompiledOutputColumn{
 		{ID: "subject-id", Name: "patient_subject__id", SourceOrigin: &lower.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", OccurrenceID: "patient_subject", SourcePath: "traversals[0].fields"}},
 		{ID: "performer-id", Name: "patient_performer__id", SourceOrigin: &lower.CompiledSourceOrigin{SourceKind: "FIELD_GROUP", OccurrenceID: "patient_performer", SourcePath: "traversals[1].fields"}},

@@ -194,7 +194,7 @@ func constructionDirectRootRowsUnique(plan *ir.PhysicalPlan, operation string) e
 			}
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp,
 			ir.PhysicalSetOp, ir.PhysicalSortOp, ir.PhysicalLimitOp:
-			// These operations can remove or annotate rows but cannot add roots.
+
 		case ir.PhysicalReturnOp:
 			returns++
 			if item.Return == nil || index != len(plan.Operations)-1 {

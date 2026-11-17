@@ -36,8 +36,6 @@ func TestStoredTableShapeMigrationAgainstArango(t *testing.T) {
 	mixedOwner := workspaceMigrationSeed(t, ctx, adapter, "wp17-mixed", "Mixed shape", mixedRaw, mixedMigration.OriginalCanonicalDigest, "snapshot-wp17")
 	currentOwner := workspaceMigrationSeed(t, ctx, adapter, "wp17-current", "Already current", currentRaw, currentDigest, "snapshot-wp17")
 
-	// Immutable published workspace and receipt use the old tableReshape recipe
-	// wire. Decode it from raw JSON so the test doesn't depend on the runtime type.
 	publishedOwner := explorer.Explorer{Project: "project-wp17-published", ExplorerID: "patients"}
 	receipt := wp17LegacyReceipt(t, publishedOwner, legacyRaw, legacyMigration.OriginalCanonicalDigest)
 	if _, err := adapter.InsertCompilationReceipt(ctx, receipt); err != nil {
@@ -78,8 +76,6 @@ func TestStoredTableShapeMigrationAgainstArango(t *testing.T) {
 		t.Fatalf("WP-18 should leave TableShape-only packets unchanged: %#v", wp18Report)
 	}
 
-	// Keep valid WP-18 projections beside the immutable source packets. WP-17
-	// must add a new suffixed projection and the reader must choose that row.
 	baseRevisionProjection := wp17InsertBaseProjection(t, ctx, client, explorer.RevisionWorkspaceArtifact(*storedRevision), legacyRaw)
 	baseHistoryProjection := wp17InsertBaseProjection(t, ctx, client, explorer.DraftWorkspaceArtifact(priorHistory), legacyRaw)
 	beforeBaseRevisionProjection := wp17ReadDocument(t, ctx, client, workspaceProjectionCollection, explorer.RevisionWorkspaceArtifact(*storedRevision).Key())
@@ -492,8 +488,6 @@ func TestTableShapeProjectionLookupFailsClosedAgainstArango(t *testing.T) {
 		t.Fatalf("WP-17 fixture did not produce a Construction projection: %#v", modern)
 	}
 
-	// With a sealed WP-17 ledger and a valid WP-18 fallback, a missing modern
-	// row must not expose the archived shape.
 	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key REMOVE d IN @@c RETURN OLD`, 1,
 		map[string]any{"@c": workspaceProjectionCollection, "key": modernKey}, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
@@ -502,8 +496,6 @@ func TestTableShapeProjectionLookupFailsClosedAgainstArango(t *testing.T) {
 		t.Fatal("missing WP-17 projection fell back to valid but legacy WP-18 projection")
 	}
 
-	// Restore the suffixed key with a content-addressed but still-legacy body.
-	// Finding that row is terminal; the reader must reject it without fallback.
 	corrupt := base
 	corrupt.ID = corrupt.ContentID()
 	corruptDoc, err := document(corrupt, modernKey)
@@ -548,8 +540,7 @@ func TestTableShapeMigrationCASFailureRollsBackExactRevisionHistoryAndProjection
 			if err := insertWorkspaceProjectionFor(txCtx, tx, projection, tableShapeConstructionTarget); err != nil {
 				return err
 			}
-			// Change the owner _rev inside the transaction. The subsequent owner
-			// write still carries the planned _rev and must fail its exact CAS.
+
 			return tx.QueryRows(txCtx, `FOR d IN @@c FILTER d._key == @key UPDATE d WITH {draftVersion:@next} IN @@c RETURN NEW`, 1,
 				map[string]any{"@c": ExplorersCollection, "key": explorerKey(owner.Project, owner.ExplorerID), "next": owner.DraftVersion + 1}, func(map[string]any) error { return nil })
 		},

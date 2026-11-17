@@ -150,8 +150,7 @@ func writeViewBuilderSettings(ctx context.Context, tx store.RowQueryer, current 
 }
 
 func canonicalProjectConfigProject(project string) string {
-	// Project-config Explorer records use this normalization already; keeping
-	// settings on the same canonical key lets both aggregates share one scope.
+
 	return projectid.Legacy(project)
 }
 
@@ -271,8 +270,7 @@ func (s *Store) SaveViewBuilderConfig(ctx context.Context, mutation explorer.Vie
 		if err := activateRevisionAndOwner(txCtx, tx, state, time.Now().UTC()); err != nil {
 			return err
 		}
-		// Serialize with default changes without changing the settings version:
-		// that version tracks only the catalog and default pointers.
+
 		return writeViewBuilderSettings(txCtx, tx, settings, cloneViewBuilderSettings(settings.value))
 	})
 	return normalizeViewBuilderConflict(err)

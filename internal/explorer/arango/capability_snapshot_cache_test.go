@@ -306,8 +306,7 @@ func TestCapabilitySnapshotRevisionRegressionStillChecksDatabase(t *testing.T) {
 	if _, err := s.GetByToken(context.Background(), snapshot.Token); err != nil {
 		t.Fatal(err)
 	}
-	// A delayed older reader can repopulate an older revision, but the next DB
-	// comparison must fetch and validate the current full document again.
+
 	s.snapshots.put(older)
 	if _, err := s.GetByToken(context.Background(), snapshot.Token); err != nil {
 		t.Fatal(err)

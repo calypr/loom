@@ -13,9 +13,6 @@ import (
 const MaxCellTraceContributions = 100
 const traceReshapeRowID = "__loom_row_id"
 
-// CompiledCellTraceQuery is a specialized terminal over one canonical output
-// plan. It retains the exact final value expression and stable row identity;
-// only the contributor page is diagnostic-only.
 type CompiledCellTraceQuery struct {
 	Query                  string
 	BindVars               map[string]any
@@ -26,8 +23,7 @@ type CompiledCellTraceQuery struct {
 	OmissionColumn         string
 	IdentityPartsColumn    string
 	ExplicitIdentityColumn string
-	// ExplicitIdentityObject is set only when construction lowering proves the
-	// final explicit identity is a required compiler-owned object column.
+
 	ExplicitIdentityObject bool
 	RowIdentity            *spec.RowIdentity
 	ContributionOffset     int
@@ -53,7 +49,7 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace contribution limit exceeds %d", MaxCellTraceContributions)
 	}
 	physical := ir.ClonePhysicalPlan(output.Plan)
-	_ = policy // The trace deliberately uses the canonical pre-optimization plan.
+	_ = policy
 	physical, err := withGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("apply cell trace execution window: %w", err)
@@ -826,9 +822,6 @@ func traceProjection(terminal *ir.PhysicalReturn, column string) (ir.PhysicalPro
 	return ir.PhysicalProjection{}, fmt.Errorf("cell trace column %q is not a public output projection", column)
 }
 
-// sourceStageReshapeForTrace replays a closed source-Pivot -> DERIVE
-// chain in one typed evidence scope. Input objects preserve stage column names
-// and presence; they also retain a typed dependency graph for contributor traces.
 func sourceStageReshapeForTrace(plan ir.PhysicalPlan) (ir.PhysicalPlan, bool) {
 	sequence := plan.StageSequence
 	if sequence == nil || len(sequence.Stages) == 0 || sequence.Stages[0].InputStageID != sequence.SourceStageID || plan.Validate() != nil {

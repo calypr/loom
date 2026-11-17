@@ -107,8 +107,16 @@ const external = new Set([
     'TestProfileCorpusAgainstArango',
     'TestCompoundEdgeIndexExplainAgainstArango',
     'TestReceiptPreviewExplainAgainstArango',
+    'TestPreviewSupersededIndexMigrationAgainstArango',
     ...dualStore,
 ]);
+
+const previewIndexMigrationTests = [
+    'TestPreviewSupersededIndexMigrationAgainstArango',
+    'TestPreviewSupersededPublicMigrationVersionedAgainstArango',
+    'TestOpenExistingMissingDatabaseDoesNotCreateAgainstArango',
+];
+const previewIndexMigrationPattern = `(${previewIndexMigrationTests.join('|')})`;
 
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
@@ -116,6 +124,7 @@ export const profiles = [
     ['execution', './internal/dataframe/execution', 'TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango'],
     ['explorer', './internal/explorer/arango', 'TestSelectionStorageAgainstArango'],
     ['store', './internal/store/arango', 'TestReceiptArangoStoreUsesImmutableTenantScopedQueries'],
+    ['preview-index-migration', './internal/store/arango', previewIndexMigrationTests[0]],
     ['server', './internal/server', 'TestSavedRelatedRouteRowsAgainstArango'],
     ['artifact', './internal/dataframe/execution/chartifact/arango', 'TestCatalogLeaseArbitrationAgainstArango'],
     ['publication', './internal/dataframe/publication/arango', 'TestExecutionReadPinArbitrationAgainstArango'],
@@ -129,6 +138,9 @@ export const profiles = [
 // The store package's retained cases require external seeded data. Its ordinary
 // unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
+profiles.find(p => p.id === 'store').skip = `^${previewIndexMigrationPattern}$`;
+profiles.find(p => p.id === 'preview-index-migration').run = previewIndexMigrationPattern;
+profiles.find(p => p.id === 'preview-index-migration').alsoRequired = previewIndexMigrationTests.slice(1);
 profiles.find(p => p.id === 'execution').alsoRequired = ['TestPublicationRowStreamRejectsPayloadMetadataSmuggling'];
 profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
 profiles.find(p => p.id === 'publication-clickhouse').alsoRequired = ['TestStalePinAbsentReclaimsAllAgainstArango'];
@@ -159,6 +171,9 @@ profiles.find(p => p.id === 'explorer').alsoRequired = [
     'TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstArango',
 ];
 profiles.find(p => p.id === 'compiler').alsoRequired = [
+    'TestCategoryPairProjectionPreservesPresenceScopeAndOverflowAgainstArango',
+    'TestColumnPopulationMatchesExactArangoStageRows',
+    'TestNestedExtensionColumnsKeepAncestorOwnersAgainstArango',
     'TestCurrentPivotNullMissingExclusionPartitionAgainstArango',
     'TestS04TableReshapeOracleAgainstArango',
     'TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango',
@@ -211,6 +226,7 @@ export async function runArango(output) {
     Object.assign(env, {
         LOOM_TEST_ARANGO_URL: url,
         LOOM_TEST_ARANGO_DATABASE: database,
+        LOOM_SELECTOR_ARANGO_URL: `${url}/_db/${encodeURIComponent(database)}`,
         LOOM_TEST_REQUIRED: '1',
     });
     const child = async (profile, setup, id = profile.id, childEnv = env) => {

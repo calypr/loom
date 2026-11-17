@@ -11,8 +11,7 @@ import (
 )
 
 func TestArchivedReceiptRetainsLegacyImmediateInputMetadata(t *testing.T) {
-	// A stored address-only receipt is authenticated as an archive, not recompiled.
-	// Its old direct-input metadata must not be replaced with current staged lineage.
+
 	raw := []byte(`{"recipeSchemaVersion":1,"name":"archived-derived","translationVersion":"v1","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"patient","fields":[{"name":"patient_count","expr":{"literal":1}}],"derivedColumns":[{"constructionId":"scale_patient_count","name":"scaled_patient_count","label":"Scaled count","operation":"MULTIPLY","left":{"kind":"COLUMN","column":"patient_count"},"right":{"kind":"LITERAL","literal":{"kind":"INTEGER","integer":2}},"missingInputPolicy":"ERROR"},{"constructionId":"add_one","name":"doubled_patient_count","label":"Doubled count","operation":"ADD","left":{"kind":"COLUMN","column":"scaled_patient_count"},"right":{"kind":"LITERAL","literal":{"kind":"INTEGER","integer":1}},"missingInputPolicy":"ERROR"}]}]}`)
 	var bundle recipe.Bundle
 	if err := json.Unmarshal(raw, &bundle); err != nil {

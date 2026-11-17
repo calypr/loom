@@ -1,6 +1,3 @@
-// Package schema resolves catalog-backed recipe declarations into a
-// concrete, typed recipe before semantic compilation. It deliberately knows
-// nothing about AQL, Arango collections, or output-specific behavior.
 package schema
 
 import (
@@ -25,10 +22,7 @@ func resolveProjectionSets(ctx context.Context, scope Scope, discovery Discovery
 			return nil, err
 		}
 		selected := filterCandidates(candidates, set)
-		// Catalog projections are optional shape discovery. A resource type can
-		// be absent from a valid dataset (or have no populated fields matching
-		// the requested kind); retain the static recipe fields and resolve this
-		// projection set to zero columns rather than rejecting the whole bundle.
+
 		if len(selected) == 0 {
 			continue
 		}
@@ -117,9 +111,7 @@ func resolvePivots(ctx context.Context, scope Scope, discovery Discovery, resour
 				}
 				if spec, ok := fhirschema.DefaultPivotSpec(resourceType, candidate.Path, observedValuePath); ok {
 					pivotSpec, hasPivotSpec = spec, true
-					// Persisted catalog metadata is an immutable observation of
-					// the loaded shape. Prefer it when present, while retaining the
-					// generated schema default for older catalog documents.
+
 					if candidate.PivotColumnSelect != "" {
 						pivotSpec.ColumnSelector = fhirschema.FieldSelectorSpecFromPath(candidate.PivotColumnSelect)
 					}
@@ -258,9 +250,6 @@ func applyPivotOutputOverrides(family string, columns []string, aliases map[stri
 	return updated, updatedAliases, nil
 }
 
-// nativePivotOutputName mirrors lower.NativePivotColumnName without its common
-// traversal prefix. The prefix is identical for every key in one pivot, so it
-// cannot change whether two outputs collide.
 func nativePivotOutputName(family, key string, aliases map[string]string) string {
 	if alias, exists := aliases[key]; exists {
 		return alias
@@ -339,20 +328,11 @@ func resolveDynamicColumns(ctx context.Context, scope Scope, discovery Discovery
 		}
 		dynamic.Columns = sortedValues(values)
 		dynamic.Discovered = true
-		// A keyed family is optional: a valid FHIR dataset may have no values
-		// for an extension/identifier family at all. Keep the declaration with
-		// an empty frozen column set so resolution remains schema-stable and the
-		// compiler emits no columns for that family instead of rejecting the
-		// entire dataframe.
+
 	}
 	return nil
 }
 
-// dynamicDiscoveryKey derives the catalog path that supplies raw dynamic keys
-// and the deterministic transforms the physical key expression applies. The
-// catalog stores only observed scalar paths, so a transformed key (for
-// example last_segment(item.url)) must be frozen from the transformed catalog
-// values; freezing the original URL would make physical map lookups miss.
 func dynamicDiscoveryKey(dynamic recipe.DynamicColumn, alias string) (string, string, []string, error) {
 	source := strings.TrimPrefix(strings.TrimSpace(dynamic.Source.Select), alias+".")
 	if source == "" {
@@ -490,11 +470,6 @@ func projectionName(set recipe.CatalogProjection, fieldPath string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-// uniqueProjectionName preserves the established PATH column spelling when it
-// is unambiguous. FHIR catalogs may contain both scalar and repeated variants
-// of a path (for example author.reference and author[].reference), which
-// normalize to the same SQL-safe name. Keep both catalog-backed fields rather
-// than rejecting an otherwise valid, dataset-independent recipe.
 func uniqueProjectionName(set recipe.CatalogProjection, fieldPath string, used map[string]struct{}) string {
 	base := projectionName(set, fieldPath)
 	if _, exists := used[base]; !exists {

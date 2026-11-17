@@ -287,7 +287,6 @@ export const parseBuildIdentity = ({ stampOutput, recordedOutput, gitHeadOutput 
   };
 };
 
-// Resolve the API container by Compose ownership labels before checking its build.
 export const resolveOwnedApiContainer = (target, { env = commandEnvironment(target), psRunner } = {}) => {
   const listed = (psRunner ?? ((args) => spawnSync('docker', args, { encoding: 'utf8', env, timeout: 15000 })))(
     ['ps', '--filter', `label=com.docker.compose.project=${target.composeProject}`,

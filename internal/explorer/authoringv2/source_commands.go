@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// ImportedSourceStepChange edits only the bounded settings of a registered
-// source operation. Its expressions and relationships remain server-owned.
 type ImportedSourceStepChange struct {
 	Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
 	StepID     string                    `json:"stepId"`
@@ -66,9 +64,6 @@ func (c *Command) ResolveImportedDocument(document Document) error {
 	return nil
 }
 
-// ResolveProjectedFieldRemovalDocument binds a pinned-field removal to the
-// exact server-resolved document candidate. The browser supplies only the
-// stable projected column identity.
 func (c *Command) ResolveProjectedFieldRemovalDocument(document Document) error {
 	if c == nil || c.Type != CommandRemoveProjectedField || document.Output.ID != c.OutputID || document.ImportedRecipe == nil {
 		return fmt.Errorf("projected field removal requires a matching imported document")
@@ -88,14 +83,10 @@ func (c *Command) ResolveProjectedFieldRemovalDocument(document Document) error 
 	return nil
 }
 
-// IsImportedSourceCommand identifies commands whose source must be resolved
-// from the immutable recipe and its project-local overlays by lifecycle.
 func IsImportedSourceCommand(kind string) bool {
 	return kind == CommandUpdateImportedSourceStep || kind == CommandRefreshImportedSource || kind == CommandApplyImportedRelationshipProposal
 }
 
-// ImportedRelationshipChange is browser intent only. Catalog metadata and
-// executable expressions are resolved on the server, never accepted here.
 type ImportedRelationshipChange struct {
 	Action             string         `json:"action"`
 	OccurrenceID       string         `json:"occurrenceId,omitempty"`
@@ -147,8 +138,6 @@ func (c *ImportedRelationshipChange) UnmarshalJSON(raw []byte) error {
 	return c.Validate()
 }
 
-// ValidateImportedSourceStepBatch admits one bounded, atomic edit over existing
-// source operations in a single output. Stable step identities cannot repeat.
 func ValidateImportedSourceStepBatch(changes []ImportedSourceStepChange) error {
 	if len(changes) < 1 || len(changes) > 128 {
 		return fmt.Errorf("sourceSteps requires between 1 and 128 existing source steps")

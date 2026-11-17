@@ -16,10 +16,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango explains the
-// exact root category AQL emitted by the compiler after provisioning its
-// compiler-owned replacement index. It is plan evidence only; the neighboring
-// category scan AgainstArango tests retain the data and authorization checks.
 func TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
@@ -75,10 +71,6 @@ func TestRootCategoryScanUsesSharedTypedIndexContractAgainstArango(t *testing.T)
 	assertCategoryScanIndexExplain(t, ctx, client, scan, true)
 }
 
-// TestRelatedCategoryScanUsesTypedIndexAgainstArango checks that the exact
-// compiler-selected target collection index is used by the related category
-// scan. Existing related-category integration coverage remains responsible for
-// MISSING/NULL values and project, generation, and auth-path exclusion.
 func TestRelatedCategoryScanUsesTypedIndexAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
@@ -102,8 +94,7 @@ func TestRelatedCategoryScanUsesTypedIndexAgainstArango(t *testing.T) {
 		Project: project, SelectionProject: project, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/category/visible"},
 	}
-	// One expansion owns the entire two-hop route. The distinct two-expansion
-	// streaming shape intentionally requests no terminal category index.
+
 	definition := relatedCategoryScanOutput(relatedCategoryScanOptions{})
 	steps := definition.Construction.Steps
 	first, second := steps[0].Operation.RelatedExpand, steps[1].Operation.RelatedExpand
@@ -127,8 +118,6 @@ func TestRelatedCategoryScanUsesTypedIndexAgainstArango(t *testing.T) {
 	assertCategoryScanIndexExplain(t, ctx, client, scan, false)
 }
 
-// assertCategoryScanIndexExplain verifies and provisions only the current exact
-// compiler-selected index definition. Legacy replacement is handled by WP-19 migration.
 func assertCategoryScanIndexExplain(t *testing.T, ctx context.Context, client *store.Client, scan CompiledCategoryScanQuery, requireProjectionCoverage bool) {
 	t.Helper()
 	index := scan.CategoryIndex

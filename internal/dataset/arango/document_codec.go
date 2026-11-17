@@ -153,9 +153,6 @@ func manifestDocumentKey(ref publication.Ref) string {
 	return documentKey("manifest", ref.Project, ref.Generation)
 }
 
-// ManifestDocumentKey and ActiveDocumentKey deliberately expose only the
-// minimum composite-transaction identities needed by Loom-owned aggregates.
-// Callers must not reimplement the private document-key algorithm.
 func ManifestDocumentKey(ref publication.Ref) string { return manifestDocumentKey(ref) }
 
 func activeDocumentKey(project string) string { return documentKey("active", project) }

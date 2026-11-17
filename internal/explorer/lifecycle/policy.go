@@ -141,7 +141,6 @@ func (s *Service) validateReceiptRoute(receipt *explorer.CompilationReceipt, pro
 	return nil
 }
 
-// validateArchivedReceiptRoute preserves immutable reads without admitting execution.
 func (s *Service) validateArchivedReceiptRoute(receipt *explorer.CompilationReceipt, project, explorerID string) error {
 	if receipt == nil || projectid.Canonical(receipt.Project) != projectid.Canonical(project) || receipt.ExplorerID != explorerID {
 		return notFound("receipt", "COMPILE_RECEIPT_NOT_FOUND", "compilation receipt was not found", explorer.ErrNotFound)
@@ -220,7 +219,7 @@ func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest strin
 			return fmt.Errorf("unrestricted scope must not carry resource paths")
 		}
 	case authscope.ReadScopeRestricted:
-		// Empty restricted scopes intentionally remain deny-all.
+
 	default:
 		return fmt.Errorf("authorization scope mode is missing or invalid")
 	}

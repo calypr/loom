@@ -7,9 +7,6 @@ import (
 	"strings"
 )
 
-// CompiledQueryFingerprint returns a deterministic, value-safe identifier for
-// a compiled plan. Bind values are intentionally excluded; rendered query
-// shape, bind-key names, and output metadata participate instead.
 func CompiledQueryFingerprint(compiled CompiledQuery) string {
 	keys := make([]string, 0, len(compiled.BindVars))
 	for key := range compiled.BindVars {

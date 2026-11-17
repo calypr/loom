@@ -1,5 +1,3 @@
-// Reflection is an independent schema oracle;
-// generated production Children helpers contain no reflection.
 package ir
 
 import (
@@ -429,9 +427,6 @@ func isPayloadField(parent string, field reflect.StructField) bool {
 	return payloadTypes[field.Type.Elem().Name()]
 }
 
-// Type-check only constant declarations and their scalar named types. This
-// recognizes inferred enum conversions, aliases and constant expressions without
-// loading the compiler's imports or a second copy of the entire IR package.
 func physicalKindValues(t *testing.T, directory, typeName string) map[string]bool {
 	t.Helper()
 	filenames, err := filepath.Glob(filepath.Join(directory, "*.go"))

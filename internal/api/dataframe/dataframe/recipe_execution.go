@@ -11,19 +11,12 @@ import (
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// RecipeExecutionStore reads the durable record used for publication status
-// and Explorer access checks.
 type RecipeExecutionStore interface {
 	GetExecution(context.Context, string) (materialization.BundleExecution, error)
 }
 
-// RecipeExecutionScopeResolver is the per-request scope check used by the
-// authorized durable-record reader. A transport can provide the same resolver
-// through a narrow test seam without changing the shared authorization flow.
 type RecipeExecutionScopeResolver func(context.Context, *authscope.ScopeResolver, *authscope.Principal, string, string, []string) (authscope.ReadScope, error)
 
-// RecipeExecutionReadFailure retains the boundary that failed so transports
-// can preserve their distinct lookup and authorization error contracts.
 type RecipeExecutionReadFailure struct {
 	Authorization bool
 	Err           error
@@ -32,8 +25,6 @@ type RecipeExecutionReadFailure struct {
 func (e *RecipeExecutionReadFailure) Error() string { return e.Err.Error() }
 func (e *RecipeExecutionReadFailure) Unwrap() error { return e.Err }
 
-// NewAuthorizedRecipeExecutionRecordReader loads the durable, transport-neutral
-// execution record after applying the project and generation-scope checks.
 func NewAuthorizedRecipeExecutionRecordReader(store RecipeExecutionStore, scopeResolver *authscope.ScopeResolver, resolveScope RecipeExecutionScopeResolver, requireID bool) func(context.Context, string) (materialization.BundleExecution, error) {
 	return func(ctx context.Context, id string) (materialization.BundleExecution, error) {
 		if store == nil {
@@ -69,8 +60,6 @@ func NewAuthorizedRecipeExecutionRecordReader(store RecipeExecutionStore, scopeR
 	}
 }
 
-// NewRecipeExecutionAuthorizer checks access to a durable execution before an
-// Explorer can expose its publication metadata.
 func NewRecipeExecutionAuthorizer(store RecipeExecutionStore, scopes *authscope.ScopeResolver) func(context.Context, string) error {
 	read := NewAuthorizedRecipeExecutionRecordReader(store, scopes, nil, false)
 	return func(ctx context.Context, id string) error {
@@ -125,8 +114,6 @@ func recipeExecutionLookupError(err error) error {
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }
 
-// RecipeExecutionOutputMessage mirrors execution failure text only onto outputs
-// that have not already published successfully.
 func RecipeExecutionOutputMessage(message string, state materialization.BundleState) string {
 	if state == materialization.BundleReady || state == materialization.BundlePublished {
 		return ""

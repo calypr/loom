@@ -158,9 +158,7 @@ const openConstructionFamily = async (
     }
   }
   if (!button) throw new CoreAdapterGapError(input.uiAction.affordanceId, `the mounted ${family} action is unavailable.`);
-  // Capability-derived action state arrives asynchronously after the workspace
-  // mounts. Wait for the action to leave its initial disabled state instead of
-  // treating the first paint as a permanent adapter gap.
+
   await waitFor(() => {
     button = screen.getByTestId(testId);
     if (button.hasAttribute('disabled') || button.getAttribute('aria-disabled') === 'true') {
@@ -448,8 +446,7 @@ const driveProposalLifecycle = async (input: CoreAdapterInput): Promise<void> =>
   const values = valuesOf(input);
   const actionId = input.requestStep?.actionId;
   if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {
-    // The current recipe editor discards the reviewed change through its
-    // "Back to table" control; the standalone proposal Cancel button was removed.
+
     await clickTestId(input, 'construction-close-operation-editor', 'Close operation editor');
     return;
   }

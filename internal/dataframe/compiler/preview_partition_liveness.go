@@ -2,15 +2,6 @@ package compiler
 
 import "github.com/calypr/loom/internal/dataframe/compiler/ir"
 
-// prunePreviewPartitionPlan removes only unreferenced scalar VALUE/LITERAL
-// expression LETs from a validated source-row plan. All other operations stay
-// in their original order: they may affect scope, authorization, membership,
-// identity, ordering, validation, or runtime errors. Complex live expressions
-// and their subplans remain intact.
-//
-// The reference walker is deliberately closed over the current typed IR. Any
-// unrecognized operation or expression makes the proof fail and leaves the
-// caller's full-row query as its fallback.
 func prunePreviewPartitionPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, bool) {
 	if plan.Validate() != nil || !previewLivenessPlanShape(plan) {
 		return ir.PhysicalPlan{}, false
@@ -18,9 +9,7 @@ func prunePreviewPartitionPlan(plan ir.PhysicalPlan) (ir.PhysicalPlan, bool) {
 	uses := make(map[string]bool)
 	for _, operation := range plan.Operations {
 		if !collectPreviewOperationUses(operation, uses) {
-			// PhysicalPlan.Validate owns the source-plan proof. If this visitor
-			// encounters a newer payload, keep the entire plan intact and let
-			// terminal projection partitioning proceed without liveness pruning.
+
 			return ir.ClonePhysicalPlan(plan), true
 		}
 	}
@@ -228,8 +217,7 @@ func collectPreviewExpressionUses(expression ir.PhysicalExpression, uses map[str
 	predicate := func(value *ir.PhysicalPredicateExpression) bool {
 		return value == nil || collectPreviewPredicateUses(*value, uses)
 	}
-	// PhysicalPlan.Validate has already enforced the tagged-union payload. Still
-	// check the tag and selected payload explicitly so a future kind fails closed.
+
 	switch expression.Kind {
 	case ir.PhysicalValueExpression:
 		if expression.Value == nil {

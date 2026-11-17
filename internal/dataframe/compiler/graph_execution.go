@@ -10,10 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// CompileResolvedGraphQueryWithPolicy compiles the explicit graph frontend
-// through the canonical physical optimizer and renderer. The public limit is
-// preserved in metadata while the physical graph return fetches limit+1 rows
-// for lookahead-based hasMore calculation.
 func CompileResolvedGraphQueryWithPolicy(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
 	if limit < 1 || limit > 10000 {
 		return CompiledQuery{}, fmt.Errorf("graph limit must be between 1 and 10000")

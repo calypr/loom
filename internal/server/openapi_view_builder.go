@@ -14,8 +14,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// View writes share the project authorizer with the dataframe Builder, but
-// persist presentation only. No compilation or materialization adapter is used.
 func (h *explorerHTTPHandlers) authorizeViewBuilder(ctx context.Context, project, resource string, write bool) error {
 	if strings.TrimSpace(resource) == "" {
 		resource = projectid.Legacy(project)
@@ -49,8 +47,7 @@ func (h *explorerHTTPHandlers) authorizedViewBuilderState(ctx context.Context, p
 	if err != nil {
 		return value, viewBuilderFailure(err)
 	}
-	// Catalog access retains the exact generation-scoped execution checks used
-	// by the viewer. Project membership alone must not disclose another scope.
+
 	executionIDs := make(map[string]bool)
 	for _, config := range value.Configs {
 		if config.ExecutionID != "" {
@@ -167,8 +164,7 @@ func (r *HTTPRoutes) AdoptProjectViewBuilder(ctx context.Context, request loomap
 	if err != nil {
 		return fail(err)
 	}
-	// Existing projects can explicitly attach retained publication metadata.
-	// Validate every adopted execution before writing its durable catalog anchor.
+
 	owners, err := h.views.List(ctx, project)
 	if err != nil {
 		return fail(viewBuilderFailure(err))

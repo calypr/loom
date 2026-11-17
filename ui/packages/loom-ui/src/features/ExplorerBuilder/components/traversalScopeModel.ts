@@ -15,7 +15,7 @@ export interface TraversalScope {
 export interface ScopedOperation {
   readonly id: string;
   readonly kind: 'source' | 'construction';
-  /** Original array position, retained even when the selected scope hides other entries. */
+
   readonly position: number;
   readonly title: string;
   readonly summary: string;
@@ -44,7 +44,6 @@ export interface TraversalScopeModel {
 
 type ScopeResolution = { scopeId: string; catalogNodeId?: string; scopeReason?: never } | { scopeId?: never; scopeReason: string };
 
-/** Read-only ownership projection. Source-plan positions are not compiler phase numbers. */
 export function traversalScopeModel(document: ExplorerBuilderDocument,
   network?: AuthoringNetworkResponse['network'], rowIdentity?: AuthoringNetworkResponse['rowIdentity'], constructionStages?: ReadonlyArray<ConstructionStageDescriptor>): TraversalScopeModel {
   network = network?.outputId === document.output.id ? network : undefined;
@@ -89,9 +88,7 @@ export function traversalScopeModel(document: ExplorerBuilderDocument,
   }));
   const columns = document.columns.map((column): ScopedColumn => {
     const id = column.columnId ?? column.column;
-    // Additive columns on an imported recipe are authored sources, not pinned
-    // imported fields. Resolve them through their own occurrence instead of
-    // demanding an imported exact-source binding.
+
     if (!document.importedRecipe || column.source.kind !== 'imported') {
       const resolved = resolveOccurrence(column.occurrenceId);
       return { id, label: column.label || column.column, scopeId: resolved.scopeId, unavailableReason: resolved.scopeReason };
@@ -155,7 +152,7 @@ export function traversalScopeModel(document: ExplorerBuilderDocument,
     const operation = step.operation;
     if (operation.kind === 'RELATED_SOURCE') {
       const related = operation.relatedSource;
-      // The existing producer/compiler contract uses a catalog node here, despite this legacy field name.
+
       if (related.sourceOccurrenceId !== related.source.nodeId) return { scopeReason: 'The related-source catalog node identities disagree.' };
       return routeScope(anchorOccurrence(step, related.anchorColumnId), related.route, related.source);
     }

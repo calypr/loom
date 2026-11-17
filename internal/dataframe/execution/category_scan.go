@@ -94,10 +94,6 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 	return CategoryScanResult{}, fmt.Errorf("category scan output %q was not found", request.Output)
 }
 
-// ScanColumnPopulation proves exact non-null presence for a bounded set of
-// scalar columns at one compiled stage. The query returns only statuses; a
-// failed or incomplete scan is an error and must be treated as UNKNOWN by the
-// caller.
 func (e *Engine) ScanColumnPopulation(ctx context.Context, resolved Resolved, request ColumnPopulationRequest) (ColumnPopulationResult, error) {
 	if e == nil || e.queryRows == nil {
 		return ColumnPopulationResult{}, fmt.Errorf("column population query executor is required")

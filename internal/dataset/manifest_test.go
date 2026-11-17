@@ -41,12 +41,6 @@ func TestManifestTransitions(t *testing.T) {
 	}
 }
 
-// TestManifestTerminalStatesRejectEveryOutgoingTransition closes the gap
-// finding 2026-11-04k (adversarial review, repair-27): TestManifestTransitions
-// only probes FAILED/READY -> LOADING. A widening of Transition's source guard
-// that admitted FAILED -> STAGED had no coverage anywhere in the repository,
-// and FAILED -> STAGED -> Activate is a second route to activating a failed
-// generation (activateAQL accepts any persisted STAGED document).
 func TestManifestTerminalStatesRejectEveryOutgoingTransition(t *testing.T) {
 	for _, terminal := range []State{StateFailed, StateReady} {
 		source, err := testManifest(t).Transition(terminal)

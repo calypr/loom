@@ -26,10 +26,6 @@ type relatedCategoryPlan struct {
 	index       *PreviewCoveringIndexSpec
 }
 
-// compileRelatedCategoryScan accepts only a direct root source with its
-// canonical project, generation, and authorization scope, followed by a
-// connected chain of PRESERVE_PARENT related expansions and direct scalar
-// related-field helpers. All other plans use the existing category renderer.
 func compileRelatedCategoryScan(
 	plan ir.PhysicalPlan,
 	stageID, categoryColumnID, valueColumnID string,
@@ -438,9 +434,6 @@ func categoryRelatedPhysicalFilterEquals(operation ir.PhysicalOperation, left, r
 		categoryRelatedSamePhysicalValue(*predicate.Right, right)
 }
 
-// These closed shape checks compare every PhysicalValue field, including the
-// nil/empty distinction of Path. They intentionally accept only the exact
-// renderer-independent forms recognized by the related-category scanner.
 func categoryRelatedSamePhysicalValue(got, want ir.PhysicalValue) bool {
 	return got.Variable == want.Variable && got.BindKey == want.BindKey && categoryRelatedSameStringSlice(got.Path, want.Path)
 }

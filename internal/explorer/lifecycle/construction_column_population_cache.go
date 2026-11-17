@@ -17,8 +17,6 @@ type columnPopulationCacheKey struct {
 	Scope      string
 }
 
-// columnPopulationCache stores only conclusive exact-stage results. It is
-// bounded because an editor may visit many receipts and stages in one process.
 type columnPopulationCache struct {
 	*ttlCache[columnPopulationCacheKey, string]
 }

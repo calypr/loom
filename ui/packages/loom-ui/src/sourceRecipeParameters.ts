@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-/** The existing recipe expression wire format; this is not another authored AST. */
 export interface SourceRecipeExpression {
   readonly select?: string;
   readonly literal?: unknown;
@@ -70,7 +69,6 @@ export const importedSourceParametersSchema = z.object({
 });
 export type ImportedSourceParameters = z.infer<typeof importedSourceParametersSchema>;
 
-/** Read descriptors preserve existing pinned expressions; new edits use the bounded supported functions. */
 export function validateEditableSourceParameters(value: ImportedSourceParameters, context: z.RefinementCtx): void {
   let nodes = 0;
   const visit = (expression: SourceRecipeExpression | undefined, path: (string | number)[], depth = 0): void => {
@@ -84,8 +82,7 @@ export function validateEditableSourceParameters(value: ImportedSourceParameters
     if (Object.hasOwn(expression, 'literal') && expression.literal !== null && !['string', 'number', 'boolean'].includes(typeof expression.literal)) context.addIssue({ code: 'custom', path: [...path, 'literal'], message: 'Source edits support primitive literal values.' });
     expression.args?.forEach((argument, index) => visit(argument, [...path, 'args', index], depth + 1));
   };
-  // Only typed expression slots are expressions. In particular, literal pivot
-  // alias keys may legitimately be named "call", "document", or "literal".
+
   const at = (expression: SourceRecipeExpression | undefined, ...path: (string | number)[]) => visit(expression, ['parameters', ...path]);
   value.fieldGroup?.fields.forEach((field, index) => {
     at(field.expr, 'fieldGroup', 'fields', index, 'expr');

@@ -8,7 +8,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// Model a map-based Arango record reader without lossy float64 conversion.
 func projectionMapRoundTrip(t *testing.T, raw []byte) json.RawMessage {
 	t.Helper()
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -40,7 +39,7 @@ func TestWorkspaceProjectionSourceKeySurvivesJSONMapRoundTrip(t *testing.T) {
 	if got := RevisionWorkspaceArtifact(revision); got != source || got.Key() != source.Key() {
 		t.Fatalf("map roundtrip changed source: %+v != %+v", got, source)
 	}
-	// The modern authoring slot must have the same normalized identity as the legacy config slot.
+
 	revision.AuthoringBundle = raw
 	revision.Config = json.RawMessage(`{"ignored":true}`)
 	if got := RevisionWorkspaceArtifact(revision); got != source {
@@ -52,7 +51,7 @@ func TestWorkspaceProjectionSourceKeySurvivesJSONMapRoundTrip(t *testing.T) {
 	if got := DraftWorkspaceArtifact(draft); got != history || got.Key() != history.Key() {
 		t.Fatal("history map roundtrip changed key")
 	}
-	// Adjacent integers beyond float64's exact range must remain distinct.
+
 	revision.AuthoringBundle = bytes.Replace(raw, []byte("1152921504606846976"), []byte("1152921504606846977"), 1)
 	if got := RevisionWorkspaceArtifact(revision); got.RawDigest == source.RawDigest || got.Key() == source.Key() {
 		t.Fatal("numeric content change was lost")

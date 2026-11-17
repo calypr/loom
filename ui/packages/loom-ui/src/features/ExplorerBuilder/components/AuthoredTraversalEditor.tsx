@@ -21,7 +21,6 @@ export type AuthoredTraversalEditorProps = GraphProps & {
   readonly inspectorHost?: HTMLElement | null;
 };
 
-/** The graph selects occurrences; the contextual inspector owns their edits. */
 export function AuthoredTraversalEditor(props: AuthoredTraversalEditorProps) {
   const { table, catalog, projectionKind, selectedOccurrenceId } = props;
   const occurrences = table ? authoredTraversal(table, catalog) : [];

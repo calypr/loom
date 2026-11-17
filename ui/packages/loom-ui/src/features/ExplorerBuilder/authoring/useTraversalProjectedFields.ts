@@ -91,7 +91,7 @@ export const useTraversalProjectedFields = () => {
           },
         }
       : undefined;
-    // Inspection is ephemeral and receipt-bound; it never changes the saved route or a stage anchor.
+
     const candidateInspectionKey = candidatePreview && proposalPresentationTable
       ? JSON.stringify([relationshipOwner, candidatePreview.receiptId, candidatePreview.outputId]) : undefined;
     const inspectedOccurrenceId = candidateInspectionKey && proposalPresentationTable

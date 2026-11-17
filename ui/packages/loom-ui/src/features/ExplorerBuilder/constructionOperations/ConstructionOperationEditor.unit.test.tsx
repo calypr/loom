@@ -728,10 +728,6 @@ describe('ConstructionOperationEditor', () => {
       return choice.choiceId;
     };
 
-    // audit07 public-column reuse: a signed choice whose root field is already
-    // carried by a live public column (server-signed canonicalPath + inputColumnId,
-    // i.e. authoringv2 Column.Source.Field) is deduplicated to that column, so it
-    // must drop out of the dataset-fields group instead of minting a new binding.
     const fieldsCarriedByPublicColumns = (capabilities: ConstructionCapabilitiesResponse): Set<string> => {
       const stage = capabilities.selectedStage;
       const carried = new Set<string>();
@@ -790,8 +786,7 @@ describe('ConstructionOperationEditor', () => {
       const group = sourceOptgroup(select);
       if (!group) throw new Error('Expected the dataset fields optgroup from the live payload.');
       expect(optgroupValues(group)).toEqual(expectedSignedValues(capabilities));
-      // The live stage carries Patient.id as an ordinary public column, so its
-      // signed twin must not be offered alongside it.
+
       const carriedIdColumnId = capabilities.selectedStage.columns[0]!.id;
       expect(fieldsCarriedByPublicColumns(capabilities)).toEqual(new Set(['id']));
       expect(optgroupValues(group)).not.toContain(`source:${liveChoiceIdByPath(capabilities, 'id')}`);
@@ -875,8 +870,7 @@ describe('ConstructionOperationEditor', () => {
       const select = filterSourceSelect();
       expect(select.value).toBe(identityColumnId);
       expect(Array.from(select.options).some((option) => option.value === '')).toBe(false);
-      // identityColumnId is the public Patient.id column, so the signed Patient.id
-      // choice is deduplicated to it (audit07) rather than offered as a duplicate.
+
       expect(identityColumnId).toBe('source_ef82eef4462a7f20fbcecfff');
       expect(optgroupValues(sourceOptgroup(select)!)).toEqual(expectedSignedValues(capabilities));
 
@@ -1245,12 +1239,6 @@ describe('ConstructionOperationEditor', () => {
     });
   });
 
-  // External audit 2026-11-03 (row-source-07): a normal PUBLIC column authored from
-  // authoringv2 Column.Source.Field is a legitimate carrier of the same root field
-  // a signed dataset choice names, yet it never appears in construction.sourceProjections
-  // (compilation/construction.go builds it separately). The picker must therefore offer
-  // ONE gender option and must never mint a filter-input_* binding for a field the
-  // stage already carries: the server refuses the duplicate name at compile time.
   describe('audit07 public-column reuse', () => {
     const AUDIT_GENDER_COLUMN = { id: 'gender-id', name: 'gender', label: 'Gender', type: 'string' };
     const AUDIT_STAGE_COLUMNS: ConstructionStageDescriptor['columns'] = [
@@ -1265,8 +1253,7 @@ describe('ConstructionOperationEditor', () => {
       isPopulated: true,
       columnId: '',
     };
-    // Server-signed public-field identity: capabilities pair the canonical root
-    // field path with the live public column that already carries it.
+
     const auditGenderPublicIdentity: GroupRowValueChoice = {
       kind: 'FIELD_SOURCE',
       valueKind: 'SCALAR',
@@ -1289,7 +1276,7 @@ describe('ConstructionOperationEditor', () => {
       const onCandidateChange = vi.fn();
       renderEditor({
         family: 'KEEP_ROWS',
-        // No sourceProjections at all: the public column is the only carrier.
+
         construction: { version: 1, steps: [] },
         selectedStage: { ...sourceStage, columns: AUDIT_STAGE_COLUMNS },
         filterSourceInput: { supported: true, stageId: 'source_projection', choices: [auditGenderChoice] },
@@ -1330,7 +1317,6 @@ describe('ConstructionOperationEditor', () => {
   });
 });
 
-// Migrated from row06_round2_attacks.unit.test.tsx.
 {
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -1440,8 +1426,7 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
     });
     setKind('First value', 'column');
     setKind('Second value', 'column');
-    // The kind shortcut reuses the numeric column it just materialized, so each lane
-    // explicitly re-picks a distinct dataset field.
+
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-b' } });
 
     const offers = (select: HTMLSelectElement, choiceId: string, columnId: string) =>
@@ -1481,7 +1466,7 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
       filterSourceInput: {
         supported: true,
         stageId: 'source_projection',
-        // zod allows two choices sharing one materialized columnId; server proposal paths reject duplicates.
+
         choices: [numericChoice('choice-a', 'root.a', 'shared-column'), numericChoice('choice-b', 'root.b', 'shared-column')],
       },
     });
@@ -1490,8 +1475,7 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
 
     const control = filterColumn();
     expect(sourceOptgroup(control)).toBeNull();
-    // Evidence: both bindings live on one columnId, but only one bound option renders,
-    // so root.b is neither selectable nor explained.
+
     expect([...control.options].filter((o) => o.value === 'shared-column')).toHaveLength(1);
     expect(screen.getByTestId('source-picker-explanation').textContent)
       .toContain('already used by another source selection');
@@ -1507,7 +1491,7 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
         choices: [{ choiceId: 'choice-status', fieldPath: 'root.status', label: 'Status', logicalType: 'string', isPopulated: false, columnId: '' }],
       },
     });
-    // Two status surfaces coexist legitimately here (column notice + zero-eligible explanation).
+
     expect(screen.getAllByRole('status').some((node) => (node.textContent ?? '').includes('no columns'))).toBe(true);
     expect(screen.queryByRole('combobox', { name: 'Column' })).toBeNull();
   });
@@ -1559,9 +1543,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
     expect(selectable || explained).toBe(true);
   });
 
-  // Coordinator addendum (self-review of round-2 delta): when the first
-  // operand has no source section (literal kind), a zero-field second operand
-  // must still explain itself rather than render an unexplained empty picker.
   it('hosts the explanation on the second operand when the first operand is literal', () => {
     renderEditor({
       family: 'CALCULATE',
@@ -1578,8 +1559,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
     expect(screen.getByTestId('source-picker-explanation').textContent).toContain('dataset field');
   });
 
-  // Coordinator addendum: pins the visibility-aware self-exclusion that keeps a
-  // still-selectable sole binding from falsely producing the all-bound banner.
   it('renders no banner while the sole bound derive field stays selectable as its materialized column', () => {
     renderEditor({
       family: 'CALCULATE',
@@ -1613,7 +1592,7 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
         choices: [{ choiceId: 'choice-a', fieldPath: 'root.a', label: 'Root a', logicalType: 'decimal', isPopulated: true, columnId: 'filter-input_saved' }],
       },
     });
-    // Drive the condition column to a different stage column than the bound private column.
+
     fireEvent.change(filterColumn(), { target: { value: 'age-id' } });
 
     const control = filterColumn();
@@ -1643,7 +1622,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionOperationEditor)', () => {
 });
 }
 
-// Migrated from row07_round2_attacks.unit.test.tsx.
 {
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -1808,13 +1786,13 @@ describe('ATTACK 1 label-matching cannot cross-suppress', () => {
     renderEditor({
       family: 'KEEP_ROWS',
       construction: withProjections([projection('col-age', 'root.age')]),
-      // col-age deliberately labelled with choice B's fieldPath; col-note labelled like choice A.
+
       stageColumns: [intCol('col-age', 'root.note'), intCol('col-note', 'Age')],
       filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA, choiceB] },
     });
     const values = optionValues(filterColumnSelect());
-    expect(values).not.toContain('source:choice-a'); // its fieldPath is projected → reused
-    expect(values).toContain('source:choice-b'); // root.note NOT projected → must stay offered
+    expect(values).not.toContain('source:choice-a');
+    expect(values).toContain('source:choice-b');
   });
 
   it('mirrored: label-equals-fieldPath on an unprojected column does not suppress the projected field choice', () => {
@@ -1825,8 +1803,8 @@ describe('ATTACK 1 label-matching cannot cross-suppress', () => {
       filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA, choiceB] },
     });
     const values = optionValues(filterColumnSelect());
-    expect(values).toContain('source:choice-a'); // root.age never projected
-    expect(values).not.toContain('source:choice-b'); // its exact fieldPath IS projected
+    expect(values).toContain('source:choice-a');
+    expect(values).not.toContain('source:choice-b');
   });
 });
 
@@ -1857,10 +1835,10 @@ describe('ATTACK 2 ambiguity: 3-way and duplicate-columnId payloads', () => {
       stageColumns: [intCol('col-dup', 'Age'), stringCol('other', 'Other')],
       filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA] },
     });
-    // Entry-count ambiguity → usable.length === 2 → no reuse → signed kept, nothing suppressed.
+
     const values = optionValues(filterColumnSelect());
     expect(values).toContain('source:choice-a');
-    expect(values).toContain('col-dup'); // the column is merely an ordinary stage column
+    expect(values).toContain('col-dup');
   });
 });
 
@@ -1889,7 +1867,7 @@ it('filter lane: all reused + one stale unpopulated choice → still no dishones
       stageColumns: [intCol('col-age', 'Age'), intCol('col-note', 'Note')],
       filterSourceInput: { supported: true, stageId: 'source_projection', choices: [choiceA, choiceB, stale] },
     });
-    // 'all-bound' would be a lie (nothing bound); 'none-populated' would be a lie (A,B populated).
+
     expect(allBoundText()).toBeNull();
     expect(nonePopulatedText()).toBeNull();
     expect(explanationNodes()).toHaveLength(0);
@@ -1946,10 +1924,10 @@ describe('ATTACK 4 derive operand pair consistency', () => {
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-b' } });
     const left = optionValues(operandColumn('First value'));
     const right = optionValues(operandColumn('Second value'));
-    // Neither operand may present the signed choice for the projected field.
+
     expect(left).not.toContain('source:choice-a');
     expect(right).not.toContain('source:choice-a');
-    expect(right).toContain('derive-input_weight'); // right keeps its materialized input
+    expect(right).toContain('derive-input_weight');
     expect(allBoundText()).toBeNull();
     const calls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
     const candidate = [...calls].reverse().find((entry) => entry !== undefined);
@@ -1961,19 +1939,18 @@ describe('ATTACK 4 derive operand pair consistency', () => {
   it('reverse: bind first via source, then the projection lands — pair stays consistent, selection not rewritten', () => {
     const a = deriveChoice('choice-a', 'root.age', 'Age', true, 'derive-input_age');
     const stageColumns = [decCol('plain-n', 'PlainN')];
-    // Render #1: no projection yet → signed choice is offered; bind Second value via source.
+
     const { rerenderPair } = renderPair({ stageColumns, choices: [a], projections: undefined });
     fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-a' } });
     expect((screen.getByRole('combobox', { name: 'Second value column' }) as HTMLSelectElement).value)
       .toBe('derive-input_age');
-    // Render #2: same session, capabilities unchanged, server has now recorded the projection
-    // onto the operand's own materialized column.
+
     rerenderPair({ stageColumns, choices: [a], projections: [projection('derive-input_age', 'root.age')] });
     const left = optionValues(operandColumn('First value'));
     const right = optionValues(operandColumn('Second value')) ;
     expect((screen.getByRole('combobox', { name: 'Second value column' }) as HTMLSelectElement).value)
-      .toBe('derive-input_age'); // selection never silently rewritten
+      .toBe('derive-input_age');
     expect(left.some((v) => v.startsWith('source:'))).toBe(false);
     expect(right).not.toContain('source:choice-a');
   });
@@ -2000,10 +1977,9 @@ describe('ATTACK 4 derive operand pair consistency', () => {
       stageColumns: [stringCol('status-id', 'Status')],
       deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [a] },
     });
-    // status-id is string → not a usable numeric operand → reuse must NOT fire; signed kept.
+
     fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
-    // With no numeric column, the kind shortcut materializes the still-offered signed choice:
-    // the fallback signed flow is intact (not suppressed away) and materializes exactly once.
+
     const signedFirst = optionValues(operandColumn('First value'));
     expect(signedFirst).toEqual(['derive-input_age']);
     expect(signedFirst.some((v) => v.startsWith('source:'))).toBe(false);
@@ -2011,7 +1987,7 @@ describe('ATTACK 4 derive operand pair consistency', () => {
     const signedCalls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
     const signedCandidate = [...signedCalls].reverse().find((entry) => entry !== undefined);
     expect((signedCandidate?.deriveSources ?? []).map((binding: ConstructionDeriveSourceSelection) => binding.choiceId)).toEqual(['choice-a']);
-    // Now make the column numeric: reuse fires → nothing numeric selectable + nothing offered.
+
     cleanup();
     const on2 = renderEditor({
       family: 'CALCULATE',
@@ -2021,13 +1997,13 @@ describe('ATTACK 4 derive operand pair consistency', () => {
     });
     const kind = operandKind('First value');
     const numericOption = [...kind.options].find((option) => option.value === 'column');
-    // firstNumeric exists → shortcut enabled; select it and confirm single reuse column, no source materialization.
+
     expect(numericOption?.disabled).toBe(false);
     fireEvent.change(kind, { target: { value: 'column' } });
     expect(optionValues(operandColumn('First value'))).toEqual(['age-num']);
     const calls = (on2 as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
     const candidate = [...calls].reverse().find((entry) => entry !== undefined);
-    expect(candidate?.deriveSources ?? []).toEqual([]); // column reuse must not bind a source
+    expect(candidate?.deriveSources ?? []).toEqual([]);
     void onCandidateChange;
   });
 });
@@ -2042,12 +2018,12 @@ describe('ATTACK 4c chooseSourceOperand kept-filter (REV4)', () => {
       stageColumns: [],
       deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [c1, c2] },
     });
-    // No numeric columns → kind shortcut materializes the first signed choice.
+
     fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
     expect(operandColumn('First value').value).toBe('x-col');
     fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
-    expect(operandColumn('Second value').value).toBe('x-col'); // shares the one materialized column
-    // Re-point the FIRST operand at another signed choice; the second still uses x-col.
+    expect(operandColumn('Second value').value).toBe('x-col');
+
     fireEvent.change(operandColumn('First value'), { target: { value: 'source:choice-c2' } });
     const calls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
     const candidate = [...calls].reverse().find((entry) => entry !== undefined);
@@ -2066,8 +2042,8 @@ describe('ATTACK 4d REV4 pickerEmptinessHost ownVisible', () => {
       stageColumns: [],
       deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [c1] },
     });
-    fireEvent.change(operandKind('First value'), { target: { value: 'column' } }); // materializes x-col
-    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } }); // shares x-col
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
+    fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
     expect(explanationNodes()).toHaveLength(0);
     expect(allBoundText()).toBeNull();
   });
@@ -2080,10 +2056,9 @@ describe('ATTACK 4d REV4 pickerEmptinessHost ownVisible', () => {
       stageColumns: [decCol('x-col', 'Foreign numeric with same id')],
       deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [c1] },
     });
-    fireEvent.change(operandKind('First value'), { target: { value: 'column' } }); // picks foreign x-col
-    fireEvent.change(operandColumn('First value'), { target: { value: 'source:choice-c1' } }); // binds C1@x-col
-    // All populated choices are now bound and the picker's own entry is a FOREIGN column,
-    // so the honest all-bound explanation must stay visible (REV4: id collision must not silence it).
+    fireEvent.change(operandKind('First value'), { target: { value: 'column' } });
+    fireEvent.change(operandColumn('First value'), { target: { value: 'source:choice-c1' } });
+
     expect(allBoundText()).not.toBeNull();
   });
 });
@@ -2102,7 +2077,7 @@ describe('ATTACK 2c contradictory same-column dual-field projection', () => {
       filterSourceInput: { supported: true, stageId: 'source_projection', choices: [a, b] },
     });
     const values = optionValues(filterColumnSelect());
-    // Reported (not asserted-good): per-fieldPath uniqueness lets BOTH fields reuse col-x.
+
     expect(values).not.toContain('source:choice-a');
     expect(values).not.toContain('source:choice-b');
     expect(values).toContain('col-x');
@@ -2110,7 +2085,6 @@ describe('ATTACK 2c contradictory same-column dual-field projection', () => {
 });
 }
 
-// Migrated from row07_existing_column_reuse.unit.test.tsx.
 {
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -2341,8 +2315,6 @@ describe('ROW-SOURCE-07 derive lane', () => {
 });
 }
 
-
-// Migrated from row06_round3_attacks.unit.test.tsx.
 {
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -2498,7 +2470,6 @@ const boom = (message: string): never => {
   throw new Error(`${message}\nFRAMES:\n${DUMPS.map((f) => JSON.stringify(f)).join('\n')}`);
 };
 
-
 describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
   it('attack a: kind-shortcut column sharing then dataset switch -> prune clobbers the other operand binding, false all-bound banner while a populated field stays listable', () => {
     lastCandidate = undefined;
@@ -2512,22 +2483,21 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
       },
     });
     snap('f0 initial');
-    setKind('Second value', 'column'); // binds choice-a via kind shortcut, right draft derive-input_a
+    setKind('Second value', 'column');
     snap('f1 right bound to choice-a (kind shortcut)');
-    setKind('First value', 'column'); // firstNumeric = the materialized binding column -> left draft SHARES right's binding
+    setKind('First value', 'column');
     const f2 = snap('f2 left shares derive-input_a');
     expect(f2.explainCount).toBe(0);
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-b' } });
     const f3 = snap('f3 right switched to choice-b (kept-filter clobber)');
 
-    // Invariant 3: never two explanation elements.
     expect(f3.explainCount).toBeLessThanOrEqual(1);
-    // Invariant 2: a listable populated dataset field must not coexist with the all-bound banner.
+
     const optgroupSize = Math.max(f3.left.optgroup.length, f3.right.optgroup.length);
     if (f3.explainClass === 'all-bound' && optgroupSize > 0) {
       boom(`FALSE BANNER: class=all-bound while optgroup lists ${optgroupSize} field(s); left.optgroup=${JSON.stringify(f3.left.optgroup)} right.optgroup=${JSON.stringify(f3.right.optgroup)} candidate=${f3.candidate}`);
     }
-    // Wire integrity: the still-column-kind left operand must keep its signed binding.
+
     if (f3.candidate !== 'none' && !f3.candidate.includes('choice-a')) {
       boom(`BINDING LOST: left operand still kind=column columnId=derive-input_a but candidate deriveSources=${f3.candidate}`);
     }
@@ -2544,13 +2514,13 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
         choices: [numericChoice('choice-a', 'shared-col'), numericChoice('choice-a2', 'shared-col'), numericChoice('choice-b', 'derive-input_b')],
       },
     });
-    setKind('First value', 'column'); // binds choice-a @ shared-col
-    setKind('Second value', 'column'); // kind shortcut adopts materialized shared-col numeric column
+    setKind('First value', 'column');
+    setKind('Second value', 'column');
     snap('g1 both drafts shared-col, binding choice-a');
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-a2' } });
     const g2 = snap('g2 right re-picks choice-a2 (same columnId)');
     expect(g2.explainCount).toBeLessThanOrEqual(1);
-    // left operand references shared-col; binding for choice-a was dropped by kept filter.
+
     const leftListsA = g2.left.optgroup.includes('source:choice-a');
     if (g2.explainClass === 'all-bound' && leftListsA) {
       boom(`FALSE BANNER (shared columnId): all-bound while left lists ${JSON.stringify(g2.left.optgroup)} candidate=${g2.candidate}`);
@@ -2572,14 +2542,11 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
       selectedStage: sourceStage(stringCols),
       deriveSourceInput: input,
     });
-    setKind('First value', 'column'); // binds choice-note @ clash-col; string-typed materialization -> banner expected
+    setKind('First value', 'column');
     const h1 = snap('h1 sole string-typed binding, zero dataset fields');
     expect(h1.explainCount).toBe(1);
     expect(h1.explainClass).toBe('all-bound');
 
-    // Same capabilities identity (snapshotToken/draftVersion/draftDigest/outputId/stageId unchanged, so
-    // contextKey is unchanged and the form is NOT reset), but the stage now carries a foreign numeric
-    // column that reuses the binding columnId.
     const laterStage = sourceStage([
       ...stringCols,
       { id: 'clash-col', name: 'clash', label: 'Clash', type: 'integer' },
@@ -2629,9 +2596,9 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
         choices: [numericChoice('choice-note', 'derive-input_note', 'string')],
       },
     });
-    setKind('Second value', 'column'); // firstNumeric n1, no binding; picker lists note
+    setKind('Second value', 'column');
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-note' } });
-    setKind('Second value', 'literal'); // release: binding must prune to []
+    setKind('Second value', 'literal');
     const m1 = snap('m1 right released to literal, left still column n1');
     if (m1.explainCount !== 0
       || (m1.candidate !== 'none' && m1.candidate !== 'null' && m1.candidate.includes('choice-note'))) {
@@ -2651,7 +2618,7 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
       },
     });
     setKind('First value', 'literal');
-    setKind('Second value', 'column'); // firstNumeric n1 -> no binding yet, picker lists note
+    setKind('Second value', 'column');
     const k0 = snap('k1 right drafts n1, note listable, no banner');
     expect(k0.explainCount).toBe(0);
     fireEvent.change(operandColumn('Second value'), { target: { value: 'source:choice-note' } });
@@ -2660,15 +2627,15 @@ describe('REV4 adversarial probes (derive pickerEmptinessHost)', () => {
     expect(k1.explainSlots).toEqual(['Second value']);
     expect(k1.explainClass).toBe('all-bound');
 
-    setKind('First value', 'column'); // left becomes column (n1) -> host must migrate to left, never two
+    setKind('First value', 'column');
     const k2 = snap('k3 left switched to column n1');
     expect(k2.explainCount).toBe(1);
     if (k2.explainSlots.length !== 1) boom('two hosts');
-    // left hosts now: its own picker must also be explained (zero dataset fields on left too)
+
     if (k2.left.optgroup.length === 0 && !k2.explainSlots.includes('First value') && !k2.explainSlots.includes('Second value')) {
       boom('banner lost in migration');
     }
-    setKind('First value', 'literal'); // back -> banner returns to right
+    setKind('First value', 'literal');
     const k3 = snap('k4 left literal again');
     expect(k3.explainCount).toBe(1);
     expect(k3.explainSlots).toEqual(['Second value']);

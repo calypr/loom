@@ -11,9 +11,6 @@ import (
 	"strings"
 )
 
-// Explain submits a typed AQL explain request to this client's database. It is
-// intentionally separate from QueryRows so compiler tooling can inspect a plan
-// without executing a dataframe query.
 func (c *Client) Explain(ctx context.Context, request ExplainRequest) (ExplainResult, error) {
 	if strings.TrimSpace(request.Query) == "" {
 		return ExplainResult{}, fmt.Errorf("AQL explain query is required")

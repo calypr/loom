@@ -263,8 +263,7 @@ func TestRequiredDataframeSelectorsFromEnvironment(t *testing.T) {
 		t.Fatalf("environment config = %#v", cfg.Server)
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dataframer.recipe") {
-		// Environment parsing succeeded; the unrelated default ClickHouse recipe
-		// requirement remains enforced by Validate.
+
 		t.Fatalf("validation error = %v", err)
 	}
 }

@@ -26,7 +26,7 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace.Documents[0].ImportedSource = nil // An existing saved draft predates source steps.
+	workspace.Documents[0].ImportedSource = nil
 	raw, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)

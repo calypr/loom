@@ -9,10 +9,6 @@ import (
 	"strings"
 )
 
-// LegacyNilConstructionStepsDigest returns the digest produced by the prior
-// canonical writer when an empty construction's nil Steps slice was encoded
-// as null. It is used only to recognize and migrate persisted drafts created
-// before empty construction sequences were normalized to arrays.
 func (w Workspace) LegacyNilConstructionStepsDigest() (string, error) {
 	legacyStepLists := 0
 	for _, document := range w.Documents {
@@ -166,9 +162,7 @@ func decodePersistedSource(raw json.RawMessage, semanticsVersion int) (ColumnSou
 	if err := strictDecode(raw, &legacy); err == nil {
 		return decodeLegacyFlatSource(legacy)
 	}
-	// The first v3 draft wire used nested source payloads and a nested where.
-	// Keep that wire private to persisted-draft migration; AggregateSource's
-	// current decoder deliberately rejects where on writable requests.
+
 	var nested struct {
 		Kind      string       `json:"kind"`
 		Field     *FieldSource `json:"field,omitempty"`
@@ -245,8 +239,6 @@ func decodeLegacyFlatSource(legacy legacyColumnSource) (ColumnSource, error) {
 	}
 }
 
-// legacyJSONFieldSpan locates a direct object field without changing the byte
-// order used by the historical canonical digest.
 func legacyJSONFieldSpan(raw []byte, field string) (int, int, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	token, err := decoder.Token()

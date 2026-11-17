@@ -37,7 +37,6 @@ export type ConstructionCandidateIntent = Pick<
   'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'filterSources' | 'deriveSources' | 'unpivotSources'
 >;
 
-/** Optional bridge to the workspace's one active recipe edit. */
 export interface ConstructionEditingAttempt {
   ready(response: ConstructionProposalResponse, preview: ExplorerBuilderPreviewResult): boolean;
   failed(message: string): void;
@@ -289,7 +288,7 @@ export const useConstructionLifecycle = ({
       editingAttempt = editingOwnerRef.current?.onStart(intent, currentRequest);
       if (editingOwnerRef.current && !editingAttempt) return Promise.reject(new Error('Apply or Cancel the active recipe change before starting another edit.'));
     } catch (error) { return Promise.reject(error); }
-    // Acquire the shared edit before invalidating the existing local proposal.
+
     invalidateProposalRequest();
     candidateIntent.current = intent;
 

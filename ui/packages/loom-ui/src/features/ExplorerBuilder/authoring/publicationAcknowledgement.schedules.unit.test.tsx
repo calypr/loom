@@ -130,8 +130,7 @@ describe('publication acknowledgement mounted schedules', () => {
   });
 
   it.each(identityGuards)('$name', (guard) => {
-    // The mounted Builder derives explorerId and ownerKey from the same effectiveExplorerId,
-    // so a user-visible Explorer switch changes both. Pin the independent receipt guard here.
+
     expect(reconcileResultIsCurrent({
       generation: 1,
       currentGeneration: 1,

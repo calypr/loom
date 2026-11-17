@@ -2,15 +2,10 @@ package authoringv2
 
 import "fmt"
 
-// CanonicalStoredWorkspaceForMigration is the offline canonical writer for
-// historical receipt verification and explicit storage migrations. Runtime
-// consumers must use Workspace.CanonicalJSON, which rejects retired intent.
 func CanonicalStoredWorkspaceForMigration(workspace Workspace) ([]byte, error) {
 	return workspace.canonicalJSON(true)
 }
 
-// VerifyStoredWorkspaceForMigration authenticates historical canonical identity
-// without activating retired operations. The returned archive is not executable.
 func VerifyStoredWorkspaceForMigration(raw []byte, expectedDigest string) (Workspace, error) {
 	workspace, err := DecodeStoredWorkspaceForMigration(raw)
 	if err != nil {

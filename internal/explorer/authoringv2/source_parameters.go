@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// ImportedSourceParameters is a closed edit of one original pinned source step.
-// Caps, policies and enablement remain owned by their existing step properties.
 type ImportedSourceParameters struct {
 	Output     *ImportedOutputParameters     `json:"output,omitempty"`
 	FieldGroup *ImportedFieldGroupParameters `json:"fieldGroup,omitempty"`

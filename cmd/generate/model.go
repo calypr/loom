@@ -16,7 +16,6 @@ func getGoType(prop *Property, isField bool) string {
 		return "*" + name
 	}
 
-	// Check for fhir_comments which is anyOf [string, array of string]
 	if prop.Type == nil && prop.Items == nil && prop.Ref == "" {
 		return "FHIRComments"
 	}

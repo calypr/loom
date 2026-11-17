@@ -10,8 +10,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// WorkspaceAuditReport contains observations only. No audit method can persist
-// documents, rewrite digests, resolve a catalog or open a database.
 type WorkspaceAuditReport struct {
 	Collections                   []string              `json:"collections"`
 	AlreadyCanonicalWorkspaces    int                   `json:"alreadyCanonicalWorkspaces"`
@@ -51,9 +49,6 @@ type WorkspaceAuditEntry struct {
 	DigestRelation              string   `json:"digestRelation"`
 }
 
-// These are durable workspace-packet positions, not arbitrary JSON field names.
-// Config fields can contain presentation ConfigV2 instead; those are counted as
-// checked non-workspace packets. Other copies require manual review before use.
 var workspaceAuditSlots = map[string]map[string]string{
 	ExplorersCollection:               {"draftConfig": "draftDigest"},
 	DraftRevisionsCollection:          {"draftConfig": "draftDigest"},
@@ -63,9 +58,6 @@ var workspaceAuditSlots = map[string]map[string]string{
 	workspaceProjectionCollection:     {"Workspace": "Digest"},
 }
 
-// ObserveWorkspaceAuditDocument scans one raw database document, retaining
-// authoritative packets and separately flagged discoveries in other positions.
-// It intentionally does not echo stored workspace contents or credential values.
 func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, raw []byte) error {
 	var document map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &document); err != nil {
@@ -155,7 +147,7 @@ func (r *WorkspaceAuditReport) ObserveWorkspaceAuditDocument(collection string, 
 		entry.finishDigestRelation()
 		r.addWorkspaceAuditEntry(entry)
 	}
-	// Match the known-position spelling before descending into each field.
+
 	for field, packet := range document {
 		if known["$."+field] {
 			continue

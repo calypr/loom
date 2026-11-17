@@ -12,14 +12,6 @@ import (
 	store "github.com/calypr/loom/internal/store/arango"
 )
 
-// F-2 durable control for the F-B27 all-generations discovery (REPAIR-15).
-// Auth-path discovery asks for either one dataset generation or the union over
-// all of them, never both: the all-generations query ignores @dataset_generation,
-// so accepting both would silently discard the caller's selection. This control
-// sits in the F-B27 family because authscope is the only producer of
-// AllGenerations requests, which makes the boundary part of its contract. The
-// fake Arango client keeps it hermetic.
-
 type fb27ctlArangoClient struct {
 	queries []string
 	vars    []map[string]any
@@ -51,9 +43,6 @@ func (c *fb27ctlArangoClient) Bootstrap(context.Context, store.BootstrapSpec) er
 	panic("unused by the auth path discovery controls")
 }
 
-// fb27ctlDiscover runs one discovery against a fresh fake client and asserts
-// the guard/query boundary: a rejected request must not reach Arango, an
-// accepted one must issue exactly one query.
 func fb27ctlDiscover(t *testing.T, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	t.Helper()
 	client := &fb27ctlArangoClient{}
@@ -118,10 +107,6 @@ func TestFB27SupportedAuthResourcePathOptionShapesStillDiscover(t *testing.T) {
 	}
 }
 
-// TestFB27ResolverNeverEmitsTheConflictingShape pins the producer side of the
-// same boundary: every all-generations request the resolver makes carries an
-// empty generation, and every generation-bearing request leaves AllGenerations
-// false, so the rejected combination is unreachable from the authz path.
 func TestFB27ResolverNeverEmitsTheConflictingShape(t *testing.T) {
 	l := &fb27ctlLister{behind: func(opts catalog.AuthResourcePathOptions) ([]string, error) {
 		if opts.AllGenerations && catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) != "" {

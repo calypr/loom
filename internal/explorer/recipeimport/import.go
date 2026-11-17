@@ -1,5 +1,3 @@
-// Package recipeimport converts one immutable recipe output into the existing
-// graphical Explorer Builder document protocol.
 package recipeimport
 
 import (
@@ -12,9 +10,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// ImportWorkspace creates one Builder document per recipe output. Schemas are
-// supplied by the server after runtime resolution; no recipe AST enters the
-// authoring workspace.
 func ImportWorkspace(bundle recipe.Bundle, catalog authoringv2.CatalogSnapshot, outputSchemas map[string][]recipe.StageColumn) (authoringv2.Workspace, error) {
 	digest, err := bundle.Digest()
 	if err != nil {
@@ -131,7 +126,6 @@ func importedRows(output recipe.Output) authoringv2.RowDefinition {
 	return authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{OccurrenceID: occurrence, ScopePath: path, EmptyCollectionPolicy: policy}}
 }
 
-// ImportRows returns the row definition represented by the immutable output.
 func ImportRows(output recipe.Output) authoringv2.RowDefinition {
 	return importedRows(output)
 }
@@ -160,9 +154,7 @@ func routeForOutput(output recipe.Output, catalog authoringv2.CatalogSnapshot) (
 				child.CatalogEdgeID = edges[0].ID
 				child.Relationship = edges[0].Label
 			} else {
-				// The pinned source declares this optional traversal, but current
-				// data has no observed edge. Retain the source route label without
-				// manufacturing a catalog edge ID.
+
 				child.Relationship = traversal.Name
 			}
 			if err := add(&child, traversal.Traversals, path+"["+fmt.Sprint(index)+"].traversals"); err != nil {
@@ -178,9 +170,6 @@ func routeForOutput(output recipe.Output, catalog authoringv2.CatalogSnapshot) (
 	return root, nil
 }
 
-// ImportRoute converts an output's traversal graph into the current Builder
-// catalog route. It is also used by compilation to reject edited imported
-// routes against the exact recipe source.
 func ImportRoute(output recipe.Output, catalog authoringv2.CatalogSnapshot) (authoringv2.RouteNode, error) {
 	return routeForOutput(output, catalog)
 }

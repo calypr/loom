@@ -53,9 +53,6 @@ func (r importedRecipeSources) Network(ctx context.Context, project string, auth
 	return authoringv2.AuthoringNetwork{}, fmt.Errorf("pinned source output was not found")
 }
 
-// RemoveOutput disables one compiler-proven pinned projection by its exact
-// native output key. The key is derived from the saved columnId's current
-// network binding; callers never supply it.
 func (r importedRecipeSources) RemoveOutput(
 	ctx context.Context,
 	project string,

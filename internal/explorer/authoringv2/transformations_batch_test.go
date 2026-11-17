@@ -72,8 +72,6 @@ func TestCatalogAggregateBatchResultsDoNotShareMutableChoices(t *testing.T) {
 	}
 }
 
-// This generated wide catalog is synthetic; it measures immutable conversion,
-// not endpoint latency or dataset-specific speedups.
 func syntheticWideTransformationCatalog(size int) CatalogSnapshot {
 	catalog := CatalogSnapshot{Nodes: []CatalogNode{{ID: "obs", ResourceType: "Observation"}, {ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "report", ResourceType: "DiagnosticReport", RowRootEligible: true}}}
 	for i := 0; i < size; i++ {

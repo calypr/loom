@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// migrationDocument preserves integer identities in offline migration writes.
-// Ordinary repository writes retain their existing codec.
 func migrationDocument(value any, key string) (map[string]any, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -24,7 +22,6 @@ func migrationDocument(value any, key string) (map[string]any, error) {
 	return out, nil
 }
 
-// migrationJSONQuery keeps raw artifacts out of QueryRows' floating-point maps.
 func migrationJSONQuery(query string, enabled bool) string {
 	if !enabled {
 		return query
@@ -42,8 +39,7 @@ func decodeMigrationJSON[T any](value any) (T, error) {
 	if !ok {
 		return out, fmt.Errorf("migration JSON envelope is not a string")
 	}
-	// Preserve the existing tolerance for the short-lived numeric updatedAt
-	// representation without decoding workspace/receipt numbers through float64.
+
 	var fields map[string]json.RawMessage
 	if json.Unmarshal([]byte(raw), &fields) == nil && fields != nil {
 		var numeric float64

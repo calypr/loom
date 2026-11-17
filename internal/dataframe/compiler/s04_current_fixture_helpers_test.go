@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// These are test-only literal case declarations. They build the current
-// recipe.Construction contract directly and are never accepted by production.
 type oracleReshape struct {
 	Kind         string
 	GroupedPivot *oraclePivot
@@ -98,8 +96,6 @@ func bindOracleCurrentConstruction(output recipe.Output, shape *oracleReshape) r
 	return output
 }
 
-// S04 appends arithmetic case declarations after constructing its Pivot case.
-// Bind them to explicit current DERIVE stages before entering the production frontend.
 func bindOracleCurrentDerived(output recipe.Output) recipe.Output {
 	if output.Construction == nil || len(output.DerivedColumns) == 0 {
 		return output

@@ -14,9 +14,6 @@ import (
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 )
 
-// blankProjectRegistryFailures prove the engine-level project guard fires
-// before any registry lookup, mirroring the deployed 500 ordering where a
-// whitespace-only project never reached LoadRecipe.
 type blankProjectRegistryFailures struct{ loads int }
 
 func (r *blankProjectRegistryFailures) LoadRecipe(context.Context, string) (recipeexec.Entry, error) {
@@ -65,8 +62,6 @@ func assertTypedProjectRequired(t *testing.T, err error, site string) dataframee
 	return userErr
 }
 
-// (a) Throwing-site reproduction: the deployed 500 escape path
-// Control.Run/Preview/Resolve -> Engine.Resolve raw guard error.
 func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 	engine, registry := blankProjectEngine(t)
 	control := dataframeexecution.Control{Engine: engine}
@@ -107,7 +102,6 @@ func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 	}
 }
 
-// (b) Authorizer parity: whitespace-only == empty, both non-retryable typed.
 func TestRecipeAuthorizationTreatsWhitespaceProjectAsEmpty(t *testing.T) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ResourceAccess: fencedFaultClient{}})
 	authorizer := recipeAuthorization{resolver: resolver}
@@ -138,8 +132,6 @@ func TestRecipeControlForeignFaultStaysInternal(t *testing.T) {
 	}
 }
 
-// (c) Auth resolver faults keep typing BACKEND_UNAVAILABLE retryable through
-// recipeAuthorizationError (unchanged semantics).
 func TestRecipeAuthorizationResolverFaultStaysBackendUnavailable(t *testing.T) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess: fencedFaultClient{},

@@ -453,8 +453,6 @@ func relatedCategoryBindVars(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCatego
 	return binds, targetCollectionBind, nil
 }
 
-// RenderRelatedCategoryScan emits related category-scan AQL directly from the
-// recognized typed plan and its proven descriptor. It never parses rendered AQL.
 func RenderRelatedCategoryScan(plan ir.PhysicalPlan, scan ir.PhysicalRelatedCategoryScan, maxValues int) (RenderedPhysicalPlan, error) {
 	if maxValues < 1 || maxValues > relatedCategoryMaxValues {
 		return RenderedPhysicalPlan{}, fmt.Errorf("invalid category scan limit")

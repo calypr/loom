@@ -16,9 +16,6 @@ const previewCoveringIndexNamePrefix = "loom_pivot_preview_"
 
 var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation", "auth_resource_path"}
 
-// RenderPreviewPhysicalPlanWithRootIndexHint rerenders a compiled preview
-// plan with one compiler-owned, non-forcing root-index hint. It is used only
-// after runtime index metadata identifies an existing compatible definition.
 func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (string, map[string]any, error) {
 	rendered, err := aql.RenderPhysicalPlanWithRootIndexHint(plan, indexName)
 	if err != nil {
@@ -84,11 +81,6 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	return nil
 }
 
-// streamingMissingCategoryPivotIndexSpec describes the narrowly-scoped
-// covering index used by the direct-root streaming Pivot renderer. The key
-// fields retain the existing project, generation, and authorization filters;
-// payload values are stored as projections so a non-forcing hinted scan can
-// avoid document materialization when ArangoDB can cover the query.
 func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
@@ -224,10 +216,6 @@ func previewCoveringDirectScalarProjectionPath(projection ir.PhysicalProjection,
 	return previewCoveringProjectionPath(projection, rootVariable)
 }
 
-// streamingPivotPresenceParentPath proves that the missing-category marker is
-// a direct nested property and that its parent object can be retained whole in
-// storedValues. Keeping that object preserves an explicit null leaf separately
-// from an absent leaf; storing only the leaf would encode both as null.
 func streamingPivotPresenceParentPath(projections []ir.PhysicalProjection, pivot ir.PhysicalGroupedPivot, rootVariable string) ([]string, bool) {
 	var categoryPath []string
 	var presence *ir.PhysicalProjectionPresence

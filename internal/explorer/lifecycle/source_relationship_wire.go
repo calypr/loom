@@ -9,9 +9,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// These request decoders are used by the generated public DTO aliases. Route
-// ownership is server-owned; a client may send only the bounded read/proposal
-// intent declared in OpenAPI, never project metadata or a candidate workspace.
 func (r *SourceRelationshipProposalRequest) UnmarshalJSON(raw []byte) error {
 	var wire struct {
 		SnapshotToken        string                                  `json:"snapshotToken"`

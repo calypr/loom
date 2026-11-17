@@ -81,8 +81,7 @@ func TestWithLimit(t *testing.T) {
 			want:      `{"input":{"project":"P1"},"limit":7}`,
 		},
 		{
-			// Nested objects are byte-identical passthroughs: values, literals
-			// and key order all survive the top-level limit override.
+
 			name:      "preserves nested numbers exactly",
 			variables: `{"limit":25,"input":{"filters":[{"value":9007199254740993}],"threshold":1.5e3,"score":0.30000000000000004,"ratio":-0.5E-2}}`,
 			limit:     1000,
@@ -170,10 +169,6 @@ func TestExecuteSendsExactOverriddenLimitBody(t *testing.T) {
 	}
 }
 
-// TestWithLimitPreservesLargeNumbers pins the second cli-boundary-probe
-// finding: a float64 decode silently rewrote 9007199254740993 into
-// 9007199254740992, so a variables file can never be re-encoded through
-// float64.
 func TestWithLimitPreservesLargeNumbers(t *testing.T) {
 	original := `{"input":{"project":"P1","window":9007199254740993}}`
 	variables, err := withLimit([]byte(original), 7)

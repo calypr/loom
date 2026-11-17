@@ -12,9 +12,6 @@ const (
 	semanticCoverageEnvelopeRecordKind = "source_envelope_v1"
 )
 
-// semanticCoverageSourceEnvelope is the sole persisted source-level coverage
-// document. The key names the physical source locator; auth scope is mutable
-// source data so replay can replace it atomically.
 type semanticCoverageSourceEnvelope struct {
 	Key                          string                               `json:"_key"`
 	RecordKind                   string                               `json:"record_kind"`
@@ -46,8 +43,6 @@ type semanticCoverageEnvelopePath struct {
 	Path          *semanticCoverageStoredPath `json:"path"`
 }
 
-// Explanations are intentionally omitted from persisted diagnostics. They are
-// presentation text and must not become a channel for source values.
 type semanticCoverageEnvelopeDiagnostic struct {
 	Code          string `json:"code"`
 	CanonicalPath string `json:"canonical_path,omitempty"`
@@ -55,10 +50,6 @@ type semanticCoverageEnvelopeDiagnostic struct {
 	Reason        string `json:"reason,omitempty"`
 }
 
-// EncodeSemanticCoverageSourceEnvelope returns one bounded JSON document for
-// a single source contribution. It persists only aggregated metadata, paths,
-// facets, references, and diagnostics; ephemeral emission evidence and source
-// values are not part of the DTO.
 func EncodeSemanticCoverageSourceEnvelope(buildID string, contribution catalog.SemanticCoverageSourceContribution) (json.RawMessage, error) {
 	if err := validateSemanticCoverageContribution(buildID, contribution); err != nil {
 		return nil, err

@@ -21,9 +21,6 @@ const (
 	SourcePlanIdentity          = "IDENTITY"
 )
 
-// SourcePlan exposes typed, bounded settings of the existing recipe operations
-// for structured editing, including their recipe expressions. IDs use original
-// recipe paths, so disabling a traversal does not renumber its saved children.
 func SourcePlan(output recipe.Output) authoringv2.ImportedSourcePlan {
 	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "output", Kind: "OUTPUT", Title: "Output settings", Summary: "Row grain and output column collision policy.", Enabled: true, Editable: true}}}
 	if output.Expand != nil {
@@ -203,9 +200,6 @@ func sourceIndexPath(parentID, name string, index int) string {
 	return sourcePath(parentID, fmt.Sprintf("%s[%d]", name, index))
 }
 
-// ApplySourcePlan applies bounded source-stage overrides to an exact recipe
-// output. The caller must pass the pristine output loaded from the pinned
-// recipe; this function never mutates that input or accepts recipe expressions.
 func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan) (recipe.Output, error) {
 	if plan == nil {
 		return cloneOutput(output)
@@ -555,9 +549,6 @@ func cloneOutput(output recipe.Output) (recipe.Output, error) {
 	return clone, nil
 }
 
-// HydrateSourcePlan migrates accepted legacy descriptors by adding only
-// pristine server-owned metadata. Bounded settings and project overlays retain
-// their authored meaning; supplied metadata must already match the exact pin.
 func HydrateSourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan) (authoringv2.ImportedSourcePlan, error) {
 	pristine := SourcePlan(output)
 	if plan == nil {

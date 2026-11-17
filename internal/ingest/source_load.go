@@ -19,8 +19,6 @@ const (
 	SourceLoadSuperseded     = "SUPERSEDED"
 )
 
-// SourceManifestFile binds one selected, canonical repository path to its
-// optional source-side digest. Loom always computes the accepted digest itself.
 type SourceManifestFile struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256,omitempty"`
@@ -51,8 +49,6 @@ type SourceLoadStatus struct {
 	AuthResourcePath string              `json:"-"`
 }
 
-// SourceFileValidationError reports all invalid rows while retaining only a
-// bounded set of safe diagnostics. It never contains the rejected source bytes.
 type SourceFileValidationError struct {
 	Issues      []RowErrorSample `json:"issues"`
 	TotalErrors int64            `json:"total_errors"`

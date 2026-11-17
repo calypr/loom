@@ -180,8 +180,7 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			if from == nil || to == nil || from.ResourceType != parent.ResourceType {
 				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("selected catalog edge does not extend this occurrence")
 			}
-			// Reject a resource repeated along this ancestor path. Independent paths
-			// to the same resource type retain separate occurrence identities.
+
 			for ancestor := parent; ; {
 				if ancestor.ResourceType == to.ResourceType {
 					return authoringv2.ImportedSourcePlan{}, fmt.Errorf("cyclic source relationship is unsupported")
@@ -197,8 +196,7 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			}
 			id := input.NewOccurrenceID
 			addition := authoringv2.ImportedRelationship{OccurrenceID: id, ParentOccurrenceID: parent.OccurrenceID, CatalogEdgeID: edge.ID, Relationship: edge.Label, ResourceType: to.ResourceType, StorageDirection: edge.StorageDirection, MatchMode: relationship.MatchMode}
-			// Related identifiers remain lists even when the preview happens to have
-			// one match. Catalog authority is required for the copied scalar field.
+
 			for _, field := range catalog.Candidates {
 				if field.NodeID == to.ID && (field.FieldPath == "id" || field.FieldPath == to.ResourceType+".id") && !field.Repeated {
 					addition.Fields = []authoringv2.ImportedRelationshipField{{CandidateID: field.ID, ColumnID: id + "_id", Column: id + "_id", FieldPath: field.FieldPath, Label: field.Label, ValueMode: "ALL"}}

@@ -97,8 +97,7 @@ func TestMaterializePostQueryValidatesEveryPresentColumnWhenRuntimeKeysCoverAnot
 			"tags":  {ColumnName: "identifier_tags", ValueType: "string", Many: true},
 		},
 	}
-	// Runtime key metadata enumerates only family A; family B columns are still
-	// present in the row and must satisfy their frozen types.
+
 	newRow := func(dynamicValues map[string]any) map[string]any {
 		row := map[string]any{
 			"category_stage":              "stage-a",
@@ -125,7 +124,7 @@ func TestMaterializePostQueryValidatesEveryPresentColumnWhenRuntimeKeysCoverAnot
 	if _, err := materializePostQueryRowWithChecks(valid, checks); err != nil {
 		t.Fatalf("valid row across both families rejected: %v", err)
 	}
-	// An unselected family B column stays valid because only present values bind.
+
 	if _, err := materializePostQueryRowWithChecks(newRow(map[string]any{"identifier_count": 7}), checks); err != nil {
 		t.Fatalf("valid row with a missing unselected column rejected: %v", err)
 	}

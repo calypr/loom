@@ -48,6 +48,8 @@ jobs:
         with:
           go-version: 1.26.5
           cache: true
+      - name: Check Go comments
+        run: make lint-go-comments
       - name: Record Go test names
         run: go test -list . ./... > "$RUNNER_TEMP/go-test-list.txt"
       - name: Preserve Go test names

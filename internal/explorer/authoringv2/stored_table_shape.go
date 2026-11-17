@@ -7,9 +7,6 @@ import (
 
 const maxStoredTableShapeDerivedDefinitions = 64
 
-// storedTableShape and its component types are private wire representations for
-// one-time persisted-data conversion. They are not part of the current authoring
-// or request model.
 type storedTableShape struct {
 	Reshape *storedTableReshape         `json:"reshape,omitempty"`
 	Derived []storedDerivedConstruction `json:"derived,omitempty"`

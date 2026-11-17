@@ -43,8 +43,6 @@ func TestProjectConfigsForSourcePublicationSeedsActualOutputsOnce(t *testing.T) 
 		t.Fatalf("initial config expected revision = %q, want absent", got)
 	}
 
-	// Once the recipe catalog anchor exists, absence of user configs means the
-	// user deleted them. A later source publication must not recreate one.
 	configs, expected, err = projectConfigsForSourcePublication(nil, "metadata-v1", true, snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -53,8 +51,6 @@ func TestProjectConfigsForSourcePublicationSeedsActualOutputsOnce(t *testing.T) 
 		t.Fatalf("anchored empty catalog reseeded configs=%#v expected=%#v", configs, expected)
 	}
 
-	// The starter remains a visible project config even if another interactive
-	// Explorer already uses the recipe name or the first suffix.
 	owners := []explorer.Explorer{
 		{Project: "project-a", ExplorerID: "metadata-v1"},
 		{Project: "project-a", ExplorerID: "metadata-v1-views"},

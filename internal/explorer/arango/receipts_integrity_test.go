@@ -44,8 +44,7 @@ func TestReceiptVerifiedAddressComparisonPreservesIntegrity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Preserve the stored ID while changing an immutable body field. A fast
-			// address comparison is safe only after read-side integrity validation.
+
 			if tc.mutate {
 				doc["compiledConfig"] = map[string]any{"unexpected": true}
 			}
@@ -132,9 +131,6 @@ func TestReceiptStoreLegacyCollisionIsCorrupt(t *testing.T) {
 	}
 }
 
-// The receipt contains maps and raw byte slices. A client callback exercises a
-// mutation across the I/O boundary without a data race, so entry validation
-// alone must never authorize the later expected body comparison.
 func TestReceiptStoreRechecksCallerBodyAcrossIO(t *testing.T) {
 	receipt := testCompilationReceipt(t, "intent")
 	receipt.CompiledConfig = json.RawMessage(`{"value":"original"}`)

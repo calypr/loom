@@ -1833,10 +1833,6 @@ func assertReshapeOraclePivotErrorTrace(t *testing.T, ctx context.Context, clien
 	assertReshapeTraceResult(t, cells[rowID], float64(2.5), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5)), "")
 }
 
-// Current Construction uses the already project-scoped source _key as its
-// identity. Preserve the old literal oracle as migration evidence, and map
-// only its leading project pair when asserting current row and trace IDs.
-// This is a test expectation mapping, never an executable recipe adapter.
 func currentReshapeOracleUnpivotIdentity(t *testing.T, legacy string) string {
 	t.Helper()
 	var parts [][]string
@@ -1878,8 +1874,6 @@ func TestCurrentUnpivotOracleIdentityMapping(t *testing.T) {
 	}
 }
 
-// Authored slot enumeration remains ordered even though current stage rendering
-// canonically sorts the resulting rows by their generated identity.
 func assertCurrentUnpivotAuthoredSlots(t *testing.T, output lower.CompiledRecipeOutput, query string, bindings map[string]any) {
 	t.Helper()
 	if output.Plan.StageSequence == nil || len(output.Plan.StageSequence.Stages) != 1 || output.Plan.StageSequence.Stages[0].Unpivot == nil {

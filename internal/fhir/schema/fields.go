@@ -34,8 +34,6 @@ type resourceFields struct {
 
 var resourceCache sync.Map
 
-// cachedResourceFields is immutable after publication. Public accessors copy
-// mutable slices before returning a value to their caller.
 func cachedResourceFields(resourceType string) resourceFields {
 	if cached, ok := resourceCache.Load(resourceType); ok {
 		return cached.(resourceFields)

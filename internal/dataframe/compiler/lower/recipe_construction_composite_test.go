@@ -141,8 +141,6 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 		t.Fatalf("COHORT_GROUP prefix error = %v", err)
 	}
 
-	// Construct a malformed-at-the-public-seam composite directly to ensure
-	// PhysicalPlan validation independently closes the same authorization gap.
 	forged := ir.ClonePhysicalPlan(prefix.Plan)
 	forged.Engine = ir.PhysicalEngineClickHouse
 	forged.ClickHouseCombine = &combine

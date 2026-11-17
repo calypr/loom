@@ -1,7 +1,3 @@
-// Package lifecycle contains the transport-neutral Explorer application
-// workflows. It owns orchestration and policy while transport packages remain
-// responsible for request decoding, authorization context extraction, and
-// response encoding.
 package lifecycle
 
 import (
@@ -22,9 +18,6 @@ import (
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 )
 
-// CapabilityResolver resolves the current or a retained immutable capability
-// snapshot. The callbacks deliberately return domain values and do not expose
-// HTTP, Fiber, GraphQL, or generated API types.
 type CapabilityResolver struct {
 	Current           func(context.Context, string, string, string) (capability.Snapshot, error)
 	Token             func(context.Context, string, string) (capability.Snapshot, error)
@@ -34,8 +27,6 @@ type CapabilityResolver struct {
 	ValidateReadScope func(authscope.ReadScope, string) error
 }
 
-// AuthorizedCapability is the exact snapshot and authorization scope frozen
-// into a compilation receipt or used for receipt-backed execution.
 type AuthorizedCapability struct {
 	Snapshot capability.Snapshot
 	Scope    authscope.ReadScope
@@ -66,9 +57,6 @@ type ReceiptReader func(context.Context, string, string, string) (*explorer.Comp
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 type ReceiptStreamValidator func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) error
 
-// ConstructionSourceStageCompiler describes a compiler-resolved source
-// projection for capability discovery. Its result is metadata only; callers
-// must not treat an empty public schema as an executable output.
 type ConstructionSourceStageCompiler func(context.Context, ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error)
 
 type ConstructionSourceStageRequest struct {
@@ -80,42 +68,23 @@ type ConstructionSourceStageRequest struct {
 	SelectionMembersCollection string
 }
 
-// CategoryScanner executes an exact compiler-owned category scan for one
-// already-validated receipt without exposing query details to lifecycle.
 type CategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
 
-// ColumnPopulationScanner reports whether exact scalar columns contain at least
-// one non-null value in an immutable construction stage.
 type ColumnPopulationScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.ColumnPopulationRequest) (dataframeexecution.ColumnPopulationResult, error)
 
-// ArtifactPublishedReader is the exact-output surface lifecycle needs when
-// materializing a durable artifact. Keeping this contract narrow makes it
-// impossible for artifact orchestration to accidentally follow a moving
-// project-current pointer or bypass the published reader's read pin.
 type ArtifactPublishedReader interface {
 	ExactExecutionMaterialization(context.Context, string, string) (dataframepublished.Materialization, error)
 	StreamExactExport(context.Context, dataframepublished.ExactExportRequest, dataframepublished.ExactExportVisitor) (dataframepublished.ExactExportResult, error)
 }
 
-// PopulationMappingExecutor is the narrow lifecycle-to-execution adapter.
-// Lifecycle supplies the validated receipt, scope bindings, and immutable
-// selected IDs; execution owns compiler witness interpretation.
 type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, string, []string, string, int) (dataframeexecution.PopulationMappingResult, error)
 
-// CellTraceExecutor explains one published cell from the immutable receipt
-// and authorization bindings validated by lifecycle.
 type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
 
-// RowLineageExecutor pages source records for one row in the immutable receipt output.
 type RowLineageExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
 
-// SelectionReferenceValidator resolves explicit references against the
-// authorized active generation. It must verify both resource existence and
-// auth_resource_path before lifecycle persists any member or exclusion.
 type SelectionReferenceValidator func(context.Context, string, string, authscope.ReadScope, []explorer.ResourceRef) error
 
-// Execution is the small logical publication result needed by Explorer. It
-// intentionally avoids the GraphQL resolver's execution type.
 type Execution struct {
 	ID                   string
 	Name                 string
@@ -141,11 +110,7 @@ type GenerationValidator func(context.Context, string, string) error
 type ReleaseActivator func(context.Context, string, string, []dataset.DataframeSelector) error
 type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error)
 
-// Config contains deployment adapters. Lifecycle policy calls these narrow
-// callbacks, but never imports the transport packages that construct them.
 type Config struct {
-	// DefaultDataframeWorkspace returns the lossless imported workspace that
-	// backs the native graphical builder's reserved default dataframe owner.
 	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error)
 	AuthoringNetwork          func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error)
 	EditImportedRelationship  func(context.Context, string, AuthorizedCapability, authoringv2.Document, authoringv2.ImportedRelationshipChange) (authoringv2.Document, error)
@@ -154,19 +119,15 @@ type Config struct {
 	EditImportedSources       func(context.Context, string, AuthorizedCapability, authoringv2.Document, []authoringv2.ImportedSourceStepChange) (authoringv2.Document, error)
 	RemoveImportedField       func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
 	RemoveImportedOutput      func(context.Context, string, AuthorizedCapability, authoringv2.Document, string, string) (authoringv2.Document, error)
-	// SelectionMembersCollection is a deployment-owned runtime binding. It is
-	// never copied into authoring intent, recipes, or receipt identity.
+
 	SelectionMembersCollection         string
 	Capability                         CapabilityResolver
 	SemanticInventory                  func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
 	SemanticCoverage                   func(context.Context, catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error)
 	ResolveSemanticInventorySelections func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)
-	// InterpretationRepository resolves exact immutable revision IDs. It is
-	// intentionally narrow so lifecycle cannot accidentally depend on heads or
-	// unrelated Explorer persistence methods.
+
 	InterpretationRepository explorer.InterpretationRepository
-	// SelectionSourceResolver resolves an exact immutable published revision
-	// after Capability.ForExecution has established project and scope.
+
 	SelectionSourceResolver     SelectionSourceResolver
 	SelectionReferenceValidator SelectionReferenceValidator
 	RowChoiceResolver           RowChoiceResolver
@@ -188,13 +149,11 @@ type Config struct {
 	ReceiptLookup                ReceiptReader
 	ArtifactStore                explorer.ArtifactStore
 	PublishedReader              ArtifactPublishedReader
-	// Artifact limits are deployment policy, never caller-controlled request
-	// fields. Zero uses lifecycle's conservative defaults.
+
 	ArtifactTTL      time.Duration
 	ArtifactMaxRows  int64
 	ArtifactMaxBytes int64
-	// ConstructionBaseCacheTTL and ConstructionBaseCacheEntries bound the
-	// compiled construction-base cache. Zero values use lifecycle defaults.
+
 	ConstructionBaseCacheTTL     time.Duration
 	ConstructionBaseCacheEntries int
 
@@ -294,12 +253,9 @@ type PreviewRequest struct {
 	ReceiptID  string
 	OutputID   string
 	Limit      int
-	// AllowSampledAggregatePreview permits a bounded builder preview for
-	// aggregate operations. Apply-time validation leaves this false.
+
 	AllowSampledAggregatePreview bool
-	// SinkFactory is supplied by the transport adapter. It receives the
-	// validated receipt and emitted columns and returns a row sink for native
-	// streaming previews. Lifecycle never sees the response encoder itself.
+
 	SinkFactory func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error)
 }
 
@@ -309,29 +265,18 @@ type PreviewResult struct {
 	Summary dataframeexecution.PreviewSummary
 }
 
-// PreviewSinkFactory adapts native preview rows to a transport-owned sink.
-// Lifecycle owns preview authorization and ordering; transports own encoding.
 type PreviewSinkFactory func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error)
 
-// AcceptedConstruction is the exact Apply-time preview that validated the
-// candidate construction. It is returned only after the draft CAS succeeds.
 type AcceptedConstruction struct {
 	Preview      PreviewResult
 	PreviewLimit int
 }
 
-// ApplyCommandsWithConstructionPreviewResponse keeps the established Apply
-// result alongside an optional request-local preview for construction Apply.
-// Accepted is absent for replay or when the sink factory reports capture failure.
 type ApplyCommandsWithConstructionPreviewResponse struct {
 	Commands *authoringv2.ApplyCommandsResponse
 	Accepted *AcceptedConstruction
 }
 
-// PreviewInterpretationCandidateRequest identifies an immutable candidate
-// revision and the exact draft against which it was proposed. The draft CAS
-// is checked before either receipt is compiled, but this operation never
-// saves the draft.
 type PreviewInterpretationCandidateRequest struct {
 	Project              string
 	ExplorerID           string
@@ -360,10 +305,6 @@ const (
 	CandidatePreviewUnresolved CandidatePreviewState = "UNRESOLVED"
 )
 
-// InterpretationCandidatePreviewSample contains one stable output row. The
-// Before and After maps are keyed by the physical public column names present
-// in the preview, allowing one authored column to retain every indexed or
-// repeated physical emission.
 type InterpretationCandidatePreviewSample struct {
 	RowID  string                `json:"rowId"`
 	Before map[string]any        `json:"before"`
@@ -371,8 +312,6 @@ type InterpretationCandidatePreviewSample struct {
 	State  CandidatePreviewState `json:"state"`
 }
 
-// CandidatePreviewCounts describe only the bounded sample, never an
-// inferred whole-population count.
 type CandidatePreviewCounts struct {
 	Compared   int `json:"compared"`
 	Changed    int `json:"changed"`
@@ -391,10 +330,6 @@ type PreviewInterpretationCandidateResult struct {
 	Counts             CandidatePreviewCounts                 `json:"counts"`
 }
 
-// InterpretationLibraryView expands the mutable library head into the exact
-// immutable revision that a client may inspect or propose. The view never
-// makes a workspace follow this head; pinned workspaces retain their exact
-// revision ID.
 type InterpretationLibraryView struct {
 	Library explorer.InterpretationLibrary
 	Head    *explorer.InterpretationRevision
@@ -410,9 +345,6 @@ type GetInterpretationRevisionRequest struct {
 	RevisionID string
 }
 
-// CreateInterpretationRevisionRequest contains only typed authoring values.
-// Author is supplied by the authenticated transport subject, never by the
-// browser payload.
 type CreateInterpretationRevisionRequest struct {
 	Project          string
 	LibraryID        string
@@ -517,9 +449,6 @@ type CellTraceResult struct {
 	Trace   dataframeexecution.CellTraceResult `json:"trace"`
 }
 
-// CellTraceFeature is the receipt-owned descriptor for both explanation and
-// repair navigation. AuthoredColumn is the stable Builder key; Column is the
-// published physical key and may differ for expanded projections.
 type CellTraceFeature struct {
 	OutputID           string   `json:"outputId"`
 	Column             string   `json:"column"`

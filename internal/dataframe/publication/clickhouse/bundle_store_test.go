@@ -33,6 +33,40 @@ func TestToColumnsStoresLogicalObjectsAsLosslessJSONText(t *testing.T) {
 	}
 }
 
+type reconcilePinClaimCatalog struct {
+	*reconcileRecheckCatalog
+	releaseErr error
+}
+
+func (c *reconcilePinClaimCatalog) ReleaseBundleLease(context.Context, string, string) error {
+	c.released++
+	return c.releaseErr
+}
+
+func (*reconcilePinClaimCatalog) AcquireExecutionReadPin(context.Context, string, string, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (*reconcilePinClaimCatalog) RenewExecutionReadPin(context.Context, string, string, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (*reconcilePinClaimCatalog) ReleaseExecutionReadPin(context.Context, string, string) error {
+	return nil
+}
+
+func (*reconcilePinClaimCatalog) ClaimExecutionCleanup(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
+func (*reconcilePinClaimCatalog) RenewExecutionCleanup(context.Context, string, string, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (*reconcilePinClaimCatalog) ReleaseExecutionCleanup(context.Context, string, string) error {
+	return nil
+}
+
 type reconcileRecheckCatalog struct {
 	execution     publication.BundleExecution
 	publishedExec *publication.BundleExecution
@@ -105,6 +139,46 @@ func (c *reconcileRecheckCatalog) VisitExecutionPages(_ context.Context, state p
 		return nil
 	}
 	return visit([]publication.BundleExecution{c.execution})
+}
+
+func TestReconcileSkipsPinnedCandidateButSurfacesBundleLeaseReleaseFailure(t *testing.T) {
+	releaseFailure := errors.New("bundle lease release failed")
+	for _, test := range []struct {
+		name       string
+		releaseErr error
+		wantErr    error
+	}{
+		{name: "pinned candidate is skipped"},
+		{name: "release failure remains visible", releaseErr: releaseFailure, wantErr: releaseFailure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			execution := publication.BundleExecution{
+				ID: "exec-pinned-reconcile", Key: "bundle:exec-pinned-reconcile",
+				BundleIdentity: publication.BundleIdentity{Project: "reconcile-pin", Name: "orders", DatasetGeneration: "gen", OutputName: "main"},
+				State:          publication.BundleRunning,
+				Outputs:        []publication.BundleOutputRecord{{Name: "main", PhysicalTable: "loom_bundle_exec_pinned_reconcile"}},
+			}
+			catalog := &reconcilePinClaimCatalog{
+				reconcileRecheckCatalog: &reconcileRecheckCatalog{
+					execution:   execution,
+					pointers:    []publication.BundlePointer{{}},
+					pointerErrs: []error{publication.ErrBundleNotFound},
+				},
+				releaseErr: test.releaseErr,
+			}
+			store, err := NewBundleStore(&reconcileRecheckClickHouse{}, catalog)
+			if err != nil {
+				t.Fatalf("NewBundleStore: %v", err)
+			}
+			err = store.Reconcile(context.Background(), time.Now().UTC().Add(time.Hour))
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("Reconcile error = %v, want %v", err, test.wantErr)
+			}
+			if catalog.released != 1 {
+				t.Fatalf("ReleaseBundleLease calls = %d, want 1", catalog.released)
+			}
+		})
+	}
 }
 
 type reconcileRecheckClickHouse struct {
@@ -368,7 +442,7 @@ func TestReconcileRetiresSupersededPublishedExecutions(t *testing.T) {
 			}
 		})
 	}
-	// The stale (non-PUBLISHED) arm keeps its shipped marker verbatim.
+
 	t.Run("stale arm marker unchanged", func(t *testing.T) {
 		catalog := &reconcileRecheckCatalog{
 			execution: publication.BundleExecution{

@@ -48,9 +48,6 @@ func TestPublishProjectConfigsAtomicBatchRetryAndRetirementAgainstArango(t *test
 	assertProjectConfigActive(t, ctx, explorers, project, "default", "revision-1-default")
 	assertProjectConfigActive(t, ctx, explorers, project, "files", "revision-1-files")
 
-	// An acknowledgement-loss replay uses the same immutable request and stale
-	// expected revision. The release's content-addressed already-active branch
-	// and the matching config revisions must converge without a second bump.
 	retried, err := explorers.PublishProjectConfigs(ctx, first)
 	if err != nil {
 		t.Fatalf("retry exact active config publication: %v", err)

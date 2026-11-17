@@ -12,7 +12,6 @@ const inputClass = 'min-w-0 rounded-md border border-slate-300 bg-white px-2 py-
 const argumentLabel = (call: string, index: number) => call === 'uuid5' && index === 0 ? 'Namespace'
   : call === 'join' && index === 1 ? 'Separator' : `Argument ${index + 1}`;
 
-/** Edits the existing recipe.Expression tree. Array order is execution order. */
 export function SourceExpressionEditor({ value, onChange, label, disabled = false, pathChoices }: {
   readonly value: SourceRecipeExpression;
   readonly onChange: (value: SourceRecipeExpression) => void;

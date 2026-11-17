@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-// RecipeRevision is an immutable, project-scoped recipe document. The digest
-// is the canonical Bundle digest and is therefore safe to use as an optimistic
-// concurrency and publication address.
 type RecipeRevision struct {
 	Project   string    `json:"project"`
 	Name      string    `json:"name"`

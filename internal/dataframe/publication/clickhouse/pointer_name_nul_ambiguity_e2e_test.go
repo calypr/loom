@@ -6,8 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango protects
-// the visibility namespace from identities that differ around an embedded NUL.
 func TestPointerNameNulAmbiguityHijacksVisibilityPointerAgainstArango(t *testing.T) {
 	common := publication.BundleIdentity{
 		Project: "project", DatasetGeneration: "generation", OutputName: "output",

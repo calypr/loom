@@ -58,7 +58,7 @@ func TestRewriteVariablesPreservesExistingLexicalFrontier(t *testing.T) {
 		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{Value: ir.PhysicalValue{Variable: "target"}}}}},
 		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalSubplanExpression, Subplan: &ir.PhysicalSubplan{Return: ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Value: &ir.PhysicalValue{Variable: "target"}}}}}}},
 	} {
-		// Compare execution bytes so unrelated cloning policy does not define the frontier.
+
 		got := rewritePhysicalOperationVariables(input, "target", "shared_item", "edge", "shared_edge")
 		before, _ := json.Marshal(ir.CanonicalExecutionPhysicalPlan(ir.PhysicalPlan{Operations: []ir.PhysicalOperation{input}}))
 		after, _ := json.Marshal(ir.CanonicalExecutionPhysicalPlan(ir.PhysicalPlan{Operations: []ir.PhysicalOperation{got}}))

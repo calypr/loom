@@ -4,8 +4,6 @@ import (
 	"strings"
 )
 
-// StableExplorerID turns a user-facing name into the durable URL identity
-// used by the V2 lifecycle. Collisions remain store-level conflicts.
 func StableExplorerID(name string) string {
 	var b strings.Builder
 	lastDash := false

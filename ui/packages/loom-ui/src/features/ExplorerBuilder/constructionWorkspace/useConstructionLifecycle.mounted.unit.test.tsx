@@ -284,8 +284,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-
-
 describe('useConstructionLifecycle real-controller conformance schedules', () => {
   it('replays category discovery schedule: mount pair; schedule; complete; keep categories', async () => {
 
@@ -296,7 +294,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     }));
     await act(async () => { await flushMicrotasks(); });
 
-
     const request = {
       stageId: baseRequest.stageId,
       categoryColumnId: 'category-id',
@@ -306,7 +303,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     expect(controlled.discoveries).toHaveLength(1);
     const discovery = controlled.discoveries[0];
     expect(discovery?.args.stageId).toBe(baseRequest.stageId);
-
 
     if (!discovery) throw new Error('category discovery request was not sent');
 
@@ -322,9 +318,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     unmount();
   });
 
-  // Finite coverage: 2 proposal orders × 3 stale results × 5 current results,
-  // 2 fallback-preview orders × 5 current preview results, and the listed
-  // one-field identity, cancellation, retry, A→B→A, and stale-beginApply schedules.
   const proposalOrders: ReadonlyArray<'old response first' | 'current response first'> = [
     'old response first',
     'current response first',
@@ -356,13 +349,11 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
           }));
           await act(async () => { await flushMicrotasks(); });
 
-
           const oldSettlement = startAttempt(result, 'step-A');
           await advanceProposalDelay();
           expect(controlled.proposals).toHaveLength(1);
           const oldCall = controlled.proposals[0];
           if (!oldCall) throw new Error('proposal A request was not sent');
-
 
           const currentSettlement = startAttempt(result, 'step-B');
           await advanceProposalDelay();
@@ -469,7 +460,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       }));
       await act(async () => { await flushMicrotasks(); });
 
-
       const settlement = startAttempt(result, `bad-${field}`);
       await advanceProposalDelay();
       const proposalCall = controlled.proposals[0];
@@ -477,7 +467,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       if (!proposalCall) return;
 
       await deliver(() => proposalCall.transport.resolve(proposalFor(proposalCall.args, 'bad-proposal', mode)));
-
 
       expect((await settlement).kind).toBe('rejected');
       expect(result.current.proposal.status).toBe('error');
@@ -513,7 +502,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
         }));
         await act(async () => { await flushMicrotasks(); });
 
-
         const oldSettlement = startAttempt(result, 'fallback-A');
         await advanceProposalDelay();
         const oldProposal = controlled.proposals[0];
@@ -527,7 +515,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
         expect(oldPreview).toBeDefined();
         if (!oldPreview) return;
 
-
         const currentSettlement = startAttempt(result, 'fallback-B');
         await advanceProposalDelay();
         const currentProposal = controlled.proposals[1];
@@ -539,11 +526,9 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
         await deliver(() => currentProposal.transport.resolve(proposalFor(currentProposal.args, 'fallback-proposal-B', 'ready', false)));
         expect(controlled.previews).toHaveLength(2);
 
-
         const currentPreview = controlled.previews[1];
         expect(currentPreview).toBeDefined();
         if (!currentPreview) return;
-
 
         const resolveOldPreview = () => oldPreview.transport.resolve(previewFor(oldPreview.args.receiptId, oldPreview.args.outputId));
         const resolveCurrentPreview = () => {
@@ -616,7 +601,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       }));
       await act(async () => { await flushMicrotasks(); });
 
-
       const settlement = startAttempt(result, 'cancel-A');
       await advanceProposalDelay();
       const proposalCall = controlled.proposals[0];
@@ -632,7 +616,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       expect(result.current.canApply).toBe(false);
 
       expect(result.current.beginApply()).toBeUndefined();
-
 
       await deliver(() => {
         if (outcome.mode === 'transport error') {
@@ -667,7 +650,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       );
       await act(async () => { await flushMicrotasks(); });
 
-
       const settlement = startAttempt(result, `identity-${change.label}`);
       await advanceProposalDelay();
       const proposalCall = controlled.proposals[0];
@@ -679,9 +661,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       expect(result.current.proposal.status).toBe('idle');
       expect(result.current.canApply).toBe(false);
 
-
       expect(result.current.beginApply()).toBeUndefined();
-
 
       await deliver(() => proposalCall.transport.resolve(proposalFor(proposalCall.args, 'hidden-proposal')));
       expectAbort(await settlement);
@@ -706,7 +686,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     );
     await act(async () => { await flushMicrotasks(); });
 
-
     const settlement = startAttempt(result, 'A-B-A');
     await advanceProposalDelay();
     const proposalCall = controlled.proposals[0];
@@ -717,11 +696,9 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     expect(result.current.proposal.status).toBe('idle');
     expect(result.current.canApply).toBe(false);
 
-
     rerender({ capabilitiesRequest: baseRequest });
     await act(async () => { await flushMicrotasks(); });
     expect(proposalCall.signal?.aborted).toBe(false);
-
 
     await deliver(() => proposalCall.transport.resolve(proposalFor(proposalCall.args, 'resurfaced-proposal')));
     expect((await settlement).kind).toBe('resolved');
@@ -746,7 +723,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     }));
     await act(async () => { await flushMicrotasks(); });
 
-
     const firstSettlement = startAttempt(result, 'retry-candidate');
     await advanceProposalDelay();
     const firstCall = controlled.proposals[0];
@@ -760,7 +736,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     expect(result.current.canApply).toBe(false);
     expect(result.current.beginApply()).toBeUndefined();
 
-
     act(() => result.current.retry());
     await advanceProposalDelay();
     expect(controlled.proposals).toHaveLength(2);
@@ -772,7 +747,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
 
     expect(result.current.canApply).toBe(false);
     expect(result.current.beginApply()).toBeUndefined();
-
 
     await deliver(() => retryCall.transport.resolve(proposalFor(
       retryCall.args,
@@ -787,12 +761,10 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     expect(retryPreview.args.receiptId).toBe('retry-proposal');
     expect(retryPreview.args.outputId).toBe(baseRequest.outputId);
 
-
     await deliver(() => retryPreview.transport.resolve(previewFor(
       'retry-proposal',
       baseRequest.outputId,
     )));
-
 
     expect(result.current.proposal).toMatchObject({
       status: 'ready',
@@ -814,7 +786,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       capabilitiesRequest: baseRequest,
     }));
     await act(async () => { await flushMicrotasks(); });
-
 
     const oldSettlement = startAttempt(result, 'ready-A');
     await advanceProposalDelay();
@@ -851,7 +822,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     unmount();
   });
 
-  // Regressions for Apply completion targeting the owner that began Apply.
   it('regression: old Apply success after replacement must not cancel the replacement owner', async () => {
 
     vi.useFakeTimers();
@@ -861,7 +831,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       capabilitiesRequest: baseRequest,
     }));
     await act(async () => { await flushMicrotasks(); });
-
 
     const oldSettlement = startAttempt(result, 'ready-A');
     await advanceProposalDelay();
@@ -878,7 +847,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     act(() => { applyA = result.current.beginApply(oldOutcome.value); });
     expect(applyA?.proposalId).toBe('already-ready-A');
 
-
     const currentSettlement = startAttempt(result, 'replacement-B');
     await advanceProposalDelay();
     const currentCall = controlled.proposals[1];
@@ -888,7 +856,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     const currentOutcome = await currentSettlement;
     expect(currentOutcome.kind).toBe('resolved');
     expect(result.current.proposal.status).toBe('ready');
-
 
     act(() => { applyA?.finish(true); });
 
@@ -907,7 +874,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     }));
     await act(async () => { await flushMicrotasks(); });
 
-
     const oldSettlement = startAttempt(result, 'ready-A');
     await advanceProposalDelay();
     const oldCall = controlled.proposals[0];
@@ -923,7 +889,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     act(() => { applyA = result.current.beginApply(oldOutcome.value); });
     expect(applyA?.proposalId).toBe('already-ready-A');
 
-
     const currentSettlement = startAttempt(result, 'replacement-B');
     await advanceProposalDelay();
     const currentCall = controlled.proposals[1];
@@ -933,7 +898,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     const currentOutcome = await currentSettlement;
     expect(currentOutcome.kind).toBe('resolved');
     expect(result.current.proposal.status).toBe('ready');
-
 
     act(() => { applyA?.finish(false); });
 
@@ -973,7 +937,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       if (!apply) throw new Error('Expected Apply handle');
 
       rerender({ capabilitiesRequest: change.request });
-
 
       const before = result.current.proposal;
       let accepted: boolean | undefined;
@@ -1112,7 +1075,6 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
   });
 
 });
-
 
 const reconcileError = (code: string, retryable = false): ExplorerAuthoringApiError => ({
   status: 409,

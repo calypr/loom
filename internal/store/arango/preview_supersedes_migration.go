@@ -13,9 +13,6 @@ import (
 	"github.com/arangodb/go-driver/v2/utils"
 )
 
-// MigratePreviewSupersededIndexes is an explicit versioned operation. dryRun
-// only audits and reports candidates. Apply creates and verifies each exact
-// replacement before deleting the corresponding stable old ID.
 func (c *Client) MigratePreviewSupersededIndexes(ctx context.Context, dryRun bool) (PreviewSupersedesAudit, error) {
 	if c == nil || c.db == nil {
 		return PreviewSupersedesAudit{}, errors.New("preview-index migration requires an open database")
@@ -195,8 +192,7 @@ func migratePreviewSupersededIndex(ctx context.Context, collection previewMigrat
 		}
 		oldRestored, oldStillPresent := findIndexByID(rolledBack, candidate.OldID)
 		if !oldStillPresent || oldRestored.Name != candidate.OldName || !previewCoveringIndexMatchesDefinition(oldRestored, candidate.OldFields, candidate.OldStoredValues) {
-			// If the old index disappeared concurrently during rollback, restore
-			// the verified candidate so the scoped query remains covered.
+
 			restored, _, restoreErr := collection.EnsurePersistentIndex(ctx, candidate.NewFields, &driver.CreatePersistentIndexOptions{
 				Name: candidate.NewName, StoredValues: append([]string(nil), candidate.NewStoredValues...), Sparse: utils.NewType(false), Unique: utils.NewType(false),
 			})

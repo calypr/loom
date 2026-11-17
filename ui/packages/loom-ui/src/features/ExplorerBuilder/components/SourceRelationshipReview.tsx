@@ -50,8 +50,6 @@ type Props = BaseProps & (
   { readonly change?: never; readonly sourceStep?: never; readonly sourceSteps?: never; readonly sourceRule: SourceRuleCreate }
 );
 
-// The owner mounts this inspector with the full draft/snapshot/output identity
-// as its key. Cancel revokes in-flight responses, including a second Preview.
 export function SourceRelationshipReview(props: Props) {
   const [result, setResult] = useState<{ proposal: SourceRelationshipProposalWithPreview; preview: ExplorerBuilderPreviewResult }>();
   const [busy, setBusy] = useState(false);

@@ -252,8 +252,7 @@ func TestConstructionPreviewBoundsProvenRootIDPivotBeforeSourceMaterialization(t
 		t.Fatalf("proven root-ID pivot still materialized group rows:\n%s", query.Query)
 	}
 	if strings.Count(stageQuery, "FOR ") != 2 {
-		// One FOR iterates source rows inside the stage and one emits final rows.
-		// Category matching must not add a FOR over group rows per output cell.
+
 		t.Fatalf("root-ID pivot emitted per-category group-row scans:\n%s", query.Query)
 	}
 	if strings.Contains(stageQuery, "SORT __loom_construction_pivot_group") {

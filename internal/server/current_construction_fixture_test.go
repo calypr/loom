@@ -2,8 +2,6 @@ package server
 
 import "github.com/calypr/loom/internal/explorer/authoringv2"
 
-// receiptStageFixture supplies an explicit current source schema for metadata-only
-// reconciliation tests; execution fixtures retain their own catalog-backed sources.
 func receiptStageFixture(outputID string, source []authoringv2.StageColumn) authoringv2.Document {
 	columns := make([]authoringv2.Column, len(source))
 	for i, c := range source {

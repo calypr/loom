@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 )
 
-// ArchivedMetadata describes stored output identity without exposing an executable recipe.
 type ArchivedMetadata struct {
 	RecipeSchemaVersion int
 	Name                string
@@ -30,8 +29,6 @@ func (b Bundle) HasArchivedReshape() bool {
 	return false
 }
 
-// CurrentBundle validates and detaches executable input. Archive verification
-// must never be used as a substitute for this boundary.
 func (b Bundle) CurrentBundle() (Bundle, error) {
 	if err := b.Validate(); err != nil {
 		return Bundle{}, err
@@ -39,12 +36,8 @@ func (b Bundle) CurrentBundle() (Bundle, error) {
 	return b.CanonicalBundle()
 }
 
-// ValidateArchive retains historical wire validation for immutable reads only.
-// It does not make an archive eligible for compilation or registration.
 func (b Bundle) ValidateArchive() error { return b.validate(nil, archiveRecipeValidation) }
 
-// ArchiveCanonicalJSON preserves historical typed encoding without expanding
-// fragments, resolving schema, normalizing data, or advancing recipe semantics.
 func (b Bundle) ArchiveCanonicalJSON() ([]byte, error) {
 	if err := b.ValidateArchive(); err != nil {
 		return nil, err
@@ -61,8 +54,6 @@ func (b Bundle) ArchiveDigest() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ParseArchivedMetadata strictly validates stored recipe JSON and returns only
-// output identity. It has no conversion to a current executable Bundle.
 func ParseArchivedMetadata(raw []byte) (ArchivedMetadata, error) {
 	b, err := decodeBundleJSON(raw)
 	if err != nil {

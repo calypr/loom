@@ -152,7 +152,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if store.saveDraftCalls != 0 || !bytes.Equal(raw, store.created.DraftConfig) {
 		t.Fatal("Preview or Cancel mutated saved source")
 	}
-	// A read-model failure cannot return a ready candidate or save the draft.
+
 	projectNetwork := service.config.AuthoringNetwork
 	service.config.AuthoringNetwork = func(context.Context, string, AuthorizedCapability, authoringv2.Document) (authoringv2.AuthoringNetwork, error) {
 		return authoringv2.AuthoringNetwork{}, errors.New("candidate source provenance is unavailable")
@@ -164,7 +164,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		t.Fatal("failed candidate projection changed saved source")
 	}
 	service.config.AuthoringNetwork = projectNetwork
-	// A compile failure cannot create an applicable proposal or mutate the draft.
+
 	candidateReceipt := store.receipt
 	compileFailure = true
 	if _, err := service.ProposeSourceRelationship(ctx, request); err == nil {
@@ -176,8 +176,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	compileFailure = false
 	store.receipt = candidateReceipt
 	apply := authoringv2.ApplyCommandsRequest{CommandID: "relationship-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: proposal.ProposalID}}}
-	// A legitimately rehashed receipt cannot change another output while
-	// applying the requested source edit. Keep the whole-workspace guard exact.
+
 	forgedWorkspace, err := authoringv2.DecodeWorkspace(candidateReceipt.NormalizedBundle)
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +237,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if !bytes.Equal(before, store.created.DraftConfig) || store.saveDraftCalls != 1 {
 		t.Fatal("stale Apply changed saved source")
 	}
-	// Earlier source-step settings use the same receipt-backed no-write review.
+
 	service.config.EditImportedSource = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
 		if change == nil || change.StepID != "fields" || !change.Enabled {
 			t.Fatal("bounded source-step intent was lost")

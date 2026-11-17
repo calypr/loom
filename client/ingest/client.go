@@ -29,8 +29,6 @@ const (
 	busyRetryLimit  = 5 * time.Minute
 )
 
-// Client uploads selected source files into a durable Loom source load, then
-// asks Loom to publish the completed load.
 type Client struct {
 	baseURL           *url.URL
 	bearer            string
@@ -39,28 +37,27 @@ type Client struct {
 	busyRetryBudget   time.Duration
 }
 
-// ManifestFile identifies a canonical repository path. SHA256 is optional and
+// Essential: ManifestFile identifies a canonical repository path. SHA256 is optional and
 // is included only when the caller already has an authoritative digest.
 type ManifestFile struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256,omitempty"`
 }
 
-// Manifest records an immutable repository snapshot and the selected paths.
 type Manifest struct {
 	Repository string         `json:"repository"`
 	Commit     string         `json:"commit"`
 	Files      []ManifestFile `json:"files"`
 }
 
-// File maps a selected manifest path to an optional local staged file.
+// Essential: File maps a selected manifest path to an optional local staged file.
 // LocalPath may be empty when Request.AcquireFile hydrates that path lazily.
 type File struct {
 	Path      string
 	LocalPath string
 }
 
-// Request contains one authorized source publication attempt. AcquireFile is
+// Essential: Request contains one authorized source publication attempt. AcquireFile is
 // called only for files that Loom has not already accepted, and its returned
 // cleanup runs after that file's upload finishes (including all retries).
 type Request struct {
@@ -73,7 +70,6 @@ type Request struct {
 	AcquireFile      func(ctx context.Context, path string) (localPath string, cleanup func(), err error)
 }
 
-// SourceFileReceipt records one file accepted by the inactive load generation.
 type SourceFileReceipt struct {
 	Path         string `json:"path"`
 	ResourceType string `json:"resource_type"`
@@ -82,7 +78,6 @@ type SourceFileReceipt struct {
 	State        string `json:"state"`
 }
 
-// SourceLoadStatus is the durable state returned by begin and status requests.
 type SourceLoadStatus struct {
 	OperationID  string              `json:"operation_id"`
 	Generation   string              `json:"generation"`
@@ -91,7 +86,6 @@ type SourceLoadStatus struct {
 	Files        []SourceFileReceipt `json:"files"`
 }
 
-// Receipt is Loom's durable source and ClickHouse publication result.
 type Receipt struct {
 	OperationID    string `json:"operation_id"`
 	SourceRevision int64  `json:"source_revision"`
@@ -101,7 +95,7 @@ type Receipt struct {
 	Reused         bool   `json:"reused"`
 }
 
-// Issue is a safe, actionable source-row validation diagnostic. Loom omits raw
+// Essential: Issue is a safe, actionable source-row validation diagnostic. Loom omits raw
 // resource contents from these fields.
 type Issue struct {
 	File              string `json:"file,omitempty"`
@@ -148,7 +142,7 @@ func (i *Issue) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Error is a structured HTTP or transport failure. Its message is safe to log:
+// Essential: Error is a structured HTTP or transport failure. Its message is safe to log:
 // it never includes request headers or the bearer token.
 type Error struct {
 	StatusCode  int
@@ -220,7 +214,7 @@ func (i Issue) publicMessage() string {
 	return strings.Join(location, ": ")
 }
 
-// New creates a client for one Loom API base URL. A nil HTTP client uses the
+// Essential: New creates a client for one Loom API base URL. A nil HTTP client uses the
 // standard client; request deadlines come from the caller's context.
 func New(baseURL, bearerToken string, httpClient *http.Client) (*Client, error) {
 	baseURL = strings.TrimSpace(baseURL)
@@ -240,8 +234,7 @@ func New(baseURL, bearerToken string, httpClient *http.Client) (*Client, error) 
 		copy := *httpClient
 		httpClient = &copy
 	}
-	// Never forward the bearer token to a redirect target. The Loom endpoint is
-	// configured explicitly, so redirects are transport errors for this client.
+
 	httpClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -253,7 +246,7 @@ func New(baseURL, bearerToken string, httpClient *http.Client) (*Client, error) 
 	}, nil
 }
 
-// Publish begins or resumes a durable source load, uploads missing files in
+// Essential: Publish begins or resumes a durable source load, uploads missing files in
 // manifest order, and returns only after Loom confirms the final publication.
 func (c *Client) Publish(ctx context.Context, request Request) (Receipt, error) {
 	if c == nil || c.httpClient == nil || c.baseURL == nil {

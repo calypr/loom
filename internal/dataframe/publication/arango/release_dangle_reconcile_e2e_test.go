@@ -23,19 +23,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// rrdTablePrefix names the physical ClickHouse tables this suite owns, so the
-// residue check greps exactly `ch_rrd%` in system.tables.
 const rrdTablePrefix = "ch_rrd"
 
-// rrdDatabasePrefix names the owned Arango database; nothing outside it is
-// created or dropped.
 const rrdDatabasePrefix = "loom_verify_rrd_"
 
-// rrdDatasetDocumentKey replicates internal/dataset/arango/document_codec.go
-// documentKey (kind + sha256 over the loom.datasetstore.v1 salt) so this
-// package can address the active-release pointer that SaveRelease inserted.
-// Fidelity is validated by a production ReadActiveRelease round-trip: a wrong
-// key surfaces as ErrNoActiveRelease and fails the test.
 func rrdDatasetDocumentKey(kind string, values ...string) string {
 	hash := sha256.New()
 	_, _ = hash.Write([]byte("loom.datasetstore.v1"))
@@ -65,12 +56,6 @@ type rrdHarness struct {
 	stageErr          error
 }
 
-// rrdOpen is the env-gated owned-database harness. It mirrors the sibling
-// dangling/name-latest harnesses (t.Skip when LOOM_TEST_ARANGO_URL is unset,
-// an owned loom_verify_rrd_<uuid> database dropped via HTTP DELETE in
-// t.Cleanup) AND additionally opens a REAL ClickHouse client (matching
-// internal/store/clickhouse/integration_test.go env names) so the physical
-// tables are genuinely created and genuinely dropped by production DropTable.
 func rrdOpen(t *testing.T) *rrdHarness {
 	t.Helper()
 	database := arangotest.Owned(t, rrdDatabasePrefix)
@@ -103,7 +88,7 @@ func rrdOpen(t *testing.T) *rrdHarness {
 	}
 	h.lifecycle = lifecycle
 	h.ch = arangotest.ClickHouse(t)
-	// This runs before the ClickHouse client closes and before Arango cleanup.
+
 	t.Cleanup(func() {
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
@@ -140,9 +125,6 @@ func rrdSelect(output, recipe string) published.DataframeSelector {
 	return published.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
 }
 
-// rrdSeedHealthy publishes the healthy execution for real: a genuinely
-// queryable PUBLISHED row plus a real ClickHouse table plus its visibility
-// pointer. Reconcile leaves it alone (PUBLISHED is not an enumerated state).
 func (h *rrdHarness) seedHealthy(t *testing.T) {
 	t.Helper()
 	owner := "rrd-pub-healthy-" + h.suffix
@@ -171,11 +153,6 @@ func (h *rrdHarness) seedHealthy(t *testing.T) {
 	h.healthy = exec
 }
 
-// rrdSeedDangle writes the candidate as RUNNING (an enumerated state) with a
-// queryable-shaped output row carrying the physical table, then leaves its
-// bundle lease EXPIRED so the reconciler can claim it (the "stale RUNNING with
-// an expired lease" precondition). No pointer is written: that is the whole
-// point of the guard.
 func (h *rrdHarness) seedDangle(t *testing.T) {
 	t.Helper()
 	owner := "rrd-pub-dangle-" + h.suffix
@@ -194,16 +171,13 @@ func (h *rrdHarness) seedDangle(t *testing.T) {
 	if err := h.registry.SaveExecution(h.ctx, exec, owner); err != nil {
 		t.Fatalf("dangle SaveExecution: %v", err)
 	}
-	// Make the seed-held lease expired (same owner refresh) and leave it in
-	// place: reconcileExecution's AcquireBundleLease steals an expired lease.
+
 	if claimed, err := h.registry.AcquireBundleLease(h.ctx, h.dangle.Key, owner, time.Now().UTC().Add(-time.Minute)); err != nil || !claimed {
 		t.Fatalf("dangle expire lease: claimed=%v err=%v", claimed, err)
 	}
 	h.dangle = exec
 }
 
-// rrdCreatePhysicalTable creates the real MergeTree table so the reconciler's
-// DropTable has something real to physically remove.
 func (h *rrdHarness) createPhysicalTable(t *testing.T, table string) {
 	t.Helper()
 	if err := h.ch.CreateTable(h.ctx, table, []storeclickhouse.Column{{Name: "__loom_row_id", Type: "Int64"}}); err != nil {
@@ -228,10 +202,6 @@ func (h *rrdHarness) listRRDTables(t *testing.T) []string {
 	return names
 }
 
-// rrdActivateRelease saves an immutable release that binds BOTH executions and
-// activates it by patching the active_release placeholder SaveRelease created
-// (release_store.go saveReleaseAQL / readActiveReleaseAQL). It
-// is validated by production ReadActiveRelease, so a bad key/round-trip fails.
 func (h *rrdHarness) activateRelease(t *testing.T, bindings []dataset.ReleasePublication) dataset.ProjectRelease {
 	t.Helper()
 	release := dataset.ProjectRelease{
@@ -269,12 +239,6 @@ RETURN {activated: true}`, 32, map[string]interface{}{
 	return saved
 }
 
-// rrdStagePublicDocVisibleWithoutPointer writes the candidate's exec doc to a
-// queryable PUBLISHED row via a direct AQL patch. This is PublishExecution's
-// FIRST doc of its two-doc (exec-state + pointer) publication: the exec-state
-// is made visible while the visibility POINTER doc is deliberately left
-// ABSENT, exactly the non-atomic window that lets reconcileExecution's
-// pre-claim GetPointer guard observe nothing to skip on.
 func (h *rrdHarness) stagePublishedDocWithoutPointer(t *testing.T) {
 	t.Helper()
 	stamp := time.Now().UTC()
@@ -313,12 +277,6 @@ RETURN {updated: true}`, 32, map[string]interface{}{
 	}
 }
 
-// rrdCatalog is the seam hook. It embeds the real *Registry and overrides
-// exactly the exported enumerate/candidate cleanup claim: reconcileExecution's
-// pre-claim pointer guard has ALREADY passed on the absent pointer by the
-// time ClaimExecutionCleanup runs, so staging the racing publish + release
-// Create+Activate here reproduces the F-B12 interleaving deterministically,
-// with NO goroutine. Every other capability is the production AQL verbatim.
 type rrdCatalog struct {
 	*Registry
 	fired bool
@@ -351,12 +309,9 @@ func rrdUserErrorCode(err error) string {
 	return ""
 }
 
-// Active-release bindings must protect execution tables during reconciliation.
-// The controlled interleaving also covers retained non-lease-fenced records.
 func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 	h := rrdOpen(t)
 
-	// Seed everything for real.
 	h.seedHealthy(t)
 	h.seedDangle(t)
 	h.createPhysicalTable(t, h.healthyTable)
@@ -369,8 +324,6 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 		t.Fatalf("precondition: both owned tables must exist, got %v", before)
 	}
 
-	// (2a) Capture the enumerate/candidate state through the EXPORTED enumerate
-	// (not a goroutine): the same VisitExecutionPages Reconcile drives per state.
 	t.Log("EXPECT O-ENUM: exported RUNNING enumerate yields exactly the dangle execution (healthy is PUBLISHED, never enumerated)")
 	candidates := rrdEnumerate(t, h.registry, publication.BundleRunning)
 	var candidateStates []string
@@ -387,18 +340,12 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 		t.Fatalf("O-ENUM violated: healthy PUBLISHED execution was enumerated as a drop candidate: %v", candidateStates)
 	}
 
-	// Independent healthy baseline: prove a PUBLISHED + queryable execution
-	// served by the active release WOULD resolve, so any later whole-list
-	// failure is provably caused by the dangle drop, not by a bad seed.
 	reader := &published.Reader{Catalog: h.registry, ActiveReleaseResolver: h.lifecycle}
 
 	readerHarnessForBaseline := func(bindings []dataset.ReleasePublication) {
 		h.activateRelease(t, bindings)
 	}
 
-	// Bindings reused for the mid-seam release. Capture the healthy baseline
-	// first using a throwaway release activation to confirm the healthy binding
-	// alone resolves (this activation is later overwritten by the seam).
 	healthyOnly := []dataset.ReleasePublication{
 		{Selector: rrdSelect("out-a", "rrd-recipe-a"), ExecutionID: h.healthy.ID, Generation: h.generation, VerifiedAt: time.Now().UTC()},
 	}
@@ -409,19 +356,12 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 		t.Fatalf("healthy-baseline violated: a genuine PUBLISHED binding must resolve: %d %+v err=%v", len(healthBase), healthBase, baseErr)
 	}
 
-	// Build the store over the seam-wrapped catalog. The candidate is RUNNING
-	// with an expired lease, so reconcileExecution proceeds to the drop path.
-	// Lease TTL stays at its 2-minute default so the fenced SaveExecution(FAILED)
-	// at the claim step actually lands (the demotion must be durable, not a lost fence).
 	wrapper := &rrdCatalog{Registry: h.registry}
 	wrapper.onRun = func(executionID string) {
 		if executionID != h.dangle.ID {
 			return
 		}
-		// This runs AFTER reconcileExecution's GetPointer guard has already
-		// returned ABSENT (so the guard has nothing to skip on) and BEFORE the
-		// real claim + drop + demotion. Simulate PublishExecution's first doc +
-		// the release Create+Activate landing on top of the in-flight reconcile.
+
 		h.stagePublishedDocWithoutPointer(t)
 		bindings := []dataset.ReleasePublication{
 			{Selector: rrdSelect("out-a", "rrd-recipe-a"), ExecutionID: h.healthy.ID, Generation: h.generation, VerifiedAt: time.Now().UTC()},
@@ -429,8 +369,6 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 		}
 		h.activateRelease(t, bindings)
 
-		// Mid-seam read: both bindings genuinely resolvable right now (candidate
-		// published + queryable, its real table not yet dropped).
 		mid, midErr := reader.CurrentProjectDatasets(h.ctx, h.project)
 		h.midSeamErrChain = rrdErrorChain(midErr)
 		for _, m := range mid {
@@ -445,13 +383,9 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}
-	// Production wiring mirror (server.go): the reconciler re-checks the
-	// ACTIVE release bindings immediately before any drop (Repair-1b).
+
 	store.SetActiveReleaseReader(h.lifecycle)
 
-	// The candidate's pointer is absent when the pass arms: the guard reads
-	// nothing to skip on. This is the guard's failure mode (an absent pointer is
-	// treated as "not currently advertised" -> proceed), not an error.
 	t.Log("EXPECT pre-reconcile: candidate pointer is ABSENT, so the pre-claim pointer guard cannot skip the drop")
 	if p, err := h.registry.GetPointer(h.ctx, h.dangle.PointerName()); !errors.Is(err, publication.ErrBundleNotFound) {
 		t.Fatalf("precondition: candidate pointer must be absent before reconcile, got %+v err=%v", p, err)
@@ -473,7 +407,6 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 		return
 	}
 
-	// OBSERVED after reconcile.
 	execNow, execErr := h.registry.GetExecution(h.ctx, h.dangle.ID)
 	if execErr != nil {
 		t.Fatalf("read candidate execution after reconcile: %v", execErr)
@@ -505,14 +438,9 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 		releaseBindsDangle, releaseBindsHealthy, rrdBoundIDs(active), active.Revision)
 	t.Logf("OBSERVED final CurrentProjectDatasets: list=%d err=[%s] userCode=%q", len(finalList), rrdErrorChain(finalErr), rrdUserErrorCode(finalErr))
 
-	// Independent confirmation that the whole-list loss is attributable to the
-	// dangle binding, not to the healthy one: the healthy row + table survive.
 	healthNow, healthNowErr := h.registry.GetExecution(h.ctx, h.healthy.ID)
 	healthyStillServes := healthNowErr == nil && healthNow.State.Successful() && healthyPresent
 
-	// Prove the release-read path never consults the pointer: write the
-	// candidate's pointer LAST (PublishExecution's second doc eventually
-	// completes) naming the now-FAILED execution. The read still must fail.
 	if err := h.registry.CompareAndSwapPointer(h.ctx, h.dangle.PointerName(), "", h.dangle.ID); err != nil {
 		t.Fatalf("release-dangle pointer-last write: %v", err)
 	}
@@ -541,8 +469,6 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 			prevent, detail, execNow.State, len(execNow.Outputs), dangleGone, releaseBindsDangle, len(finalList), rrdErrorChain(finalErr))
 	}
 
-	// Residue: after this function the cleanup handlers drop the tables; log the
-	// live state so a reviewer sees exactly what remains to be reported.
 	t.Logf("RRD_RESIDUE_CLICKHOUSE_TABLES=%v", h.listRRDTables(t))
 }
 
@@ -576,8 +502,6 @@ func rrdBoundIDs(active dataset.ActiveRelease) string {
 	return strings.Join(parts, " ")
 }
 
-// rrdDiagnose names the exact load-bearing line that prevented the drop so a
-// DISPROVEN verdict cites the mechanism rather than merely asserting it.
 func rrdDiagnose(exec publication.BundleExecution, execErr error, dangleGone, healthyPresent, releaseBindsDangle bool, list []published.Materialization, listErr, reconcileErr error) (string, string) {
 	switch {
 	case dangleGone && exec.State == publication.BundleFailed && releaseBindsDangle:

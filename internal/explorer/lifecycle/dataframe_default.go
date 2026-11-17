@@ -11,8 +11,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// DefaultDataframeID is the reserved identity for the repository's imported
-// default dataframe workspace in the graphical Builder.
 const DefaultDataframeID = "dataframe-default"
 
 const defaultDataframeTitle = "Default dataframe"
@@ -60,9 +58,6 @@ func (s *Service) virtualDefaultDataframeOwner(ctx context.Context, project stri
 	}, nil
 }
 
-// getOwner makes only the reserved native Builder identity virtual. Existing
-// owners are returned as stored, including malformed drafts, so a corrupt
-// persisted draft cannot be silently replaced by imported state.
 func (s *Service) getOwner(ctx context.Context, project, explorerID string) (*explorer.Explorer, error) {
 	owner, err := s.store.Get(ctx, project, explorerID)
 	if err != nil && !errors.Is(err, explorer.ErrNotFound) {

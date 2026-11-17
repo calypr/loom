@@ -1,9 +1,6 @@
 import type { DescribeAuthoringNetworkArgs } from '../src/api';
 import type { AuthoringNetworkResponse, ExplorerBuilderDocument } from '../src/types';
 
-// A read-only mock of the ordinary-document adapter. Every occurrence, binding
-// and operation comes from the test's current saved document; it supplies no
-// inferred imported provenance and no result-row oracle.
 export function ordinaryNetworkFixture(document: ExplorerBuilderDocument, args: DescribeAuthoringNetworkArgs): AuthoringNetworkResponse {
   if (document.importedRecipe) throw new Error('Pinned sources require an explicit server-network fixture.');
   type Stage = AuthoringNetworkResponse['rowIdentity']['stages'][number];

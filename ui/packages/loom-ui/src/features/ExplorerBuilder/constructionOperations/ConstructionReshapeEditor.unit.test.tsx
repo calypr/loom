@@ -1154,7 +1154,7 @@ describe('ConstructionReshapeEditor', () => {
       constructionChoice: undefined,
     };
     const browseFrameSourceOptions = vi.fn().mockResolvedValue({ snapshotToken: 'snapshot', outputId: 'table', sources: [source], complete: true, truncated: false });
-    // An unscoped catalog page starts with another binding; coded choices should use the signed family instead.
+
     const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string; readonly cursor?: string }) => {
       const scope = { state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'unproven' };
       if (!request.sourceChoiceId) return Promise.resolve({ ...scope, entries: [unrelatedItem], nextCursor: 'next-coded-page' });
@@ -1673,7 +1673,7 @@ describe('ConstructionReshapeEditor', () => {
       },
     ];
     const browseSemanticInventory = vi.fn((request: { readonly sourceChoiceId?: string; readonly query?: string }) => Promise.resolve({
-      // The saved category is reauthorized by exact family-scoped lookup.
+
       state: 'complete', contextToken: 'coded-context', buildId: 'coded-build', sourceAvailability: 'unproven',
       entries: request.query ? [inventoryEntries[0]] : inventoryEntries,
     }));
@@ -4965,7 +4965,6 @@ describe('pivot discovery availability state', () => {
   });
 });
 
-
 const unpivotScalarStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
   ...sourceStage,
   capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
@@ -4988,9 +4987,7 @@ describe('unpivot signed unselected-field melt inputs', () => {
 
   it('melts a signed field and emits a request that passes the strict contract schemas', () => {
     const capabilities = unpivotCapabilities({ supported: true, stageId: unpivotScalarStage.id, choices: unpivotWireChoices });
-    // Anti-masking (ROW-SOURCE-01 lesson): the fixture must be the exact
-    // server wire shape — the strict response schema rejects even an extra
-    // pivot-style field on a choice, so a zod-level mismatch cannot hide.
+
     const parsed = constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify(capabilities)));
     expect(parsed.unpivotSourceInput?.choices).toHaveLength(2);
     const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();
@@ -5010,13 +5007,7 @@ describe('unpivot signed unselected-field melt inputs', () => {
       outputId: 'table-1', changedStepId: intent?.changedStepId,
       candidateConstruction: intent?.candidateConstruction, unpivotSources: intent?.unpivotSources,
     });
-    // Contract-twin replay evidence: the exact UI-emitted propose body is
-    // captured here (env opt-in, mirroring the BUILDER_CONTRACT_OUTPUT
-    // formal-test pattern) and fed to the server-owned fiber contract twin
-    // (internal/server/openapi_explorer_construction_unpivot_source_test.go),
-    // which POSTs this same wire shape through the live HTTP stack. The
-    // evidence run sets RS02_UNPIVOT_UI_CAPTURE; assertions above and below
-    // run unconditionally either way.
+
     const capturePath = process.env.RS02_UNPIVOT_UI_CAPTURE;
     if (capturePath) {
       mkdirSync(dirname(capturePath), { recursive: true });
@@ -5037,11 +5028,6 @@ describe('unpivot signed unselected-field melt inputs', () => {
     expect([...rowSelect.querySelectorAll('option')].map((option) => option.value)).not.toContain('source:choice-hidden');
   });
 
-  // F-B durable: the server's canonical string-family spelling is
-  // 'date_time' (lower.TableReshapeScalarKind / unpivot_source.go). The
-  // editor's scalar gate must accept it, or a date_time melt row — public or
-  // signed — silently falls to the incomplete form (pre-fix proof
-  // /tmp/opencode/upsrc-run-3/FAIL-melt_proposal_ready.html).
   it('melts a signed date_time field to a proposal-ready candidate and lists a public date_time column', () => {
     const stage = {
       ...unpivotScalarStage,
@@ -5161,7 +5147,6 @@ describe('unpivot signed unselected-field melt inputs', () => {
   });
 });
 
-// Migrated from row06_round2_reshape_attacks.unit.test.tsx.
 {
 const unpivotColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
   { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' },
@@ -5278,7 +5263,6 @@ describe('ROW-SOURCE-06 round-2 attacks (ConstructionReshapeEditor unpivot)', ()
 });
 }
 
-// Migrated from row07_round2_attacks.unit.test.tsx.
 {
 const projection = (columnId: string, fieldPath: string): NonNullable<Construction['sourceProjections']>[number] => ({
   columnId,
@@ -5397,25 +5381,24 @@ describe('ATTACK 5 unpivot add-source-field under full suppression', () => {
       choices: [populatedChoice('choice-a', 'root.value', 'unpivot-input')],
       selectedColumns: [],
     });
-    // Pre-toggle: button hidden because availableSourceChoices is empty.
+
     expect(screen.queryByTestId('construction-reshape-unpivot-add-source-field')).toBeNull();
     fireEvent.click(screen.getByLabelText('Unpivot Patient reference'));
     fireEvent.click(screen.getByLabelText('Unpivot Melt two'));
     expect(screen.queryByTestId('construction-reshape-unpivot-add-source-field')).toBeNull();
-    // Both inputs are ordinary table columns; nothing got a second materialization path.
+
     expect(unpivotSourceGroup(0)?.querySelectorAll('option').length ?? 0).toBe(0);
     expect(unpivotSourceGroup(1)?.querySelectorAll('option').length ?? 0).toBe(0);
     const selects = [0, 1].map((index) => screen.getByTestId(`construction-reshape-unpivot-input-${index}-column`) as HTMLSelectElement);
     expect(selects.map((select) => select.value)).toEqual(['opaque-a', 'opaque-b']);
     expect(screen.queryByText(/has no values in this dataset yet/)).toBeNull();
-    // Nothing to click → clicking the (absent) target is provably a no-op.
+
     const button = screen.queryByTestId('construction-reshape-unpivot-add-source-field');
     expect(button).toBeNull();
   });
 });
 }
 
-// Migrated from row07_existing_column_reuse.unit.test.tsx.
 {
 const projection = (columnId: string, fieldPath: string): NonNullable<Construction['sourceProjections']>[number] => ({
   columnId,
@@ -5525,7 +5508,6 @@ describe('ROW-SOURCE-07 unpivot lane', () => {
 });
 }
 
-// Migrated from row08_signed_expand.unit.test.tsx.
 {
 const baseColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
   { id: 'site-id', name: 'site', label: 'Site', type: 'string', cardinality: 'required_one' },
@@ -5539,7 +5521,7 @@ const baseStage: ConstructionReshapeEditorProps['capabilities']['selectedStage']
     { kind: 'PIVOT', supported: false, reason: 'not needed' },
     { kind: 'UNPIVOT', supported: false, reason: 'not needed' },
     { kind: 'GROUP', supported: true },
-    // Server gate closed: the signed lane must still open on its own.
+
     { kind: 'EXPAND', supported: false, reason: 'no public array columns' },
   ],
 });
@@ -5625,7 +5607,7 @@ describe('signed EXPAND source lane', () => {
     expect(step?.operation.kind).toBe('EXPAND');
     if (step?.operation.kind !== 'EXPAND') throw new Error('expected expand step');
     expect(step.operation.expand.inputColumnId).toBe(intent?.expandSources?.[0]?.columnId);
-    // The client never authors the trusted payload; the server signs it.
+
     expect(step.operation.expand.expandedField).toBeUndefined();
   });
 

@@ -177,7 +177,7 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 	})
 
 	t.Run("stored-value-legacy", func(t *testing.T) {
-		collection, createdCollection := newObservationMigrationCollection(t, client)
+		collection := newMigrationTestCollection(t, client)
 		oldFields := append([]string(nil), previewQuantityCategoryLegacyFields...)
 		oldName := previewCoveringIndexNameWithStoredValues("Observation", oldFields, previewQuantityCategoryStoredValues)
 		newName := previewCoveringIndexNameWithStoredValues("Observation", append(append([]string(nil), oldFields...), "resourceType"), previewQuantityCategoryStoredValues)
@@ -192,17 +192,6 @@ func TestPreviewSupersededIndexMigrationAgainstArango(t *testing.T) {
 			t.Fatalf("disposable test DB already has replacement index %q", newName)
 		}
 		old := createMigrationTestIndexExact(t, ctx, collection, oldName, oldFields, previewQuantityCategoryStoredValues)
-		t.Cleanup(func() {
-			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = collection.DeleteIndexByID(cleanup, old.ID)
-			if current, ok := findIndexByName(indexesForCleanup(cleanup, collection), newName); ok {
-				_ = collection.DeleteIndexByID(cleanup, current.ID)
-			}
-			if createdCollection {
-				_ = collection.RemoveWithOptions(cleanup, nil)
-			}
-		})
 		candidates, err := migratePreviewSupersededCollection(ctx, "Observation", collection, true)
 		if err != nil || len(candidates) != 1 {
 			t.Fatalf("stored-value dry-run candidates=%+v err=%v", candidates, err)
@@ -252,31 +241,6 @@ func TestPreviewSupersededIndexClassificationRejectsHashAndTypeMismatch(t *testi
 	if _, ok := previewSupersededCandidate("Observation", driver.IndexResponse{Type: driver.IndexType("hash"), RegularIndex: legacy.RegularIndex, IndexSharedOptions: legacy.IndexSharedOptions}); ok {
 		t.Fatal("non-persistent index was classified for deletion")
 	}
-}
-
-func newObservationMigrationCollection(t *testing.T, client *Client) (driver.Collection, bool) {
-	t.Helper()
-	exists, err := client.db.CollectionExists(context.Background(), "Observation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if exists {
-		collection, err := client.db.GetCollection(context.Background(), "Observation", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return collection, false
-	}
-	collection, err := client.db.CreateCollectionV2(context.Background(), "Observation", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return collection, true
-}
-
-func indexesForCleanup(ctx context.Context, collection driver.Collection) []driver.IndexResponse {
-	indexes, _ := collection.Indexes(ctx)
-	return indexes
 }
 
 func newMigrationTestCollection(t *testing.T, client *Client) driver.Collection {

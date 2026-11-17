@@ -67,10 +67,6 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 	return validateConstructionStepOwnership(c)
 }
 
-// ValidateWithExplicitGroups checks authored operations against the effective
-// sequence formed by inserting the compiler-owned cohort stage at its saved
-// boundary. References remain immediate: only the first operation after the
-// cohort may consume the virtual group_rows stage.
 func (c *Construction) ValidateWithExplicitGroups(sourceColumns []Column, groups *GroupedRows) error {
 	if groups == nil {
 		return c.Validate(sourceColumns)
@@ -405,8 +401,6 @@ func validatePivotSourceProjection(construction *Construction, projection Constr
 	return nil
 }
 
-// ConstructionCanCarrySourceProjection reports whether an operation preserves
-// a root scalar source field in its output schema.
 func ConstructionCanCarrySourceProjection(kind ConstructionOperationKind) bool {
 	switch kind {
 	case ConstructionOperationDerive, ConstructionOperationFilter, ConstructionOperationExpand,
@@ -1184,9 +1178,6 @@ func constructionPivotScalarKind(typeName string) (string, bool) {
 	}
 }
 
-// constructionPivotTypeIsScalar reports whether a declared stage type can be a
-// pivot operand. known is false when the schema only carries an unresolved hint
-// (empty or INFER), in which case the compiler remains the authority.
 func constructionPivotTypeIsScalar(typeName string) (scalar, known bool) {
 	normalized := strings.ToLower(strings.TrimSpace(typeName))
 	if normalized == "" || normalized == "infer" {

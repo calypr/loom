@@ -1978,7 +1978,6 @@ describe('Loom project paths', () => {
     }
   });
 
-
   it('preserves standalone project identifiers', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } }),
@@ -2457,8 +2456,7 @@ describe('prepared dataset artifact identity', () => {
     state: 'COMPLETE', format: 'CSV', filename: 'complete-patients.zip', mediaType: 'application/zip', archiveSha256: 'b'.repeat(64),
     bytes: 1024, rows: 2, features: 2, createdAt: '2026-10-31T00:00:00Z', completedAt: '2026-10-31T00:00:01Z', expiresAt: '2026-11-01T00:00:00Z',
   });
-  // Four independent Boolean dimensions, enumerating all 16 matching/foreign
-  // responses. Only the all-matching input is authorized for this request.
+
   it.each(Array.from({ length: 16 }, (_, mask) => mask))('rejects every foreign identity combination: mask %i', async mask => {
     const response = {
       ...validArtifact(),
@@ -2633,6 +2631,5 @@ describe('configured-column interpretation APIs', () => {
       expectedDraftDigest: 'draft-digest-3',
     })).rejects.toThrow('different saved draft');
   });
-
 
 });

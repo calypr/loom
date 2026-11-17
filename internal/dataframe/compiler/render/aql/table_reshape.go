@@ -408,8 +408,7 @@ func groupedPivotListedPredicate(pivot ir.PhysicalGroupedPivot, itemVariable, ca
 		if categoryPresenceBind != "" {
 			present = fmt.Sprintf("%s[@%s] == true", itemVariable, categoryPresenceBind)
 		}
-		// Keep shared guards outside the category alternatives. Negating an
-		// OR of repeated conjunctions makes optimizer normalization explode.
+
 		matches = append(matches, fmt.Sprintf("(%s AND TYPENAME(%s) == @%s AND %s IN [%s])", present, column, categoryTypeBind, column, strings.Join(values, ", ")))
 	}
 	return "(" + strings.Join(matches, " OR ") + ")", nil

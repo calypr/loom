@@ -94,7 +94,7 @@ func TestStoreOpenRejectsArchiveDigestMismatch(t *testing.T) {
 	if _, err := stage.Commit(context.Background(), artifactCompletionFor(original, 1, 1)); err != nil {
 		t.Fatal(err)
 	}
-	// Keep the byte count unchanged so the digest check is the rejecting guard.
+
 	if err := os.WriteFile(store.path(record.ID, ".zip"), []byte("tamper!"), 0o600); err != nil {
 		t.Fatal(err)
 	}

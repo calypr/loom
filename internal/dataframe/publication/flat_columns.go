@@ -6,9 +6,6 @@ import (
 	"unicode"
 )
 
-// FlatColumnName is the stable column contract for Explorer-facing dataframe
-// indexes. Root fields carry the root resource/table prefix; traversal fields
-// already carry their alias path and remain unchanged.
 func FlatColumnName(resourceType, name string) string {
 	if name == "" || name == "auth_resource_path" || name == "project_id" || name == "_key" || strings.HasPrefix(name, "__loom_") || strings.Contains(name, "__") {
 		return name
@@ -31,8 +28,6 @@ func flatResourcePrefix(resourceType string) string {
 	return builder.String()
 }
 
-// QualifyFlatRow applies the same naming contract as FlatColumnName and
-// rejects source fields that would collapse onto one published column.
 func QualifyFlatRow(resourceType string, row map[string]any) (map[string]any, error) {
 	if row == nil {
 		return nil, nil

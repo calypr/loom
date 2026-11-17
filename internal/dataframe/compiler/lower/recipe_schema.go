@@ -1,9 +1,5 @@
 package lower
 
-// This file contains the canonical recipe lowering boundary. Persisted
-// recipes are a frontend: after resolution each output is lowered to the same
-// ir.PhysicalPlan used by the GraphQL dataframe compiler.
-
 import (
 	"fmt"
 	"strings"
@@ -15,15 +11,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
-// CompiledRecipe is orchestration metadata around one canonical physical plan
-// per output.  It deliberately contains no recipe-specific traversal,
-// projection, or renderer structures.  Output order is the persisted recipe
-// order and therefore part of the stable materialization contract.
-// recipeOutputSchema is the single schema capture point for recipe outputs.
-// Names and order come from the physical RETURN operation after all recipe
-// identity and bounded dynamic projections have been appended. Semantic
-// metadata is used only to enrich those already-finalized projections with
-// logical type/cardinality information.
 func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]derivedColumnMetadata) ([]CompiledOutputColumn, error) {
 	if output.GroupRows != nil {
 		columns := []CompiledOutputColumn{
@@ -93,7 +80,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
 				return
 			}
-			// Explicit declarations win collisions under overwrite policies.
+
 			if existing.Discovered && !discovered {
 				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: false}
 			}
@@ -235,8 +222,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			if origin, ok := origins[projection.Name]; ok {
 				column.SourceOrigin = origin
 			}
-			// Dynamic keyed maps are appended after static fields and may deliberately
-			// overwrite them. Preserve the origin of the actual final projection.
+
 			if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalObjectLookupExpression {
 				if origin, ok := dynamicOrigins[projection.Name]; ok {
 					column.SourceOrigin = origin
@@ -265,10 +251,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			}
 			semanticCounts[path]++
 		}
-		// Legacy recipes may intentionally project the same FHIR value more than
-		// once. Keep those columns addressable by qualifying the ambiguous source
-		// with the authored projection name. New recipes should use fieldRef when
-		// they need rename-stable identities for such duplicate projections.
+
 		for index := range result {
 			if !result[index].Internal && semanticCounts[result[index].SemanticPath] > 1 {
 				result[index].SemanticPath += "#" + result[index].Name
@@ -279,9 +262,6 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 	return nil, nil
 }
 
-// recipeSemanticPath produces a storage-independent identity. Explicit
-// fieldRef values are frontend/catalog provenance and are retained verbatim;
-// selector expressions fall back to resource type plus normalized FHIR path.
 func recipeSemanticPath(rootResource, resource, fieldRef string, expr expression.Expression) string {
 	ref := strings.TrimSpace(fieldRef)
 	if ref != "" {

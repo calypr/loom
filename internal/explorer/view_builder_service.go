@@ -17,8 +17,6 @@ func (s *Service) viewBuilderRepository() (ViewBuilderRepository, error) {
 	return repository, nil
 }
 
-// ViewBuilderState reads presentation and exact retained publication metadata.
-// GET does not initialize defaults or adopt a legacy owner's snapshot.
 func (s *Service) ViewBuilderState(ctx context.Context, project string) (ViewBuilderState, error) {
 	repository, err := s.viewBuilderRepository()
 	if err != nil {

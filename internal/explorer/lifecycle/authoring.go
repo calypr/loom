@@ -25,10 +25,6 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	return response.Commands, nil
 }
 
-// ApplyCommandsWithConstructionPreview returns the exact Apply-time preview
-// alongside a successful construction Apply. The sink factory is transport
-// owned and capture failures are best-effort; they never change Apply's
-// existing validation or save behavior.
 func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandApplyConstructionProposal {
 		return nil, malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
@@ -301,7 +297,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, explorerID string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) error {
 	_, err := s.store.Get(ctx, project, explorerID)
 	if err == nil {
-		return nil // Persisted state, including a corrupt draft, takes precedence.
+		return nil
 	}
 	if !errors.Is(err, explorer.ErrNotFound) {
 		return err
@@ -330,8 +326,7 @@ func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, exp
 	if !errors.Is(createErr, explorer.ErrDraftConflict) {
 		return createErr
 	}
-	// Another first Apply may have inserted the exact seed between Get and
-	// Create. Accept only that seed; normal command CAS decides the winner.
+
 	created, err = s.store.Get(ctx, project, explorerID)
 	if err != nil {
 		return err
@@ -607,9 +602,6 @@ func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*exp
 	return result.Receipt, nil
 }
 
-// ReconcileWithWorkspace compiles either the complete saved workspace or one
-// output and its current-draft dependency closure, while returning the full
-// CAS-validated workspace for Builder clients.
 func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileRequest) (ReconcileResult, error) {
 	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 0 {
 		return ReconcileResult{}, malformed("reconcile", "snapshotToken, draftVersion, and draftDigest are required", nil)

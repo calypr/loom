@@ -54,9 +54,6 @@ func unpivotMeltOutputs(extra ...authoringv2.StageColumn) []authoringv2.StageCol
 	return outputs
 }
 
-// unpivotSourceBSSnapshot reuses the BodyStructure fixture where `active`
-// (boolean) and `id` (string) are populated scalars, `description` is an
-// unpopulated string, and `patient` is a reference.
 func unpivotSourceBSSnapshot(token string) capability.Snapshot {
 	return deriveSourceSnapshot(token)
 }
@@ -89,8 +86,6 @@ func unpivotBSSelections(t *testing.T, snapshot capability.Snapshot, path, colum
 	return ConstructionUnpivotSourceSelection{ChoiceID: deriveSourceRowChoice(t, snapshot, deriveSourceRootType, path).ChoiceID, ColumnID: columnID}
 }
 
-// (a) Discovery offers populated root scalars of the four compiler melt kinds
-// and never the unpopulated or reference fields.
 func TestConstructionUnpivotSourceCapabilityExposesPopulatedUnselectedRootScalars(t *testing.T) {
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-bs")
 	service := deriveSourceService(t)
@@ -132,7 +127,6 @@ func TestConstructionUnpivotSourceCapabilityExposesPopulatedUnselectedRootScalar
 	}
 }
 
-// Discovery reports the honest reason when no populated melt kind exists.
 func TestConstructionUnpivotSourceCapabilityReportsNoEligibleFields(t *testing.T) {
 	snapshot := unpivotSourceEmptySnapshot("unpivot-source-empty")
 	service := deriveSourceService(t)
@@ -146,10 +140,6 @@ func TestConstructionUnpivotSourceCapabilityReportsNoEligibleFields(t *testing.T
 	}
 }
 
-// The kind gate is pure logic and must admit exactly the compiler melt class:
-// lower.TableReshapeScalarKind maps STRING/DATE/DATE_TIME/CODE/UUID to the
-// STRING physical class, so date, date_time, code, and uuid root scalars are
-// legitimate melt value columns (finding F-1).
 func TestUnpivotSourceLogicalTypeIsTableScalarAdmitsOnlyCompilerKinds(t *testing.T) {
 	for _, want := range []string{"string", "integer", "decimal", "boolean", "date", "date_time", "code", "uuid", " STRING", "Decimal ", "BOOLEAN", " Date "} {
 		if !unpivotSourceLogicalTypeIsTableScalar(want) {
@@ -163,10 +153,6 @@ func TestUnpivotSourceLogicalTypeIsTableScalarAdmitsOnlyCompilerKinds(t *testing
 	}
 }
 
-// The lane's own admission = compiler delegation minus the date family
-// (operator decision #4). The trim+lowercase canonicalization matches the
-// compiler's, so no alias reaches an eligible verdict, and every kind the
-// compiler refuses stays refused.
 func TestUnpivotSourceMeltEligibilityExcludesDateFamily(t *testing.T) {
 	for _, want := range []string{"string", "integer", "decimal", "boolean", "code", "uuid", " STRING", "Decimal ", "BOOLEAN"} {
 		if !unpivotSourceLogicalTypeIsMeltEligible(want) {
@@ -180,9 +166,6 @@ func TestUnpivotSourceMeltEligibilityExcludesDateFamily(t *testing.T) {
 	}
 }
 
-// Permanent whitelist-drift guard: the signed channel's melt gate is the
-// compiler decision itself. This set-equality table fails if anyone adds a
-// local kind set back to either side.
 func TestUnpivotSourceWhitelistIsTheCompilerDecision(t *testing.T) {
 	corpus := map[string]struct {
 		admitted bool
@@ -215,13 +198,6 @@ func TestUnpivotSourceWhitelistIsTheCompilerDecision(t *testing.T) {
 	}
 }
 
-// The joint satisfiability rule is the compiler's own compatibility predicate
-// applied to the physical class each logical kind lowers to. An unsatisfiable
-// melt must be refused by class, never by silently dropping kinds the channel
-// has not yet classified. On top of that, the unpivot lane refuses the date
-// family outright (operator decision #4): the compiler maps date and
-// date_time to the STRING class, but compiler parity is not consent for this
-// channel, so any melt carrying a date-family kind is unsatisfiable.
 func TestUnpivotMeltKindsSatisfiableFollowsCompilerRule(t *testing.T) {
 	for _, ok := range [][]string{nil, {}, {"integer"}, {"decimal"}, {"integer", "decimal"}, {"decimal", "integer"}, {" string "}, {"boolean"}, {"BOOLEAN", "boolean"}, {"code", "uuid", "string"}, {"Code", " STRING"}} {
 		if !unpivotMeltKindsSatisfiable(ok) {
@@ -235,7 +211,6 @@ func TestUnpivotMeltKindsSatisfiableFollowsCompilerRule(t *testing.T) {
 	}
 }
 
-// (c) A token from another snapshot, or a tampered token, is refused.
 func TestConstructionUnpivotSourceRefusesForgedAndCrossSnapshotChoices(t *testing.T) {
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-current")
 	other := unpivotSourceBSSnapshot("unpivot-source-other")
@@ -269,9 +244,6 @@ func TestConstructionUnpivotSourceRefusesForgedAndCrossSnapshotChoices(t *testin
 	}
 }
 
-// The melt-kind gate is enforced on admission, not only display: the planner
-// still issues a signed token for a scalar date field, so the resolution
-// boundary must refuse it.
 func unpivotNumberCandidate() capability.Candidate {
 	return capability.Candidate{
 		ID: "candidate-deceased-number", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "deceasedBoolean",
@@ -282,9 +254,6 @@ func unpivotNumberCandidate() capability.Candidate {
 	}
 }
 
-// A declared number aggregate is a construction source type but the physical
-// table compiler refuses it as a melt value column, so admission (and not a
-// later compile failure) must refuse it by name.
 func TestConstructionUnpivotSourceRejectsNonScalarKindOnAdmission(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
@@ -305,11 +274,6 @@ func TestConstructionUnpivotSourceRejectsNonScalarKindOnAdmission(t *testing.T) 
 	}
 }
 
-// Operator decision #4: the unpivot melt lane refuses the date family even
-// though the compiler maps it to the STRING class. The planner still issues
-// a signed token for a scalar date/date_time field, so admission must refuse
-// it by name rather than fabricate an accepted melt the compiler would then
-// build with silently lossy date-to-string semantics.
 func TestConstructionUnpivotSourceRefusesDateFamilyOnAdmission(t *testing.T) {
 	for _, row := range []struct {
 		id, fieldPath, label, logicalType string
@@ -340,9 +304,6 @@ func TestConstructionUnpivotSourceRefusesDateFamilyOnAdmission(t *testing.T) {
 	}
 }
 
-// Operator decision #4: the discovery list must hide the date family, not
-// advertise a field that admission then refuses. Permitted melt kinds stay
-// advertised — the integer root scalar is the regression lock on this side.
 func TestConstructionUnpivotSourceCapabilityExcludesDateMeltKind(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
@@ -380,8 +341,6 @@ func TestConstructionUnpivotSourceCapabilityExcludesDateMeltKind(t *testing.T) {
 	}
 }
 
-// (b) A valid selection durably owns exactly one server-derived projection,
-// the melt's carrier steps list the slot, and the melt's own outputs do not.
 func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
@@ -452,7 +411,6 @@ func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *
 	}
 }
 
-// The row-preserving prefix allow-list is enforced, not trust-me coded.
 func TestConstructionUnpivotSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	group := filterSourceGroupStep()
@@ -484,9 +442,6 @@ func TestConstructionUnpivotSourceCannotCrossRowChangingPrefix(t *testing.T) {
 	}
 }
 
-// A selection the melt does not declare as a value input is refused, and the
-// joint scalar-kind rule refuses a melt outside the compiler's compatibility
-// predicate.
 func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.T) {
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-kinds")
 	service := deriveSourceService(t)
@@ -535,8 +490,6 @@ func TestConstructionUnpivotSourceColumnMismatchAndIncompatibleKinds(t *testing.
 	}
 }
 
-// A signed slot whose field is already an authored column of the table is
-// refused with the shared refuse-not-dedupe decision.
 func TestConstructionUnpivotSourceRefusesSecondCarrierOfSameField(t *testing.T) {
 	snapshot := unpivotSourceBSSnapshot("unpivot-source-collision")
 	service := deriveSourceService(t)
@@ -574,7 +527,6 @@ func TestConstructionUnpivotSourceRefusesSecondCarrierOfSameField(t *testing.T) 
 	}
 }
 
-// Dropping the selections strips the projections from the carriers.
 func TestConstructionUnpivotSourceRemovalStripsProjection(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
@@ -619,7 +571,6 @@ func TestConstructionUnpivotSourceRemovalStripsProjection(t *testing.T) {
 	}
 }
 
-// An omitted unpivotSources channel is a no-op on the candidate.
 func TestConstructionUnpivotSourceLeavesSelectedColumnBehaviorUnchanged(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
@@ -639,7 +590,6 @@ func TestConstructionUnpivotSourceLeavesSelectedColumnBehaviorUnchanged(t *testi
 	}
 }
 
-// Duplicate or blank selection facts are refused at the request boundary.
 func TestConstructionUnpivotSourceSelectionsRequireExactDeduplicatedFacts(t *testing.T) {
 	duplicate := unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{
 		{ChoiceID: "rc1.a.b", ColumnID: "c1"}, {ChoiceID: "rc1.a.b", ColumnID: "c2"},
@@ -664,7 +614,6 @@ func TestConstructionUnpivotSourceSelectionsRequireExactDeduplicatedFacts(t *tes
 	}
 }
 
-// (g) The advertised choice object is EXACTLY the six pinned wire fields.
 func TestConstructionUnpivotSourceChoiceWireShapeIsExactlySixFields(t *testing.T) {
 	wantFields := map[string]bool{"choiceId": true, "fieldPath": true, "label": true, "logicalType": true, "isPopulated": true, "columnId": true}
 	structFields := make(map[string]bool, reflect.TypeOf(ConstructionUnpivotSourceChoice{}).NumField())
@@ -695,8 +644,6 @@ func TestConstructionUnpivotSourceChoiceWireShapeIsExactlySixFields(t *testing.T
 	}
 }
 
-// The advertised columnId only survives while the owner melt still declares
-// this exact slot as a value input at this exact stage.
 func TestConstructionUnpivotSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSigned(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
@@ -757,8 +704,6 @@ func TestConstructionUnpivotSourceCapabilityAdvertisesDurableColumnIdOnlyWhileSi
 	}
 }
 
-// (a, wiring) GetConstructionCapabilities assembles unpivotSourceInput beside
-// the pivot, filter, and derive source inputs.
 func TestGetConstructionCapabilitiesAssemblesUnpivotSourceInputBesideDeriveSourceInput(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	capabilities, err := harness.service.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{
@@ -800,8 +745,6 @@ func TestGetConstructionCapabilitiesAssemblesUnpivotSourceInputBesideDeriveSourc
 	}
 }
 
-// (b) Through ProposeConstruction with the real compiler, the accepted
-// candidate melts the unselected field's compiled slot.
 func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	carriers := append(deriveSourcePatientIdentityColumns(), authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
@@ -878,9 +821,6 @@ func TestProposeConstructionUnpivotSourceMeltsUnselectedFieldWithRealCompiler(t 
 	}
 }
 
-// unpivotSaveDraftPublicNote saves the draft with one extra public authored
-// field column (Patient.gender, string) so a signed STRING-class melt input
-// has a compiler-compatible public partner without touching shared fixtures.
 func unpivotSaveDraftPublicNote(t *testing.T, harness *unpivotSourceHarness, construction authoringv2.Construction) {
 	t.Helper()
 	workspace, err := authoringv2.DecodeWorkspace(harness.store.created.DraftConfig)
@@ -916,11 +856,6 @@ func unpivotSaveDraftPublicNote(t *testing.T, harness *unpivotSourceHarness, con
 	harness.store.created.DraftConfig, harness.store.created.DraftDigest = draft, digest
 }
 
-// Operator decision #4 accept-side: the durable proposal path (real compiler
-// wiring) must refuse a signed date/date_time melt with the named code, not
-// preview it. Before the refusal shipped this reached PREVIEW_PENDING at 200
-// (authority /tmp/opencode/jrev/probe-date-melt-dp4.log; finding F-1's
-// accept-side lock was inverted by the operator ruling).
 func TestProposeConstructionUnpivotSourceRefusesDateFamilyWithRealCompiler(t *testing.T) {
 	for _, row := range []struct {
 		id, fieldPath, label, logicalType string
@@ -986,8 +921,6 @@ func TestProposeConstructionUnpivotSourceRefusesDateFamilyWithRealCompiler(t *te
 	}
 }
 
-// Operator decision #4 regression lock, same harness shape as the refusal
-// above: the permitted STRING class still melts through the real compiler.
 func TestProposeConstructionUnpivotSourceStillMeltsSignedStringWithRealCompiler(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
@@ -1053,10 +986,6 @@ func TestProposeConstructionUnpivotSourceStillMeltsSignedStringWithRealCompiler(
 	}
 }
 
-// Operator decision #4 joint gate: an integer+date melt must be refused by
-// name. The per-selection date admission refusal fires before the class
-// compatibility rule for the signed date field, so the honest code is the
-// date-family refusal, not the generic UNPIVOT_SOURCE_TYPES_INCOMPATIBLE.
 func TestProposeConstructionUnpivotSourceRefusesIntegerWithDateMelt(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
@@ -1098,7 +1027,6 @@ func TestProposeConstructionUnpivotSourceRefusesIntegerWithDateMelt(t *testing.T
 	}
 }
 
-// (6) An accepted proposal whose field stops qualifying is refused at Apply.
 func TestApplyConstructionProposalRefusesStaleUnpivotSourceBinding(t *testing.T) {
 	for _, stale := range []bool{false, true} {
 		name := "current"
@@ -1196,8 +1124,6 @@ func decodeConstruction(construction authoringv2.Construction) (authoringv2.Cons
 	}
 	return clone, nil
 }
-
-// --- ROW-SOURCE-03 S-A: precise per-skipped-class lane reason codes -------
 
 func TestConstructionUnpivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
 	index, err := fhirschema.GeneratedIndex()
@@ -1409,17 +1335,6 @@ func TestConstructionUnpivotSourceCapabilityNamesInventoryFailureDistinctly(t *t
 	}
 }
 
-// The unpivot lane's advertised offer label is produced by the shared lane
-// label builder (constructionFieldDisplayLabel, construction_pivot_source.go):
-// the authorized candidate's schema-Title label wins over the planner
-// row-choice display, a blank candidate falls through to the choice display,
-// and a candidate carrying a Unicode control byte is refused (skipped) so the
-// builder never returns control bytes for this lane. The builder's own
-// refusal is unit-pinned in construction_pivot_source_test.go and the
-// expand lane's candidate-wins ordering in expand_source_test.go; this is
-// the only check that the unpivot offer call site (unpivot_source.go)
-// routes candidate and choice displays through the builder, and the only
-// per-call-site pin of the blank and control-byte fall-through ordering.
 func TestConstructionUnpivotSourceAdvertisedLabelsFollowBuilderPrecedence(t *testing.T) {
 	baseCase := func(t *testing.T) (capability.Snapshot, string) {
 		t.Helper()

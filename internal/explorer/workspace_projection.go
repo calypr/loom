@@ -11,8 +11,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// WorkspaceArtifact identifies the original immutable authoring packet. A
-// projection never changes that packet or its receipt/publication identity.
 type WorkspaceArtifact struct {
 	Kind, Project, ExplorerID, ID string
 	RawDigest, IntentDigest       string
@@ -33,8 +31,7 @@ type WorkspaceProjectionReader interface {
 }
 
 func workspaceBytesDigest(raw []byte) string {
-	// Arango's raw cursor and map-based record reader can order object keys
-	// differently. Preserve JSON numbers while ignoring object-key order.
+
 	if json.Valid(raw) {
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.UseNumber()
@@ -103,8 +100,6 @@ func (s *Service) RevisionWorkspace(ctx context.Context, revision Revision) (aut
 	return workspace, err
 }
 
-// DraftRevisionWorkspace returns the authenticated digest of the current
-// projection separately from the original history record's stored digest.
 func (s *Service) DraftRevisionWorkspace(ctx context.Context, revision DraftRevision) (authoringv2.Workspace, string, error) {
 	return s.artifactWorkspace(ctx, DraftWorkspaceArtifact(revision), revision.DraftConfig)
 }

@@ -14,9 +14,7 @@ func TestIndependentRelatedExpansionsRejectTwoByThreeProduct(t *testing.T) {
 	}
 	observations := makeStep("two-observations", "_key", "observations", "observation")
 	conditions := makeStep("three-conditions", "_key", "conditions", "condition")
-	// Multiplicity is independent fixture knowledge, never inferred from a
-	// resource label or preview sample. The plan must fail before a six-row
-	// product could execute, regardless of the actual observed counts.
+
 	err := (&Construction{Version: ConstructionVersion, Steps: []ConstructionStep{observations, conditions}}).Validate(nil)
 	if err == nil || !strings.Contains(err.Error(), "INDEPENDENT_RELATED_EXPANSIONS_UNSUPPORTED") {
 		t.Fatalf("independent branches accepted: %v", err)

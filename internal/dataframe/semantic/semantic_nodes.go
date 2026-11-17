@@ -7,9 +7,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// SemanticNode is the canonical backend-independent graph node used by every
-// dataframe frontend. Runtime request provenance belongs in ExecutionContext,
-// while output-specific shaping belongs in OutputPlan.
 type SemanticNode struct {
 	OccurrenceID string
 	Alias        string
@@ -33,10 +30,7 @@ type SemanticField struct {
 	Label     string
 	FieldRef  string
 	SourceKey string
-	// Expr and Fallbacks are the checked semantic expressions that produced
-	// this field. Selectors are intentionally derived from these expressions
-	// at the physical boundary; keeping both representations here allowed the
-	// recipe planner and lowerer to silently diverge.
+
 	Expr       SemanticExpression
 	Fallbacks  []SemanticExpression
 	Projection spec.ProjectionMode
@@ -64,15 +58,12 @@ type SemanticPivot struct {
 	ProjectionMode            string
 	Family                    string
 	Discovered                bool
-	// Correlation is the closed system+code/value binding used when a pivot
-	// must preserve one Coding and one owning repeated item. Nil retains the
-	// legacy validated pivot path.
+
 	Correlation        *fhirschema.CorrelatedBinding
 	CorrelationSystem  string
 	CorrelationCode    string
 	CorrelationVersion string
-	// ExtensionCorrelation carries the checked ancestor-aware extension
-	// binding. It shares the physical correlation IR with terminology pivots.
+
 	ExtensionCorrelation *fhirschema.ExtensionBinding
 }
 
@@ -88,16 +79,13 @@ type SemanticAggregate struct {
 	OutputName string
 	Operation  string
 	FieldRef   string
-	// Predicate is the complete canonical typed contributor predicate. It is
-	// retained until physical lowering so operator, quantifier, kind, and value
-	// cannot diverge across compiler stages.
+
 	Predicate      *spec.TypedFilter
 	Selector       *spec.Selector
 	ValueMode      string
 	RequiredValues []string
 	ValueKind      expression.ValueKind
-	// UnitNormalization is compiler-resolved and contains the pinned registry
-	// rules. Authoring/recipe references do not cross this boundary.
+
 	UnitNormalization  *unit.UnitNormalization
 	UnitSystemSelector *spec.Selector
 	UnitCodeSelector   *spec.Selector

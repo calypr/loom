@@ -9,8 +9,6 @@ import (
 	"github.com/calypr/loom/internal/fhir/schema"
 )
 
-// Occurrence describes one object reached through a generated type reference.
-// RawJSON contains a copy of the exact JSON value for that object.
 type Occurrence struct {
 	RootDefinition     schema.DefinitionName
 	ReferencedType     schema.DefinitionName
@@ -21,15 +19,12 @@ type Occurrence struct {
 	RawJSON            json.RawMessage
 }
 
-// RepeatedBoundary records one concrete array item along an occurrence path.
 type RepeatedBoundary struct {
 	CanonicalPath string
 	OwnerPath     string
 	Index         int
 }
 
-// Walk reports referenced datatype objects found under root. Paths use [] for
-// repeated boundaries and indexes in OwnerPath to retain each concrete owner.
 func Walk(index *schema.Index, root schema.DefinitionName, payload []byte, visit func(Occurrence) error) error {
 	if index == nil {
 		return fmt.Errorf("walk FHIR definition %q: schema index is nil", root)

@@ -11,7 +11,6 @@ export interface RowConnectionTerm {
   readonly matchMode: 'OPTIONAL' | 'REQUIRED';
 }
 
-/** Display-only traversal of the complete authoritative document, including unknown catalog paths. */
 export function rowConnectionTerms(route: ExplorerBuilderRouteNode): readonly RowConnectionTerm[] {
   const terms: RowConnectionTerm[] = [];
   const walk = (node: ExplorerBuilderRouteNode, path: string, parentOccurrenceId?: string) => {
@@ -107,7 +106,6 @@ export function operationExpression(step: ConstructionStep, labels: ReadonlyMap<
   }
 }
 
-/** Compact notation prototype built from the same document as the editable clause layout. */
 export function rowRecipeSentence(document: ExplorerBuilderDocument, network?: AuthoringNetworkResponse['network']): string {
   const connections = rowConnectionTerms(document.route).filter((term) => term.parentOccurrenceId);
   const labels = expressionColumnLabels(document);

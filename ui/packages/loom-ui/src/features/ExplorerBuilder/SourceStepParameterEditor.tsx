@@ -58,7 +58,6 @@ function OptionalExpression({ label, value, onChange, pathChoices }: { label: st
     {value ? <SourceExpressionEditor label={label} value={value} onChange={onChange} pathChoices={pathChoices} /> : null}</div>;
 }
 
-/** All edits are the canonical typed parameters of one pinned source step. */
 function CatalogChoices({ action, options, values, onChange }: {
   readonly action: string;
   readonly options: ReadonlyArray<string>;

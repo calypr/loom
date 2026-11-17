@@ -1,6 +1,3 @@
-// dataframe-profile compiles one checked-in dataframe fixture and profiles
-// the exact rendered AQL directly against ArangoDB. It is intentionally a
-// diagnostic command: normal dataframe execution never enables PROFILE.
 package main
 
 import (

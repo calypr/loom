@@ -29,9 +29,6 @@ type TableShapeExclusionRefusal struct {
 
 func (e *TableShapeExclusionRefusal) Error() string { return string(e.Code) }
 
-// CompiledTableShapeExclusionQuery is an exact, bounded diagnostic query
-// derived from one finalized output plan. It has no caller-supplied paths or
-// query fragments.
 type CompiledTableShapeExclusionQuery struct {
 	Query                string
 	BindVars             map[string]any
@@ -60,7 +57,7 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidLimit}
 	}
 
-	_ = policy // Diagnostics execute against the exact canonical plan, before publication optimizations.
+	_ = policy
 	physical, err := withGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
 	if err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("prepare table-shape exclusion plan: %w", err)
@@ -90,9 +87,6 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionNoPolicy}
 	}
 
-	// Ordinary Pivot previews omit presence metadata to retain bounded execution.
-	// Diagnostics must recover missing versus explicit null from the exact direct
-	// root projection, rather than HAS on its always-populated projected column.
 	if pivot.CategoryPresence == nil && !pivot.CategoryPresenceFromInput && physical.StageSequence == nil &&
 		len(physical.Operations) > 0 && physical.Operations[0].RootScan != nil {
 		root := physical.Operations[0].RootScan.Variable
@@ -157,9 +151,6 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 	}, nil
 }
 
-// sourceStagePivotForExclusions retains the original source projection and
-// lowers its first current Pivot stage into the existing typed diagnostic
-// boundary. Later stages are deliberately excluded from pre-Pivot evidence.
 func sourceStagePivotForExclusions(plan ir.PhysicalPlan) (ir.PhysicalPlan, error) {
 	sequence := plan.StageSequence
 	if sequence == nil {

@@ -1,8 +1,5 @@
 package server
 
-// These direct production-code witnesses enforce the C01–C19 authoring checks.
-// Frozen schedules run through ordinary Go tests without a separate harness.
-
 import (
 	"context"
 	"encoding/json"
@@ -29,11 +26,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
-
-// Frozen core protocol schedules exercise production authoring handlers and
-// compare their observable responses, receipt state and ordered call events
-// with the expected behavior captured in testdata. The separate Arango witness
-// remains in core_authoring_protocol_arango_conformance_test.go.
 
 const (
 	coreProtocolReplayProject         = "project-a"
@@ -71,10 +63,6 @@ type coreProtocolReplayObservation struct {
 	HeadLabel       string `json:"headLabel"`
 	Error           string `json:"error"`
 
-	// Events is the ordered replay log: one entry per real call boundary of
-	// this case, recorded at the awaited call site in production call order.
-	// Each event records the production handler boundary at the point it
-	// completes, preserving call order for the frozen behavior assertion.
 	Events []coreProtocolReplayEvent `json:"events"`
 
 	reconcileReceiptID string
@@ -107,21 +95,12 @@ func (ob *coreProtocolReplayObservation) event(name string, claims map[string]an
 	return len(ob.Events) - 1
 }
 
-// coreProtocolAbsentHeadDigest stands in for a head identity that was never
-// persisted (schedule S5: reconcile of a head the save never committed).
 const coreProtocolAbsentHeadDigest = "sha256:frozen-absent-head-2-identity"
 
-// coreProtocolConcreteProgram selects the concrete-prefix schedule. The plan's
-// C14 row requires replaying the concrete A -> B -> A prefix whose two A
-// values are treated as equivalent; the program below drives exactly
-// that prefix through the production handlers and records the wire behavior
-// compared with the frozen expected result.
 type coreProtocolConcreteProgram struct {
 	ID string `json:"id"`
 }
 
-// coreProtocolConcreteAttempt records one reconcile call against the
-// production handler: the identity it presented and what the handler did.
 type coreProtocolConcreteAttempt struct {
 	RequestID    string `json:"requestId"`
 	DraftVersion int64  `json:"draftVersion"`
@@ -133,9 +112,6 @@ type coreProtocolConcreteAttempt struct {
 	ReceiptID    string `json:"receiptId,omitempty"`
 }
 
-// coreProtocolConcreteRevision captures one acknowledged draft revision read
-// back through the store seam, so value-equal heads treated as equivalent in
-// the schedule can be proven persisted as distinct revisions.
 type coreProtocolConcreteRevision struct {
 	RevisionID   string `json:"revisionId"`
 	Found        bool   `json:"found"`
@@ -143,12 +119,6 @@ type coreProtocolConcreteRevision struct {
 	DraftDigest  string `json:"draftDigest"`
 }
 
-// coreProtocolConcreteObservation is the wire record of the concrete-prefix
-// schedule. The current-canonical seed and final A have the same digest; B has
-// a distinct digest. The three stale probes isolate version-only and
-// digest-only rejection and retain a both-stale head-1/B-digest case. The
-// record also carries the admitted fresh A, replayed request, preview bound to
-// the persisted receipt, and both acknowledged revisions.
 type coreProtocolConcreteObservation struct {
 	ID             string                         `json:"id"`
 	SeedVersion    int                            `json:"seedVersion"`
@@ -193,20 +163,17 @@ func (ob *coreProtocolReplayObservation) note(format string, args ...any) {
 	ob.Error = ob.notes[len(ob.notes)-1]
 }
 
-// coreProtocolReplayStores binds the schedule to one in-memory fixture and
-// its persisted-state read paths.
 type coreProtocolReplayStores struct {
 	mode    string
 	fixture *coreProtocolFixture
-	// receipt reads a persisted receipt through the test store interface.
+
 	receipt func(context.Context, string) (*explorer.CompilationReceipt, bool)
-	// hasReceipts reports whether the store holds any receipt for this case.
+
 	hasReceipts func(context.Context) bool
-	// history reads an acknowledged draft revision through the test store.
+
 	history func(context.Context, string) (explorer.DraftRevision, bool)
 }
 
-// coreProtocolReplayMapStores wires the schedule body to the in-memory test store.
 func coreProtocolReplayMapStores(t *testing.T) coreProtocolReplayStores {
 	t.Helper()
 	fixture := newCoreProtocolFixture(t)
@@ -232,23 +199,9 @@ func coreProtocolReplayMapStores(t *testing.T) coreProtocolReplayStores {
 	}
 }
 
-// coreProtocolReplayArangoStores wires the schedule body to the real Arango
-// store. Fixture wiring is the exact same mount as newCoreProtocolFixture
-// (fiber + generated strict adapter routes + authscope.AllowAllAuthorizer +
-// no-op dataframe execution engine + domain through explorer.NewService), and
-// the seed goes through store.Create with the identical workspace/snapshot
-// bytes and the identical project-a/core-protocol identity: the workspace,
-// capability snapshot and initial digest are taken from the map fixture
-// itself, so both modes describe exactly the same protocol identity. Isolation
-// between schedules comes from the per-schedule disposable database, not from
-// identity mutation: the capability snapshot pins its identity project
-// (compileExplorerReceipt rejects any request whose project does not canonicalize
-// to the snapshot's, so identities must stay exactly at the map fixture's).
 func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, graph *explorerarango.Store, database string) coreProtocolReplayStores {
 	t.Helper()
-	// The map fixture is the single source for the seed bytes; constructing it
-	// and discarding its app/store costs one rebuild and guarantees the seeded
-	// DraftConfig, snapshot token, generation and digest equal map mode's.
+
 	probe := newCoreProtocolFixture(t)
 	workspace, snapshot, digest := probe.workspace, probe.snapshot, probe.initialDigest
 	raw, err := workspace.CanonicalJSON()
@@ -344,7 +297,6 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 	}
 }
 
-// countCompilationReceipts reads receipt count under the test store lock.
 func (s *testExplorerStore) countCompilationReceipts() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -379,7 +331,7 @@ func runCoreProtocolReplayCase(t *testing.T, replayCase coreProtocolReplayCase, 
 	commitSave := func() {
 		expectedVersion := int64(1)
 		if replayCase.STarget == 2 {
-			// A stale client believes the head is already 2; the server CAS must reject.
+
 			expectedVersion = 2
 		}
 		saved, ack := fixture.saveLabel("formal-save-"+replayCase.ID, "Patient Competing B", expectedVersion, fixture.initialDigest)
@@ -402,10 +354,7 @@ func runCoreProtocolReplayCase(t *testing.T, replayCase coreProtocolReplayCase, 
 	if replayCase.SavePosition == "before-entry" {
 		commitSave()
 	}
-	// The reconcile click targets exactly the scheduled head identity:
-	// head 1 is the seeded revision, head 2 exists only once a save committed it
-	// (before-entry) and its digest is then only knowable from the acknowledgement.
-	// Reconciling an uncommitted head 2 uses a stand-in digest nobody ever stored.
+
 	if replayCase.RTarget == 2 {
 		reconcileVersion = 2
 		switch {
@@ -415,7 +364,7 @@ func runCoreProtocolReplayCase(t *testing.T, replayCase coreProtocolReplayCase, 
 			reconcileDigest = coreProtocolAbsentHeadDigest
 		}
 	}
-	// Model schedules where reconcile targets a head no save committed (S5).
+
 	if replayCase.RTarget == 2 && replayCase.SavePosition != "before-entry" {
 		reconcileVersion, reconcileDigest = 2, coreProtocolAbsentHeadDigest
 	}
@@ -433,11 +382,7 @@ func runCoreProtocolReplayCase(t *testing.T, replayCase coreProtocolReplayCase, 
 		}()
 		select {
 		case <-compileEntered:
-			// The existing compile seam only fires after the production entry CAS
-			// validated the requested identity and the handler decoded (captured)
-			// the saved workspace (authoring.go:552-564), so entry acceptance and
-			// capture have really completed at this awaited boundary. The captured
-			// head claim is filled from the persisted receipt evidence below.
+
 			entryEventIndex = observation.event(coreProtocolActionEntryAck, map[string]any{"captured": 0})
 			observation.event(coreProtocolActionCapture, map[string]any{})
 		case <-time.After(15 * time.Second):
@@ -468,8 +413,7 @@ func runCoreProtocolReplayCase(t *testing.T, replayCase coreProtocolReplayCase, 
 		} else {
 			observation.reconcileReceiptID = compiled.ReceiptId
 			observation.ReceiptReported = true
-			// Persisted-receipt evidence is read through the replay store seam
-			// (store interface in both modes), never a map-store internals read.
+
 			if receipt, ok := stores.receipt(context.Background(), compiled.ReceiptId); ok {
 				observation.ReceiptEmitted = true
 				for _, column := range receipt.EmittedColumns {
@@ -482,11 +426,7 @@ func runCoreProtocolReplayCase(t *testing.T, replayCase coreProtocolReplayCase, 
 				}
 			}
 		}
-		// The reconcile entered and captured for real (a 200 with a receipt id only
-		// follows the accepted entry CAS, decode and compile chain); claim the
-		// captured head from the persisted receipt's own label evidence, never from
-		// the schedule. An unbacked capture stays claimed 0 so the validator rejects
-		// it instead of trusting a completed-looking response.
+
 		capturedClaim := 0
 		if observation.ReceiptEmitted && observation.ReceiptLabel != "" {
 			capturedClaim = coreProtocolHeadForLabel(observation.ReceiptLabel)
@@ -593,20 +533,12 @@ func observeReconcileConflictBody(t *testing.T, observation *coreProtocolReplayO
 	}
 }
 
-// runCoreProtocolReplayAgainstArango owns the container-side Arango pattern of
-// TestCoreAuthoringProtocolAgainstArango: endpoint from LOOM_TEST_ARANGO_URL, a
-// per-test disposable database auto-created by storearango.Open, t.Cleanup that
-// closes with a fresh context and then raw-DELETEs the database (t.Error on
-// failure, still attempting the drop), Bootstrap + explorerarango.New, and the
-// schedules S1-S8 executed through the SAME shared replay body as map mode.
 func runCoreProtocolReplayAgainstArango(t *testing.T, replayCases []coreProtocolReplayCase, endpoint string, observations *[]coreProtocolReplayObservation) {
 	t.Helper()
 	for _, replayCase := range replayCases {
 		replayCase := replayCase
 		t.Run(replayCase.ID, func(t *testing.T) {
-			// Every schedule gets its own auto-created disposable database, so a
-			// real Arango run replays each case against exactly the state the map
-			// mode's fresh per-case store holds.
+
 			database := coreProtocolReplayDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
@@ -719,9 +651,6 @@ func TestCoreAuthoringProtocolModelReplay(t *testing.T) {
 	}
 }
 
-// derefRevisionID reads one optional acknowledged revision identity. Revision
-// addressing follows the identity the server acknowledged in
-// previousDraftRevisionId instead of constructing a revision key.
 func derefRevisionID(value *string) string {
 	if value == nil {
 		return ""
@@ -729,14 +658,6 @@ func derefRevisionID(value *string) string {
 	return *value
 }
 
-// runCoreProtocolReplayConcreteCase drives the plan-C14 value-identity prefix
-// A -> B -> A (save-to-B, value-equal revert back to A) through the production
-// handlers on one store seam, then attempts the merged-value schedules: a
-// stale reconcile presenting the head-1 identity while the server head is the
-// value-equal head 3, a fresh reconcile at the real head identity, a
-// same-request replay, the preview bound to the persisted receipt, and the
-// read-back of both acknowledged revisions. The test compares these public
-// observations with the frozen expected result.
 func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stores coreProtocolReplayStores) coreProtocolConcreteObservation {
 	fixture := stores.fixture
 	observation := coreProtocolConcreteObservation{ID: program.ID}
@@ -748,9 +669,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 	}
 	_ = headResponse
 
-	// A -> B: the first real save, CASed on the seeded identity. The digest is
-	// sha256 of canonical workspace JSON (internal/explorer/authoringv2/canonical.go),
-	// so B carries a distinct digest.
 	saveB, ackB := fixture.saveLabel("formal-c14-"+program.ID+"-b", coreProtocolCompetingLabel, 1, fixture.initialDigest)
 	observation.SaveBStatus = saveB.StatusCode
 	observation.SaveBDigest = ackB.DraftDigest
@@ -758,10 +676,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 		observation.note("save B rejected: status=%d ack=%+v body=%s", saveB.StatusCode, ackB, saveB.Body)
 	}
 
-	// B -> A: a fresh save of the original column value. Because the seed is
-	// already current canonical workspace JSON, head 3 returns to the exact
-	// seed digest as well as the same authored value. This is the ABA identity
-	// that the version clause must reject even when the digest matches.
 	saveA, ackA := fixture.saveLabel("formal-c14-"+program.ID+"-a", coreProtocolInitialLabel, 2, ackB.DraftDigest)
 	observation.SaveAStatus = saveA.StatusCode
 	observation.SaveAVersion = int(ackA.DraftVersion)
@@ -771,12 +685,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 	}
 	observation.MergeValueZone = saveA.StatusCode == http.StatusOK && ackA.DraftDigest == fixture.initialDigest
 
-	// Three stale identities are attempted BEFORE any receipt exists. The
-	// head-1 version with the current A digest isolates the version check; the
-	// current head version with B's old digest isolates the digest check; and
-	// the head-1 version with B's old digest preserves a both-stale control.
-	// Removing either CAS clause admits exactly its corresponding single-
-	// coordinate probe, while the both-stale control remains rejected.
 	staleProbe := func(version int64, digest, suffix string) (coreProtocolConcreteAttempt, string) {
 		response, responseErr := fixture.reconcile(version, digest, "formal-c14-"+program.ID+"-"+suffix)
 		if responseErr != nil {
@@ -816,7 +724,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 	observation.Stale2Attempt, observation.Stale2Error = staleProbe(3, ackB.DraftDigest, "stale2")
 	observation.Stale3Attempt, observation.Stale3Error = staleProbe(1, ackB.DraftDigest, "stale3")
 
-	// Valid fresh-A reconcile at the real head 3 identity.
 	valid, validErr := fixture.reconcile(3, ackA.DraftDigest, "formal-c14-"+program.ID+"-valid")
 	if validErr != nil {
 		valid = testHTTPResponse{StatusCode: -1, Body: validErr.Error()}
@@ -852,10 +759,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 		observation.note("fresh-A reconcile status=%d body=%s", valid.StatusCode, valid.Body)
 	}
 
-	// Same-request replay of the fresh-A reconcile (idempotence boundary). For
-	// a digest-keyed receipt identity this must not produce a second head or a
-	// divergent head identity; the validator compares this attempt against the
-	// valid one.
 	replay, replayErr := fixture.reconcile(3, ackA.DraftDigest, "formal-c14-"+program.ID+"-valid")
 	if replayErr != nil {
 		replay = testHTTPResponse{StatusCode: -1, Body: replayErr.Error()}
@@ -878,7 +781,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 		}
 	}
 
-	// Preview through the handler path bound to the persisted valid receipt.
 	if observation.ValidAttempt.ReceiptID != "" {
 		previewed := fixture.preview(observation.ValidAttempt.ReceiptID)
 		observation.PreviewStatus = previewed.StatusCode
@@ -897,12 +799,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 		}
 	}
 
-	// Persisted-history seam: each save acknowledgement names the revision the
-	// store committed for the head it replaced (store.SaveDraft persists the
-	// prior identity then stamps it on the owner), so the two reads below
-	// recover the intermediate head-1/seed and head-2/B revisions through the
-	// store's own reader. The distinct persisted identities preserve the B history
-	// even though the first and final authored values match.
 	for _, revisionID := range []string{derefRevisionID(ackB.PreviousDraftRevisionId), derefRevisionID(ackA.PreviousDraftRevisionId)} {
 		if revisionID == "" {
 			observation.note("an acknowledgement omitted previousDraftRevisionId")
@@ -923,10 +819,6 @@ func runCoreProtocolReplayConcreteCase(program coreProtocolConcreteProgram, stor
 	return observation
 }
 
-// runCoreProtocolConcreteAgainstArango mirrors the owned-disposable-database
-// pattern of runCoreProtocolReplayAgainstArango for the concrete-prefix lane:
-// each program gets its own auto-created database so the seeded A -> B -> A
-// prefix runs against exactly the fresh state the map mode provides.
 func runCoreProtocolConcreteAgainstArango(t *testing.T, programs []coreProtocolConcreteProgram, endpoint string, observations *[]coreProtocolConcreteObservation) {
 	t.Helper()
 	for _, program := range programs {
@@ -970,8 +862,6 @@ func runCoreProtocolConcreteAgainstArango(t *testing.T, programs []coreProtocolC
 	}
 }
 
-// TestCoreAuthoringProtocolConcretePrefixReplay drives the frozen C14 A -> B -> A
-// schedule through the production handlers and checks its public observations.
 func assertCoreProtocolConcreteEqual(t *testing.T, got, want coreProtocolConcreteObservation, allowStoreRevisionIDs bool) {
 	t.Helper()
 	if allowStoreRevisionIDs {

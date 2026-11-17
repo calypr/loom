@@ -5,9 +5,6 @@ import (
 	"strings"
 )
 
-// PhysicalCategoryScanReturn describes distinct category discovery over an exact
-// source relation. It is a renderer terminal request, not an executable source
-// operation; source scopes remain in the validated PhysicalPlan.
 type PhysicalCategoryScanReturn struct {
 	CategoryColumn          string
 	PresenceMarkerColumn    string
@@ -54,7 +51,6 @@ func (s PhysicalCategoryScanReturn) Validate() error {
 	return nil
 }
 
-// DirectScalarRootProjectionValue proves an unchanged direct scalar source slot.
 func DirectScalarRootProjectionValue(projection PhysicalProjection, rootVariable string) (PhysicalValue, bool) {
 	if projection.Expression == nil {
 		value := projection.Value

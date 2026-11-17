@@ -5,9 +5,6 @@ import (
 	"strings"
 )
 
-// AuthoringNetwork is a read model. It is regenerated from the authoritative
-// Route/Rows for ordinary documents and the immutable pin plus source overlay
-// for imported documents. It must never be saved as a second canvas model.
 type AuthoringNetwork struct {
 	Owner           string                 `json:"owner"`
 	OutputID        string                 `json:"outputId"`
@@ -18,9 +15,6 @@ type AuthoringNetwork struct {
 	Operations      []NetworkOperation     `json:"operations"`
 }
 
-// ProjectedField is the unified, ordered inventory of the persisted document's
-// output columns. Owner and Removal are server-derived capabilities; clients
-// must not send either value as mutation intent.
 type ProjectedField struct {
 	ColumnID        string `json:"columnId,omitempty"`
 	Column          string `json:"column"`
@@ -60,24 +54,19 @@ type NetworkOccurrence struct {
 	StorageDirection   string         `json:"storageDirection,omitempty"`
 	MatchMode          RouteMatchMode `json:"matchMode,omitempty"`
 	Enabled            bool           `json:"enabled"`
-	// Optional relationship values preserve identity; REQUIRED can exclude rows.
+
 	PreservesRowIdentity bool `json:"preservesRowIdentity"`
 	CanExcludeRows       bool `json:"canExcludeRows"`
 }
 
 type NetworkColumnBinding struct {
-	// Only persisted stable identities are emitted. Legacy ordinary columns
-	// without ColumnID remain in the authoritative document and are omitted
-	// from this binding list rather than assigned a fabricated identity.
 	ColumnID     string `json:"columnId"`
 	OccurrenceID string `json:"occurrenceId,omitempty"`
 	SourceStepID string `json:"sourceStepId,omitempty"`
-	// OutputKey is the exact source field path or pivot key for generated
-	// outputs. It is absent when the compiler cannot prove a stable key.
+
 	OutputKey string `json:"outputKey,omitempty"`
 	ValueMode string `json:"valueMode,omitempty"`
-	// UNKNOWN is explicit when an older resolved schema lacks provenance. The
-	// base occurrence on imported columns is transport history, not provenance.
+
 	Status string `json:"status"`
 }
 
@@ -88,9 +77,6 @@ type NetworkOperation struct {
 	AnchorColumnID string                    `json:"anchorColumnId,omitempty"`
 }
 
-// ImportedRelationshipOverlay holds only project-owned source edits. Original
-// recipe-index step IDs remain in Steps, even after removal. Addition IDs live
-// in a separate namespace and never depend on array positions or display text.
 type ImportedRelationshipOverlay struct {
 	Additions      []ImportedRelationship      `json:"additions,omitempty"`
 	Removals       []string                    `json:"removals,omitempty"`
@@ -193,8 +179,6 @@ func (o ImportedRelationshipOverlay) Validate() error {
 	return nil
 }
 
-// NetworkForDocument adapts the ordinary route without guessing imported
-// provenance. Imported callers use recipeimport.HydrateNetwork with the pin.
 func NetworkForDocument(d Document, catalog CatalogSnapshot) (AuthoringNetwork, error) {
 	if d.ImportedRecipe != nil {
 		return AuthoringNetwork{}, fmt.Errorf("imported network requires the pinned recipe and its source overlay")
@@ -245,10 +229,6 @@ func NetworkForDocument(d Document, catalog CatalogSnapshot) (AuthoringNetwork, 
 	return n, nil
 }
 
-// ProjectedFieldsForDocument preserves every persisted output column in the
-// read model. Stable IDs and source bindings are copied only when present; the
-// caller may enrich pinned source ownership after compiler provenance has been
-// resolved.
 func ProjectedFieldsForDocument(d Document, network AuthoringNetwork) []ProjectedField {
 	bindings := make(map[string]NetworkColumnBinding, len(network.Bindings))
 	for _, binding := range network.Bindings {
@@ -300,8 +280,6 @@ func ProjectedFieldsForDocument(d Document, network AuthoringNetwork) []Projecte
 	return fields
 }
 
-// NewAuthoringNetwork initializes ordered operation ownership. Anchor columns
-// stay explicit and are never inferred from the currently selected graph node.
 func NewAuthoringNetwork(d Document, owner string) AuthoringNetwork {
 	n := AuthoringNetwork{Owner: owner, OutputID: d.Output.ID, SourceRows: d.Rows, Occurrences: []NetworkOccurrence{}, Bindings: []NetworkColumnBinding{}, ProjectedFields: []ProjectedField{}, Operations: []NetworkOperation{}}
 	if d.Construction != nil {

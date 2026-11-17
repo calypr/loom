@@ -492,10 +492,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     pivotEvaluationContextKey,
   ]);
 
-  // A host-published loading state stays handled by PivotEditor's own check. Beyond
-  // that, an editor-issued request counts as in flight until the host publishes
-  // something newer for the current key or a result for its exact identity is
-  // adopted, because hosts may lag or omit status:'loading' entirely.
   const pivotDiscoveryInFlight = ((): boolean => {
     const owner = props.onDiscoverCategories;
     const awaiting = pivotState.awaiting;
@@ -1466,12 +1462,6 @@ const UnpivotEditor = (props: {
       ? 'Missing values keep their row.'
       : 'Missing values are dropped.'}`;
 
-  // ROW-SOURCE-06 audit: the source-level explanation is a property of the
-  // signed source state, not of any input row, so it renders (and is derived)
-  // independently of the selected input rows, including with zero inputs.
-  // Visibility-aware (ROUND-2 contract): the lane's sole binding is excluded
-  // while it renders in a row's picker, so a field bound by the only melt row
-  // stays selectable and unexplained instead of being falsely told to remove it.
   const laneUnpivotBindings = props.form.unpivotSources ?? [];
   const laneOnlyUnpivotBinding = laneUnpivotBindings.length === 1 ? laneUnpivotBindings[0] : undefined;
   const unpivotSourceEmptiness = classifySourcePickerEmptiness(

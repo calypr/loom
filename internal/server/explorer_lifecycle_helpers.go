@@ -45,8 +45,7 @@ func resolvedOutputArtifacts(resolved dataframeexecution.Resolved) (map[string]s
 				AllowUnknownKeys, Many                                bool
 			}{column.Name, column.SemanticPath, column.DynamicName, column.SourceKey, column.ValueType, column.AllowUnknownKeys, column.Many})
 		}
-		// Version 3 binds dynamic value cardinality as well as key/type checks.
-		// Older fingerprints cannot authorize a different scalar/list contract.
+
 		payload, err := json.Marshal(struct {
 			Version, CompilerVersion         int
 			Name, RootResourceType, RowGrain string
@@ -80,11 +79,7 @@ func applyReceiptColumnProvenance(output *lower.CompiledRecipeOutput, values map
 	for index := range output.DynamicColumns {
 		value, ok := values[output.DynamicColumns[index].Name]
 		if !ok {
-			// Row-changing construction can consume a dynamic source column
-			// without exposing it in the final projection. Its runtime-key
-			// validation metadata remains part of the execution fingerprint,
-			// but final output provenance has no entry to restore for it.
-			// Every final schema column was required and checked above.
+
 			continue
 		}
 		output.DynamicColumns[index].Discovered = value == "DISCOVERED"

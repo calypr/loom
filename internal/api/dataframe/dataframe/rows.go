@@ -10,8 +10,6 @@ import (
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
 )
 
-// ProjectDatasets exposes the current output dataframes for one authorized
-// project. It is the only dataset-discovery surface.
 func (s *Service) ProjectDatasets(ctx context.Context, projectID string) ([]dfmaterialization.Materialization, error) {
 	if s.reader == nil {
 		return nil, readerUnavailable()

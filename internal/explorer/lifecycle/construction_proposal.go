@@ -84,18 +84,11 @@ type ConstructionGroupFieldChoice struct {
 	MatchedOutputKeyID string                                         `json:"matchedOutputKeyId,omitempty"`
 }
 
-// ConstructionGroupRelatedOccurrenceChoice is display/filter metadata for a
-// server-issued related occurrence CHOICE. RouteID is an opaque equality key
-// for one Group editor and carries no proposal authority.
 type ConstructionGroupRelatedOccurrenceChoice struct {
 	RouteID    string `json:"routeId"`
 	RouteLabel string `json:"routeLabel,omitempty"`
 }
 
-// ConstructionSourceProjectionAvailability indicates whether root scalar
-// source fields can be carried into this exact stage. It does not certify an
-// individual field; the existing construction-choice proposal validates and
-// compiles each selected field before it can be applied.
 type ConstructionSourceProjectionAvailability struct {
 	Supported  bool   `json:"supported"`
 	StageID    string `json:"stageId"`
@@ -103,9 +96,6 @@ type ConstructionSourceProjectionAvailability struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// ConstructionWorkspaceInput is a current sibling output eligible to be
-// consumed by a same-workspace Combine. Its columns come from the finalized
-// lower.OutputSchema frozen into the exact workspace compilation receipt.
 type ConstructionWorkspaceInput struct {
 	OutputID string                             `json:"outputId"`
 	Title    string                             `json:"title"`
@@ -145,9 +135,7 @@ type ConstructionGroupSourceChoice struct {
 }
 
 func importedSourceChoiceUnavailable(document authoringv2.Document) bool {
-	// A pinned recipe resolves into ordinary stage columns. It has no live FHIR
-	// catalog route to enumerate extra source fields, but that does not make the
-	// source lane unavailable: builders should use the resolved output columns.
+
 	return document.ImportedRecipe != nil
 }
 
@@ -325,9 +313,6 @@ func (r ConstructionProposalRequest) Validate() error {
 type ConstructionDependencyIssue = authoringv2.ConstructionDependencyIssue
 type ConstructionDependencyImpact = authoringv2.ConstructionImpact
 
-// ConstructionProposalDiagnostic reports a non-fatal proof gap in a proposal.
-// Code is stable for machine handling; Outcome names the probe condition that
-// prevented verification. Diagnostics never reject a proposal on their own.
 type ConstructionProposalDiagnostic struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -376,9 +361,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, err
 	}
-	// Choice IDs are ephemeral response authority, not receipt state. Copy the
-	// stage slice before decorating the selected descriptor so a later request
-	// still validates the original signed compilation receipt.
+
 	stages := append([]explorer.ReceiptConstructionStage(nil), base.stages...)
 	if authoringv2.CanPopulateConstructionRows(&base.construction) && len(stages) > 0 {
 		last := len(stages) - 1
@@ -537,8 +520,7 @@ func constructionNodeOccurrences(route authoringv2.RouteNode, snapshot capabilit
 	if !found {
 		return result
 	}
-	// The row root is canonical for its catalog node even when the authored
-	// route later reaches that same node through a relationship cycle.
+
 	result[root.ID] = route.OccurrenceID
 	ambiguous := map[string]struct{}{}
 	var walk func(parent capability.Node, node authoringv2.RouteNode)
@@ -589,11 +571,6 @@ func constructionNodeOccurrences(route authoringv2.RouteNode, snapshot capabilit
 	return result
 }
 
-// runConstructionCapabilityBuilders runs independent builders with a bounded
-// errgroup. Errors are returned in declaration order so the caller reports the
-// same first contextual error as the previous sequential implementation. A
-// plain Group (not WithContext) is used so one builder's failure does not
-// cancel the others and turn its own error into a context cancellation.
 func runConstructionCapabilityBuilders(ctx context.Context, limit int, builders []func(context.Context) error) []error {
 	errs := make([]error, len(builders))
 	group := new(errgroup.Group)
@@ -664,11 +641,6 @@ func constructionWorkspaceInputs(base constructionBase, targetOutputID string) (
 	return inputs, nil
 }
 
-// constructionCapabilitiesWorkspace keeps the selected output, all of its
-// inputs, and independent sibling outputs in the capability receipt. Current
-// draft consumers of the selected output are omitted because their authored
-// projections may be stale after a source replacement; the saved workspace is
-// retained separately for CAS validation and the full-workspace Publish path.
 func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOutputID string) (authoringv2.Workspace, error) {
 	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
 		return authoringv2.Workspace{}, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
@@ -715,8 +687,6 @@ func constructionCapabilitiesWorkspace(workspace authoringv2.Workspace, targetOu
 	return projected, nil
 }
 
-// workspaceOutputConsumerClosure includes the selected output and each
-// transitive current-draft output that consumes it.
 func workspaceOutputConsumerClosure(workspace authoringv2.Workspace, targetOutputID string) (map[string]struct{}, error) {
 	if constructionDocumentIndex(workspace, targetOutputID) < 0 {
 		return nil, fmt.Errorf("selected output %q is missing or duplicated", targetOutputID)
@@ -1472,9 +1442,7 @@ func reauthorizeConstructionRelatedEligibility(
 	step authoringv2.ConstructionStep,
 	related authoringv2.ConstructionRelatedEligibility,
 ) error {
-	// RELATED_ELIGIBILITY shares RELATED_EXPAND's signed route and contributor
-	// choices. Reuse that exact-stage/anchor reauthorization path; its row-grain
-	// policy fields are irrelevant because this operation emits no expanded row.
+
 	return reauthorizeConstructionRelatedExpand(ctx, base, rootResourceType, step, authoringv2.ConstructionRelatedExpand{
 		AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
 		TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
@@ -1679,10 +1647,6 @@ func (v constructionBaseValidation) base(receipt *explorer.CompilationReceipt, s
 	}
 }
 
-// validateConstructionBase resolves the token and read scope, reads the owner,
-// and verifies the draft CAS and saved workspace. It never reads a cache entry,
-// so a stale draft, stale token, or changed scope still fails before any
-// compiled base can be served.
 func (s *Service) validateConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBaseValidation, error) {
 	if s.config.Capability.ForCompilation == nil {
 		return constructionBaseValidation{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)

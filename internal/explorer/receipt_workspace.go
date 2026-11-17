@@ -6,8 +6,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// CurrentWorkspace verifies current authoring intent without altering the receipt
-// that authenticates historical artifacts under its original content address.
 func (receipt CompilationReceipt) CurrentWorkspace() (authoringv2.Workspace, error) {
 	workspace, err := authoringv2.DecodeCurrentWorkspace(receipt.NormalizedBundle)
 	if err != nil {

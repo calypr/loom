@@ -12,29 +12,6 @@ import (
 	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
-// Candidate finding F-B2: clickHouseBundleTx.Abort (bundle_store.go)
-// reaches claimExecutionCleanup → ClaimExecutionCleanup, whose real AQL
-// (bundle_registry.go) filters only expired pins and the cleanup slot
-// — no pointer and no published-state recheck — and then unconditionally
-// DropTables every output. Hypothesis: a runner whose PublishExecution AQL
-// succeeded server-side but whose ACK was lost calls Abort, deleting the
-// physical tables of the bundle the live pointer now advertises.
-//
-// The wrapper injects ONLY a lost publish ACK: the real Registry AQL runs to
-// completion against the real database (so the server has committed both the
-// PUBLISHED row and the pointer), and the wrapper discards the client-side
-// result and returns a network-style error, mirroring a connection failure
-// after server commit. ClaimExecutionCleanup is the real AQL; no pins exist
-// (not this test's variable). ClickHouse effects come from the established
-// tocFakeClickHouse recorder.
-//
-// Opt-in like reconcile_toctou_e2e_test.go; the test owns a UUID database and
-// deletes only that database:
-//
-//	docker exec loom-dev-qwen-current-loom-api-1 sh -c \
-//	  'cd /workspace && LOOM_TEST_ARANGO_URL=http://arangodb:8529 go test \
-//	   -count=1 -run "TestAbort.*AgainstArango" -v ./internal/dataframe/publication/clickhouse/'
-
 type fbxCatalog struct {
 	*pubarango.Registry
 	publishArmed  bool
@@ -43,10 +20,6 @@ type fbxCatalog struct {
 	observedID    string
 }
 
-// PublishExecution runs the real AQL verbatim. Once armed, a server-committed
-// publish has its successful result discarded and is replaced by a network
-// error, so the production caller believes the ACK was lost after commit.
-// Genuine server-side rejections are passed through untouched.
 func (c *fbxCatalog) PublishExecution(ctx context.Context, name, expected string, execution pubpublication.BundleExecution) error {
 	err := c.Registry.PublishExecution(ctx, name, expected, execution)
 	if c.publishArmed && !c.publishRan {
@@ -59,8 +32,6 @@ func (c *fbxCatalog) PublishExecution(ctx context.Context, name, expected string
 	return err
 }
 
-// SaveExecution delegates verbatim; it only records the execution UUID that
-// beginBundle generated so the test can re-read the row by key afterwards.
 func (c *fbxCatalog) SaveExecution(ctx context.Context, execution pubpublication.BundleExecution, fenceOwner string) error {
 	if c.observedID == "" && execution.OwnerID != "" {
 		c.observedID = execution.ID
@@ -112,9 +83,6 @@ func fbxRows() []map[string]any {
 	return []map[string]any{{"value": int64(1)}, {"value": int64(2)}}
 }
 
-// fbxClickHouse reuses the tocFakeClickHouse effect semantics and additionally
-// records the names handed to CreateTable/DropTable so the test can report the
-// created versus dropped physical-table set against real registry state.
 type fbxClickHouse struct {
 	*tocFakeClickHouse
 	created []string
@@ -141,12 +109,6 @@ func fbxDropped(set []string, table string) bool {
 	return false
 }
 
-// TestAbortDropsServerPublishedBundleAgainstArango drives the real
-// Begin/publish/Abort flow with ONLY the publish ACK lost after a real
-// server-side commit. It fails t.Fatalf("CONFIRMED ...") iff, after Abort
-// returns, the real registry still advertises the execution through the
-// pointer (row PUBLISHED) while its physical tables were deleted. If
-// production refuse gates hold, the test passes and logs the refusing code.
 func TestAbortDropsServerPublishedBundleAgainstArango(t *testing.T) {
 	registry, ctx, suffix := fbxSetup(t)
 	identity := fbxBundleIdentity(suffix)
@@ -209,10 +171,6 @@ func TestAbortDropsServerPublishedBundleAgainstArango(t *testing.T) {
 	t.Logf("PREVENTED on unmodified production code: with the publish transaction committed server-side and only the client ACK lost, Commit's confirmation fallback recovered the commit, marked the transaction closed so Abort refused, and the real ClaimExecutionCleanup path was never reached. commitErr=%v abortErr=%v", commitErr, abortErr)
 }
 
-// TestAbortDropsUnpublishedExecutionAgainstArango is the control: the same
-// real Begin/Abort flow with no publish issued at all. The abort drop must
-// proceed (no pointer exists, the row ends FAILED) — pinning that any harm in
-// the finding test comes from the lost-ACK-after-success, not the harness.
 func TestAbortDropsUnpublishedExecutionAgainstArango(t *testing.T) {
 	registry, ctx, suffix := fbxSetup(t)
 	identity := fbxBundleIdentity(suffix)
@@ -235,9 +193,7 @@ func TestAbortDropsUnpublishedExecutionAgainstArango(t *testing.T) {
 	}
 	cause := errors.New("runner aborts before any publish was issued")
 	abortErr := tx.Abort(ctx, cause)
-	// Abort echoes the runner cause back through the cleanup join
-	// (bundle_store.go, failPhase ). A declined cleanup claim
-	// would surface as ErrExecutionReadPinActive instead.
+
 	if !errors.Is(abortErr, cause) || errors.Is(abortErr, pubpublication.ErrExecutionReadPinActive) {
 		t.Fatalf("legitimate Abort of an unpublished execution must drop and echo the runner cause, got: %v", abortErr)
 	}

@@ -34,7 +34,7 @@ type audit struct {
 	invalidated map[string]bool
 }
 
-var mappers = map[string]int{"authoringErrorForOpenAPI": 1, "explorerLegacyResponse": 1, "mapServiceError": 1}
+var mappers = map[string]int{"authoringErrorForOpenAPI": 1, "explorerErrorResponse": 1, "explorerLegacyResponse": 1, "mapServiceError": 1}
 
 func name(e ast.Expr) string {
 	switch x := e.(type) {
@@ -55,7 +55,6 @@ func copyEnv(e map[string]string) map[string]string {
 	return o
 }
 
-// Invalidated alias origins remain invalid across lexical/branch environment restoration.
 func (a *audit) liveProvenance(origin string) string {
 	if a.invalidated[origin] {
 		return ""
@@ -139,7 +138,6 @@ func knownCondition(e ast.Expr, statusName string) (bool, bool) {
 	return false, false
 }
 
-// Explore the status=500 arm; unrelated status arms and terminating tails cannot count.
 func returnedExpressions(block *ast.BlockStmt, statusName string, visit func(ast.Expr)) bool {
 	if block == nil {
 		return false
@@ -303,7 +301,6 @@ func (a *audit) record(pos token.Pos, body ast.Expr, env map[string]string) {
 	}
 }
 
-// Unmodeled calls may mutate aliases or closure captures; do not retain provenance.
 func (a *audit) invalidateCallEffects(e ast.Expr, env map[string]string) {
 	ast.Inspect(e, func(node ast.Node) bool {
 		if _, ok := node.(*ast.FuncLit); ok {
@@ -355,7 +352,6 @@ func (a *audit) invalidateAliases(env map[string]string, e ast.Expr) {
 	}
 }
 
-// A nested lexical block propagates writes but restores bindings it shadows.
 func (a *audit) scopedBlock(b *ast.BlockStmt, env map[string]string) bool {
 	if b == nil {
 		return false
@@ -552,7 +548,7 @@ func (a *audit) block(b *ast.BlockStmt, env map[string]string) bool {
 				return true
 			}
 		case *ast.ForStmt, *ast.RangeStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
-			// Unknown mutation/control flow cannot establish mapped-body provenance.
+
 			for k, origin := range env {
 				a.invalidateOrigin(origin)
 				env[k] = ""

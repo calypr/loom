@@ -48,8 +48,6 @@ type SourceRelationshipProposal struct {
 	Notices                  []string                     `json:"notices"`
 }
 
-// ProposeSourceRelationship compiles the entire candidate workspace before
-// issuing an immutable receipt. No draft write occurs until explicit Apply.
 func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceRelationshipProposalRequest) (SourceRelationshipProposal, error) {
 	fail := SourceRelationshipProposal{}
 	for name, value := range map[string]string{"project": request.Project, "explorerId": request.ExplorerID, "snapshotToken": request.SnapshotToken, "expectedDraftDigest": request.ExpectedDraftDigest, "outputId": request.OutputID} {
@@ -145,8 +143,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err != nil {
 		return fail, err
 	}
-	// Project only the workspace that passed immutable receipt verification. This
-	// read model cannot be supplied by the client or persisted as another recipe.
+
 	candidateDocument := proposalDocument(verifiedCandidate, request.OutputID)
 	if candidateDocument == nil {
 		return fail, conflict("source-relationship-proposal", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
@@ -263,15 +260,13 @@ func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, proje
 	if !reflect.DeepEqual(applied, candidate) {
 		return nil, conflict("commands", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate changes authoring state outside the requested source output", nil, nil)
 	}
-	// Validate the exact receipt query before the draft CAS. A transient query
-	// failure or a runtime value-policy rejection must not save a source edit.
+
 	if _, err := s.Preview(ctx, PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID, SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		return func(map[string]any) error { return nil }, nil
 	}}); err != nil {
 		return nil, err
 	}
-	// Re-resolve against the current authorized catalog and compile every output;
-	// stale persisted edge metadata and downstream dependencies cannot bypass Apply.
+
 	freshReceipt, err := s.compile(ctx, compileRequest{Project: project, ExplorerID: explorerID, Workspace: applied, SnapshotToken: request.SnapshotToken, RequestID: "source-relationship-apply"})
 	if err != nil {
 		return nil, fmt.Errorf("validate source relationship Apply: %w", err)

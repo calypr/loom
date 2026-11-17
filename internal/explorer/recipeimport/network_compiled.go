@@ -9,10 +9,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 )
 
-// BindCompiledNetwork binds imported output IDs to compiler-proven origins and
-// the original source descriptors. Current settings are required because
-// disabled projection families compact compiler arrays but never original IDs.
-// Ambiguous legacy discovery provenance is diagnosed rather than guessed.
 func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []lower.CompiledOutputColumn, plans ...*authoringv2.ImportedSourcePlan) (authoringv2.AuthoringNetwork, error) {
 	if len(plans) != 1 || plans[0] == nil {
 		return authoringv2.AuthoringNetwork{}, fmt.Errorf("SOURCE_PROVENANCE_UNAVAILABLE: exact source descriptors are required")
@@ -89,9 +85,7 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []lower.C
 					eligible = append(eligible, step)
 				}
 			}
-			// Catalog resolution predates per-field projection provenance. A unique
-			// original projection is an explicit adapter; several are unsupported until
-			// the resolver retains their separate identities through discovery.
+
 			if origin.SourceKey != "" {
 				matching := eligible[:0]
 				for _, step := range eligible {
@@ -123,9 +117,6 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []lower.C
 	return network, nil
 }
 
-// sourceOriginScope splits a compiler structural path at its last traversal
-// occurrence, retaining a relative projection-family path. It never parses
-// display text or a FHIR field path.
 func sourceOriginScope(path string) (string, string) {
 	scope := ""
 	start := 0
@@ -152,8 +143,6 @@ func sourceOriginScope(path string) (string, string) {
 	return scope, strings.TrimPrefix(path[len(scope):], ".")
 }
 
-// Compiler projection shapes use a different vocabulary from authored value
-// policies. Preserve the first/all/distinct distinction at the read boundary.
 func authoringValueMode(mode string) string {
 	switch mode {
 	case "scalar":
@@ -185,6 +174,4 @@ func effectiveSourceKey(step authoringv2.ImportedSourceStep) string {
 	return step.SourceKey
 }
 
-// SourceOriginScope exposes the existing structural compiler-path adapter to
-// imported-column identity verification; it never interprets display labels.
 func SourceOriginScope(path string) (string, string) { return sourceOriginScope(path) }

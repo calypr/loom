@@ -1,4 +1,3 @@
-// dataframe-query executes a checked-in REST dataframe request and prints timing.
 package main
 
 import (
@@ -28,15 +27,13 @@ func main() {
 	code := 1
 	var usage usageError
 	if errors.As(err, &usage) {
-		// Preserve the historical exit status for malformed flags.
+
 		code = 2
 	}
 	fmt.Fprintf(os.Stderr, "dataframe-query: %v\n", err)
 	os.Exit(code)
 }
 
-// usageError marks flag parsing failures so main can keep the exit status the
-// standard flag package used while the rest of the command reports status 1.
 type usageError struct{ err error }
 
 func (e usageError) Error() string { return e.err.Error() }
@@ -119,9 +116,6 @@ func run(args []string, clientFor func(time.Duration) *http.Client, stdout, stde
 	return nil
 }
 
-// requestSequence issues the repeat loop and inspects every response, not only
-// the last one, so a request error in any request fails the command with its
-// request index. A failing request stops the loop.
 func requestSequence(client *http.Client, url string, payload []byte, repeat int, stderr io.Writer) ([]time.Duration, []byte, dataframeResponseMetrics, error) {
 	durations := make([]time.Duration, 0, repeat)
 	var responseBody []byte
@@ -145,8 +139,6 @@ func requestSequence(client *http.Client, url string, payload []byte, repeat int
 	return durations, responseBody, responseMetrics, nil
 }
 
-// printResponseForDiagnosis writes the raw response payload for a rejected
-// response, pretty-printing it when possible.
 func printResponseForDiagnosis(writer io.Writer, body []byte) {
 	fmt.Fprintf(writer, "dataframe-query: response preserved for diagnosis (%d bytes):\n", len(body))
 	if err := prettyPrint(writer, body); err != nil {
@@ -213,10 +205,6 @@ func durationMinusMillis(duration time.Duration, milliseconds float64) float64 {
 	return remaining
 }
 
-// withLimit replaces or adds the top-level limit field, leaving every other
-// byte of the request document untouched. Fields are kept as RawMessage
-// because decoding into any would route numbers through float64, which silently
-// rewrites integers above 2^53 and reformats exponent and decimal literals.
 func withLimit(payload []byte, limit int) ([]byte, error) {
 	if limit <= 0 {
 		return payload, nil
@@ -225,7 +213,7 @@ func withLimit(payload []byte, limit int) ([]byte, error) {
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return nil, err
 	}
-	// json.Unmarshal accepts "null" into a nil map without an error.
+
 	if fields == nil {
 		return nil, fmt.Errorf("request must be a JSON object")
 	}

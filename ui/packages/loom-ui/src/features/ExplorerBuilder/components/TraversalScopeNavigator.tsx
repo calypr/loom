@@ -4,7 +4,6 @@ import type { DraftTable } from '../authoring/model';
 import { rowValuePolicyLabel } from './rowRecipeProjection';
 import { traversalScopeModel, type ScopedOperation } from './traversalScopeModel';
 
-/** View metadata for real authored fields; fieldId comes from the typed source-plan descriptor. */
 export interface TraversalSourceField {
   readonly fieldId: string;
   readonly name: string;
@@ -52,7 +51,6 @@ function isEditableOutputBinding(binding: NetworkBinding): binding is EditableOu
     'outputKey' in binding && typeof binding.outputKey === 'string' && binding.outputKey.length > 0;
 }
 
-/** Controlled navigation over the same saved/candidate recipe; never a second editing owner. */
 export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
   const { table, selectedOccurrenceId, selectedOperation, projectionKind } = props;
   const model = traversalScopeModel(table.document, props.network, props.rowIdentity, props.constructionStages);

@@ -7,10 +7,6 @@ import (
 	"time"
 )
 
-// TestRunConstructionCapabilityBuildersOverlap proves that independent builders
-// execute concurrently: both builders must reach their start barrier before
-// either is allowed to finish. A sequential implementation would deadlock at
-// the second start barrier.
 func TestRunConstructionCapabilityBuildersOverlap(t *testing.T) {
 	started := make(chan string, 2)
 	release := make(chan struct{})

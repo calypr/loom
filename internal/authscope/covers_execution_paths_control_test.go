@@ -7,24 +7,12 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 )
 
-// Durable coverage control for CoversExecutionPaths (F-B20 review finding F-2).
-// The subset-membership loop in scope_resolver.go is the only code that
-// denies an execution declaring a path the restricted scope does not hold.
-// The adversarial re-review (mutant C: membership loop neutered, guards kept)
-// showed NO shipped repo test discriminated it. These controls replicate the
-// reviewer probe semantics and pin every case where the subset loop is the
-// sole discriminator.
-
 const fb20CoversSentinelPath = "\x00all-generations"
 
 func fb20CoversRestricted(paths ...string) ReadScope {
 	return ReadScope{AuthResourcePaths: paths, Mode: ReadScopeRestricted}
 }
 
-// Subset-loop SOLE-DISCRIMINATOR cases: every one of these must flip when the
-// membership loop is removed (mutant C). The mode and declared-empty guards
-// alone answer every other cell of the truth table, so a test suite that
-// passes here while missing these leaves the gate unguarded.
 func TestCoversExecutionPathsSubsetLoopIsOnlyDiscriminatorControl(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -53,9 +41,6 @@ func TestCoversExecutionPathsSubsetLoopIsOnlyDiscriminatorControl(t *testing.T) 
 	}
 }
 
-// Full truth table replicating the reviewer probe: passes within the subset
-// rules (duplicates, whitespace/slash normalization, blank-only declared),
-// mode matrix fail-closed, and control-character refusal upstream.
 func TestCoversExecutionPathsSubsetTruthTableControl(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -99,10 +84,6 @@ func TestCoversExecutionPathsSubsetTruthTableControl(t *testing.T) {
 	}
 }
 
-// Resolver-driven cross-generation control: a scope resolved for one dataset
-// generation must never cover an execution declared in a sibling generation.
-// Each subtest builds its own resolver and lister so no mutable state is
-// shared across subtests (race-clean by construction).
 func TestCoversExecutionPathsGenerationBoundControl(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -146,11 +127,6 @@ func TestCoversExecutionPathsGenerationBoundControl(t *testing.T) {
 	}
 }
 
-// Companion pin to unknown-mode-direct-denies above: the OTHER consumer
-// posture. Unrestricted() must report true ONLY for the explicit
-// unrestricted enum; empty and garbage modes must not gain the bypass at
-// any consumer of a persisted scope (R78 fail-posture alignment: the
-// catalog discovery bridge now agrees with this table).
 func TestUnrestrictedRequiresExplicitUnrestrictedMode(t *testing.T) {
 	for _, tc := range []struct {
 		name string

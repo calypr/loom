@@ -28,9 +28,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Expected values are read from the independently authored literal fixture,
-// never from a preceding query response. This proves compiler/AQL execution,
-// not native browser interaction, draft persistence or authentication.
 func TestGraphRowsIndependentFixtureAgainstArango(t *testing.T) {
 	graphRowsIndependentFixtureAgainstArango(t, "fixture-v1", false, false, "original")
 }
@@ -546,8 +543,7 @@ func graphRowsIndependentFixtureAgainstArango(t *testing.T, generation string, q
 	})
 	t.Run("related-expansion-preserves-existing-all-lists-and-explicit-scalar", func(t *testing.T) {
 		output := graphRowsFixtureExpandedWithLists(recipe.ExpansionExclude)
-		// The existing list and the separately authored per-match scalar retain
-		// different identities and policies throughout the same expansion.
+
 		observation := output.Traversals[0].Traversals[0]
 		if observation.Fields[1].ColumnID != "observation-values" || observation.Fields[1].ValueMode != recipe.ValueModeAll || output.Construction.Steps[1].Operation.RelatedField.OutputColumnID != "observation-value" {
 			t.Fatal("expansion fixture rewrote existing column policy or identity")
@@ -858,8 +854,6 @@ func graphRowsFixtureOneDistinct(subject string) recipe.Output {
 	return output
 }
 
-// This fixture preserves existing source ALL columns while adding an explicit
-// related-record scalar. Their stable identities are intentionally distinct.
 func graphRowsFixtureExpandedWithLists(policy recipe.ExpansionEmptyPolicy) recipe.Output {
 	output := graphRowsFixtureExpanded(policy)
 	output.Traversals = graphRowsFixtureSource(false, true).Traversals

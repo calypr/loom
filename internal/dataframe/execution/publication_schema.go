@@ -6,10 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// PublicationColumns is the one conversion point from the finalized
-// compiler schema to the backend-neutral publication schema. Publication must
-// not reconstruct nested names from semantic recipe nodes because those names
-// are finalized by physical lowering.
 func PublicationColumns(plan Resolved, outputName string) []publication.LogicalColumn {
 	for _, output := range plan.Compiled.Outputs {
 		if output.Name != outputName {
@@ -23,9 +19,7 @@ func PublicationColumns(plan Resolved, outputName string) []publication.LogicalC
 				if kind == "" {
 					kind = "string"
 				}
-				// Group row identity is a structured tuple in the compiler. The
-				// publication row key is its canonical JSON text so ClickHouse can
-				// order and page by the hidden identity column.
+
 				if output.RowGrain == spec.RowGrainGroups && kind == "object" {
 					kind = "string"
 				}

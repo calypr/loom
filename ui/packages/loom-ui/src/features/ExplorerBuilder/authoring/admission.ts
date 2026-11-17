@@ -49,12 +49,6 @@ const tableForOutput = (
   ? tables.find((table) => table.outputId === outputId)
   : undefined;
 
-// Add columns can bring related, semantic, or calculated columns onto an
-// imported-recipe table without rewriting its immutable source columns. Source
-// writes are still refused per command below, where the concrete command is
-// known. APPLY_CONSTRUCTION_CHOICE is additive by contract: the server reducer
-// rejects imported source kinds and validates the resolved source against the
-// pinned recipe before adding a column.
 const admitAddColumnsProposal = (
   _tables: ReadonlyArray<DraftTable>,
   _outputId: string,

@@ -78,8 +78,6 @@ func (s *Service) DescribeAuthoringNetwork(ctx context.Context, request Authorin
 	return AuthoringNetworkResponse{RowIdentity: rowIdentity, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Network: network}, nil
 }
 
-// rowIdentityForNetwork uses the effective imported overlay, not its historical
-// projected route. Saved and proposed recipes must describe identical semantics.
 func rowIdentityForNetwork(document authoringv2.Document, network authoringv2.AuthoringNetwork) authoringv2.RowIdentityPlan {
 	effective := document
 	effective.Rows = network.SourceRows

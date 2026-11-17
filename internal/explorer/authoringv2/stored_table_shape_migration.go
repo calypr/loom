@@ -6,9 +6,6 @@ import (
 	"fmt"
 )
 
-// MigrateStoredTableShapeWorkspace converts the persisted TableShape wire into
-// Construction while preserving the exact original digest relation for receipts.
-// This is an offline migration API; current request decoding stays strict.
 func MigrateStoredTableShapeWorkspace(raw []byte, catalog CatalogSnapshot) (StoredWorkspaceMigration, error) {
 	result, err := MigrateStoredWorkspace(raw, catalog)
 	if err != nil {
@@ -102,8 +99,7 @@ func migrateStoredTableShapeSteps(outputID string, shape *storedTableShape, sour
 		switch shape.Reshape.Kind {
 		case "PIVOT":
 			pivot := shape.Reshape.Pivot
-			// Legacy PIVOT always carries explicit categories. Leave Discovery nil
-			// so migration preserves the accepted byte-level behavior.
+
 			operation := ConstructionPivot{
 				ConstructionID:         string(pivot.ConstructionID),
 				GroupKeyIDs:            make([]string, 0, len(pivot.GroupKeys)),

@@ -1,7 +1,3 @@
-// Package arangotest provides isolated Arango and ClickHouse clients for
-// integration tests. Tests default to skipping when their service URL is
-// absent; LOOM_TEST_REQUIRED=1 turns missing service configuration into a
-// failure for CI profiles that promise live coverage.
 package arangotest
 
 import (
@@ -21,16 +17,12 @@ import (
 
 const requiredEnv = "LOOM_TEST_REQUIRED"
 
-// Database owns a client and database name. Owned databases are dropped during
-// cleanup; Shared databases are only closed.
 type Database struct {
 	Client *arango.Client
 	Name   string
 	URL    string
 }
 
-// Close closes the current client and clears it so cleanup does not close it
-// twice. It is useful for tests that explicitly reopen a store mid-test.
 func (database *Database) Close(ctx context.Context) error {
 	if database == nil || database.Client == nil {
 		return nil
@@ -40,12 +32,8 @@ func (database *Database) Close(ctx context.Context) error {
 	return client.Close(ctx)
 }
 
-// Required reports whether missing service configuration should fail instead
-// of skip. Set LOOM_TEST_REQUIRED=1 in CI jobs that promise integration tests.
 func Required() bool { return strings.TrimSpace(os.Getenv(requiredEnv)) == "1" }
 
-// Owned creates a UUID-suffixed Arango database and registers close/drop
-// cleanup. The prefix is part of the cleanup ownership boundary.
 func Owned(t testing.TB, prefix string) *Database {
 	t.Helper()
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
@@ -99,8 +87,6 @@ func Owned(t testing.TB, prefix string) *Database {
 	return owned
 }
 
-// Shared opens the configured LOOM_TEST_ARANGO_DATABASE without dropping it.
-// The database must already exist; this function refuses to create it.
 func Shared(t testing.TB) *Database {
 	t.Helper()
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
@@ -150,9 +136,6 @@ func verifyExistingDatabase(ctx context.Context, endpoint, name string, client *
 	return nil
 }
 
-// ClickHouse opens the configured LOOM_CLICKHOUSE_URL and closes the client at
-// test cleanup. Database and credentials use the standard LOOM_CLICKHOUSE_*
-// settings also consumed by CI.
 func ClickHouse(t testing.TB) *clickhouse.Client {
 	t.Helper()
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_CLICKHOUSE_URL"))

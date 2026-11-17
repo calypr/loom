@@ -31,7 +31,6 @@ interface TraversalTreeLayoutItem {
   readonly depth: number;
 }
 
-/** Lays out a saved occurrence tree in left-to-right columns with disjoint sibling bands. */
 export function layoutTraversalTree(
   items: ReadonlyArray<TraversalTreeLayoutItem>,
   columnGap = 320,
@@ -77,7 +76,6 @@ interface DiscoveryRailPoint {
   readonly y: number;
 }
 
-/** Routes the discovery rail outside lower same-depth subtrees and their edges. */
 export function layoutDiscoveryRail(
   occurrences: ReadonlyArray<DiscoveryRailOccurrence>,
   positions: ReadonlyMap<string, DiscoveryRailPoint>,
@@ -204,12 +202,11 @@ export const GuidedGraphWorkspace = ({
   readonly presentation?: 'catalog' | 'compact' | 'traversal';
   readonly headerStatus?: React.ReactNode;
   readonly headerPath?: string;
-  /** The traversal-first owner supplies the single contextual inspector. */
+
   readonly showSelectionDetails?: boolean;
   readonly rowControl?: React.ReactNode;
   readonly rowMeaning?: string;
-  // Imported changes have a separate native proposal owner. Never reuse the
-  // ordinary Route callbacks when that owner has not been supplied.
+
   readonly importedRelationshipActions?: {
     readonly onAdd: (parentOccurrenceId: string, edgeId: string, nodeId: string) => void;
     readonly onChangeMatchMode: (occurrenceId: string, matchMode: 'OPTIONAL' | 'REQUIRED') => void;
@@ -556,8 +553,7 @@ export const GuidedGraphWorkspace = ({
     const edgeWidth = isRouteEdge ? 3 : isLegalNextEdge ? 2.5 : 1.75;
     return {
       id: edge.edgeId,
-      // Loom's catalog edges are directed. Keep the catalog orientation in
-      // React Flow; do not synthesize a reverse edge for FHIR relationships.
+
       source: edge.fromNodeId,
       target: edge.toNodeId,
       label: edgeOverviewLabels.get(edge.edgeId),

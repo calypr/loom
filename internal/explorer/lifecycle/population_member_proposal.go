@@ -12,9 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// PopulationMemberRemovalProposalRequest identifies one exact member in the
-// currently attached immutable selection. The caller never supplies candidate
-// membership or a population route.
 type PopulationMemberRemovalProposalRequest struct {
 	Project              string
 	ExplorerID           string
@@ -52,8 +49,6 @@ func (r PopulationMemberRemovalProposalRequest) Validate() error {
 	return nil
 }
 
-// PopulationMemberRemovalProposalResponse exposes immutable headers for
-// paginated inspection; member arrays are never downloaded by this operation.
 type PopulationMemberRemovalProposalResponse struct {
 	ProposalID               string                      `json:"proposalId,omitempty"`
 	OutputID                 string                      `json:"outputId"`
@@ -68,11 +63,6 @@ type PopulationMemberRemovalProposalResponse struct {
 	PreviewStatus            string                      `json:"previewStatus"`
 }
 
-// ProposePopulationMemberRemoval creates an unattached immutable candidate
-// selection by excluding one exact member from the current attached selection,
-// reissues the same authorized population route for that candidate, and stores
-// a purpose-bound compilation receipt. Apply is the only operation that saves
-// the changed population on the draft.
 func (s *Service) ProposePopulationMemberRemoval(ctx context.Context, request PopulationMemberRemovalProposalRequest) (PopulationMemberRemovalProposalResponse, error) {
 	if err := request.Validate(); err != nil {
 		return PopulationMemberRemovalProposalResponse{}, malformed("population-member-proposal", err.Error(), err)

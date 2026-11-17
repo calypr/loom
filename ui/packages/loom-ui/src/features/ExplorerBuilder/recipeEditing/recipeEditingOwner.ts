@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import type { AuthoringNetworkResponse, Construction, ExplorerBuilderDocument, ExplorerBuilderPreviewResult, SourceRuleCreate } from '../../../types';
 
-/** Ephemeral proposal ownership, never a second authored recipe. */
 export interface RecipeEditingIdentity {
   readonly project: string;
   readonly explorerId: string;
@@ -28,9 +27,9 @@ export interface RecipeValidatedCandidate {
   readonly receiptId: string;
   readonly candidateWorkspaceDigest?: string;
   readonly preview: ExplorerBuilderPreviewResult;
-  /** Source proposals return the exact receipt candidate document. */
+
   readonly candidateDocument?: ExplorerBuilderDocument;
-  /** Construction proposals return the complete validated construction. */
+
   readonly candidateConstruction?: Construction;
   readonly candidateNetwork?: AuthoringNetworkResponse['network'];
   readonly candidateRowIdentity?: AuthoringNetworkResponse['rowIdentity'];
@@ -100,7 +99,6 @@ export function recipeEditingReducer(state: RecipeEditingState, action: RecipeEd
   return { ...state, status: action.stale ? 'stale' : 'failed', candidate: undefined, error: action.error };
 }
 
-/** Returns a document only from validated candidate data; never guesses a source overlay. */
 export function projectRecipeCandidate(saved: ExplorerBuilderDocument, candidate: RecipeValidatedCandidate): ExplorerBuilderDocument | undefined {
   if (candidate.preview.outputId !== saved.output.id) return undefined;
   if (candidate.candidateDocument) return candidate.candidateDocument.output.id === saved.output.id ? candidate.candidateDocument : undefined;
@@ -108,7 +106,6 @@ export function projectRecipeCandidate(saved: ExplorerBuilderDocument, candidate
   return undefined;
 }
 
-/** Actions update the owning ref synchronously, so two same-tick starts cannot both acquire the edit. */
 export function useRecipeEditingOwner(identity: RecipeEditingIdentity) {
   const stateRef = useRef<RecipeEditingState>(createRecipeEditingState(identity));
   const sequence = useRef(0);
