@@ -170,11 +170,6 @@ type strictHandler struct {
 
 {{range .}}
 {{$opid := .OperationId}}{{$fallback := .SpecOperationId}}
-{{if eq $fallback "getProjectViewBuilder"}}{{$fallback = "GetProjectViewBuilder"}}{{end}}
-{{if eq $fallback "adoptProjectViewBuilder"}}{{$fallback = "AdoptProjectViewBuilder"}}{{end}}
-{{if eq $fallback "saveProjectViewDefaults"}}{{$fallback = "SaveProjectViewDefaults"}}{{end}}
-{{if eq $fallback "saveProjectViewConfig"}}{{$fallback = "SaveProjectViewConfig"}}{{end}}
-{{if eq $fallback "deleteProjectViewConfig"}}{{$fallback = "DeleteProjectViewConfig"}}{{end}}
 // New{{$opid}}ErrorResponse maps a documented JSON error status to its generated response type.
 func New{{$opid}}ErrorResponse(status int, body any) ({{$opid}}ResponseObject, error) {
 	switch status {

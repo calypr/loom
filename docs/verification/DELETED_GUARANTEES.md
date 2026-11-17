@@ -233,3 +233,34 @@ The removed translator cloned source column IDs into Pivot outputs, used a proje
 ### WP-20 / FE-20: Explorer error union retirement
 
 Explorer routes no longer emit the string-or-object `LegacyErrorResponse` union or the service-specific 401 schema; they use `ErrorResponse` with structured code/message and optional details/diagnostics. The old string-constructor and legacy Explorer mapper assertions are replaced by structured-body assertions with identical route statuses, explicit retryability, diagnostic preservation, and cause redaction. Recipe-execution's non-Explorer legacy 403/404 schema and exact 404 string body remain covered. No status-code or rendered UI guarantee is retired.
+
+### WP-21: standalone View Builder API removed
+
+Retired the standalone View Builder HTTP contract and its endpoint-specific guarantees: read/write and publication-scope authorization, route error/status mapping, strict malformed-body rejection, stale catalog/revision conflict handling, catalog adoption, default selection, save binding validation, and delete constraints. The UI, CLI, and scripts had no endpoint caller; README endpoint documentation was removed. These route-level guarantees no longer have a supported caller or API.
+
+Retain and continue testing repository source-publication guarantees: catalog snapshot construction, per-project recipe catalog anchoring in the release/config publication transaction, expected-head checks, and idempotent exact retry behavior. The WP-21 deletion must not remove these internal publication mechanisms or their coverage.
+
+
+Retired or renamed test inventory:
+
+| Prior file / test | Disposition |
+|---|---|
+| `internal/explorer/arango/view_builder_integration_test.go`: `TestViewBuilderCatalogSaveDefaultsDeleteAndSourceRebindAgainstArango` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/arango/view_builder_test.go`: `TestAdoptedCatalogSnapshotIsDetachedAndKeepsExactPublishedMetadata` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/arango/view_builder_test.go`: `TestViewBuilderSourcePublicationExpectedHeadsAndExactRetry` | Renamed to `TestProjectConfigSourcePublicationExpectedHeadsAndExactRetry`; publication guarantee retained. |
+| `internal/explorer/arango/view_builder_test.go`: `TestSettingsCatalogPublishIsStableOnRetryAndPreservesDefaults` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/arango/view_builder_test.go`: `TestViewBuilderFrameIDsAreRecipeQualified` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/arango/view_builder_test.go`: `TestViewBuilderDefaultRejectsRetargetingOrRemovingItsFrame` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/arango/view_builder_test.go`: `TestProjectRecipeSnapshotMatchesViewFromSameExecution` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/arango/view_builder_test.go`: `TestCatalogSnapshotDoesNotChangeDynamicOrQualityEvidence` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/view_builder_prepare_test.go`: `TestPrepareViewBuilderCatalogSnapshotIsDetachedAndComplete` | Renamed to `TestPrepareProjectConfigCatalogSnapshotIsDetachedAndComplete`; snapshot guarantee retained. |
+| `internal/explorer/view_builder_prepare_test.go`: `TestPrepareViewBuilderConfigClonesExactSnapshotWithoutRecipeBody` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/view_builder_prepare_test.go`: `TestPrepareViewBuilderConfigRejectsRecipeAndColumnOutsideCatalog` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/view_builder_prepare_test.go`: `TestSavedViewMetadataDoesNotMutatePublicationCatalog` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/view_builder_service_test.go`: `TestViewBuilderServiceGETDoesNotInitializeProject` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/explorer/view_builder_service_test.go`: `TestViewBuilderServiceSavesPresentationAgainstExactCatalog` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/server/openapi_error_response_mapper_test.go`: `TestViewBuilderErrorFactoriesKeepHistoricalFallbackText` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/server/openapi_view_builder_test.go`: `TestViewBuilderHTTPReadOnlyAndWriteAuthorization` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/server/openapi_view_builder_test.go`: `TestViewBuilderHTTPStorageFailuresAndMalformedRequests` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/server/openapi_view_builder_test.go`: `TestViewBuilderExecutionAuthorizationKeepsBackendFailuresDistinct` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |
+| `internal/server/openapi_view_builder_test.go`: `TestViewBuilderScopedEditorCapability` | Removed with the standalone View Builder API; publication catalog-anchor coverage is retained separately. |

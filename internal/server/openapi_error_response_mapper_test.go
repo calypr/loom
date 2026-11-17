@@ -133,24 +133,4 @@ func TestGeneratedErrorMappersPreserveInputWireBodies(t *testing.T) {
 	})
 }
 
-func TestViewBuilderErrorFactoriesKeepHistoricalFallbackText(t *testing.T) {
-	cases := []struct {
-		name string
-		call func() error
-	}{
-		{"GetProjectViewBuilder", func() error { _, err := loomapi.NewGetProjectViewBuilderErrorResponse(502, nil); return err }},
-		{"AdoptProjectViewBuilder", func() error { _, err := loomapi.NewAdoptProjectViewBuilderErrorResponse(502, nil); return err }},
-		{"SaveProjectViewDefaults", func() error { _, err := loomapi.NewSaveProjectViewDefaultsErrorResponse(502, nil); return err }},
-		{"SaveProjectViewConfig", func() error { _, err := loomapi.NewSaveProjectViewConfigErrorResponse(502, nil); return err }},
-		{"DeleteProjectViewConfig", func() error { _, err := loomapi.NewDeleteProjectViewConfigErrorResponse(502, nil); return err }},
-	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			if err := test.call(); err == nil || err.Error() != test.name+" returned undocumented HTTP status 502" {
-				t.Fatalf("fallback = %v", err)
-			}
-		})
-	}
-}
-
 func wp9String(value string) *string { return &value }

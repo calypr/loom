@@ -93,8 +93,8 @@ RESPONSIBILITIES = {
     "internal/dataframe/unit": "Define unit identity, dimensional compatibility, and approved conversion rules for quantity values.",
     "internal/dataset": "Define immutable dataset generation manifests, releases, active pointers, and lifecycle validation.",
     "internal/dataset/arango": "Persist immutable dataset generation lifecycle state in ArangoDB.",
-    "internal/explorer": "Define Explorer aggregate identities, configs, revisions, receipts, output contracts, stores, and core service operations.",
-    "internal/explorer/arango": "Persist Explorer drafts, revisions, receipts, publications, capabilities, and repository state in ArangoDB.",
+    "internal/explorer": "Define Explorer aggregate identities, configs, revisions, receipts, output contracts, stores, core service operations, and immutable project-publication catalogs.",
+    "internal/explorer/arango": "Persist Explorer drafts, revisions, receipts, publications, capabilities, repository state, and atomic project catalog anchors in ArangoDB.",
     "internal/explorer/artifactfs": "Persist and serve immutable Explorer training artifacts from a dedicated filesystem root.",
     "internal/explorer/authoringv2": "Define, validate, canonicalize, and mutate the V2 Explorer Builder authoring workspace.",
     "internal/explorer/capability": "Build the immutable compiler-backed capability contract exposed to Explorer Builder.",
@@ -117,6 +117,24 @@ RESPONSIBILITIES = {
 # understand why a source disappeared; keep records pin the reviewed boundary
 # to a live package.
 COMPLETED_DECISIONS = (
+    {
+        "source": "internal/explorer",
+        "disposition": "keep",
+        "destination": "internal/explorer",
+        "rationale": "WP-21 retires the standalone View Builder API while keeping immutable project catalog preparation with Explorer revision ownership",
+        "contracts": "exact source-publication catalog identities and metadata; retired endpoint promises recorded in DELETED_GUARANTEES",
+        "verification": "pre/post package audits; historical full-JSON parity; publication tests; native Builder lifecycle; full package audit",
+        "status": "complete",
+    },
+    {
+        "source": "internal/explorer/arango",
+        "disposition": "keep",
+        "destination": "internal/explorer/arango",
+        "rationale": "WP-21 removes presentation-only mutations and rehomes retained project catalog settings with their publication transaction",
+        "contracts": "persisted settings JSON and keys unchanged; release/config/catalog atomicity; CAS; exact retry; stored defaults preserved",
+        "verification": "pre/post package audits; real Arango publication retry/rebind/collision/CAS tests; native Builder lifecycle; full package audit",
+        "status": "complete",
+    },
     {
         "source": "internal/explorer/tableshapecap",
         "disposition": "deleted",

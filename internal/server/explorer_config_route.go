@@ -16,7 +16,6 @@ type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, st
 type explorerHTTPHandlers struct {
 	authorizer         authscope.Authorizer
 	authorizeRead      explorerConfigReadAuthorizer
-	views              *explorer.Service
 	application        *lifecycle.Service
 	constructionInputs constructionInputsCatalog
 	authorizeExecution func(context.Context, string) error
@@ -32,6 +31,5 @@ func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead expl
 		authorizer:    authorizer,
 		authorizeRead: authorizeRead,
 		application:   application,
-		views:         explorers,
 	}
 }

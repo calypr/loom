@@ -25,7 +25,7 @@ func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 	}
 	for collection, required := range map[string][][]string{
 		DraftRevisionsCollection:           {{"project", "explorerId", "draftVersion"}},
-		ViewBuilderSettingsCollection:      {{"project"}},
+		ProjectCatalogSettingsCollection:   {{"project"}},
 		ExplicitGroupRevisionsCollection:   {{"project", "id"}, {"project", "idempotencyKey"}, {"project", "generation", "resourceType", "createdAt"}, {"state", "createdAt"}},
 		ExplicitGroupDefinitionsCollection: {{"revisionId", "ordinal"}, {"revisionId", "groupId"}},
 		ExplicitGroupMembershipsCollection: {{"revisionId", "groupId", "id"}, {"revisionId", "project", "generation", "resourceType", "id"}},

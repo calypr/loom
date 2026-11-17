@@ -321,26 +321,7 @@ loading instructions. Several views can use the same published tables.
 The first publication creates a simple table view from that project's actual
 schema. Later publications keep the project's saved views and default choices.
 
-The frontend's **View Builder** saves presentation changes immediately, without
-running Funnel, reloading files, or rebuilding ClickHouse tables. It also lets
-project writers choose the default view and opening table. The dataframe
-Builder, which edits recipes and rebuilds tables, is a separate feature.
-
-The project API is under `/api/v1/projects/{project}/view-builder`:
-
-- `GET` reads saved views, defaults, and the exact published table catalog.
-- `PUT /configs/{id}` saves a view with its expected revision and catalog revision.
-- `DELETE /configs/{id}` deletes a non-default view with its expected revision.
-- `PUT /defaults` chooses a saved view and its qualified `recipe/output` table.
-- `POST /adopt` attaches existing published metadata for projects created before
-  project view settings existed. It does not reload or materialize data.
-
-Reads require project and publication-scope access; writes also require project
-write access. Stale saves return `409` instead of overwriting concurrent edits.
-If a new publication removes a saved column or filter, Loom retains the view
-and reports `VIEW_BINDING_UNAVAILABLE`. The affected tab stays unavailable until
-it is repaired, so a missing filter cannot silently broaden its results.
-Immutable publication metadata remains available after a view is deleted.
+Project-owned views and their published revisions continue to be refreshed transactionally when repository source updates are published. Their saved definitions remain part of project configuration; the standalone View Builder HTTP API has been removed.
 
 ## Repository guide
 

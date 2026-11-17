@@ -224,12 +224,13 @@ func TestDoJSONReportsStructuredExplorerConfigError(t *testing.T) {
 		}, nil
 	})}
 	request, err := http.NewRequest(http.MethodPost, "http://loom/api/v1/projects/p/generations/g/explorer-config", nil)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := doJSON(client, request); err == nil || !strings.Contains(err.Error(), body) {
 		t.Fatalf("doJSON error = %v, want exact structured response body %s", err, body)
 	}
 }
-
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
