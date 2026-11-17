@@ -29,7 +29,11 @@ Start or inspect the owned development stack with `make dev` and
 `make dev-doctor`. Require `DEV_DOCTOR_PASSED`. Set `LOOM_DEV_PROJECT` to its
 seeded project; set `LOOM_DEV_API_URL`/`LOOM_DEV_UI_URL` if ports differ from
 8180/3180. Set `LOOM_E2E_CHROME` when Chrome is not discovered automatically.
-Freeze source during each run. Each case owns its QA Explorer and cleanup.
+Freeze source during each run. Each case owns its QA Explorer. The current
+backend rejects Explorer deletion, so cases explicitly report retained projects;
+see ARC-E14 in [the backlog](../docs/BACKLOG.md) for the pruning gap.
+Reload failures save bounded CDP diagnostics under the system temporary
+`loom-e2e-diagnostics` directory; set `LOOM_E2E_DIAGNOSTICS_DIR` to override it.
 
 | Spec | Assertions |
 |---|---|

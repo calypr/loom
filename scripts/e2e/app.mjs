@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CDPClient } from '../browser/cdp.mjs';
@@ -145,6 +145,7 @@ export class E2EPage {
     this.chromeStderr = () => '';
     this.devtoolsEvents = [];
     this.lifecycleEvents = [];
+    this.eventSequence = 0;
   }
 
   observe(client, method) {
@@ -176,7 +177,7 @@ export class E2EPage {
         origin: params.context?.origin,
         name: params.context?.name,
       };
-      const event = { at: Date.now(), method, params: details };
+      const event = { sequence: ++this.eventSequence, at: Date.now(), method, params: details };
       this.devtoolsEvents.push(event);
       if (this.devtoolsEvents.length > 60) this.devtoolsEvents.shift();
       if (method === 'Page.lifecycleEvent') {
@@ -197,15 +198,12 @@ export class E2EPage {
     }
   }
 
-  async waitForReloadLifecycle(frameId, previousLoaderId, timeoutMs = 30000) {
-    try {
-      return await until(() => this.lifecycleEvents.find(event =>
-        event.params.frameId === frameId && event.params.loaderId && event.params.loaderId !== previousLoaderId &&
+  async waitForReloadLifecycle(frameId, previousLoaderId, afterSequence, timeoutMs = 30000) {
+    return until(() => this.lifecycleEvents.find(event =>
+        event.sequence > afterSequence
+        && event.params.frameId === frameId && event.params.loaderId && event.params.loaderId !== previousLoaderId &&
         ['DOMContentLoaded', 'load'].includes(event.params.name)),
       `main-frame reload DOMContentLoaded/load after loader ${previousLoaderId}`, timeoutMs);
-    } catch (error) {
-      throw new Error(`${error.message}; CDP diagnostics=${JSON.stringify(await this.timeoutDiagnostics())}`);
-    }
   }
 
   async browserProbe(method, timeoutMs = 1500) {
@@ -248,6 +246,30 @@ export class E2EPage {
     };
   }
 
+  async saveReloadDiagnostics(error, reload) {
+    const directory = process.env.LOOM_E2E_DIAGNOSTICS_DIR || join(tmpdir(), 'loom-e2e-diagnostics');
+    await mkdir(directory, { recursive: true });
+    const filename = `reload-${Date.now()}-${randomUUID()}.json`;
+    const filepath = join(directory, filename);
+    const previousMainFrameLifecycle = this.lifecycleEvents.filter(event =>
+      event.sequence <= reload.afterSequence
+      && event.params.frameId === reload.frameId
+      && event.params.loaderId
+      && event.params.loaderId !== reload.previousLoaderId
+      && ['DOMContentLoaded', 'load'].includes(event.params.name));
+    const diagnostics = {
+      error: { name: error.name, message: error.message, stack: error.stack },
+      reload,
+      previousMainFrameLifecycleEventsRejectedBySequence: previousMainFrameLifecycle,
+      pageEvents: this.devtoolsEvents.slice(),
+      lifecycleEvents: this.lifecycleEvents.slice(),
+      browserDiagnostics: await this.timeoutDiagnostics(),
+      chromeStderr: this.chromeStderr(),
+    };
+    await writeFile(filepath, `${JSON.stringify(diagnostics, null, 2)}\n`);
+    return filepath;
+  }
+
   async evaluate(expression) {
     let timeout;
     const callSite = new Error().stack?.split('\n').slice(2, 5).join('\n') ?? 'unknown caller';
@@ -287,11 +309,32 @@ export class E2EPage {
     const frame = frameTree.frameTree?.frame;
     assert(frame?.id, 'Page.getFrameTree must identify the current main frame before reload');
     const previousLoaderId = frame.loaderId;
-    this.lifecycleEvents = [];
-    await this.client.send('Page.reload', { ignoreCache: true });
-    await this.waitForReloadLifecycle(frame.id, previousLoaderId);
-    await this.until(() => this.evaluate('document.readyState === "complete"'), 'page reload', 30000);
-    await this.until(() => this.evaluate('document.body.innerText.length > 0'), 'application after reload', 30000);
+    const reload = {
+      frameId: frame.id,
+      previousLoaderId,
+      previousURL: frame.url,
+      afterSequence: this.eventSequence,
+      startedAt: Date.now(),
+    };
+    try {
+      await this.client.send('Page.reload', { ignoreCache: true });
+      reload.reloadCommandReturnedAt = Date.now();
+      reload.matchedLifecycle = await this.waitForReloadLifecycle(frame.id, previousLoaderId, reload.afterSequence);
+      reload.lifecycleReadyAt = Date.now();
+      await this.until(() => this.evaluate('document.readyState === "complete"'), 'page reload', 30000);
+      await this.until(() => this.evaluate('document.body.innerText.length > 0'), 'application after reload', 30000);
+    } catch (error) {
+      reload.failureAt = Date.now();
+      reload.failureMessage = error.message;
+      let filepath;
+      try { filepath = await this.saveReloadDiagnostics(error, reload); }
+      catch (diagnosticError) { filepath = `unavailable (${diagnosticError.message})`; }
+      const reloadEvents = [...this.devtoolsEvents, ...this.lifecycleEvents]
+        .filter(event => event.sequence > reload.afterSequence
+          && ['Page.frameStartedLoading', 'Page.frameStoppedLoading', 'Page.frameNavigated', 'Page.lifecycleEvent'].includes(event.method))
+        .sort((left, right) => left.sequence - right.sequence).slice(-30);
+      throw new Error(`${error.message}; reload events=${JSON.stringify(reloadEvents)}; full CDP diagnostics saved at ${filepath}`);
+    }
   }
 
   until(probe, label, timeoutMs) { return until(probe, label, timeoutMs); }

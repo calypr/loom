@@ -132,9 +132,12 @@ rows, and raw Arango errors. Keep diagnostic artifacts local.
 
 ## Cleanup
 
-Delete only run-owned QA Explorers through the UI's `Delete explorer` action
-or the supported API used by the e2e helper. Reload the Explorer list and verify
-absence; an unloaded or blank page proves nothing. Keep user-owned Explorers.
+The UI exposes `Delete explorer` and the client issues DELETE, but the current
+backend does not implement that endpoint. E2E logs this unsupported result and
+retains its run-owned Explorer/project; do not claim cleanup succeeded. If a
+deployment implements deletion, use it only for run-owned QA Explorers and
+verify absence after reloading the list. Keep user-owned Explorers. Project
+pruning remains blocked on a backend deletion seam (ARC-E14 in `docs/BACKLOG.md`).
 
 `make dev-down` stops the owned development services and keeps their volumes.
 `node scripts/loom-dev.mjs dev-down --purge` removes validated development
