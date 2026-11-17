@@ -1,4 +1,4 @@
-import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName as uniqueFilterSourceName, sourceLabel as filterSourceLabel, editorContextKey } from './editorShared';
+import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName as uniqueFilterSourceName, sourceLabel as filterSourceLabel, editorContextKey, stageWithSourceInputs, constructionWithStep } from './editorShared';
 import React, { useId, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
@@ -173,16 +173,9 @@ const deriveSourceStage = (
   stage: ConstructionStageDescriptor,
   sourceInput: DeriveSourceInput | undefined,
   deriveSources: ReadonlyArray<DeriveSourceSelection>,
-): ConstructionStageDescriptor => {
-  const choices = sourceInput?.choices ?? [];
-  const inputs = deriveSources.flatMap((selection) => {
-    if (selection.columnId.trim() === '') return [];
-    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
-    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
-    return choice ? [filterSourceColumn(choice, selection.columnId, stage)] : [];
-  });
-  return inputs.length ? { ...stage, columns: [...stage.columns, ...inputs] } : stage;
-};
+): ConstructionStageDescriptor => stageWithSourceInputs({
+  stage, choices: sourceInput?.choices ?? [], selections: deriveSources, kind: 'DERIVE',
+});
 
 const deriveSourceChoiceForColumn = (
   choices: ReadonlyArray<DeriveSourceChoice>,
@@ -198,16 +191,9 @@ const filterInputStage = (
   stage: ConstructionStageDescriptor,
   sourceInput: FilterSourceInput,
   filterSources: ReadonlyArray<FilterSourceSelection>,
-): ConstructionStageDescriptor => {
-  const choices = sourceInput?.choices ?? [];
-  const inputs = filterSources.flatMap((selection) => {
-    if (selection.columnId.trim() === '') return [];
-    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
-    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
-    return choice ? [filterSourceColumn(choice, selection.columnId, stage)] : [];
-  });
-  return inputs.length ? { ...stage, columns: [...stage.columns, ...inputs] } : stage;
-};
+): ConstructionStageDescriptor => stageWithSourceInputs({
+  stage, choices: sourceInput?.choices ?? [], selections: filterSources, kind: 'FILTER',
+});
 
 const materializedChoiceColumnId = (choice: SourceChoiceLike): string | undefined => {
   const columnId = choice.columnId ?? '';
@@ -248,12 +234,7 @@ const replaceOrAppendStep = (
   step: ConstructionStep,
 ): Construction | undefined => {
   if (editingStep && !construction.steps.some((candidate) => candidate.id === editingStep.id)) return undefined;
-  return {
-    ...construction,
-    steps: editingStep
-      ? construction.steps.map((candidate) => candidate.id === editingStep.id ? step : candidate)
-      : [...construction.steps, step],
-  };
+  return constructionWithStep({ construction, editingStep, step });
 };
 
 const filterValueText = (value: FilterValue): string => {

@@ -1,4 +1,5 @@
-import type { ConstructionCapabilitiesResponse, ConstructionStageDescriptor, ConstructionStep } from '../../../types';
+import { constructionSchema } from '../../../types';
+import type { Construction, ConstructionCapabilitiesResponse, ConstructionStageDescriptor, ConstructionStep } from '../../../types';
 
 export const createOpaqueId = (prefix: string): string => {
   const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
@@ -62,3 +63,44 @@ export const editorContextKey = (
   editingStep?.id ?? 'new',
   ...context,
 ].join(':');
+
+type SourceInputChoice = Pick<NonNullable<ConstructionCapabilitiesResponse['filterSourceInput']>['choices'][number], 'choiceId' | 'fieldPath' | 'label' | 'logicalType'>;
+type SourceInputSelection = { readonly choiceId: string; readonly columnId: string };
+
+export const stageWithSourceInputs = ({ stage, selections, choices, kind }: {
+  readonly stage: ConstructionStageDescriptor;
+  readonly selections: ReadonlyArray<SourceInputSelection>;
+  readonly choices: ReadonlyArray<SourceInputChoice>;
+  readonly kind: 'FILTER' | 'DERIVE' | 'PIVOT' | 'UNPIVOT' | 'EXPAND';
+}): ConstructionStageDescriptor => {
+  const sequentialNames = kind === 'PIVOT' || kind === 'UNPIVOT';
+  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
+  const inputs = selections.flatMap((selection) => {
+    if ((kind === 'FILTER' || kind === 'DERIVE') && selection.columnId.trim() === '') return [];
+    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
+    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
+    if (!choice) return [];
+    const name = uniqueName(choice.fieldPath, usedNames);
+    if (sequentialNames) usedNames.add(name.toLowerCase());
+    const column: ConstructionStageDescriptor['columns'][number] = {
+      id: selection.columnId, name, label: choice.label, type: choice.logicalType,
+      cardinality: kind === 'EXPAND' ? 'many' : 'optional_one',
+    };
+    return [column];
+  });
+  return inputs.length || sequentialNames ? { ...stage, columns: [...stage.columns, ...inputs] } : stage;
+};
+
+export const constructionWithStep = ({ construction, editingStep, step }: {
+  readonly construction: Construction;
+  readonly editingStep: Pick<ConstructionStep, 'id'> | undefined;
+  readonly step: ConstructionStep;
+}): Construction | undefined => {
+  const parsed = constructionSchema.safeParse({
+    ...construction,
+    steps: editingStep
+      ? construction.steps.map((candidate) => candidate.id === editingStep.id ? step : candidate)
+      : [...construction.steps, step],
+  });
+  return parsed.success ? parsed.data : undefined;
+};
