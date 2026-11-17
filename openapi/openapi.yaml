@@ -5641,6 +5641,10 @@ components:
         draftDigest: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
         stageId: {type: string, minLength: 1}
+        nodeOccurrences:
+          type: object
+          description: Maps catalog node IDs to their authored route occurrence IDs.
+          additionalProperties: {type: string}
         baseConstruction: {$ref: '#/components/schemas/Construction'}
         stages:
           type: array
