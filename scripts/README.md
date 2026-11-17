@@ -1,100 +1,95 @@
 # Scripts
 
-Run commands from the repository root.
+Run commands from the repository root. Use the repository Go toolchain
+(currently 1.26.5), Node 24 as used by CI, and installed UI
+dependencies. Docker Compose and Chrome/Chromium are required for local e2e.
+CI setup versions and service configuration live in
+[tests.yaml](../.github/workflows/tests.yaml).
 
-The required test loop is split across independent CI jobs in
-`.github/workflows/tests.yaml`. Vitest, Go, Node, Python, shell, contract, and
-build jobs run in parallel. Every test process has a 30-second bound where its
-runner supports one, and every job has a 10-minute timeout.
+## Product checks
 
-Retained Node tests are selected with:
+| Command | What it checks |
+|---|---|
+| `make test-ui` | UI boundaries, test type-checking, and all Vitest suites. |
+| `make test-go` | Ordinary Go tests; environment-gated cases can skip. |
+| `make test-integration` | Named real Arango/ClickHouse cases plus isolated Arango profiles. Requires owned `LOOM_TEST_ARANGO_URL`, `LOOM_CLICKHOUSE_URL`, and appropriate ClickHouse database/credentials. |
+| `make e2e` | The real-Chrome local Builder/Viewer specs below. |
+| `make verify-current` | UI and ordinary Go checkpoint; run integration/e2e for their affected boundaries. |
+
+A green build or zero matching tests does not establish behavior. The named Go
+integration routes check actual test completion; do not replace those routes
+with an unchecked regex. Use the closest test while editing, then verify the
+final integrated source at the relevant acceptance boundary. Preserve complete
+failure output before repeating a run. See
+[the local verification skill](../.codex/skills/verify/SKILL.md).
+
+## Local browser flows
+
+Start or inspect the owned development stack with `make dev` and
+`make dev-doctor`. Require `DEV_DOCTOR_PASSED`. Set `LOOM_DEV_PROJECT` to its
+seeded project; set `LOOM_DEV_API_URL`/`LOOM_DEV_UI_URL` if ports differ from
+8180/3180. Set `LOOM_E2E_CHROME` when Chrome is not discovered automatically.
+Freeze source during each run. Each case owns its QA Explorer and cleanup.
+
+| Spec | Assertions |
+|---|---|
+| [author-publish-view](e2e/author-publish-view.spec.mjs) | Native creation, fields, authored Filter, reload, Publish, Viewer rows, and downloaded ZIP. |
+| [root-change](e2e/root-change.spec.mjs) | Starting-record replacement, Cancel, Apply, exact rows, and reload. |
+| [group-pivot](e2e/group-pivot.spec.mjs) | Fixture-backed Group/Count and Pivot, including Cancel/Apply and reload. |
+| [related-field](e2e/related-field.spec.mjs) | Related rows/field, ambiguous ONE rejection, ALL values, saved state, and reload. |
+| [record-network](e2e/record-network.spec.mjs) | Patient→Observation traversal and row multiplicity from literal fixture references. |
+
+Run a focused case with:
+
+```sh
+node --test --test-concurrency=1 scripts/e2e/root-change.spec.mjs
+```
+
+The fixture is `testdata/devloop-fixture`; Patient 001 has two related
+Observations. These bounded synthetic cases do not establish full-population
+CDA performance, arbitrary FHIR shapes, or authenticated external Calypr
+behavior. See [the backlog](../docs/BACKLOG.md) for remaining acceptance gaps.
+CI cadence for the e2e job is a separate operator decision.
+
+The component boundary remains available through
+`scripts/browser/run.mjs --feature all --out <fresh-directory> --chrome <path>`.
+Invoke it with `node`. Its real-Chromium preview/download/route assertions use
+controlled callers and responses, so they do not prove the deployed Builder,
+real storage, or publication. It records current-run source integrity; retain
+that check when changing tooling. `--doctor` checks prerequisites;
+`--no-cache` rebuilds the component fixture.
+
+## Node tooling tests
 
 ```sh
 node scripts/ci/list-node-tests.mjs
 ```
 
-The selector follows relative imports and excludes tests whose dependency
-closure reaches Playwright or a missing module. CI distributes that stable
-list across four native `node:test` shards.
+The selector follows relative dependency closures. Missing or unreadable
+imports/fixtures fail discovery; they cannot silently reduce the test list.
+Intentional Playwright/browser-package and retired-directory exclusions are
+reported by `--explain`. The CI workflow shards the retained `node:test` list.
+Run an individual retained test with `node --test <path>`.
 
-The same Builder entry point also attaches every remaining UI suite to five user-facing feature groups. Run `node scripts/verify-builder-formal-core.mjs --phase behavior --list` for the read-only doctor, then `--phase behavior --feature drafts --out /tmp/loom-drafts-check` for a focused behavior check without Java or formal tools. `--case` narrows the assertion pattern; zero assertions block. Four CI behavior shards cover the complete existing suite inventory and retain actual assertion results. Skipped fixture-gated cases are reported as partial coverage. The feature map in the existing formal skill links these tests to applicable model guarantees and names remaining browser/storage gaps.
+Keep boundary, source-integrity, negative-validation, fixture, and cleanup
+checks for tools that remain. Do not report excluded or skipped cases as passes.
 
-Builder lifecycle and reconcile safety use bounded TLA+ models and mounted code:
+## Data acceptance and operations
 
-```sh
-node scripts/setup-formal-tools.mjs
-node scripts/verify-builder-formal-core.mjs --model lifecycle
-node scripts/verify-builder-formal-core.mjs --model reconcile
-```
+[REAL_DATA_ACCEPTANCE.md](../docs/REAL_DATA_ACCEPTANCE.md) owns
+`make acceptance-real` and `make acceptance-performance`. Correctness
+acceptance actively redeploys canonical `loom-demo` before using a generated
+fixture project; it is not a passive health check. Never delete canonical
+volumes as test cleanup. The runbook lists `jq`, `python3`, first-fetch network,
+report, performance, and `cleanup.json` requirements.
 
-Requires Node 22.18+, Java 21, curl, Python 3, and UI dependencies.
-Each invocation checks reviewed source and pinned TLC/upstream tool hashes, explores the bounded model,
-mounts the real implementation with controlled response schedules, and runs TLC
-on its observed states. The Apply model also drives every abstract transition
-against the production synchronous ownership component. `--self-test` adds model, trace-integrity, and real-source
-mutation controls. `--out /tmp/loom-formal-review` retains evidence without
-checking generated reports into Git. Child checks have a 30-second timeout;
-`--models-only` explicitly skips mounted code and is not implementation proof.
+`make dev-down` keeps owned development volumes. Use
+`node scripts/loom-dev.mjs dev-down --purge` only for validated disposable
+volumes. The bounded `scripts/owned-query-probe.mjs` defaults to read-only
+EXPLAIN and validates its configured owned target; follow the verification
+skill before adding `--execute`.
 
-Reviewed Builder sources are pinned to committed git blobs. Check the pins or
-refresh them after an intentional review:
-
-```sh
-node scripts/review-builder-sources.mjs --check
-node scripts/review-builder-sources.mjs --refresh --note "why the reviewed sources moved"
-```
-
-`--check` reports every drifted file with the expected and actual pin plus a
-`git diff <baseline>..HEAD -- <path>` inspection command. `--refresh` refuses a
-dirty working tree, resolves `<commit>:<path>` blobs (default `HEAD`), and writes
-canonical JSON while preserving the manifest's review text and recording a
-`repin` note. Manifests without `pinFormat` remain legacy SHA-256 until refreshed.
-`node scripts/lib/formal-framework.test.mjs` covers clean pins, modification
-detection, refresh, dirty refusal, and legacy detection.
-
-The existing skill at
-`.codex/skills/builder-interaction-formal-verification/SKILL.md` records mappings,
-bounds, findings, and a generated Mermaid state diagram. Use pstack `/statechart`
-for every result; the runner already imports its pinned parser/IR/Mermaid API
-with `verification/builder-interactions/statechart.view.mjs`. Models exceeding
-the upstream diagram budget retain reports; scoped trace samples have explicit
-coverage metadata. CI shards the batch instead of imposing a 30-second batch limit.
-
-The refinement loop has closed two real ownership gaps. `beginApply` now returns
-an attempt-bound `{ proposalId, finish }` handle: old/duplicate completions cannot
-settle another Apply, and a completion in a changed workspace cannot claim the
-current editor. `BuilderWorkspace` performs editor cleanup only when that handle
-still owns the current context. Receipt IDs are not used as attempt identities.
-
-The lifecycle area includes `ApplySettlementRace.tla` and mounted regressions for
-cancel/reapply, both completion orders, duplicate calls, reused receipt IDs, and
-nine independently changed workspace fields. The focused model also runs with:
-
-```sh
-node scripts/verify-builder-formal-core.mjs --model apply-settlement --models-only
-```
-
-Use the existing formal skill as a code-refinement workflow: find a counterexample,
-replay it on production code, fix the scoped product behavior, re-run regressions
-and negative controls, update the model/diagram, then explore adjacent schedules.
-A framework-only change is not a completed product refinement. The command checks
-and reports; the agent skill owns diagnosis and reviewed code changes.
-
-Historical browser reports under `docs/verification/` are records only. They
-are not executable tests or current-source proof.
-
-The native Chromium component runner now reuses validated fixture builds across
-invocations and waits for actionable controls, completed downloads and new
-documents. `--no-cache` forces a full build. The
-[Chromium hillclimb](../docs/verification/chromium/PERFORMANCE.md) documents the
-preserved checks and an alternating before/after benchmark command.
-
-The opt-in [Lightpanda runner](../docs/verification/lightpanda/README.md) defaults
-to bounded, reusable worker pools for two DOM semantic contracts. It enables
-private Lightpanda HTTP caches, serves a minified production bundle, batches DOM
-observations, tunes concurrency and confirms sustained throughput. It retains
-the four native candidates in explicit compatibility mode with stylesheet
-loading enabled. Native drag/download acceptance remains in the Chromium route.
-See [measurements](../docs/verification/lightpanda/POOLED_RESULTS.md) for the
-precise speed scope and [coverage](../docs/verification/lightpanda/COVERAGE.md)
-for dispositions of all 96 retired specs. Job count is not a coverage count.
+For external authenticated Builder loading, use
+[verify-loom-ui](../.codex/skills/verify-loom-ui/SKILL.md). It does not deploy or
+mutate the external service. Retired harness disposition and recovery are in
+[DELETED_GUARANTEES.md](../docs/verification/DELETED_GUARANTEES.md).

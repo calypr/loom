@@ -69,7 +69,7 @@
 - Do not add frontend `useEffect` or move the same synchronization into `useLayoutEffect`. Derive state during rendering or update it through its owning action.
 - Keep authored contracts compact. Generate expanded reports on demand and keep disposable runtime artifacts out of Git.
 - GitNexus can help navigate the repository. Verify consequential findings in source and tests. Refresh a stale index before relying on it.
-- Consult `docs/PACKAGE_AUDIT.csv`, `docs/PACKAGE_AUDIT_DECISIONS.csv`, and `docs/EXPLORER_BACKLOG.md` before repeating broad audits.
+- Consult `docs/PACKAGE_AUDIT.csv`, `docs/PACKAGE_AUDIT_DECISIONS.csv`, and `docs/BACKLOG.md` before repeating broad audits.
 - Before and after package moves, merges, or deletions, run `python3 scripts/package_audit_verify.py <location>`. Run its `--full` mode afterward and inspect the dependency diff.
 - Zero static importers or a passing compile alone do not establish that deletion is safe.
 
