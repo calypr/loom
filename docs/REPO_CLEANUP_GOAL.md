@@ -2,58 +2,35 @@
 
 ## Product and verification
 
-The frontend UI and backend API are the product. Verification protects their behavior.
-Keep the verification code small enough to maintain and rerun during development.
+The frontend UI and backend API are the product. Keep a test only if it would fail
+when the product behavior it names breaks. Tests must execute production code or
+drive the running app, HTTP API, Arango or ClickHouse and assert observable outputs.
+Codegen determinism, gofmt/vet gates and tests of retained repository tooling also stay.
 
-Preserve the intended guarantees when replacing old machinery. A smaller model,
-a unit-test count, or a generated report does not establish equivalent coverage.
-Record the deleted promises and their immutable Git recovery points in
-[Deleted verification guarantees](verification/DELETED_GUARANTEES.md).
-Build a current replacement for one bounded promise at a time. Keep the rest open.
-Restoring the retired reporting system is not a prerequisite for new verification.
+Remove harness-only tests, source-text and hash pins, registries and inventories,
+TLA+ models, mutation source-proof controls, log-only passes and dormant checks.
+Re-route real tests before deleting their wrappers. Preserve valid and rejected
+behavior cases; do not silently drop failing schedules or change their expectations.
+
+Record deleted harness paths, immutable recovery SHAs and their real-test replacements
+(or why they were dropped) in [Deleted verification guarantees](verification/DELETED_GUARANTEES.md).
+Generated indexes and disposable runtime reports stay outside Git.
 
 ## Execution budgets
 
-Every required CI job has a ten-minute budget. Run complete suites without shard matrices.
-The ordinary Go job includes the complete catalog witness test. UI checks and the build
-share one job. Node and Python each run a complete suite. Database jobs remain separate
-because they need different services. The formal job runs one complete self-test.
+Every required CI job has a ten-minute budget. Run complete suites without shard
+matrices. Database jobs remain separate because they need different services.
+Measure workflow wall-clock time before and after changes.
 
-Focused local checks default to short child-process deadlines. Those local deadlines
-must not become a thirty-second CI policy. The shared verification budget module
-uses ten-minute child limits in CI. Browser checks remain separately selectable.
+Run the closest real check: `make test-ui`, `make test-go`, or
+`make test-integration`. Use `make e2e` for visible Builder changes once available.
+Run required acceptance against the final relevant source snapshot. Reuse evidence
+only while source, configuration, assumptions and coverage remain unchanged.
+Inspect saved output after an inconclusive run before changing the diagnostic or budget.
+Timeouts, tool errors and malformed evidence are failures, never passes.
 
-Run the full checkpoint after a coherent change. Use focused actual-code replays
-while editing. Tool, compiler, timeout, missing-case, and malformed-evidence errors block
-verification. They never count as a caught defect.
-
-## Formal implementation checks
-
-The current formal skill owns the model, counterexample, actual-code replay,
-regression, source-fault, and statechart loop. Its source map records the relevant
-production functions, bounds, assumptions, and reviewed hashes.
-
-TLC checks bounded models. Direct replay executes the named production code against
-model-derived inputs or schedules. Mounted trace checks verify recorded React schedules.
-Ordinary component, API, database, and browser tests remain separate evidence.
-Do not add their counts into a formal-test total.
-
-Keep valid and rejected cases. A check that ignores every completion or rejects every
-construction must fail. Remove the actual production guard in a scratch overlay, keep
-its concrete witness, replay it on pristine and broken source, then verify restoration.
-The pinned pstack parser, IR, and Mermaid backend render model results and counterexamples.
-
-## Historical material
-
-Generated indexes and disposable reports stay outside Git. Authored models, decisions,
-contracts, and historical native evidence have distinct value. Their deletion does not
-establish that their promises were obsolete or replaced. Consult the recovery record
-before porting a guarantee. Update its disposition only after executable evidence exists.
-
-The old browser runners and report generators are retired. Historical command names
-are recovery references, not runnable recipes. Current commands and limits live in the
-[formal skill](../.codex/skills/builder-interaction-formal-verification/SKILL.md) and
-[retained coverage decisions](verification/RETAINED_COVERAGE_DECISIONS.md).
+## Collaboration
 
 Preserve unrelated working-tree changes. Do not reset, stash, clean, publish,
-or rewrite branch history as part of cleanup.
+or rewrite branch history as part of cleanup. Follow ownership and dependency gates
+in [cleanup plan 2](REPO_HYGIENE_CLEANUP_PLAN.md).
