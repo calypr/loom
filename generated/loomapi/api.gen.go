@@ -25302,6 +25302,6303 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 	return nil
 }
 
+// NewGetRecipeExecutionErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetRecipeExecutionErrorResponse(status int, body any) (GetRecipeExecutionResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for GetRecipeExecution status %d", body, status)
+		}
+		return GetRecipeExecution401JSONResponse(responseBody), nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetRecipeExecution status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return GetRecipeExecution403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(LegacyNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetRecipeExecution status %d", body, status)
+			}
+			responseBody = LegacyNotFoundJSONResponse(baseBody)
+		}
+		return GetRecipeExecution404JSONResponse{LegacyNotFoundJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetRecipeExecution status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return GetRecipeExecution503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getRecipeExecution", status)
+	}
+}
+
+// NewGetDatasetGenerationStatusErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetDatasetGenerationStatusErrorResponse(status int, body any) (GetDatasetGenerationStatusResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetGenerationStatus status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return GetDatasetGenerationStatus503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getDatasetGenerationStatus", status)
+	}
+}
+
+// NewCreateDatasetGenerationErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateDatasetGenerationErrorResponse(status int, body any) (CreateDatasetGenerationResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 415:
+		responseBody, ok := body.(ServiceUnsupportedMediaTypeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnsupportedMediaTypeJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return CreateDatasetGeneration503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createDatasetGeneration", status)
+	}
+}
+
+// NewActivateDatasetGenerationErrorResponse maps a documented JSON error status to its generated response type.
+func NewActivateDatasetGenerationErrorResponse(status int, body any) (ActivateDatasetGenerationResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ActivateDatasetGeneration status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return ActivateDatasetGeneration503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "activateDatasetGeneration", status)
+	}
+}
+
+// NewGetDatasetSourceLoadStatusErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetDatasetSourceLoadStatusErrorResponse(status int, body any) (GetDatasetSourceLoadStatusResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetDatasetSourceLoadStatus status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return GetDatasetSourceLoadStatus503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getDatasetSourceLoadStatus", status)
+	}
+}
+
+// NewBeginDatasetSourceLoadErrorResponse maps a documented JSON error status to its generated response type.
+func NewBeginDatasetSourceLoadErrorResponse(status int, body any) (BeginDatasetSourceLoadResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 415:
+		responseBody, ok := body.(ServiceUnsupportedMediaTypeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnsupportedMediaTypeJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BeginDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return BeginDatasetSourceLoad503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "beginDatasetSourceLoad", status)
+	}
+}
+
+// NewUploadDatasetSourceLoadFileErrorResponse maps a documented JSON error status to its generated response type.
+func NewUploadDatasetSourceLoadFileErrorResponse(status int, body any) (UploadDatasetSourceLoadFileResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 415:
+		responseBody, ok := body.(ServiceUnsupportedMediaTypeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceUnsupportedMediaTypeJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(SourceLoadValidationErrorResponse)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+		}
+		return UploadDatasetSourceLoadFile422JSONResponse(responseBody), nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for UploadDatasetSourceLoadFile status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return UploadDatasetSourceLoadFile503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "uploadDatasetSourceLoadFile", status)
+	}
+}
+
+// NewPublishDatasetSourceLoadErrorResponse maps a documented JSON error status to its generated response type.
+func NewPublishDatasetSourceLoadErrorResponse(status int, body any) (PublishDatasetSourceLoadResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(ServiceBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceBadRequestJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad400JSONResponse{ServiceBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(ServiceForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceForbiddenJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad403JSONResponse{ServiceForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(ServiceConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceConflictJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad409JSONResponse{ServiceConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(ServicePayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServicePayloadTooLargeJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad413JSONResponse{ServicePayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 415:
+		responseBody, ok := body.(ServiceUnsupportedMediaTypeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnsupportedMediaTypeJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(ServiceUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnprocessableJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad422JSONResponse{ServiceUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(ServiceInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceInternalErrorJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad500JSONResponse{ServiceInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(ServiceUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishDatasetSourceLoad status %d", body, status)
+			}
+			responseBody = ServiceUnavailableJSONResponse(baseBody)
+		}
+		return PublishDatasetSourceLoad503JSONResponse{ServiceUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "publishDatasetSourceLoad", status)
+	}
+}
+
+// NewListExplorersErrorResponse maps a documented JSON error status to its generated response type.
+func NewListExplorersErrorResponse(status int, body any) (ListExplorersResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorers status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ListExplorers401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorers status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return ListExplorers403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorers status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return ListExplorers500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorers status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return ListExplorers503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "listExplorers", status)
+	}
+}
+
+// NewCreateExplorerErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateExplorerErrorResponse(status int, body any) (CreateExplorerResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(LegacyBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = LegacyBadRequestJSONResponse(baseBody)
+		}
+		return CreateExplorer400JSONResponse{LegacyBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateExplorer401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return CreateExplorer403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(LegacyConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = LegacyConflictJSONResponse(baseBody)
+		}
+		return CreateExplorer409JSONResponse{LegacyConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(LegacyUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = LegacyUnprocessableJSONResponse(baseBody)
+		}
+		return CreateExplorer422JSONResponse{LegacyUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return CreateExplorer500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorer status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return CreateExplorer503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createExplorer", status)
+	}
+}
+
+// NewGetExplorerErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerErrorResponse(status int, body any) (GetExplorerResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorer401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorer403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(LegacyNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = LegacyNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorer404JSONResponse{LegacyNotFoundJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorer500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorer status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorer503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorer", status)
+	}
+}
+
+// NewPrepareExplorerArtifactErrorResponse maps a documented JSON error status to its generated response type.
+func NewPrepareExplorerArtifactErrorResponse(status int, body any) (PrepareExplorerArtifactResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(AuthoringPayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringPayloadTooLargeJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact413JSONResponse{AuthoringPayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PrepareExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PrepareExplorerArtifact504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "prepareExplorerArtifact", status)
+	}
+}
+
+// NewDownloadExplorerArtifactErrorResponse maps a documented JSON error status to its generated response type.
+func NewDownloadExplorerArtifactErrorResponse(status int, body any) (DownloadExplorerArtifactResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 410:
+		responseBody, ok := body.(ErrorResponse)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+		}
+		return DownloadExplorerArtifact410JSONResponse(responseBody), nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DownloadExplorerArtifact status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DownloadExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "downloadExplorerArtifact", status)
+	}
+}
+
+// NewDescribeExplorerAuthoringNetworkErrorResponse maps a documented JSON error status to its generated response type.
+func NewDescribeExplorerAuthoringNetworkErrorResponse(status int, body any) (DescribeExplorerAuthoringNetworkResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DescribeExplorerAuthoringNetwork status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return DescribeExplorerAuthoringNetwork504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "describeExplorerAuthoringNetwork", status)
+	}
+}
+
+// NewGetExplorerBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerBuilderErrorResponse(status int, body any) (GetExplorerBuilderResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerBuilder", status)
+	}
+}
+
+// NewGetExplorerAuthoringCapabilityErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerAuthoringCapabilityErrorResponse(status int, body any) (GetExplorerAuthoringCapabilityResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerAuthoringCapability status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerAuthoringCapability401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerAuthoringCapability status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerAuthoringCapability403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerAuthoringCapability status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerAuthoringCapability500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerAuthoringCapability status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerAuthoringCapability503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerAuthoringCapability", status)
+	}
+}
+
+// NewTraceExplorerCellErrorResponse maps a documented JSON error status to its generated response type.
+func NewTraceExplorerCellErrorResponse(status int, body any) (TraceExplorerCellResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return TraceExplorerCell400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return TraceExplorerCell401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return TraceExplorerCell403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return TraceExplorerCell404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return TraceExplorerCell409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return TraceExplorerCell422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return TraceExplorerCell500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerCell status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return TraceExplorerCell503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "traceExplorerCell", status)
+	}
+}
+
+// NewProposeExplorerColumnPolicyErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerColumnPolicyErrorResponse(status int, body any) (ProposeExplorerColumnPolicyResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerColumnPolicy status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerColumnPolicy504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerColumnPolicy", status)
+	}
+}
+
+// NewGetExplorerColumnSourceErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerColumnSourceErrorResponse(status int, body any) (GetExplorerColumnSourceResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerColumnSource status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerColumnSource503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerColumnSource", status)
+	}
+}
+
+// NewApplyExplorerBuilderCommandsErrorResponse maps a documented JSON error status to its generated response type.
+func NewApplyExplorerBuilderCommandsErrorResponse(status int, body any) (ApplyExplorerBuilderCommandsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ApplyExplorerBuilderCommands status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ApplyExplorerBuilderCommands503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "applyExplorerBuilderCommands", status)
+	}
+}
+
+// NewResolveConfiguredColumnContextErrorResponse maps a documented JSON error status to its generated response type.
+func NewResolveConfiguredColumnContextErrorResponse(status int, body any) (ResolveConfiguredColumnContextResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveConfiguredColumnContext status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ResolveConfiguredColumnContext503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "resolveConfiguredColumnContext", status)
+	}
+}
+
+// NewGetExplorerConstructionCapabilitiesErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerConstructionCapabilitiesErrorResponse(status int, body any) (GetExplorerConstructionCapabilitiesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionCapabilities503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerConstructionCapabilities", status)
+	}
+}
+
+// NewDiscoverExplorerConstructionCategoriesErrorResponse maps a documented JSON error status to its generated response type.
+func NewDiscoverExplorerConstructionCategoriesErrorResponse(status int, body any) (DiscoverExplorerConstructionCategoriesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerConstructionCategories status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DiscoverExplorerConstructionCategories503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "discoverExplorerConstructionCategories", status)
+	}
+}
+
+// NewProposeExplorerConstructionChoiceErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerConstructionChoiceErrorResponse(status int, body any) (ProposeExplorerConstructionChoiceResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstructionChoice status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstructionChoice504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerConstructionChoice", status)
+	}
+}
+
+// NewSearchExplorerConstructionChoicesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerConstructionChoicesErrorResponse(status int, body any) (SearchExplorerConstructionChoicesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerConstructionChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerConstructionChoices503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerConstructionChoices", status)
+	}
+}
+
+// NewGetExplorerConstructionInputsErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerConstructionInputsErrorResponse(status int, body any) (GetExplorerConstructionInputsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerConstructionInputs status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerConstructionInputs503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerConstructionInputs", status)
+	}
+}
+
+// NewProposeExplorerConstructionErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerConstructionErrorResponse(status int, body any) (ProposeExplorerConstructionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerConstruction status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerConstruction504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerConstruction", status)
+	}
+}
+
+// NewBrowseExplorerFrameSourceOptionsErrorResponse maps a documented JSON error status to its generated response type.
+func NewBrowseExplorerFrameSourceOptionsErrorResponse(status int, body any) (BrowseExplorerFrameSourceOptionsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerFrameSourceOptions status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return BrowseExplorerFrameSourceOptions503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "browseExplorerFrameSourceOptions", status)
+	}
+}
+
+// NewPreviewInterpretationCandidateErrorResponse maps a documented JSON error status to its generated response type.
+func NewPreviewInterpretationCandidateErrorResponse(status int, body any) (PreviewInterpretationCandidateResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(AuthoringPayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringPayloadTooLargeJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate413JSONResponse{AuthoringPayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(AuthoringTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringTooManyRequestsJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate429JSONResponse{AuthoringTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(AuthoringClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringClientClosedRequestJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate499JSONResponse{AuthoringClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewInterpretationCandidate status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PreviewInterpretationCandidate504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "previewInterpretationCandidate", status)
+	}
+}
+
+// NewCreateInterpretationRevisionFromColumnErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateInterpretationRevisionFromColumnErrorResponse(status int, body any) (CreateInterpretationRevisionFromColumnResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevisionFromColumn status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevisionFromColumn503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createInterpretationRevisionFromColumn", status)
+	}
+}
+
+// NewCheckExplorerPopulationMappingErrorResponse maps a documented JSON error status to its generated response type.
+func NewCheckExplorerPopulationMappingErrorResponse(status int, body any) (CheckExplorerPopulationMappingResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CheckExplorerPopulationMapping status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return CheckExplorerPopulationMapping504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "checkExplorerPopulationMapping", status)
+	}
+}
+
+// NewProposeExplorerPopulationMemberRemovalErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerPopulationMemberRemovalErrorResponse(status int, body any) (ProposeExplorerPopulationMemberRemovalResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerPopulationMemberRemoval status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerPopulationMemberRemoval504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerPopulationMemberRemoval", status)
+	}
+}
+
+// NewSearchExplorerPopulationRoutesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerPopulationRoutesErrorResponse(status int, body any) (SearchExplorerPopulationRoutesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerPopulationRoutes status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerPopulationRoutes503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerPopulationRoutes", status)
+	}
+}
+
+// NewPreviewExplorerErrorResponse maps a documented JSON error status to its generated response type.
+func NewPreviewExplorerErrorResponse(status int, body any) (PreviewExplorerResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PreviewExplorer400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PreviewExplorer401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PreviewExplorer403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return PreviewExplorer404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PreviewExplorer409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(AuthoringPayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringPayloadTooLargeJSONResponse(baseBody)
+		}
+		return PreviewExplorer413JSONResponse{AuthoringPayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PreviewExplorer422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(AuthoringTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringTooManyRequestsJSONResponse(baseBody)
+		}
+		return PreviewExplorer429JSONResponse{AuthoringTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(AuthoringClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringClientClosedRequestJSONResponse(baseBody)
+		}
+		return PreviewExplorer499JSONResponse{AuthoringClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PreviewExplorer500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PreviewExplorer503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PreviewExplorer status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return PreviewExplorer504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "previewExplorer", status)
+	}
+}
+
+// NewPublishExplorerErrorResponse maps a documented JSON error status to its generated response type.
+func NewPublishExplorerErrorResponse(status int, body any) (PublishExplorerResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return PublishExplorer400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PublishExplorer401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return PublishExplorer403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return PublishExplorer404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return PublishExplorer409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return PublishExplorer422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return PublishExplorer500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishExplorer status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return PublishExplorer503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "publishExplorer", status)
+	}
+}
+
+// NewReconcileExplorerBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewReconcileExplorerBuilderErrorResponse(status int, body any) (ReconcileExplorerBuilderResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ReconcileExplorerBuilder status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ReconcileExplorerBuilder503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "reconcileExplorerBuilder", status)
+	}
+}
+
+// NewSearchExplorerRelatedExpandChoicesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerRelatedExpandChoicesErrorResponse(status int, body any) (SearchExplorerRelatedExpandChoicesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandChoices503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerRelatedExpandChoices", status)
+	}
+}
+
+// NewSearchExplorerRelatedExpandContributorsErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerRelatedExpandContributorsErrorResponse(status int, body any) (SearchExplorerRelatedExpandContributorsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedExpandContributors status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedExpandContributors503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerRelatedExpandContributors", status)
+	}
+}
+
+// NewSearchExplorerRelatedFieldChoicesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerRelatedFieldChoicesErrorResponse(status int, body any) (SearchExplorerRelatedFieldChoicesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerRelatedFieldChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerRelatedFieldChoices503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerRelatedFieldChoices", status)
+	}
+}
+
+// NewAssessExplorerRowChangeErrorResponse maps a documented JSON error status to its generated response type.
+func NewAssessExplorerRowChangeErrorResponse(status int, body any) (AssessExplorerRowChangeResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AssessExplorerRowChange status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return AssessExplorerRowChange503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "assessExplorerRowChange", status)
+	}
+}
+
+// NewListExplorerRowDefinitionChoicesErrorResponse maps a documented JSON error status to its generated response type.
+func NewListExplorerRowDefinitionChoicesErrorResponse(status int, body any) (ListExplorerRowDefinitionChoicesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListExplorerRowDefinitionChoices status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ListExplorerRowDefinitionChoices503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "listExplorerRowDefinitionChoices", status)
+	}
+}
+
+// NewProposeExplorerRowDefinitionErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerRowDefinitionErrorResponse(status int, body any) (ProposeExplorerRowDefinitionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerRowDefinition status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerRowDefinition503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerRowDefinition", status)
+	}
+}
+
+// NewTraceExplorerRowLineageErrorResponse maps a documented JSON error status to its generated response type.
+func NewTraceExplorerRowLineageErrorResponse(status int, body any) (TraceExplorerRowLineageResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for TraceExplorerRowLineage status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return TraceExplorerRowLineage504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "traceExplorerRowLineage", status)
+	}
+}
+
+// NewSearchExplorerSchemaFieldsErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerSchemaFieldsErrorResponse(status int, body any) (SearchExplorerSchemaFieldsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerSchemaFields status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerSchemaFields503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerSchemaFields", status)
+	}
+}
+
+// NewBrowseExplorerSemanticInventoryErrorResponse maps a documented JSON error status to its generated response type.
+func NewBrowseExplorerSemanticInventoryErrorResponse(status int, body any) (BrowseExplorerSemanticInventoryResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for BrowseExplorerSemanticInventory status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return BrowseExplorerSemanticInventory503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "browseExplorerSemanticInventory", status)
+	}
+}
+
+// NewProposeExplorerSourceRelationshipErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerSourceRelationshipErrorResponse(status int, body any) (ProposeExplorerSourceRelationshipResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 413:
+		responseBody, ok := body.(AuthoringPayloadTooLargeJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringPayloadTooLargeJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship413JSONResponse{AuthoringPayloadTooLargeJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 429:
+		responseBody, ok := body.(AuthoringTooManyRequestsJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringTooManyRequestsJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship429JSONResponse{AuthoringTooManyRequestsJSONResponse: responseBody}, nil
+
+	case 499:
+		responseBody, ok := body.(AuthoringClientClosedRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringClientClosedRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship499JSONResponse{AuthoringClientClosedRequestJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	case 504:
+		responseBody, ok := body.(AuthoringGatewayTimeoutJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerSourceRelationship status %d", body, status)
+			}
+			responseBody = AuthoringGatewayTimeoutJSONResponse(baseBody)
+		}
+		return ProposeExplorerSourceRelationship504JSONResponse{AuthoringGatewayTimeoutJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerSourceRelationship", status)
+	}
+}
+
+// NewSearchExplorerCandidatesErrorResponse maps a documented JSON error status to its generated response type.
+func NewSearchExplorerCandidatesErrorResponse(status int, body any) (SearchExplorerCandidatesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SearchExplorerCandidates status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return SearchExplorerCandidates503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "searchExplorerCandidates", status)
+	}
+}
+
+// NewGetExplorerTableShapeCapabilitiesErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerTableShapeCapabilitiesErrorResponse(status int, body any) (GetExplorerTableShapeCapabilitiesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerTableShapeCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerTableShapeCapabilities400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerTableShapeCapabilities status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerTableShapeCapabilities401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerTableShapeCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerTableShapeCapabilities403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerTableShapeCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerTableShapeCapabilities404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerTableShapeCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerTableShapeCapabilities409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerTableShapeCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetExplorerTableShapeCapabilities422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerTableShapeCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerTableShapeCapabilities500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerTableShapeCapabilities status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerTableShapeCapabilities503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerTableShapeCapabilities", status)
+	}
+}
+
+// NewDiscoverExplorerTableShapeCategoriesErrorResponse maps a documented JSON error status to its generated response type.
+func NewDiscoverExplorerTableShapeCategoriesErrorResponse(status int, body any) (DiscoverExplorerTableShapeCategoriesResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerTableShapeCategories status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return DiscoverExplorerTableShapeCategories400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerTableShapeCategories status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return DiscoverExplorerTableShapeCategories401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerTableShapeCategories status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return DiscoverExplorerTableShapeCategories403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerTableShapeCategories status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return DiscoverExplorerTableShapeCategories404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerTableShapeCategories status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return DiscoverExplorerTableShapeCategories409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerTableShapeCategories status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return DiscoverExplorerTableShapeCategories422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerTableShapeCategories status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return DiscoverExplorerTableShapeCategories500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DiscoverExplorerTableShapeCategories status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return DiscoverExplorerTableShapeCategories503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "discoverExplorerTableShapeCategories", status)
+	}
+}
+
+// NewProposeExplorerTableShapeErrorResponse maps a documented JSON error status to its generated response type.
+func NewProposeExplorerTableShapeErrorResponse(status int, body any) (ProposeExplorerTableShapeResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ProposeExplorerTableShape400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerTableShape status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ProposeExplorerTableShape401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ProposeExplorerTableShape403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ProposeExplorerTableShape404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ProposeExplorerTableShape409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ProposeExplorerTableShape422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ProposeExplorerTableShape500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ProposeExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ProposeExplorerTableShape503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "proposeExplorerTableShape", status)
+	}
+}
+
+// NewResolveExplorerTableShapeErrorResponse maps a documented JSON error status to its generated response type.
+func NewResolveExplorerTableShapeErrorResponse(status int, body any) (ResolveExplorerTableShapeResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return ResolveExplorerTableShape400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveExplorerTableShape status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ResolveExplorerTableShape401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ResolveExplorerTableShape403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return ResolveExplorerTableShape404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return ResolveExplorerTableShape409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return ResolveExplorerTableShape422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ResolveExplorerTableShape500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ResolveExplorerTableShape status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ResolveExplorerTableShape503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "resolveExplorerTableShape", status)
+	}
+}
+
+// NewCreateExplorerSelectionErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateExplorerSelectionErrorResponse(status int, body any) (CreateExplorerSelectionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateExplorerSelection503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createExplorerSelection", status)
+	}
+}
+
+// NewGetExplorerSelectionErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetExplorerSelectionErrorResponse(status int, body any) (GetExplorerSelectionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return GetExplorerSelection400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetExplorerSelection401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetExplorerSelection403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetExplorerSelection404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return GetExplorerSelection409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return GetExplorerSelection422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetExplorerSelection500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetExplorerSelection status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetExplorerSelection503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getExplorerSelection", status)
+	}
+}
+
+// NewCreateExplorerExplicitGroupRevisionErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateExplorerExplicitGroupRevisionErrorResponse(status int, body any) (CreateExplorerExplicitGroupRevisionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateExplorerExplicitGroupRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateExplorerExplicitGroupRevision503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createExplorerExplicitGroupRevision", status)
+	}
+}
+
+// NewPublishRepositoryExplorerConfigErrorResponse maps a documented JSON error status to its generated response type.
+func NewPublishRepositoryExplorerConfigErrorResponse(status int, body any) (PublishRepositoryExplorerConfigResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(LegacyBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = LegacyBadRequestJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig400JSONResponse{LegacyBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(LegacyConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = LegacyConflictJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig409JSONResponse{LegacyConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(LegacyUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = LegacyUnprocessableJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig422JSONResponse{LegacyUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for PublishRepositoryExplorerConfig status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return PublishRepositoryExplorerConfig503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "publishRepositoryExplorerConfig", status)
+	}
+}
+
+// NewListInterpretationLibrariesErrorResponse maps a documented JSON error status to its generated response type.
+func NewListInterpretationLibrariesErrorResponse(status int, body any) (ListInterpretationLibrariesResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListInterpretationLibraries status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ListInterpretationLibraries401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListInterpretationLibraries status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return ListInterpretationLibraries403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListInterpretationLibraries status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return ListInterpretationLibraries500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ListInterpretationLibraries status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return ListInterpretationLibraries503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "listInterpretationLibraries", status)
+	}
+}
+
+// NewCreateInterpretationRevisionErrorResponse maps a documented JSON error status to its generated response type.
+func NewCreateInterpretationRevisionErrorResponse(status int, body any) (CreateInterpretationRevisionResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(AuthoringBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringBadRequestJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision400JSONResponse{AuthoringBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(AuthoringConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringConflictJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision409JSONResponse{AuthoringConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(AuthoringUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnprocessableJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision422JSONResponse{AuthoringUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for CreateInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return CreateInterpretationRevision503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "createInterpretationRevision", status)
+	}
+}
+
+// NewGetInterpretationRevisionErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetInterpretationRevisionErrorResponse(status int, body any) (GetInterpretationRevisionResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(AuthoringForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringForbiddenJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision403JSONResponse{AuthoringForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(AuthoringNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringNotFoundJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision404JSONResponse{AuthoringNotFoundJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(AuthoringInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringInternalErrorJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision500JSONResponse{AuthoringInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(AuthoringUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetInterpretationRevision status %d", body, status)
+			}
+			responseBody = AuthoringUnavailableJSONResponse(baseBody)
+		}
+		return GetInterpretationRevision503JSONResponse{AuthoringUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getInterpretationRevision", status)
+	}
+}
+
+// NewGetProjectViewBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetProjectViewBuilderErrorResponse(status int, body any) (GetProjectViewBuilderResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(LegacyBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyBadRequestJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder400JSONResponse{LegacyBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(LegacyNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyNotFoundJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder404JSONResponse{LegacyNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(LegacyConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyConflictJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder409JSONResponse{LegacyConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(LegacyUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyUnprocessableJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder422JSONResponse{LegacyUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return GetProjectViewBuilder503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "GetProjectViewBuilder", status)
+	}
+}
+
+// NewAdoptProjectViewBuilderErrorResponse maps a documented JSON error status to its generated response type.
+func NewAdoptProjectViewBuilderErrorResponse(status int, body any) (AdoptProjectViewBuilderResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(LegacyBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyBadRequestJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder400JSONResponse{LegacyBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(LegacyNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyNotFoundJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder404JSONResponse{LegacyNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(LegacyConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyConflictJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder409JSONResponse{LegacyConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(LegacyUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyUnprocessableJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder422JSONResponse{LegacyUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for AdoptProjectViewBuilder status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return AdoptProjectViewBuilder503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "AdoptProjectViewBuilder", status)
+	}
+}
+
+// NewDeleteProjectViewConfigErrorResponse maps a documented JSON error status to its generated response type.
+func NewDeleteProjectViewConfigErrorResponse(status int, body any) (DeleteProjectViewConfigResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(LegacyBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyBadRequestJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig400JSONResponse{LegacyBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(LegacyNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyNotFoundJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig404JSONResponse{LegacyNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(LegacyConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyConflictJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig409JSONResponse{LegacyConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(LegacyUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyUnprocessableJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig422JSONResponse{LegacyUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for DeleteProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return DeleteProjectViewConfig503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "DeleteProjectViewConfig", status)
+	}
+}
+
+// NewSaveProjectViewConfigErrorResponse maps a documented JSON error status to its generated response type.
+func NewSaveProjectViewConfigErrorResponse(status int, body any) (SaveProjectViewConfigResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(LegacyBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyBadRequestJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig400JSONResponse{LegacyBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(LegacyNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyNotFoundJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig404JSONResponse{LegacyNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(LegacyConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyConflictJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig409JSONResponse{LegacyConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(LegacyUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyUnprocessableJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig422JSONResponse{LegacyUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewConfig status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return SaveProjectViewConfig503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "SaveProjectViewConfig", status)
+	}
+}
+
+// NewSaveProjectViewDefaultsErrorResponse maps a documented JSON error status to its generated response type.
+func NewSaveProjectViewDefaultsErrorResponse(status int, body any) (SaveProjectViewDefaultsResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(LegacyBadRequestJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = LegacyBadRequestJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults400JSONResponse{LegacyBadRequestJSONResponse: responseBody}, nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(LegacyForbiddenJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = LegacyForbiddenJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults403JSONResponse{LegacyForbiddenJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(LegacyNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = LegacyNotFoundJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults404JSONResponse{LegacyNotFoundJSONResponse: responseBody}, nil
+
+	case 409:
+		responseBody, ok := body.(LegacyConflictJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = LegacyConflictJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults409JSONResponse{LegacyConflictJSONResponse: responseBody}, nil
+
+	case 422:
+		responseBody, ok := body.(LegacyUnprocessableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = LegacyUnprocessableJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults422JSONResponse{LegacyUnprocessableJSONResponse: responseBody}, nil
+
+	case 500:
+		responseBody, ok := body.(LegacyInternalErrorJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = LegacyInternalErrorJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults500JSONResponse{LegacyInternalErrorJSONResponse: responseBody}, nil
+
+	case 503:
+		responseBody, ok := body.(LegacyUnavailableJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(LegacyErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for SaveProjectViewDefaults status %d", body, status)
+			}
+			responseBody = LegacyUnavailableJSONResponse(baseBody)
+		}
+		return SaveProjectViewDefaults503JSONResponse{LegacyUnavailableJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "SaveProjectViewDefaults", status)
+	}
+}
+
+// NewGetApolloSandboxErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetApolloSandboxErrorResponse(status int, body any) (GetApolloSandboxResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetApolloSandbox status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetApolloSandbox401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetApolloSandbox status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return GetApolloSandbox404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getApolloSandbox", status)
+	}
+}
+
+// NewExecuteDataframeGraphQLErrorResponse maps a documented JSON error status to its generated response type.
+func NewExecuteDataframeGraphQLErrorResponse(status int, body any) (ExecuteDataframeGraphQLResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL400JSONResponse(responseBody), nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ExecuteDataframeGraphQL401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL403JSONResponse(responseBody), nil
+
+	case 404:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL404JSONResponse(responseBody), nil
+
+	case 409:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL409JSONResponse(responseBody), nil
+
+	case 413:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL413JSONResponse(responseBody), nil
+
+	case 422:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL422JSONResponse(responseBody), nil
+
+	case 429:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL429JSONResponse(responseBody), nil
+
+	case 499:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL499JSONResponse(responseBody), nil
+
+	case 500:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL500JSONResponse(responseBody), nil
+
+	case 503:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL503JSONResponse(responseBody), nil
+
+	case 504:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteDataframeGraphQL status %d", body, status)
+		}
+		return ExecuteDataframeGraphQL504JSONResponse(responseBody), nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "executeDataframeGraphQL", status)
+	}
+}
+
+// NewGetGraphQLPlaygroundErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetGraphQLPlaygroundErrorResponse(status int, body any) (GetGraphQLPlaygroundResponseObject, error) {
+	switch status {
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetGraphQLPlayground status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return GetGraphQLPlayground401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 404:
+		responseBody, ok := body.(ServiceNotFoundJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for GetGraphQLPlayground status %d", body, status)
+			}
+			responseBody = ServiceNotFoundJSONResponse(baseBody)
+		}
+		return GetGraphQLPlayground404JSONResponse{ServiceNotFoundJSONResponse: responseBody}, nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getGraphQLPlayground", status)
+	}
+}
+
+// NewExecuteGraphQLErrorResponse maps a documented JSON error status to its generated response type.
+func NewExecuteGraphQLErrorResponse(status int, body any) (ExecuteGraphQLResponseObject, error) {
+	switch status {
+
+	case 400:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL400JSONResponse(responseBody), nil
+
+	case 401:
+		responseBody, ok := body.(ServiceUnauthorizedJSONResponse)
+		if !ok {
+			baseBody, baseOK := body.(ServiceErrorResponse)
+			if !baseOK {
+				return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+			}
+			responseBody = ServiceUnauthorizedJSONResponse(baseBody)
+		}
+		return ExecuteGraphQL401JSONResponse{ServiceUnauthorizedJSONResponse: responseBody}, nil
+
+	case 403:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL403JSONResponse(responseBody), nil
+
+	case 404:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL404JSONResponse(responseBody), nil
+
+	case 409:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL409JSONResponse(responseBody), nil
+
+	case 413:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL413JSONResponse(responseBody), nil
+
+	case 422:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL422JSONResponse(responseBody), nil
+
+	case 429:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL429JSONResponse(responseBody), nil
+
+	case 499:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL499JSONResponse(responseBody), nil
+
+	case 500:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL500JSONResponse(responseBody), nil
+
+	case 503:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL503JSONResponse(responseBody), nil
+
+	case 504:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for ExecuteGraphQL status %d", body, status)
+		}
+		return ExecuteGraphQL504JSONResponse(responseBody), nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "executeGraphQL", status)
+	}
+}
+
+// NewGetHealthErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetHealthErrorResponse(status int, body any) (GetHealthResponseObject, error) {
+	switch status {
+
+	case 503:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for GetHealth status %d", body, status)
+		}
+		return GetHealth503JSONResponse(responseBody), nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getHealth", status)
+	}
+}
+
+// NewGetLivenessErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetLivenessErrorResponse(status int, body any) (GetLivenessResponseObject, error) {
+	switch status {
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getLiveness", status)
+	}
+}
+
+// NewGetReadinessErrorResponse maps a documented JSON error status to its generated response type.
+func NewGetReadinessErrorResponse(status int, body any) (GetReadinessResponseObject, error) {
+	switch status {
+
+	case 503:
+		responseBody, ok := body.(RawJSON)
+		if !ok {
+			return nil, fmt.Errorf("unexpected response body type %T for GetReadiness status %d", body, status)
+		}
+		return GetReadiness503JSONResponse(responseBody), nil
+
+	default:
+		return nil, fmt.Errorf("%s returned undocumented HTTP status %d", "getReadiness", status)
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several

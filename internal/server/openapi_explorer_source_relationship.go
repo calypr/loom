@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"net/http"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/explorer"
@@ -60,41 +59,10 @@ func (h *explorerHTTPHandlers) proposeSourceRelationshipDirect(ctx context.Conte
 }
 
 func (r *HTTPRoutes) ProposeExplorerSourceRelationship(ctx context.Context, request loomapi.ProposeExplorerSourceRelationshipRequestObject) (loomapi.ProposeExplorerSourceRelationshipResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerSourceRelationship", explorerUnavailable("construction-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ProposeExplorerSourceRelationship503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.proposeSourceRelationshipDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.ProposeExplorerSourceRelationship200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerSourceRelationship", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.ProposeExplorerSourceRelationship400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.ProposeExplorerSourceRelationship401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.ProposeExplorerSourceRelationship403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.ProposeExplorerSourceRelationship404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.ProposeExplorerSourceRelationship409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusRequestEntityTooLarge:
-		return loomapi.ProposeExplorerSourceRelationship413JSONResponse{AuthoringPayloadTooLargeJSONResponse: loomapi.AuthoringPayloadTooLargeJSONResponse(failure)}, nil
-	case http.StatusTooManyRequests:
-		return loomapi.ProposeExplorerSourceRelationship429JSONResponse{AuthoringTooManyRequestsJSONResponse: loomapi.AuthoringTooManyRequestsJSONResponse(failure)}, nil
-	case 499:
-		return loomapi.ProposeExplorerSourceRelationship499JSONResponse{AuthoringClientClosedRequestJSONResponse: loomapi.AuthoringClientClosedRequestJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.ProposeExplorerSourceRelationship422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.ProposeExplorerSourceRelationship500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.ProposeExplorerSourceRelationship503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	case http.StatusGatewayTimeout:
-		return loomapi.ProposeExplorerSourceRelationship504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("proposeExplorerSourceRelationship", status)
-	}
+	return loomapi.NewProposeExplorerSourceRelationshipErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }

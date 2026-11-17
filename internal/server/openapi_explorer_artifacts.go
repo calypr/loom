@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"mime"
 	"net/http"
 
@@ -63,46 +62,15 @@ func (h *explorerHTTPHandlers) openArtifactDirect(ctx context.Context, project, 
 }
 
 func (r *HTTPRoutes) PrepareExplorerArtifact(ctx context.Context, request loomapi.PrepareExplorerArtifactRequestObject) (loomapi.PrepareExplorerArtifactResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "prepareExplorerArtifact", explorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured"))
-		return loomapi.PrepareExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.prepareArtifactDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.PrepareExplorerArtifact200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "prepareExplorerArtifact", err)
-	switch status {
-	case http.StatusUnauthorized:
-		return loomapi.PrepareExplorerArtifact401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusBadRequest:
-		return loomapi.PrepareExplorerArtifact400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.PrepareExplorerArtifact403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.PrepareExplorerArtifact404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.PrepareExplorerArtifact409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusRequestEntityTooLarge:
-		return loomapi.PrepareExplorerArtifact413JSONResponse{AuthoringPayloadTooLargeJSONResponse: loomapi.AuthoringPayloadTooLargeJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.PrepareExplorerArtifact422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.PrepareExplorerArtifact500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.PrepareExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	case http.StatusGatewayTimeout:
-		return loomapi.PrepareExplorerArtifact504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("prepareExplorerArtifact", status)
-	}
+	return loomapi.NewPrepareExplorerArtifactErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) DownloadExplorerArtifact(ctx context.Context, request loomapi.DownloadExplorerArtifactRequestObject) (loomapi.DownloadExplorerArtifactResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "downloadExplorerArtifact", explorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured"))
-		return loomapi.DownloadExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.openArtifactDirect(ctx, string(request.Project), string(request.ExplorerId), request.ArtifactId)
 	if err == nil {
 		return loomapi.DownloadExplorerArtifact200ApplicationzipResponse(value), nil
@@ -112,22 +80,5 @@ func (r *HTTPRoutes) DownloadExplorerArtifact(ctx context.Context, request looma
 	if errors.As(err, &lifecycleErr) && lifecycleErr.Code == "ARTIFACT_EXPIRED" {
 		status = http.StatusGone
 	}
-	switch status {
-	case http.StatusUnauthorized:
-		return loomapi.DownloadExplorerArtifact401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.DownloadExplorerArtifact403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.DownloadExplorerArtifact404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.DownloadExplorerArtifact409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusGone:
-		return loomapi.DownloadExplorerArtifact410JSONResponse(failure), nil
-	case http.StatusInternalServerError:
-		return loomapi.DownloadExplorerArtifact500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.DownloadExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, fmt.Errorf("downloadExplorerArtifact returned undocumented HTTP status %d", status)
-	}
+	return loomapi.NewDownloadExplorerArtifactErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }

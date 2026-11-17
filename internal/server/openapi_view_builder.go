@@ -25,14 +25,14 @@ func (h *explorerHTTPHandlers) authorizeViewBuilder(ctx context.Context, project
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := h.authorizeRead(ctx, principal, project); err != nil {
-		if isAuthorizerStorageFault(err) {
+		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 			return legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
 		}
 		return legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "You cannot read this project", err)
 	}
 	if write {
 		if err := h.authorizer.AuthorizeWrite(ctx, principal, project, resource); err != nil {
-			if isAuthorizerStorageFault(err) {
+			if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 				return legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
 			}
 			return legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "You cannot edit views in this project", err)
@@ -67,7 +67,7 @@ func (h *explorerHTTPHandlers) authorizedViewBuilderState(ctx context.Context, p
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	err = h.authorizer.AuthorizeWrite(ctx, principal, project, resource)
-	if err != nil && isAuthorizerStorageFault(err) {
+	if err != nil && authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 		return explorer.ViewBuilderState{}, legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
 	}
 	value.CanEdit = err == nil
@@ -133,24 +133,7 @@ func viewBuilderJSON(value explorer.ViewBuilderState) (loomapi.RawJSON, error) {
 func (r *HTTPRoutes) GetProjectViewBuilder(ctx context.Context, request loomapi.GetProjectViewBuilderRequestObject) (loomapi.GetProjectViewBuilderResponseObject, error) {
 	fail := func(err error) (loomapi.GetProjectViewBuilderResponseObject, error) {
 		status, legacy := explorerLegacyResponse(err)
-		switch status {
-		case http.StatusBadRequest:
-			return loomapi.GetProjectViewBuilder400JSONResponse{LegacyBadRequestJSONResponse: loomapi.LegacyBadRequestJSONResponse(legacy)}, nil
-		case http.StatusForbidden:
-			return loomapi.GetProjectViewBuilder403JSONResponse{LegacyForbiddenJSONResponse: loomapi.LegacyForbiddenJSONResponse(legacy)}, nil
-		case http.StatusNotFound:
-			return loomapi.GetProjectViewBuilder404JSONResponse{LegacyNotFoundJSONResponse: loomapi.LegacyNotFoundJSONResponse(legacy)}, nil
-		case http.StatusConflict:
-			return loomapi.GetProjectViewBuilder409JSONResponse{LegacyConflictJSONResponse: loomapi.LegacyConflictJSONResponse(legacy)}, nil
-		case http.StatusUnprocessableEntity:
-			return loomapi.GetProjectViewBuilder422JSONResponse{LegacyUnprocessableJSONResponse: loomapi.LegacyUnprocessableJSONResponse(legacy)}, nil
-		case http.StatusInternalServerError:
-			return loomapi.GetProjectViewBuilder500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(legacy)}, nil
-		case http.StatusServiceUnavailable:
-			return loomapi.GetProjectViewBuilder503JSONResponse{LegacyUnavailableJSONResponse: loomapi.LegacyUnavailableJSONResponse(legacy)}, nil
-		default:
-			return nil, unexpectedResponseStatus("GetProjectViewBuilder", status)
-		}
+		return loomapi.NewGetProjectViewBuilderErrorResponse(status, legacy)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := ""
@@ -172,24 +155,7 @@ func (r *HTTPRoutes) GetProjectViewBuilder(ctx context.Context, request loomapi.
 func (r *HTTPRoutes) AdoptProjectViewBuilder(ctx context.Context, request loomapi.AdoptProjectViewBuilderRequestObject) (loomapi.AdoptProjectViewBuilderResponseObject, error) {
 	fail := func(err error) (loomapi.AdoptProjectViewBuilderResponseObject, error) {
 		status, legacy := explorerLegacyResponse(err)
-		switch status {
-		case http.StatusBadRequest:
-			return loomapi.AdoptProjectViewBuilder400JSONResponse{LegacyBadRequestJSONResponse: loomapi.LegacyBadRequestJSONResponse(legacy)}, nil
-		case http.StatusForbidden:
-			return loomapi.AdoptProjectViewBuilder403JSONResponse{LegacyForbiddenJSONResponse: loomapi.LegacyForbiddenJSONResponse(legacy)}, nil
-		case http.StatusNotFound:
-			return loomapi.AdoptProjectViewBuilder404JSONResponse{LegacyNotFoundJSONResponse: loomapi.LegacyNotFoundJSONResponse(legacy)}, nil
-		case http.StatusConflict:
-			return loomapi.AdoptProjectViewBuilder409JSONResponse{LegacyConflictJSONResponse: loomapi.LegacyConflictJSONResponse(legacy)}, nil
-		case http.StatusUnprocessableEntity:
-			return loomapi.AdoptProjectViewBuilder422JSONResponse{LegacyUnprocessableJSONResponse: loomapi.LegacyUnprocessableJSONResponse(legacy)}, nil
-		case http.StatusInternalServerError:
-			return loomapi.AdoptProjectViewBuilder500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(legacy)}, nil
-		case http.StatusServiceUnavailable:
-			return loomapi.AdoptProjectViewBuilder503JSONResponse{LegacyUnavailableJSONResponse: loomapi.LegacyUnavailableJSONResponse(legacy)}, nil
-		default:
-			return nil, unexpectedResponseStatus("AdoptProjectViewBuilder", status)
-		}
+		return loomapi.NewAdoptProjectViewBuilderErrorResponse(status, legacy)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := authResourcePathFromParam(request.Params.AuthResourcePath)
@@ -237,24 +203,7 @@ func (r *HTTPRoutes) AdoptProjectViewBuilder(ctx context.Context, request loomap
 func (r *HTTPRoutes) SaveProjectViewDefaults(ctx context.Context, request loomapi.SaveProjectViewDefaultsRequestObject) (loomapi.SaveProjectViewDefaultsResponseObject, error) {
 	fail := func(err error) (loomapi.SaveProjectViewDefaultsResponseObject, error) {
 		status, legacy := explorerLegacyResponse(err)
-		switch status {
-		case http.StatusBadRequest:
-			return loomapi.SaveProjectViewDefaults400JSONResponse{LegacyBadRequestJSONResponse: loomapi.LegacyBadRequestJSONResponse(legacy)}, nil
-		case http.StatusForbidden:
-			return loomapi.SaveProjectViewDefaults403JSONResponse{LegacyForbiddenJSONResponse: loomapi.LegacyForbiddenJSONResponse(legacy)}, nil
-		case http.StatusNotFound:
-			return loomapi.SaveProjectViewDefaults404JSONResponse{LegacyNotFoundJSONResponse: loomapi.LegacyNotFoundJSONResponse(legacy)}, nil
-		case http.StatusConflict:
-			return loomapi.SaveProjectViewDefaults409JSONResponse{LegacyConflictJSONResponse: loomapi.LegacyConflictJSONResponse(legacy)}, nil
-		case http.StatusUnprocessableEntity:
-			return loomapi.SaveProjectViewDefaults422JSONResponse{LegacyUnprocessableJSONResponse: loomapi.LegacyUnprocessableJSONResponse(legacy)}, nil
-		case http.StatusInternalServerError:
-			return loomapi.SaveProjectViewDefaults500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(legacy)}, nil
-		case http.StatusServiceUnavailable:
-			return loomapi.SaveProjectViewDefaults503JSONResponse{LegacyUnavailableJSONResponse: loomapi.LegacyUnavailableJSONResponse(legacy)}, nil
-		default:
-			return nil, unexpectedResponseStatus("SaveProjectViewDefaults", status)
-		}
+		return loomapi.NewSaveProjectViewDefaultsErrorResponse(status, legacy)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := authResourcePathFromParam(request.Params.AuthResourcePath)
@@ -288,24 +237,7 @@ func (r *HTTPRoutes) SaveProjectViewDefaults(ctx context.Context, request loomap
 func (r *HTTPRoutes) SaveProjectViewConfig(ctx context.Context, request loomapi.SaveProjectViewConfigRequestObject) (loomapi.SaveProjectViewConfigResponseObject, error) {
 	fail := func(err error) (loomapi.SaveProjectViewConfigResponseObject, error) {
 		status, legacy := explorerLegacyResponse(err)
-		switch status {
-		case http.StatusBadRequest:
-			return loomapi.SaveProjectViewConfig400JSONResponse{LegacyBadRequestJSONResponse: loomapi.LegacyBadRequestJSONResponse(legacy)}, nil
-		case http.StatusForbidden:
-			return loomapi.SaveProjectViewConfig403JSONResponse{LegacyForbiddenJSONResponse: loomapi.LegacyForbiddenJSONResponse(legacy)}, nil
-		case http.StatusNotFound:
-			return loomapi.SaveProjectViewConfig404JSONResponse{LegacyNotFoundJSONResponse: loomapi.LegacyNotFoundJSONResponse(legacy)}, nil
-		case http.StatusConflict:
-			return loomapi.SaveProjectViewConfig409JSONResponse{LegacyConflictJSONResponse: loomapi.LegacyConflictJSONResponse(legacy)}, nil
-		case http.StatusUnprocessableEntity:
-			return loomapi.SaveProjectViewConfig422JSONResponse{LegacyUnprocessableJSONResponse: loomapi.LegacyUnprocessableJSONResponse(legacy)}, nil
-		case http.StatusInternalServerError:
-			return loomapi.SaveProjectViewConfig500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(legacy)}, nil
-		case http.StatusServiceUnavailable:
-			return loomapi.SaveProjectViewConfig503JSONResponse{LegacyUnavailableJSONResponse: loomapi.LegacyUnavailableJSONResponse(legacy)}, nil
-		default:
-			return nil, unexpectedResponseStatus("SaveProjectViewConfig", status)
-		}
+		return loomapi.NewSaveProjectViewConfigErrorResponse(status, legacy)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := authResourcePathFromParam(request.Params.AuthResourcePath)
@@ -339,24 +271,7 @@ func (r *HTTPRoutes) SaveProjectViewConfig(ctx context.Context, request loomapi.
 func (r *HTTPRoutes) DeleteProjectViewConfig(ctx context.Context, request loomapi.DeleteProjectViewConfigRequestObject) (loomapi.DeleteProjectViewConfigResponseObject, error) {
 	fail := func(err error) (loomapi.DeleteProjectViewConfigResponseObject, error) {
 		status, legacy := explorerLegacyResponse(err)
-		switch status {
-		case http.StatusBadRequest:
-			return loomapi.DeleteProjectViewConfig400JSONResponse{LegacyBadRequestJSONResponse: loomapi.LegacyBadRequestJSONResponse(legacy)}, nil
-		case http.StatusForbidden:
-			return loomapi.DeleteProjectViewConfig403JSONResponse{LegacyForbiddenJSONResponse: loomapi.LegacyForbiddenJSONResponse(legacy)}, nil
-		case http.StatusNotFound:
-			return loomapi.DeleteProjectViewConfig404JSONResponse{LegacyNotFoundJSONResponse: loomapi.LegacyNotFoundJSONResponse(legacy)}, nil
-		case http.StatusConflict:
-			return loomapi.DeleteProjectViewConfig409JSONResponse{LegacyConflictJSONResponse: loomapi.LegacyConflictJSONResponse(legacy)}, nil
-		case http.StatusUnprocessableEntity:
-			return loomapi.DeleteProjectViewConfig422JSONResponse{LegacyUnprocessableJSONResponse: loomapi.LegacyUnprocessableJSONResponse(legacy)}, nil
-		case http.StatusInternalServerError:
-			return loomapi.DeleteProjectViewConfig500JSONResponse{LegacyInternalErrorJSONResponse: loomapi.LegacyInternalErrorJSONResponse(legacy)}, nil
-		case http.StatusServiceUnavailable:
-			return loomapi.DeleteProjectViewConfig503JSONResponse{LegacyUnavailableJSONResponse: loomapi.LegacyUnavailableJSONResponse(legacy)}, nil
-		default:
-			return nil, unexpectedResponseStatus("DeleteProjectViewConfig", status)
-		}
+		return loomapi.NewDeleteProjectViewConfigErrorResponse(status, legacy)
 	}
 	project := projectid.Canonical(string(request.Project))
 	resource := authResourcePathFromParam(request.Params.AuthResourcePath)

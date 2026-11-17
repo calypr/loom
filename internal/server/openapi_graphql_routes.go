@@ -56,38 +56,17 @@ func (r *HTTPRoutes) ExecuteGraphQL(ctx context.Context, request loomapi.Execute
 	if status == http.StatusUnauthorized {
 		var value loomapi.ServiceErrorResponse
 		decodeErr := json.Unmarshal(body, &value)
-		return loomapi.ExecuteGraphQL401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(value)}, decodeErr
+		response, err := loomapi.NewExecuteGraphQLErrorResponse(status, value)
+		if err != nil {
+			return nil, err
+		}
+		return response, decodeErr
 	}
 	value, decodeErr := rawJSONBytes(body)
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.ExecuteGraphQL400JSONResponse(value), nil
-	case http.StatusConflict:
-		return loomapi.ExecuteGraphQL409JSONResponse(value), nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.ExecuteGraphQL422JSONResponse(value), nil
-	case http.StatusForbidden:
-		return loomapi.ExecuteGraphQL403JSONResponse(value), nil
-	case http.StatusNotFound:
-		return loomapi.ExecuteGraphQL404JSONResponse(value), nil
-	case http.StatusRequestEntityTooLarge:
-		return loomapi.ExecuteGraphQL413JSONResponse(value), nil
-	case http.StatusTooManyRequests:
-		return loomapi.ExecuteGraphQL429JSONResponse(value), nil
-	case 499:
-		return loomapi.ExecuteGraphQL499JSONResponse(value), nil
-	case http.StatusGatewayTimeout:
-		return loomapi.ExecuteGraphQL504JSONResponse(value), nil
-	case http.StatusInternalServerError:
-		return loomapi.ExecuteGraphQL500JSONResponse(value), nil
-	case http.StatusServiceUnavailable:
-		return loomapi.ExecuteGraphQL503JSONResponse(value), nil
-	default:
-		return nil, unexpectedResponseStatus("executeGraphQL", status)
-	}
+	return loomapi.NewExecuteGraphQLErrorResponse(status, value)
 }
 
 func (r *HTTPRoutes) ExecuteDataframeGraphQL(ctx context.Context, request loomapi.ExecuteDataframeGraphQLRequestObject) (loomapi.ExecuteDataframeGraphQLResponseObject, error) {
@@ -102,38 +81,17 @@ func (r *HTTPRoutes) ExecuteDataframeGraphQL(ctx context.Context, request loomap
 	if status == http.StatusUnauthorized {
 		var value loomapi.ServiceErrorResponse
 		decodeErr := json.Unmarshal(body, &value)
-		return loomapi.ExecuteDataframeGraphQL401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(value)}, decodeErr
+		response, err := loomapi.NewExecuteDataframeGraphQLErrorResponse(status, value)
+		if err != nil {
+			return nil, err
+		}
+		return response, decodeErr
 	}
 	value, decodeErr := rawJSONBytes(body)
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.ExecuteDataframeGraphQL400JSONResponse(value), nil
-	case http.StatusConflict:
-		return loomapi.ExecuteDataframeGraphQL409JSONResponse(value), nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.ExecuteDataframeGraphQL422JSONResponse(value), nil
-	case http.StatusForbidden:
-		return loomapi.ExecuteDataframeGraphQL403JSONResponse(value), nil
-	case http.StatusNotFound:
-		return loomapi.ExecuteDataframeGraphQL404JSONResponse(value), nil
-	case http.StatusRequestEntityTooLarge:
-		return loomapi.ExecuteDataframeGraphQL413JSONResponse(value), nil
-	case http.StatusTooManyRequests:
-		return loomapi.ExecuteDataframeGraphQL429JSONResponse(value), nil
-	case 499:
-		return loomapi.ExecuteDataframeGraphQL499JSONResponse(value), nil
-	case http.StatusGatewayTimeout:
-		return loomapi.ExecuteDataframeGraphQL504JSONResponse(value), nil
-	case http.StatusInternalServerError:
-		return loomapi.ExecuteDataframeGraphQL500JSONResponse(value), nil
-	case http.StatusServiceUnavailable:
-		return loomapi.ExecuteDataframeGraphQL503JSONResponse(value), nil
-	default:
-		return nil, unexpectedResponseStatus("executeDataframeGraphQL", status)
-	}
+	return loomapi.NewExecuteDataframeGraphQLErrorResponse(status, value)
 }
 
 func (r *HTTPRoutes) GetGraphQLPlayground(ctx context.Context, _ loomapi.GetGraphQLPlaygroundRequestObject) (loomapi.GetGraphQLPlaygroundResponseObject, error) {

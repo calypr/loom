@@ -58,6 +58,14 @@ func TestRecipeExecutionAuthorizationStatusDistinguishesDenialFromOutage(t *test
 	}
 }
 
+func TestRecipeExecutionHTTPStatePreservesOtherPersistedStates(t *testing.T) {
+	for _, state := range []publication.BundleState{publication.BundlePending, publication.BundlePreflight, publication.BundleValidating, publication.BundleLoading, publication.BundleQueued, publication.BundleRunning, publication.BundleReady, publication.BundleFailed, "FUTURE_STATE"} {
+		if got := recipeExecutionHTTPState(state); got != string(state) {
+			t.Errorf("HTTP state for %q = %q, want unchanged persisted state", state, got)
+		}
+	}
+}
+
 func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -79,54 +87,33 @@ func TestRecipeAuthorizationAdapterUsesOperationAuthPolicy(t *testing.T) {
 }
 
 func TestRecipeExecutionAuthorizationResponseConcealsDenialAndStructuresOutage(t *testing.T) {
-	denial, status := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrForbidden)
-	denialBody, ok := denial.(map[string]any)
-	// F-B32: concealed 404 — unified with GraphQL twin (reader:94 + authpolicy concealed-lookup) and CoversExecutionPaths sibling
-	if status != http.StatusNotFound || !ok || denialBody["error"] != "recipe execution not found" {
-		t.Fatalf("denial response = %#v, %d; want concealed 404", denial, status)
-	}
-
-	outage, status := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrAuthorizationBackendUnavailable)
-	if status != http.StatusServiceUnavailable {
-		t.Fatalf("outage status = %d, want 503", status)
-	}
-	response, ok := outage.(loomapi.ServiceErrorResponse)
-	if !ok || response.Error.Code != "BACKEND_UNAVAILABLE" || response.Error.Retryable == nil || !*response.Error.Retryable {
-		t.Fatalf("outage response = %#v, want structured retryable service error", outage)
-	}
-}
-
-// F-4 (reviewer ses_e66757becffe8uCNimGXbEeIfc): the default arm's own
-// promise. recipeExecutionAuthorizationResponse's docstring keeps a "retryable
-// shared service envelope" for an authorization outage, and the GraphQL twin
-// (recipe_execution_reader.go:94-98 -> recipeExecutionLookupError) emits
-// retryable BACKEND_UNAVAILABLE for an arbitrary catalog/authorization fault.
-// A non-sentinel fault leaving the resolver seam therefore has to keep that
-// envelope here too; the shipped arm instead emitted a non-retryable
-// INTERNAL_ERROR under the 503.
-func TestRecipeExecutionAuthorizationResponseStructuresArbitraryFaultLikeTheTwin(t *testing.T) {
-	outage, status := recipeExecutionAuthorizationResponse(context.Background(), errors.New("catalog auth path listing exploded"))
-	if status != http.StatusServiceUnavailable {
-		t.Fatalf("arbitrary authorization fault status = %d, want 503", status)
-	}
-	response, ok := outage.(loomapi.ServiceErrorResponse)
-	if !ok {
-		t.Fatalf("arbitrary authorization fault response = %T, want structured service error", outage)
-	}
-	if response.Error.Code != "BACKEND_UNAVAILABLE" || response.Error.Retryable == nil || !*response.Error.Retryable {
-		t.Fatalf("arbitrary authorization fault = %#v, want retryable BACKEND_UNAVAILABLE", response.Error)
-	}
-	payload, err := json.Marshal(response)
+	denial, err := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrForbidden)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var wire loomapi.ServiceErrorResponse
-	if err := json.Unmarshal(payload, &wire); err != nil {
+	if _, ok := denial.(loomapi.GetRecipeExecution404JSONResponse); !ok {
+		t.Fatalf("denial=%T, want404", denial)
+	}
+	body, err := json.Marshal(denial)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if wire.Error.Code != "BACKEND_UNAVAILABLE" || wire.Error.Retryable == nil || !*wire.Error.Retryable {
-		t.Fatalf("arbitrary authorization fault marshaled body = %s, want explicit retryable BACKEND_UNAVAILABLE", payload)
+	if string(body) != `{"error":"recipe execution not found"}` {
+		t.Fatalf("denial body=%s", body)
 	}
+	outage, err := recipeExecutionAuthorizationResponse(context.Background(), authscope.ErrAuthorizationBackendUnavailable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRecipeExecutionRetryableOutage(t, outage, "authorization backend unavailable")
+}
+
+func TestRecipeExecutionAuthorizationResponseStructuresArbitraryFaultLikeTheTwin(t *testing.T) {
+	outage, err := recipeExecutionAuthorizationResponse(context.Background(), errors.New("catalog auth path listing exploded"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRecipeExecutionRetryableOutage(t, outage, "arbitrary authorization fault")
 }
 
 // Same promise at the client-visible wire: an arbitrary (non-sentinel) fault
@@ -272,11 +259,11 @@ func TestStableReadResponseFixtures(t *testing.T) {
 			Columns: []publication.PhysicalColumn{{Name: "id", SemanticPath: "Patient.id", ClickHouse: "String"}},
 		}},
 	}}}
-	body, statusCode := routes.recipeExecution(context.Background(), "execution-a")
-	if statusCode != http.StatusOK {
-		t.Fatalf("recipe execution status = %d, want 200", statusCode)
+	execution, err := routes.recipeExecution(context.Background(), "execution-a")
+	if err != nil {
+		t.Fatal(err)
 	}
-	assertJSONFixture(t, body, `{"datasetGeneration":"generation-a","id":"execution-a","outputs":[{"columns":[{"aggregatable":true,"clickhouseType":"String","filterable":true,"logicalType":"string","name":"id","nullable":false,"repeated":false,"semanticPath":"Patient.id","sortable":true}],"name":"patients","rowCount":2,"state":"READY"}],"projectId":"project-a","recipeDigest":"recipe-digest","resolvedSchemaDigest":"schema-digest","schemaDigest":"schema-digest","state":"READY"}`)
+	assertJSONFixture(t, recipeExecutionResponse(execution), `{"datasetGeneration":"generation-a","id":"execution-a","outputs":[{"columns":[{"aggregatable":true,"clickhouseType":"String","filterable":true,"logicalType":"string","name":"id","nullable":false,"repeated":false,"semanticPath":"Patient.id","sortable":true}],"name":"patients","rowCount":2,"state":"READY"}],"projectId":"project-a","recipeDigest":"recipe-digest","resolvedSchemaDigest":"schema-digest","schemaDigest":"schema-digest","state":"READY"}`)
 }
 
 func assertJSONFixture(t *testing.T, value any, want string) {

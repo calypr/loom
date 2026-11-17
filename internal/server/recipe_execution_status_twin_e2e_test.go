@@ -77,6 +77,7 @@ const twinRowCount = int64(7373737)
 
 const (
 	twinHandlerFile = "openapi_recipe_execution.go"
+	twinReaderFile  = "../api/graphql/graph/resolver/recipe_execution_reader.go"
 	twinRoutePrefix = "/api/v1/dataframe/recipe-executions/"
 )
 
@@ -91,26 +92,26 @@ var twinQuotedFacts = []struct {
 }{
 	{
 		name:   "fetch-by-opaque-id-precedes-gates",
-		source: twinHandlerFile,
-		quote:  "execution, err := r.releases.GetExecution(ctx, id)",
+		source: twinReaderFile,
+		quote:  "execution, err := store.GetExecution(ctx, id)",
 		notice: "the handler fetches the durable execution by opaque id before any gate; denials must conceal",
 	},
 	{
 		name:   "unconditional-project-membership-gate",
-		source: twinHandlerFile,
+		source: twinReaderFile,
 		quote:  "authscope.AuthorizeProject(principal, execution.Project, false)",
 		notice: "project membership is asserted for every request, not only when a scope resolver is wired",
 	},
 	{
 		name:   "restricted-mode-uses-the-normalized-path-set-rule",
-		source: twinHandlerFile,
+		source: twinReaderFile,
 		quote:  "scope.CoversExecutionPaths(execution.AuthResourcePaths)",
 		notice: "restricted mode compares normalized path sets through the shared authscope rule",
 	},
 	{
 		name:   "resolver-block-remains-conditional-on-purpose",
-		source: twinHandlerFile,
-		quote:  "if r.scopes != nil {",
+		source: twinReaderFile,
+		quote:  "if scopeResolver != nil {",
 		notice: "the resolver consultation itself (and its outage mapping) stays conditional by design",
 	},
 	{
@@ -244,18 +245,33 @@ func twinRequireRepairedGuards(t *testing.T) {
 		t.Fatalf("STEP 0 drift: cannot read %s: %v", twinHandlerFile, err)
 	}
 	source := string(raw)
+	readerRaw, err := os.ReadFile(twinReaderFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(source, "NewAuthorizedRecipeExecutionRecordReader(r.releases, r.scopes, resolveScope, true)") {
+		t.Fatal("REST no longer calls the shared authorized reader")
+	}
 	for _, fact := range twinQuotedFacts {
+		factRaw, err := os.ReadFile(fact.source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		factSource := string(factRaw)
 		quote := fact.quote
 		if quote == "twinPhraseAnchor" {
 			quote = "\"" + twinConcealedError + "\""
 		}
-		if !strings.Contains(source, quote) {
+		if !strings.Contains(factSource, quote) {
 			t.Fatalf("STEP 0 drift: %s no longer contains quoted %s\n  file:  %s\n  quote: %s\n  note:  %s",
 				fact.name, fact.source, fact.source, quote, fact.notice)
 		}
-		t.Logf("FB20-TWIN GATE | %s | %s:%d contains %q", fact.name, fact.source, twinLineOf(source, quote), quote)
+		t.Logf("FB20-TWIN GATE | %s | %s:%d contains %q", fact.name, fact.source, twinLineOf(factSource, quote), quote)
 	}
 	archivedMembershipFreeGate := "if r.scopes != nil {\n\t\tprincipal, _ := authscope.PrincipalFromContext(ctx)"
+	if strings.Contains(string(readerRaw), "if scopeResolver != nil {\n\t\t\tprincipal, _ := authscope.PrincipalFromContext(ctx)") {
+		t.Fatal("shared reader restored resolver-conditional project membership")
+	}
 	if strings.Contains(source, archivedMembershipFreeGate) {
 		t.Fatalf("FB20-TWIN REGRESSION | %s restored the archived membership-free gate (principal consulted only inside the resolver-conditional block)", twinHandlerFile)
 	}

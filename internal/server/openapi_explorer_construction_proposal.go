@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
@@ -180,99 +179,28 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 }
 
 func (r *HTTPRoutes) GetExplorerConstructionCapabilities(ctx context.Context, request loomapi.GetExplorerConstructionCapabilitiesRequestObject) (loomapi.GetExplorerConstructionCapabilitiesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionCapabilities", explorerUnavailable("construction-capabilities", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.GetExplorerConstructionCapabilities503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.getConstructionCapabilitiesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.GetExplorerConstructionCapabilities200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionCapabilities", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.GetExplorerConstructionCapabilities400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.GetExplorerConstructionCapabilities401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.GetExplorerConstructionCapabilities403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.GetExplorerConstructionCapabilities404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.GetExplorerConstructionCapabilities409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.GetExplorerConstructionCapabilities422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.GetExplorerConstructionCapabilities500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.GetExplorerConstructionCapabilities503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("getExplorerConstructionCapabilities", status)
-	}
+	return loomapi.NewGetExplorerConstructionCapabilitiesErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) DiscoverExplorerConstructionCategories(ctx context.Context, request loomapi.DiscoverExplorerConstructionCategoriesRequestObject) (loomapi.DiscoverExplorerConstructionCategoriesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "discoverExplorerConstructionCategories", explorerUnavailable("construction-category-discovery", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.DiscoverExplorerConstructionCategories503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.discoverConstructionCategoriesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.DiscoverExplorerConstructionCategories200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "discoverExplorerConstructionCategories", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.DiscoverExplorerConstructionCategories400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.DiscoverExplorerConstructionCategories401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.DiscoverExplorerConstructionCategories403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.DiscoverExplorerConstructionCategories404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.DiscoverExplorerConstructionCategories409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.DiscoverExplorerConstructionCategories422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.DiscoverExplorerConstructionCategories500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.DiscoverExplorerConstructionCategories503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("discoverExplorerConstructionCategories", status)
-	}
+	return loomapi.NewDiscoverExplorerConstructionCategoriesErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }
 
 func (r *HTTPRoutes) ProposeExplorerConstruction(ctx context.Context, request loomapi.ProposeExplorerConstructionRequestObject) (loomapi.ProposeExplorerConstructionResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerConstruction", explorerUnavailable("construction-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ProposeExplorerConstruction503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.proposeConstructionDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.ProposeExplorerConstruction200JSONResponse(value), nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerConstruction", err)
-	switch status {
-	case http.StatusBadRequest:
-		return loomapi.ProposeExplorerConstruction400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.ProposeExplorerConstruction401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
-	case http.StatusForbidden:
-		return loomapi.ProposeExplorerConstruction403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
-	case http.StatusNotFound:
-		return loomapi.ProposeExplorerConstruction404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
-	case http.StatusConflict:
-		return loomapi.ProposeExplorerConstruction409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.ProposeExplorerConstruction422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.ProposeExplorerConstruction500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.ProposeExplorerConstruction503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	case http.StatusGatewayTimeout:
-		return loomapi.ProposeExplorerConstruction504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
-	default:
-		return nil, unexpectedResponseStatus("proposeExplorerConstruction", status)
-	}
+	return loomapi.NewProposeExplorerConstructionErrorResponse(status, openAPIErrorResponseBody(status, failure))
 }

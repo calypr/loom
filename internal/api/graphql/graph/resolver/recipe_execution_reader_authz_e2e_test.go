@@ -106,16 +106,16 @@ var fb20QuotedFacts = []struct {
 		notice: "restricted-mode gate compares normalized path SETS through the shared rule, never counts",
 	},
 	{
-		name:   "rest-twin-asserts-project-membership-unconditionally",
+		name:   "rest-twin-uses-shared-authorized-record-reader",
 		source: fb20SourceTwin,
-		quote:  "if err := authscope.AuthorizeProject(principal, execution.Project, false); err != nil {",
-		notice: "REST sibling carries the same unconditional project-membership assertion",
+		quote:  "NewAuthorizedRecipeExecutionRecordReader(r.releases, r.scopes, resolveScope, true)",
+		notice: "REST projects only the durable record returned by the shared authorization reader",
 	},
 	{
-		name:   "rest-twin-restricted-gate-is-the-shared-path-set-rule",
-		source: fb20SourceTwin,
+		name:   "shared-reader-enforces-restricted-path-set-rule",
+		source: fb20SourceReader,
 		quote:  "if scope.Mode == authscope.ReadScopeRestricted && !scope.CoversExecutionPaths(execution.AuthResourcePaths) {",
-		notice: "REST sibling carries the same restricted-mode set rule",
+		notice: "REST and GraphQL share the same restricted-mode set rule",
 	},
 	{
 		name:   "reader-promise-ids-are-not-credentials",

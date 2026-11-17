@@ -136,6 +136,41 @@ func testCatalog() CatalogSnapshot {
 	}
 }
 
+func TestCatalogDigestCanonicalizesConceptCandidateOrder(t *testing.T) {
+	first := testCatalog()
+	first.Candidates[0].ConceptCandidates = []ConceptCandidate{
+		{SourceResourceType: "Patient", SourcePath: "z", ExtensionURLPath: []string{"z"}, ObservedUnits: []string{"unit-z"}, Examples: []string{"example-z"}, Completeness: "COMPLETE", Status: "OBSERVED"},
+		{SourceResourceType: "Patient", SourcePath: "a", ExtensionURLPath: []string{"a"}, ObservedUnits: []string{"unit-a"}, Examples: []string{"example-a"}, Completeness: "COMPLETE", Status: "OBSERVED"},
+	}
+	second := first
+	second.Candidates = append([]CatalogCandidate(nil), first.Candidates...)
+	second.Candidates[0].ConceptCandidates = append([]ConceptCandidate(nil), first.Candidates[0].ConceptCandidates...)
+	second.Candidates[0].ConceptCandidates[0], second.Candidates[0].ConceptCandidates[1] = second.Candidates[0].ConceptCandidates[1], second.Candidates[0].ConceptCandidates[0]
+	firstDigest, err := first.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDigest, err := second.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstDigest != secondDigest {
+		t.Fatalf("catalog digest changed with concept candidate order: %s != %s", firstDigest, secondDigest)
+	}
+	canonical, err := first.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Candidates[0].ConceptCandidates[0].ExtensionURLPath[0] = "mutated"
+	afterMutation, err := first.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(canonical) == string(afterMutation) {
+		t.Fatal("canonical catalog JSON shared nested concept-candidate slices with its source")
+	}
+}
+
 func testFieldConstructionChoice(snapshotToken, candidateID, nodeID, resourceType, path, cardinality string, projection capability.ProjectionMode) *capability.ConstructionChoice {
 	choice, err := capability.NewFieldConstructionChoice(snapshotToken, capability.Candidate{
 		ID: candidateID, NodeID: nodeID, ResourceType: resourceType, FieldPath: path,

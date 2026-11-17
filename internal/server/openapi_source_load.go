@@ -43,30 +43,7 @@ func (r *HTTPRoutes) BeginDatasetSourceLoad(ctx context.Context, request loomapi
 		return loomapi.BeginDatasetSourceLoad200JSONResponse(sourceLoadStatusValue(status)), nil
 	}
 	code, body := mapServiceError(err, ctx)
-	switch code {
-	case http.StatusBadRequest:
-		return loomapi.BeginDatasetSourceLoad400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(body)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.BeginDatasetSourceLoad401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(body)}, nil
-	case http.StatusForbidden:
-		return loomapi.BeginDatasetSourceLoad403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(body)}, nil
-	case http.StatusNotFound:
-		return loomapi.BeginDatasetSourceLoad404JSONResponse{ServiceNotFoundJSONResponse: loomapi.ServiceNotFoundJSONResponse(body)}, nil
-	case http.StatusConflict:
-		return loomapi.BeginDatasetSourceLoad409JSONResponse{ServiceConflictJSONResponse: loomapi.ServiceConflictJSONResponse(body)}, nil
-	case http.StatusRequestEntityTooLarge:
-		return loomapi.BeginDatasetSourceLoad413JSONResponse{ServicePayloadTooLargeJSONResponse: loomapi.ServicePayloadTooLargeJSONResponse(body)}, nil
-	case http.StatusUnsupportedMediaType:
-		return loomapi.BeginDatasetSourceLoad415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: loomapi.ServiceUnsupportedMediaTypeJSONResponse(body)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.BeginDatasetSourceLoad422JSONResponse{ServiceUnprocessableJSONResponse: loomapi.ServiceUnprocessableJSONResponse(body)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.BeginDatasetSourceLoad500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(body)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.BeginDatasetSourceLoad503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(body)}, nil
-	default:
-		return nil, unexpectedResponseStatus("beginDatasetSourceLoad", code)
-	}
+	return loomapi.NewBeginDatasetSourceLoadErrorResponse(code, body)
 }
 
 func (r *HTTPRoutes) GetDatasetSourceLoadStatus(ctx context.Context, request loomapi.GetDatasetSourceLoadStatusRequestObject) (loomapi.GetDatasetSourceLoadStatusResponseObject, error) {
@@ -76,24 +53,7 @@ func (r *HTTPRoutes) GetDatasetSourceLoadStatus(ctx context.Context, request loo
 		return loomapi.GetDatasetSourceLoadStatus200JSONResponse(sourceLoadStatusValue(status)), nil
 	}
 	code, body := mapServiceError(err, ctx)
-	switch code {
-	case http.StatusBadRequest:
-		return loomapi.GetDatasetSourceLoadStatus400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(body)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.GetDatasetSourceLoadStatus401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(body)}, nil
-	case http.StatusForbidden:
-		return loomapi.GetDatasetSourceLoadStatus403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(body)}, nil
-	case http.StatusNotFound:
-		return loomapi.GetDatasetSourceLoadStatus404JSONResponse{ServiceNotFoundJSONResponse: loomapi.ServiceNotFoundJSONResponse(body)}, nil
-	case http.StatusConflict:
-		return loomapi.GetDatasetSourceLoadStatus409JSONResponse{ServiceConflictJSONResponse: loomapi.ServiceConflictJSONResponse(body)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.GetDatasetSourceLoadStatus500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(body)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.GetDatasetSourceLoadStatus503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(body)}, nil
-	default:
-		return nil, unexpectedResponseStatus("getDatasetSourceLoadStatus", code)
-	}
+	return loomapi.NewGetDatasetSourceLoadStatusErrorResponse(code, body)
 }
 
 func (r *HTTPRoutes) UploadDatasetSourceLoadFile(ctx context.Context, request loomapi.UploadDatasetSourceLoadFileRequestObject) (loomapi.UploadDatasetSourceLoadFileResponseObject, error) {
@@ -103,30 +63,10 @@ func (r *HTTPRoutes) UploadDatasetSourceLoadFile(ctx context.Context, request lo
 		return loomapi.UploadDatasetSourceLoadFile200JSONResponse(sourceFileReceiptValue(receipt)), nil
 	}
 	code, body := mapServiceError(err, ctx)
-	switch code {
-	case http.StatusBadRequest:
-		return loomapi.UploadDatasetSourceLoadFile400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(body)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.UploadDatasetSourceLoadFile401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(body)}, nil
-	case http.StatusForbidden:
-		return loomapi.UploadDatasetSourceLoadFile403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(body)}, nil
-	case http.StatusNotFound:
-		return loomapi.UploadDatasetSourceLoadFile404JSONResponse{ServiceNotFoundJSONResponse: loomapi.ServiceNotFoundJSONResponse(body)}, nil
-	case http.StatusConflict:
-		return loomapi.UploadDatasetSourceLoadFile409JSONResponse{ServiceConflictJSONResponse: loomapi.ServiceConflictJSONResponse(body)}, nil
-	case http.StatusRequestEntityTooLarge:
-		return loomapi.UploadDatasetSourceLoadFile413JSONResponse{ServicePayloadTooLargeJSONResponse: loomapi.ServicePayloadTooLargeJSONResponse(body)}, nil
-	case http.StatusUnsupportedMediaType:
-		return loomapi.UploadDatasetSourceLoadFile415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: loomapi.ServiceUnsupportedMediaTypeJSONResponse(body)}, nil
-	case http.StatusUnprocessableEntity:
+	if code == http.StatusUnprocessableEntity {
 		return sourceLoadValidationErrorResponse(body), nil
-	case http.StatusInternalServerError:
-		return loomapi.UploadDatasetSourceLoadFile500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(body)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.UploadDatasetSourceLoadFile503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(body)}, nil
-	default:
-		return nil, unexpectedResponseStatus("uploadDatasetSourceLoadFile", code)
 	}
+	return loomapi.NewUploadDatasetSourceLoadFileErrorResponse(code, body)
 }
 
 func (r *HTTPRoutes) PublishDatasetSourceLoad(ctx context.Context, request loomapi.PublishDatasetSourceLoadRequestObject) (loomapi.PublishDatasetSourceLoadResponseObject, error) {
@@ -140,30 +80,7 @@ func (r *HTTPRoutes) PublishDatasetSourceLoad(ctx context.Context, request looma
 		}, nil
 	}
 	code, body := mapServiceError(err, ctx)
-	switch code {
-	case http.StatusBadRequest:
-		return loomapi.PublishDatasetSourceLoad400JSONResponse{ServiceBadRequestJSONResponse: loomapi.ServiceBadRequestJSONResponse(body)}, nil
-	case http.StatusUnauthorized:
-		return loomapi.PublishDatasetSourceLoad401JSONResponse{ServiceUnauthorizedJSONResponse: loomapi.ServiceUnauthorizedJSONResponse(body)}, nil
-	case http.StatusForbidden:
-		return loomapi.PublishDatasetSourceLoad403JSONResponse{ServiceForbiddenJSONResponse: loomapi.ServiceForbiddenJSONResponse(body)}, nil
-	case http.StatusNotFound:
-		return loomapi.PublishDatasetSourceLoad404JSONResponse{ServiceNotFoundJSONResponse: loomapi.ServiceNotFoundJSONResponse(body)}, nil
-	case http.StatusConflict:
-		return loomapi.PublishDatasetSourceLoad409JSONResponse{ServiceConflictJSONResponse: loomapi.ServiceConflictJSONResponse(body)}, nil
-	case http.StatusRequestEntityTooLarge:
-		return loomapi.PublishDatasetSourceLoad413JSONResponse{ServicePayloadTooLargeJSONResponse: loomapi.ServicePayloadTooLargeJSONResponse(body)}, nil
-	case http.StatusUnsupportedMediaType:
-		return loomapi.PublishDatasetSourceLoad415JSONResponse{ServiceUnsupportedMediaTypeJSONResponse: loomapi.ServiceUnsupportedMediaTypeJSONResponse(body)}, nil
-	case http.StatusUnprocessableEntity:
-		return loomapi.PublishDatasetSourceLoad422JSONResponse{ServiceUnprocessableJSONResponse: loomapi.ServiceUnprocessableJSONResponse(body)}, nil
-	case http.StatusInternalServerError:
-		return loomapi.PublishDatasetSourceLoad500JSONResponse{ServiceInternalErrorJSONResponse: loomapi.ServiceInternalErrorJSONResponse(body)}, nil
-	case http.StatusServiceUnavailable:
-		return loomapi.PublishDatasetSourceLoad503JSONResponse{ServiceUnavailableJSONResponse: loomapi.ServiceUnavailableJSONResponse(body)}, nil
-	default:
-		return nil, unexpectedResponseStatus("publishDatasetSourceLoad", code)
-	}
+	return loomapi.NewPublishDatasetSourceLoadErrorResponse(code, body)
 }
 
 func sourceLoadStatusValue(status ingest.SourceLoadStatus) loomapi.SourceLoadStatus {
