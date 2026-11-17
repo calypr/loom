@@ -2,6 +2,7 @@ package recipeimport
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -73,12 +74,12 @@ func TestImportedIdentifierRuleAdditionIsValidatedAppliedAndHydrated(t *testing.
 	key := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{{Select: "item.system"}}}
 	value := recipe.Expression{Select: "item.value"}
 	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
-		Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &key, Value: &value,
+		Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value,
 	}}
 	addition := authoringv2.ImportedSourceRuleAddition{Kind: "DYNAMIC_COLUMN", StepID: "ruleAdditions[0]", Enabled: true, Parameters: parameters}
 	plan := SourcePlan(output)
 	plan.RuleAdditions = []authoringv2.ImportedSourceRuleAddition{addition}
-	plan.Steps = append(plan.Steps, ruleAdditionStep(addition))
+	plan.Steps = append(plan.Steps, ruleAdditionStep(addition, ""))
 
 	effective, err := ApplySourcePlan(output, &plan)
 	if err != nil {
@@ -107,13 +108,37 @@ func TestImportedIdentifierRuleAdditionIsValidatedAppliedAndHydrated(t *testing.
 	}
 }
 
+func TestRootRuleWithQualifiedSelectorReloadsAndSavesRelative(t *testing.T) {
+	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
+	plan := SourcePlan(output)
+	key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
+	params := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
+		Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &key, Value: &value,
+	}}
+	addition := authoringv2.ImportedSourceRuleAddition{StepID: "ruleAdditions[0]", Kind: "DYNAMIC_COLUMN", Enabled: true, Parameters: params}
+	plan.RuleAdditions = append(plan.RuleAdditions, addition)
+	plan.Steps = append(plan.Steps, ruleAdditionStep(addition, ""))
+	hydrated, err := HydrateSourcePlan(output, &plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := authoringv2.ImportedSourceStepChange{StepID: addition.StepID, Enabled: true, Parameters: params}
+	updated, err := EditPlan(output, hydrated, authoringv2.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.RuleAdditions[0].Parameters.Dynamic.Source.Select != "identifier[]" || params.Dynamic.Source.Select != "root.identifier[]" {
+		t.Fatal("saving the edit must store the relative selector without changing the input")
+	}
+}
+
 func TestEditPlanCreatesAndDisablesRuleWithoutMutatingInput(t *testing.T) {
 	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
 	original := SourcePlan(output)
 	catalog := authoringv2.CatalogSnapshot{}
 	key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
 	rule := authoringv2.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: &authoringv2.ImportedSourceParameters{
-		Dynamic: &authoringv2.ImportedDynamicParameters{Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &key, Value: &value},
+		Dynamic: &authoringv2.ImportedDynamicParameters{Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
 	}}
 	created, err := EditPlan(output, original, catalog, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
 	if err != nil {
@@ -133,6 +158,34 @@ func TestEditPlanCreatesAndDisablesRuleWithoutMutatingInput(t *testing.T) {
 	}
 	if _, err := EditPlan(output, original, catalog, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}, RuleCreate: &rule}, PlanEditInput{}); err == nil {
 		t.Fatal("accepted more than one edit intent")
+	}
+}
+
+func TestApplySourcePlanRejectsDisabledRuleOccurrence(t *testing.T) {
+	output := recipe.Output{Name: "subjects", RootResourceType: "ResearchSubject", RowGrain: "resource",
+		Traversals: []recipe.Traversal{{Name: "subject", ToResourceType: "Patient", OccurrenceID: "patient"}},
+	}
+	plan := SourcePlan(output)
+	key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
+	rule := authoringv2.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", OccurrenceID: "patient", Parameters: &authoringv2.ImportedSourceParameters{
+		Dynamic: &authoringv2.ImportedDynamicParameters{Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"}, Key: &key, Value: &value},
+	}}
+	created, err := EditPlan(output, plan, authoringv2.CatalogSnapshot{}, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective, err := ApplySourcePlan(output, &created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := effective.Traversals[0].DynamicColumns[0].Source.Select; got != "subject.identifier[]" {
+		t.Fatalf("name fallback produced %q", got)
+	}
+	change := authoringv2.ImportedSourceStepChange{StepID: "traversals[0]", Enabled: false}
+	_, err = EditPlan(output, created, authoringv2.CatalogSnapshot{}, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
+	var unavailable *authoringv2.UnavailableSourceRuleOccurrence
+	if !errors.As(err, &unavailable) || unavailable.OccurrenceID != "patient" {
+		t.Fatalf("disabled occurrence error = %v", err)
 	}
 }
 

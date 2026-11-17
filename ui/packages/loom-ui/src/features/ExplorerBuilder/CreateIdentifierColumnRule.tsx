@@ -8,7 +8,7 @@ const ruleNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const initialRule: ImportedSourceParameters = {
   dynamic: {
     name: 'identifiers',
-    source: { select: 'root.identifier[]' },
+    source: { select: 'identifier[]' },
     key: { select: 'item.system' },
     value: { select: 'item.value' },
   },

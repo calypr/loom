@@ -37,3 +37,12 @@ func (c SourceRuleCreate) Validate() error {
 	}
 	return c.Parameters.Validate(c.Kind)
 }
+
+type UnavailableSourceRuleOccurrence struct {
+	StepID       string
+	OccurrenceID string
+}
+
+func (e *UnavailableSourceRuleOccurrence) Error() string {
+	return fmt.Sprintf("source rule %q occurrence %q is unavailable", e.StepID, e.OccurrenceID)
+}

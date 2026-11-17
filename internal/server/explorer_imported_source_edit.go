@@ -28,8 +28,8 @@ func (r importedRecipeSources) CreateSourceRule(ctx context.Context, project str
 	if err := rule.Validate(); err != nil {
 		return authoringv2.Document{}, err
 	}
-	if rule.Kind != "DYNAMIC_COLUMN" || rule.OccurrenceID != "" {
-		return authoringv2.Document{}, fmt.Errorf("column rule kind or occurrence is unavailable")
+	if rule.Kind != "DYNAMIC_COLUMN" {
+		return authoringv2.Document{}, fmt.Errorf("column rule kind is unavailable")
 	}
 	return r.editSources(ctx, project, authorized, document, nil, nil, &rule)
 }

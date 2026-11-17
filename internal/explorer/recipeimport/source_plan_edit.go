@@ -47,13 +47,13 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 	if err != nil {
 		return authoringv2.ImportedSourcePlan{}, err
 	}
+	baseStepCount := len(SourcePlan(original).Steps)
 	if rule != nil {
 		addition := authoringv2.ImportedSourceRuleAddition{
 			StepID: fmt.Sprintf("ruleAdditions[%d]", len(plan.RuleAdditions)),
-			Kind:   rule.Kind, OccurrenceID: rule.OccurrenceID, Enabled: true, Parameters: rule.Parameters,
+			Kind:   rule.Kind, OccurrenceID: rule.OccurrenceID, Enabled: true, Parameters: relativeSourceRuleParameters(rule.OccurrenceID, rule.Parameters),
 		}
 		plan.RuleAdditions = append(plan.RuleAdditions, addition)
-		plan.Steps = append(plan.Steps, ruleAdditionStep(addition))
 	}
 	for _, change := range changes {
 		if change.Parameters != nil && change.Parameters.FieldGroup != nil {
@@ -85,17 +85,12 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 				return authoringv2.ImportedSourcePlan{}, fmt.Errorf("dynamic addition edits do not support a column limit or value mode")
 			}
 			if change.Parameters != nil {
-				if err := change.Parameters.Validate("DYNAMIC_COLUMN"); err != nil {
+				if err := change.Parameters.Validate(addition.Kind); err != nil {
 					return authoringv2.ImportedSourcePlan{}, err
 				}
-				if err := ValidateIdentifierDynamic(original.RootResourceType, change.Parameters.Dynamic); err != nil {
-					return authoringv2.ImportedSourcePlan{}, err
-				}
-				addition.Parameters = change.Parameters
+				addition.Parameters = relativeSourceRuleParameters(addition.OccurrenceID, change.Parameters)
 			}
 			addition.Enabled = change.Enabled
-			stepIndex := len(plan.Steps) - len(plan.RuleAdditions) + i
-			plan.Steps[stepIndex] = ruleAdditionStep(*addition)
 			additionFound = true
 			break
 		}
@@ -243,6 +238,12 @@ func EditPlan(original recipe.Output, plan authoringv2.ImportedSourcePlan, catal
 			return authoringv2.ImportedSourcePlan{}, err
 		}
 	}
+	plan.Steps = plan.Steps[:baseStepCount]
+	ruleSteps, err := sourceRuleSteps(plan.Steps, &plan)
+	if err != nil {
+		return authoringv2.ImportedSourcePlan{}, err
+	}
+	plan.Steps = append(plan.Steps, ruleSteps...)
 	effectiveCandidate, err := ApplySourcePlan(original, &plan)
 	if err != nil {
 		return authoringv2.ImportedSourcePlan{}, err

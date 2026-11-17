@@ -220,15 +220,18 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 		copyPlan.Steps = append([]authoringv2.ImportedSourceStep{expected.Steps[0]}, plan.Steps...)
 		plan = &copyPlan
 	}
-	if len(plan.Steps) != len(expected.Steps)+len(plan.RuleAdditions) {
+	extraSteps, err := sourceRuleSteps(expected.Steps, plan)
+	if err != nil {
+		return recipe.Output{}, err
+	}
+	if len(plan.Steps) != len(expected.Steps)+len(extraSteps) {
 		return recipe.Output{}, fmt.Errorf("imported source plan does not match the pinned source step set")
 	}
 	steps := make(map[string]authoringv2.ImportedSourceStep, len(plan.Steps))
 	for index, step := range plan.Steps {
 		if index >= len(expected.Steps) {
-			additionIndex := index - len(expected.Steps)
-			if additionIndex >= len(plan.RuleAdditions) || !reflect.DeepEqual(step, ruleAdditionStep(plan.RuleAdditions[additionIndex])) {
-				return recipe.Output{}, fmt.Errorf("imported source plan step %d does not match its dynamic addition", index)
+			if !reflect.DeepEqual(step, extraSteps[index-len(expected.Steps)]) {
+				return recipe.Output{}, fmt.Errorf("imported source plan step %d does not match its rule or relationship", index)
 			}
 			continue
 		}
@@ -277,36 +280,64 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 	}
 	cloned.CatalogProjections = applyCatalogProjections(cloned.CatalogProjections, steps, "")
 	cloned.DynamicColumns = applyDynamicColumns(cloned.DynamicColumns, steps, "")
-	for _, addition := range plan.RuleAdditions {
-		if !addition.Enabled {
-			continue
-		}
-		if addition.Kind != SourcePlanDynamicColumn || addition.OccurrenceID != "" {
-			return recipe.Output{}, fmt.Errorf("source step %q is unavailable for this occurrence or rule kind", addition.StepID)
-		}
-		dynamic := addition.Parameters.Dynamic
-		if err := ValidateIdentifierDynamic(output.RootResourceType, dynamic); err != nil {
-			return recipe.Output{}, fmt.Errorf("source step %q: %w", addition.StepID, err)
-		}
-		cloned.DynamicColumns = append(cloned.DynamicColumns, recipe.DynamicColumn{
-			Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, Source: dynamic.Source,
-			Key: dynamic.Key, Value: dynamic.Value, MaxColumns: 128,
-		})
-	}
 	cloned.ExtensionColumns = applyExtensionColumns(cloned.ExtensionColumns, steps, "")
 	cloned.Pivots = applyPivots(cloned.Pivots, steps, "")
 	cloned.Traversals = applyTraversals(cloned.Traversals, steps, "")
-	return applyRelationshipOverlay(cloned, plan.Relationships)
+	cloned, err = applyRelationshipOverlay(cloned, plan.Relationships)
+	if err != nil {
+		return recipe.Output{}, err
+	}
+	if err := applySourceRules(&cloned, plan.RuleAdditions); err != nil {
+		return recipe.Output{}, err
+	}
+	return cloned, nil
+}
+
+func applySourceRules(output *recipe.Output, additions []authoringv2.ImportedSourceRuleAddition) error {
+	if len(additions) == 0 {
+		return nil
+	}
+	occurrences := indexTraversalOccurrences(output.Traversals)
+	for _, addition := range additions {
+		resourceType, alias, columns := output.RootResourceType, "root", &output.DynamicColumns
+		if addition.OccurrenceID != "" {
+			traversal := occurrences[addition.OccurrenceID]
+			if traversal == nil {
+				return &authoringv2.UnavailableSourceRuleOccurrence{StepID: addition.StepID, OccurrenceID: addition.OccurrenceID}
+			}
+			resourceType, alias, columns = traversal.ToResourceType, strings.TrimSpace(traversal.Alias), &traversal.DynamicColumns
+			if alias == "" {
+				alias = traversal.Name
+			}
+		}
+		if addition.Kind != SourcePlanDynamicColumn {
+			return fmt.Errorf("source rule kind %q is unavailable", addition.Kind)
+		}
+		dynamic := relativeSourceRuleParameters(addition.OccurrenceID, addition.Parameters).Dynamic
+		if err := ValidateIdentifierDynamic(resourceType, dynamic); err != nil {
+			return fmt.Errorf("source step %q: %w", addition.StepID, err)
+		}
+		if !addition.Enabled {
+			continue
+		}
+		source := dynamic.Source
+		source.Select = alias + "." + source.Select
+		*columns = append(*columns, recipe.DynamicColumn{
+			Name: dynamic.Name, ColumnPrefix: dynamic.ColumnPrefix, Source: source,
+			Key: dynamic.Key, Value: dynamic.Value, MaxColumns: 128,
+		})
+	}
+	return nil
 }
 
 // ValidateIdentifierDynamic keeps this first generated-column action bound to
-// the root FHIR Identifier datatype and its paired system/value selectors.
+// the occurrence’s FHIR Identifier datatype and its paired system/value selectors.
 func ValidateIdentifierDynamic(resourceType string, dynamic *authoringv2.ImportedDynamicParameters) error {
 	if dynamic == nil || dynamic.Name == "" || dynamic.Name != strings.TrimSpace(dynamic.Name) {
 		return fmt.Errorf("identifier dynamic column requires a trimmed name")
 	}
-	if !reflect.DeepEqual(dynamic.Source, recipe.Expression{Select: "root.identifier[]"}) || dynamic.Value == nil || !reflect.DeepEqual(*dynamic.Value, recipe.Expression{Select: "item.value"}) || dynamic.Key == nil {
-		return fmt.Errorf("identifier columns must use root.identifier[] with its paired system and value")
+	if !reflect.DeepEqual(dynamic.Source, recipe.Expression{Select: "identifier[]"}) || dynamic.Value == nil || !reflect.DeepEqual(*dynamic.Value, recipe.Expression{Select: "item.value"}) || dynamic.Key == nil {
+		return fmt.Errorf("identifier columns must use identifier[] with its paired system and value")
 	}
 	fullSystem := recipe.Expression{Select: "item.system"}
 	lastSystem := recipe.Expression{Call: "last_segment", Args: []recipe.Expression{fullSystem}}
@@ -319,7 +350,18 @@ func ValidateIdentifierDynamic(resourceType string, dynamic *authoringv2.Importe
 	return err
 }
 
-func ruleAdditionStep(addition authoringv2.ImportedSourceRuleAddition) authoringv2.ImportedSourceStep {
+func relativeSourceRuleParameters(occurrenceID string, params *authoringv2.ImportedSourceParameters) *authoringv2.ImportedSourceParameters {
+	if occurrenceID != "" || params.Dynamic == nil || params.Dynamic.Source.Select != "root.identifier[]" {
+		return params
+	}
+	dynamic := *params.Dynamic
+	dynamic.Source.Select = "identifier[]"
+	result := *params
+	result.Dynamic = &dynamic
+	return &result
+}
+
+func ruleAdditionStep(addition authoringv2.ImportedSourceRuleAddition, parentID string) authoringv2.ImportedSourceStep {
 	name := ""
 	switch addition.Kind {
 	case SourcePlanDynamicColumn:
@@ -330,10 +372,52 @@ func ruleAdditionStep(addition authoringv2.ImportedSourceRuleAddition) authoring
 		name = addition.Parameters.Catalog.Name
 	}
 	return authoringv2.ImportedSourceStep{
-		ID: addition.StepID, Kind: addition.Kind, SourceKey: name,
+		ID: addition.StepID, Kind: addition.Kind, SourceKey: name, ParentID: parentID, OccurrenceID: addition.OccurrenceID,
 		Title: "Dynamic columns: " + name, Summary: "Discover columns from this keyed source.",
 		Enabled: addition.Enabled, Editable: true, Parameters: addition.Parameters,
 	}
+}
+
+func sourceRuleSteps(base []authoringv2.ImportedSourceStep, plan *authoringv2.ImportedSourcePlan) ([]authoringv2.ImportedSourceStep, error) {
+	parents := map[string]string{"": ""}
+	for _, step := range base {
+		if step.Kind == SourcePlanTraversal {
+			parents[step.OccurrenceID] = step.ID
+		}
+	}
+	var steps []authoringv2.ImportedSourceStep
+	if plan.Relationships != nil && len(plan.RuleAdditions) > 0 {
+		needed := make(map[string]bool, len(plan.RuleAdditions))
+		for _, rule := range plan.RuleAdditions {
+			needed[rule.OccurrenceID] = true
+		}
+		for i := len(plan.Relationships.Additions) - 1; i >= 0; i-- {
+			addition := plan.Relationships.Additions[i]
+			if needed[addition.OccurrenceID] {
+				needed[addition.ParentOccurrenceID] = true
+			}
+		}
+		for _, addition := range plan.Relationships.Additions {
+			if !needed[addition.OccurrenceID] {
+				continue
+			}
+			id := "relationships." + addition.OccurrenceID
+			steps = append(steps, authoringv2.ImportedSourceStep{
+				ID: id, ParentID: parents[addition.ParentOccurrenceID], Kind: SourcePlanTraversal,
+				OccurrenceID: addition.OccurrenceID, Title: "Related " + addition.ResourceType,
+				Summary: "Connected through " + addition.Relationship + ".", Enabled: true,
+			})
+			parents[addition.OccurrenceID] = id
+		}
+	}
+	for _, addition := range plan.RuleAdditions {
+		parent, ok := parents[addition.OccurrenceID]
+		if !ok {
+			return nil, &authoringv2.UnavailableSourceRuleOccurrence{StepID: addition.StepID, OccurrenceID: addition.OccurrenceID}
+		}
+		steps = append(steps, ruleAdditionStep(addition, parent))
+	}
+	return steps, nil
 }
 
 func validateMaxColumnsOverride(step, base authoringv2.ImportedSourceStep) error {
@@ -510,9 +594,11 @@ func HydrateSourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePla
 			}
 		}
 	}
-	for _, addition := range cloned.RuleAdditions {
-		pristine.Steps = append(pristine.Steps, ruleAdditionStep(addition))
+	ruleSteps, err := sourceRuleSteps(pristine.Steps, &cloned)
+	if err != nil {
+		return authoringv2.ImportedSourcePlan{}, err
 	}
+	pristine.Steps = append(pristine.Steps, ruleSteps...)
 	pristine.FieldBindings = cloned.FieldBindings
 	pristine.RuleAdditions = cloned.RuleAdditions
 	pristine.Relationships = cloned.Relationships

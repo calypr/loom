@@ -27,7 +27,7 @@ describe('creating an identifier column rule', () => {
       kind: 'DYNAMIC_COLUMN',
       parameters: { dynamic: {
         name: 'external_ids',
-        source: { select: 'root.identifier[]' },
+        source: { select: 'identifier[]' },
         key: { call: 'last_segment', args: [{ select: 'item.system' }] },
         value: { select: 'item.value' },
       } },

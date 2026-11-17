@@ -273,7 +273,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 
 	parameters := &authoringv2.ImportedSourceParameters{Dynamic: &authoringv2.ImportedDynamicParameters{
-		Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"},
+		Name: "identifiers", Source: recipe.Expression{Select: "identifier[]"},
 		Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"},
 	}}
 	service.config.CreateImportedSourceRule = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, rule authoringv2.SourceRuleCreate) (authoringv2.Document, error) {
