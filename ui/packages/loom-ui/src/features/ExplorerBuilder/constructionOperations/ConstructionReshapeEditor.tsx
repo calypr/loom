@@ -1,3 +1,4 @@
+import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName, sourceLabel as pivotSourceLabel, editorContextKey } from './editorShared';
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useQuery } from '../../../react';
@@ -403,11 +404,6 @@ type AwaitingPivotDiscovery = PendingPivotDiscovery & {
 
 export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'CODED_PIVOT', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
 
-const createOpaqueId = (prefix: string): string => {
-  const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-  return `${prefix}_${randomPart}`;
-};
-
 const capabilityFor = (
   stage: ReshapeStage,
   kind: ReshapeOperationKind,
@@ -469,9 +465,6 @@ const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
   }
 };
 
-const normalizedLogicalType = (type: string | undefined): string =>
-  (type ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
-
 const reshapeScalarTypes = new Set(['string', 'date', 'date_time', 'datetime', 'code', 'uuid', 'integer', 'decimal', 'number', 'boolean']);
 
 const isScalarValueType = (type: string | undefined): boolean => reshapeScalarTypes.has(normalizedLogicalType(type));
@@ -482,11 +475,6 @@ const isScalarColumn = (column: ReshapeColumn): boolean =>
 
 const isListColumn = (column: ReshapeColumn): boolean => column.cardinality === 'many'
   && isScalarValueType(column.type);
-
-const isNumericColumn = (column: ReshapeColumn): boolean => {
-  const type = normalizedLogicalType(column.type);
-  return type === 'integer' || type === 'decimal' || type === 'number';
-};
 
 const scalarColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
   stage.columns.filter(isScalarColumn);
@@ -507,11 +495,6 @@ const codingPathLabel = (path: string): string => path.split('.').map((segment) 
   const words = segment.replaceAll('[]', '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^_+/, '').trim();
   return words ? words[0].toUpperCase() + words.slice(1) : '';
 }).filter(Boolean).join(' → ');
-
-const normalizedName = (value: string): string => {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'column';
-  return /^[0-9]/.test(normalized) ? `column_${normalized}` : normalized;
-};
 
 const codedFamilyKey = (bindingId: string, sourcePath: string): string => `${bindingId}\u0000${sourcePath}`;
 const codedCategoryKey = (familyKey: string, system: string, code: string): string => `${familyKey}\u0000${system}\u0000${code}`;
@@ -587,14 +570,6 @@ type GroupCodedInventoryView = {
   readonly entries: ReadonlyArray<SemanticInventoryItem>;
   readonly hasMore: boolean;
   readonly complete: boolean;
-};
-
-const uniqueName = (base: string, used: ReadonlySet<string>): string => {
-  const normalized = normalizedName(base);
-  if (!used.has(normalized)) return normalized;
-  let suffix = 2;
-  while (used.has(`${normalized}_${suffix}`)) suffix += 1;
-  return `${normalized}_${suffix}`;
 };
 
 const groupOutputColumns = (form: GroupForm, stage: ReshapeStage): ConstructionStep['outputs'] => {
@@ -1718,22 +1693,6 @@ const initialUnpivotForm = (
 const groupKeyName = (stage: ReshapeStage, key: GroupKey): string =>
   stage.columns.find((column) => column.id === key.inputColumnId)?.label ?? 'selected column';
 
-const editorContextKey = (
-  capabilities: ReshapeCapabilities,
-  editingStep: ConstructionReshapeStep | undefined,
-  selectedColumns: ReadonlyArray<string> | undefined,
-  initialKind: string | undefined,
-): string => [
-  capabilities.snapshotToken,
-  capabilities.draftVersion,
-  capabilities.draftDigest,
-  capabilities.outputId,
-  capabilities.stageId,
-  editingStep?.id ?? 'new',
-  (selectedColumns ?? []).join(','),
-  initialKind ?? '',
-].join(':');
-
 const formForStep = (
   construction: Construction,
   capabilities: ReshapeCapabilities,
@@ -2172,7 +2131,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const groupCodedPivotCapability = capabilityFor(groupStage, 'CODED_PIVOT');
   const groupCodedValuesSupported = savedGroupInputStageAvailable && Boolean(savedOwnedCodedInput || groupCodedPivotCapability.supported) &&
     isSourceProjectionStage(groupStage);
-  const contextKey = editorContextKey(capabilities, editingStep, props.selectedColumns, props.initialKind);
+  const contextKey = editorContextKey(capabilities, editingStep, (props.selectedColumns ?? []).join(','), props.initialKind ?? '');
   const [form, setForm] = useState<ReshapeForm>(() => editingStep
     ? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind)
     : props.initialEntry?.form
@@ -4458,29 +4417,6 @@ const pivotUnlistedPolicyFromInput = (value: string): PivotForm['unlistedCategor
     case 'EXCLUDE_WITH_EVIDENCE': return 'EXCLUDE_WITH_EVIDENCE';
     default: return undefined;
   }
-};
-
-const pivotSourceFieldPathLabel = (path: string): string => {
-  const words: string[] = [];
-  for (const segment of path.replace(/^root\./, '').split('.')) {
-    const readable = segment.replace(/\[\]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
-    if (!readable) continue;
-    words.push(readable.toLowerCase() === 'id' ? 'ID' : readable[0].toUpperCase() + readable.slice(1));
-  }
-  return words.join(' ');
-};
-
-const pivotSourceLabel = (choice: SourceInputChoice): string => {
-  const rawPath = choice.fieldPath.replace(/^root\./, '');
-  const label = choice.label.trim().replace(/^root\./, '');
-  const prefixedPath = label.endsWith(`.${rawPath}`) ? label.slice(0, -rawPath.length - 1) : undefined;
-  const rawSegments = rawPath.split('.');
-  const rawPathResource = rawSegments.length > 1 && /^[A-Z]/.test(rawSegments[0] ?? '') ? rawSegments[0] : undefined;
-  const context = prefixedPath ?? (label === rawPath ? rawPathResource : undefined);
-  const fieldPath = rawPathResource && context === rawPathResource ? rawSegments.slice(1).join('.') : rawPath;
-  const labelIsPath = label === rawPath || Boolean(prefixedPath) || label === choice.fieldPath;
-  const field = labelIsPath ? pivotSourceFieldPathLabel(fieldPath) : label;
-  return context ? `${context} · ${field}` : field;
 };
 
 const pivotInputStage = (stage: ReshapeStage, form: PivotForm, choices: ReadonlyArray<SourceInputChoice>): ReshapeStage => {
