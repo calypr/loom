@@ -51,7 +51,6 @@ import {
 } from './components/DatasetReviewPanel';
 import { useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './recipeEditing/recipeEditingOwner';
 import { SourceRelationshipReview } from './components/SourceRelationshipReview';
-import { RowRootPicker } from './components/RowRootPicker';
 import { AuthoredTraversalEditor } from './components/AuthoredTraversalEditor';
 import { TraversalScopeNavigator } from './components/TraversalScopeNavigator';
 import { RecipeColumnPolicyInspector } from './components/RecipeColumnPolicyInspector';
@@ -114,7 +113,6 @@ import { catalogSourceOptions, fieldCatalogItems, sanitizeReasonText, unavailabl
 import {
   ConstructionWorkspace,
   ConstructionActionBar,
-  ConstructionUndoButton,
   constructionOperationFamilies,
   type ConstructionHistorySelection,
   type ConstructionOperationFamily,
@@ -123,9 +121,7 @@ import {
   ConstructionColumnSelection,
   type ConstructionSelectableColumn,
 } from './constructionWorkspace/ConstructionColumnSelection';
-import {
-  ConstructionProposalPanel,
-} from './constructionWorkspace/ConstructionProposalPanel';
+import { ConstructionProposalPanel } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
 import { ImportedSourceSteps } from './ImportedSourceSteps';
 import {
@@ -143,13 +139,13 @@ import {
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
 import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from './constructionOperations/ConstructionReshapeEditor';
-import {
-  RelatedSourceStepEditor,
-  type RelatedSourceStep,
-} from './constructionOperations/RelatedSourceStepEditor';
+import type { RelatedSourceStep } from './constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
 import { ConstructionCombineEditor } from './constructionOperations/ConstructionCombineEditor';
 import type { ConstructionCombineStep } from './constructionOperations/combineEditorTypes';
+import { TableCreatorPanel } from './workspacePanels/TableCreatorPanel';
+import { OperationEditorHost } from './workspacePanels/OperationEditorHost';
+import { RelatedStepEditors } from './workspacePanels/RelatedStepEditors';
 
 const receiptContainsOutputIds = (
   receipt: ExplorerBuilderCompileResult | undefined,
@@ -191,6 +187,46 @@ type ColumnSelectionState =
       readonly outputId: string;
       readonly columnIds: ReadonlyArray<string>;
     };
+
+type SelectionOwnerState = {
+  readonly rowIntentSession: boolean;
+  readonly sourceRowsOpen: boolean;
+  readonly constructionHistorySelection: ConstructionHistorySelection;
+  readonly editingConstructionStepId: string | undefined;
+  readonly columnSelection: ColumnSelectionState;
+};
+
+const emptySelectionOwnerState: SelectionOwnerState = {
+  rowIntentSession: false,
+  sourceRowsOpen: false,
+  constructionHistorySelection: { kind: 'source' },
+  editingConstructionStepId: undefined,
+  columnSelection: { kind: 'empty' },
+};
+
+type SelectionOwnerStateStore = {
+  readonly getSnapshot: () => SelectionOwnerState;
+  readonly subscribe: (subscriber: () => void) => () => void;
+  readonly update: (update: (current: SelectionOwnerState) => SelectionOwnerState) => void;
+};
+
+const createSelectionOwnerStateStore = (): SelectionOwnerStateStore => {
+  let state = emptySelectionOwnerState;
+  const subscribers = new Set<() => void>();
+  return {
+    getSnapshot: () => state,
+    subscribe: (subscriber) => {
+      subscribers.add(subscriber);
+      return () => subscribers.delete(subscriber);
+    },
+    update: (update) => {
+      const next = update(state);
+      if (next === state) return;
+      state = next;
+      for (const subscriber of subscribers) subscriber();
+    },
+  };
+};
 
 const suppressedBuilderDiagnostic = (diagnostic: ExplorerAuthoringDiagnostic): boolean =>
   diagnostic.code === 'CONSTRUCTION_PREVIEW_FAILED';
@@ -511,7 +547,6 @@ const BuilderWorkspaceContent = ({
   const [reshapeEntry, setReshapeEntry] = useState(0);
   const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
   const [reshapeFormKind, setReshapeFormKind] = useState<ReshapeForm['kind']>('choose');
-  const [rowIntentSession, setRowIntentSession] = useState(false);
   const [reshapeInitialEntry, setReshapeInitialEntry] = useState<{
     readonly editorKey: string;
     readonly entry: ConstructionReshapeEditorEntry;
@@ -522,12 +557,6 @@ const BuilderWorkspaceContent = ({
     readonly context: string;
     readonly key: string;
   }>();
-  const [constructionHistorySelection, setConstructionHistorySelection] =
-    useState<ConstructionHistorySelection>({ kind: 'source' });
-  const [editingConstructionStepId, setEditingConstructionStepId] =
-    useState<string>();
-  const [columnSelection, setColumnSelection] =
-    useState<ColumnSelectionState>({ kind: 'empty' });
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewFocusTarget, setReviewFocusTarget] =
     useState<Exclude<DatasetReviewTarget, { readonly kind: 'new-table' }>>();
@@ -877,9 +906,69 @@ const BuilderWorkspaceContent = ({
 
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
 
-  const [sourceRowsOpen, setSourceRowsOpen] = useState(false);
   const [sourceRowsInspectorHost, setSourceRowsInspectorHost] = useState<HTMLElement | null>(null);
   const table = selectedTable(state);
+  const selectionOwnerIdentity = `${ownerKey}\u0000${state.explorerId}\u0000${table?.outputId ?? ''}`;
+  const selectionOwnerStore = useMemo(createSelectionOwnerStateStore, [selectionOwnerIdentity]);
+  const selectionOwnerState = React.useSyncExternalStore(
+    selectionOwnerStore.subscribe,
+    selectionOwnerStore.getSnapshot,
+    selectionOwnerStore.getSnapshot,
+  );
+  const updateSelectionOwnerField = useCallback(
+    (update: (current: SelectionOwnerState) => SelectionOwnerState) => selectionOwnerStore.update(update),
+    [selectionOwnerStore],
+  );
+  const setRowIntentSession = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      rowIntentSession: typeof update === 'function' ? update(current.rowIntentSession) : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const setSourceRowsOpen = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      sourceRowsOpen: typeof update === 'function' ? update(current.sourceRowsOpen) : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const setConstructionHistorySelection = useCallback<
+    React.Dispatch<React.SetStateAction<ConstructionHistorySelection>>
+  >(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      constructionHistorySelection: typeof update === 'function'
+        ? update(current.constructionHistorySelection)
+        : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const setEditingConstructionStepId = useCallback<
+    React.Dispatch<React.SetStateAction<string | undefined>>
+  >(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      editingConstructionStepId: typeof update === 'function'
+        ? update(current.editingConstructionStepId)
+        : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const setColumnSelection = useCallback<React.Dispatch<React.SetStateAction<ColumnSelectionState>>>(
+    (update) => updateSelectionOwnerField((current) => ({
+      ...current,
+      columnSelection: typeof update === 'function' ? update(current.columnSelection) : update,
+    })),
+    [updateSelectionOwnerField],
+  );
+  const {
+    rowIntentSession,
+    sourceRowsOpen,
+    constructionHistorySelection,
+    editingConstructionStepId,
+    columnSelection,
+  } = selectionOwnerState;
   const recipeOwner = useRecipeEditingOwner({ project: projectId, explorerId: state.explorerId,
     outputId: table?.outputId ?? '', snapshotToken: state.catalog.snapshotToken,
     draftVersion: state.draftVersion, draftDigest: state.draftDigest });
@@ -1164,16 +1253,6 @@ const BuilderWorkspaceContent = ({
   );
   const constructionProposalBusy = constructionLifecycle.proposal.status === 'previewing' ||
     constructionLifecycle.proposal.status === 'applying';
-  const selectionOwnerIdentity = `${ownerKey}\u0000${state.explorerId}\u0000${table?.outputId ?? ''}`;
-  const [selectionOwner, setSelectionOwner] = useState(selectionOwnerIdentity);
-  if (selectionOwner !== selectionOwnerIdentity) {
-    setSelectionOwner(selectionOwnerIdentity);
-    setColumnSelection({ kind: 'empty' });
-    setConstructionHistorySelection({ kind: 'source' });
-    setEditingConstructionStepId(undefined);
-    setRowIntentSession(false);
-    setSourceRowsOpen(false);
-  }
   const tablePreview =
     state.preview?.outputId === table?.outputId ? state.preview : undefined;
   const previewIsCurrent = Boolean(
@@ -3245,355 +3324,81 @@ const BuilderWorkspaceContent = ({
     : [];
   const populatedFieldCandidates = populatedFieldItems.flatMap((item) => item.kind === 'FIELD' ? [item.candidate] : []);
   const operationEditor = table && activeOperation ? (
-    <section
-      aria-label={`${activeOperation.label} editor`}
-      data-testid="construction-operation-editor"
-      data-operation-family={activeOperation.family}
-      data-output-id={table.outputId}
-      className={activeOperation.family === 'ADD_COLUMNS' ? "flex h-full min-h-0 min-w-0 flex-col bg-white" : "min-w-0 bg-white"}
-    >
-      <header className={activeOperation.family === 'ADD_COLUMNS' ? "px-3 py-2" : rowIntentSession ? "px-0 py-1" : "border-b border-slate-200 px-3 py-2.5"}>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            {!rowIntentSession && activeOperation.family !== 'RESHAPE' ? <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2> : null}
-            {editingConstructionStep ? <p className="text-xs text-slate-500">Editing a saved step</p> : null}
-          </div>
-          <button
-            type="button"
-            aria-label="Close operation editor"
-            data-testid="construction-close-operation-editor"
-            onClick={closeConstructionWorkspace}
-            className="inline-flex shrink-0 items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            <span aria-hidden="true">←</span> Back to table
-          </button>
-        </div>
-        {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' || showReshapeColumnSelection ? (
-          <div className="mt-3">
-            <ConstructionColumnSelection
-              key={`${activeConstructionFamily}:${currentStage?.id ?? ''}:${selectableColumns.map((column) => column.id).join(',')}`}
-              columns={selectableColumns}
-              selectedColumnIds={selectedColumnIds}
-              disabled={pendingCommands > 0 || !currentStage}
-              onToggleColumn={toggleSelectedColumn}
-              onClear={() => setColumnSelection({ kind: 'empty' })}
-            />
-          </div>
-        ) : selectedColumnIds.length > 0 ? (
-          <p className="mt-3 rounded bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
-            Inputs from your selection:{' '}
-            <span className="font-medium text-slate-800">
-              {selectableColumns
-                .filter((column) => selectedColumnIds.includes(column.id))
-                .map((column) => column.label)
-                .join(', ')}
-            </span>
-          </p>
-        ) : null}
-      </header>
-
-      <div className={activeOperation.family === 'ADD_COLUMNS' ? "min-h-0 flex-1" : rowIntentSession ? "py-2" : "p-3"}>
-        {activeOperation.family === 'ADD_COLUMNS' ? (
-          <div className="grid gap-4">
-            {editingConstructionStep?.operation.kind === 'GROUP' && constructionLifecycle.capabilities.status === 'ready' ? (
-              <ConstructionReshapeEditor
-                key={`${ownerKey}:${state.catalog.snapshotToken}:${table?.outputId ?? ''}:${editingConstructionStep.id}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
-                construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-                capabilities={constructionLifecycle.capabilities.response}
-                editingStep={editingConstructionStep}
-                initialKind="group"
-                rowValuesOnly
-                disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                onCandidateChange={constructionLifecycle.onCandidateChange}
-                onEditStep={editConstructionStep}
-                onCancel={cancelConstructionEditor}
-              />
-            ) : null}
-            {rowValuesSupported ? (
-              <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
-                Values from each row's contributing records
-                <select aria-label="Values per grouped row" value={rowValuePolicy} onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  if (value === 'ALL' || value === 'ONE') setRowValuePolicy(value);
-                }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-                  <option value="ALL">Keep all distinct values</option>
-                  <option value="ONE">Require one distinct value</option>
-                </select>
-                <span className="text-xs text-slate-500">Missing values stay empty. Require one stops if records disagree.</span>
-              </label>
-            ) : null}
-            {table.document.rootResourceType ? (
-              <>
-                {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
-                  <RelatedFieldEditor
-                    key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
-                    presentation="standalone"
-                    project={projectId}
-                    explorerId={state.explorerId}
-                    authResourcePath={authResourcePath}
-                    snapshotToken={state.catalog.snapshotToken}
-                    outputId={table.outputId}
-                    construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-                    capabilities={constructionLifecycle.capabilities.response}
-                    disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                    sourceControls={addColumnsSourceControls}
-                    onCandidateChange={constructionLifecycle.onCandidateChange}
-                  />
-                ) : (
-                  <>
-                    <ConceptCatalog
-                      key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}`}
-                      project={projectId}
-                      explorerId={state.explorerId}
-                      authResourcePath={authResourcePath}
-                      snapshotToken={state.catalog.snapshotToken}
-                      outputId={table.outputId}
-                      tableContextKey={`${state.draftVersion}:${state.draftDigest}`}
-                      rowRoot={table.document.rootResourceType}
-                      resourceType={selectedAddSource?.resourceType}
-                      sourceNodeId={selectedAddSource?.sourceNodeId}
-                      routeContext={addSourceRouteContext}
-                      layout="panel"
-                      dense
-                      view="all"
-                      viewRevision={addColumnsViewRevision}
-                      presentationContext={fieldPresentationContext}
-                      onSwitchView={selectAddColumnsView}
-                      semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
-                      existingSourceKeys={existingSourceKeys}
-                      nodeOccurrences={capabilityNodeOccurrences}
-                      catalog={state.catalog}
-                      sourceControls={addColumnsSourceControls}
-                      sourceProjectionAvailability={sourceAvailability}
-                      relatedSourceAvailability={relatedSourceAvailability}
-                      suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-                      disabledReason={sourceSelectionDisabledReason}
-                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      groupedRowValuePolicy={groupedRowValuePolicy}
-                      onAddSelected={addSelectedFeatures}
-                      onPreviewSelected={previewRelatedSourceColumns}
-                      onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                    />
-                  </>
-                )}
-                {table.document.frames?.length ? (
-                  <details className="rounded-md border border-slate-200 bg-white p-3">
-                    <summary className="cursor-pointer text-sm font-semibold text-slate-700">Manage saved coded-value sources</summary>
-                    <FrameSourcePanel
-                      key={`${table.outputId}:${state.catalog.snapshotToken}`}
-                      project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-                      snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
-                      rowRoot={table.document.rootResourceType} frames={table.document.frames ?? []}
-                      columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      allowNewSource={false}
-                      onSet={(choice, form) => applyCommands([{
-                        type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form,
-                      }])}
-                      onReplace={(frameId, choice, form) => applyCommands([{
-                        type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form,
-                      }])}
-                      onRemove={(frameId) => applyCommands([{
-                        type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
-                      }])}
-                      onAddSelected={addSelectedFeatures}
-                      onRemoveColumn={(column) => applyCommands([{
-                        type: 'REMOVE_COLUMN', outputId: table.outputId, column,
-                      }])}
-                    />
-                  </details>
-                ) : null}
-              </>
-            ) : null}
-          </div>
-        ) : null}
-        {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' ? (
-          constructionLifecycle.capabilities.status === 'loading' ? (
-            <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              Loading the current table columns and operation support…
-            </p>
-          ) : constructionLifecycle.capabilities.status === 'error' ? (
-            <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {sanitizeReasonText(constructionLifecycle.capabilities.message)}
-            </p>
-          ) : constructionLifecycle.capabilities.status === 'ready' ? (
-            activeOperation.family === 'KEEP_ROWS' ? (
-              <FilterRowsEditor
-                key={`${ownerKey}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}:${editingConstructionStep?.id ?? 'new'}`}
-                project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-                snapshotToken={state.catalog.snapshotToken} outputId={table.outputId} catalog={state.catalog}
-                construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-                capabilities={constructionLifecycle.capabilities.response}
-                editingStep={editingConstructionStep}
-                selectedColumns={selectedColumnIds}
-                disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                onCandidateChange={constructionLifecycle.onCandidateChange}
-                onEditStep={editConstructionStep}
-                onCancel={cancelConstructionEditor}
-              />
-            ) : <ConstructionOperationEditor
-              family="CALCULATE"
-              construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-              capabilities={constructionLifecycle.capabilities.response}
-              editingStep={editingConstructionStep}
-              selectedColumns={selectedColumnIds}
-              disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-              onCandidateChange={constructionLifecycle.onCandidateChange}
-              onEditStep={editConstructionStep}
-            />
-          ) : null
-        ) : null}
-        {activeOperation.family === 'RESHAPE' ? (
-          constructionLifecycle.capabilities.status === 'loading' ? (
-            <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              Loading the current table columns and reshape support…
-            </p>
-          ) : constructionLifecycle.capabilities.status === 'error' ? (
-            <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {sanitizeReasonText(constructionLifecycle.capabilities.message)}
-            </p>
-          ) : constructionLifecycle.capabilities.status === 'ready' ? (
-            <ConstructionReshapeEditor
-              key={activeReshapeEditorKey}
-              construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-              capabilities={constructionLifecycle.capabilities.response}
-              editingStep={editingConstructionStep}
-              initialKind={activeReshapeInitialKind}
-              initialEntry={activeReshapeInitialEntry}
-              hideChangeRowOperation={rowIntentSession}
-              selectedColumns={selectedColumnIds}
-              useExternalColumnSelection={showReshapeColumnSelection}
-              onFormKindChange={setReshapeFormKind}
-              pivotDiscovery={constructionLifecycle.pivotDiscovery}
-              onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
-              relatedExpandContext={{
-                project: projectId,
-                explorerId: state.explorerId,
-                authResourcePath,
-                snapshotToken: state.catalog.snapshotToken,
-                outputId: table.outputId,
-                catalog: state.catalog,
-              }}
-              relatedExpandQueryOwnerRef={relatedExpandQueryOwnerRef}
-              codedPivotContext={{
-                client: loomClient,
-                project: projectId,
-                explorerId: state.explorerId,
-                authResourcePath,
-                snapshotToken: state.catalog.snapshotToken,
-                outputId: table.outputId,
-                rowRoot: table.document.rootResourceType,
-              }}
-              disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-              onCandidateChange={constructionLifecycle.onCandidateChange}
-              onEditStep={editConstructionStep}
-              onCancel={cancelConstructionEditor}
-            />
-          ) : (
-            null
-          )
-        ) : null}
-        {activeOperation.family === 'COMBINE' ? (
-          <ConstructionCombineEditor
-            key={`${ownerKey}:${combineCatalog.identity}:${editingConstructionStep?.id ?? 'new'}`}
-            catalog={combineCatalog.currentLoad.catalog}
-            workspaceInputs={constructionLifecycle.capabilities.status === 'ready'
-              ? constructionLifecycle.capabilities.response.workspaceInputs.map((input) => ({
-                  kind: 'WORKSPACE_OUTPUT' as const,
-                  outputId: input.outputId,
-                  title: input.title,
-                  columns: input.columns.map((column) => ({
-                    id: column.id,
-                    name: column.name,
-                    label: column.label,
-                    type: column.logicalType,
-                    nullable: column.nullable,
-                    repeated: column.cardinality === 'many',
-                    cardinality: column.cardinality,
-                    joinCompatibilityKey: column.joinCompatibilityKey,
-                    appendCompatibilityKey: column.appendCompatibilityKey,
-                  })),
-                }))
-              : []}
-            constructionVersion={construction?.version ?? 1}
-            editingStep={editingConstructionStep?.operation.kind === 'COMBINE'
-              ? editingConstructionStep as ConstructionCombineStep
-              : undefined}
-            disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-            loadingMore={combineCatalog.currentLoad.loadingMore}
-            loadMoreError={combineCatalog.currentLoad.loadMoreError}
-            onLoadMore={() => {
-              if (combineCatalog.currentLoad.catalog.kind === 'ready' && combineCatalog.currentLoad.catalog.nextCursor) {
-                void combineCatalog.loadPage(combineCatalog.currentLoad.catalog.nextCursor);
-              }
-            }}
-            onRetryCatalog={() => void combineCatalog.loadPage()}
-            onCandidateChange={constructionLifecycle.onCandidateChange}
-          />
-        ) : null}
-      </div>
-    </section>
+    <OperationEditorHost
+      table={table}
+      activeOperation={activeOperation}
+      state={state}
+      ownerKey={ownerKey}
+      rowIntentSession={rowIntentSession}
+      editingConstructionStep={editingConstructionStep}
+      construction={construction}
+      lifecycle={constructionLifecycle}
+      pendingCommands={pendingCommands}
+      publishing={publishing}
+      showReshapeColumnSelection={showReshapeColumnSelection}
+      selectedColumnIds={selectedColumnIds}
+      selectableColumns={selectableColumns}
+      currentStage={currentStage}
+      activeConstructionFamily={activeConstructionFamily}
+      onToggleSelectedColumn={toggleSelectedColumn}
+      setColumnSelection={setColumnSelection}
+      rowValuesSupported={rowValuesSupported}
+      rowValuePolicy={rowValuePolicy}
+      setRowValuePolicy={setRowValuePolicy}
+      selectedAddSource={selectedAddSource}
+      project={projectId}
+      authResourcePath={authResourcePath}
+      addColumnsSourceControls={addColumnsSourceControls}
+      addSourceRouteContext={addSourceRouteContext}
+      addColumnsViewRevision={addColumnsViewRevision}
+      fieldPresentationContext={fieldPresentationContext}
+      onSwitchAddColumnsView={selectAddColumnsView}
+      existingSourceKeys={existingSourceKeys}
+      capabilityNodeOccurrences={capabilityNodeOccurrences}
+      sourceAvailability={sourceAvailability}
+      relatedSourceAvailability={relatedSourceAvailability}
+      hasUnsupportedSavedSourceColumns={hasUnsupportedSavedSourceColumns}
+      sourceSelectionDisabledReason={sourceSelectionDisabledReason}
+      groupedRowValuePolicy={groupedRowValuePolicy}
+      onAddSelected={addSelectedFeatures}
+      onPreviewSelected={previewRelatedSourceColumns}
+      onInspectRouteCoverage={inspectRelatedRouteCoverage}
+      onApplyCommands={applyCommands}
+      activeReshapeEditorKey={activeReshapeEditorKey}
+      activeReshapeInitialKind={activeReshapeInitialKind}
+      activeReshapeInitialEntry={activeReshapeInitialEntry}
+      onReshapeFormKindChange={setReshapeFormKind}
+      relatedExpandQueryOwnerRef={relatedExpandQueryOwnerRef}
+      loomClient={loomClient}
+      combineCatalog={combineCatalog}
+      onEditConstructionStep={editConstructionStep}
+      onCancelConstructionEditor={cancelConstructionEditor}
+      onClose={closeConstructionWorkspace}
+    />
   ) : undefined;
-  const relatedSourceStepEditor = table && editingRelatedSourceStep ? (
-    <section
-      aria-label="Related source editor"
-      data-testid="construction-related-source-editor"
-      className="min-w-0 bg-white p-4"
-    >
-      {constructionLifecycle.capabilities.status === 'loading' ? (
-        <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
-      ) : constructionLifecycle.capabilities.status === 'error' ? (
-        <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
-      ) : constructionLifecycle.capabilities.status === 'ready' ? (
-        <RelatedSourceStepEditor
-          key={`${table.outputId}:${editingRelatedSourceStep.id}`}
-          project={projectId}
-          explorerId={state.explorerId}
-          authResourcePath={authResourcePath}
-          snapshotToken={state.catalog.snapshotToken}
-          outputId={table.outputId}
-          rowRoot={table.document.rootResourceType ?? ''}
-          catalog={state.catalog}
-          construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-          capabilities={constructionLifecycle.capabilities.response}
-          step={editingRelatedSourceStep}
-          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-          onCandidateChange={constructionLifecycle.onCandidateChange}
-          onCancel={() => {
-            constructionLifecycle.cancel();
-            setEditingConstructionStepId(undefined);
-            setActiveConstructionFamily(undefined);
-          }}
-        />
-      ) : null}
-    </section>
-  ) : undefined;
-  const relatedFieldStepEditor = table && editingRelatedFieldStep ? (
-    <section aria-label="Related field editor" className="min-w-0 bg-white p-4">
-      {constructionLifecycle.capabilities.status === 'loading' ? (
-        <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
-      ) : constructionLifecycle.capabilities.status === 'error' ? (
-        <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
-      ) : constructionLifecycle.capabilities.status === 'ready' ? (
-        <RelatedFieldEditor
-          key={`${ownerKey}:${editingRelatedFieldStep.id}`}
-          presentation="standalone"
-          project={projectId}
-          explorerId={state.explorerId}
-          authResourcePath={authResourcePath}
-          snapshotToken={state.catalog.snapshotToken}
-          outputId={table.outputId}
-          construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
-          capabilities={constructionLifecycle.capabilities.response}
-          step={editingRelatedFieldStep}
-          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-          onCandidateChange={constructionLifecycle.onCandidateChange}
-          onCancel={() => {
-            constructionLifecycle.cancel();
-            setEditingConstructionStepId(undefined);
-          }}
-        />
-      ) : null}
-    </section>
+  const relatedStepEditors = table && (editingRelatedSourceStep || editingRelatedFieldStep) ? (
+    <RelatedStepEditors
+      table={table}
+      state={state}
+      ownerKey={ownerKey}
+      construction={construction}
+      lifecycle={constructionLifecycle}
+      sourceStep={editingRelatedSourceStep}
+      fieldStep={editingRelatedFieldStep}
+      project={projectId}
+      authResourcePath={authResourcePath}
+      pendingCommands={pendingCommands}
+      publishing={publishing}
+      onCancelSource={() => {
+        constructionLifecycle.cancel();
+        setEditingConstructionStepId(undefined);
+        setActiveConstructionFamily(undefined);
+      }}
+      onCancelField={() => {
+        constructionLifecycle.cancel();
+        setEditingConstructionStepId(undefined);
+      }}
+    />
   ) : undefined;
   const proposalPanel = (
     <ConstructionProposalPanel
@@ -3629,9 +3434,9 @@ const BuilderWorkspaceContent = ({
       onRetry={constructionLifecycle.retry}
     />
   );
-  const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
+  const workspaceEditor = operationEditor || relatedStepEditors || constructionLifecycle.proposal.status !== 'idle'
     ? <div className="construction-mutation-inspector">
-        <div className="construction-mutation-fields">{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}</div>
+        <div className="construction-mutation-fields">{operationEditor}{relatedStepEditors}</div>
         {proposalPanel}
       </div>
     : undefined;
@@ -3921,73 +3726,23 @@ const BuilderWorkspaceContent = ({
   const workspacePreviewProposalId = workspaceCandidatePreview?.receiptId ??
     (!rowIntentSession ? proposalResponse?.proposalId : undefined);
   const tableCreatorPanel = (
-    <section className="rounded-xl border border-blue-200 bg-white px-6 py-8 shadow-sm">
-      <h2 className="text-xl font-semibold text-slate-900">
-        {state.tables.length === 0 ? 'Build your first table' : 'Build another table'}
-      </h2>
-      {state.tables.length === 0 && previousDraftRevisionId ? (
-        <div className="mt-3">
-          <ConstructionUndoButton
-            onUndo={() => void restorePreviousDraft()}
-            disabled={pendingCommands > 0 || publishing || state.reconciliation === 'pending'}
-          />
-        </div>
-      ) : null}
-      <p className="mt-2 max-w-xl text-sm text-slate-600">
-        Choose a populated record type. Loom will add its direct ID column and
-        load a preview. The table name is optional.
-      </p>
-      <div className="mt-5 max-w-sm">
-        <label className="block text-sm font-medium text-slate-800" htmlFor="first-table-name">
-          Table name (optional)
-        </label>
-        <input
-          id="first-table-name"
-          value={firstTableName}
-          onChange={(event) => setFirstTableName(event.currentTarget.value)}
-          placeholder="Defaults to the record type"
-          disabled={firstTableProgress.kind === 'running'}
-          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-blue-500 focus:border-blue-500 disabled:bg-slate-100"
-        />
-      </div>
-      <div className="mt-5 max-w-3xl">
-        <RowRootPicker
-          catalog={state.catalog}
-          disabled={
-            pendingCommands > 0 ||
-            state.reconciliation === 'pending' ||
-            firstTableProgress.kind === 'running'
-          }
-          onChoose={(nodeId) => void createFirstTableFromRoot(nodeId)}
-        />
-      </div>
-      {firstTableProgress.kind === 'running' ? (
-        <p role="status" className="mt-4 text-sm text-blue-800">
-          {firstTableProgress.phase === 'checking'
-            ? `Checking ${firstTableProgress.resourceType} fields…`
-            : firstTableProgress.phase === 'creating'
-              ? `Creating ${firstTableProgress.resourceType} table…`
-              : firstTableProgress.phase === 'adding-id'
-                ? 'Adding the ID column…'
-                : 'Loading the preview…'}
-        </p>
-      ) : null}
-      {state.tables.length > 0 ? (
-        <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            disabled={firstTableProgress.kind === 'running'}
-            onClick={() => {
-              setTableCreatorOpen(false);
-              setFirstTableName('');
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      ) : null}
-    </section>
+    <TableCreatorPanel
+      isFirstTable={state.tables.length === 0}
+      previousDraftRevisionId={previousDraftRevisionId}
+      pendingCommands={pendingCommands}
+      publishing={publishing}
+      reconciliationPending={state.reconciliation === 'pending'}
+      firstTableName={firstTableName}
+      onFirstTableNameChange={setFirstTableName}
+      firstTableProgress={firstTableProgress}
+      catalog={state.catalog}
+      onChooseRoot={(nodeId) => void createFirstTableFromRoot(nodeId)}
+      onUndo={() => void restorePreviousDraft()}
+      onCancel={() => {
+        setTableCreatorOpen(false);
+        setFirstTableName('');
+      }}
+    />
   );
 
   const rootChangePreviewReady = pendingRowChangePreview?.status === 'ready' &&
