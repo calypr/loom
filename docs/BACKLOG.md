@@ -135,3 +135,25 @@ Deleting project-tagged documents would leave orphaned outputs. Add a
 first-class deletion service with binding/lease checks in the owning backend
 packages before implementing `loom-dev prune` for exact `loom_dev_e2e_*` IDs.
 No partial deletion or successful no-op CLI was added.
+
+### Remaining cleanup dependencies
+
+**R-B8 feature focus: contract decision required.** The public `featureFocus`
+prop currently reasserts table/occurrence selection while present and preserves
+that selection after removal. The demo's repair action mounts Builder from
+Viewer, so it cannot dispatch into an existing Workspace. Replacing the remaining
+render-time dispatch requires an action-owned public focus contract with initial
+hydration handling, or an explicit change to these selection semantics. No effect
+or subscription bridge was added to disguise the same synchronization.
+
+**Dormant operation-history protocol: lifecycle handoff pending.**
+`TestConstructionProposalOperationHistoryTraces` still skips without external
+`BUILDER_OPERATION_*` artifacts; no repository caller remains. Retiring that
+protocol must preserve the always-run Group/MEAN compiler-service test and its
+helpers in the same file. Plan 1 has changed other lifecycle package tests, so
+the exact test-file handoff is pending. This skipped protocol is not counted as
+an executed product guarantee.
+
+**Phase 9: package ownership remains active.** Broader Explorer, lifecycle,
+server, schema/generated-client and compiler changes wait for plan 1's release.
+Completed interface changes do not imply those packages are generally available.

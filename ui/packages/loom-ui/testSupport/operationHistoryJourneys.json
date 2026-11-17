@@ -113,7 +113,6 @@
         {
           "actionIndex": 1,
           "candidateActionIndex": 0,
-          "requestFingerprint": "10012ef83bf5",
           "proposalStatus": "READY",
           "stepIds": [
             "group-step",
@@ -409,7 +408,6 @@
         {
           "actionIndex": 2,
           "candidateActionIndex": 1,
-          "requestFingerprint": "fd6467e19427",
           "proposalStatus": "READY",
           "stepIds": [
             "group-step",

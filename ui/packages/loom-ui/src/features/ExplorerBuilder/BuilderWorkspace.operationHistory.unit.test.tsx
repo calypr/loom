@@ -232,7 +232,6 @@ const operationHistoryTraceFileSchema = z.object({
   cases: z.array(z.object({
     id: z.string(),
     traceKind: z.enum(['proposal-input', 'lifecycle-witness']).optional(),
-    requestFingerprint: z.string().optional(),
     initial: z.object({
       tableId: z.string().optional(),
       workspaceContext: z.object({
@@ -267,7 +266,6 @@ const operationHistoryTraceFileSchema = z.object({
     expectations: z.array(z.object({
       actionIndex: z.number().int(),
       candidateActionIndex: z.number().int().optional(),
-      requestFingerprint: z.string().optional(),
       proposalStatus: z.string(),
       stepIds: z.array(z.string()),
       candidateStepIds: z.array(z.string()).optional(),
