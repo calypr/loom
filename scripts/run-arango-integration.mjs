@@ -41,6 +41,7 @@ export const profiles = [
     ['server', './internal/server', 'TestSavedRelatedRouteRowsAgainstArango'],
     ['artifact', './internal/dataframe/execution/chartifact/arango', 'TestCatalogLeaseArbitrationAgainstArango'],
     ['publication', './internal/dataframe/publication/arango', 'TestExecutionReadPinArbitrationAgainstArango'],
+    ['recipe', './internal/dataframe/recipe/exec/arango', 'TestRecipeRegistryReadRoundTripAgainstArango'],
     ['backfill', './internal/ingest', 'TestRetainedSemanticInventoryBackfillArangoIntegration'],
 ].map(([id, pkg, required]) => ({ id, package: pkg, required, ...(id === 'backfill' ? { run: required } : {}) }));
 // The store package's retained cases require external seeded data. Its ordinary

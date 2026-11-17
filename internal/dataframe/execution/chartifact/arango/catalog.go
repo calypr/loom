@@ -58,17 +58,13 @@ func (c *Catalog) Create(ctx context.Context, manifest chartifact.Manifest) erro
 	if err != nil {
 		return fmt.Errorf("encode private artifact manifest: %w", err)
 	}
-	created := false
-	err = c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	created, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing == null
 INSERT @document IN @@collection
 RETURN {created: true}`, queryBatchSize, map[string]any{
 		"@collection": PrivateArtifactsCollection,
 		"key":         manifest.ArtifactID,
 		"document":    document,
-	}, func(row map[string]any) error {
-		created = true
-		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("insert private artifact manifest %q: %w", manifest.ArtifactID, err)
@@ -89,8 +85,7 @@ func (c *Catalog) Update(ctx context.Context, artifactID, owner string, progress
 	if err := validateUpdate(artifactID, owner, progress); err != nil {
 		return err
 	}
-	updated := false
-	err := c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	updated, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing != null
   AND existing.leaseOwner == @owner
   AND existing.leaseUntil >= @now
@@ -114,9 +109,6 @@ RETURN {updated: true}`, queryBatchSize, map[string]any{
 		"cleanupPending":      progress.State == chartifact.StateCleanupPending,
 		"cleanupPendingState": chartifact.StateCleanupPending,
 		"updatedAt":           formatManifestTime(progress.UpdatedAt),
-	}, func(map[string]any) error {
-		updated = true
-		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("update private artifact manifest %q: %w", artifactID, err)
@@ -136,8 +128,7 @@ func (c *Catalog) Renew(ctx context.Context, artifactID, owner string, until tim
 	if strings.TrimSpace(artifactID) == "" || strings.TrimSpace(owner) == "" || until.IsZero() {
 		return false, fmt.Errorf("private artifact renewal requires artifact ID, owner, and lease time")
 	}
-	renewed := false
-	err := c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	renewed, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing != null
   AND existing.leaseOwner == @owner
   AND existing.state IN @renewableStates
@@ -150,9 +141,6 @@ RETURN {renewed: true}`, queryBatchSize, map[string]any{
 		"renewableStates": []chartifact.State{chartifact.StateCreating, chartifact.StateWriting, chartifact.StateReady},
 		"now":             formatManifestTime(time.Now()),
 		"leaseUntil":      formatManifestTime(until),
-	}, func(map[string]any) error {
-		renewed = true
-		return nil
 	})
 	if err != nil {
 		return false, fmt.Errorf("renew private artifact lease %q: %w", artifactID, err)
@@ -254,8 +242,7 @@ func (c *Catalog) Delete(ctx context.Context, artifactID, owner string) error {
 	if strings.TrimSpace(artifactID) == "" || strings.TrimSpace(owner) == "" {
 		return fmt.Errorf("private artifact deletion requires artifact ID and owner")
 	}
-	deleted := false
-	err := c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	deleted, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing != null
   AND existing.leaseOwner == @owner
   AND existing.state == @cleanupPending
@@ -265,9 +252,6 @@ RETURN {deleted: true}`, queryBatchSize, map[string]any{
 		"key":            artifactID,
 		"owner":          owner,
 		"cleanupPending": chartifact.StateCleanupPending,
-	}, func(map[string]any) error {
-		deleted = true
-		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("delete private artifact manifest %q: %w", artifactID, err)
@@ -287,8 +271,7 @@ func (c *Catalog) ReleaseCleanup(ctx context.Context, artifactID, owner string, 
 	if strings.TrimSpace(artifactID) == "" || strings.TrimSpace(owner) == "" || until.IsZero() {
 		return fmt.Errorf("private artifact cleanup release requires artifact ID, owner, and lease time")
 	}
-	released := false
-	err := c.client.QueryRows(ctx, `LET existing = DOCUMENT(@@collection, @key)
+	released, err := arangostore.QueryHasRow(ctx, c.client, `LET existing = DOCUMENT(@@collection, @key)
 FILTER existing != null
   AND existing.leaseOwner == @owner
   AND existing.state == @cleanupPending
@@ -300,9 +283,6 @@ RETURN {released: true}`, queryBatchSize, map[string]any{
 		"cleanupPending": chartifact.StateCleanupPending,
 		"leaseUntil":     formatManifestTime(until),
 		"updatedAt":      formatManifestTime(time.Now()),
-	}, func(map[string]any) error {
-		released = true
-		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("release private artifact cleanup lease %q: %w", artifactID, err)

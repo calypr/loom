@@ -135,15 +135,7 @@ func lifecycleDocument(value any) (map[string]any, error) {
 }
 
 func decodeValue[T any](value any) (T, error) {
-	var decoded T
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return decoded, err
-	}
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		return decoded, err
-	}
-	return decoded, nil
+	return arangostore.DecodeValue[T](value)
 }
 
 func releaseDocumentKey(id string) string            { return documentKey("release", id) }

@@ -105,37 +105,21 @@ func (r *RevisionRegistry) currentDigest(ctx context.Context, project, name stri
 }
 
 func (r *RevisionRegistry) Get(ctx context.Context, project, name, digest string) (recipe.RecipeRevision, error) {
-	var found *recipe.RecipeRevision
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.project == @project AND doc.name == @name AND doc.digest == @digest LIMIT 1 RETURN doc`, r.batchSize, map[string]any{"@collection": RevisionCollection, "project": project, "name": name, "digest": digest}, func(row map[string]any) error {
-		data, err := json.Marshal(row)
-		if err != nil {
-			return err
-		}
-		var value recipe.RecipeRevision
-		if err := json.Unmarshal(data, &value); err != nil {
-			return err
-		}
-		found = &value
-		return nil
-	})
+	value, found, err := arangostore.QueryLast[recipe.RecipeRevision](ctx, r.client, `FOR doc IN @@collection FILTER doc.project == @project AND doc.name == @name AND doc.digest == @digest LIMIT 1 RETURN doc`, r.batchSize, map[string]any{"@collection": RevisionCollection, "project": project, "name": name, "digest": digest})
 	if err != nil {
 		return recipe.RecipeRevision{}, err
 	}
-	if found == nil {
+	if !found {
 		return recipe.RecipeRevision{}, recipe.ErrRecipeRevisionNotFound
 	}
-	return *found, nil
+	return value, nil
 }
 
 func (r *RevisionRegistry) List(ctx context.Context, project, name string) ([]recipe.RecipeRevision, error) {
 	result := make([]recipe.RecipeRevision, 0)
 	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.project == @project AND doc.name == @name SORT doc.createdAt DESC RETURN doc`, r.batchSize, map[string]any{"@collection": RevisionCollection, "project": project, "name": name}, func(row map[string]any) error {
-		data, err := json.Marshal(row)
+		value, err := arangostore.DecodeValue[recipe.RecipeRevision](row)
 		if err != nil {
-			return err
-		}
-		var value recipe.RecipeRevision
-		if err := json.Unmarshal(data, &value); err != nil {
 			return err
 		}
 		result = append(result, value)
