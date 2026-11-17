@@ -18,56 +18,6 @@ type DataframeAggregateResult struct {
 	Rows            json.RawMessage                     `json:"rows"`
 }
 
-type DataframeAggregationsResult struct {
-	Materialization *dataframe.DataframeMaterialization `json:"materialization"`
-	Aggregations    json.RawMessage                     `json:"aggregations"`
-}
-
-type DataframeCompilerPlanDiagnostics struct {
-	TraversalSets                     int                          `json:"traversalSets"`
-	SharedTraversalCount              int                          `json:"sharedTraversalCount"`
-	RequiredMatchReuseCount           int                          `json:"requiredMatchReuseCount"`
-	ScopedSharingCandidateGroups      int                          `json:"scopedSharingCandidateGroups"`
-	ScopedSharingCandidateSets        int                          `json:"scopedSharingCandidateSets"`
-	PotentialSharingOpportunityGroups int                          `json:"potentialSharingOpportunityGroups"`
-	PotentialSharingOpportunitySets   int                          `json:"potentialSharingOpportunitySets"`
-	OptimizationPolicy                *DataframeOptimizationPolicy `json:"optimizationPolicy"`
-	RichSourceReuse                   []*DataframeRichSourceReuse  `json:"richSourceReuse"`
-}
-
-type DataframeOptimizationDecision struct {
-	Rule                   string `json:"rule"`
-	Enabled                bool   `json:"enabled"`
-	CandidateSets          int    `json:"candidateSets"`
-	EstimatedBaselineWork  int    `json:"estimatedBaselineWork"`
-	EstimatedOptimizedWork int    `json:"estimatedOptimizedWork"`
-	EstimatedSavings       int    `json:"estimatedSavings"`
-	Reason                 string `json:"reason"`
-}
-
-type DataframeOptimizationPolicy struct {
-	Name           string                           `json:"name"`
-	Enabled        bool                             `json:"enabled"`
-	MinimumSavings int                              `json:"minimumSavings"`
-	Decisions      []*DataframeOptimizationDecision `json:"decisions"`
-}
-
-type DataframePageInfo struct {
-	HasNextPage bool    `json:"hasNextPage"`
-	EndCursor   *string `json:"endCursor,omitempty"`
-}
-
-type DataframeQueryDiagnostics struct {
-	InputResolutionMs    float64                           `json:"inputResolutionMs"`
-	RequestPreparationMs float64                           `json:"requestPreparationMs"`
-	CompilationMs        float64                           `json:"compilationMs"`
-	ArangoQueryMs        float64                           `json:"arangoQueryMs"`
-	RowMaterializationMs float64                           `json:"rowMaterializationMs"`
-	ResultAssemblyMs     float64                           `json:"resultAssemblyMs"`
-	TotalMs              float64                           `json:"totalMs"`
-	Plan                 *DataframeCompilerPlanDiagnostics `json:"plan"`
-}
-
 type DataframeRecipeArangoAssessment struct {
 	Plans                 []*DataframeRecipeExplainPlanEstimate   `json:"plans"`
 	FullCollectionScans   []*DataframeRecipeExplainCollectionScan `json:"fullCollectionScans"`
@@ -291,34 +241,10 @@ type DataframeRecipeValidation struct {
 	Outputs            []*DataframeRecipeOutputValidation `json:"outputs"`
 }
 
-type DataframeRichSourceReuse struct {
-	SourceSet          string `json:"sourceSet"`
-	AggregateConsumers int    `json:"aggregateConsumers"`
-	PivotConsumers     int    `json:"pivotConsumers"`
-	SliceConsumers     int    `json:"sliceConsumers"`
-	TotalConsumers     int    `json:"totalConsumers"`
-}
-
-type DataframeRowConnection struct {
-	Materialization *dataframe.DataframeMaterialization `json:"materialization"`
-	Columns         []string                            `json:"columns"`
-	Rows            json.RawMessage                     `json:"rows"`
-	RowIds          []string                            `json:"rowIds"`
-	TotalCount      *int                                `json:"totalCount,omitempty"`
-	PageInfo        *DataframePageInfo                  `json:"pageInfo"`
-}
-
 type ExplainDataframeRecipeInput struct {
 	Name     string                        `json:"name"`
 	Bindings *DataframeRecipeBindingsInput `json:"bindings"`
 	Live     *bool                         `json:"live,omitempty"`
-}
-
-type FhirDataframeResult struct {
-	Columns     []string                   `json:"columns"`
-	Rows        json.RawMessage            `json:"rows"`
-	RowCount    int                        `json:"rowCount"`
-	Diagnostics *DataframeQueryDiagnostics `json:"diagnostics"`
 }
 
 type FhirGraphNode struct {
@@ -339,13 +265,13 @@ type FhirGraphPath struct {
 }
 
 type FhirGraphQueryExplanation struct {
-	SourceGeneration string                     `json:"sourceGeneration"`
-	RootResourceType string                     `json:"rootResourceType"`
-	TraversalCount   int                        `json:"traversalCount"`
-	MaxDepth         int                        `json:"maxDepth"`
-	Limit            int                        `json:"limit"`
-	Live             bool                       `json:"live"`
-	Diagnostics      *DataframeQueryDiagnostics `json:"diagnostics,omitempty"`
+	SourceGeneration string                               `json:"sourceGeneration"`
+	RootResourceType string                               `json:"rootResourceType"`
+	TraversalCount   int                                  `json:"traversalCount"`
+	MaxDepth         int                                  `json:"maxDepth"`
+	Limit            int                                  `json:"limit"`
+	Live             bool                                 `json:"live"`
+	Diagnostics      *dataframe.DataframeQueryDiagnostics `json:"diagnostics,omitempty"`
 }
 
 type FhirGraphQueryInput struct {
@@ -358,11 +284,11 @@ type FhirGraphQueryInput struct {
 }
 
 type FhirGraphQueryResult struct {
-	SourceGeneration string                     `json:"sourceGeneration"`
-	Paths            []*FhirGraphPath           `json:"paths"`
-	ReturnedCount    int                        `json:"returnedCount"`
-	PageInfo         *FhirGraphPageInfo         `json:"pageInfo"`
-	Diagnostics      *DataframeQueryDiagnostics `json:"diagnostics"`
+	SourceGeneration string                               `json:"sourceGeneration"`
+	Paths            []*FhirGraphPath                     `json:"paths"`
+	ReturnedCount    int                                  `json:"returnedCount"`
+	PageInfo         *FhirGraphPageInfo                   `json:"pageInfo"`
+	Diagnostics      *dataframe.DataframeQueryDiagnostics `json:"diagnostics"`
 }
 
 type FhirGraphRelationship struct {

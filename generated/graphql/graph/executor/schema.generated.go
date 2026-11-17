@@ -21,7 +21,7 @@ import (
 // region    ************************** generated!.gotpl **************************
 
 type MutationResolver interface {
-	RunFhirDataframe(ctx context.Context, input dataframe.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error)
+	RunFhirDataframe(ctx context.Context, input dataframe.FhirDataframeInput, limit *int) (*dataframe.FhirDataframeResult, error)
 	RunDataframeRecipe(ctx context.Context, input model.RunDataframeRecipeInput) (*model.DataframeRecipeResult, error)
 	ValidateDataframeRecipe(ctx context.Context, input model.ValidateDataframeRecipeInput) (*model.DataframeRecipeValidation, error)
 	PreviewDataframeRecipe(ctx context.Context, input model.PreviewDataframeRecipeInput) (*model.DataframeRecipePreview, error)
@@ -30,9 +30,9 @@ type MutationResolver interface {
 type QueryResolver interface {
 	ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*dataframe.DataframeMaterialization, error)
 	DataframeDataset(ctx context.Context, input dataframe.DataframeDatasetInput) (*dataframe.DataframeMaterialization, error)
-	DataframeRows(ctx context.Context, input dataframe.DataframeRowsInput) (*model.DataframeRowConnection, error)
+	DataframeRows(ctx context.Context, input dataframe.DataframeRowsInput) (*dataframe.DataframeRowConnection, error)
 	DataframeAggregate(ctx context.Context, input dataframe.DataframeAggregateInput) (*model.DataframeAggregateResult, error)
-	DataframeAggregations(ctx context.Context, input dataframe.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error)
+	DataframeAggregations(ctx context.Context, input dataframe.DataframeAggregationsInput) (*dataframe.DataframeAggregationsResult, error)
 	DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error)
 	DataframeRecipeRevision(ctx context.Context, projectID string, name string, digest string) (*model.DataframeRecipeRevision, error)
 	DataframeRecipeRevisions(ctx context.Context, projectID string, name string) ([]*model.DataframeRecipeRevision, error)
@@ -420,7 +420,7 @@ func (ec *executionContext) fieldContext_DataframeAggregateResult_rows(_ context
 	return graphql.NewScalarFieldContext("DataframeAggregateResult", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeAggregationsResult_materialization(ctx context.Context, field graphql.CollectedField, obj *model.DataframeAggregationsResult) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeAggregationsResult_materialization(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeAggregationsResult) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -452,7 +452,7 @@ func (ec *executionContext) fieldContext_DataframeAggregationsResult_materializa
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeAggregationsResult_aggregations(ctx context.Context, field graphql.CollectedField, obj *model.DataframeAggregationsResult) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeAggregationsResult_aggregations(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeAggregationsResult) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -682,7 +682,7 @@ func (ec *executionContext) fieldContext_DataframeColumn_aggregatable(_ context.
 	return graphql.NewScalarFieldContext("DataframeColumn", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_traversalSets(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_traversalSets(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -705,7 +705,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_traver
 	return graphql.NewScalarFieldContext("DataframeCompilerPlanDiagnostics", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_sharedTraversalCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_sharedTraversalCount(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -728,7 +728,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_shared
 	return graphql.NewScalarFieldContext("DataframeCompilerPlanDiagnostics", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_requiredMatchReuseCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_requiredMatchReuseCount(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -751,7 +751,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_requir
 	return graphql.NewScalarFieldContext("DataframeCompilerPlanDiagnostics", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_scopedSharingCandidateGroups(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_scopedSharingCandidateGroups(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -774,7 +774,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_scoped
 	return graphql.NewScalarFieldContext("DataframeCompilerPlanDiagnostics", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_scopedSharingCandidateSets(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_scopedSharingCandidateSets(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -797,7 +797,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_scoped
 	return graphql.NewScalarFieldContext("DataframeCompilerPlanDiagnostics", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_potentialSharingOpportunityGroups(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_potentialSharingOpportunityGroups(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -820,7 +820,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_potent
 	return graphql.NewScalarFieldContext("DataframeCompilerPlanDiagnostics", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_potentialSharingOpportunitySets(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_potentialSharingOpportunitySets(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -843,7 +843,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_potent
 	return graphql.NewScalarFieldContext("DataframeCompilerPlanDiagnostics", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_optimizationPolicy(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_optimizationPolicy(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -855,8 +855,8 @@ func (ec *executionContext) _DataframeCompilerPlanDiagnostics_optimizationPolicy
 			return obj.OptimizationPolicy, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeOptimizationPolicy) graphql.Marshaler {
-			return ec.marshalNDataframeOptimizationPolicy2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeOptimizationPolicy(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeOptimizationPolicy) graphql.Marshaler {
+			return ec.marshalNDataframeOptimizationPolicy2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeOptimizationPolicy(ctx, selections, v)
 		},
 		true,
 		true,
@@ -875,7 +875,7 @@ func (ec *executionContext) fieldContext_DataframeCompilerPlanDiagnostics_optimi
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics_richSourceReuse(ctx context.Context, field graphql.CollectedField, obj *model.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics_richSourceReuse(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeCompilerPlanDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -887,8 +887,8 @@ func (ec *executionContext) _DataframeCompilerPlanDiagnostics_richSourceReuse(ct
 			return obj.RichSourceReuse, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeRichSourceReuse) graphql.Marshaler {
-			return ec.marshalNDataframeRichSourceReuse2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRichSourceReuseᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*dataframe.DataframeRichSourceReuse) graphql.Marshaler {
+			return ec.marshalNDataframeRichSourceReuse2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRichSourceReuseᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1247,7 +1247,7 @@ func (ec *executionContext) fieldContext_DataframeMaterialization_selector(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeOptimizationDecision_rule(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationDecision) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationDecision_rule(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationDecision) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1270,7 +1270,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationDecision_rule(_ co
 	return graphql.NewScalarFieldContext("DataframeOptimizationDecision", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationDecision_enabled(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationDecision) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationDecision_enabled(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationDecision) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1293,7 +1293,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationDecision_enabled(_
 	return graphql.NewScalarFieldContext("DataframeOptimizationDecision", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationDecision_candidateSets(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationDecision) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationDecision_candidateSets(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationDecision) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1316,7 +1316,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationDecision_candidate
 	return graphql.NewScalarFieldContext("DataframeOptimizationDecision", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationDecision_estimatedBaselineWork(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationDecision) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationDecision_estimatedBaselineWork(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationDecision) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1339,7 +1339,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationDecision_estimated
 	return graphql.NewScalarFieldContext("DataframeOptimizationDecision", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationDecision_estimatedOptimizedWork(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationDecision) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationDecision_estimatedOptimizedWork(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationDecision) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1362,7 +1362,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationDecision_estimated
 	return graphql.NewScalarFieldContext("DataframeOptimizationDecision", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationDecision_estimatedSavings(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationDecision) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationDecision_estimatedSavings(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationDecision) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1385,7 +1385,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationDecision_estimated
 	return graphql.NewScalarFieldContext("DataframeOptimizationDecision", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationDecision_reason(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationDecision) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationDecision_reason(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationDecision) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1408,7 +1408,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationDecision_reason(_ 
 	return graphql.NewScalarFieldContext("DataframeOptimizationDecision", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationPolicy_name(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationPolicy) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationPolicy_name(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationPolicy) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1431,7 +1431,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationPolicy_name(_ cont
 	return graphql.NewScalarFieldContext("DataframeOptimizationPolicy", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationPolicy_enabled(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationPolicy) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationPolicy_enabled(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationPolicy) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1454,7 +1454,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationPolicy_enabled(_ c
 	return graphql.NewScalarFieldContext("DataframeOptimizationPolicy", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationPolicy_minimumSavings(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationPolicy) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationPolicy_minimumSavings(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationPolicy) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1477,7 +1477,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationPolicy_minimumSavi
 	return graphql.NewScalarFieldContext("DataframeOptimizationPolicy", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeOptimizationPolicy_decisions(ctx context.Context, field graphql.CollectedField, obj *model.DataframeOptimizationPolicy) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeOptimizationPolicy_decisions(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeOptimizationPolicy) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1489,8 +1489,8 @@ func (ec *executionContext) _DataframeOptimizationPolicy_decisions(ctx context.C
 			return obj.Decisions, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*model.DataframeOptimizationDecision) graphql.Marshaler {
-			return ec.marshalNDataframeOptimizationDecision2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeOptimizationDecisionᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*dataframe.DataframeOptimizationDecision) graphql.Marshaler {
+			return ec.marshalNDataframeOptimizationDecision2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeOptimizationDecisionᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -1509,7 +1509,7 @@ func (ec *executionContext) fieldContext_DataframeOptimizationPolicy_decisions(_
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframePageInfo_hasNextPage(ctx context.Context, field graphql.CollectedField, obj *model.DataframePageInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframePageInfo_hasNextPage(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframePageInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1532,7 +1532,7 @@ func (ec *executionContext) fieldContext_DataframePageInfo_hasNextPage(_ context
 	return graphql.NewScalarFieldContext("DataframePageInfo", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _DataframePageInfo_endCursor(ctx context.Context, field graphql.CollectedField, obj *model.DataframePageInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframePageInfo_endCursor(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframePageInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1555,7 +1555,7 @@ func (ec *executionContext) fieldContext_DataframePageInfo_endCursor(_ context.C
 	return graphql.NewScalarFieldContext("DataframePageInfo", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeQueryDiagnostics_inputResolutionMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeQueryDiagnostics_inputResolutionMs(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1578,7 +1578,7 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_inputResoluti
 	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeQueryDiagnostics_requestPreparationMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeQueryDiagnostics_requestPreparationMs(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1601,7 +1601,7 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_requestPrepar
 	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeQueryDiagnostics_compilationMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeQueryDiagnostics_compilationMs(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1624,7 +1624,7 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_compilationMs
 	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeQueryDiagnostics_arangoQueryMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeQueryDiagnostics_arangoQueryMs(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1647,7 +1647,7 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_arangoQueryMs
 	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeQueryDiagnostics_rowMaterializationMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeQueryDiagnostics_rowMaterializationMs(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1670,7 +1670,7 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_rowMaterializ
 	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeQueryDiagnostics_resultAssemblyMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeQueryDiagnostics_resultAssemblyMs(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1693,7 +1693,7 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_resultAssembl
 	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeQueryDiagnostics_totalMs(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeQueryDiagnostics_totalMs(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1716,7 +1716,7 @@ func (ec *executionContext) fieldContext_DataframeQueryDiagnostics_totalMs(_ con
 	return graphql.NewScalarFieldContext("DataframeQueryDiagnostics", field, false, false, errors.New("field of type Float does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeQueryDiagnostics_plan(ctx context.Context, field graphql.CollectedField, obj *model.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeQueryDiagnostics_plan(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeQueryDiagnostics) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -1728,8 +1728,8 @@ func (ec *executionContext) _DataframeQueryDiagnostics_plan(ctx context.Context,
 			return obj.Plan, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeCompilerPlanDiagnostics) graphql.Marshaler {
-			return ec.marshalNDataframeCompilerPlanDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeCompilerPlanDiagnostics(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeCompilerPlanDiagnostics) graphql.Marshaler {
+			return ec.marshalNDataframeCompilerPlanDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeCompilerPlanDiagnostics(ctx, selections, v)
 		},
 		true,
 		true,
@@ -5097,7 +5097,7 @@ func (ec *executionContext) fieldContext_DataframeRecipeValidation_outputs(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeRichSourceReuse_sourceSet(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRichSourceReuse) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRichSourceReuse_sourceSet(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRichSourceReuse) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5120,7 +5120,7 @@ func (ec *executionContext) fieldContext_DataframeRichSourceReuse_sourceSet(_ co
 	return graphql.NewScalarFieldContext("DataframeRichSourceReuse", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRichSourceReuse_aggregateConsumers(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRichSourceReuse) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRichSourceReuse_aggregateConsumers(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRichSourceReuse) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5143,7 +5143,7 @@ func (ec *executionContext) fieldContext_DataframeRichSourceReuse_aggregateConsu
 	return graphql.NewScalarFieldContext("DataframeRichSourceReuse", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRichSourceReuse_pivotConsumers(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRichSourceReuse) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRichSourceReuse_pivotConsumers(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRichSourceReuse) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5166,7 +5166,7 @@ func (ec *executionContext) fieldContext_DataframeRichSourceReuse_pivotConsumers
 	return graphql.NewScalarFieldContext("DataframeRichSourceReuse", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRichSourceReuse_sliceConsumers(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRichSourceReuse) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRichSourceReuse_sliceConsumers(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRichSourceReuse) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5189,7 +5189,7 @@ func (ec *executionContext) fieldContext_DataframeRichSourceReuse_sliceConsumers
 	return graphql.NewScalarFieldContext("DataframeRichSourceReuse", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRichSourceReuse_totalConsumers(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRichSourceReuse) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRichSourceReuse_totalConsumers(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRichSourceReuse) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5212,7 +5212,7 @@ func (ec *executionContext) fieldContext_DataframeRichSourceReuse_totalConsumers
 	return graphql.NewScalarFieldContext("DataframeRichSourceReuse", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRowConnection_materialization(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRowConnection_materialization(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRowConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5244,7 +5244,7 @@ func (ec *executionContext) fieldContext_DataframeRowConnection_materialization(
 	return fc, nil
 }
 
-func (ec *executionContext) _DataframeRowConnection_columns(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRowConnection_columns(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRowConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5267,7 +5267,7 @@ func (ec *executionContext) fieldContext_DataframeRowConnection_columns(_ contex
 	return graphql.NewScalarFieldContext("DataframeRowConnection", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRowConnection_rows(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRowConnection_rows(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRowConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5290,7 +5290,7 @@ func (ec *executionContext) fieldContext_DataframeRowConnection_rows(_ context.C
 	return graphql.NewScalarFieldContext("DataframeRowConnection", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRowConnection_rowIds(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRowConnection_rowIds(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRowConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5313,7 +5313,7 @@ func (ec *executionContext) fieldContext_DataframeRowConnection_rowIds(_ context
 	return graphql.NewScalarFieldContext("DataframeRowConnection", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRowConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRowConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRowConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5336,7 +5336,7 @@ func (ec *executionContext) fieldContext_DataframeRowConnection_totalCount(_ con
 	return graphql.NewScalarFieldContext("DataframeRowConnection", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _DataframeRowConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *model.DataframeRowConnection) (ret graphql.Marshaler) {
+func (ec *executionContext) _DataframeRowConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *dataframe.DataframeRowConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5348,8 +5348,8 @@ func (ec *executionContext) _DataframeRowConnection_pageInfo(ctx context.Context
 			return obj.PageInfo, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframePageInfo) graphql.Marshaler {
-			return ec.marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframePageInfo(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframePageInfo) graphql.Marshaler {
+			return ec.marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframePageInfo(ctx, selections, v)
 		},
 		true,
 		true,
@@ -5437,7 +5437,7 @@ func (ec *executionContext) fieldContext_DataframeSelector_output(_ context.Cont
 	return graphql.NewScalarFieldContext("DataframeSelector", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _FhirDataframeResult_columns(ctx context.Context, field graphql.CollectedField, obj *model.FhirDataframeResult) (ret graphql.Marshaler) {
+func (ec *executionContext) _FhirDataframeResult_columns(ctx context.Context, field graphql.CollectedField, obj *dataframe.FhirDataframeResult) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5460,7 +5460,7 @@ func (ec *executionContext) fieldContext_FhirDataframeResult_columns(_ context.C
 	return graphql.NewScalarFieldContext("FhirDataframeResult", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _FhirDataframeResult_rows(ctx context.Context, field graphql.CollectedField, obj *model.FhirDataframeResult) (ret graphql.Marshaler) {
+func (ec *executionContext) _FhirDataframeResult_rows(ctx context.Context, field graphql.CollectedField, obj *dataframe.FhirDataframeResult) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5483,7 +5483,7 @@ func (ec *executionContext) fieldContext_FhirDataframeResult_rows(_ context.Cont
 	return graphql.NewScalarFieldContext("FhirDataframeResult", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
-func (ec *executionContext) _FhirDataframeResult_rowCount(ctx context.Context, field graphql.CollectedField, obj *model.FhirDataframeResult) (ret graphql.Marshaler) {
+func (ec *executionContext) _FhirDataframeResult_rowCount(ctx context.Context, field graphql.CollectedField, obj *dataframe.FhirDataframeResult) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5506,7 +5506,7 @@ func (ec *executionContext) fieldContext_FhirDataframeResult_rowCount(_ context.
 	return graphql.NewScalarFieldContext("FhirDataframeResult", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _FhirDataframeResult_diagnostics(ctx context.Context, field graphql.CollectedField, obj *model.FhirDataframeResult) (ret graphql.Marshaler) {
+func (ec *executionContext) _FhirDataframeResult_diagnostics(ctx context.Context, field graphql.CollectedField, obj *dataframe.FhirDataframeResult) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5518,8 +5518,8 @@ func (ec *executionContext) _FhirDataframeResult_diagnostics(ctx context.Context
 			return obj.Diagnostics, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeQueryDiagnostics) graphql.Marshaler {
-			return ec.marshalNDataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeQueryDiagnostics(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeQueryDiagnostics) graphql.Marshaler {
+			return ec.marshalNDataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeQueryDiagnostics(ctx, selections, v)
 		},
 		true,
 		true,
@@ -5890,8 +5890,8 @@ func (ec *executionContext) _FhirGraphQueryExplanation_diagnostics(ctx context.C
 			return obj.Diagnostics, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeQueryDiagnostics) graphql.Marshaler {
-			return ec.marshalODataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeQueryDiagnostics(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeQueryDiagnostics) graphql.Marshaler {
+			return ec.marshalODataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeQueryDiagnostics(ctx, selections, v)
 		},
 		true,
 		false,
@@ -6032,8 +6032,8 @@ func (ec *executionContext) _FhirGraphQueryResult_diagnostics(ctx context.Contex
 			return obj.Diagnostics, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeQueryDiagnostics) graphql.Marshaler {
-			return ec.marshalNDataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeQueryDiagnostics(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeQueryDiagnostics) graphql.Marshaler {
+			return ec.marshalNDataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeQueryDiagnostics(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6157,8 +6157,8 @@ func (ec *executionContext) _Mutation_runFhirDataframe(ctx context.Context, fiel
 			return ec.Resolvers.Mutation().RunFhirDataframe(ctx, fc.Args["input"].(dataframe.FhirDataframeInput), fc.Args["limit"].(*int))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.FhirDataframeResult) graphql.Marshaler {
-			return ec.marshalNFhirDataframeResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirDataframeResult(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.FhirDataframeResult) graphql.Marshaler {
+			return ec.marshalNFhirDataframeResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirDataframeResult(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6465,8 +6465,8 @@ func (ec *executionContext) _Query_dataframeRows(ctx context.Context, field grap
 			return ec.Resolvers.Query().DataframeRows(ctx, fc.Args["input"].(dataframe.DataframeRowsInput))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeRowConnection) graphql.Marshaler {
-			return ec.marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowConnection(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeRowConnection) graphql.Marshaler {
+			return ec.marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRowConnection(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6553,8 +6553,8 @@ func (ec *executionContext) _Query_dataframeAggregations(ctx context.Context, fi
 			return ec.Resolvers.Query().DataframeAggregations(ctx, fc.Args["input"].(dataframe.DataframeAggregationsInput))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.DataframeAggregationsResult) graphql.Marshaler {
-			return ec.marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsResult(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *dataframe.DataframeAggregationsResult) graphql.Marshaler {
+			return ec.marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationsResult(ctx, selections, v)
 		},
 		true,
 		true,
@@ -8906,7 +8906,7 @@ func (ec *executionContext) _DataframeAggregateResult(ctx context.Context, sel a
 
 var dataframeAggregationsResultImplementors = []string{"DataframeAggregationsResult"}
 
-func (ec *executionContext) _DataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeAggregationsResult) graphql.Marshaler {
+func (ec *executionContext) _DataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeAggregationsResult) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeAggregationsResultImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -9027,7 +9027,7 @@ func (ec *executionContext) _DataframeColumn(ctx context.Context, sel ast.Select
 
 var dataframeCompilerPlanDiagnosticsImplementors = []string{"DataframeCompilerPlanDiagnostics"}
 
-func (ec *executionContext) _DataframeCompilerPlanDiagnostics(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeCompilerPlanDiagnostics) graphql.Marshaler {
+func (ec *executionContext) _DataframeCompilerPlanDiagnostics(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeCompilerPlanDiagnostics) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeCompilerPlanDiagnosticsImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -9208,7 +9208,7 @@ func (ec *executionContext) _DataframeMaterialization(ctx context.Context, sel a
 
 var dataframeOptimizationDecisionImplementors = []string{"DataframeOptimizationDecision"}
 
-func (ec *executionContext) _DataframeOptimizationDecision(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeOptimizationDecision) graphql.Marshaler {
+func (ec *executionContext) _DataframeOptimizationDecision(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeOptimizationDecision) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeOptimizationDecisionImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -9276,7 +9276,7 @@ func (ec *executionContext) _DataframeOptimizationDecision(ctx context.Context, 
 
 var dataframeOptimizationPolicyImplementors = []string{"DataframeOptimizationPolicy"}
 
-func (ec *executionContext) _DataframeOptimizationPolicy(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeOptimizationPolicy) graphql.Marshaler {
+func (ec *executionContext) _DataframeOptimizationPolicy(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeOptimizationPolicy) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeOptimizationPolicyImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -9329,7 +9329,7 @@ func (ec *executionContext) _DataframeOptimizationPolicy(ctx context.Context, se
 
 var dataframePageInfoImplementors = []string{"DataframePageInfo"}
 
-func (ec *executionContext) _DataframePageInfo(ctx context.Context, sel ast.SelectionSet, obj *model.DataframePageInfo) graphql.Marshaler {
+func (ec *executionContext) _DataframePageInfo(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframePageInfo) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframePageInfoImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -9372,7 +9372,7 @@ func (ec *executionContext) _DataframePageInfo(ctx context.Context, sel ast.Sele
 
 var dataframeQueryDiagnosticsImplementors = []string{"DataframeQueryDiagnostics"}
 
-func (ec *executionContext) _DataframeQueryDiagnostics(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeQueryDiagnostics) graphql.Marshaler {
+func (ec *executionContext) _DataframeQueryDiagnostics(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeQueryDiagnostics) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeQueryDiagnosticsImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -10988,7 +10988,7 @@ func (ec *executionContext) _DataframeRecipeValidation(ctx context.Context, sel 
 
 var dataframeRichSourceReuseImplementors = []string{"DataframeRichSourceReuse"}
 
-func (ec *executionContext) _DataframeRichSourceReuse(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRichSourceReuse) graphql.Marshaler {
+func (ec *executionContext) _DataframeRichSourceReuse(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeRichSourceReuse) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRichSourceReuseImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11046,7 +11046,7 @@ func (ec *executionContext) _DataframeRichSourceReuse(ctx context.Context, sel a
 
 var dataframeRowConnectionImplementors = []string{"DataframeRowConnection"}
 
-func (ec *executionContext) _DataframeRowConnection(ctx context.Context, sel ast.SelectionSet, obj *model.DataframeRowConnection) graphql.Marshaler {
+func (ec *executionContext) _DataframeRowConnection(ctx context.Context, sel ast.SelectionSet, obj *dataframe.DataframeRowConnection) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, dataframeRowConnectionImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11157,7 +11157,7 @@ func (ec *executionContext) _DataframeSelector(ctx context.Context, sel ast.Sele
 
 var fhirDataframeResultImplementors = []string{"FhirDataframeResult"}
 
-func (ec *executionContext) _FhirDataframeResult(ctx context.Context, sel ast.SelectionSet, obj *model.FhirDataframeResult) graphql.Marshaler {
+func (ec *executionContext) _FhirDataframeResult(ctx context.Context, sel ast.SelectionSet, obj *dataframe.FhirDataframeResult) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, fhirDataframeResultImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11968,11 +11968,11 @@ func (ec *executionContext) unmarshalNDataframeAggregationsInput2githubᚗcomᚋ
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDataframeAggregationsResult2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v model.DataframeAggregationsResult) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeAggregationsResult2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v dataframe.DataframeAggregationsResult) graphql.Marshaler {
 	return ec._DataframeAggregationsResult(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v *model.DataframeAggregationsResult) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeAggregationsResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeAggregationsResult(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeAggregationsResult) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12008,7 +12008,7 @@ func (ec *executionContext) marshalNDataframeColumn2ᚖgithubᚗcomᚋcalyprᚋl
 	return ec._DataframeColumn(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeCompilerPlanDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeCompilerPlanDiagnostics(ctx context.Context, sel ast.SelectionSet, v *model.DataframeCompilerPlanDiagnostics) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeCompilerPlanDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeCompilerPlanDiagnostics(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeCompilerPlanDiagnostics) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12064,11 +12064,11 @@ func (ec *executionContext) marshalNDataframeMaterializationState2githubᚗcom�
 	return v
 }
 
-func (ec *executionContext) marshalNDataframeOptimizationDecision2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeOptimizationDecisionᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeOptimizationDecision) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeOptimizationDecision2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeOptimizationDecisionᚄ(ctx context.Context, sel ast.SelectionSet, v []*dataframe.DataframeOptimizationDecision) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNDataframeOptimizationDecision2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeOptimizationDecision(ctx, sel, v[i])
+		return ec.marshalNDataframeOptimizationDecision2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeOptimizationDecision(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -12080,7 +12080,7 @@ func (ec *executionContext) marshalNDataframeOptimizationDecision2ᚕᚖgithub�
 	return ret
 }
 
-func (ec *executionContext) marshalNDataframeOptimizationDecision2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeOptimizationDecision(ctx context.Context, sel ast.SelectionSet, v *model.DataframeOptimizationDecision) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeOptimizationDecision2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeOptimizationDecision(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeOptimizationDecision) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12090,7 +12090,7 @@ func (ec *executionContext) marshalNDataframeOptimizationDecision2ᚖgithubᚗco
 	return ec._DataframeOptimizationDecision(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeOptimizationPolicy2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeOptimizationPolicy(ctx context.Context, sel ast.SelectionSet, v *model.DataframeOptimizationPolicy) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeOptimizationPolicy2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeOptimizationPolicy(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeOptimizationPolicy) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12100,7 +12100,7 @@ func (ec *executionContext) marshalNDataframeOptimizationPolicy2ᚖgithubᚗcom�
 	return ec._DataframeOptimizationPolicy(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframePageInfo(ctx context.Context, sel ast.SelectionSet, v *model.DataframePageInfo) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframePageInfo(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframePageInfo) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12110,7 +12110,7 @@ func (ec *executionContext) marshalNDataframePageInfo2ᚖgithubᚗcomᚋcalypr�
 	return ec._DataframePageInfo(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeQueryDiagnostics(ctx context.Context, sel ast.SelectionSet, v *model.DataframeQueryDiagnostics) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeQueryDiagnostics(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeQueryDiagnostics) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12635,11 +12635,11 @@ func (ec *executionContext) marshalNDataframeRecipeValidation2ᚖgithubᚗcomᚋ
 	return ec._DataframeRecipeValidation(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeRichSourceReuse2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRichSourceReuseᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.DataframeRichSourceReuse) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeRichSourceReuse2ᚕᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRichSourceReuseᚄ(ctx context.Context, sel ast.SelectionSet, v []*dataframe.DataframeRichSourceReuse) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNDataframeRichSourceReuse2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRichSourceReuse(ctx, sel, v[i])
+		return ec.marshalNDataframeRichSourceReuse2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRichSourceReuse(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -12651,7 +12651,7 @@ func (ec *executionContext) marshalNDataframeRichSourceReuse2ᚕᚖgithubᚗcom�
 	return ret
 }
 
-func (ec *executionContext) marshalNDataframeRichSourceReuse2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRichSourceReuse(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRichSourceReuse) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeRichSourceReuse2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRichSourceReuse(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeRichSourceReuse) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12661,11 +12661,11 @@ func (ec *executionContext) marshalNDataframeRichSourceReuse2ᚖgithubᚗcomᚋc
 	return ec._DataframeRichSourceReuse(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNDataframeRowConnection2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowConnection(ctx context.Context, sel ast.SelectionSet, v model.DataframeRowConnection) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeRowConnection2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRowConnection(ctx context.Context, sel ast.SelectionSet, v dataframe.DataframeRowConnection) graphql.Marshaler {
 	return ec._DataframeRowConnection(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeRowConnection(ctx context.Context, sel ast.SelectionSet, v *model.DataframeRowConnection) graphql.Marshaler {
+func (ec *executionContext) marshalNDataframeRowConnection2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeRowConnection(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeRowConnection) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -12725,11 +12725,11 @@ func (ec *executionContext) unmarshalNFhirDataframeInput2githubᚗcomᚋcalypr�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNFhirDataframeResult2githubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirDataframeResult(ctx context.Context, sel ast.SelectionSet, v model.FhirDataframeResult) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirDataframeResult2githubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirDataframeResult(ctx context.Context, sel ast.SelectionSet, v dataframe.FhirDataframeResult) graphql.Marshaler {
 	return ec._FhirDataframeResult(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNFhirDataframeResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐFhirDataframeResult(ctx context.Context, sel ast.SelectionSet, v *model.FhirDataframeResult) graphql.Marshaler {
+func (ec *executionContext) marshalNFhirDataframeResult2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐFhirDataframeResult(ctx context.Context, sel ast.SelectionSet, v *dataframe.FhirDataframeResult) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -13084,7 +13084,7 @@ func (ec *executionContext) marshalODataframeMaterialization2ᚖgithubᚗcomᚋc
 	return ec._DataframeMaterialization(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalODataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋgeneratedᚋgraphqlᚋgraphᚋmodelᚐDataframeQueryDiagnostics(ctx context.Context, sel ast.SelectionSet, v *model.DataframeQueryDiagnostics) graphql.Marshaler {
+func (ec *executionContext) marshalODataframeQueryDiagnostics2ᚖgithubᚗcomᚋcalyprᚋloomᚋinternalᚋapiᚋdataframeᚐDataframeQueryDiagnostics(ctx context.Context, sel ast.SelectionSet, v *dataframe.DataframeQueryDiagnostics) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}

@@ -19,6 +19,7 @@ import (
 
 	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
@@ -730,18 +731,19 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("create Explorer artifact store: %w", err)
 	}
 	readRecipeExecution := graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver)
-	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
-			DiscoverReferences:     discoverReferences,
-			DiscoverFields:         discoverFields,
-			Dataframes:             dataframes,
-			ScopeResolver:          scopeResolver,
-			ActiveManifestResolver: activeManifestResolver,
-			Explain: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) error {
-				_, err := explainCompiledQuery(ctx, lifecycleClient, compiled)
-				return err
-			},
+	queryConfig := queryapi.Config{
+		DiscoverReferences:     discoverReferences,
+		DiscoverFields:         discoverFields,
+		Dataframes:             dataframes,
+		ScopeResolver:          scopeResolver,
+		ActiveManifestResolver: activeManifestResolver,
+		Explain: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) error {
+			_, err := explainCompiledQuery(ctx, lifecycleClient, compiled)
+			return err
 		},
+	}
+	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
+		DataframeQuery:        queryConfig,
 		MaterializationReader: materializationReader,
 		Logger:                logger,
 		RecipeControl: dataframeexecution.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
@@ -751,6 +753,12 @@ func run(ctx context.Context, serverConfig Config) error {
 		RecipeRevisions:  recipeRevisions,
 		RecipeExecutions: readRecipeExecution,
 	})
+	dataframeReads := dataframeReadRoutes{
+		query: queryapi.NewService(queryConfig),
+		published: dataframeapi.NewService(dataframeapi.Config{
+			Reader: materializationReader, ScopeResolver: scopeResolver, Logger: logger,
+		}),
+	}
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,
 		Schema:            serverConfig.Server.Schema,
@@ -1064,7 +1072,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		reader: constructionInputsReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits); err != nil {
+	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits, dataframeReads); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if privateClickHouseArtifacts != nil {

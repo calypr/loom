@@ -92,3 +92,21 @@ models:
     model: github.com/calypr/loom/internal/api/dataframe.FhirTraversalStepInput
   FhirValueMode:
     model: github.com/calypr/loom/internal/api/dataframe.FhirValueMode
+  DataframeRowConnection:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeRowConnection
+  DataframePageInfo:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframePageInfo
+  DataframeAggregationsResult:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeAggregationsResult
+  FhirDataframeResult:
+    model: github.com/calypr/loom/internal/api/dataframe.FhirDataframeResult
+  DataframeQueryDiagnostics:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeQueryDiagnostics
+  DataframeCompilerPlanDiagnostics:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeCompilerPlanDiagnostics
+  DataframeOptimizationPolicy:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeOptimizationPolicy
+  DataframeOptimizationDecision:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeOptimizationDecision
+  DataframeRichSourceReuse:
+    model: github.com/calypr/loom/internal/api/dataframe.DataframeRichSourceReuse

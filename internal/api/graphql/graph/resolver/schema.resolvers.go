@@ -19,7 +19,7 @@ import (
 )
 
 // RunFhirDataframe is the resolver for the runFhirDataframe field.
-func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error) {
+func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input dataframemodel.FhirDataframeInput, limit *int) (*dataframemodel.FhirDataframeResult, error) {
 	result, err := r.query.Run(ctx, input, limit)
 	if err != nil {
 		return nil, err
@@ -28,11 +28,11 @@ func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input dataframe
 	if err != nil {
 		return nil, err
 	}
-	return &model.FhirDataframeResult{
+	return &dataframemodel.FhirDataframeResult{
 		Columns:     cloneStrings(result.Columns),
 		Rows:        rows,
 		RowCount:    result.RowCount,
-		Diagnostics: dataframeDiagnostics(result.Diagnostics),
+		Diagnostics: dataframemodel.Diagnostics(result.Diagnostics),
 	}, nil
 }
 
@@ -158,7 +158,7 @@ func (r *queryResolver) DataframeDataset(ctx context.Context, input dataframemod
 }
 
 // DataframeRows is the resolver for the dataframeRows field.
-func (r *queryResolver) DataframeRows(ctx context.Context, input dataframemodel.DataframeRowsInput) (*model.DataframeRowConnection, error) {
+func (r *queryResolver) DataframeRows(ctx context.Context, input dataframemodel.DataframeRowsInput) (*dataframemodel.DataframeRowConnection, error) {
 	page, err := r.dataframes.Rows(ctx, input)
 	if err != nil {
 		return nil, err
@@ -172,10 +172,10 @@ func (r *queryResolver) DataframeRows(ctx context.Context, input dataframemodel.
 		cursor = &page.NextCursor
 	}
 	totalCount := int(page.TotalCount)
-	return &model.DataframeRowConnection{
+	return &dataframemodel.DataframeRowConnection{
 		Materialization: dataframeapi.Model(page.Materialization),
 		Columns:         append([]string(nil), page.Columns...), Rows: rows, RowIds: append([]string(nil), page.RowIDs...), TotalCount: &totalCount,
-		PageInfo: &model.DataframePageInfo{HasNextPage: page.HasNext, EndCursor: cursor},
+		PageInfo: &dataframemodel.DataframePageInfo{HasNextPage: page.HasNext, EndCursor: cursor},
 	}, nil
 }
 
@@ -193,7 +193,7 @@ func (r *queryResolver) DataframeAggregate(ctx context.Context, input dataframem
 }
 
 // DataframeAggregations is the resolver for the dataframeAggregations field.
-func (r *queryResolver) DataframeAggregations(ctx context.Context, input dataframemodel.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error) {
+func (r *queryResolver) DataframeAggregations(ctx context.Context, input dataframemodel.DataframeAggregationsInput) (*dataframemodel.DataframeAggregationsResult, error) {
 	result, err := r.dataframes.AggregationsInput(ctx, input)
 	if err != nil {
 		return nil, err
@@ -202,7 +202,7 @@ func (r *queryResolver) DataframeAggregations(ctx context.Context, input datafra
 	if err != nil {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeOutputEncodingFailed, "")
 	}
-	return &model.DataframeAggregationsResult{Materialization: dataframeapi.Model(result.Materialization), Aggregations: aggregations}, nil
+	return &dataframemodel.DataframeAggregationsResult{Materialization: dataframeapi.Model(result.Materialization), Aggregations: aggregations}, nil
 }
 
 // DataframeRecipeExecution is the resolver for the dataframeRecipeExecution field.

@@ -65,13 +65,13 @@ type DataframeMaterialization struct {
 	DatasetGeneration string                        `json:"datasetGeneration"`
 	State             DataframeMaterializationState `json:"state"`
 	Columns           []*DataframeColumn            `json:"columns"`
-	RowCount          *int                          `json:"rowCount,omitempty"`
+	RowCount          *int                          `json:"rowCount"`
 	CreatedAt         string                        `json:"createdAt"`
-	ReadyAt           *string                       `json:"readyAt,omitempty"`
-	Error             *string                       `json:"error,omitempty"`
-	ErrorCode         *string                       `json:"errorCode,omitempty"`
-	ErrorRetryable    *bool                         `json:"errorRetryable,omitempty"`
-	Selector          *DataframeSelector            `json:"selector,omitempty"`
+	ReadyAt           *string                       `json:"readyAt"`
+	Error             *string                       `json:"error"`
+	ErrorCode         *string                       `json:"errorCode"`
+	ErrorRetryable    *bool                         `json:"errorRetryable"`
+	Selector          *DataframeSelector            `json:"selector"`
 }
 
 type DataframeMaterializationState string
@@ -755,4 +755,78 @@ func (e FhirValueMode) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil
+}
+
+type DataframeRowConnection struct {
+	Materialization *DataframeMaterialization `json:"materialization"`
+	Columns         []string                  `json:"columns"`
+	Rows            json.RawMessage           `json:"rows"`
+	RowIds          []string                  `json:"rowIds"`
+	TotalCount      *int                      `json:"totalCount"`
+	PageInfo        *DataframePageInfo        `json:"pageInfo"`
+}
+
+type DataframePageInfo struct {
+	HasNextPage bool    `json:"hasNextPage"`
+	EndCursor   *string `json:"endCursor"`
+}
+
+type DataframeAggregationsResult struct {
+	Materialization *DataframeMaterialization `json:"materialization"`
+	Aggregations    json.RawMessage           `json:"aggregations"`
+}
+
+type FhirDataframeResult struct {
+	Columns     []string                   `json:"columns"`
+	Rows        json.RawMessage            `json:"rows"`
+	RowCount    int                        `json:"rowCount"`
+	Diagnostics *DataframeQueryDiagnostics `json:"diagnostics"`
+}
+
+type DataframeQueryDiagnostics struct {
+	InputResolutionMs    float64                           `json:"inputResolutionMs"`
+	RequestPreparationMs float64                           `json:"requestPreparationMs"`
+	CompilationMs        float64                           `json:"compilationMs"`
+	ArangoQueryMs        float64                           `json:"arangoQueryMs"`
+	RowMaterializationMs float64                           `json:"rowMaterializationMs"`
+	ResultAssemblyMs     float64                           `json:"resultAssemblyMs"`
+	TotalMs              float64                           `json:"totalMs"`
+	Plan                 *DataframeCompilerPlanDiagnostics `json:"plan"`
+}
+
+type DataframeCompilerPlanDiagnostics struct {
+	TraversalSets                     int                          `json:"traversalSets"`
+	SharedTraversalCount              int                          `json:"sharedTraversalCount"`
+	RequiredMatchReuseCount           int                          `json:"requiredMatchReuseCount"`
+	ScopedSharingCandidateGroups      int                          `json:"scopedSharingCandidateGroups"`
+	ScopedSharingCandidateSets        int                          `json:"scopedSharingCandidateSets"`
+	PotentialSharingOpportunityGroups int                          `json:"potentialSharingOpportunityGroups"`
+	PotentialSharingOpportunitySets   int                          `json:"potentialSharingOpportunitySets"`
+	OptimizationPolicy                *DataframeOptimizationPolicy `json:"optimizationPolicy"`
+	RichSourceReuse                   []*DataframeRichSourceReuse  `json:"richSourceReuse"`
+}
+
+type DataframeOptimizationPolicy struct {
+	Name           string                           `json:"name"`
+	Enabled        bool                             `json:"enabled"`
+	MinimumSavings int                              `json:"minimumSavings"`
+	Decisions      []*DataframeOptimizationDecision `json:"decisions"`
+}
+
+type DataframeOptimizationDecision struct {
+	Rule                   string `json:"rule"`
+	Enabled                bool   `json:"enabled"`
+	CandidateSets          int    `json:"candidateSets"`
+	EstimatedBaselineWork  int    `json:"estimatedBaselineWork"`
+	EstimatedOptimizedWork int    `json:"estimatedOptimizedWork"`
+	EstimatedSavings       int    `json:"estimatedSavings"`
+	Reason                 string `json:"reason"`
+}
+
+type DataframeRichSourceReuse struct {
+	SourceSet          string `json:"sourceSet"`
+	AggregateConsumers int    `json:"aggregateConsumers"`
+	PivotConsumers     int    `json:"pivotConsumers"`
+	SliceConsumers     int    `json:"sliceConsumers"`
+	TotalConsumers     int    `json:"totalConsumers"`
 }

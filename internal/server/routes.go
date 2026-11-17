@@ -32,8 +32,11 @@ func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, 
 	}
 	var releases publication.BundleCatalog
 	var scopes *authscope.ScopeResolver
+	var dataframes dataframeReadRoutes
 	for _, value := range optional {
 		switch typed := value.(type) {
+		case dataframeReadRoutes:
+			dataframes = typed
 		case publication.BundleCatalog:
 			releases = typed
 		case *authscope.ScopeResolver:
@@ -41,12 +44,13 @@ func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, 
 		}
 	}
 	routes := &HTTPRoutes{
-		server:   server,
-		load:     loadHandler,
-		releases: releases,
-		scopes:   scopes,
-		graphql:  graphapi.RouteConfig{Handler: graphapi.NewHandler(graphResolver, server.Logger()), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")},
-		explorer: explorerHandlers,
+		server:     server,
+		load:       loadHandler,
+		releases:   releases,
+		scopes:     scopes,
+		graphql:    graphapi.RouteConfig{Handler: graphapi.NewHandler(graphResolver, server.Logger()), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")},
+		explorer:   explorerHandlers,
+		dataframes: dataframes,
 	}
 	handler := loomapi.NewStrictHandler(routes, nil)
 	loomapi.RegisterHandlersWithOptions(server.App(), handler, loomapi.FiberServerOptions{})

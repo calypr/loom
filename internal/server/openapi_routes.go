@@ -12,12 +12,13 @@ import (
 )
 
 type HTTPRoutes struct {
-	server   *httpapi.HTTPServer
-	load     *loadapi.Handler
-	releases publication.BundleCatalog
-	scopes   *authscope.ScopeResolver
-	graphql  graphapi.RouteConfig
-	explorer *explorerHTTPHandlers
+	server     *httpapi.HTTPServer
+	load       *loadapi.Handler
+	releases   publication.BundleCatalog
+	scopes     *authscope.ScopeResolver
+	graphql    graphapi.RouteConfig
+	explorer   *explorerHTTPHandlers
+	dataframes dataframeReadRoutes
 }
 
 var _ loomapi.StrictServerInterface = (*HTTPRoutes)(nil)
