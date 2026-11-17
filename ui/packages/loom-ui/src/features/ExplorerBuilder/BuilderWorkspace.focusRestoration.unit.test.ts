@@ -1,32 +1,49 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import ts from 'typescript';
-import { it } from 'vitest';
+import { afterEach, it, vi } from 'vitest';
+import { createRecipeFocusActions, type RecipeFocusRefs } from './authoring/useRecipeFocus';
+import { createRecipeNetworkLoader, type RecipeNetworkIdentity } from './authoring/recipeNetwork';
+
+afterEach(() => vi.unstubAllGlobals());
 
 const { JSDOM } = createRequire(import.meta.url)('jsdom');
-const source = readFileSync(new URL('./BuilderWorkspace.tsx', import.meta.url), 'utf8');
-// Execute the actual action helpers without mounting unrelated Builder services.
-const focus = source.slice(source.indexOf('  const rememberRecipeFocus ='), source.indexOf('  rootRecipeActions.current ='));
-const network = source.slice(source.indexOf('  const completePendingRecipeFocus ='), source.indexOf('  const pendingRelationship ='));
-assert(focus.includes('const restoreRecipeFocus') && network.includes('describeAuthoringNetwork'));
-const code = ts.transpileModule(focus + network, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
-const names = ['document', 'HTMLElement', 'HTMLDetailsElement', 'window', 'recipeInitiator', 'recipeInitiatorFact', 'pendingRecipeFocus', 'recipeOwner', 'latestState', 'table', 'networkRequestOwner', 'relationshipOwner', 'loomClient', 'projectId', 'state', 'authResourcePath', 'setSavedNetwork', 'recipeFocusGeneration', 'workspaceAttached', 'firstTableProgress'];
 function setup(policyId = 'shared-source-policy-value', firstTableProgress: {kind: 'idle' | 'running'; phase?: string} = {kind: 'idle'}, deferNetworkDOM = false) {
   const { window } = new JSDOM(`<button data-occurrence-id="obs" id="nav">Observation path</button><button id="next">Another task</button><section data-occurrence-id="obs"><button id="old" data-testid="${policyId}">Edit shared source policy</button></section>`);
   const queue: Array<() => void> = [];
   window.requestAnimationFrame = (callback: () => void) => queue.push(callback);
-  const pending = { current: undefined }, latest = { current: { selectedOutputId: 'tableA' } }, attached = { current: true };
-  let resolve!: (value: unknown) => void;
+  const pending: RecipeFocusRefs['pendingRecipeFocus'] = { current: undefined };
+  const latest = { current: { selectedOutputId: 'tableA' } }, attached = { current: true };
+  let resolve!: (value: RecipeNetworkIdentity) => void;
   const reads: unknown[] = [];
   const requestOwner = { current: '' };
   const state = { catalog: { snapshotToken: 'snapshot' }, draftVersion: 2, draftDigest: 'draft-2', explorerId: 'e' };
   const renderNetwork = () => window.document.body.insertAdjacentHTML('beforeend', `<section data-occurrence-id="obs"><button id="restored" data-testid="${policyId}">Edit shared source policy</button></section>`);
-  const client = { describeAuthoringNetwork: (identity: unknown) => { reads.push(identity); return new Promise((done) => { resolve = done; }); } };
-  const args = [window.document, window.HTMLElement, window.HTMLDetailsElement, window, { current: undefined }, { current: undefined }, pending, { state: { identity: { outputId: 'tableA' } } }, latest, { outputId: 'tableA' }, requestOwner, 'owner', client, 'p', state, undefined, () => {if (!deferNetworkDOM) renderNetwork();}, { current: 0 }, attached, firstTableProgress];
-  const actions = new Function(...names, `${code};return {rememberRecipeFocus,restoreRecipeFocus,loadRecipeNetwork};`)(...args) as {
-    rememberRecipeFocus(): void; restoreRecipeFocus(): void; loadRecipeNetwork(): void;
-  };
+  const client = { describeAuthoringNetwork: (identity: unknown) => { reads.push(identity); return new Promise<RecipeNetworkIdentity>((done) => { resolve = done; }); } };
+  for (const name of ['window', 'document', 'Element', 'HTMLElement', 'HTMLDetailsElement'] as const) {
+    vi.stubGlobal(name, window[name]);
+  }
+  const focus = createRecipeFocusActions({
+    recipeOwner: { state: { identity: { outputId: 'tableA' } } },
+    latestState: latest,
+    workspaceAttached: attached,
+    recipeFocusGeneration: { current: 0 },
+    recipeInitiator: { current: undefined },
+    recipeInitiatorFact: { current: undefined },
+    pendingRecipeFocus: pending,
+  });
+  const loadRecipeNetwork = createRecipeNetworkLoader({
+    firstTableProgress,
+    table: { outputId: 'tableA' },
+    networkRequestOwner: requestOwner,
+    relationshipOwner: 'owner',
+    loomClient: client,
+    projectId: 'p',
+    state,
+    authResourcePath: undefined,
+    setSavedNetwork: () => { if (!deferNetworkDOM) renderNetwork(); },
+    completePendingRecipeFocus: focus.completePendingRecipeFocus,
+  });
+  const actions = { ...focus, loadRecipeNetwork };
   const old = window.document.getElementById('old'); old.focus(); actions.rememberRecipeFocus(); old.parentElement.remove();
   return { window, actions, pending, latest, attached, reads, requestOwner, firstTableProgress, renderNetwork,
     flush() { while (queue.length) queue.shift()!(); },

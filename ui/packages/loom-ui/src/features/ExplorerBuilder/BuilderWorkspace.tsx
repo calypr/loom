@@ -88,6 +88,8 @@ import { useCommandQueue } from './authoring/useCommandQueue';
 import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { useBuilderDraft } from './authoring/useBuilderDraft';
+import { useRecipeFocus } from './authoring/useRecipeFocus';
+import { createRecipeNetworkLoader } from './authoring/recipeNetwork';
 import { useRootChange } from './authoring/useRootChange';
 import { useCombineCatalog } from './authoring/useCombineCatalog';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
@@ -417,10 +419,6 @@ const BuilderWorkspaceContent = ({
   const columnPolicyRequest = useRef<AbortController | undefined>(undefined);
   const sourceRelationshipRequest = useRef<AbortController | undefined>(undefined);
   const networkRequestOwner = useRef('');
-  const recipeFocusGeneration = useRef(0);
-  const pendingRecipeFocus = useRef<{ testId: string; outputId: string; fallback?: HTMLElement } | undefined>(undefined);
-  const recipeInitiator = useRef<HTMLElement | undefined>(undefined);
-  const recipeInitiatorFact = useRef<{ testId?: string; columnId?: string; occurrenceId?: string } | undefined>(undefined);
   const sourceStepEditAction = useRef<((stepId: string) => void) | undefined>(undefined);
   const sourceFieldEditAction = useRef<((stepId: string, fieldId: string) => void) | undefined>(undefined);
   const sourceOutputEditAction = useRef<((stepId: string, outputKey: string) => void) | undefined>(undefined);
@@ -693,6 +691,20 @@ const BuilderWorkspaceContent = ({
     outputId: table?.outputId ?? '', snapshotToken: state.catalog.snapshotToken,
     draftVersion: state.draftVersion, draftDigest: state.draftDigest });
   const {
+    recipeFocusGeneration,
+    pendingRecipeFocus,
+    recipeInitiator,
+    recipeInitiatorFact,
+    rememberRecipeFocus,
+    rememberOperationFocus,
+    restoreRecipeFocus,
+    completePendingRecipeFocus,
+  } = useRecipeFocus({
+    recipeOwner,
+    workspaceAttached,
+    latestState,
+  });
+  const {
     rootChangeState,
     setRootChangeState,
     rootChangeStateRef,
@@ -742,47 +754,6 @@ const BuilderWorkspaceContent = ({
         'APPLY_ROW_DEFINITION_PROPOSAL', 'APPLY_CONSTRUCTION_PROPOSAL'].includes(commands[0].type)) return true;
     setRecipeNotice('Apply or Cancel the active recipe change before starting another edit.');
     return false;
-  };
-  const rememberRecipeFocus = (element: Element | null = document.activeElement) => {
-    if (!(element instanceof HTMLElement)) return;
-    recipeFocusGeneration.current += 1;
-    pendingRecipeFocus.current = undefined;
-    recipeInitiator.current = element;
-    recipeInitiatorFact.current = {
-      testId: element.dataset.testid,
-      columnId: element.closest<HTMLElement>('[data-column-id]')?.dataset.columnId,
-      occurrenceId: element.closest<HTMLElement>('[data-occurrence-id]')?.dataset.occurrenceId,
-    };
-  };
-  const rememberOperationFocus = () => {
-    const fromSourceSettings = document.activeElement instanceof Element && document.activeElement.closest('[aria-label="Source row settings inspector"]');
-    if (!fromSourceSettings || !recipeInitiator.current?.isConnected) rememberRecipeFocus();
-  };
-  const restoreRecipeFocus = () => {
-    const expectedOutputId = recipeOwner.state.identity.outputId;
-    const initiator = recipeInitiator.current;
-    const fact = recipeInitiatorFact.current;
-    if (!initiator && !fact) return;
-    const generation = ++recipeFocusGeneration.current;
-    const activeAtCompletion = document.activeElement;
-    recipeInitiator.current = undefined;
-    recipeInitiatorFact.current = undefined;
-    window.requestAnimationFrame(() => {
-      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || latestState.current.selectedOutputId !== expectedOutputId) return;
-      if (document.activeElement !== activeAtCompletion && document.activeElement !== document.body && document.activeElement !== initiator) return;
-      let target = initiator?.isConnected ? initiator : undefined;
-      if (!target && fact?.testId) target = [...document.querySelectorAll<HTMLElement>('[data-testid]')].find((node) => node.dataset.testid === fact.testId);
-      if (!target && fact?.columnId) target = [...document.querySelectorAll<HTMLElement>('[data-column-id]')].find((node) => node.dataset.columnId === fact.columnId)?.querySelector<HTMLElement>('button') ?? undefined;
-      if (!target && fact?.occurrenceId) target = [...document.querySelectorAll<HTMLElement>('button[data-occurrence-id]')].find((node) => node.dataset.occurrenceId === fact.occurrenceId);
-      if (fact?.testId?.startsWith('shared-source-policy-') && target?.dataset.testid !== fact.testId) {
-        pendingRecipeFocus.current = { testId: fact.testId, outputId: expectedOutputId, fallback: target };
-      }
-      if (target) {
-        let ancestor: HTMLElement | null = target.parentElement;
-        while (ancestor) { if (ancestor instanceof HTMLDetailsElement) ancestor.open = true; ancestor = ancestor.parentElement; }
-        target.focus();
-      }
-    });
   };
   rootRecipeActions.current = {
     begin: (nodeId, mode) => {
@@ -2727,38 +2698,18 @@ const BuilderWorkspaceContent = ({
   const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
   const relationshipOwner = JSON.stringify([builderDataKey, state.explorerId, table?.outputId,
     state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
-  const completePendingRecipeFocus = (outputId: string) => {
-    const generation = recipeFocusGeneration.current;
-    window.requestAnimationFrame(() => {
-      const pending = pendingRecipeFocus.current;
-      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || !pending || pending.outputId !== outputId || latestState.current.selectedOutputId !== pending.outputId) return;
-      if (document.activeElement !== document.body && document.activeElement !== pending.fallback) {
-        pendingRecipeFocus.current = undefined;
-        return;
-      }
-      const control = [...document.querySelectorAll<HTMLElement>('[data-testid]')].find((node) => node.dataset.testid === pending.testId);
-      if (!control) return;
-      pendingRecipeFocus.current = undefined;
-      control.focus();
-    });
-  };
-  const loadRecipeNetwork = () => {
-    if (firstTableProgress.kind !== 'idle' || !table) return;
-    // The portal may commit after current bindings; this existing ref action also
-    // completes a pending restoration without issuing another metadata request.
-    completePendingRecipeFocus(table.outputId);
-    if (networkRequestOwner.current === relationshipOwner) return;
-    networkRequestOwner.current = relationshipOwner;
-    void loomClient.describeAuthoringNetwork({ project: projectId, explorerId: state.explorerId, authResourcePath,
-      snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
-      expectedDraftDigest: state.draftDigest, outputId: table.outputId }).then((result) => {
-      if (networkRequestOwner.current !== relationshipOwner) return;
-      if (result.draftVersion !== state.draftVersion || result.draftDigest !== state.draftDigest ||
-        result.snapshotToken !== state.catalog.snapshotToken || result.network.outputId !== table.outputId) return;
-      setSavedNetwork({ owner: relationshipOwner, result });
-      completePendingRecipeFocus(result.network.outputId);
-    }).catch(() => { if (networkRequestOwner.current === relationshipOwner) networkRequestOwner.current = ''; });
-  };
+  const loadRecipeNetwork = createRecipeNetworkLoader({
+    firstTableProgress,
+    table,
+    networkRequestOwner,
+    relationshipOwner,
+    loomClient,
+    projectId,
+    state,
+    authResourcePath,
+    setSavedNetwork,
+    completePendingRecipeFocus,
+  });
   const pendingRelationship = relationshipEdit?.owner === relationshipOwner ? relationshipEdit.change : undefined;
   const proposeRelationship = (change: SourceRelationshipChange, prepareImmediately = false) => {
     if (!recipeMutationAllowed()) return;
