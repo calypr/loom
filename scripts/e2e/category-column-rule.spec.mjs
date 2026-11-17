@@ -49,6 +49,8 @@ test('category coding rule keeps each system paired with its own display', { tim
       const occurrence = connected.workspace.documents[0].route.children.find(child => child.resourceType === 'Observation');
       const selector = `button[data-occurrence-selector="true"][data-occurrence-id=${JSON.stringify(occurrence.occurrenceId)}]`;
       await page.reload();
+      await page.until(() => page.evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`),
+        'saved Observation occurrence is available after reload');
       await page.click(selector);
       await page.click('[data-testid="construction-action-add-columns"]');
       await page.click('[role="tab"][data-column-tab="advanced"]');

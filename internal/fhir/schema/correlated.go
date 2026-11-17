@@ -422,19 +422,6 @@ func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (Ex
 			return ExtensionBindingSpec{}, fmt.Errorf("urlPath[%d] is empty", index)
 		}
 	}
-	ownerSelector := Selector{}
-	if len(baseParts) > 0 {
-		basePath := strings.Join(baseParts, ".")
-		var err error
-		ownerSelector, err = ParseSelector(basePath)
-		if err != nil {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath base: %w", err)
-		}
-		resolved, ok := ResolvePath(resourceType, basePath)
-		if !ok || !((resolved.Property.Kind == "array" && strings.TrimSpace(resolved.Property.ItemRef) != "") || (resolved.Property.Kind == "object" && strings.TrimSpace(resolved.Property.Ref) != "")) {
-			return ExtensionBindingSpec{}, fmt.Errorf("ownerPath base %q must resolve to an object or repeated object", basePath)
-		}
-	}
 	value := checkedBindingValue{LogicalType: binding.LogicalType}
 	if binding.CanonicalJSONValue {
 		if strings.TrimSpace(binding.ValuePath) != "" || len(binding.ValueFallback) != 0 || len(binding.ChoiceArms) != 0 || binding.UnitPath != "" || binding.FallbackOnBlankString {
@@ -528,8 +515,9 @@ func extensionOwnerPath(resourceType, path string) (Selector, int, error) {
 			return Selector{}, 0, fmt.Errorf("ownerPath base: %w", err)
 		}
 		resolved, ok := ResolvePath(resourceType, basePath)
-		if !ok || resolved.Property.Kind != "array" || strings.TrimSpace(resolved.Property.ItemRef) == "" {
-			return Selector{}, 0, fmt.Errorf("ownerPath base %q must resolve to a repeated object", basePath)
+		if !ok || !((resolved.Property.Kind == "array" && strings.TrimSpace(resolved.Property.ItemRef) != "") ||
+			(resolved.Property.Kind == "object" && strings.TrimSpace(resolved.Property.Ref) != "")) {
+			return Selector{}, 0, fmt.Errorf("ownerPath base %q must resolve to an object or repeated object", basePath)
 		}
 	}
 	return ownerSelector, extensionDepth, nil

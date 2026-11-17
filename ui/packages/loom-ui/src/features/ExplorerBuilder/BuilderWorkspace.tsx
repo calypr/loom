@@ -1079,13 +1079,8 @@ const BuilderWorkspaceContent = ({
     ? constructionLifecycle.capabilities.response.stages
     : undefined;
   const {
-    selectedAddSource,
     panel: addColumnsPanel,
     restorePanel: restoreAddColumnsPanel,
-    concreteAddSources,
-    setAddColumnsSource,
-    addSourceContext,
-    addSourceOptionLabel,
     addSourceRouteContext,
     addColumnsView,
     addColumnsViewRevision,

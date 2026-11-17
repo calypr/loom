@@ -257,7 +257,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
         <OptionalExpression label="Cell value expression" value={rule.value} onChange={(value) => update({ value })} pathChoices={sourcePathChoices} />
       </>;
       return <>
-        <Text label="Rule name" value={rule.name} onChange={(name) => update({ name })} />
+        {structuredColumnRule ? <Text label="Rule name" value={rule.name} onChange={(name) => update({ name })} /> : null}
         <OptionalText label="Dynamic column prefix" value={rule.columnPrefix} onChange={(columnPrefix) => update({ columnPrefix })} />
         {isIdentifier ? (
           <>
@@ -286,7 +286,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
       </>;
     })() : null}
     {view !== 'fields' && 'extension' in parameters && parameters.extension ? (() => { const p = parameters.extension; const update = (patch: Partial<typeof p>) => onChange({ ...parameters, extension: { ...p, ...patch } }); return <>
-      <Text label="Extension column name" value={p.name} onChange={(name) => update({ name })} />
+      {structuredColumnRule ? <Text label="Extension column name" value={p.name} onChange={(name) => update({ name })} /> : null}
       {(() => {
         const current = typeof p.source.select === 'string' ? p.source.select : '';
         if (structuredColumnRule) {

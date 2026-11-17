@@ -522,17 +522,11 @@ export const useAddColumns = ({
     ? addColumnsAdmission.refusal.message
     : undefined;
   return {
-    selectedAddSource,
-    panel: { view: addColumnsView, source: addColumnsSource },
-    restorePanel: (panel: { view: typeof addColumnsView; source: typeof addColumnsSource } | undefined) => {
+    panel: { view: addColumnsView },
+    restorePanel: (panel: { view: typeof addColumnsView } | undefined) => {
       setAddColumnsView(panel?.view ?? 'fields');
-      setAddColumnsSource(panel?.source);
       setAddColumnsViewRevision((revision) => revision + 1);
     },
-    concreteAddSources,
-    setAddColumnsSource,
-    addSourceContext,
-    addSourceOptionLabel,
     addSourceRouteContext,
     addColumnsView,
     addColumnsViewRevision,

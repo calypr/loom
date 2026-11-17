@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ConstructionReshapeEditor,
@@ -123,7 +123,7 @@ describe('ConstructionReshapeEditor pivot discovery opt-in', () => {
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'flag-id' } });
     expect(onCandidateChange.mock.lastCall?.[0]).toBeDefined();
     release();
-    await waitFor(() => expect(screen.getByRole('option', { name: /Age — No populated values/ })).toBeDisabled());
+    await waitFor(() => expect(within(screen.getByLabelText('Pivot category field')).getByRole('option', { name: /Age — No populated values/ })).toBeDisabled());
     expect(onCandidateChange.mock.lastCall?.[0]).toBeUndefined();
   });
   it('emits empty categories with discovery.maxCategories when enabled', () => {
