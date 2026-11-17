@@ -65,4 +65,32 @@ describe('creating a column rule', () => {
     }, expect.any(Function));
   });
 
+
+  it('reviews selected catalog paths and the requested column limit', () => {
+    const catalog = columnRuleDefaults.catalog;
+    const renderReview = vi.fn<ComponentProps<typeof CreateColumnRule>['renderReview']>(() => null);
+    function Harness() {
+      const [reviewing, setReviewing] = useState(false);
+      if (!catalog) throw new Error('Catalog preset must be available.');
+      return <CreateColumnRule kind="CATALOG_PROJECTION" occurrence={{ id: '', resourceType: 'Patient', label: 'Patient' }}
+        preset={columnRulePresets[3]} initialParameters={catalog} fieldPathChoices={['birthDate', 'gender']}
+        disabled={false} reviewing={reviewing} onReview={() => setReviewing(true)} onCancel={() => setReviewing(false)}
+        renderReview={renderReview} />;
+    }
+    render(<Harness />);
+    const review = screen.getByRole('button', { name: 'Review column rule' });
+    expect(review).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Include birthDate' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Exclude gender' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Filter scalar' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Maximum columns' }), { target: { value: '129' } });
+    expect(review).toBeDisabled();
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Maximum columns' }), { target: { value: '4' } });
+    fireEvent.click(review);
+    expect(renderReview).toHaveBeenCalledWith({
+      kind: 'CATALOG_PROJECTION', maxColumns: 4,
+      parameters: { catalog: { name: 'catalog_fields', naming: 'PATH', includePaths: ['birthDate'], excludePaths: ['gender'], kinds: ['scalar'] } },
+    }, expect.any(Function));
+  });
+
 });

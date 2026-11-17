@@ -1104,7 +1104,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(within(panel).getByRole('list', { name: 'Column rules' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Extensions' })).toBeDisabled();
     expect(within(panel).getByRole('button', { name: 'Category codings' })).toBeEnabled();
-    expect(within(panel).getByRole('button', { name: 'Catalog fields' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'Catalog fields' })).toBeEnabled();
     fireEvent.click(within(panel).getByRole('button', { name: 'Identifiers' }));
     expect(within(panel).getByRole('heading', { name: 'Columns from identifiers' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Review column rule' })).toBeEnabled();

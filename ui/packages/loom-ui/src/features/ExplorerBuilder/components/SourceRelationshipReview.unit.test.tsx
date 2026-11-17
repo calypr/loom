@@ -132,3 +132,31 @@ it('previews a coupled source edit as one atomic request and applies only its re
  fireEvent.click(screen.getByRole('button',{name:'Apply source step'}));
  await waitFor(()=>expect(onApply).toHaveBeenCalledWith([{type:'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',outputId:'subjects',proposalId:'p1'}]));
 });
+
+it('lists the generated catalog columns from the proposal before Apply', async () => {
+  const onApply = vi.fn();
+  const proposeSourceRelationship = vi.fn().mockResolvedValue({
+    ...proposal,
+    affectedColumns: ['added-field'],
+    candidateDocument: {
+      columns: [
+        { columnId: 'existing-field', column: 'id' },
+        { columnId: 'added-field', column: 'birthDate' },
+      ],
+    },
+  });
+  render(<SourceRelationshipReview
+    client={{ proposeSourceRelationship } as unknown as LoomClient}
+    project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2"
+    outputId="subjects" disabled={false}
+    sourceRule={{
+      kind: 'CATALOG_PROJECTION',
+      parameters: { catalog: { name: 'catalog_fields', includePaths: ['birthDate'] } },
+    }}
+    onApply={onApply} onCancel={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Preview column rule' }));
+  const generated = await screen.findByRole('region', { name: 'Generated columns' });
+  expect(within(generated).getByRole('listitem')).toHaveTextContent('birthDate');
+  expect(within(generated).queryByText('id')).not.toBeInTheDocument();
+  expect(onApply).not.toHaveBeenCalled();
+});

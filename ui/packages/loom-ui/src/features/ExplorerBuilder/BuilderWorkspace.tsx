@@ -1356,6 +1356,10 @@ const BuilderWorkspaceContent = ({
     rowRoot: table?.document.rootResourceType ?? '',
     resourceType: ruleOccurrence?.resourceType ?? '',
   };
+  const ruleFieldPaths = Array.from(new Set((state.catalog.candidates ?? [])
+    .filter(candidate => candidate.nodeId === graphSource?.nodeId && candidate.fieldPath)
+    .map(candidate => ruleOccurrence && candidate.fieldPath.startsWith(`${ruleOccurrence.resourceType}.`)
+      ? candidate.fieldPath.slice(ruleOccurrence.resourceType.length + 1) : candidate.fieldPath))).sort();
   const operationEditor = table && activeOperation ? (
     <OperationEditorHost
       table={table}
@@ -1395,6 +1399,7 @@ const BuilderWorkspaceContent = ({
             kind={preset.kind} occurrence={ruleOccurrence} preset={preset} initialParameters={initialParameters}
             identifierSystems={inventory.systems} identifierInventoryLoading={inventory.loading}
             identifierInventoryUnavailable={inventory.unavailable}
+            fieldPathChoices={preset.id === 'catalog' ? ruleFieldPaths : undefined}
             reviewing={activeRuleReview?.ruleKind === preset.kind && activeRuleReview.occurrenceId === ruleOccurrence.id}
             disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
             onReview={() => {

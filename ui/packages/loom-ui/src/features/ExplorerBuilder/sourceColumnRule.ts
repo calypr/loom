@@ -49,4 +49,5 @@ export const columnRuleDefaults: Partial<Record<ColumnRulePreset['id'], Imported
       value: { select: 'item.display' },
     },
   },
+  catalog: { catalog: { name: 'catalog_fields', includePaths: [], naming: 'PATH' } },
 };

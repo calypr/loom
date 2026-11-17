@@ -59,6 +59,24 @@ function OptionalExpression({ label, value, onChange, pathChoices }: { label: st
 }
 
 /** All edits are the canonical typed parameters of one pinned source step. */
+function CatalogChoices({ action, options, values, onChange }: {
+  readonly action: string;
+  readonly options: ReadonlyArray<string>;
+  readonly values: ReadonlyArray<string>;
+  readonly onChange: (values: string[]) => void;
+}) {
+  return <fieldset className="grid gap-1 text-xs">
+    <legend className="font-medium">{action === 'Filter' ? 'Field kinds' : `${action} paths`}</legend>
+    <div className="grid max-h-32 gap-1 overflow-auto rounded border border-slate-200 px-2 py-1">
+      {options.map(option => <label key={option} className="flex items-start gap-2">
+        <input type="checkbox" aria-label={`${action} ${option}`} checked={values.includes(option)}
+          onChange={(event) => onChange(event.currentTarget.checked ? [...values, option] : values.filter(value => value !== option))} />
+        {option}
+      </label>)}
+    </div>
+  </fieldset>;
+}
+
 export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all', structuredColumnRule = false }: {
   readonly view?: 'all' | 'fields' | 'settings';
   readonly parameters: EditorSourceParameters;
@@ -216,9 +234,15 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
           })}
         </ol>
       </fieldset> : null}
-      <Strings label="Included path" values={p.includePaths ?? []} options={fieldPathChoices} onChange={(includePaths) => update({ includePaths })} />
-      <Strings label="Excluded path" values={p.excludePaths ?? []} options={fieldPathChoices} onChange={(excludePaths) => update({ excludePaths })} />
-      <Strings label="Field kind" values={p.kinds ?? []} options={fieldKindChoices} onChange={(kinds) => update({ kinds })} />
+      {structuredColumnRule && fieldPathChoices ? <>
+        <CatalogChoices action="Include" options={fieldPathChoices} values={p.includePaths ?? []} onChange={(includePaths) => update({ includePaths })} />
+        <CatalogChoices action="Exclude" options={fieldPathChoices} values={p.excludePaths ?? []} onChange={(excludePaths) => update({ excludePaths })} />
+        <CatalogChoices action="Filter" options={['scalar', 'array', 'object']} values={p.kinds ?? []} onChange={(kinds) => update({ kinds })} />
+      </> : <>
+        <Strings label="Included path" values={p.includePaths ?? []} options={fieldPathChoices} onChange={(includePaths) => update({ includePaths })} />
+        <Strings label="Excluded path" values={p.excludePaths ?? []} options={fieldPathChoices} onChange={(excludePaths) => update({ excludePaths })} />
+        <Strings label="Field kind" values={p.kinds ?? []} options={fieldKindChoices} onChange={(kinds) => update({ kinds })} />
+      </>}
       <label className="grid gap-1 text-xs">Column naming<select aria-label="Column naming" className={controlClass} value={p.naming ?? ''} onChange={(event) => update({ naming: (event.currentTarget.value || undefined) as typeof p.naming })}><option value="">Recipe default</option><option value="PATH">Full path</option><option value="PATH_SUFFIX">Path suffix</option></select></label>
     </>; })() : null}
     {view !== 'fields' && 'dynamic' in parameters && parameters.dynamic ? (() => {
