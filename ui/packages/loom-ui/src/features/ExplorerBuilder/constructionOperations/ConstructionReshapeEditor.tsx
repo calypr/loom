@@ -1,5 +1,5 @@
 import { createOpaqueId, normalizedName, uniqueName, editorContextKey, stageWithSourceInputs, type CodedPivotContext } from './editorShared';
-import React, { useCallback, useId, useRef, useState } from 'react';
+import React, { useCallback, useId, useReducer, useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
   Construction,
@@ -72,7 +72,6 @@ import {
   type ConstructionReshapeStep,
   type EmptyListPolicy,
   type ExpandForm,
-  type PivotCategoryMemory,
   type PivotForm,
   type ReshapeCapabilities,
   type ReshapeColumn,
@@ -84,6 +83,14 @@ import {
   type UnpivotForm,
   type UnpivotInputForm,
 } from './reshapeForms';
+import {
+  initialPivotDiscoveryState,
+  pivotDiscoveryReducer,
+  transitionPivotDiscovery,
+  type PendingPivotDiscovery,
+  type PivotDiscoverySnapshot,
+  type ScheduledPivotDiscovery,
+} from './pivotDiscoveryReducer';
 
 export {
   CONSTRUCTION_RESHAPE_EDITABLE_KINDS,
@@ -144,23 +151,6 @@ export interface ConstructionReshapeEditorProps {
   readonly relatedExpandQueryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
   readonly codedPivotContext?: CodedPivotContext;
 }
-
-type PivotDiscoveryRequestOwner = NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>;
-type PendingPivotDiscovery = {
-  readonly identity: string;
-  readonly revision: number;
-  readonly owner: PivotDiscoveryRequestOwner;
-};
-type ScheduledPivotDiscovery = PendingPivotDiscovery & { readonly timer: number };
-// Editor-owned view of "a discovery for this exact request identity has been asked
-// for and no result was adopted yet". Hosts may lag or omit status:'loading', so the
-// in-progress UI cannot depend on props.pivotDiscovery alone. `seen` is the host state
-// already acknowledged when the request was issued; a newer host object ends the
-// in-flight window even for a terminal status.
-type AwaitingPivotDiscovery = PendingPivotDiscovery & {
-  readonly contextKey: string;
-  readonly seen: ConstructionReshapePivotDiscovery | undefined;
-};
 
 const candidateFor = (args: {
   readonly form: ReshapeForm;
@@ -288,83 +278,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind));
   const [formContextKey, setFormContextKey] = useState(contextKey);
   const [contractUnavailable, setContractUnavailable] = useState(false);
-  const automaticallySelectedPivotPairs = useRef(new Set<string>());
-  const manuallySelectedPivotPairs = useRef(new Set<string>());
-  const pivotCategoryMemory = useRef(new Map<string, PivotCategoryMemory>());
-  const pivotDiscoveryRevision = useRef(0);
-  const requestedPivotDiscovery = useRef<PendingPivotDiscovery | undefined>(undefined);
-  const scheduledPivotDiscovery = useRef<ScheduledPivotDiscovery | undefined>(undefined);
-  const [awaitingPivotDiscovery, setAwaitingPivotDiscovery] = useState<AwaitingPivotDiscovery | undefined>(undefined);
-  const rememberAwaitingPivotDiscovery = useCallback((next: AwaitingPivotDiscovery) => {
-    setAwaitingPivotDiscovery((current) => (
-      current?.identity === next.identity
-        && current?.revision === next.revision
-        && current?.owner === next.owner
-        && current?.contextKey === next.contextKey
-        && current?.seen === next.seen
-        ? current
-        : next
-    ));
-  }, []);
-  const clearAwaitingPivotDiscovery = useCallback((identity: string, revision: number) => {
-    setAwaitingPivotDiscovery((current) => (
-      current && current.identity === identity && current.revision === revision ? undefined : current
-    ));
-  }, []);
-  const pivotDiscoveryActivationTimer = useRef<number | undefined>(undefined);
-  const pivotDiscoveryRootMounted = useRef(false);
-  const currentFormRef = useRef(form);
-  currentFormRef.current = form;
-  const currentContextKeyRef = useRef(contextKey);
-  currentContextKeyRef.current = contextKey;
-  const currentFormContextKeyRef = useRef(formContextKey);
-  currentFormContextKeyRef.current = formContextKey;
-  const currentDiscoveryOwnerRef = useRef(props.onDiscoverCategories);
-  currentDiscoveryOwnerRef.current = props.onDiscoverCategories;
-  const currentStageIdRef = useRef(stage.id);
-  currentStageIdRef.current = stage.id;
-  const currentConstructionRef = useRef(construction);
-  currentConstructionRef.current = construction;
-  const currentDisabledRef = useRef(disabled);
-  currentDisabledRef.current = disabled;
-  const updateFormRef = useRef<((next: ReshapeForm, discovery?: ConstructionReshapePivotDiscovery) => void) | undefined>(undefined);
-  const schedulePivotDiscoveryRef = useRef<((next: PivotForm) => void) | undefined>(undefined);
-  const currentPivotDiscoveryRef = useRef<ConstructionReshapePivotDiscovery | undefined>(undefined);
-  currentPivotDiscoveryRef.current = formContextKey === contextKey ? props.pivotDiscovery : undefined;
-  const reportInitialStateRef = useRef<(() => void) | undefined>(undefined);
-  const reportedInitialContextKey = useRef<string | undefined>(undefined);
-  const pivotDiscoveryRootRef = useCallback((element: HTMLElement | null) => {
-    if (element) {
-      reportInitialStateRef.current?.();
-      pivotDiscoveryRootMounted.current = true;
-      pivotDiscoveryActivationTimer.current = window.setTimeout(() => {
-        pivotDiscoveryActivationTimer.current = undefined;
-        const current = currentFormRef.current;
-        if (current.kind !== 'pivot') return;
-        const cachedDiscovery = currentPivotDiscoveryRef.current;
-        if (cachedDiscovery?.status === 'complete'
-            && !pivotCategoriesAreKnown(current, stage.id, cachedDiscovery)
-            && adoptPivotDiscovery(pivotDiscoveryRequestIdentity(current, stage.id, contextKey), cachedDiscovery)) return;
-        if (!disabled) schedulePivotDiscoveryRef.current?.(current);
-      }, 0);
-      return;
-    }
-    pivotDiscoveryRootMounted.current = false;
-    if (pivotDiscoveryActivationTimer.current !== undefined) {
-      window.clearTimeout(pivotDiscoveryActivationTimer.current);
-      pivotDiscoveryActivationTimer.current = undefined;
-    }
-    const identityChanged = currentContextKeyRef.current !== contextKey
-      || currentDiscoveryOwnerRef.current !== props.onDiscoverCategories;
-    const scheduled = scheduledPivotDiscovery.current;
-    if (scheduled) {
-      window.clearTimeout(scheduled.timer);
-      scheduledPivotDiscovery.current = undefined;
-    }
-    if (identityChanged) {
-      pivotDiscoveryRevision.current += 1;
-    }
-  }, [contextKey, disabled, props.initialEntry, props.onDiscoverCategories, stage.id]);
   const [reshapeTab, setReshapeTab] = useState<'pivot' | 'unpivot'>('pivot');
   const [groupPurpose, setGroupPurpose] = useState<'group' | 'summarize' | undefined>();
   if (formContextKey !== contextKey) {
@@ -372,13 +285,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       ? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind)
       : props.initialEntry?.form
         ?? formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
-    automaticallySelectedPivotPairs.current.clear();
-    manuallySelectedPivotPairs.current.clear();
-    pivotCategoryMemory.current.clear();
-    requestedPivotDiscovery.current = undefined;
-    scheduledPivotDiscovery.current = undefined;
-    pivotDiscoveryRevision.current += 1;
-    setAwaitingPivotDiscovery(undefined);
     setForm(initialForm);
     setFormContextKey(contextKey);
     setContractUnavailable(false);
@@ -397,86 +303,192 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     ? pivotSupport
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
   const pivotDiscovery = formContextKey === contextKey ? props.pivotDiscovery : undefined;
+  const pivotEvaluationContextKey = JSON.stringify([
+    groupSupport,
+    groupCodedValuesSupported,
+    sourceGroupSupported,
+    sourceGroupReason,
+    codedGroupSupport,
+    expandSupport,
+    relatedExpandSupport,
+    pivotSupport,
+    codedPivotSupport,
+    unpivotSupport,
+  ]);
+  const pivotSnapshot: PivotDiscoverySnapshot = {
+    contextKey,
+    formContextKey,
+    owner: props.onDiscoverCategories,
+    stageId: stage.id,
+    form,
+    construction,
+    capabilities,
+    editingStep,
+    stage,
+    groupStage,
+    groupSupport,
+    groupCodedValuesSupported,
+    sourceGroupSupport: { supported: sourceGroupSupported, reason: sourceGroupReason },
+    codedGroupSupport,
+    expandSupport,
+    relatedExpandSupport,
+    pivotSupport,
+    codedPivotSupport,
+    unpivotSupport,
+    discovery: pivotDiscovery,
+    disabled,
+    pivotSupported: pivotSupport.supported,
+    onCandidateChange,
+    onFormKindChange: props.onFormKindChange,
+  };
+  const [pivotState, dispatchPivotAction] = useReducer(
+    pivotDiscoveryReducer,
+    pivotSnapshot,
+    initialPivotDiscoveryState,
+  );
+  const pivotStateRef = useRef(pivotState);
+  const sendPivotAction = useCallback((action: Parameters<typeof transitionPivotDiscovery>[1]) => {
+    const transition = transitionPivotDiscovery(pivotStateRef.current, action);
+    if (transition.state !== pivotStateRef.current) {
+      pivotStateRef.current = transition.state;
+      dispatchPivotAction(action);
+    }
+    return transition.accepted;
+  }, []);
+
+  const pivotDiscoveryRootRef = useCallback((element: HTMLElement | null) => {
+    if (!element) {
+      const current = pivotStateRef.current;
+      if (current.activationTimer !== undefined) window.clearTimeout(current.activationTimer);
+      if (current.scheduled) window.clearTimeout(current.scheduled.timer);
+      sendPivotAction({ type: 'root-detached' });
+      return;
+    }
+
+    const machineSnapshot = pivotStateRef.current.snapshot;
+    const attachedSnapshot = {
+      ...pivotSnapshot,
+      form: machineSnapshot.contextKey === pivotSnapshot.contextKey
+          && machineSnapshot.formContextKey === pivotSnapshot.formContextKey
+        ? machineSnapshot.form
+        : pivotSnapshot.form,
+    };
+    sendPivotAction({ type: 'root-attached', snapshot: attachedSnapshot });
+    const initialStateReported = sendPivotAction({
+      type: 'initial-state-reported',
+      contextKey,
+      hasInitialEntry: Boolean(props.initialEntry),
+    });
+    if (initialStateReported && !props.initialEntry) {
+      const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
+      props.onFormKindChange?.(initialForm.kind);
+      const initialCandidate = (!editingStep
+        && (initialForm.kind === 'coded-group' && codedGroupSupport.supported
+          || initialForm.kind === 'source-group' && sourceGroupSupported
+          || initialForm.kind === 'unpivot' && unpivotSupport.supported))
+        || (editingStep !== undefined && initialForm.kind === 'expand' && editingStep.operation.kind === 'EXPAND'
+          && (expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)))
+        ? candidateFor({
+            form: initialForm,
+            construction,
+            capabilities,
+            stage: groupStage,
+            editingStep,
+            pivotCategoriesKnown: false,
+          })
+        : undefined;
+      const reportInitialCandidate = editingStep !== undefined || initialForm.kind !== 'group';
+      if (initialCandidate?.kind === 'ready') onCandidateChange(initialCandidate.intent);
+      else if (reportInitialCandidate) onCandidateChange(undefined);
+    }
+
+    const timer = window.setTimeout(() => {
+      if (!sendPivotAction({ type: 'activation-fired', contextKey, timer })) return;
+      const current = pivotStateRef.current;
+      const currentForm = current.snapshot.form;
+      if (currentForm.kind !== 'pivot') return;
+      const cachedDiscovery = current.snapshot.discovery;
+      if (cachedDiscovery?.status === 'complete'
+          && !pivotCategoriesAreKnown(currentForm, current.snapshot.stageId, cachedDiscovery)
+          && adoptPivotDiscovery(
+            pivotDiscoveryRequestIdentity(currentForm, current.snapshot.stageId, current.snapshot.contextKey),
+            cachedDiscovery,
+          )) return;
+      if (!current.snapshot.disabled) schedulePivotDiscovery(currentForm);
+    }, 0);
+    sendPivotAction({ type: 'activation-scheduled', contextKey, timer });
+  }, [
+    contextKey,
+    formContextKey,
+    disabled,
+    props.initialEntry,
+    props.onDiscoverCategories,
+    props.onCandidateChange,
+    props.onFormKindChange,
+    props.pivotDiscovery,
+    props.capabilities,
+    construction,
+    editingStep,
+    groupStage,
+    stage,
+    stage.id,
+    pivotSupport.supported,
+    pivotEvaluationContextKey,
+  ]);
+
   // A host-published loading state stays handled by PivotEditor's own check. Beyond
   // that, an editor-issued request counts as in flight until the host publishes
   // something newer for the current key or a result for its exact identity is
   // adopted, because hosts may lag or omit status:'loading' entirely.
   const pivotDiscoveryInFlight = ((): boolean => {
     const owner = props.onDiscoverCategories;
-    if (!owner || disabled || form.kind !== 'pivot' || !pivotDiscoveryRootMounted.current) return false;
+    const awaiting = pivotState.awaiting;
+    if (!owner || disabled || form.kind !== 'pivot' || !pivotState.mounted) return false;
     if (formContextKey !== contextKey || !pivotSupport.supported) return false;
-    if (awaitingPivotDiscovery?.contextKey !== contextKey
-        || awaitingPivotDiscovery.owner !== owner
-        || awaitingPivotDiscovery.revision !== pivotDiscoveryRevision.current
-        || awaitingPivotDiscovery.identity !== pivotDiscoveryRequestIdentity(form, stage.id, contextKey)) return false;
-    if (pivotDiscovery === awaitingPivotDiscovery.seen) return true;
+    if (awaiting?.contextKey !== contextKey
+        || awaiting.owner !== owner
+        || awaiting.revision !== pivotState.revision
+        || awaiting.identity !== pivotDiscoveryRequestIdentity(form, stage.id, contextKey)) return false;
+    if (pivotDiscovery === awaiting.seen) return true;
     return !pivotDiscoveryMatches(form, stage.id, pivotDiscovery) || pivotDiscovery.status === 'loading';
   })();
 
-  reportInitialStateRef.current = () => {
-    if (props.initialEntry) {
-      reportedInitialContextKey.current = undefined;
-      return;
-    }
-    if (reportedInitialContextKey.current === contextKey) return;
-    reportedInitialContextKey.current = contextKey;
-    const initialForm = formForStep(construction, capabilities, editingStep, groupStage, props.selectedColumns ?? [], props.initialKind);
-    props.onFormKindChange?.(initialForm.kind);
-    const initialCandidate = (!editingStep
-      && (initialForm.kind === 'coded-group' && codedGroupSupport.supported
-        || initialForm.kind === 'source-group' && sourceGroupSupported
-        || initialForm.kind === 'unpivot' && unpivotSupport.supported))
-      || (editingStep !== undefined && initialForm.kind === 'expand' && editingStep.operation.kind === 'EXPAND'
-        && (expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)))
-      ? candidateFor({
-          form: initialForm,
-          construction,
-          capabilities,
-          stage: groupStage,
-          editingStep,
-          pivotCategoriesKnown: false,
-        })
-      : undefined;
-    const reportInitialCandidate = editingStep !== undefined || initialForm.kind !== 'group';
-    if (initialCandidate?.kind === 'ready') onCandidateChange(initialCandidate.intent);
-    else if (reportInitialCandidate) onCandidateChange(undefined);
-  };
-
-  const capabilityForForm = (next: ReshapeForm) => {
+  const capabilityForForm = (next: ReshapeForm, snapshot: PivotDiscoverySnapshot) => {
     switch (next.kind) {
-      case 'group': return groupCodedValuesSupported ? { supported: true, reason: '' } : groupSupport;
-      case 'source-group': return { supported: sourceGroupSupported, reason: sourceGroupReason };
-      case 'coded-group': return codedGroupSupport;
-      case 'expand': return expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)
+      case 'group': return snapshot.groupCodedValuesSupported ? { supported: true, reason: '' } : snapshot.groupSupport;
+      case 'source-group': return snapshot.sourceGroupSupport;
+      case 'coded-group': return snapshot.codedGroupSupport;
+      case 'expand': return snapshot.expandSupport.supported || (snapshot.capabilities.expandSourceInput?.supported ?? false)
         ? { supported: true, reason: '' }
-        : expandSupport;
-      case 'related-expand': return relatedExpandSupport;
-      case 'pivot': return pivotSupport;
-      case 'coded-pivot': return codedPivotSupport;
-      case 'unpivot': return unpivotSupport;
+        : snapshot.expandSupport;
+      case 'related-expand': return snapshot.relatedExpandSupport;
+      case 'pivot': return snapshot.pivotSupport;
+      case 'coded-pivot': return snapshot.codedPivotSupport;
+      case 'unpivot': return snapshot.unpivotSupport;
       default: return undefined;
     }
   };
 
   const evaluate = (
     next: ReshapeForm,
-    discovery: ConstructionReshapePivotDiscovery | undefined = pivotDiscovery,
+    discovery: ConstructionReshapePivotDiscovery | undefined,
+    snapshot: PivotDiscoverySnapshot,
   ): CandidateEvaluation => {
-    const support = capabilityForForm(next);
+    const support = capabilityForForm(next, snapshot);
     if (!support?.supported) return { kind: 'incomplete' };
-    const pivotCategoriesKnown = next.kind === 'pivot' && pivotCategoriesAreKnown(next, stage.id, discovery);
+    const pivotCategoriesKnown = next.kind === 'pivot' && pivotCategoriesAreKnown(next, snapshot.stage.id, discovery);
     if (
       next.kind === 'pivot'
-      && editingStep?.operation.kind !== 'PIVOT'
+      && snapshot.editingStep?.operation.kind !== 'PIVOT'
       && pivotCategoriesKnown
-      && !allDiscoveredPivotCategoriesSelected(next, stage.id, discovery)
+      && !allDiscoveredPivotCategoriesSelected(next, snapshot.stage.id, discovery)
     ) return { kind: 'incomplete' };
     return candidateFor({
       form: next,
-      construction,
-      capabilities,
-      stage: next.kind === 'group' ? groupStage : stage,
-      editingStep,
+      construction: snapshot.construction,
+      capabilities: snapshot.capabilities,
+      stage: next.kind === 'group' ? snapshot.groupStage : snapshot.stage,
+      editingStep: snapshot.editingStep,
       pivotCategoriesKnown,
     });
   };
@@ -485,25 +497,28 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     pivot: PivotForm,
     discovery: ConstructionReshapePivotDiscovery | undefined,
   ): PivotForm => {
+    const current = pivotStateRef.current;
+    const snapshot = current.snapshot;
     if (pivot.discovery) return pivot;
-    if (formContextKey !== contextKey
+    if (snapshot.formContextKey !== snapshot.contextKey
         || pivotOriginalPairApplies(pivot)
-        || !pivotDiscoveryMatches(pivot, stage.id, discovery)
+        || !pivotDiscoveryMatches(pivot, snapshot.stageId, discovery)
         || discovery.status !== 'complete') return pivot;
 
-    const selectionIdentity = pivotSelectionIdentity(pivot, stage.id);
-    const manualSelectionApplies = manuallySelectedPivotPairs.current.has(selectionIdentity)
+    const selectionIdentity = pivotSelectionIdentity(pivot, snapshot.stageId);
+    const manualSelectionApplies = current.manuallySelectedPairs.has(selectionIdentity)
       && pivot.categories.length > 0 && pivot.categoriesPair !== undefined;
-    if (automaticallySelectedPivotPairs.current.has(selectionIdentity) || manualSelectionApplies) return pivot;
+    if (current.automaticallySelectedPairs.has(selectionIdentity) || manualSelectionApplies) return pivot;
 
-    automaticallySelectedPivotPairs.current.add(selectionIdentity);
-    const savedCategories = editingStep?.operation.kind === 'PIVOT'
-      && editingStep.operation.pivot.categoryColumnId === pivot.categoryColumnId
-      && editingStep.operation.pivot.valueColumnId === pivot.valueColumnId
-      ? initialPivotForm(stage, [], editingStep).categories : [];
-    const excluded = pivotCategoryMemory.current.get(pivotCategoryMemoryKey(pivot, stage.id, contextKey))?.excluded;
+    sendPivotAction({ type: 'automatic-pair-selected', identity: selectionIdentity });
+    const savedStep = snapshot.editingStep;
+    const savedCategories = savedStep?.operation.kind === 'PIVOT'
+      && savedStep.operation.pivot.categoryColumnId === pivot.categoryColumnId
+      && savedStep.operation.pivot.valueColumnId === pivot.valueColumnId
+      ? initialPivotForm(snapshot.stage, [], savedStep).categories : [];
+    const excluded = current.categoryMemory.get(pivotCategoryMemoryKey(pivot, snapshot.stageId, snapshot.contextKey))?.excluded;
     const usedNames = new Set([
-      ...stage.columns.map((column) => column.name.toLowerCase()),
+      ...snapshot.stage.columns.map((column) => column.name.toLowerCase()),
       ...pivot.categories.map((category) => category.name.toLowerCase()),
       ...savedCategories.map((category) => category.name.toLowerCase()),
     ]);
@@ -526,55 +541,62 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
 
   const updateForm = (
     nextForm: ReshapeForm,
-    discovery: ConstructionReshapePivotDiscovery | undefined = pivotDiscovery,
+    discovery: ConstructionReshapePivotDiscovery | undefined = pivotStateRef.current.snapshot.discovery,
   ) => {
+    const current = pivotStateRef.current;
+    const previousForm = current.snapshot.form;
     const next = nextForm.kind === 'pivot' ? autoSelectDiscoveredCategories(nextForm, discovery) : nextForm;
-    const previousRequestIdentity = form.kind === 'pivot'
-      ? pivotDiscoveryRequestIdentity(form, stage.id, contextKey)
+    const previousRequestIdentity = previousForm.kind === 'pivot'
+      ? pivotDiscoveryRequestIdentity(previousForm, current.snapshot.stageId, current.snapshot.contextKey)
       : undefined;
     const nextRequestIdentity = next.kind === 'pivot'
-      ? pivotDiscoveryRequestIdentity(next, stage.id, contextKey)
+      ? pivotDiscoveryRequestIdentity(next, current.snapshot.stageId, current.snapshot.contextKey)
       : undefined;
-    if (next.kind === 'pivot' && next.discovery && form.kind === 'pivot' && !form.discovery) {
-      const scheduled = scheduledPivotDiscovery.current;
+    if (next.kind === 'pivot' && next.discovery && previousForm.kind === 'pivot' && !previousForm.discovery) {
+      const scheduled = current.scheduled;
       if (scheduled && scheduled.identity === previousRequestIdentity) {
         window.clearTimeout(scheduled.timer);
-        scheduledPivotDiscovery.current = undefined;
-        clearAwaitingPivotDiscovery(scheduled.identity, scheduled.revision);
+        sendPivotAction({ type: 'schedule-canceled', identity: scheduled.identity, revision: scheduled.revision });
       }
     }
-    if (form.kind === 'pivot' && next.kind === 'pivot' && previousRequestIdentity !== nextRequestIdentity) {
-      automaticallySelectedPivotPairs.current.delete(pivotSelectionIdentity(form, stage.id));
+    if (previousForm.kind === 'pivot' && next.kind === 'pivot' && previousRequestIdentity !== nextRequestIdentity) {
+      sendPivotAction({
+        type: 'automatic-pair-forgotten',
+        identity: pivotSelectionIdentity(previousForm, current.snapshot.stageId),
+      });
     }
-    if (previousRequestIdentity !== nextRequestIdentity) {
-      pivotDiscoveryRevision.current += 1;
-      const scheduled = scheduledPivotDiscovery.current;
-      if (scheduled) {
-        window.clearTimeout(scheduled.timer);
-        scheduledPivotDiscovery.current = undefined;
-      }
+    const requestIdentityChanged = previousRequestIdentity !== nextRequestIdentity;
+    if (requestIdentityChanged && current.scheduled) {
+      window.clearTimeout(current.scheduled.timer);
+      sendPivotAction({ type: 'schedule-canceled' });
     }
+    sendPivotAction({ type: 'form-changed', form: next, requestIdentityChanged });
     setForm(next);
-    props.onFormKindChange?.(next.kind);
-    const evaluation = evaluate(next, discovery);
+    current.snapshot.onFormKindChange?.(next.kind);
+    const evaluation = evaluate(next, discovery, pivotStateRef.current.snapshot);
     setContractUnavailable(evaluation.kind === 'schema-pending');
-    onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
-    if (next.kind === 'pivot') schedulePivotDiscoveryRef.current?.(next);
+    current.snapshot.onCandidateChange(evaluation.kind === 'ready' ? evaluation.intent : undefined);
+    if (next.kind === 'pivot') schedulePivotDiscovery(next);
   };
-  updateFormRef.current = updateForm;
 
-  const adoptPivotDiscovery = (identity: string, discovery: CompletePivotDiscovery): boolean => {
-    const current = currentFormRef.current;
-    if (!pivotDiscoveryRootMounted.current
-        || currentContextKeyRef.current !== contextKey
-        || currentFormContextKeyRef.current !== contextKey
-        || currentDiscoveryOwnerRef.current !== props.onDiscoverCategories
-        || currentStageIdRef.current !== stage.id
-        || current.kind !== 'pivot'
-        || pivotDiscoveryRequestIdentity(current, stage.id, contextKey) !== identity
-        || !pivotDiscoveryMatches(current, stage.id, discovery)) return false;
-    clearAwaitingPivotDiscovery(identity, pivotDiscoveryRevision.current);
-    updateFormRef.current?.(current, discovery);
+  const adoptPivotDiscovery = (
+    identity: string,
+    discovery: CompletePivotDiscovery,
+    expected?: PendingPivotDiscovery,
+  ): boolean => {
+    const current = pivotStateRef.current;
+    const snapshot = current.snapshot;
+    const pending = expected ?? (snapshot.owner ? { identity, revision: current.revision, owner: snapshot.owner } : undefined);
+    if (!pending || pending.identity !== identity || !sendPivotAction({
+      type: 'discovery-arrived',
+      pending,
+      contextKey: snapshot.contextKey,
+      stageId: snapshot.stageId,
+      discovery,
+    })) return false;
+    const latest = pivotStateRef.current.snapshot.form;
+    if (latest.kind !== 'pivot') return false;
+    updateForm(latest, discovery);
     return true;
   };
 
@@ -590,114 +612,124 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
 
   const rememberManualPivotSelection = (pivot: PivotForm) => {
     if (pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
-    manuallySelectedPivotPairs.current.add(pivotSelectionIdentity(pivot, stage.id));
-    if (form.kind !== 'pivot') return;
-    const memoryKey = pivotCategoryMemoryKey(pivot, stage.id, contextKey);
-    const memory = pivotCategoryMemory.current.get(memoryKey) ?? { excluded: new Set<string>() };
-    const previousSelected = new Set(form.categories.map((category) => scalarIdentity(category.key)));
+    const current = pivotStateRef.current;
+    const { stageId, contextKey: currentContextKey, form: currentForm } = current.snapshot;
+    const memoryKey = pivotCategoryMemoryKey(pivot, stageId, currentContextKey);
+    const excluded = new Set(current.categoryMemory.get(memoryKey)?.excluded ?? []);
+    if (currentForm.kind !== 'pivot') {
+      sendPivotAction({
+        type: 'manual-pair-selected',
+        identity: pivotSelectionIdentity(pivot, stageId),
+        memoryKey,
+        excluded,
+      });
+      return;
+    }
+    const previousSelected = new Set(currentForm.categories.map((category) => scalarIdentity(category.key)));
     const nextSelected = new Set(pivot.categories.map((category) => scalarIdentity(category.key)));
     for (const identity of previousSelected) {
-      if (!nextSelected.has(identity)) memory.excluded.add(identity);
+      if (!nextSelected.has(identity)) excluded.add(identity);
     }
     for (const identity of nextSelected) {
-      memory.excluded.delete(identity);
+      excluded.delete(identity);
     }
-    pivotCategoryMemory.current.set(memoryKey, memory);
+    sendPivotAction({
+      type: 'manual-pair-selected',
+      identity: pivotSelectionIdentity(pivot, stageId),
+      memoryKey,
+      excluded,
+    });
   };
 
   const forgetPivotPairSelection = (previous: PivotForm, next: PivotForm) => {
-    for (const identity of [
-      pivotSelectionIdentity(previous, stage.id),
-      pivotSelectionIdentity(next, stage.id),
-    ]) {
-      automaticallySelectedPivotPairs.current.delete(identity);
-      manuallySelectedPivotPairs.current.delete(identity);
-    }
-    pivotCategoryMemory.current.delete(pivotCategoryMemoryKey(previous, stage.id, contextKey));
-    pivotCategoryMemory.current.delete(pivotCategoryMemoryKey(next, stage.id, contextKey));
+    const { stageId, contextKey: currentContextKey } = pivotStateRef.current.snapshot;
+    sendPivotAction({
+      type: 'pivot-pairs-forgotten',
+      identities: [pivotSelectionIdentity(previous, stageId), pivotSelectionIdentity(next, stageId)],
+      memoryKeys: [
+        pivotCategoryMemoryKey(previous, stageId, currentContextKey),
+        pivotCategoryMemoryKey(next, stageId, currentContextKey),
+      ],
+    });
   };
 
-  const requestPivotCategories = (pivot: PivotForm, force = false) => {
-    const owner = props.onDiscoverCategories;
-    if (!owner || disabled || formContextKey !== contextKey || !pivotSupport.supported
-        || pivot.discovery
+  const requestPivotCategories = (requestedForm: PivotForm, force = false) => {
+    const current = pivotStateRef.current;
+    const snapshot = current.snapshot;
+    const owner = snapshot.owner;
+    const pivot = snapshot.form.kind === 'pivot' ? snapshot.form : requestedForm;
+    if (!owner || !current.mounted || snapshot.disabled || snapshot.formContextKey !== snapshot.contextKey
+        || !snapshot.pivotSupported || pivot.discovery
         || (pivot.pivotSources?.length && pivot.groupKeyIds.length === 0)
         || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
 
-    const identity = pivotDiscoveryRequestIdentity(pivot, stage.id, contextKey);
-    const revision = pivotDiscoveryRevision.current;
-    const requested = requestedPivotDiscovery.current;
+    const identity = pivotDiscoveryRequestIdentity(pivot, snapshot.stageId, snapshot.contextKey);
+    const revision = current.revision;
+    const requested = current.requested;
     if (!force && requested?.identity === identity && requested.revision === revision && requested.owner === owner) return;
 
-    const scheduled = scheduledPivotDiscovery.current;
-    if (scheduled) {
-      window.clearTimeout(scheduled.timer);
-      scheduledPivotDiscovery.current = undefined;
+    if (current.scheduled) {
+      window.clearTimeout(current.scheduled.timer);
+      sendPivotAction({ type: 'schedule-canceled', identity: current.scheduled.identity, revision: current.scheduled.revision });
     }
-    requestedPivotDiscovery.current = { identity, revision, owner };
-    rememberAwaitingPivotDiscovery({ identity, revision, owner, contextKey, seen: pivotDiscovery });
+    const pending: PendingPivotDiscovery = { identity, revision, owner };
+    if (!sendPivotAction({ type: 'request-started', pending })) return;
     const request: ConstructionReshapePivotDiscoveryRequest = {
-      stageId: stage.id,
+      stageId: snapshot.stageId,
       ...(pivot.pivotSources?.length ? {
         pivotStepId: pivot.stepId,
         groupKeyIds: [...pivot.groupKeyIds],
         pivotSources: pivot.pivotSources,
-        candidateConstruction: currentConstructionRef.current,
+        candidateConstruction: snapshot.construction,
       } : {}),
       categoryColumnId: pivot.categoryColumnId,
       valueColumnId: pivot.valueColumnId,
     };
     owner(request, (discovery) => {
-      if (pivotDiscoveryRevision.current !== revision
-          || currentDiscoveryOwnerRef.current !== owner) return;
-      adoptPivotDiscovery(identity, discovery);
+      adoptPivotDiscovery(identity, discovery, pending);
     });
   };
 
-  const schedulePivotDiscovery = (pivot: PivotForm) => {
-    const owner = props.onDiscoverCategories;
-    if (!owner || disabled || formContextKey !== contextKey || !pivotSupport.supported
-        || pivot.discovery
+  const schedulePivotDiscovery = (requestedForm: PivotForm) => {
+    const current = pivotStateRef.current;
+    const snapshot = current.snapshot;
+    const owner = snapshot.owner;
+    const pivot = snapshot.form.kind === 'pivot' ? snapshot.form : requestedForm;
+    if (!owner || !current.mounted || snapshot.disabled || snapshot.formContextKey !== snapshot.contextKey
+        || !snapshot.pivotSupported || pivot.discovery
         || (pivot.pivotSources?.length && pivot.groupKeyIds.length === 0)
         || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
 
-    const identity = pivotDiscoveryRequestIdentity(pivot, stage.id, contextKey);
-    if (pivotDiscoveryMatches(pivot, stage.id, pivotDiscovery) && pivotDiscovery.status === 'complete') return;
-    if (pivotCategoriesAreKnown(pivot, stage.id, pivotDiscovery)) {
-      const scheduled = scheduledPivotDiscovery.current;
+    const identity = pivotDiscoveryRequestIdentity(pivot, snapshot.stageId, snapshot.contextKey);
+    if (pivotDiscoveryMatches(pivot, snapshot.stageId, snapshot.discovery) && snapshot.discovery?.status === 'complete') return;
+    if (pivotCategoriesAreKnown(pivot, snapshot.stageId, snapshot.discovery)) {
+      const scheduled = current.scheduled;
       if (scheduled?.identity === identity) {
         window.clearTimeout(scheduled.timer);
-        scheduledPivotDiscovery.current = undefined;
+        sendPivotAction({ type: 'schedule-canceled', identity: scheduled.identity, revision: scheduled.revision });
       }
-      clearAwaitingPivotDiscovery(identity, pivotDiscoveryRevision.current);
+      sendPivotAction({ type: 'awaiting-cleared', identity, revision: current.revision });
       return;
     }
-    const revision = pivotDiscoveryRevision.current;
-    const requested = requestedPivotDiscovery.current;
+    const revision = current.revision;
+    const requested = current.requested;
     if (requested?.identity === identity && requested.revision === revision && requested.owner === owner) return;
-    const pending = scheduledPivotDiscovery.current;
+    const pending = current.scheduled;
     if (pending?.identity === identity && pending.revision === revision && pending.owner === owner) return;
-    if (pending) window.clearTimeout(pending.timer);
+    if (pending) {
+      window.clearTimeout(pending.timer);
+      sendPivotAction({ type: 'schedule-canceled', identity: pending.identity, revision: pending.revision });
+    }
 
-    rememberAwaitingPivotDiscovery({ identity, revision, owner, contextKey, seen: pivotDiscovery });
     const timer = window.setTimeout(() => {
-      if (scheduledPivotDiscovery.current?.timer !== timer) return;
-      scheduledPivotDiscovery.current = undefined;
-      const current = currentFormRef.current;
-      if (pivotDiscoveryRevision.current !== revision
-          || currentContextKeyRef.current !== contextKey
-          || !pivotDiscoveryRootMounted.current
-          || currentFormContextKeyRef.current !== contextKey
-          || currentDiscoveryOwnerRef.current !== owner
-          || currentDisabledRef.current
-          || current.kind !== 'pivot'
-          || currentStageIdRef.current !== stage.id
-          || pivotDiscoveryRequestIdentity(current, stage.id, contextKey) !== identity) return;
-      requestPivotCategories(current);
+      const scheduled = { identity, revision, owner, timer };
+      if (!sendPivotAction({ type: 'schedule-fired', scheduled })) return;
+      const latest = pivotStateRef.current.snapshot.form;
+      if (latest.kind === 'pivot') requestPivotCategories(latest);
     }, 250);
-    scheduledPivotDiscovery.current = { identity, revision, owner, timer };
+    const scheduled: ScheduledPivotDiscovery = { identity, revision, owner, timer };
+    sendPivotAction({ type: 'schedule-created', scheduled });
   };
-  schedulePivotDiscoveryRef.current = schedulePivotDiscovery;
 
   return (
     <section ref={pivotDiscoveryRootRef} aria-label={props.rowValuesOnly ? 'Add columns from Group contributors' : 'Reshape editor'} data-testid="construction-reshape-editor" className="grid content-start gap-3">

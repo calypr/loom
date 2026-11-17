@@ -4676,6 +4676,66 @@ describe('pivot discovery availability state', () => {
     return { props, view };
   };
 
+  it('uses the latest same-context capability when a pending Pivot discovery completes', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const originalCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const latestCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const { props, view } = renderPivot(onDiscoverCategories, {
+      selectedColumns: ['sex-id'],
+      onCandidateChange: originalCandidateChange,
+    });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const [request, complete] = onDiscoverCategories.mock.calls[0]!;
+    if (!complete) throw new Error('Missing category discovery completion');
+
+    const blockedStage = {
+      ...pivotDiscoveryStage,
+      capabilities: pivotDiscoveryStage.capabilities.map((capability) => ({
+        ...capability,
+        supported: false,
+        reason: 'Capability revoked',
+      })),
+    };
+    const originalCallsBeforeCompletion = originalCandidateChange.mock.calls.length;
+    view.rerender(<ConstructionReshapeEditor
+      {...props}
+      capabilities={capabilitiesFor([blockedStage], blockedStage)}
+      onCandidateChange={latestCandidateChange}
+    />);
+    act(() => complete(completePivotDiscovery(request, [
+      { key: { kind: 'STRING', string: 'female' }, label: 'Female' },
+    ])));
+
+    expect(originalCandidateChange).toHaveBeenCalledTimes(originalCallsBeforeCompletion);
+    expect(latestCandidateChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('uses the latest stage column names when a pending Pivot discovery completes', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const { props, view } = renderPivot(onDiscoverCategories, { selectedColumns: ['sex-id'] });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const [request, complete] = onDiscoverCategories.mock.calls[0]!;
+    if (!complete) throw new Error('Missing category discovery completion');
+
+    const renamedStage = {
+      ...pivotDiscoveryStage,
+      columns: pivotDiscoveryStage.columns.map((column) => column.id === 'sex-id'
+        ? { ...column, name: 'female' }
+        : column),
+    };
+    view.rerender(<ConstructionReshapeEditor
+      {...props}
+      capabilities={capabilitiesFor([renamedStage], renamedStage)}
+    />);
+    act(() => complete(completePivotDiscovery(request, [
+      { key: { kind: 'STRING', string: 'female' }, label: 'Female' },
+    ])));
+
+    const intent = vi.mocked(props.onCandidateChange).mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    expect(intent?.candidateConstruction.steps[0]?.outputs.map((column) => column.name)).toEqual(['female', 'female_2']);
+  });
+
   it('shows an accessible in-progress state for the current key while the request owner stays silent', async () => {
     const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
     renderPivot(onDiscoverCategories);
