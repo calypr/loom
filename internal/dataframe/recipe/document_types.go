@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -196,83 +197,44 @@ type Filter struct {
 	Values     []FilterValue   `json:"values,omitempty"`
 }
 
-type FilterOperator string
+type FilterOperator = spec.FilterOperator
 
 const (
-	FilterEquals      FilterOperator = "EQUALS"
-	FilterNotEquals   FilterOperator = "NOT_EQUALS"
-	FilterIn          FilterOperator = "IN"
-	FilterExists      FilterOperator = "EXISTS"
-	FilterMissing     FilterOperator = "MISSING"
-	FilterContains    FilterOperator = "CONTAINS_TEXT"
-	FilterGreaterThan FilterOperator = "GT"
-	FilterGreaterEq   FilterOperator = "GTE"
-	FilterLessThan    FilterOperator = "LT"
-	FilterLessEq      FilterOperator = "LTE"
+	FilterEquals      = spec.FilterEquals
+	FilterNotEquals   = spec.FilterNotEquals
+	FilterIn          = spec.FilterIn
+	FilterExists      = spec.FilterExists
+	FilterMissing     = spec.FilterMissing
+	FilterContains    = spec.FilterContains
+	FilterGreaterThan = spec.FilterGreaterThan
+	FilterGreaterEq   = spec.FilterGreaterEq
+	FilterLessThan    = spec.FilterLessThan
+	FilterLessEq      = spec.FilterLessEq
 )
 
-func (op FilterOperator) Valid() bool {
-	switch op {
-	case FilterEquals, FilterNotEquals, FilterIn, FilterExists, FilterMissing,
-		FilterContains, FilterGreaterThan, FilterGreaterEq, FilterLessThan, FilterLessEq:
-		return true
-	default:
-		return false
-	}
-}
-
-type ArrayQuantifier string
+type ArrayQuantifier = spec.ArrayQuantifier
 
 const (
-	QuantifierAny  ArrayQuantifier = "ANY"
-	QuantifierAll  ArrayQuantifier = "ALL"
-	QuantifierNone ArrayQuantifier = "NONE"
+	QuantifierAny  = spec.QuantifierAny
+	QuantifierAll  = spec.QuantifierAll
+	QuantifierNone = spec.QuantifierNone
 )
 
-func (q ArrayQuantifier) Valid() bool {
-	return q == QuantifierAny || q == QuantifierAll || q == QuantifierNone
-}
-
-type FilterValueKind string
+type FilterValueKind = spec.FilterValueKind
 
 const (
-	FilterString   FilterValueKind = "STRING"
-	FilterCode     FilterValueKind = "CODE"
-	FilterBoolean  FilterValueKind = "BOOLEAN"
-	FilterInteger  FilterValueKind = "INTEGER"
-	FilterDecimal  FilterValueKind = "DECIMAL"
-	FilterDate     FilterValueKind = "DATE"
-	FilterDateTime FilterValueKind = "DATE_TIME"
+	FilterString   = spec.FilterString
+	FilterCode     = spec.FilterCode
+	FilterBoolean  = spec.FilterBoolean
+	FilterInteger  = spec.FilterInteger
+	FilterDecimal  = spec.FilterDecimal
+	FilterDate     = spec.FilterDate
+	FilterDateTime = spec.FilterDateTime
 )
 
-func (kind FilterValueKind) Valid() bool {
-	switch kind {
-	case FilterString, FilterCode, FilterBoolean, FilterInteger, FilterDecimal, FilterDate, FilterDateTime:
-		return true
-	default:
-		return false
-	}
-}
+type CodeValue = spec.CodeValue
 
-type CodeValue struct {
-	System  string `json:"system,omitempty"`
-	Code    string `json:"code"`
-	Display string `json:"display,omitempty"`
-	Version string `json:"version,omitempty"`
-}
-
-// FilterValue is a strict tagged union. Pointer scalar members preserve false,
-// zero, and empty string values during JSON decoding.
-type FilterValue struct {
-	Kind     FilterValueKind `json:"kind"`
-	String   *string         `json:"string,omitempty"`
-	Code     *CodeValue      `json:"code,omitempty"`
-	Boolean  *bool           `json:"boolean,omitempty"`
-	Integer  *int64          `json:"integer,omitempty"`
-	Decimal  *float64        `json:"decimal,omitempty"`
-	Date     *string         `json:"date,omitempty"`
-	DateTime *string         `json:"dateTime,omitempty"`
-}
+type FilterValue = spec.FilterValue
 
 // Pivot describes a bounded, schema-validated column/value mapping.
 type Pivot struct {

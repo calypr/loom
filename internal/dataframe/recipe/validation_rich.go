@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	fhir "github.com/calypr/loom/generated/fhir"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -23,58 +23,6 @@ func validateRecipeName(value, path string) error {
 	}
 	if !recipeNamePattern.MatchString(value) {
 		return validationError("invalid_name", path, "must contain only letters, digits, and underscores and may not start with a digit")
-	}
-	return nil
-}
-
-func (v FilterValue) Validate() error {
-	if !v.Kind.Valid() {
-		return fmt.Errorf("unknown value kind %q", v.Kind)
-	}
-	populated := 0
-	for _, present := range []bool{v.String != nil, v.Code != nil, v.Boolean != nil, v.Integer != nil, v.Decimal != nil, v.Date != nil, v.DateTime != nil} {
-		if present {
-			populated++
-		}
-	}
-	if populated != 1 {
-		return fmt.Errorf("exactly one typed value member is required, got %d", populated)
-	}
-	switch v.Kind {
-	case FilterString:
-		if v.String == nil {
-			return fmt.Errorf("STRING requires string")
-		}
-	case FilterCode:
-		if v.Code == nil || strings.TrimSpace(v.Code.Code) == "" {
-			return fmt.Errorf("CODE requires a non-empty code")
-		}
-	case FilterBoolean:
-		if v.Boolean == nil {
-			return fmt.Errorf("BOOLEAN requires boolean")
-		}
-	case FilterInteger:
-		if v.Integer == nil {
-			return fmt.Errorf("INTEGER requires integer")
-		}
-	case FilterDecimal:
-		if v.Decimal == nil {
-			return fmt.Errorf("DECIMAL requires decimal")
-		}
-	case FilterDate:
-		if v.Date == nil {
-			return fmt.Errorf("DATE requires date")
-		}
-		if err := fhir.ValidateFhirDate(*v.Date); err != nil {
-			return fmt.Errorf("DATE must use a valid FHIR date: %w", err)
-		}
-	case FilterDateTime:
-		if v.DateTime == nil {
-			return fmt.Errorf("DATE_TIME requires dateTime")
-		}
-		if err := fhir.ValidateFhirDateTime(*v.DateTime); err != nil {
-			return fmt.Errorf("DATE_TIME must use a valid FHIR date-time: %w", err)
-		}
 	}
 	return nil
 }
@@ -112,24 +60,11 @@ func (f Filter) validateAt(path string) error {
 		} else if value.Kind != kind {
 			return validationError("invalid_filter_value", fmt.Sprintf("%s.values[%d].kind", path, i), "all values must use the same kind")
 		}
-		if !filterOperatorSupportsKind(f.Operator, value.Kind) {
+		if !spec.OperatorSupportsKind(f.Operator, value.Kind) {
 			return validationError("invalid_filter_value", fmt.Sprintf("%s.values[%d].kind", path, i), fmt.Sprintf("operator %s is incompatible with %s", f.Operator, value.Kind))
 		}
 	}
 	return nil
-}
-
-func filterOperatorSupportsKind(op FilterOperator, kind FilterValueKind) bool {
-	switch op {
-	case FilterExists, FilterMissing, FilterEquals, FilterNotEquals, FilterIn:
-		return kind.Valid()
-	case FilterContains:
-		return kind == FilterString
-	case FilterGreaterThan, FilterGreaterEq, FilterLessThan, FilterLessEq:
-		return kind == FilterInteger || kind == FilterDecimal || kind == FilterDate || kind == FilterDateTime
-	default:
-		return false
-	}
 }
 
 func validateRichFilterAt(filter Filter, path string, allowQuantifier bool) error {

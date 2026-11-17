@@ -80,8 +80,8 @@ func lowerRecipeFilterForAlias(resourceType, alias string, input recipe.Filter) 
 		Selector:   canonical,
 		FieldKind:  fieldKind,
 		Repeated:   metadata.Repeated,
-		Operator:   spec.FilterOperator(input.Operator),
-		Quantifier: spec.ArrayQuantifier(input.Quantifier),
+		Operator:   input.Operator,
+		Quantifier: input.Quantifier,
 	}
 	out.Values, err = recipeFilterValues(input.Values)
 	if err != nil {
@@ -140,17 +140,10 @@ func recipeFilterKind(primitive fhirschema.PrimitiveKind, canonical string) (spe
 func recipeFilterValues(values []recipe.FilterValue) ([]spec.FilterValue, error) {
 	out := make([]spec.FilterValue, 0, len(values))
 	for index, input := range values {
-		value := spec.FilterValue{
-			Kind:     spec.FilterValueKind(input.Kind),
-			String:   input.String,
-			Boolean:  input.Boolean,
-			Integer:  input.Integer,
-			Decimal:  input.Decimal,
-			Date:     input.Date,
-			DateTime: input.DateTime,
-		}
+		value := input
 		if input.Code != nil {
-			value.Code = &spec.CodeValue{System: input.Code.System, Code: input.Code.Code, Display: input.Code.Display, Version: input.Code.Version}
+			code := *input.Code
+			value.Code = &code
 		}
 		if err := value.Validate(); err != nil {
 			return nil, fmt.Errorf("filter value %d: %w", index, err)
