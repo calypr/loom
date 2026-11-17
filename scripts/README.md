@@ -82,3 +82,13 @@ loading enabled. Native drag/download acceptance remains in the Chromium route.
 See [measurements](../docs/verification/lightpanda/POOLED_RESULTS.md) for the
 precise speed scope and [coverage](../docs/verification/lightpanda/COVERAGE.md)
 for dispositions of all 96 retired specs. Job count is not a coverage count.
+
+The backend benchmark runner [benchmark-backends.mjs](benchmark-backends.mjs)
+orchestrates the Arango/AQL vs PostgreSQL/SQL matched dataframe benchmark.
+Verification authority stays in Go (`benchcli verify`); this script only
+builds invocations and reports evidence lines. `--run` discloses a refused
+preflight (exit 3) as `not_run`, never a pass; a planned disclosure artifact
+must carry zero samples, summaries, or claims (skip-capture discipline) and
+still passes through the Go verifier. See
+[`internal/dataframe/benchmark/README.md`](../internal/dataframe/benchmark/README.md)
+for scopes, guards, and exit codes.

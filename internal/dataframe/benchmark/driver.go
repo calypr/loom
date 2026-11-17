@@ -1,0 +1,616 @@
+package benchmark
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/calypr/loom/internal/explorer/authoringv2"
+)
+
+// The live driver: spawn/attach arms, load the deterministic dataset, author
+// every battery workload through public routes, pass the pre-timing
+// authorization gate (ruling iii), measure interleaved, run control runs,
+// and emit a report that VerifyReport must accept. Every failure aborts
+// before any success-shaped artifact exists.
+
+// ListenPlaceholder marks where the chosen listen address is rendered into
+// the arm config: --config makes YAML authoritative for listen.
+const ListenPlaceholder = "__BENCH_LISTEN__"
+
+// ArmConfig describes one backend arm: either attach to a running server
+// (BaseURL) or spawn one from BinaryPath with ConfigYAML.
+type ArmConfig struct {
+	BinaryPath string
+	ConfigYAML string
+	Env        []string
+	BaseURL    string
+	// ScrubSecrets are redacted from arm logs (DSNs, tokens).
+	ScrubSecrets []string
+	// ReadyURL overrides the readiness poll target for spawned arms.
+	ReadyURL string
+}
+
+// SpawnFunc launches a server process; the default is provision.SpawnServer.
+// Injectable so the driver's protocol is testable offline.
+type SpawnFunc func(ctx context.Context, spec ServerSpec, secrets []string, listenAddr string) (*ServerProcess, error)
+
+// VersionProbeFunc returns the LIVE backend version string for an arm
+// (e.g. by executing the launched binary's --version). Required: the
+// verifier refuses a passed run without observed versions.
+type VersionProbeFunc func(ctx context.Context, cfg ArmConfig, backend string) (string, error)
+
+// GateFunc and SingleArmGateFunc default to the package evaluators; the
+// seam exists for protocol tests, never for production use.
+type GateFunc func(workloadID string, columns []string, expected *CanonicalBag, arango, postgres BackendResult, arangoRows, postgresRows []map[string]any, idMap *StorageIDMap) WorkloadGateReport
+type SingleArmGateFunc func(workloadID, backend string, columns []string, expected *CanonicalBag, arm BackendResult, rows []map[string]any, idMap *StorageIDMap, blockedDetail string) WorkloadGateReport
+
+// DriverOptions is the full, explicit driver input. No silent defaults for
+// anything that lands in the report.
+type DriverOptions struct {
+	RunID        string
+	StartedAt    time.Time
+	Plan         RunPlan
+	Preset       string
+	Params       DatasetParams
+	Config       RunConfig
+	PreviewLimit int
+	SourceCommit string
+
+	UnrestrictedToken string
+	ScopedToken       string
+
+	Arango   ArmConfig
+	Postgres ArmConfig
+
+	StderrDir string
+	Clock     Clock
+
+	// ClickHouseEnabled asserts the arms were deployed with ClickHouse
+	// available, which the publication chain structurally requires (its
+	// only publication.Target is ClickHouseBundleStore). Report
+	// verification refuses any publication-run claim without it, so this
+	// is a checked assertion, not a self-description.
+	ClickHouseEnabled bool
+
+	Spawn        SpawnFunc
+	VersionProbe VersionProbeFunc
+
+	Gates           GateFunc
+	SingleArmGates  SingleArmGateFunc
+	EmptyFloorIters int
+}
+
+// ArmEvidence is the per-arm operational record kept beside the report.
+type ArmEvidence struct {
+	Backend string `json:"backend"`
+	BaseURL string `json:"baseUrl"`
+	LogPath string `json:"logPath,omitempty"`
+	Version string `json:"version"`
+	Spawned bool   `json:"spawned"`
+}
+
+type runningArm struct {
+	arm      *Arm
+	proc     *ServerProcess
+	evidence ArmEvidence
+}
+
+// RunBenchmark executes the matched battery. It returns the verified report
+// and per-arm evidence, or an error before any artifact is written.
+func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEvidence, error) {
+	if err := ValidateLegPlan(opts.Plan.Scope, opts.Plan.Legs); err != nil {
+		return nil, nil, err
+	}
+	if opts.Plan.Scope == RunScopePlanned {
+		// The live driver spawns, authoring-runs, and times; a planned run
+		// is built through BuildReport+PlannedGateReports, never here.
+		return nil, nil, fmt.Errorf("benchmark: the live driver refuses planned scope; build the planned report directly")
+	}
+	if opts.Plan.PublicationExcluded() {
+		if strings.TrimSpace(opts.Plan.Publication.Capability) == "" {
+			return nil, nil, fmt.Errorf("benchmark: publication chain excluded without a named capability")
+		}
+	} else if opts.Plan.Publication != nil && opts.Plan.Publication.Run && !opts.ClickHouseEnabled {
+		return nil, nil, fmt.Errorf("benchmark: the publication chain is ClickHouse-backed end to end; refusing to claim it ran without ClickHouseEnabled")
+	}
+	// Live battery law: workloads whose oracle/output agreement is
+	// disproven or unproven are never authored, previewed, or timed on a
+	// live leg; they ship as disclosed blocked rows with named reasons.
+	excludedWorkloads := LiveBatteryExclusions()
+	if err := opts.Config.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if opts.PreviewLimit < 1 {
+		return nil, nil, fmt.Errorf("benchmark: preview limit must be >= 1")
+	}
+	if strings.TrimSpace(opts.SourceCommit) == "" || len(opts.SourceCommit) != 40 {
+		return nil, nil, fmt.Errorf("benchmark: source commit must be the full 40-hex SHA the arms were built from")
+	}
+	clock := opts.Clock
+	if clock == nil {
+		clock = NewMonotonicClock()
+	}
+	spawn := opts.Spawn
+	if spawn == nil {
+		spawn = SpawnServer
+	}
+	gates := opts.Gates
+	if gates == nil {
+		gates = EvaluateGates
+	}
+	singleGates := opts.SingleArmGates
+	if singleGates == nil {
+		singleGates = EvaluateGatesSingleArm
+	}
+
+	files, err := GenerateFiles(opts.Params)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Participating arms, in fixed order.
+	type backendArm struct {
+		backend string
+		cfg     ArmConfig
+	}
+	var participants []backendArm
+	runLegs := map[string]bool{}
+	for _, leg := range opts.Plan.Legs {
+		if leg.Mode == "run" {
+			runLegs[leg.Backend] = true
+		}
+	}
+	for _, b := range []backendArm{{BackendArango, opts.Arango}, {BackendPostgres, opts.Postgres}} {
+		if runLegs[b.backend] {
+			participants = append(participants, b)
+		}
+	}
+	arms := make(map[string]*runningArm, len(participants))
+	defer func() {
+		for _, r := range arms {
+			if r.proc != nil {
+				r.proc.Stop()
+			}
+		}
+	}()
+	for _, p := range participants {
+		ra, err := startArm(ctx, p.backend, p.cfg, spawn, opts)
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: %s arm: %w", p.backend, err)
+		}
+		arms[p.backend] = ra
+	}
+
+	// Load the dataset on every participating arm.
+	for _, p := range participants {
+		if err := arms[p.backend].arm.UploadGeneration(ctx, opts.UnrestrictedToken, opts.Params.Project, opts.Params.Generation, files.Files, opts.Params.AuthResourcePath); err != nil {
+			return nil, nil, fmt.Errorf("benchmark: %s upload: %w", p.backend, err)
+		}
+	}
+
+	// Excluded publication chain (excluded mode): spawn and upload have
+	// run for real and every downstream stage ships as planned/not_run
+	// with the capability named. Nothing below this point executes, so the
+	// report carries zero samples, zero claims, and zero control values.
+	// There is no chain-less battery: the first explorer-config publish
+	// materializes through the chain, so authoring cannot run without it.
+	if opts.Plan.PublicationZeroEvidence() {
+		identity := RunIdentity{
+			RunID: opts.RunID, StartedAt: opts.StartedAt.UTC(), Preset: opts.Preset,
+			SourceCommit: opts.SourceCommit, DatasetDigest: files.Digest,
+			ClickHouseDisabled: !opts.ClickHouseEnabled, Config: opts.Config,
+		}
+		for _, p := range participants {
+			version, err := opts.VersionProbe(ctx, p.cfg, p.backend)
+			if err != nil {
+				return nil, nil, fmt.Errorf("benchmark: %s version probe: %w", p.backend, err)
+			}
+			if strings.TrimSpace(version) == "" {
+				return nil, nil, fmt.Errorf("benchmark: %s version probe returned an empty version", p.backend)
+			}
+			arms[p.backend].evidence.Version = version
+			if p.backend == BackendArango {
+				identity.ArangoVersion = version
+			} else {
+				identity.PostgresVersion = version
+			}
+		}
+		plan := opts.Plan
+		plan.PlannedNotRun = append([]PlannedNotRun(nil), opts.Plan.PlannedNotRun...)
+		AppendWorkloadDisclosures(&plan, excludedWorkloads)
+		report, err := BuildReport(identity, plan, ControlRuns{},
+			ApplyExcludedWorkloadGateReports(
+				PublicationGateReports(opts.Plan.Legs, opts.Plan.Publication.Capability),
+				ExcludedWorkloadGateReports(opts.Plan.Legs, excludedWorkloads)), nil)
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: excluded-publication report would not verify (refusing to emit): %w", err)
+		}
+		var evidence []ArmEvidence
+		for _, p := range participants {
+			evidence = append(evidence, arms[p.backend].evidence)
+		}
+		return report, evidence, nil
+	}
+
+	// Author every workload on every participating arm. Explorer ids are
+	// derived from names (StableExplorerID), so the arms must agree on the
+	// id or the matched comparison is invalid.
+	receiptIDs := map[string]map[string]string{} // backend -> workload -> receipt
+	outputIDs := map[string]map[string]string{}  // backend -> workload -> output
+	perBackend := map[string]map[string]string{}
+	for _, p := range participants {
+		perBackend[p.backend] = map[string]string{}
+		receiptIDs[p.backend] = map[string]string{}
+		outputIDs[p.backend] = map[string]string{}
+	}
+	// The writable wire carries catalog-bound contributor intent, not
+	// aggregate.where (the strict body bind refuses the latter). Fetch each
+	// arm's live builder catalog once so predicate workspaces migrate
+	// against the same compiler facts the compiler will later bind. The
+	// default explorer exists only after the first explorer-config
+	// publish, so bootstrap the repository with the empty-floor workspace
+	// (predicate-free, re-published byte-identically by its own authoring
+	// step) before reading the builder.
+	floorWorkspace, err := BuildEmptyFloorWorkspace()
+	if err != nil {
+		return nil, nil, err
+	}
+	catalogs := map[string]authoringv2.CatalogSnapshot{}
+	for _, p := range participants {
+		if _, err := arms[p.backend].arm.PublishWorkspace(ctx, opts.UnrestrictedToken, opts.Params.Project, opts.Params.Generation,
+			floorWorkspace, opts.SourceCommit); err != nil {
+			return nil, nil, fmt.Errorf("benchmark: %s catalog bootstrap: %w", p.backend, err)
+		}
+		catalog, err := arms[p.backend].arm.FetchContributorCatalog(ctx, opts.UnrestrictedToken, opts.Params.Project, "default")
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: %s contributor catalog: %w", p.backend, err)
+		}
+		catalogs[p.backend] = catalog
+	}
+	for _, spec := range Battery {
+		if _, skip := excludedWorkloads[spec.ID]; skip {
+			continue // disclosed absence: never authored, never timed
+		}
+		workspace, err := BuildWorkspace(spec.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		outputID := OutputIDFor(spec.ID)
+		name := "bench-" + spec.ID
+		var explorerID string
+		var publishedBytes []byte
+		for _, p := range participants {
+			publicationBytes, err := PreparePublicationWorkspace(workspace, opts.Params.Generation, catalogs[p.backend])
+			if err != nil {
+				return nil, nil, fmt.Errorf("benchmark: prepare %s for %s: %w", spec.ID, p.backend, err)
+			}
+			if publishedBytes == nil {
+				publishedBytes = publicationBytes
+			} else if !bytes.Equal(publishedBytes, publicationBytes) {
+				return nil, nil, fmt.Errorf("benchmark: %s publishes divergent workspace bytes on %s; the contributor catalogs are not matched", spec.ID, p.backend)
+			}
+			eid, rid, err := arms[p.backend].arm.AuthorWorkload(ctx, opts.UnrestrictedToken, opts.Params.Project, opts.Params.Generation,
+				publicationBytes, opts.SourceCommit, name, outputID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("benchmark: author %s on %s: %w", spec.ID, p.backend, err)
+			}
+			if explorerID == "" {
+				explorerID = eid
+			} else if eid != explorerID {
+				return nil, nil, fmt.Errorf("benchmark: %s authored under divergent explorer ids %s vs %s; arms are not matched", spec.ID, explorerID, eid)
+			}
+			perBackend[p.backend][spec.ID] = eid
+			receiptIDs[p.backend][spec.ID] = rid
+			outputIDs[p.backend][spec.ID] = outputID
+		}
+		// Pre-timing setup proof (ruling conditions i+ii, wired per review
+		// r4561644037): every arm publishes its reconciled receipt through
+		// the authoring route with the materialization identity verified
+		// (untimed setup; activation-style refusals abort fail-closed), and
+		// no timing may start until the arms prove matched state: equal
+		// content-derived draft digest, equal output set with a
+		// materialization identity each, and equal setup-preview rows.
+		proofs := map[string]SetupProof{}
+		for _, p := range participants {
+			proof, err := arms[p.backend].arm.SetupProofEvidence(ctx, opts.UnrestrictedToken, opts.Params.Project,
+				explorerID, receiptIDs[p.backend][spec.ID], outputID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("benchmark: %s setup proof on %s: %w", spec.ID, p.backend, err)
+			}
+			proofs[p.backend] = proof
+		}
+		if len(participants) == 2 {
+			if err := MatchedSetupProof(spec.ID, proofs[BackendArango], proofs[BackendPostgres]); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	// One explorer identity serves both arms (asserted equal above).
+	explorerIDByWorkload := perBackend[participants[0].backend]
+
+	// Empty-floor explorers (zero-row expectation) per arm. The workspace
+	// was built for the catalog bootstrap; it is re-published here because
+	// the per-workload loop moved the repository default since then.
+	floorExplorers := map[string]string{}
+	floorReceipts := map[string]string{}
+	for _, p := range participants {
+		eid, rid, err := arms[p.backend].arm.AuthorWorkload(ctx, opts.UnrestrictedToken, opts.Params.Project, opts.Params.Generation,
+			floorWorkspace, opts.SourceCommit, "bench-empty-floor", "empty_floor")
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: author empty-floor on %s: %w", p.backend, err)
+		}
+		floorExplorers[p.backend] = eid
+		floorReceipts[p.backend] = rid
+	}
+
+	// Pre-timing authorization gate (ruling iii). If the scoped principal
+	// sees anything it was not granted, timings are meaningless: abort
+	// before producing any artifact. The gate runs on a live-battery
+	// (authoring-proven) workload: an excluded workload is never authored,
+	// so it cannot host the control. Any authored workload exercises the
+	// same fence — the whole fixture set uploads under one auth path.
+	authWorkload := WorkloadGroupCountByPatient
+	baseOpts := RunOptions{
+		Project: opts.Params.Project, Generation: opts.Params.Generation,
+		AuthResourcePath:  opts.Params.AuthResourcePath,
+		UnrestrictedToken: opts.UnrestrictedToken, ScopedToken: opts.ScopedToken,
+		PreviewLimit: opts.PreviewLimit, Config: opts.Config, SourceCommit: opts.SourceCommit,
+	}
+	{
+		ra := RunOptions{Project: baseOpts.Project, Generation: baseOpts.Generation, AuthResourcePath: baseOpts.AuthResourcePath, UnrestrictedToken: baseOpts.UnrestrictedToken, ScopedToken: baseOpts.ScopedToken, PreviewLimit: baseOpts.PreviewLimit, Config: baseOpts.Config, SourceCommit: baseOpts.SourceCommit,
+			Explorer: explorerIDByWorkload[authWorkload]}
+		rc := map[string]string{}
+		oi := map[string]string{}
+		for _, p := range participants {
+			rc[p.backend] = receiptIDs[p.backend][authWorkload]
+			oi[p.backend] = outputIDs[p.backend][authWorkload]
+		}
+		var authReport WorkloadGateReport
+		if len(participants) == 2 {
+			authReport = NegativeAuthControl(ctx, arms[BackendArango].arm, arms[BackendPostgres].arm, ra, rc, oi)
+		} else {
+			authReport = NegativeAuthControlSingleArm(ctx, authWorkload, arms[participants[0].backend].arm, ra, rc, oi)
+		}
+		if !authReport.Claimable {
+			return nil, nil, fmt.Errorf("benchmark: pre-timing authorization gate FAILED: %s; no artifact is produced", authReport.ExclusionReason)
+		}
+	}
+
+	// Timing, workload by workload, interleaved round-robin.
+	var allSamples []Sample
+	var gateReports []WorkloadGateReport
+	idMap := NewStorageIDMap(files.Facts)
+	var cold func(ctx context.Context, arm *Arm) error
+	procCold := false
+	for _, p := range participants {
+		if arms[p.backend].proc != nil {
+			procCold = true
+		}
+	}
+	if procCold {
+		cold = func(ctx context.Context, arm *Arm) error {
+			if arm == nil || arm.Proc == nil {
+				return nil
+			}
+			return arm.Proc.Restart(ctx)
+		}
+	}
+	for _, spec := range Battery {
+		if _, skip := excludedWorkloads[spec.ID]; skip {
+			continue // disclosed absence: never authored, never timed
+		}
+		ra := RunOptions{Project: baseOpts.Project, Generation: baseOpts.Generation, AuthResourcePath: baseOpts.AuthResourcePath, UnrestrictedToken: baseOpts.UnrestrictedToken, ScopedToken: baseOpts.ScopedToken, PreviewLimit: baseOpts.PreviewLimit, Config: baseOpts.Config, SourceCommit: baseOpts.SourceCommit,
+			Explorer: explorerIDByWorkload[spec.ID]}
+		rc := map[string]string{}
+		oi := map[string]string{}
+		for _, p := range participants {
+			rc[p.backend] = receiptIDs[p.backend][spec.ID]
+			oi[p.backend] = outputIDs[p.backend][spec.ID]
+		}
+		var arangoArm, postgresArm *Arm
+		if a, ok := arms[BackendArango]; ok {
+			arangoArm = a.arm
+		}
+		if a, ok := arms[BackendPostgres]; ok {
+			postgresArm = a.arm
+		}
+		samples, finals, err := MeasureArms(ctx, clock, spec.ID, arangoArm, postgresArm, ra, rc, oi, cold)
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: measure %s: %w", spec.ID, err)
+		}
+		allSamples = append(allSamples, samples...)
+		var expected *CanonicalBag
+		if spec.OracleAvailable {
+			expected, err = OracleFor(spec.ID, files.Facts)
+			if err != nil {
+				return nil, nil, fmt.Errorf("benchmark: oracle %s: %w", spec.ID, err)
+			}
+		}
+		arangoResult := backendResultFrom(BackendArango, samples, finals)
+		postgresResult := backendResultFrom(BackendPostgres, samples, finals)
+		var report WorkloadGateReport
+		if len(participants) == 2 {
+			report = gates(spec.ID, spec.Columns, expected, arangoResult, postgresResult,
+				rowsOf(finals[BackendArango]), rowsOf(finals[BackendPostgres]), idMap)
+		} else {
+			backend := participants[0].backend
+			blockedDetail := ""
+			for _, leg := range opts.Plan.Legs {
+				if leg.Backend == otherBackend(backend) {
+					blockedDetail = "leg not run: " + leg.Capability
+				}
+			}
+			result := arangoResult
+			if backend == BackendPostgres {
+				result = postgresResult
+			}
+			report = singleGates(spec.ID, backend, spec.Columns, expected, result, rowsOf(finals[backend]), idMap, blockedDetail)
+		}
+		gateReports = append(gateReports, report)
+	}
+	// Registry-excluded workloads appear as disclosed blocked rows, never
+	// as missing rows: the report says exactly what did not run and why.
+	gateReports = append(gateReports, ExcludedWorkloadGateReports(opts.Plan.Legs, excludedWorkloads)...)
+
+	// Control runs.
+	controls := ControlRuns{
+		StabilityCVLimit: StabilityCVLimit,
+		UnstableCells:    ControlUnstableCells(allSamples, StabilityCVLimit),
+		RatioPolicy:      "ratio-only-both-passed",
+	}
+	for _, backend := range []string{BackendArango, BackendPostgres} {
+		if !runLegs[backend] {
+			continue // stays 0: absent, never forged
+		}
+		value, ok := ControlSelfRatio(allSamples, backend)
+		if !ok {
+			return nil, nil, fmt.Errorf("benchmark: %s self-ratio control cannot be computed from the collected samples; run is not fit for claims", backend)
+		}
+		if backend == BackendArango {
+			controls.SelfRatioArango = value
+		} else {
+			controls.SelfRatioPostgres = value
+		}
+	}
+	floorIters := opts.EmptyFloorIters
+	if floorIters == 0 {
+		floorIters = 5
+	}
+	worstFloor := 0.0
+	for _, p := range participants {
+		median, err := arms[p.backend].arm.MeasureEmptyFloor(ctx, clock, opts.UnrestrictedToken, opts.Params.Project, floorExplorers[p.backend], floorReceipts[p.backend], "empty_floor", floorIters)
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: %s empty-floor control: %w", p.backend, err)
+		}
+		if median > worstFloor {
+			worstFloor = median
+		}
+	}
+	controls.EmptyFloorMillis = worstFloor
+
+	identity := RunIdentity{
+		RunID: opts.RunID, StartedAt: opts.StartedAt.UTC(), Preset: opts.Preset,
+		SourceCommit: opts.SourceCommit, DatasetDigest: files.Digest,
+		ClickHouseDisabled: !opts.ClickHouseEnabled, Config: opts.Config,
+	}
+	for _, p := range participants {
+		version, err := opts.VersionProbe(ctx, p.cfg, p.backend)
+		if err != nil {
+			return nil, nil, fmt.Errorf("benchmark: %s version probe: %w", p.backend, err)
+		}
+		if strings.TrimSpace(version) == "" {
+			return nil, nil, fmt.Errorf("benchmark: %s version probe returned an empty version", p.backend)
+		}
+		arms[p.backend].evidence.Version = version
+		if p.backend == BackendArango {
+			identity.ArangoVersion = version
+		} else {
+			identity.PostgresVersion = version
+		}
+	}
+
+	plan := opts.Plan
+	plan.PlannedNotRun = append([]PlannedNotRun(nil), opts.Plan.PlannedNotRun...)
+	AppendWorkloadDisclosures(&plan, excludedWorkloads)
+	report, err := BuildReport(identity, plan, controls, gateReports, allSamples)
+	if err != nil {
+		return nil, nil, fmt.Errorf("benchmark: report would not verify (refusing to emit): %w", err)
+	}
+	var evidence []ArmEvidence
+	for _, p := range participants {
+		evidence = append(evidence, arms[p.backend].evidence)
+	}
+	sort.Slice(evidence, func(i, j int) bool { return evidence[i].Backend < evidence[j].Backend })
+	return report, evidence, nil
+}
+
+func startArm(ctx context.Context, backend string, cfg ArmConfig, spawn SpawnFunc, opts DriverOptions) (*runningArm, error) {
+	if cfg.BaseURL != "" {
+		return &runningArm{
+			arm:      &Arm{Backend: backend, BaseURL: strings.TrimRight(cfg.BaseURL, "/"), Client: &http.Client{Timeout: 120 * time.Second}, AuthResourcePath: opts.Params.AuthResourcePath},
+			evidence: ArmEvidence{Backend: backend, BaseURL: cfg.BaseURL, Spawned: false},
+		}, nil
+	}
+	if cfg.BinaryPath == "" {
+		return nil, fmt.Errorf("arm must provide either BaseURL or BinaryPath")
+	}
+	port, err := FreePort()
+	if err != nil {
+		return nil, err
+	}
+	listen := fmt.Sprintf("127.0.0.1:%d", port)
+	// --config makes YAML authoritative for listen, so the chosen address
+	// must be rendered into the config, not only passed as --listen.
+	cfgYAML := cfg.ConfigYAML
+	if addr, mark, ok := strings.Cut(cfgYAML, ListenPlaceholder); ok {
+		cfgYAML = addr + listen + mark
+	}
+	ready := cfg.ReadyURL
+	if ready == "" {
+		ready = "http://" + listen + "/readyz"
+	}
+	timeout := 60 * time.Second
+	spec := ServerSpec{BinaryPath: cfg.BinaryPath, Backend: backend, ConfigYAML: cfgYAML, Env: cfg.Env, ReadyURL: ready, Timeout: timeout, StderrDir: opts.StderrDir}
+	proc, err := spawn(ctx, spec, cfg.ScrubSecrets, listen)
+	if err != nil {
+		return nil, err
+	}
+	return &runningArm{
+		arm:      &Arm{Backend: backend, BaseURL: "http://" + listen, Client: &http.Client{Timeout: 120 * time.Second}, Proc: proc, AuthResourcePath: opts.Params.AuthResourcePath},
+		proc:     proc,
+		evidence: ArmEvidence{Backend: backend, BaseURL: "http://" + listen, LogPath: proc.LogPath(), Spawned: true},
+	}, nil
+}
+
+func backendResultFrom(backend string, samples []Sample, finals map[string]PreviewResult) BackendResult {
+	result := BackendResult{Backend: backend, Outcome: OutcomeLabelPassed}
+	var failures []string
+	for _, s := range samples {
+		if s.Backend != backend || s.Warmup {
+			continue
+		}
+		if s.Outcome != OutcomePassed {
+			result.Outcome = OutcomeLabelFailed
+			failures = append(failures, string(s.Outcome)+":"+s.ErrorCode)
+		}
+	}
+	if len(failures) > 0 {
+		seen := map[string]bool{}
+		var uniq []string
+		for _, f := range failures {
+			if !seen[f] {
+				seen[f] = true
+				uniq = append(uniq, f)
+			}
+		}
+		sort.Strings(uniq)
+		if len(uniq) > 3 {
+			uniq = uniq[:3]
+		}
+		result.ErrorCode = strings.Join(uniq, ";")
+		return result
+	}
+	final, ok := finals[backend]
+	if !ok {
+		result.Outcome = OutcomeLabelFailed
+		result.ErrorCode = "no completed measured execution"
+		return result
+	}
+	result.Columns = final.Columns
+	result.RowCount = final.RowCount
+	result.Truncated = final.Sampled
+	bag := Bag(CanonicalizeRows(final.Columns, final.Rows))
+	result.BagDigest = bag.Digest()
+	return result
+}
+
+func rowsOf(result PreviewResult) []map[string]any { return result.Rows }
+
+// ErrAbortBeforeArtifact distinguishes "refused to run" from "run failed".
+var ErrAbortBeforeArtifact = errors.New("benchmark: aborted before producing an artifact")
