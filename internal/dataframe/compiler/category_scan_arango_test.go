@@ -295,12 +295,9 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 	}
 	wantIndexFields := previewQuantityCategoryFields()
 	wantStoredValues := previewQuantityCategoryStoredValues()
-	wantLegacyFields := previewQuantityCategoryLegacyFields()
 	if scan.CategoryIndex == nil || scan.CategoryIndex.Name != previewCoveringIndexNameWithStoredValues("Observation", wantIndexFields, wantStoredValues) ||
-		!sameCategoryIndexFields(scan.CategoryIndex.Fields, wantIndexFields) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, wantStoredValues) ||
-		scan.CategoryIndex.Supersedes == nil || scan.CategoryIndex.Supersedes.Name != previewCoveringIndexNameWithStoredValues("Observation", wantLegacyFields, wantStoredValues) ||
-		!reflect.DeepEqual(scan.CategoryIndex.Supersedes.Fields, wantLegacyFields) || !reflect.DeepEqual(scan.CategoryIndex.Supersedes.StoredValues, wantStoredValues) {
-		t.Fatalf("root quantity category index does not exactly augment its stored-parent Pivot index: %+v", scan.CategoryIndex)
+		!sameCategoryIndexFields(scan.CategoryIndex.Fields, wantIndexFields) || !reflect.DeepEqual(scan.CategoryIndex.StoredValues, wantStoredValues) {
+		t.Fatalf("root quantity category index definition: %+v", scan.CategoryIndex)
 	}
 	if !strings.Contains(scan.Query, "root.resourceType == @__loom_category_resource_type") ||
 		scan.BindVars["__loom_category_resource_type"] != "Observation" {

@@ -186,302 +186,10 @@ func TestEnsurePreviewCoveringIndexWithStoredValuesVerifiesExactInventory(t *tes
 	})
 }
 
-func TestStoredValuesReplacementDropsOnlyExactCompilerOwnedLegacyIndexAtCap(t *testing.T) {
-	ctx := context.Background()
-	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
-	storedValues := []string{"payload.valueQuantity"}
-	name := "loom_pivot_preview_stored_projection"
-	legacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity.value"}
-	legacyName := previewCoveringIndexName("Observation", legacyFields)
-	if legacyName != "loom_pivot_preview_46a620d918ffe1d6" {
-		t.Fatalf("store replacement identity %q diverged from the compiler-owned live legacy index name", legacyName)
-	}
-	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields}
-	if !validPreviewCoveringIndexStoredValuesReplacement("Observation", name, fields, storedValues, replacement) {
-		t.Fatal("exact deterministic field-only index replacement was rejected")
-	}
-	wrongReplacement := &previewIndexReplacement{name: "loom_pivot_preview_user_owned", fields: legacyFields}
-	if validPreviewCoveringIndexStoredValuesReplacement("Observation", name, fields, storedValues, wrongReplacement) {
-		t.Fatal("replacement accepted an index name not derived from its compiler field tuple")
-	}
-
-	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
-		previewIndexResponse("loom_pivot_preview_unrelated_a", "Observation/unrelated-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
-		previewIndexResponse("loom_pivot_preview_unrelated_b", "Observation/unrelated-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
-		previewIndexResponse("loom_pivot_preview_unrelated_c", "Observation/unrelated-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
-		previewIndexResponse(legacyName, "Observation/legacy-exact", legacyFields),
-	}}
-	if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(fake.events, []string{"ensure:" + name, "delete:Observation/legacy-exact"}) {
-		t.Fatalf("replacement operations = %v, want verified create before exact delete", fake.events)
-	}
-	if len(fake.indexes) != maxPreviewCoveringIndexesPerCollection ||
-		containsPreviewIndex(fake.indexes, legacyName) || !containsPreviewIndex(fake.indexes, name) {
-		t.Fatalf("replacement inventory = %#v, want cap %d with new index and exact old index replaced", fake.indexes, maxPreviewCoveringIndexesPerCollection)
-	}
-	for _, unrelated := range []string{"loom_pivot_preview_unrelated_a", "loom_pivot_preview_unrelated_b", "loom_pivot_preview_unrelated_c"} {
-		if !containsPreviewIndex(fake.indexes, unrelated) {
-			t.Errorf("unrelated index %q was removed", unrelated)
-		}
-	}
-
-	failDrop := &fakePreviewIndexCollection{
-		indexes: []driver.IndexResponse{
-			previewIndexResponse("loom_pivot_preview_unrelated_a", "Observation/unrelated-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
-			previewIndexResponse("loom_pivot_preview_unrelated_b", "Observation/unrelated-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
-			previewIndexResponse("loom_pivot_preview_unrelated_c", "Observation/unrelated-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
-			previewIndexResponse(legacyName, "Observation/legacy-exact", legacyFields),
-		},
-		deleteErr: errors.New("drop failed"), failDeleteID: "Observation/legacy-exact",
-	}
-	if err := ensurePreviewCoveringIndexDefinition(ctx, failDrop, name, fields, storedValues, replacement); err == nil {
-		t.Fatal("failed exact legacy drop unexpectedly succeeded")
-	}
-	if containsPreviewIndex(failDrop.indexes, name) || !containsPreviewIndex(failDrop.indexes, legacyName) ||
-		len(failDrop.indexes) != maxPreviewCoveringIndexesPerCollection {
-		t.Fatalf("failed drop did not preserve the previous capped inventory: %#v", failDrop.indexes)
-	}
-}
-
-func TestStoredValuesQuantityTypeAugmentationReplacesExactIndexAtCap(t *testing.T) {
-	ctx := context.Background()
-	legacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
-	storedValues := []string{"payload.valueQuantity"}
-	fields := append(append([]string(nil), legacyFields...), "resourceType")
-	legacyName := previewCoveringIndexNameWithStoredValues("Observation", legacyFields, storedValues)
-	name := previewCoveringIndexNameWithStoredValues("Observation", fields, storedValues)
-	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields, storedValues: storedValues}
-	if legacyName != "loom_pivot_preview_cdeb305dcc142386" || name != "loom_pivot_preview_7be3321552fa58fc" {
-		t.Fatalf("typed index identities diverged from the active cdeb migration: legacy=%s new=%s", legacyName, name)
-	}
-	if !validPreviewCoveringIndexStoredValuesReplacement("Observation", name, fields, storedValues, replacement) {
-		t.Fatal("exact typed stored-parent replacement was rejected")
-	}
-	wrongReplacement := &previewIndexReplacement{name: legacyName, fields: legacyFields, storedValues: []string{"payload.other"}}
-	if validPreviewCoveringIndexStoredValuesReplacement("Observation", name, fields, storedValues, wrongReplacement) {
-		t.Fatal("replacement accepted the cdeb name with a different stored parent")
-	}
-
-	baseInventory := func() []driver.IndexResponse {
-		return []driver.IndexResponse{
-			previewIndexResponse("loom_pivot_preview_unrelated_a", "Observation/unrelated-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
-			previewIndexResponse("loom_pivot_preview_unrelated_b", "Observation/unrelated-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
-			previewIndexResponse("loom_pivot_preview_unrelated_c", "Observation/unrelated-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
-			previewIndexResponseWithStoredValues(legacyName, "Observation/legacy-exact", legacyFields, storedValues),
-		}
-	}
-	t.Run("create verify and exact drop", func(t *testing.T) {
-		fake := &fakePreviewIndexCollection{indexes: baseInventory()}
-		if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); err != nil {
-			t.Fatal(err)
-		}
-		if !slices.Equal(fake.events, []string{"ensure:" + name, "delete:Observation/legacy-exact"}) ||
-			containsPreviewIndex(fake.indexes, legacyName) || !containsPreviewIndex(fake.indexes, name) ||
-			len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
-			t.Fatalf("typed index replacement events/inventory = %v / %#v", fake.events, fake.indexes)
-		}
-		for _, unrelated := range []string{"loom_pivot_preview_unrelated_a", "loom_pivot_preview_unrelated_b", "loom_pivot_preview_unrelated_c"} {
-			if !containsPreviewIndex(fake.indexes, unrelated) {
-				t.Errorf("replacement removed unrelated preview index %s", unrelated)
-			}
-		}
-	})
-	t.Run("preserve exact old index if its drop fails", func(t *testing.T) {
-		fake := &fakePreviewIndexCollection{
-			indexes: baseInventory(), deleteErr: errors.New("drop failed"), failDeleteID: "Observation/legacy-exact",
-		}
-		if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); err == nil {
-			t.Fatal("failed old-index drop unexpectedly succeeded")
-		}
-		if containsPreviewIndex(fake.indexes, name) || !containsPreviewIndex(fake.indexes, legacyName) ||
-			len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
-			t.Fatalf("failed drop did not roll back candidate and preserve old capped inventory: %#v", fake.indexes)
-		}
-	})
-	t.Run("refuse same-name index with different stored parent", func(t *testing.T) {
-		inventory := baseInventory()
-		inventory[len(inventory)-1] = previewIndexResponseWithStoredValues(legacyName, "Observation/legacy-wrong", legacyFields, []string{"payload.other"})
-		fake := &fakePreviewIndexCollection{indexes: inventory}
-		if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
-			t.Fatalf("wrong stored-parent replacement error = %v, want index cap refusal", err)
-		}
-		if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
-			t.Fatalf("wrong stored-parent inventory was mutated: events=%v indexes=%#v", fake.events, fake.indexes)
-		}
-	})
-}
-
-func TestStoredValuesReplacementAtCapRefusesNonmatchingLegacyInventory(t *testing.T) {
-	ctx := context.Background()
-	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
-	storedValues := []string{"payload.valueQuantity"}
-	name := "loom_pivot_preview_stored_projection"
-	legacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference", "payload.valueQuantity.value"}
-	legacyName := previewCoveringIndexName("Observation", legacyFields)
-	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields}
-	wrongFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.other"}
-	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
-		previewIndexResponse("loom_pivot_preview_unrelated_a", "Observation/unrelated-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
-		previewIndexResponse("loom_pivot_preview_unrelated_b", "Observation/unrelated-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
-		previewIndexResponse("loom_pivot_preview_unrelated_c", "Observation/unrelated-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
-		previewIndexResponse(legacyName, "Observation/legacy-mismatch", wrongFields),
-	}}
-	if err := ensurePreviewCoveringIndexDefinition(ctx, fake, name, fields, storedValues, replacement); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
-		t.Fatalf("nonmatching legacy inventory error = %v, want index-cap refusal", err)
-	}
-	if !slices.Equal(fake.events, []string{}) || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
-		t.Fatalf("nonmatching replacement mutated inventory: events=%v indexes=%#v", fake.events, fake.indexes)
-	}
-}
-
-func TestRelatedCategoryIndexReplacementStaysWithinCapAndDropsExactLegacyOnly(t *testing.T) {
-	ctx := context.Background()
-	legacyName := "loom_pivot_preview_legacy_category"
-	legacyFields := []string{"project", "dataset_generation", "payload.valueQuantity.code", "auth_resource_path"}
-	newName := "loom_pivot_preview_related_category"
-	newFields := []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}
-	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
-		previewIndexResponse("loom_pivot_preview_old_a", "Observation/old-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
-		previewIndexResponse("loom_pivot_preview_old_b", "Observation/old-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
-		previewIndexResponse("loom_pivot_preview_old_c", "Observation/old-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
-		previewIndexResponse(legacyName, "Observation/legacy", legacyFields),
-	}}
-	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields}
-	if err := ensurePreviewCoveringIndex(ctx, fake, newName, newFields, replacement); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(fake.events, []string{"ensure:" + newName, "delete:Observation/legacy"}) {
-		t.Fatalf("replacement operation order = %v, want create/verify new before deleting exact legacy", fake.events)
-	}
-	if len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
-		t.Fatalf("preview index count = %d, want cap %d", len(fake.indexes), maxPreviewCoveringIndexesPerCollection)
-	}
-	if containsPreviewIndex(fake.indexes, legacyName) || !containsPreviewIndex(fake.indexes, newName) {
-		t.Fatalf("replacement inventory = %#v, want new present and exact legacy absent", fake.indexes)
-	}
-	for _, name := range []string{"loom_pivot_preview_old_a", "loom_pivot_preview_old_b", "loom_pivot_preview_old_c"} {
-		if !containsPreviewIndex(fake.indexes, name) {
-			t.Errorf("unrelated preview index %q was removed", name)
-		}
-	}
-}
-
-func TestRelatedCategoryIndexReplacementPreservesLegacyOnCreateOrDeleteFailure(t *testing.T) {
-	ctx := context.Background()
-	legacyName := "loom_pivot_preview_legacy_category"
-	legacyFields := []string{"project", "dataset_generation", "payload.valueQuantity.code", "auth_resource_path"}
-	newName := "loom_pivot_preview_related_category"
-	newFields := []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}
-	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields}
-	newFullInventory := func() []driver.IndexResponse {
-		return []driver.IndexResponse{
-			previewIndexResponse("loom_pivot_preview_old_a", "Observation/old-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
-			previewIndexResponse("loom_pivot_preview_old_b", "Observation/old-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
-			previewIndexResponse("loom_pivot_preview_old_c", "Observation/old-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
-			previewIndexResponse(legacyName, "Observation/legacy", legacyFields),
-		}
-	}
-	t.Run("create fails before any drop", func(t *testing.T) {
-		fake := &fakePreviewIndexCollection{indexes: newFullInventory(), createErr: errors.New("create failed")}
-		if err := ensurePreviewCoveringIndex(ctx, fake, newName, newFields, replacement); err == nil {
-			t.Fatal("failed replacement create unexpectedly succeeded")
-		}
-		if containsPreviewIndex(fake.indexes, newName) || !containsPreviewIndex(fake.indexes, legacyName) {
-			t.Fatalf("failed creation changed old index inventory: %#v", fake.indexes)
-		}
-		if len(fake.events) != 1 || fake.events[0] != "ensure:"+newName {
-			t.Fatalf("failed creation events = %v, want ensure only", fake.events)
-		}
-	})
-	t.Run("failed drop rolls back newly created replacement", func(t *testing.T) {
-		fake := &fakePreviewIndexCollection{indexes: newFullInventory(), deleteErr: errors.New("delete failed"), failDeleteID: "Observation/legacy"}
-		if err := ensurePreviewCoveringIndex(ctx, fake, newName, newFields, replacement); err == nil {
-			t.Fatal("failed legacy deletion unexpectedly succeeded")
-		}
-		wantEvents := []string{"ensure:" + newName, "delete:Observation/legacy", "delete:Observation/" + newName}
-		if !slices.Equal(fake.events, wantEvents) {
-			t.Fatalf("failed deletion events = %v, want replacement rollback %v", fake.events, wantEvents)
-		}
-		if containsPreviewIndex(fake.indexes, newName) || !containsPreviewIndex(fake.indexes, legacyName) {
-			t.Fatalf("failed deletion did not preserve legacy inventory: %#v", fake.indexes)
-		}
-	})
-}
-
-func TestRelatedCategoryIndexReplacementRollsBackUnexpectedCreatedIndex(t *testing.T) {
-	ctx := context.Background()
-	legacyName := "loom_pivot_preview_legacy_category"
-	legacyFields := []string{"project", "dataset_generation", "payload.valueQuantity.code", "auth_resource_path"}
-	newName := "loom_pivot_preview_related_category"
-	newFields := []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}
-	indexes := []driver.IndexResponse{
-		previewIndexResponse("loom_pivot_preview_old_a", "Observation/old-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
-		previewIndexResponse("loom_pivot_preview_old_b", "Observation/old-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
-		previewIndexResponse("loom_pivot_preview_old_c", "Observation/old-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
-		previewIndexResponse(legacyName, "Observation/legacy", legacyFields),
-	}
-	unexpected := previewIndexResponse(newName, "Observation/unexpected-new", []string{"project", "dataset_generation", "auth_resource_path", "payload.unexpected"})
-	fake := &fakePreviewIndexCollection{indexes: indexes, createResponse: &unexpected}
-	replacement := &previewIndexReplacement{name: legacyName, fields: legacyFields}
-	if err := ensurePreviewCoveringIndex(ctx, fake, newName, newFields, replacement); err == nil {
-		t.Fatal("unexpected created index definition was accepted")
-	}
-	if !slices.Equal(fake.events, []string{"ensure:" + newName, "delete:Observation/unexpected-new"}) {
-		t.Fatalf("unexpected index rollback events = %v", fake.events)
-	}
-	if containsPreviewIndex(fake.indexes, newName) || !containsPreviewIndex(fake.indexes, legacyName) {
-		t.Fatalf("verification failure did not remove owned wrong index and preserve legacy: %#v", fake.indexes)
-	}
-}
-
-func TestRelatedCategoryIndexReplacementRefusesNonmatchingLegacyAtCap(t *testing.T) {
-	ctx := context.Background()
-	fields := []string{"project", "dataset_generation", "payload.valueQuantity.code", "auth_resource_path"}
-	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
-		previewIndexResponse("loom_pivot_preview_a", "Observation/a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
-		previewIndexResponse("loom_pivot_preview_b", "Observation/b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
-		previewIndexResponse("loom_pivot_preview_c", "Observation/c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
-		previewIndexResponse("loom_pivot_preview_different_name", "Observation/legacy", fields),
-	}}
-	replacement := &previewIndexReplacement{
-		name:   "loom_pivot_preview_expected_name",
-		fields: fields,
-	}
-	newFields := []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}
-	if err := ensurePreviewCoveringIndex(ctx, fake, "loom_pivot_preview_new", newFields, replacement); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
-		t.Fatalf("nonmatching legacy index error = %v, want cap error", err)
-	}
-	if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
-		t.Fatalf("nonmatching legacy changed inventory/events: indexes=%#v events=%v", fake.indexes, fake.events)
-	}
-}
-
-func TestValidPreviewCoveringIndexReplacementIsSamePathAndExactShape(t *testing.T) {
-	newFields := []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}
-	oldFields := []string{"project", "dataset_generation", "payload.valueQuantity.code", "auth_resource_path"}
-	valid := &previewIndexReplacement{name: "loom_pivot_preview_old", fields: oldFields}
-	if !validPreviewCoveringIndexReplacement("Observation", "loom_pivot_preview_new", newFields, valid) {
-		t.Fatal("exact same-path related category replacement was rejected")
-	}
-	for _, replacement := range []*previewIndexReplacement{
-		{name: "loom_pivot_preview_other", fields: []string{"project", "dataset_generation", "payload.other", "auth_resource_path"}},
-		{name: "loom_pivot_preview_bad", fields: []string{"project", "dataset_generation", "resourceType", "payload.valueQuantity.code", "auth_resource_path"}},
-		{name: "loom_pivot_preview_bad;DROP", fields: oldFields},
-	} {
-		if validPreviewCoveringIndexReplacement("Observation", "loom_pivot_preview_new", newFields, replacement) {
-			t.Errorf("invalid replacement accepted: %+v", replacement)
-		}
-	}
-}
-
 type fakePreviewIndexCollection struct {
 	indexes        []driver.IndexResponse
 	events         []string
 	createErr      error
-	deleteErr      error
-	failDeleteID   string
 	createResponse *driver.IndexResponse
 }
 
@@ -505,9 +213,6 @@ func (f *fakePreviewIndexCollection) EnsurePersistentIndex(_ context.Context, fi
 
 func (f *fakePreviewIndexCollection) DeleteIndexByID(_ context.Context, id string) error {
 	f.events = append(f.events, "delete:"+id)
-	if id == f.failDeleteID && f.deleteErr != nil {
-		return f.deleteErr
-	}
 	for index := range f.indexes {
 		if f.indexes[index].ID == id {
 			f.indexes = append(f.indexes[:index], f.indexes[index+1:]...)
@@ -532,13 +237,61 @@ func previewIndexResponseWithStoredValues(name, id string, fields, storedValues 
 	}
 }
 
-func containsPreviewIndex(indexes []driver.IndexResponse, name string) bool {
-	for _, index := range indexes {
-		if index.Name == name {
-			return true
-		}
+func boolPointer(value bool) *bool { return &value }
+
+func TestStoredValuesPreviewCoveringIndexCapRequiresPriorMigration(t *testing.T) {
+	ctx := context.Background()
+	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "resourceType"}
+	storedValues := []string{"payload.valueQuantity"}
+	name := previewCoveringIndexNameWithStoredValues("Observation", fields, storedValues)
+	legacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
+	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
+		previewIndexResponseWithStoredValues(previewCoveringIndexNameWithStoredValues("Observation", legacyFields, storedValues), "Observation/legacy", legacyFields, storedValues),
+		previewIndexResponse("loom_pivot_preview_other_a", "Observation/other-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
+		previewIndexResponse("loom_pivot_preview_other_b", "Observation/other-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
+		previewIndexResponse("loom_pivot_preview_other_c", "Observation/other-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
+	}}
+	if err := ensurePreviewCoveringIndexWithStoredValues(ctx, fake, name, fields, storedValues); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
+		t.Fatalf("unmigrated stored-values cap error = %v, want index limit", err)
 	}
-	return false
+	if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
+		t.Fatalf("stored-values cap refusal changed inventory: events=%v indexes=%d", fake.events, len(fake.indexes))
+	}
 }
 
-func boolPointer(value bool) *bool { return &value }
+func TestPreviewCoveringIndexCapRequiresPriorMigration(t *testing.T) {
+	ctx := context.Background()
+	fields := []string{"project", "dataset_generation", "resourceType", "payload.status", "auth_resource_path"}
+	name := previewCoveringIndexName("Patient", fields)
+	legacy := []string{"project", "dataset_generation", "payload.status", "auth_resource_path"}
+	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
+		previewIndexResponse(previewCoveringIndexName("Patient", legacy), "Patient/legacy", legacy),
+		previewIndexResponse("loom_pivot_preview_other_a", "Patient/other-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
+		previewIndexResponse("loom_pivot_preview_other_b", "Patient/other-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
+		previewIndexResponse("loom_pivot_preview_other_c", "Patient/other-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
+	}}
+	if err := ensurePreviewCoveringIndex(ctx, fake, name, fields); !errors.Is(err, ErrPreviewCoveringIndexLimit) {
+		t.Fatalf("unmigrated capped inventory error = %v, want index limit", err)
+	}
+	if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
+		t.Fatalf("cap refusal changed inventory: events=%v indexes=%d", fake.events, len(fake.indexes))
+	}
+}
+
+func TestPreviewCoveringIndexAtCapIsIdempotentAfterMigration(t *testing.T) {
+	ctx := context.Background()
+	fields := []string{"project", "dataset_generation", "resourceType", "payload.status", "auth_resource_path"}
+	name := previewCoveringIndexName("Patient", fields)
+	fake := &fakePreviewIndexCollection{indexes: []driver.IndexResponse{
+		previewIndexResponse(name, "Patient/current", fields),
+		previewIndexResponse("loom_pivot_preview_other_a", "Patient/other-a", []string{"project", "dataset_generation", "auth_resource_path", "payload.a"}),
+		previewIndexResponse("loom_pivot_preview_other_b", "Patient/other-b", []string{"project", "dataset_generation", "auth_resource_path", "payload.b"}),
+		previewIndexResponse("loom_pivot_preview_other_c", "Patient/other-c", []string{"project", "dataset_generation", "auth_resource_path", "payload.c"}),
+	}}
+	if err := ensurePreviewCoveringIndex(ctx, fake, name, fields); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.events) != 0 || len(fake.indexes) != maxPreviewCoveringIndexesPerCollection {
+		t.Fatalf("existing current index was not idempotent: events=%v indexes=%d", fake.events, len(fake.indexes))
+	}
+}

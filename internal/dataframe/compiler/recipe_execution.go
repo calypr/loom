@@ -92,11 +92,6 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	previewCoveringIndex := legacyPreviewCoveringIndex
 	if streamingMissingCategoryPivot {
 		if storedValuesIndex := streamingMissingCategoryPivotIndexSpec(physical); storedValuesIndex != nil {
-			if storedValuesIndex.Supersedes == nil && legacyPreviewCoveringIndex != nil && legacyPreviewCoveringIndex.Name != storedValuesIndex.Name {
-				storedValuesIndex.Supersedes = &PreviewCoveringIndexReplacement{
-					Name: legacyPreviewCoveringIndex.Name, Fields: append([]string(nil), legacyPreviewCoveringIndex.Fields...),
-				}
-			}
 			previewCoveringIndex = storedValuesIndex
 		}
 	}

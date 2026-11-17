@@ -59,14 +59,11 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		t.Fatal(err)
 	}
 	index := query.PreviewCoveringIndex
-	wantLegacyFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status"}
-	wantFields := append(append([]string(nil), wantLegacyFields...), "resourceType")
+	wantFields := previewQuantityCategoryFields()
 	wantStoredValues := []string{"payload.valueQuantity"}
 	if index == nil || index.Name != previewCoveringIndexNameWithStoredValues("Observation", wantFields, wantStoredValues) ||
-		!reflect.DeepEqual(index.Fields, wantFields) || !reflect.DeepEqual(index.StoredValues, wantStoredValues) ||
-		index.Supersedes == nil || index.Supersedes.Name != previewCoveringIndexNameWithStoredValues("Observation", wantLegacyFields, wantStoredValues) ||
-		!reflect.DeepEqual(index.Supersedes.Fields, wantLegacyFields) || !reflect.DeepEqual(index.Supersedes.StoredValues, wantStoredValues) {
-		t.Fatalf("streaming missing-category Pivot did not augment its exact stored-parent index: index=%+v supersedes=%+v wantFields=%v wantLegacy=%v", index, index.Supersedes, wantFields, wantLegacyFields)
+		!reflect.DeepEqual(index.Fields, wantFields) || !reflect.DeepEqual(index.StoredValues, wantStoredValues) {
+		t.Fatalf("streaming missing-category Pivot index = %+v, want fields=%v storedValues=%v", index, wantFields, wantStoredValues)
 	}
 	if !strings.Contains(query.Query, "COLLECT ") || !strings.Contains(query.Query, " AGGREGATE ") {
 		t.Fatalf("query does not stream grouped values through COLLECT AGGREGATE:\n%s", query.Query)

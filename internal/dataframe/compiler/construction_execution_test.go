@@ -133,9 +133,6 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 	if legacyIndex != nil {
 		t.Fatalf("MISSING-presence plan unexpectedly has a field-only pre-override index proof: %+v", legacyIndex)
 	}
-	if query.PreviewCoveringIndex.Supersedes != nil {
-		t.Fatalf("compiler claimed replacement without an exact pre-override spec: %+v", query.PreviewCoveringIndex.Supersedes)
-	}
 	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.id", "payload.status", "payload.subject.reference"}
 	wantStoredValues := []string{"payload.valueQuantity"}
 	if !reflect.DeepEqual(query.PreviewCoveringIndex.Fields, wantFields) || !reflect.DeepEqual(query.PreviewCoveringIndex.StoredValues, wantStoredValues) {

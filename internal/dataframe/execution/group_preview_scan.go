@@ -71,7 +71,6 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 				selected.Name = index.Name
 				selected.Fields = append([]string(nil), index.Fields...)
 				selected.StoredValues = append([]string(nil), index.StoredValues...)
-				selected.Supersedes = nil
 				selected.PrepareAfterPreview = false
 				query.PreviewCoveringIndex = &selected
 				selectedDefinition := index

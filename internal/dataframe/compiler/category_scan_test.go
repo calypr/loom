@@ -264,13 +264,8 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 		t.Fatalf("direct root category scan should stream its terminal source projection:\n%s", scanned.Query)
 	}
 	wantFields := []string{"project", "dataset_generation", "resourceType", "payload.gender", "auth_resource_path"}
-	wantLegacyFields := []string{"project", "dataset_generation", "payload.gender", "auth_resource_path"}
 	if scanned.CategoryIndex == nil || !reflect.DeepEqual(scanned.CategoryIndex.Fields, wantFields) {
 		t.Fatalf("direct root category index = %+v, want the shared exact category index", scanned.CategoryIndex)
-	}
-	if scanned.CategoryIndex.Supersedes == nil || scanned.CategoryIndex.Supersedes.Name != previewCoveringIndexName("Patient", wantLegacyFields) ||
-		!reflect.DeepEqual(scanned.CategoryIndex.Supersedes.Fields, wantLegacyFields) {
-		t.Fatalf("direct root category index replacement = %+v, want only its exact legacy category index", scanned.CategoryIndex.Supersedes)
 	}
 	if !strings.Contains(scanned.Query, "forceIndexHint: false") || !strings.Contains(scanned.Query, scanned.CategoryIndex.Name) ||
 		!strings.Contains(scanned.Query, "root.resourceType == @__loom_category_resource_type") || scanned.BindVars["__loom_category_resource_type"] != "Patient" {
@@ -334,8 +329,8 @@ func TestCompileCategoryScanUsesLegacyIndexFallbackWhenRootCollectionTypeIsUnpro
 	}
 	wantFields := []string{"project", "dataset_generation", "payload.status", "auth_resource_path"}
 	if scanned.CategoryIndex == nil || scanned.CategoryIndex.Collection != "ObservationShadow" ||
-		!reflect.DeepEqual(scanned.CategoryIndex.Fields, wantFields) || scanned.CategoryIndex.Supersedes != nil {
-		t.Fatalf("unproven collection/type pair should retain the legacy non-replacement index: %+v", scanned.CategoryIndex)
+		!reflect.DeepEqual(scanned.CategoryIndex.Fields, wantFields) {
+		t.Fatalf("unproven collection/type pair should retain the field-only index: %+v", scanned.CategoryIndex)
 	}
 	if strings.Contains(scanned.Query, "root.resourceType == @__loom_category_resource_type") {
 		t.Fatalf("unproven collection/type pair received a narrowing type predicate:\n%s", scanned.Query)

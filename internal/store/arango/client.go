@@ -117,6 +117,15 @@ var bufferPool = sync.Pool{
 }
 
 func Open(ctx context.Context, url, database string) (*Client, error) {
+	return openDatabase(ctx, url, database, true)
+}
+
+// OpenExisting opens an existing database without permitting implicit creation.
+func OpenExisting(ctx context.Context, url, database string) (*Client, error) {
+	return openDatabase(ctx, url, database, false)
+}
+
+func openDatabase(ctx context.Context, url, database string, createIfMissing bool) (*Client, error) {
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -143,6 +152,9 @@ func Open(ctx context.Context, url, database string) (*Client, error) {
 	if exists {
 		db, err = client.GetDatabase(ctx, database, nil)
 	} else {
+		if !createIfMissing {
+			return nil, fmt.Errorf("refusing to create missing database %q", database)
+		}
 		db, err = client.CreateDatabase(ctx, database, nil)
 	}
 	if err != nil {

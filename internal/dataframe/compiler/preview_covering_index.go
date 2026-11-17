@@ -179,16 +179,11 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveri
 	fields := append([]string(nil), previewCoveringIndexPrefixFields...)
 	fields = append(fields, "_key")
 	fields = append(fields, keyPaths...)
-	var supersedes *PreviewCoveringIndexReplacement
 	legacyFields := append([]string(nil), fields...)
 	if collection == "Observation" && collection == strings.TrimSpace(plan.Source.ResourceType) &&
 		reflect.DeepEqual(legacyFields, previewQuantityCategoryLegacyFields()) &&
 		reflect.DeepEqual(storedValues, previewQuantityCategoryStoredValues()) {
 		fields = append(fields, "resourceType")
-		supersedes = &PreviewCoveringIndexReplacement{
-			Name:   previewCoveringIndexNameWithStoredValues(collection, legacyFields, storedValues),
-			Fields: legacyFields, StoredValues: append([]string(nil), storedValues...),
-		}
 	}
 	if len(fields) > 32 || len(storedValues) > 32 {
 		return nil
@@ -202,7 +197,7 @@ func streamingMissingCategoryPivotIndexSpec(plan ir.PhysicalPlan) *PreviewCoveri
 	}
 	name := previewCoveringIndexNameWithStoredValues(collection, fields, storedValues)
 	return &PreviewCoveringIndexSpec{
-		Collection: collection, Name: name, Fields: fields, StoredValues: storedValues, Supersedes: supersedes,
+		Collection: collection, Name: name, Fields: fields, StoredValues: storedValues,
 	}
 }
 

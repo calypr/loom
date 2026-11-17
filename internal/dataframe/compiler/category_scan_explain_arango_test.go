@@ -127,19 +127,19 @@ func TestRelatedCategoryScanUsesTypedIndexAgainstArango(t *testing.T) {
 	assertCategoryScanIndexExplain(t, ctx, client, scan, false)
 }
 
-// assertCategoryScanIndexExplain follows the same compiler metadata dispatch
-// used by server PreparePreviewIndex, including exact supersedes metadata.
+// assertCategoryScanIndexExplain verifies and provisions only the current exact
+// compiler-selected index definition. Legacy replacement is handled by WP-19 migration.
 func assertCategoryScanIndexExplain(t *testing.T, ctx context.Context, client *store.Client, scan CompiledCategoryScanQuery, requireProjectionCoverage bool) {
 	t.Helper()
 	index := scan.CategoryIndex
-	if index == nil || index.Supersedes == nil {
-		t.Fatalf("compiled category scan index = %+v; want typed compiler index with exact supersedes metadata", index)
+	if index == nil {
+		t.Fatal("compiled category scan omitted its typed index definition")
 	}
 	var provisionErr error
 	if len(index.StoredValues) != 0 {
-		provisionErr = client.EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx, index.Collection, index.Name, index.Fields, index.StoredValues, index.Supersedes.Name, index.Supersedes.Fields, index.Supersedes.StoredValues)
+		provisionErr = client.EnsurePreviewCoveringIndexWithStoredValues(ctx, index.Collection, index.Name, index.Fields, index.StoredValues)
 	} else {
-		provisionErr = client.EnsurePreviewCoveringIndexReplacing(ctx, index.Collection, index.Name, index.Fields, index.Supersedes.Name, index.Supersedes.Fields)
+		provisionErr = client.EnsurePreviewCoveringIndex(ctx, index.Collection, index.Name, index.Fields)
 	}
 	if provisionErr != nil {
 		t.Fatalf("provision compiler-selected category index: %v", provisionErr)

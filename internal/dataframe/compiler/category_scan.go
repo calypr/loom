@@ -805,7 +805,6 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 	rootType := strings.TrimSpace(plan.Source.ResourceType)
 	if collection == "Observation" && rootType == collection &&
 		path == "payload.valueQuantity.code" && categoryScanHasExactRootPresencePath(*selected, root.Variable, strings.Split(path, ".")) {
-		legacyFields := previewQuantityCategoryLegacyFields()
 		legacyStoredValues := previewQuantityCategoryStoredValues()
 		fields := previewQuantityCategoryFields()
 		return &PreviewCoveringIndexSpec{
@@ -813,21 +812,11 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 			Name:         previewCoveringIndexNameWithStoredValues(collection, fields, legacyStoredValues),
 			Fields:       fields,
 			StoredValues: legacyStoredValues,
-			Supersedes: &PreviewCoveringIndexReplacement{
-				Name:   previewCoveringIndexNameWithStoredValues(collection, legacyFields, legacyStoredValues),
-				Fields: legacyFields, StoredValues: legacyStoredValues,
-			},
 		}
 	}
 	fields := []string{"project", "dataset_generation", path, "auth_resource_path"}
-	var supersedes *PreviewCoveringIndexReplacement
 	if rootType != "" && collection == rootType {
-		legacyFields := append([]string(nil), fields...)
 		fields = []string{"project", "dataset_generation", "resourceType", path, "auth_resource_path"}
-		supersedes = &PreviewCoveringIndexReplacement{
-			Name:   previewCoveringIndexName(collection, legacyFields),
-			Fields: legacyFields,
-		}
 	}
 	seen := make(map[string]struct{}, len(fields))
 	for _, field := range fields {
@@ -838,7 +827,6 @@ func categoryScanCategoryIndexSpec(plan ir.PhysicalPlan, category lower.Compiled
 	}
 	return &PreviewCoveringIndexSpec{
 		Collection: collection, Name: previewCoveringIndexName(collection, fields), Fields: fields,
-		Supersedes: supersedes,
 	}
 }
 
