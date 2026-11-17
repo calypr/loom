@@ -7,7 +7,7 @@
     },
     {
       "path": "docs/ui-contract-inventory/relational.fragment.json",
-      "sha256": "f0d2e2edac2ab7d7751812f7bec189780f1a47054f711517ffaa9d14c84f9934"
+      "sha256": "7f65cd0a212d156bb815cdd3e03f7ce43f16c07c2bfe7bed6141a7c04ef75575"
     },
     {
       "path": "docs/ui-contract-inventory/lifecycle.fragment.json",
@@ -18,7 +18,7 @@
       "sha256": "f2d2920a2fefa4587d260fff09ae4a0af0c1f4b94d286c1c8a15b088d46421f1"
     }
   ],
-  "expandedSha256": "3d1de6bf8e531684f7c1b5d62c82dd49daebbbad7be2f871e3249bb3882e50c2",
+  "expandedSha256": "40bb5e9d9549ee49426795cd0f557084d5e34f81fee1a275a5b63964e9daac27",
   "metadata": {
     "schemaVersion": 1,
     "status": "source-backed-provisional; model-and-adapter-coverage-pending",
@@ -316,11 +316,15 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-          "sha256": "a3f66597ebe7cf9d5f81d04f537e7f3a291b359817f24e670750c2949449f006"
+          "sha256": "067873e6a16954ff9a07f8ce4ff387c7ce1b5fdff452c956be5fb5c4e0cb9f0b"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
           "sha256": "617371f77b152fe96cda55b8753abcf8584bd2ffa0a351061d8513a8cde83562"
+        },
+        {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx",
+          "sha256": "1d5ca8307d5d2ea56dadab5596dbd3409a2275ad9ce334adfb6f709549aac8b8"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",

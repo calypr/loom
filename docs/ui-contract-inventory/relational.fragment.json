@@ -47,37 +47,37 @@
               "basis": "backend-promise",
               "statement": "The UI describes one output row per unique combination of chosen group keys, with summary columns.",
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2274-2306"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2197-2229"
               ]
             },
             {
               "basis": "observed-ui",
               "statement": "The client candidate builder does not enforce a non-empty key list, but requires at least one summary and valid unique output names.",
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:979-999"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:902-922"
               ]
             },
             {
               "basis": "observed-ui",
               "statement": "COUNT_ROWS needs no field input; other summary kinds use compatible stage columns.",
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3311-3392"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3234-3315"
               ]
             },
             {
               "basis": "backend-promise",
               "statement": "The selected missing-key policy is presented as running before summaries: GROUP combines absent/null keys, EXCLUDE removes rows missing any key, ERROR stops.",
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3301-3308",
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3408-3427"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3224-3231",
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3331-3350"
               ]
             },
             {
               "basis": "observed-ui",
               "statement": "Related field choices are disabled when selected fields conflict across routes; coding identity cannot combine with semantic/coded keys.",
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:988-992",
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3123-3168"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:911-915",
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3046-3091"
               ]
             }
           ],
@@ -86,14 +86,15 @@
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3251-3309",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3476-3500",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:872-897",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2270-2327",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:554-660",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:979-1022",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1962-1979",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3311-3392",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3404-3427",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2740-2782",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3842-3891",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2193-2250",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:78-95",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:496-583",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:902-945",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1885-1902",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3234-3315",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3327-3350",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2663-2705",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:213-262",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233-252",
             "ui/packages/loom-ui/src/api.ts:1674-1678"
           ]
@@ -115,24 +116,24 @@
               "basis": "observed-ui",
               "statement": "Every chosen source field becomes a group key; the default summary counts source records.",
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1082-1146"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1005-1069"
               ]
             },
             {
               "basis": "observed-ui",
               "statement": "A source-field group can only be proposed from the source projection stage.",
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1127-1146",
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1962-1971"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1050-1069",
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1885-1894"
               ]
             }
           ],
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3476-3483",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2049-2066",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1082-1146",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1962-1971",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2308-2327"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1972-1989",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1005-1069",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1885-1894",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2231-2250"
           ],
           "semantic_domains": [
             {
@@ -152,8 +153,8 @@
                 "maximum": 1
               },
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2049-2066",
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1082-1119"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1972-1989",
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1005-1042"
               ]
             },
             {
@@ -172,8 +173,8 @@
                 "maximum": null
               },
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1102-1110",
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1127-1145"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1025-1033",
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1050-1068"
               ]
             },
             {
@@ -191,7 +192,7 @@
                 "maximum": 1
               },
               "evidence": [
-                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1111-1119"
+                "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1034-1042"
               ]
             }
           ]
@@ -227,9 +228,9 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2970-2975",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3051-3072",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3123-3169"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2893-2898",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2974-2995",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3046-3092"
           ]
         },
         {
@@ -248,7 +249,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3046-3072"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2969-2995"
           ]
         },
         {
@@ -267,7 +268,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:988-990"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:911-913"
           ]
         },
         {
@@ -289,8 +290,8 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3311-3341",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:985-998"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3234-3264",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:908-921"
           ]
         },
         {
@@ -310,7 +311,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3404-3427"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3327-3350"
           ]
         },
         {
@@ -333,8 +334,8 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2740-2782",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2811-2831"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2663-2705",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2734-2754"
           ]
         },
         {
@@ -356,8 +357,8 @@
             "maximum": 50
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3635-3654",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3883-3890"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3558-3577",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:254-261"
           ]
         },
         {
@@ -376,8 +377,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:255-261",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:988-998"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:251-257",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:911-921"
           ]
         }
       ],
@@ -386,33 +387,33 @@
           "basis": "backend-promise",
           "statement": "The UI describes one output row per unique combination of chosen group keys, with summary columns; a zero-key summary is not rejected by the client candidate builder.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2274-2306",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:979-999"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2197-2229",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:902-922"
           ]
         },
         {
           "basis": "observed-ui",
           "statement": "The candidate builder requires at least one summary and validates unique physical output names; COUNT_ROWS has no field input, other summaries use compatible stage columns.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:985-998",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3311-3392"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:908-921",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3234-3315"
           ]
         },
         {
           "basis": "backend-promise",
           "statement": "The selected missing-key policy is presented as running before summaries: GROUP combines absent/null keys, EXCLUDE removes rows missing any key, ERROR stops.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3301-3308",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3408-3427"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3224-3231",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3331-3350"
           ]
         },
         {
           "basis": "observed-ui",
           "statement": "Group field choices using related occurrences are disabled when saved or selected fields conflict across routes; a coding-identity key cannot be combined with semantic/coded keys.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:988-992",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3123-3168",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3046-3072"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:911-915",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3046-3091",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2969-2995"
           ]
         }
       ]
@@ -454,10 +455,10 @@
           },
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3483-3491",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:451-455",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3953-3968",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:447-451",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:324-339",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3653-3665",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4182-4240"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3668-3726"
           ]
         },
         {
@@ -477,8 +478,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4035-4058",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4066-4071"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:406-429",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:437-442"
           ]
         },
         {
@@ -499,8 +500,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4000-4011",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:913-925"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:371-382",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:836-848"
           ]
         },
         {
@@ -522,8 +523,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4012-4034",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:683-692"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:383-405",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:606-615"
           ]
         },
         {
@@ -542,7 +543,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:663-692"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:586-615"
           ]
         }
       ],
@@ -564,8 +565,8 @@
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3398-3450",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3653-3665",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1011-1021",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2037-2039",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4182-4240"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1960-1962",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3668-3726"
           ]
         },
         {
@@ -583,25 +584,25 @@
           "basis": "observed-ui",
           "statement": "The candidate requires exactly one selected list input and a selected empty-list policy; it requires valid unique output names.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:696-708",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1215-1227"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:619-631",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1138-1150"
           ]
         },
         {
           "basis": "backend-promise",
           "statement": "The UI describes each list item as a row for its input record and repeats other fields. For empty or missing lists, ERROR stops, EXCLUDE drops the input row, or PRESERVE_PARENT keeps it with an empty item.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3986-3994",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3989-3998",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4035-4058"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:357-365",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:360-369",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:406-429"
           ]
         },
         {
           "basis": "backend-promise",
           "statement": "Optional item position output is a zero-based integer column; other current-stage columns remain as passthrough outputs.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:663-694",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4012-4034"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:586-617",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:383-405"
           ]
         }
       ],
@@ -611,10 +612,10 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4454-4456",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:546-557",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:726-735",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:663-708",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1215-1227",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3953-3968",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3986-4058",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:586-631",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1138-1150",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:324-339",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/GroupCodedValuePicker.tsx:357-429",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233-252",
         "ui/packages/loom-ui/src/api.ts:1674-1678"
       ]
@@ -638,24 +639,24 @@
           "basis": "backend-promise",
           "statement": "The result has one row per observed code and exposes system, version, code, and source-record count.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2714-2714",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1182-1206"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2637-2637",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1105-1129"
           ]
         },
         {
           "basis": "observed-ui",
           "statement": "Applying the step replaces current columns with the coded-group outputs; incomplete coding-path selections cannot be proposed.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1178-1180",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1182-1206"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1101-1103",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1105-1129"
           ]
         }
       ],
       "evidence": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3476-3478",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2308-2327",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1149-1206",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1977-1979"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2231-2250",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1072-1129",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1900-1902"
       ],
       "semantic_domains": [
         {
@@ -676,7 +677,7 @@
           },
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3476-3478",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1178-1180"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1101-1103"
           ]
         },
         {
@@ -695,8 +696,8 @@
             "maximum": 4
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1160-1170",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1178-1206"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1083-1093",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1101-1129"
           ]
         },
         {
@@ -714,8 +715,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1160-1170",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2715-2734"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1083-1093",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2638-2657"
           ]
         }
       ],
@@ -724,15 +725,15 @@
           "basis": "observed-ui",
           "statement": "The form only creates a candidate when the selected codingPath matches a server choice and exactly four output columns are present.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1178-1180"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1101-1103"
           ]
         },
         {
           "basis": "backend-promise",
           "statement": "The UI describes the result as one row per observed code with system, version, code, and source-record count; applying replaces current columns with these outputs.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2714-2714",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1182-1206"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2637-2637",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1105-1129"
           ]
         }
       ],
@@ -926,8 +927,8 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4244-4250",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4323-4348"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3730-3736",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3809-3834"
           ]
         },
         {
@@ -945,7 +946,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4349-4355"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3835-3841"
           ]
         },
         {
@@ -963,7 +964,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4357-4363"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3843-3849"
           ]
         },
         {
@@ -986,8 +987,8 @@
           },
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:377-425",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4375-4391",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1240-1245"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3861-3877",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1163-1168"
           ]
         },
         {
@@ -1008,7 +1009,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4454-4468"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3940-3954"
           ]
         },
         {
@@ -1025,7 +1026,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4470-4475"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3956-3961"
           ]
         },
         {
@@ -1047,7 +1048,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4477-4486"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3963-3972"
           ]
         },
         {
@@ -1065,8 +1066,8 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4242-4250",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1962-1989"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3728-3736",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1885-1912"
           ]
         }
       ],
@@ -1075,9 +1076,9 @@
           "basis": "observed-ui",
           "statement": "The Pivot editor owns an accessible Finding categories progress state for the current request identity during debounce and while its discovery owner has not published a matching terminal state or adopted result. It hides prior-pair categories, rejects superseded callbacks by revision/context/owner/stage identity, hides progress while disabled, and retains unrelated form choices across discovery failure and retry.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2130-2160",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2219-2234",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2363-2471",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2053-2083",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2142-2157",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2286-2394",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.unit.test.tsx:4475-4633"
           ]
         },
@@ -1085,24 +1086,24 @@
           "basis": "observed-ui",
           "statement": "At least one group key and included category are required; category/value roles differ; every discovered category must be selected to form a new pivot candidate.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1240-1245",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4381-4389",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1985-1989"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1163-1168",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3867-3875",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1908-1912"
           ]
         },
         {
           "basis": "backend-promise",
           "statement": "Each selected category becomes an output column while group columns identify output rows; duplicate, missing-cell, and unlisted-category behavior is explicit.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:821-833",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4454-4486"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:744-756",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3940-3972"
           ]
         },
         {
           "basis": "observed-ui",
           "statement": "Only 50 matching categories are rendered at once; no client selection-count maximum is imposed, and discovery may return a server limit.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4379-4391",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3865-3877",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:419-425"
           ]
         }
@@ -1110,9 +1111,9 @@
       "evidence": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3486-3505",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:979-1000",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:821-833",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1228-1253",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1953-1994",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:744-756",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1151-1176",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1876-1917",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:377-425",
         "ui/packages/loom-ui/src/api.ts:1652-1667",
         "ui/packages/loom-ui/src/api.ts:1674-1678"
@@ -1248,9 +1249,9 @@
         }
       ],
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2331-2343",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2254-2266",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3483-3505",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1040-1072",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:963-995",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx:108-127",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx:249-277"
       ],
@@ -1288,8 +1289,8 @@
             "maximum": null
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4561-4676",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1255-1277"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4047-4162",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1178-1200"
           ]
         },
         {
@@ -1313,8 +1314,8 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4651-4676",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1265-1270"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4137-4162",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1188-1193"
           ]
         },
         {
@@ -1333,8 +1334,8 @@
             "maximum": 2
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:835-860",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1255-1277"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:758-783",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1178-1200"
           ]
         },
         {
@@ -1351,7 +1352,7 @@
             "maximum": 1
           },
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4632-4635"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4118-4121"
           ]
         }
       ],
@@ -1369,8 +1370,8 @@
           "basis": "observed-ui",
           "statement": "Signed source pickers distinguish no listed fields, no populated eligible fields, and eligible populated fields already bound elsewhere. Own bindings count as selectable only when visible and solely bound in the lane; unavailable source-lane reasons stay separate. Existing live field carriers suppress duplicate signed choices only when authoritative field identity resolves unambiguously; stale or ambiguous carriers retain the signed-choice path, and saved bindings are not rewritten. The source-level explanation is derived independently of input rows, including when no inputs have been selected.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4896-4911",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4958-4970",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4382-4397",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4444-4456",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:22-44",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/sourcePickerExplanations.ts:22-46",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/SourcePickerExplanation.tsx:5-43"
@@ -1380,7 +1381,7 @@
           "basis": "observed-ui",
           "statement": "At least one scalar input is required; inputs are unique; NULL and MISSING cannot be key values; output names must be complete and unique.",
           "evidence": [
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1260-1270"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1183-1193"
           ]
         },
         {
@@ -1388,15 +1389,15 @@
           "statement": "The UI describes one output row per selected input column, with source-name and value outputs; other columns repeat.",
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1002-1013",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:835-860"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:758-783"
           ]
         }
       ],
       "evidence": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:979-1015",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2354-2364",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:852-860",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1255-1277"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2277-2287",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:775-783",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1178-1200"
       ]
     },
     {
@@ -1706,7 +1707,7 @@
       "evidence": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3507-3521",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3240-3249",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2371-2381",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2294-2304",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx:79-151",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx:278-310",
         "ui/packages/loom-ui/src/api.ts:1553-1564",
@@ -2911,7 +2912,7 @@
       "ui_path": "Group and summarize > Summaries",
       "state": "SUM and MEAN remain in the summary selector but are disabled when there are no numeric columns.",
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3317-3341"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3240-3264"
       ],
       "basis": "observed-ui"
     },
@@ -2930,8 +2931,8 @@
       "ui_path": "Reshape editor > Reshape table choices",
       "state": "Turn categories into columns and Turn columns into rows remain rendered disabled with capability reasons when unsupported; unsupported category/policy choices are also disabled in their lists.",
       "evidence": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2329-2364",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2496-2511"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2252-2287",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2419-2434"
       ],
       "basis": "observed-ui"
     },

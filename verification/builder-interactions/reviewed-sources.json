@@ -19,7 +19,7 @@
     "internal/explorer/service.go": "2239c3c7093f390962961d8c45f120c8fbd1afda500a683a1efbc92960666e83",
     "internal/explorer/lifecycle/construction_proposal.go": "425bd54ec28a7d5162371d268d793e415af4fbc63e498ff6aea18cf5e88f5956",
     "internal/explorer/authoringv2/construction_change.go": "0ff459d136a393a7b10f502c592f621762b8e4a5a5302c43052390c093cdf816",
-    "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx": "a3f66597ebe7cf9d5f81d04f537e7f3a291b359817f24e670750c2949449f006",
+    "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx": "067873e6a16954ff9a07f8ce4ff387c7ce1b5fdff452c956be5fb5c4e0cb9f0b",
     "internal/explorer/lifecycle/population_routes.go": "3f36ba75f855c0c0756471834dc297b00ac4c435b5905bf0baadcbbcdc9cedd7",
     "internal/explorer/lifecycle/population.go": "4aa83f5ed13e12b931c878ed60c5ff67ef1ef10f4be7c174324206c5b0b80eb1",
     "internal/explorer/capability/population_route_choice.go": "7244704d39016bfa1d368a1972f583ac22a3d9c4c1efd548325566b8d3dd3d23",
