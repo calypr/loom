@@ -28,10 +28,6 @@ func (h *explorerHTTPHandlers) proposeColumnPolicyDirect(ctx context.Context, pr
 }
 
 func (r *HTTPRoutes) ProposeExplorerColumnPolicy(ctx context.Context, request loomapi.ProposeExplorerColumnPolicyRequestObject) (loomapi.ProposeExplorerColumnPolicyResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerColumnPolicy", explorerUnavailable("column-policy-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ProposeExplorerColumnPolicy503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.proposeColumnPolicyDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.ProposeExplorerColumnPolicy200JSONResponse(value), nil

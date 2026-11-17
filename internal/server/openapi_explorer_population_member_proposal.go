@@ -62,7 +62,7 @@ func (h *explorerHTTPHandlers) proposePopulationMemberRemovalDirect(ctx context.
 }
 
 func (r *HTTPRoutes) ProposeExplorerPopulationMemberRemoval(ctx context.Context, request loomapi.ProposeExplorerPopulationMemberRemovalRequestObject) (loomapi.ProposeExplorerPopulationMemberRemovalResponseObject, error) {
-	if r == nil || r.explorer == nil || r.explorer.application == nil {
+	if r.explorer.application == nil {
 		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerPopulationMemberRemoval", explorerUnavailable("population-member-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
 		return loomapi.ProposeExplorerPopulationMemberRemoval503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	}

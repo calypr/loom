@@ -59,10 +59,6 @@ func (h *explorerHTTPHandlers) proposeSourceRelationshipDirect(ctx context.Conte
 }
 
 func (r *HTTPRoutes) ProposeExplorerSourceRelationship(ctx context.Context, request loomapi.ProposeExplorerSourceRelationshipRequestObject) (loomapi.ProposeExplorerSourceRelationshipResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerSourceRelationship", explorerUnavailable("construction-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ProposeExplorerSourceRelationship503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.proposeSourceRelationshipDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.ProposeExplorerSourceRelationship200JSONResponse(value), nil

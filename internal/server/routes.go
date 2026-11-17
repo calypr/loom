@@ -13,6 +13,9 @@ import (
 )
 
 func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, graphResolver *resolver.Resolver, explorerHandlers *explorerHTTPHandlers, optional ...any) error {
+	if explorerHandlers == nil {
+		return fmt.Errorf("create Explorer HTTP routes: Explorer handlers are required")
+	}
 	var sourceLoader loadapi.SourceLoader
 	var sourceLimits loadapi.SourceLoadLimits
 	for _, value := range optional {

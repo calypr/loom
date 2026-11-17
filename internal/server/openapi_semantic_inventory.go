@@ -63,10 +63,6 @@ func (h *explorerHTTPHandlers) browseSemanticInventoryDirect(ctx context.Context
 }
 
 func (r *HTTPRoutes) BrowseExplorerSemanticInventory(ctx context.Context, request loomapi.BrowseExplorerSemanticInventoryRequestObject) (loomapi.BrowseExplorerSemanticInventoryResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "browseExplorerSemanticInventory", explorerUnavailable("catalog", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.BrowseExplorerSemanticInventory503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.browseSemanticInventoryDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.BrowseExplorerSemanticInventory200JSONResponse(value), nil

@@ -33,10 +33,6 @@ func (h *explorerHTTPHandlers) getConstructionInputsOpenAPIDirect(ctx context.Co
 }
 
 func (r *HTTPRoutes) GetExplorerConstructionInputs(ctx context.Context, request loomapi.GetExplorerConstructionInputsRequestObject) (loomapi.GetExplorerConstructionInputsResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionInputs", explorerUnavailable("construction-inputs", "AUTHORING_UNAVAILABLE", "Explorer construction input catalog is not configured"))
-		return loomapi.GetExplorerConstructionInputs503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.getConstructionInputsOpenAPIDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.GetExplorerConstructionInputs200JSONResponse(value), nil

@@ -179,10 +179,6 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 }
 
 func (r *HTTPRoutes) GetExplorerConstructionCapabilities(ctx context.Context, request loomapi.GetExplorerConstructionCapabilitiesRequestObject) (loomapi.GetExplorerConstructionCapabilitiesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerConstructionCapabilities", explorerUnavailable("construction-capabilities", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.GetExplorerConstructionCapabilities503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.getConstructionCapabilitiesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.GetExplorerConstructionCapabilities200JSONResponse(value), nil
@@ -192,10 +188,6 @@ func (r *HTTPRoutes) GetExplorerConstructionCapabilities(ctx context.Context, re
 }
 
 func (r *HTTPRoutes) DiscoverExplorerConstructionCategories(ctx context.Context, request loomapi.DiscoverExplorerConstructionCategoriesRequestObject) (loomapi.DiscoverExplorerConstructionCategoriesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "discoverExplorerConstructionCategories", explorerUnavailable("construction-category-discovery", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.DiscoverExplorerConstructionCategories503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.discoverConstructionCategoriesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.DiscoverExplorerConstructionCategories200JSONResponse(value), nil
@@ -205,10 +197,6 @@ func (r *HTTPRoutes) DiscoverExplorerConstructionCategories(ctx context.Context,
 }
 
 func (r *HTTPRoutes) ProposeExplorerConstruction(ctx context.Context, request loomapi.ProposeExplorerConstructionRequestObject) (loomapi.ProposeExplorerConstructionResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerConstruction", explorerUnavailable("construction-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ProposeExplorerConstruction503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.proposeConstructionDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.ProposeExplorerConstruction200JSONResponse(value), nil

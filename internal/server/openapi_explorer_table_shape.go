@@ -183,10 +183,6 @@ func (response proposeExplorerTableShapeTimedResponse) VisitProposeExplorerTable
 }
 
 func (r *HTTPRoutes) GetExplorerTableShapeCapabilities(ctx context.Context, request loomapi.GetExplorerTableShapeCapabilitiesRequestObject) (loomapi.GetExplorerTableShapeCapabilitiesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerTableShapeCapabilities", explorerUnavailable("table-shape-capabilities", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.GetExplorerTableShapeCapabilities503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.getTableShapeCapabilitiesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.GetExplorerTableShapeCapabilities200JSONResponse(value), nil
@@ -196,10 +192,6 @@ func (r *HTTPRoutes) GetExplorerTableShapeCapabilities(ctx context.Context, requ
 }
 
 func (r *HTTPRoutes) DiscoverExplorerTableShapeCategories(ctx context.Context, request loomapi.DiscoverExplorerTableShapeCategoriesRequestObject) (loomapi.DiscoverExplorerTableShapeCategoriesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "discoverExplorerTableShapeCategories", explorerUnavailable("table-shape-category-discovery", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.DiscoverExplorerTableShapeCategories503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.discoverTableShapeCategoriesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.DiscoverExplorerTableShapeCategories200JSONResponse(value), nil
@@ -209,10 +201,6 @@ func (r *HTTPRoutes) DiscoverExplorerTableShapeCategories(ctx context.Context, r
 }
 
 func (r *HTTPRoutes) ResolveExplorerTableShape(ctx context.Context, request loomapi.ResolveExplorerTableShapeRequestObject) (loomapi.ResolveExplorerTableShapeResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "resolveExplorerTableShape", explorerUnavailable("table-shape-resolution", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ResolveExplorerTableShape503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.resolveTableShapeDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.ResolveExplorerTableShape200JSONResponse(value), nil
@@ -222,10 +210,6 @@ func (r *HTTPRoutes) ResolveExplorerTableShape(ctx context.Context, request loom
 }
 
 func (r *HTTPRoutes) ProposeExplorerTableShape(ctx context.Context, request loomapi.ProposeExplorerTableShapeRequestObject) (loomapi.ProposeExplorerTableShapeResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerTableShape", explorerUnavailable("table-shape-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ProposeExplorerTableShape503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, timing, err := r.explorer.proposeTableShapeDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return proposeExplorerTableShapeTimedResponse{

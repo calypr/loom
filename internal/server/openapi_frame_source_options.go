@@ -38,10 +38,6 @@ func (h *explorerHTTPHandlers) browseFrameSourceOptionsDirect(ctx context.Contex
 }
 
 func (r *HTTPRoutes) BrowseExplorerFrameSourceOptions(ctx context.Context, request loomapi.BrowseExplorerFrameSourceOptionsRequestObject) (loomapi.BrowseExplorerFrameSourceOptionsResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "browseExplorerFrameSourceOptions", explorerUnavailable("frame-source-options", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.BrowseExplorerFrameSourceOptions503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.browseFrameSourceOptionsDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.BrowseExplorerFrameSourceOptions200JSONResponse(value), nil

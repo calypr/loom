@@ -57,10 +57,6 @@ func (h *explorerHTTPHandlers) proposeRowDefinitionDirect(ctx context.Context, p
 }
 
 func (r *HTTPRoutes) ListExplorerRowDefinitionChoices(ctx context.Context, request loomapi.ListExplorerRowDefinitionChoicesRequestObject) (loomapi.ListExplorerRowDefinitionChoicesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "listExplorerRowDefinitionChoices", explorerUnavailable("row-definition-choices", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ListExplorerRowDefinitionChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.listRowDefinitionChoicesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Params)
 	if err == nil {
 		return loomapi.ListExplorerRowDefinitionChoices200JSONResponse(value), nil
@@ -70,10 +66,6 @@ func (r *HTTPRoutes) ListExplorerRowDefinitionChoices(ctx context.Context, reque
 }
 
 func (r *HTTPRoutes) ProposeExplorerRowDefinition(ctx context.Context, request loomapi.ProposeExplorerRowDefinitionRequestObject) (loomapi.ProposeExplorerRowDefinitionResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerRowDefinition", explorerUnavailable("row-definition-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.ProposeExplorerRowDefinition503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.proposeRowDefinitionDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.ProposeExplorerRowDefinition200JSONResponse(value), nil

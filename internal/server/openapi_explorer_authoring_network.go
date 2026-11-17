@@ -27,10 +27,6 @@ func (h *explorerHTTPHandlers) describeAuthoringNetworkDirect(ctx context.Contex
 }
 
 func (r *HTTPRoutes) DescribeExplorerAuthoringNetwork(ctx context.Context, request loomapi.DescribeExplorerAuthoringNetworkRequestObject) (loomapi.DescribeExplorerAuthoringNetworkResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "describeExplorerAuthoringNetwork", explorerUnavailable("construction-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.DescribeExplorerAuthoringNetwork503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.describeAuthoringNetworkDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.DescribeExplorerAuthoringNetwork200JSONResponse(value), nil

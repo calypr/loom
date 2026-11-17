@@ -172,10 +172,6 @@ func (h *explorerHTTPHandlers) columnSourceDirect(ctx context.Context, project, 
 }
 
 func (r *HTTPRoutes) SearchExplorerConstructionChoices(ctx context.Context, request loomapi.SearchExplorerConstructionChoicesRequestObject) (loomapi.SearchExplorerConstructionChoicesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "searchExplorerConstructionChoices", explorerUnavailable("construction-choices", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.SearchExplorerConstructionChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.searchConstructionChoicesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.SearchExplorerConstructionChoices200JSONResponse(value), nil
@@ -185,10 +181,6 @@ func (r *HTTPRoutes) SearchExplorerConstructionChoices(ctx context.Context, requ
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedExpandChoices(ctx context.Context, request loomapi.SearchExplorerRelatedExpandChoicesRequestObject) (loomapi.SearchExplorerRelatedExpandChoicesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedExpandChoices", explorerUnavailable("related-expand-choices", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.SearchExplorerRelatedExpandChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.searchRelatedExpandChoicesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.SearchExplorerRelatedExpandChoices200JSONResponse(value), nil
@@ -198,10 +190,6 @@ func (r *HTTPRoutes) SearchExplorerRelatedExpandChoices(ctx context.Context, req
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedFieldChoices(ctx context.Context, request loomapi.SearchExplorerRelatedFieldChoicesRequestObject) (loomapi.SearchExplorerRelatedFieldChoicesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedFieldChoices", explorerUnavailable("related-field-choices", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.SearchExplorerRelatedFieldChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.searchRelatedFieldChoicesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.SearchExplorerRelatedFieldChoices200JSONResponse(value), nil
@@ -211,10 +199,6 @@ func (r *HTTPRoutes) SearchExplorerRelatedFieldChoices(ctx context.Context, requ
 }
 
 func (r *HTTPRoutes) SearchExplorerRelatedExpandContributors(ctx context.Context, request loomapi.SearchExplorerRelatedExpandContributorsRequestObject) (loomapi.SearchExplorerRelatedExpandContributorsResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedExpandContributors", explorerUnavailable("related-expand-contributors", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.SearchExplorerRelatedExpandContributors503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.searchRelatedExpandContributorsDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.SearchExplorerRelatedExpandContributors200JSONResponse(value), nil
@@ -224,10 +208,6 @@ func (r *HTTPRoutes) SearchExplorerRelatedExpandContributors(ctx context.Context
 }
 
 func (r *HTTPRoutes) SearchExplorerPopulationRoutes(ctx context.Context, request loomapi.SearchExplorerPopulationRoutesRequestObject) (loomapi.SearchExplorerPopulationRoutesResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "searchExplorerPopulationRoutes", explorerUnavailable("population-routes", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.SearchExplorerPopulationRoutes503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.searchPopulationRoutesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.SearchExplorerPopulationRoutes200JSONResponse(value), nil
@@ -237,10 +217,6 @@ func (r *HTTPRoutes) SearchExplorerPopulationRoutes(ctx context.Context, request
 }
 
 func (r *HTTPRoutes) GetExplorerColumnSource(ctx context.Context, request loomapi.GetExplorerColumnSourceRequestObject) (loomapi.GetExplorerColumnSourceResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerColumnSource", explorerUnavailable("column-source", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
-		return loomapi.GetExplorerColumnSource503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.columnSourceDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.GetExplorerColumnSource200JSONResponse(value), nil

@@ -99,7 +99,7 @@ func (h *explorerHTTPHandlers) getSelectionDirect(ctx context.Context, request l
 func (r *HTTPRoutes) CreateExplorerSelection(ctx context.Context, request loomapi.CreateExplorerSelectionRequestObject) (loomapi.CreateExplorerSelectionResponseObject, error) {
 	var value loomapi.SelectionRevision
 	var err error
-	if r == nil || r.explorer == nil || r.explorer.application == nil {
+	if r.explorer.application == nil {
 		err = explorerUnavailable("selection", "AUTHORING_UNAVAILABLE", "Explorer selections are not configured")
 	} else {
 		value, err = r.explorer.createSelectionDirect(ctx, request)
@@ -114,7 +114,7 @@ func (r *HTTPRoutes) CreateExplorerSelection(ctx context.Context, request loomap
 func (r *HTTPRoutes) GetExplorerSelection(ctx context.Context, request loomapi.GetExplorerSelectionRequestObject) (loomapi.GetExplorerSelectionResponseObject, error) {
 	var value loomapi.SelectionPage
 	var err error
-	if r == nil || r.explorer == nil || r.explorer.application == nil {
+	if r.explorer.application == nil {
 		err = explorerUnavailable("selection", "AUTHORING_UNAVAILABLE", "Explorer selections are not configured")
 	} else {
 		value, err = r.explorer.getSelectionDirect(ctx, request)

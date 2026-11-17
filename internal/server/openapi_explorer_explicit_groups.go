@@ -39,7 +39,7 @@ func (h *explorerHTTPHandlers) createExplicitGroupRevisionDirect(ctx context.Con
 func (r *HTTPRoutes) CreateExplorerExplicitGroupRevision(ctx context.Context, request loomapi.CreateExplorerExplicitGroupRevisionRequestObject) (loomapi.CreateExplorerExplicitGroupRevisionResponseObject, error) {
 	var value loomapi.ExplicitGroupRevisionSummary
 	var err error
-	if r == nil || r.explorer == nil || r.explorer.application == nil {
+	if r.explorer.application == nil {
 		err = explorerUnavailable("explicit-groups", "AUTHORING_UNAVAILABLE", "explicit group authoring is not configured")
 	} else {
 		value, err = r.explorer.createExplicitGroupRevisionDirect(ctx, request)

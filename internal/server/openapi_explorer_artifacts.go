@@ -62,10 +62,6 @@ func (h *explorerHTTPHandlers) openArtifactDirect(ctx context.Context, project, 
 }
 
 func (r *HTTPRoutes) PrepareExplorerArtifact(ctx context.Context, request loomapi.PrepareExplorerArtifactRequestObject) (loomapi.PrepareExplorerArtifactResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "prepareExplorerArtifact", explorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured"))
-		return loomapi.PrepareExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.prepareArtifactDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
 		return loomapi.PrepareExplorerArtifact200JSONResponse(value), nil
@@ -75,10 +71,6 @@ func (r *HTTPRoutes) PrepareExplorerArtifact(ctx context.Context, request loomap
 }
 
 func (r *HTTPRoutes) DownloadExplorerArtifact(ctx context.Context, request loomapi.DownloadExplorerArtifactRequestObject) (loomapi.DownloadExplorerArtifactResponseObject, error) {
-	if r == nil || r.explorer == nil {
-		_, failure := authoringErrorForOpenAPI(ctx, "downloadExplorerArtifact", explorerUnavailable("artifact", "ARTIFACT_UNAVAILABLE", "artifact export is not configured"))
-		return loomapi.DownloadExplorerArtifact503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
-	}
 	value, err := r.explorer.openArtifactDirect(ctx, string(request.Project), string(request.ExplorerId), request.ArtifactId)
 	if err == nil {
 		return loomapi.DownloadExplorerArtifact200ApplicationzipResponse(value), nil
