@@ -72,9 +72,50 @@ func (walker *physicalScopeWalker) operations(operations []PhysicalOperation, ow
 	return nil
 }
 
+func validateScopedOperationChildren(operation *PhysicalOperation, owner string) error {
+	expected := make(map[*PhysicalOperation]int)
+	if operation.RootScan != nil && operation.RootScan.Population != nil {
+		for index := range operation.RootScan.Population.ResourceOperations {
+			expected[&operation.RootScan.Population.ResourceOperations[index]]++
+		}
+	}
+	if operation.Unnest != nil {
+		for route := range operation.Unnest.Owner.Route {
+			for index := range operation.Unnest.Owner.Route[route].Scope {
+				expected[&operation.Unnest.Owner.Route[route].Scope[index]]++
+			}
+		}
+	}
+	if operation.PathExtend != nil {
+		for index := range operation.PathExtend.Scope {
+			expected[&operation.PathExtend.Scope[index]]++
+		}
+	}
+	for _, child := range Children(operation) {
+		nested, ok := child.(*PhysicalOperation)
+		if !ok {
+			continue
+		}
+		if expected[nested] == 0 {
+			return fmt.Errorf("%s has an unhandled nested physical operation child", owner)
+		}
+		expected[nested]--
+		if expected[nested] == 0 {
+			delete(expected, nested)
+		}
+	}
+	if len(expected) != 0 {
+		return fmt.Errorf("%s has a scoped operation child missing from physical IR traversal", owner)
+	}
+	return nil
+}
+
 func (walker *physicalScopeWalker) operationChildren(operation *PhysicalOperation, owner string) error {
 	if operation == nil {
 		return nil
+	}
+	if err := validateScopedOperationChildren(operation, owner); err != nil {
+		return err
 	}
 	if operation.RootScan != nil && operation.RootScan.PageCandidateSeed != nil {
 		if err := walker.subplan(&operation.RootScan.PageCandidateSeed.Subplan, owner+" root page candidate seed"); err != nil {
@@ -250,89 +291,125 @@ func (walker *physicalScopeWalker) predicate(predicate *PhysicalPredicateExpress
 	if predicate == nil {
 		return nil
 	}
-	if predicate.Comparison != nil && predicate.Comparison.LeftExpression != nil {
-		if err := walker.expression(*predicate.Comparison.LeftExpression, owner+" comparison"); err != nil {
-			return err
-		}
+	return walker.children(predicate, owner)
+}
+
+func (walker *physicalScopeWalker) expression(expression PhysicalExpression, owner string) error {
+	return walker.children(&expression, owner)
+}
+
+func (walker *physicalScopeWalker) children(node Node, owner string) error {
+	if node == nil || node.isNil() {
+		return nil
 	}
-	for index := range predicate.Children {
-		if err := walker.predicate(&predicate.Children[index], fmt.Sprintf("%s child %d", owner, index)); err != nil {
-			return err
+	for index, child := range Children(node) {
+		childOwner := physicalScopeChildOwner(node, child, index, owner)
+		switch child := child.(type) {
+		case *PhysicalExpression:
+			if err := walker.expression(*child, childOwner); err != nil {
+				return err
+			}
+		case *PhysicalPredicateExpression:
+			if err := walker.predicate(child, childOwner); err != nil {
+				return err
+			}
+		case *PhysicalSubplan:
+			if err := walker.subplan(child, childOwner); err != nil {
+				return err
+			}
+		case *PhysicalValue:
+			// Physical values contain no nested physical IR nodes.
+		case *PhysicalOperation:
+			return fmt.Errorf("%s contains an operation child without a lexical scope owner", owner)
+		default:
+			return fmt.Errorf("%s contains unsupported physical IR child %T", owner, child)
 		}
-	}
-	if predicate.Exists != nil {
-		return walker.subplan(predicate.Exists, owner+" EXISTS subplan")
 	}
 	return nil
 }
 
-func (walker *physicalScopeWalker) expression(expression PhysicalExpression, owner string) error {
-	if expression.Aggregate != nil {
-		if expression.Aggregate.Value != nil {
-			if err := walker.expression(*expression.Aggregate.Value, owner+" aggregate value"); err != nil {
-				return err
+func physicalScopeChildOwner(parent, child Node, index int, owner string) string {
+	switch parent := parent.(type) {
+	case *PhysicalPredicateExpression:
+		if parent.Kind == PhysicalExistsPredicate && child == parent.Exists {
+			return owner + " EXISTS subplan"
+		}
+		if parent.Kind == PhysicalComparisonPredicate && parent.Comparison != nil && child == parent.Comparison.LeftExpression {
+			return owner + " comparison"
+		}
+		if _, ok := child.(*PhysicalPredicateExpression); ok {
+			return fmt.Sprintf("%s child %d", owner, index)
+		}
+	case *PhysicalExpression:
+		switch parent.Kind {
+		case PhysicalAggregateExpression:
+			if parent.Aggregate != nil {
+				if parent.Aggregate.Value != nil && child == parent.Aggregate.Value {
+					return owner + " aggregate value"
+				}
+				if child == parent.Aggregate.Predicate {
+					return owner + " aggregate predicate"
+				}
+			}
+		case PhysicalSliceExpression:
+			if parent.Slice != nil {
+				if child == parent.Slice.Predicate {
+					return owner + " slice predicate"
+				}
+				if child == parent.Slice.Sort {
+					return owner + " slice sort"
+				}
+				for index := range parent.Slice.Projections {
+					if child == &parent.Slice.Projections[index].Expression {
+						return fmt.Sprintf("%s slice projection %d", owner, index)
+					}
+				}
+			}
+		case PhysicalKeyedMapExpression:
+			if parent.KeyedMap != nil {
+				for index, expression := range []*PhysicalExpression{&parent.KeyedMap.Source, &parent.KeyedMap.ItemKey, &parent.KeyedMap.ItemValue} {
+					if child == expression {
+						return owner + []string{" keyed map source", " keyed map item key", " keyed map item value"}[index]
+					}
+				}
+				for index := range parent.KeyedMap.ValueFallbacks {
+					if child == &parent.KeyedMap.ValueFallbacks[index] {
+						return fmt.Sprintf("%s keyed map fallback %d", owner, index)
+					}
+				}
+			}
+		case PhysicalKeySetExpression:
+			if parent.KeySet != nil {
+				if child == &parent.KeySet.Source {
+					return owner + " key set source"
+				}
+				if child == &parent.KeySet.ItemKey {
+					return owner + " key set item"
+				}
+			}
+		case PhysicalObjectExpression:
+			if parent.Object != nil {
+				for index := range parent.Object.Fields {
+					if child == &parent.Object.Fields[index].Expression {
+						return fmt.Sprintf("%s object field %d", owner, index)
+					}
+				}
+			}
+		case PhysicalSubplanExpression:
+			if child == parent.Subplan {
+				return owner + " expression subplan"
+			}
+		case PhysicalCallExpression:
+			if parent.Call != nil {
+				for index := range parent.Call.Args {
+					if child == &parent.Call.Args[index] {
+						return fmt.Sprintf("%s call argument %d", owner, index)
+					}
+				}
 			}
 		}
-		if err := walker.predicate(expression.Aggregate.Predicate, owner+" aggregate predicate"); err != nil {
-			return err
-		}
 	}
-	if expression.Slice != nil {
-		if err := walker.predicate(expression.Slice.Predicate, owner+" slice predicate"); err != nil {
-			return err
-		}
-		if expression.Slice.Sort != nil {
-			if err := walker.expression(*expression.Slice.Sort, owner+" slice sort"); err != nil {
-				return err
-			}
-		}
-		for index := range expression.Slice.Projections {
-			if err := walker.expression(expression.Slice.Projections[index].Expression, fmt.Sprintf("%s slice projection %d", owner, index)); err != nil {
-				return err
-			}
-		}
-	}
-	if expression.KeyedMap != nil {
-		for _, child := range []struct {
-			name string
-			expr PhysicalExpression
-		}{{"source", expression.KeyedMap.Source}, {"item key", expression.KeyedMap.ItemKey}, {"item value", expression.KeyedMap.ItemValue}} {
-			if err := walker.expression(child.expr, owner+" keyed map "+child.name); err != nil {
-				return err
-			}
-		}
-		for index := range expression.KeyedMap.ValueFallbacks {
-			if err := walker.expression(expression.KeyedMap.ValueFallbacks[index], fmt.Sprintf("%s keyed map fallback %d", owner, index)); err != nil {
-				return err
-			}
-		}
-	}
-	if expression.KeySet != nil {
-		if err := walker.expression(expression.KeySet.Source, owner+" key set source"); err != nil {
-			return err
-		}
-		if err := walker.expression(expression.KeySet.ItemKey, owner+" key set item"); err != nil {
-			return err
-		}
-	}
-	if expression.Object != nil {
-		for index := range expression.Object.Fields {
-			if err := walker.expression(expression.Object.Fields[index].Expression, fmt.Sprintf("%s object field %d", owner, index)); err != nil {
-				return err
-			}
-		}
-	}
-	if expression.Subplan != nil {
-		return walker.subplan(expression.Subplan, owner+" expression subplan")
-	}
-	if expression.Call != nil {
-		for index := range expression.Call.Args {
-			if err := walker.expression(expression.Call.Args[index], fmt.Sprintf("%s call argument %d", owner, index)); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return fmt.Sprintf("%s child %d (%T)", owner, index, child)
 }
 
 func (walker *physicalScopeWalker) subplan(subplan *PhysicalSubplan, owner string) error {
