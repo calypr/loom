@@ -28,6 +28,7 @@ test('create an identifier column rule, preview its values, and reopen it from R
       await page.until(() => page.evaluate(`Boolean(document.querySelector('${addColumns}:not(:disabled)'))`), 'Add columns is ready');
       await page.click(addColumns);
       await page.click('[role="tab"][data-column-tab="advanced"]');
+      await page.clickText('Identifiers');
       await page.clickText('Review column rule');
       await page.clickText('Preview column rule');
       await page.until(() => page.evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText === 'Apply column rule' && !button.disabled)`), 'identifier rule preview is ready');
@@ -68,11 +69,32 @@ test('create an identifier column rule, preview its values, and reopen it from R
       await page.until(() => page.evaluate(`Boolean(document.querySelector('[data-testid="imported-source-step-apply"]:not(:disabled)'))`),
         'edited rule preview is ready');
       await page.click('[data-testid="imported-source-step-apply"]');
-      await page.until(async () => {
+      const edited = await page.until(async () => {
         const draft = await readDraft();
         const rule = draft.workspace.documents[0].importedSource.ruleAdditions[0];
-        return rule.stepId === addition.stepId && rule.parameters.dynamic.key.call === 'last_segment';
+        return rule.stepId === addition.stepId && rule.parameters.dynamic.key.call === 'last_segment' ? draft : false;
       }, 'edited rule keeps its saved step identity');
+      const originalIds = new Set(before.workspace.documents[0].columns.map(column => column.columnId));
+      const generated = edited.workspace.documents[0].columns.filter(column => !originalIds.has(column.columnId));
+      assert(generated.length > 0, 'the edited rule generates columns');
+      for (const enabled of [false, true]) {
+        await page.reload();
+        await page.until(() => page.evaluate(`Boolean(document.querySelector(${JSON.stringify(editRule)}))`),
+          'saved rule is available after reload');
+        await page.click(editRule);
+        await page.click('[data-testid="imported-source-rule-enabled"]');
+        await page.clickText('Preview source step');
+        await page.until(() => page.evaluate(`Boolean(document.querySelector('[data-testid="imported-source-step-apply"]:not(:disabled)'))`),
+          'rule enablement preview is ready');
+        await page.click('[data-testid="imported-source-step-apply"]');
+        const updated = await page.until(async () => {
+          const draft = await readDraft();
+          const rule = draft.workspace.documents[0].importedSource.ruleAdditions[0];
+          return rule.stepId === addition.stepId && rule.enabled === enabled ? draft : false;
+        }, enabled ? 'rule is re-enabled' : 'rule is disabled');
+        const names = new Set(updated.workspace.documents[0].columns.map(column => column.column));
+        for (const column of generated) assert.equal(names.has(column.column), enabled, column.column);
+      }
     } finally {
       const capability = await api(`${fixture.base}/capability`);
       if (capability.features?.deleteExplorer) {

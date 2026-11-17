@@ -1101,6 +1101,11 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(getComputedStyle(screen.getByRole('heading', { name: 'Add columns from Patient' })).color).toBe('rgb(0, 0, 0)');
     fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
     const panel = screen.getByRole('tabpanel', { name: 'Advanced' });
+    expect(within(panel).getByRole('list', { name: 'Column rules' })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Extensions' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'Category codings' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'Catalog fields' })).toBeDisabled();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Identifiers' }));
     expect(within(panel).getByRole('heading', { name: 'Columns from identifiers' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Review column rule' })).toBeEnabled();
     expect(within(panel).queryByRole('button', { name: /identifier_keys|extension_keys/ })).not.toBeInTheDocument();
@@ -1118,6 +1123,40 @@ describe('BuilderWorkspace Add columns source selection', () => {
     await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
       commands: [{ type: 'SET_FRAME_SOURCE', outputId: 'patients', frameChoiceId: 'advanced-code-source', form: 'VALUE' }],
     })));
+  });
+
+  it('lists unavailable column rules on a Builder-created table', async () => {
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
+    const rules = screen.getByRole('list', { name: 'Column rules' });
+    expect(within(rules).getAllByRole('button')).toHaveLength(4);
+    for (const button of within(rules).getAllByRole('button')) expect(button).toBeDisabled();
+    expect(within(rules).getAllByText('Column rules are available on imported recipe tables.')).toHaveLength(4);
+  });
+
+  it('cancels a rule preview when the selected occurrence changes', async () => {
+    let resolveProposal!: (proposal: ReturnType<typeof importedRelationshipProposal>) => void;
+    mockLoomClient.proposeSourceRelationship.mockReturnValue(new Promise(resolve => {
+      resolveProposal = resolve;
+    }));
+    renderImportedBuilder();
+
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Identifiers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review column rule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview column rule' }));
+    const first = mockLoomClient.proposeSourceRelationship.mock.calls[0];
+    expect(first?.[0]).toMatchObject({ sourceRule: { kind: 'DYNAMIC_COLUMN' } });
+    expect(first?.[0].sourceRule.occurrenceId).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
+    expect(first?.[1]?.aborted).toBe(true);
+    await act(async () => resolveProposal(importedRelationshipProposal()));
+    expect(screen.queryByRole('button', { name: 'Apply column rule' })).not.toBeInTheDocument();
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
   });
 
   it('starts a cancellable Connect proposal immediately and enables explicit Apply after its exact preview', async () => {

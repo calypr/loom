@@ -1,4 +1,5 @@
 import React, { useId, useState } from 'react';
+import { columnRuleDefaults, columnRulePresets, type ColumnRulePreset } from '../sourceColumnRule';
 import type { AddColumnsGraphSource, AddColumnsView } from '../authoring/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { Construction, ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep, ExplorerBuilderCommand } from '../../../types';
@@ -26,6 +27,36 @@ type CombineCatalog = ReturnType<typeof useCombineCatalog>;
 type CatalogProps = React.ComponentProps<typeof ConceptCatalog>;
 type ReshapeProps = React.ComponentProps<typeof ConstructionReshapeEditor>;
 type FamilyOperation = { readonly family: ConstructionOperationFamily; readonly label: string };
+
+function ColumnRulePicker({ unavailableReason, disabled, reviewing, renderRule }: {
+  readonly unavailableReason?: string;
+  readonly disabled: boolean;
+  readonly reviewing: boolean;
+  readonly renderRule?: (preset: ColumnRulePreset) => React.ReactNode;
+}) {
+  const [selected, setSelected] = useState<ColumnRulePreset>();
+  if (selected && !unavailableReason && renderRule) {
+    return <div className="grid gap-2">
+      <button type="button" disabled={disabled || reviewing} onClick={() => setSelected(undefined)}
+        className="justify-self-start px-3 text-sm font-medium text-blue-800">Back to column rules</button>
+      {renderRule(selected)}
+    </div>;
+  }
+  return (
+    <ul aria-label="Column rules" className="grid gap-2 px-3 pb-3">
+      {columnRulePresets.map(preset => {
+        const reason = unavailableReason ?? (!columnRuleDefaults[preset.id] ? 'This rule kind is unavailable.' : undefined);
+        return <li key={preset.id} className="rounded-md border border-slate-200 p-2">
+          <button type="button" disabled={disabled || Boolean(reason)}
+            className="text-sm font-semibold text-blue-800 disabled:text-slate-700"
+            onClick={() => setSelected(preset)}>{preset.label}</button>
+          <p className="text-xs text-slate-600">{preset.description}</p>
+          {reason ? <p className="text-xs text-slate-600">{reason}</p> : null}
+        </li>;
+      })}
+    </ul>
+  );
+}
 
 export interface OperationEditorHostProps {
   readonly table: Table;
@@ -55,7 +86,8 @@ export interface OperationEditorHostProps {
   readonly addColumnsViewRevision: number;
   readonly fieldPresentationContext: CatalogProps['presentationContext'];
   readonly addColumnsView: AddColumnsView;
-  readonly advancedColumns?: React.ReactNode;
+  readonly columnRulesUnavailableReason?: string;
+  readonly renderColumnRule?: (preset: ColumnRulePreset) => React.ReactNode;
   readonly reviewingAdvancedColumns?: boolean;
   readonly onSwitchAddColumnsView: (view: AddColumnsView) => void;
   readonly existingSourceKeys: CatalogProps['existingSourceKeys'];
@@ -109,7 +141,8 @@ export const OperationEditorHost = ({
   addColumnsViewRevision,
   fieldPresentationContext,
   addColumnsView: columnKind,
-  advancedColumns,
+  columnRulesUnavailableReason,
+  renderColumnRule,
   reviewingAdvancedColumns,
   onSwitchAddColumnsView: selectColumnKind,
   existingSourceKeys,
@@ -252,7 +285,11 @@ export const OperationEditorHost = ({
                   id={`${columnPickerId}-panel`}
                   aria-labelledby={graphSource?.exactRelated ? undefined : `${columnPickerId}-${advanced ? 'advanced' : 'all'}`}
                   className="grid gap-3">
-                  {advanced ? advancedColumns ?? <p className="px-3 text-sm text-slate-600">Column rules can be created from the starting records of an imported recipe.</p> : graphSource && !graphSource.isRoot && !graphSource.nodeId ? (
+                  {advanced ? <ColumnRulePicker
+                    key={`${ownerKey}:${graphSource?.occurrenceId ?? ''}`}
+                    unavailableReason={columnRulesUnavailableReason} disabled={columnControlsDisabled}
+                    reviewing={Boolean(reviewingAdvancedColumns)} renderRule={renderColumnRule}
+                  /> : graphSource && !graphSource.isRoot && !graphSource.nodeId ? (
                     <p role="status" className="px-3 text-sm text-amber-900">Columns are unavailable because this graph relationship could not be resolved.</p>
                   ) : (
                     <>

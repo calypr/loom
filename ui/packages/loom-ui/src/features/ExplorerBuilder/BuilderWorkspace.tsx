@@ -43,7 +43,8 @@ import {
   type DatasetReviewTarget,
 } from './components/DatasetReviewPanel';
 import { useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './recipeEditing/recipeEditingOwner';
-import { CreateIdentifierColumnRule } from './CreateIdentifierColumnRule';
+import { CreateColumnRule } from './CreateColumnRule';
+import { columnRuleDefaults, type ColumnRuleOccurrence } from './sourceColumnRule';
 import { SourceRelationshipReview } from './components/SourceRelationshipReview';
 import { AuthoredTraversalEditor } from './components/AuthoredTraversalEditor';
 import { authoredTraversal } from './components/authoredTraversal';
@@ -1337,7 +1338,18 @@ const BuilderWorkspaceContent = ({
     pendingCommands === 0 &&
     !publishing &&
     state.reconciliation !== 'pending';
-  const reviewingAdvancedColumns = recipeOwner.state.target?.kind === 'createColumnRule';
+  const activeRuleReview = recipeOwner.state.target?.kind === 'createColumnRule' ? recipeOwner.state.target : undefined;
+  const reviewingAdvancedColumns = Boolean(activeRuleReview);
+  const ruleOccurrence: ColumnRuleOccurrence | undefined = table ? {
+    id: graphSource && !graphSource.isRoot ? graphSource.occurrenceId : '',
+    resourceType: graphSource?.resourceType ?? table.document.rootResourceType,
+    label: graphOccurrence?.path ?? table.document.rootResourceType,
+  } : undefined;
+  const ruleUnavailableReason = !table?.document.importedRecipe
+    ? 'Column rules are available on imported recipe tables.'
+    : graphSource && !graphSource.isRoot && !graphSource.nodeId
+      ? 'This graph occurrence is unavailable.'
+      : undefined;
   const operationEditor = table && activeOperation ? (
     <OperationEditorHost
       table={table}
@@ -1366,29 +1378,35 @@ const BuilderWorkspaceContent = ({
       addSourceRouteContext={addSourceRouteContext}
       addColumnsView={addColumnsView}
       reviewingAdvancedColumns={reviewingAdvancedColumns}
-      advancedColumns={table.document.importedRecipe && (!graphSource || graphSource.isRoot) ? (
-        <CreateIdentifierColumnRule
-          key={relationshipOwner}
-          reviewing={reviewingAdvancedColumns}
-          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-          onReview={() => {
-            if (recipeMutationAllowed()) recipeEditToken.current = recipeOwner.begin({ kind: 'createColumnRule' });
-          }}
-          onCancel={() => cancelRecipeRelationship(false)}
-          renderReview={(sourceRule, onCancel) => <SourceRelationshipReview
-            client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-            snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
-            outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-            requestControllerRef={sourceRelationshipRequest}
-            sourceRule={sourceRule} sharedPreview onPreviewStart={beginSourceReview}
-            onApply={async (commands) => {
-              const saved = await applySourceRecipe(commands);
-              if (saved) closeConstructionWorkspace();
-              return saved;
+      columnRulesUnavailableReason={ruleUnavailableReason}
+      renderColumnRule={(preset) => {
+        const initialParameters = columnRuleDefaults[preset.id];
+        if (!ruleOccurrence || !initialParameters) return null;
+        return (
+          <CreateColumnRule
+            key={`${relationshipOwner}:${ruleOccurrence.id}:${preset.id}`}
+            kind={preset.kind} occurrence={ruleOccurrence} preset={preset} initialParameters={initialParameters}
+            reviewing={activeRuleReview?.ruleKind === preset.kind && activeRuleReview.occurrenceId === ruleOccurrence.id}
+            disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+            onReview={() => {
+              if (recipeMutationAllowed()) recipeEditToken.current = recipeOwner.begin({ kind: 'createColumnRule', ruleKind: preset.kind, occurrenceId: ruleOccurrence.id });
             }}
-            onCancel={onCancel} />}
-        />
-      ) : undefined}
+            onCancel={() => cancelRecipeRelationship(false)}
+            renderReview={(sourceRule, onCancel) => <SourceRelationshipReview
+              client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+              snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
+              outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+              requestControllerRef={sourceRelationshipRequest}
+              sourceRule={sourceRule} sharedPreview onPreviewStart={beginSourceReview}
+              onApply={async (commands) => {
+                const saved = await applySourceRecipe(commands);
+                if (saved) closeConstructionWorkspace();
+                return saved;
+              }}
+              onCancel={onCancel} />}
+          />
+        );
+      }}
       addColumnsViewRevision={addColumnsViewRevision}
       fieldPresentationContext={fieldPresentationContext}
       onSwitchAddColumnsView={selectAddColumnsView}
@@ -1504,6 +1522,9 @@ const BuilderWorkspaceContent = ({
   });
   const selectGraphOccurrence = (occurrenceId: string) => {
     if (activeConstructionFamily === 'ADD_COLUMNS' && constructionLifecycle.proposal.status === 'applying') return;
+    if (occurrenceId !== graphSource?.occurrenceId && recipeOwner.getState().target?.kind === 'createColumnRule') {
+      if (!cancelRecipeRelationship(false)) return;
+    }
     if (relatedGraphSource?.occurrenceId === occurrenceId) {
       if (occurrenceId !== graphSource?.occurrenceId) constructionLifecycle.cancel();
       setRelatedGraphSelection(occurrenceId);

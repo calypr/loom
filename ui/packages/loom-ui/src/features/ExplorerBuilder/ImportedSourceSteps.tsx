@@ -204,6 +204,7 @@ export const ImportedSourceSteps = ({
   const activeValues = activeStepId === selectedStep?.id ? editor : activeDependent
     ?? (editor?.inspectedValues && editor.inspectedValues.stepId === activeStepId ? editor.inspectedValues : activeStep ? editorStateFor(activeStep) : undefined);
   const activeParent = activeStep?.parentId ? stepsById.get(activeStep.parentId) : undefined;
+  const editingAddedRule = importedSource?.ruleAdditions?.some(addition => addition.stepId === activeStep?.id) ?? false;
   const activeValueModes = activeStep ? valueModesForStep(activeStep) : undefined;
   const selectedParent = selectedStep?.parentId ? stepsById.get(selectedStep.parentId) : undefined;
   const valueModes = selectedStep ? valueModesForStep(selectedStep) : undefined;
@@ -407,7 +408,7 @@ export const ImportedSourceSteps = ({
         {relationships.removals?.length ? <p>{relationships.removals.length} source relationship(s) removed. Their pinned settings are retained for inspection.</p> : null}
       </section> : null}
       {actionError ? <p className="mb-2 text-sm text-red-700" role="alert">{actionError}</p> : null}
-      {navigatorOnly && (steps === undefined || steps.some((step) => !step.parameters)) ? <div className="mb-2">
+      {navigatorOnly && (steps === undefined || steps.some((step) => !step.parameters && !(step.kind === 'TRAVERSAL' && step.id.startsWith('relationships.')))) ? <div className="mb-2">
         <button type="button" data-testid="imported-source-refresh" disabled={isDisabled} onClick={() => void refresh()}
           className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-blue-800 disabled:opacity-50">
           {refreshing ? 'Loading editable source settings…' : 'Load editable source settings'}
@@ -539,7 +540,7 @@ export const ImportedSourceSteps = ({
               selectedOutputKey={activeValues.selectedOutputKey} outputFocusRequest={activeValues.outputFocusRequest}
               catalogOutputs={catalogOutputsForStep?.(activeStep.id) ?? []} pivotOutputs={pivotOutputsForStep?.(activeStep.id) ?? []}
               outputRevision={outputRevision}
-              structuredIdentifierRule={importedSource?.ruleAdditions?.some(addition => addition.stepId === activeStep.id)}
+              structuredColumnRule={editingAddedRule}
               parameters={activeValues.parameters} disabled={isDisabled} resourceTypeChoices={resourceTypeChoices} sourcePathChoices={sourcePathChoices} fieldPathChoices={fieldPathChoices} fieldKindChoices={fieldKindChoices} onChange={(parameters) => updateActive({ parameters, parametersChanged: true })} /> : null}
             {activeStep.kind === 'FIELD_GROUP' ? (() => {
               const pivotSteps = steps?.filter((step) =>
@@ -574,6 +575,11 @@ export const ImportedSourceSteps = ({
               </section>;
             })() : null}
             {activeStep.editable && activeStep.kind !== 'FIELD_GROUP' ? <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              {editingAddedRule ? <label className="flex items-center gap-2 text-xs text-slate-700">
+                <input type="checkbox" checked={activeValues.enabled} disabled={isDisabled}
+                  data-testid="imported-source-rule-enabled" onChange={(event) => updateActive({ enabled: event.currentTarget.checked })} />
+                Enable column rule
+              </label> : null}
               {activeStep.maxColumns !== undefined ? <label className="grid gap-0.5 text-xs text-slate-700">Maximum columns
                 <input type="number" min={1} step={1} value={activeValues.maxColumns} disabled={isDisabled} aria-invalid={!validActiveMaxColumns}
                   data-testid="imported-source-max-columns" onChange={(event) => updateActive({ maxColumns: event.currentTarget.value })} className="rounded-md border border-slate-300 px-2 py-1 text-xs" />

@@ -1,42 +1,38 @@
 import { useState, type ReactNode } from 'react';
 import type { ImportedSourceParameters, SourceRuleCreate } from '../../types';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
-import { isIdentifierColumnRule } from './sourceColumnRule';
+import { isIdentifierColumnRule, type ColumnRuleOccurrence, type ColumnRulePreset } from './sourceColumnRule';
 
 const ruleNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-const initialRule: ImportedSourceParameters = {
-  dynamic: {
-    name: 'identifiers',
-    source: { select: 'identifier[]' },
-    key: { select: 'item.system' },
-    value: { select: 'item.value' },
-  },
-};
-
-export function CreateIdentifierColumnRule({ disabled, reviewing, onReview, onCancel, renderReview }: {
+export function CreateColumnRule({ kind, occurrence, preset, initialParameters, disabled, reviewing, onReview, onCancel, renderReview }: {
+  readonly kind: SourceRuleCreate['kind'];
+  readonly occurrence: ColumnRuleOccurrence;
+  readonly preset: ColumnRulePreset;
+  readonly initialParameters: ImportedSourceParameters;
   readonly disabled: boolean;
   readonly reviewing: boolean;
   readonly onReview: () => void;
   readonly onCancel: () => void;
   readonly renderReview: (rule: SourceRuleCreate, leaveReview: () => void) => ReactNode;
 }) {
-  const [parameters, setParameters] = useState(initialRule);
+  const [parameters, setParameters] = useState(initialParameters);
   const rule = parameters.dynamic;
   const validName = ruleNamePattern.test(rule?.name ?? '');
   const validPrefix = !rule?.columnPrefix || ruleNamePattern.test(rule.columnPrefix);
-  const canReview = Boolean(rule && isIdentifierColumnRule(rule) && validName && validPrefix);
+  const canReview = Boolean(preset.id === 'identifier' && rule && isIdentifierColumnRule(rule) && validName && validPrefix);
 
   return (
     <section className="grid gap-3 px-3 pb-3">
-      <h3 className="text-sm font-semibold text-slate-900">Columns from identifiers</h3>
+      <h3 className="text-sm font-semibold text-slate-900">Columns from {preset.label.toLowerCase()}</h3>
+      <p className="text-xs text-slate-600">{occurrence.label} · {rule?.source.select}</p>
       <SourceStepParameterEditor parameters={parameters} onChange={setParameters} disabled={disabled || reviewing}
-        structuredIdentifierRule />
+        structuredColumnRule />
       {!validName || !validPrefix ? (
         <p className="text-xs text-amber-800">Use letters, numbers, and underscores in the rule name and prefix. Start with a letter or underscore.</p>
       ) : null}
       {reviewing ? renderReview(
-        { kind: 'DYNAMIC_COLUMN', parameters },
+        { kind, ...(occurrence.id ? { occurrenceId: occurrence.id } : {}), parameters },
         onCancel,
       ) : (
         <button type="button" disabled={disabled || !canReview}

@@ -3,16 +3,20 @@ import React, { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
-import { CreateIdentifierColumnRule } from './CreateIdentifierColumnRule';
+import { CreateColumnRule } from './CreateColumnRule';
+import { columnRuleDefaults, columnRulePresets } from './sourceColumnRule';
 
-describe('creating an identifier column rule', () => {
+describe('creating a column rule', () => {
   it('reviews the configured rule and returns to the same form on cancel', () => {
-    const renderReview = vi.fn<ComponentProps<typeof CreateIdentifierColumnRule>['renderReview']>(
+    const renderReview = vi.fn<ComponentProps<typeof CreateColumnRule>['renderReview']>(
       (_, cancel) => <button onClick={cancel}>Cancel review</button>,
     );
     function Harness() {
       const [reviewing, setReviewing] = useState(false);
-      return <CreateIdentifierColumnRule disabled={false} reviewing={reviewing} onReview={() => setReviewing(true)}
+      const identifier = columnRuleDefaults.identifier;
+      if (!identifier) throw new Error('Identifier rule preset must be available.');
+      return <CreateColumnRule kind="DYNAMIC_COLUMN" occurrence={{ id: 'patient-related', resourceType: 'Patient', label: 'Related Patient' }}
+        preset={columnRulePresets[0]} initialParameters={identifier} disabled={false} reviewing={reviewing} onReview={() => setReviewing(true)}
         onCancel={() => setReviewing(false)} renderReview={renderReview} />;
     }
     render(<Harness />);
@@ -25,6 +29,7 @@ describe('creating an identifier column rule', () => {
 
     expect(renderReview).toHaveBeenCalledWith({
       kind: 'DYNAMIC_COLUMN',
+      occurrenceId: 'patient-related',
       parameters: { dynamic: {
         name: 'external_ids',
         source: { select: 'identifier[]' },

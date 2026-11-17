@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from 'react';
 import type { ImportedSourceParameters, ProjectedField, SourceRecipeExpression } from '../../types';
-import { isIdentifierColumnRule } from './sourceColumnRule';
+import { isCategoryCodingRule, isIdentifierColumnRule } from './sourceColumnRule';
 import { moveExpressionItem, SourceExpressionEditor } from './SourceExpressionEditor';
 
 const controlClass = 'min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs';
@@ -59,10 +59,10 @@ function OptionalExpression({ label, value, onChange, pathChoices }: { label: st
 }
 
 /** All edits are the canonical typed parameters of one pinned source step. */
-export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all', structuredIdentifierRule = false }: {
+export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all', structuredColumnRule = false }: {
   readonly view?: 'all' | 'fields' | 'settings';
   readonly parameters: EditorSourceParameters;
-  readonly structuredIdentifierRule?: boolean;
+  readonly structuredColumnRule?: boolean;
   readonly onChange: (parameters: ImportedSourceParameters) => void;
   readonly disabled?: boolean;
   readonly selectedFieldId?: string;
@@ -225,11 +225,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
       const rule = parameters.dynamic;
       const update = (patch: Partial<typeof rule>) => onChange({ ...parameters, dynamic: { ...rule, ...patch } });
       const isIdentifier = isIdentifierColumnRule(rule);
-      const isCategoryCoding = rule.source.select === 'root.category[].coding[]'
-        && rule.value?.select === 'item.display'
-        && rule.key?.call === 'last_segment'
-        && rule.key.args?.length === 1
-        && rule.key.args[0]?.select === 'item.system';
+      const isCategoryCoding = isCategoryCodingRule(rule);
       const expressions = <>
         <SourceExpressionEditor label="Read items from" value={rule.source} onChange={(source) => update({ source })} pathChoices={sourcePathChoices} />
         <OptionalExpression label="Column name expression" value={rule.key} onChange={(key) => update({ key })} pathChoices={sourcePathChoices} />
@@ -241,7 +237,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
         {isIdentifier ? (
           <>
             <p className="text-xs text-slate-600">Use each identifier’s system to name a column and put that identifier’s value in the cell.</p>
-            {structuredIdentifierRule ? <p className="text-xs text-slate-600">If a record has several values for one column, Loom keeps the first in sorted order.</p> : null}
+            {structuredColumnRule ? <p className="text-xs text-slate-600">If a record has several values for one column, Loom keeps the first in sorted order.</p> : null}
             <label className="grid gap-1 text-xs">
               Name columns using
               <select className={controlClass} value={rule.key?.call === 'last_segment' ? 'suffix' : 'system'} onChange={(event) => {
@@ -258,7 +254,7 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
         ) : isCategoryCoding ? (
           <p className="text-xs text-slate-600">Use the last part of each category coding’s system to name a column and put that coding’s display text in the cell.</p>
         ) : null}
-        {!structuredIdentifierRule ? <details className="space-y-2 rounded border border-slate-200 p-2" open={!isIdentifier && !isCategoryCoding}>
+        {!structuredColumnRule ? <details className="space-y-2 rounded border border-slate-200 p-2" open={!isIdentifier && !isCategoryCoding}>
           <summary className="cursor-pointer text-xs font-medium">Advanced expressions</summary>
           {expressions}
         </details> : null}
