@@ -1,5 +1,16 @@
 import { constructionSchema } from '../../../types';
+import type { LoomClient } from '../../../api';
 import type { Construction, ConstructionCapabilitiesResponse, ConstructionStageDescriptor, ConstructionStep } from '../../../types';
+
+export type CodedPivotContext = {
+  readonly client: Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>;
+  readonly project: string;
+  readonly explorerId: string;
+  readonly authResourcePath?: string;
+  readonly snapshotToken: string;
+  readonly outputId: string;
+  readonly rowRoot: string;
+};
 
 export const createOpaqueId = (prefix: string): string => {
   const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
