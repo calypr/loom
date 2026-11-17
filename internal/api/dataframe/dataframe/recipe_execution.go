@@ -1,4 +1,4 @@
-package resolver
+package dataframe
 
 import (
 	"context"
@@ -11,10 +11,8 @@ import (
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// RecipeExecutionStore is the durable subset needed by the GraphQL execution
-// status query. Keeping this interface narrower than BundleCatalog makes the
-// transport adapter usable with both the production Arango registry and small
-// test fakes.
+// RecipeExecutionStore reads the durable record used for publication status
+// and Explorer access checks.
 type RecipeExecutionStore interface {
 	GetExecution(context.Context, string) (materialization.BundleExecution, error)
 }
@@ -36,7 +34,6 @@ func (e *RecipeExecutionReadFailure) Unwrap() error { return e.Err }
 
 // NewAuthorizedRecipeExecutionRecordReader loads the durable, transport-neutral
 // execution record after applying the project and generation-scope checks.
-// REST and GraphQL project the authorized record into their own wire contracts.
 func NewAuthorizedRecipeExecutionRecordReader(store RecipeExecutionStore, scopeResolver *authscope.ScopeResolver, resolveScope RecipeExecutionScopeResolver, requireID bool) func(context.Context, string) (materialization.BundleExecution, error) {
 	return func(ctx context.Context, id string) (materialization.BundleExecution, error) {
 		if store == nil {
@@ -72,63 +69,39 @@ func NewAuthorizedRecipeExecutionRecordReader(store RecipeExecutionStore, scopeR
 	}
 }
 
-// NewAuthorizedRecipeExecutionReader performs the project/scope check before
-// exposing durable publication status. Execution IDs are opaque and are not
-// themselves authorization credentials.
-func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolver *authscope.ScopeResolver) RecipeExecutionReader {
-	return func(ctx context.Context, id string) (*RecipeExecution, error) {
-		execution, err := NewAuthorizedRecipeExecutionRecordReader(store, scopeResolver, nil, false)(ctx, id)
+// NewRecipeExecutionAuthorizer checks access to a durable execution before an
+// Explorer can expose its publication metadata.
+func NewRecipeExecutionAuthorizer(store RecipeExecutionStore, scopes *authscope.ScopeResolver) func(context.Context, string) error {
+	read := NewAuthorizedRecipeExecutionRecordReader(store, scopes, nil, false)
+	return func(ctx context.Context, id string) error {
+		execution, err := read(ctx, id)
 		if err != nil {
 			var failure *RecipeExecutionReadFailure
 			if errors.As(err, &failure) {
 				err = failure.Err
 			}
-			return nil, recipeExecutionLookupError(err)
+			return recipeExecutionLookupError(err)
 		}
-		state, err := graphQLRecipeExecutionState(execution.State)
-		if err != nil {
-			return nil, err
-		}
-		result := &RecipeExecution{
-			ID:                   execution.ID,
-			Name:                 execution.Name,
-			TranslationVersion:   execution.TranslationVersion,
-			RecipeDigest:         execution.RecipeDigest,
-			ResolvedSchemaDigest: execution.SchemaDigest,
-			SourceGeneration:     execution.DatasetGeneration,
-			State:                state,
-			Error:                execution.Error,
-			ErrorCode:            execution.FailureCode,
-			ErrorRetryable:       execution.FailureRetryable,
-			Phase:                execution.FailurePhase,
-			Outputs:              make([]RecipeExecutionOutput, 0, len(execution.Outputs)),
+		if err := checkRecipeExecutionState(execution.State); err != nil {
+			return err
 		}
 		for _, output := range execution.Outputs {
-			outputState, err := graphQLRecipeExecutionState(output.State)
-			if err != nil {
-				return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInternalError, "")
+			if err := checkRecipeExecutionState(output.State); err != nil {
+				return dataframeerrors.Wrap(err, dataframeerrors.CodeInternalError, "")
 			}
-			rowCount := int(output.RowCount)
-			// REPAIR-20c (phantom trio): the output error MIRROR of the single
-			// execution-level message applies only while the output itself is
-			// not healthy. The lease-lost reconciliation (bundle_store.go
-			// :1207-1214) fails the execution while READY outputs stay
-			// untouched, and the per-output sanitizer would stamp a healthy
-			// fully-published page with its own INTERNAL_ERROR trio whose
-			// retryability contradicts the execution truth (top-level state
-			// FAILED, errorCode PUBLICATION_LEASE_LOST, retryable=true).
-			// Healthy = the durable success states READY/PUBLISHED. Genuine
-			// per-output failures (failPhase bundle_store.go:989-995) are
-			// FAILED or persist a own FailureCode, and still project
-			// unconditionally through ErrorCode/ErrorRetryable/Phase below.
-			mirroredError := RecipeExecutionOutputMessage(execution.Error, output.State)
-			result.Outputs = append(result.Outputs, RecipeExecutionOutput{
-				Name: output.Name, State: outputState, RowCount: &rowCount, Columns: append([]materialization.PhysicalColumn(nil), output.Columns...), Error: mirroredError,
-				ErrorCode: output.FailureCode, ErrorRetryable: output.FailureRetryable,
-				Selector: output.Selector, Phase: output.FailurePhase,
-			})
 		}
-		return result, nil
+		return nil
+	}
+}
+
+func checkRecipeExecutionState(state materialization.BundleState) error {
+	switch state {
+	case materialization.BundleQueued, materialization.BundleRunning, materialization.BundlePublished,
+		materialization.BundlePending, materialization.BundlePreflight, materialization.BundleValidating,
+		materialization.BundleLoading, materialization.BundleReady, materialization.BundleFailed:
+		return nil
+	default:
+		return fmt.Errorf("unsupported bundle execution state %q", state)
 	}
 }
 
@@ -150,29 +123,6 @@ func recipeExecutionLookupError(err error) error {
 		return classified
 	}
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
-}
-
-func graphQLRecipeExecutionState(state materialization.BundleState) (string, error) {
-	switch state {
-	case materialization.BundleQueued:
-		return "QUEUED", nil
-	case materialization.BundleRunning:
-		return "RUNNING", nil
-	case materialization.BundlePublished:
-		return "PUBLISHED", nil
-	case materialization.BundlePending:
-		return "ACCEPTED", nil
-	case materialization.BundlePreflight, materialization.BundleValidating:
-		return "VALIDATING", nil
-	case materialization.BundleLoading:
-		return "RUNNING", nil
-	case materialization.BundleReady:
-		return "READY", nil
-	case materialization.BundleFailed:
-		return "FAILED", nil
-	default:
-		return "", fmt.Errorf("unsupported bundle execution state %q", state)
-	}
 }
 
 // RecipeExecutionOutputMessage mirrors execution failure text only onto outputs

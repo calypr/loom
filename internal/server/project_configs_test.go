@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
+	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -217,8 +217,8 @@ func TestPersistedExplorerConcealsPartialExecutionScope(t *testing.T) {
 		{name: "full", principal: &authscope.Principal{Projects: []string{"project-a"}, AuthResourcePaths: []string{"allowed", "denied"}}, resolver: scopes, status: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			reader := graphresolver.NewAuthorizedRecipeExecutionReader(recipeExecutionCatalog{execution: execution}, tc.resolver)
-			handlers.authorizeExecution = func(ctx context.Context, id string) error { _, err := reader(ctx, id); return err }
+			reader := dataframeapi.NewRecipeExecutionAuthorizer(recipeExecutionCatalog{execution: execution}, tc.resolver)
+			handlers.authorizeExecution = reader
 			ctx := authscope.ContextWithPrincipal(context.Background(), tc.principal)
 			_, err := handlers.getExplorer(ctx, "project-a", "files")
 			if tc.status == 0 {

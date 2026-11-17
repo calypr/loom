@@ -34,7 +34,7 @@ type audit struct {
 	invalidated map[string]bool
 }
 
-var mappers = map[string]int{"authoringErrorForOpenAPI": 1, "explorerLegacyResponse": 1, "mapServiceError": 1, "serveGraphQL": 1}
+var mappers = map[string]int{"authoringErrorForOpenAPI": 1, "explorerLegacyResponse": 1, "mapServiceError": 1}
 
 func name(e ast.Expr) string {
 	switch x := e.(type) {

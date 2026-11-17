@@ -14,7 +14,6 @@ The top-level directories have distinct ownership:
 | --- | --- |
 | `openapi/` | Canonical Loom HTTP contract and oapi-codegen configuration. |
 | `schemas/` | Source schemas edited by developers. |
-| `gqlgen.yml` | GraphQL generator configuration. |
 | `generated/` | Checked-in generated output; never server business logic. |
 | `internal/` | Handwritten server implementation. |
 | `cmd/` | Executable entry points and developer generators. |
@@ -23,20 +22,14 @@ Generated FHIR structs live in `generated/fhir`; raw generated schema tables
 live in `generated/fhirschema`. `internal/fhir/schema` adds the handwritten
 selector, traversal, and compiler semantics that consume those tables.
 
-The typed FHIR GraphQL resource roots have been retired.
-
-GraphQL is split the same way. Handwritten schemas, HTTP transport, error
-presentation, query services, and materialization mapping live under
-`internal/api/graphql/graph`. gqlgen models, executors, and resolver bindings live
-under `generated/graphql/graph`. The root gqlgen configurations are inputs, so
-they do not live in `generated/`.
+Dataframe requests are defined in OpenAPI. Their Go service inputs and responses
+are owned by `internal/api/dataframe`.
 
 ## Runtime surfaces
 
 The Builder integration contract is documented in
 [`EXPLORER_AUTHORING.md`](EXPLORER_AUTHORING.md). The Builder uses the REST
-Explorer lifecycle and submits V2 intent; GraphQL does not expose Explorer
-lifecycle or authoring types. Every HTTP method and path is defined in the
+Explorer lifecycle and submits V2 intent. Every HTTP method and path is defined in the
 canonical [`openapi/openapi.yaml`](../openapi/openapi.yaml) contract.
 
 Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
@@ -63,25 +56,23 @@ runner; `dataframe/publication/{arango,clickhouse}` own storage adapters; and
   catalog diagnostics.
 
 `cmd/arango-fhir-server` owns the HTTP process. Generated OpenAPI registration
-mounts health, generation ingestion/activation, recipe execution, GraphQL, and
+mounts health, generation ingestion/activation, recipe execution, dataframe queries, and
 Explorer operations; handwritten strict-interface implementations remain under
 `internal/server`. Snapshot and standalone release-management HTTP APIs are not
 part of the server surface; Explorer publication owns its release transaction.
 
-The GraphQL dataframe mutation is the live compiler transport. Explorer V2
+The REST dataframe run endpoint exposes the compiler. Explorer V2
 authoring adds an intent-to-native-recipe lowering phase, then calls the same
 recipe resolver/compiler and AQL renderer. Do not add a second query compiler
 or hand-maintained AQL path behind another endpoint. See
 [`EXPLORER_COMPILATION_ARCHITECTURE.md`](EXPLORER_COMPILATION_ARCHITECTURE.md)
 for the complete Builder-to-AQL sequence.
 
-The HTTP API names its backend boundaries explicitly. `/graphql/graph` is the
-Arango graph/control-plane GraphQL endpoint and published ClickHouse dataframe
-reader, while `/graphql/dataframe` is the Arango-backed FHIR dataframe
-compiler endpoint. Published ClickHouse dataframe discovery and reads require
+The dataframe run endpoint reads the authorized Arango graph. The rows and
+aggregations endpoints read published ClickHouse data. Published ClickHouse dataframe discovery and reads require
 an explicit authorized project and exact dataframe selector.
 Only registered READY publication outputs are exposed; adding a dataset or
-column must not require GraphQL regeneration or a Loom restart. Publication
+column must not require API code generation or a Loom restart. Publication
 and published-data reads are ClickHouse-only; Loom has no Elasticsearch
 publication or reader fallback.
 
@@ -183,8 +174,8 @@ clusters do not invoke Rosetta for the migration process.
 The current runtime call path is:
 
 ```text
-GraphQL request
-  -> internal/api/graphql/graph HTTP handler
+REST request
+  -> internal/server OpenAPI handler
   -> generated gqlgen executor and internal resolver binding
   -> internal/api/dataframe/query.Service
   -> dataframe/execution.Service
@@ -208,8 +199,8 @@ schema metadata constrains what a request means.
 The ClickHouse read path is parallel but separate:
 
 ```text
-GraphQL request
-  -> internal/api/graphql/graph HTTP handler
+REST request
+  -> internal/server OpenAPI handler
   -> generated graph executor and internal resolver binding
   -> internal/api/dataframe/dataframe.Service
   -> dataframe/published.Reader
@@ -229,7 +220,7 @@ The compiler package orchestrates independent `spec`, `semantic`, `compiler/ir`,
 `ir` owns typed physical operations and scope proofs, `lower` owns FHIR route
 and endpoint decisions, `optimize` owns semantics-preserving IR rewrites, and
 `render/aql` owns serialization only. Runtime code may call the compiler, but
-no compiler child may import runtime, catalog, or HTTP/GraphQL transport code.
+no compiler child may import runtime, catalog, or HTTP transport code.
 
 When adding code, use this lookup table:
 
@@ -250,8 +241,8 @@ runtime contract references.
 
 ## Compatibility tracks
 
-The raw-structure GraphQL dataframe input remains for the existing compiler
-transport. Ingestion and publication now use immutable dataset generations.
+The dataframe run request uses structured FHIR fields and traversals. Ingestion
+and publication use immutable dataset generations.
 
 The former hard-coded GDC AQL files, GDC export command, browser `/builder`
 demo, and unowned bootstrap materializations were removed. They bypassed the
@@ -259,13 +250,8 @@ compiler and did not work with immutable generation keys.
 
 ## Generated code and tests
 
-Run `make generate-fhir` after changing the graph schema and
-`make generate-graphql` after changing the GraphQL schema. Do not hand-edit
-generated FHIR resources, schema metadata, or gqlgen output. Generated Go
-artifacts live under `generated/`; handwritten transport and service code stays
-under `internal/`. See
-[`CODE_GENERATION.md`](CODE_GENERATION.md) for the full source/output map and
-package boundaries.
+Run `make generate-fhir` after changing the graph schema. See
+[the code generation guide](CODE_GENERATION.md) for the generated artifacts.
 
 Run `make generate-openapi` after changing the canonical HTTP contract or its
 generator configuration under `openapi/`. Do not hand-edit

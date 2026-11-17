@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast dev-down verify-api test-ui test-go test-integration e2e
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast dev-down verify-api test-ui test-go test-integration e2e
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -40,7 +40,7 @@ build: build-cli build-server
 release-ui:
 	./scripts/release-loom-ui.sh release "$(release-ui-version)"
 
-generate: generate-fhir generate-graphql generate-openapi
+generate: generate-fhir generate-openapi
 
 build-cli:
 	mkdir -p bin $(GOCACHE_DIR)
@@ -49,11 +49,6 @@ build-cli:
 build-server:
 	mkdir -p bin $(GOCACHE_DIR)
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) build $(GOFLAGS) -o bin/arango-fhir-server ./cmd/arango-fhir-server
-
-generate-graphql:
-	mkdir -p $(GOCACHE_DIR)
-	GOFLAGS="$(GOFLAGS) -mod=mod" GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run -mod=mod github.com/99designs/gqlgen generate --config gqlgen.yml
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run ./cmd/gqlgenfix generated/graphql/graph/executor/schema.generated.go
 
 generate-fhir:
 	mkdir -p $(GOCACHE_DIR)
@@ -67,12 +62,6 @@ generate-openapi:
 openapi-check:
 	bash scripts/check_openapi_route_ownership.sh
 	python3 scripts/audit-http-500-responses.py >/dev/null
-
-graphql-check:
-	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./internal/api/graphql/... ./generated/graphql/... -count=1
-
-gqlgen-check: graphql-check
 
 test:
 	mkdir -p $(GOCACHE_DIR)

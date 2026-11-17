@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/api/authpolicy"
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -16,8 +15,6 @@ import (
 type recipeAuthorization struct {
 	resolver *authscope.ScopeResolver
 }
-
-var _ graphresolver.RecipeAuthorizer = recipeAuthorization{}
 
 func (a recipeAuthorization) AuthorizeRead(ctx context.Context, bindings recipe.RuntimeBindings) (recipe.RuntimeBindings, error) {
 	if strings.TrimSpace(bindings.Project) == "" {

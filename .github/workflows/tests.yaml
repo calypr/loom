@@ -282,13 +282,11 @@ jobs:
           cache: true
       - name: Generate FHIR code
         run: timeout 600s make generate-fhir
-      - name: Generate GraphQL code
-        run: timeout 600s make generate-graphql
       - name: Generate Loom OpenAPI code
         run: timeout 600s make generate-openapi
       - name: Check generated code is current
         run: |
-          timeout 600s git diff --exit-code -- generated/fhir generated/fhirschema generated/graphql generated/loomapi
+          timeout 600s git diff --exit-code -- generated/fhir generated/fhirschema generated/loomapi
           timeout 600s sh -c 'test -z "$(git status --porcelain --untracked-files=all -- generated)"'
       - name: Check OpenAPI route ownership
         run: timeout 600s make openapi-check

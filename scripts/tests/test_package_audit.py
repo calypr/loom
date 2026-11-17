@@ -33,9 +33,8 @@ class PackageAuditTest(unittest.TestCase):
         self.assertEqual(expected_locations, sorted(locations))
         self.assertTrue(all(row["responsibility"].endswith(".") for row in rows))
         self.assertTrue(all(row["audit_status"] for row in rows))
-        resolver = next(row for row in rows if row["location"] == "internal/api/graphql/graph/resolver")
-        self.assertEqual("transport adapter", resolver["kind"])
-        self.assertNotEqual("—", resolver["generated_files"])
+        dataframe = next(row for row in rows if row["location"] == "internal/api/dataframe")
+        self.assertEqual("—", dataframe["generated_files"])
         load = next(row for row in rows if row["location"] == "internal/api/bulk/load")
         self.assertEqual("completed/keep", load["audit_status"])
 
@@ -96,7 +95,7 @@ class PackageAuditTest(unittest.TestCase):
             [
                 sys.executable,
                 "scripts/package_audit_verify.py",
-                "internal/api/graphql/graph",
+                "internal/api/recipe",
                 "--dry-run",
             ],
             cwd=ROOT,
@@ -106,7 +105,7 @@ class PackageAuditTest(unittest.TestCase):
         )
         self.assertIn("internal/server", result.stdout)
         self.assertIn(
-            "go test ./internal/api/graphql/graph ./internal/server -count=1",
+            "go test ./internal/api/dataframe/query ./internal/api/recipe ./internal/server -count=1",
             result.stdout,
         )
 

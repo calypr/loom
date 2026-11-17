@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 
-MAPPERS = {"authoringErrorForOpenAPI": "failure", "explorerLegacyResponse": "legacy", "mapServiceError": "body", "serveGraphQL": "value"}
+MAPPERS = {"authoringErrorForOpenAPI": "failure", "explorerLegacyResponse": "legacy", "mapServiceError": "body"}
 
 def openapi_500_operations(path: pathlib.Path) -> list[str]:
     """Read operation IDs and their response keys from the repository YAML layout.

@@ -21,7 +21,6 @@ import (
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
 	queryapi "github.com/calypr/loom/internal/api/dataframe/query"
-	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
@@ -730,7 +729,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create Explorer artifact store: %w", err)
 	}
-	readRecipeExecution := graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver)
+	readRecipeExecution := dataframeapi.NewRecipeExecutionAuthorizer(publishedRegistry, scopeResolver)
 	queryConfig := queryapi.Config{
 		DiscoverReferences:     discoverReferences,
 		DiscoverFields:         discoverFields,
@@ -742,17 +741,6 @@ func run(ctx context.Context, serverConfig Config) error {
 			return err
 		},
 	}
-	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery:        queryConfig,
-		MaterializationReader: materializationReader,
-		Logger:                logger,
-		RecipeControl: dataframeexecution.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
-			return explainCompiledQuery(ctx, lifecycleClient, compiled)
-		}},
-		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
-		RecipeRevisions:  recipeRevisions,
-		RecipeExecutions: readRecipeExecution,
-	})
 	dataframeReads := dataframeReadRoutes{
 		query: queryapi.NewService(queryConfig),
 		published: dataframeapi.NewService(dataframeapi.Config{
@@ -1061,8 +1049,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 	}, explorerService, lifecycleConfig)
 	explorerHandlers.authorizeExecution = func(ctx context.Context, id string) error {
-		_, err := readRecipeExecution(ctx, id)
-		return err
+		return readRecipeExecution(ctx, id)
 	}
 	var constructionInputsReader constructionInputsExactReader
 	if materializationReader != nil {
@@ -1072,7 +1059,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		reader: constructionInputsReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits, dataframeReads); err != nil {
+	if err := registerRoutes(server, generationService, authorizer, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits, dataframeReads); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if privateClickHouseArtifacts != nil {

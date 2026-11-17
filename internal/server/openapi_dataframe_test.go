@@ -13,7 +13,6 @@ import (
 
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	dataframeapi "github.com/calypr/loom/internal/api/dataframe/dataframe"
-	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
@@ -68,7 +67,7 @@ func (q dataframeRouteQueryer) QueryRowsArgsVisit(ctx context.Context, sql strin
 	return nil
 }
 
-func TestPublishedDataframeRESTParity(t *testing.T) {
+func TestPublishedDataframeREST(t *testing.T) {
 	now := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
 	reader := &published.Reader{ClickHouse: dataframeRouteQueryer{}, Catalog: dataframeRouteCatalog{
 		execution: publication.BundleExecution{
@@ -98,9 +97,8 @@ func TestPublishedDataframeRESTParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	graph := resolver.NewResolver(resolver.ResolverConfig{MaterializationReader: reader})
 	readRoutes := dataframeReadRoutes{published: dataframeapi.NewService(dataframeapi.Config{Reader: reader})}
-	if err := registerRoutes(server, load, authorizer, graph, &explorerHTTPHandlers{}, readRoutes); err != nil {
+	if err := registerRoutes(server, load, authorizer, &explorerHTTPHandlers{}, readRoutes); err != nil {
 		t.Fatal(err)
 	}
 	post := func(path string, input any, status int) map[string]any {
@@ -135,30 +133,9 @@ func TestPublishedDataframeRESTParity(t *testing.T) {
 		"projectId": "P1", "selector": selector, "filters": rows["filters"],
 		"specs": []map[string]string{{"name": "missing_name", "kind": "MISSING", "column": "name"}},
 	}
-	const materialization = `materialization {
-		id name revision projectId datasetGeneration state rowCount createdAt readyAt error errorCode errorRetryable
-		selector { recipe translationVersion output }
-		columns { semanticPath name clickhouseType logicalType nullable repeated filterable sortable aggregatable }
-	}`
-	const rowsQuery = `query($input: DataframeRowsInput!) {
-		dataframeRows(input: $input) { ` + materialization + ` columns rows rowIds totalCount pageInfo { hasNextPage endCursor } }
-	}`
-	const aggregationsQuery = `query($input: DataframeAggregationsInput!) {
-		dataframeAggregations(input: $input) { ` + materialization + ` aggregations }
-	}`
-	compare := func(operation, query, path string, input map[string]any) map[string]any {
-		t.Helper()
-		rest := post(path, input, http.StatusOK)
-		gql := post("/graphql/graph", map[string]any{"query": query, "variables": map[string]any{"input": input}}, http.StatusOK)
-		data, ok := gql["data"].(map[string]any)
-		if !ok || !reflect.DeepEqual(rest, data[operation]) {
-			t.Fatalf("%s result differs\nREST: %#v\nGraphQL: %#v", operation, rest, gql)
-		}
-		return rest
-	}
 	const rowsPath = "/api/v1/projects/P1/dataframes/rows"
 	const aggregationsPath = "/api/v1/projects/P1/dataframes/aggregations"
-	result := compare("dataframeRows", rowsQuery, rowsPath, rows)
+	result := post(rowsPath, rows, http.StatusOK)
 	if !reflect.DeepEqual(result["rows"], []any{map[string]any{"name": "Alice"}}) {
 		t.Fatalf("unexpected first page: %#v", result)
 	}
@@ -167,30 +144,28 @@ func TestPublishedDataframeRESTParity(t *testing.T) {
 		t.Fatalf("expected bound cursor: %#v", result["pageInfo"])
 	}
 	rows["after"] = cursor
-	result = compare("dataframeRows", rowsQuery, rowsPath, rows)
+	result = post(rowsPath, rows, http.StatusOK)
 	if !reflect.DeepEqual(result["rows"], []any{map[string]any{"name": "April"}}) {
 		t.Fatalf("unexpected second page: %#v", result)
 	}
-	facets := compare("dataframeAggregations", aggregationsQuery, aggregationsPath, aggregations)
+	facets := post(aggregationsPath, aggregations, http.StatusOK)
 	if results, ok := facets["aggregations"].([]any); !ok || len(results) != 1 {
 		t.Fatalf("expected one aggregation: %#v", facets)
 	}
-	compareError := func(path string, status int, code string) {
+	assertError := func(path string, status int, code string) {
 		t.Helper()
-		rest := post(path, rows, status)["error"].(map[string]any)
-		gql := post("/graphql/graph", map[string]any{"query": rowsQuery, "variables": map[string]any{"input": rows}}, status)
-		first := gql["errors"].([]any)[0].(map[string]any)
-		extensions := first["extensions"].(map[string]any)
-		if rest["code"] != code || rest["code"] != extensions["code"] || rest["message"] != first["message"] || rest["requestId"] == "" {
-			t.Fatalf("error contract differs: REST %#v, GraphQL %#v", rest, first)
+		body := post(path, rows, status)["error"].(map[string]any)
+		id, _ := body["requestId"].(string)
+		if body["code"] != code || id == "" || body["message"] == "" {
+			t.Fatalf("unexpected error: %#v", body)
 		}
 	}
 	rows["projectId"] = "foreign"
-	compareError("/api/v1/projects/foreign/dataframes/rows", http.StatusForbidden, "FORBIDDEN")
+	assertError("/api/v1/projects/foreign/dataframes/rows", http.StatusForbidden, "FORBIDDEN")
 	rows["projectId"] = "P1"
 	rows["after"] = "malformed"
-	compareError(rowsPath, http.StatusBadRequest, "INVALID_CURSOR")
+	assertError(rowsPath, http.StatusBadRequest, "INVALID_CURSOR")
 	rows["after"] = cursor
 	rows["filters"] = nil
-	compareError(rowsPath, http.StatusConflict, "STALE_CURSOR")
+	assertError(rowsPath, http.StatusConflict, "STALE_CURSOR")
 }

@@ -7,9 +7,8 @@ ArangoDB volume, an isolated ClickHouse volume, and the checked-in fixture in
 `testdata/devloop-fixture`.
 
 The stack does not use `loom-demo`, `NCPI_ACCEPTANCE`, the repository `CONFIG`,
-or a researcher-owned Explorer. The Vite service proxies `/api` and
-`/graphql` to `loom-api` on the Compose network, so browser requests stay
-same-origin.
+or a researcher-owned Explorer. The Vite service proxies `/api` to `loom-api` on the Compose network so browser
+requests stay same-origin.
 
 The CLI honors the caller's Docker environment. If Docker is not using its
 default socket or configuration, export `DOCKER_HOST` and `DOCKER_CONFIG`
@@ -78,7 +77,7 @@ checks that its unique namespaced project
 new Explorer in the Builder. It starts a Patient query, adds the
 `Patient -> Observation` relationship, selects nested Patient name fields and
 an Observation scalar, previews the exact table, and publishes through the UI.
-It then reads the new materialization through `/graphql/graph`, switches to
+It then reads the new materialization through the project-scoped dataframe rows endpoint, switches to
 Viewer, applies the gender filter, clicks `Download CSV`, parses the exact
 physical-column CSV, reloads Viewer, and checks that the published data remains
 available.

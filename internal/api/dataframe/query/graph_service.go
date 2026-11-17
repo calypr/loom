@@ -26,8 +26,7 @@ const (
 )
 
 // FHIRGraphQuery is transport-neutral and intentionally mirrors only the
-// explicit graph DSL. GraphQL resolvers can map generated gqlgen models into
-// this type without exposing compiler or storage details.
+// explicit graph DSL.
 type FHIRGraphQuery struct {
 	Project           string
 	AuthResourcePaths []string

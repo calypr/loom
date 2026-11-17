@@ -5,14 +5,12 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
-	graphapi "github.com/calypr/loom/internal/api/graphql/graph"
-	"github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	api "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, graphResolver *resolver.Resolver, explorerHandlers *explorerHTTPHandlers, optional ...any) error {
+func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, authorizer authscope.Authorizer, explorerHandlers *explorerHTTPHandlers, optional ...any) error {
 	if explorerHandlers == nil {
 		return fmt.Errorf("create Explorer HTTP routes: Explorer handlers are required")
 	}
@@ -48,7 +46,6 @@ func registerRoutes(server *api.HTTPServer, generationService *loadapi.Service, 
 		load:       loadHandler,
 		releases:   releases,
 		scopes:     scopes,
-		graphql:    graphapi.RouteConfig{Handler: graphapi.NewHandler(graphResolver, server.Logger()), Playground: graphapi.NewPlaygroundHandler("/graphql/graph"), Sandbox: graphapi.NewApolloSandboxHandler("/graphql/graph")},
 		explorer:   explorerHandlers,
 		dataframes: dataframes,
 	}

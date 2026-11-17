@@ -48,10 +48,6 @@ export default defineConfig(({ command }) => {
           target: process.env.LOOM_API_URL ?? 'http://127.0.0.1:8080',
           changeOrigin: true,
         },
-        '/graphql': {
-          target: process.env.LOOM_API_URL ?? 'http://127.0.0.1:8080',
-          changeOrigin: true,
-        },
       },
     },
     optimizeDeps: development

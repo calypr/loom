@@ -25,11 +25,10 @@ and operating guides. Superseded product plans and their evidence live under
 - [Local verification](../.codex/skills/verify/SKILL.md) — focused UI/Go checks,
   owned development Doctor, and the five real-Chrome e2e specs.
 - [Real-data acceptance](REAL_DATA_ACCEPTANCE.md) — locked NCPI ingestion,
-  publication, physical storage, GraphQL, performance, and cleanup.
+  publication, physical storage, REST, performance, and cleanup.
 - [Product backlog](BACKLOG.md) — open findings, incomplete acceptance, and
   deferred product decisions, with their current reproduction boundaries.
-- [GraphQL API](GRAPHQL_API.md) — graph, FHIR dataframe, and published-data
-  GraphQL contracts.
+- [Dataframe API](DATAFRAME_API.md) covers FHIR queries and published-data reads.
 
 ## Developer and operator references
 

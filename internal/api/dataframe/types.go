@@ -1,11 +1,8 @@
 package dataframe
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"strconv"
 )
 
 type DataframeAggregateInput struct {
@@ -102,35 +99,17 @@ func (e DataframeMaterializationState) String() string {
 	return string(e)
 }
 
-func (e *DataframeMaterializationState) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = DataframeMaterializationState(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid DataframeMaterializationState", str)
-	}
-	return nil
-}
-
-func (e DataframeMaterializationState) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *DataframeMaterializationState) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *DataframeMaterializationState) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e DataframeMaterializationState) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := DataframeMaterializationState(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid DataframeMaterializationState", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type DataframeRowsInput struct {
@@ -199,35 +178,17 @@ func (e FhirAggregateOperation) String() string {
 	return string(e)
 }
 
-func (e *FhirAggregateOperation) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirAggregateOperation(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirAggregateOperation", str)
-	}
-	return nil
-}
-
-func (e FhirAggregateOperation) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirAggregateOperation) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *FhirAggregateOperation) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirAggregateOperation) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := FhirAggregateOperation(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirAggregateOperation", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type FhirCatalogProjectionInput struct {
@@ -270,35 +231,17 @@ func (e FhirColumnNaming) String() string {
 	return string(e)
 }
 
-func (e *FhirColumnNaming) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirColumnNaming(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirColumnNaming", str)
-	}
-	return nil
-}
-
-func (e FhirColumnNaming) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirColumnNaming) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *FhirColumnNaming) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirColumnNaming) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := FhirColumnNaming(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirColumnNaming", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type FhirDataframeInput struct {
@@ -346,35 +289,17 @@ func (e FhirFieldPredicateOperation) String() string {
 	return string(e)
 }
 
-func (e *FhirFieldPredicateOperation) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirFieldPredicateOperation(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirFieldPredicateOperation", str)
-	}
-	return nil
-}
-
-func (e FhirFieldPredicateOperation) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirFieldPredicateOperation) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *FhirFieldPredicateOperation) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirFieldPredicateOperation) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := FhirFieldPredicateOperation(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirFieldPredicateOperation", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type FhirFieldSelectInput struct {
@@ -441,35 +366,17 @@ func (e FhirFilterOperator) String() string {
 	return string(e)
 }
 
-func (e *FhirFilterOperator) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirFilterOperator(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirFilterOperator", str)
-	}
-	return nil
-}
-
-func (e FhirFilterOperator) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirFilterOperator) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *FhirFilterOperator) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirFilterOperator) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := FhirFilterOperator(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirFilterOperator", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type FhirFilterQuantifier string
@@ -498,35 +405,17 @@ func (e FhirFilterQuantifier) String() string {
 	return string(e)
 }
 
-func (e *FhirFilterQuantifier) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirFilterQuantifier(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirFilterQuantifier", str)
-	}
-	return nil
-}
-
-func (e FhirFilterQuantifier) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirFilterQuantifier) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *FhirFilterQuantifier) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirFilterQuantifier) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := FhirFilterQuantifier(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirFilterQuantifier", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type FhirFilterValueInput struct {
@@ -574,35 +463,17 @@ func (e FhirFilterValueKind) String() string {
 	return string(e)
 }
 
-func (e *FhirFilterValueKind) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirFilterValueKind(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirFilterValueKind", str)
-	}
-	return nil
-}
-
-func (e FhirFilterValueKind) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirFilterValueKind) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *FhirFilterValueKind) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirFilterValueKind) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := FhirFilterValueKind(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirFilterValueKind", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type FhirPivotDiscoveryInput struct {
@@ -653,35 +524,17 @@ func (e FhirTraversalMatchMode) String() string {
 	return string(e)
 }
 
-func (e *FhirTraversalMatchMode) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirTraversalMatchMode(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirTraversalMatchMode", str)
-	}
-	return nil
-}
-
-func (e FhirTraversalMatchMode) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirTraversalMatchMode) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *FhirTraversalMatchMode) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirTraversalMatchMode) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := FhirTraversalMatchMode(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirTraversalMatchMode", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type FhirTraversalStepInput struct {
@@ -726,35 +579,17 @@ func (e FhirValueMode) String() string {
 	return string(e)
 }
 
-func (e *FhirValueMode) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = FhirValueMode(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid FhirValueMode", str)
-	}
-	return nil
-}
-
-func (e FhirValueMode) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *FhirValueMode) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
+func (e *FhirValueMode) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e FhirValueMode) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
+	decoded := FhirValueMode(value)
+	if !decoded.IsValid() {
+		return fmt.Errorf("%s is not a valid FhirValueMode", value)
+	}
+	*e = decoded
+	return nil
 }
 
 type DataframeRowConnection struct {
