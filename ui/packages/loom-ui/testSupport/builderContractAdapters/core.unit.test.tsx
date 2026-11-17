@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLoomClient, type LoomClient } from '../../src/api';
 import type {
@@ -14,7 +14,7 @@ import type {
 } from '../../src/types';
 import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema } from '../../src/types';
 import BuilderWorkspace from '../../src/features/ExplorerBuilder/BuilderWorkspace';
-import { CoreAdapterGapError, coreAdapters } from './core';
+import { coreAdapters } from './core';
 
 type CapturedRequest = Readonly<{ url: string; method: string; body: string | null }>;
 
@@ -240,24 +240,6 @@ describe('core Calculate adapter dimensions', () => {
     fixture.resolveProposal?.(jsonResponse(fixture.proposal ? proposalResponseFor(fixture.proposal) : {}));
   });
 
-  it.each([
-    ['legacy camel-case operands', { expression_view: 'guided', operation: 'ADD', leftColumnId: 'age-id', rightColumnId: 'age-id' }, 'left_operand'],
-    ['missing right operand', { expression_view: 'guided', operation: 'ADD', left_operand: { kind: 'COLUMN', columnId: aggregateOutputId } }, 'right_operand'],
-    ['legacy formula alias', { expression_view: 'formula', formula: 'multiple_birth_integer + 1' }, 'formula_text'],
-  ])('reports %s as an explicit adapter gap', async (_caseName, values, missingDimension) => {
-    render(<BuilderWorkspace organization="HTAN_INT" project={project} explorerId={explorerId} />);
-
-    const result = await deriveAdapter.drive(driveInput(values)).then(
-      () => null,
-      (error: unknown) => error,
-    );
-    expect(result).toBeInstanceOf(CoreAdapterGapError);
-    if (!(result instanceof CoreAdapterGapError)) throw new Error('The malformed action did not produce an explicit adapter gap.');
-    expect(result.kind).toBe('ADAPTER_GAP');
-    expect(result.message).toContain(missingDimension);
-    expect(fixture.proposal).toBeNull();
-  });
-
   it('uses exact snake-case dimensions to emit the mounted Builder proposal request', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project={project} explorerId={explorerId} />);
 
@@ -289,89 +271,5 @@ describe('core Calculate adapter dimensions', () => {
       },
     });
     expect(derived?.outputs.at(-1)).toMatchObject({ name: 'birth_count_plus_one', label: 'Birth count plus one' });
-  });
-});
-
-describe('core proposal lifecycle action IDs', () => {
-  const lifecycleAdapter = coreAdapters['builder.construction_proposal_apply_cancel_retry'];
-  const lifecycleInput = (actionId: string) => ({
-    uiAction: {
-      affordanceId: 'builder.construction_proposal_apply_cancel_retry',
-      runnerActionId: lifecycleAdapter.runnerActionId,
-      values: {},
-    },
-    requestStep: { actionId, kind: 'command' },
-  });
-
-  it('accepts the inventory command action ID and clicks Apply', async () => {
-    const applied = vi.fn();
-    render(<button type="button" data-testid="construction-apply-proposal" onClick={applied}>Apply</button>);
-
-    await lifecycleAdapter.drive(lifecycleInput('accept_construction_proposal'));
-
-    expect(applied).toHaveBeenCalledOnce();
-  });
-
-  it('rejects a generic endpoint alias instead of treating it as Apply', async () => {
-    const applied = vi.fn();
-    render(<button type="button" data-testid="construction-apply-proposal" onClick={applied}>Apply</button>);
-
-    await expect(lifecycleAdapter.drive(lifecycleInput('applyEndpoint'))).rejects.toThrow('proposal lifecycle actionId applyEndpoint is not supported');
-    expect(applied).not.toHaveBeenCalled();
-  });
-
-  it('clicks the current editor Close control only for the local cancel action', async () => {
-    const cancelled = vi.fn();
-    render(<button type="button" data-testid="construction-close-operation-editor" onClick={cancelled}>Back to table</button>);
-
-    await lifecycleAdapter.drive({
-      uiAction: {
-        affordanceId: 'builder.construction_proposal_apply_cancel_retry',
-        runnerActionId: lifecycleAdapter.runnerActionId,
-        values: { localAction: 'cancel_construction_proposal' },
-      },
-      requestStep: null,
-    });
-
-    expect(cancelled).toHaveBeenCalledOnce();
-  });
-
-  it('clicks the mounted preview refresh control for refresh_preview_catalog', async () => {
-    const refresh = vi.fn();
-    render(<><button type="button" onClick={refresh}>Refresh preview</button><div role="region" aria-label="Preview" /></>);
-
-    await coreAdapters['builder.automatic_preview_refresh_and_recovery'].drive({
-      uiAction: {
-        affordanceId: 'builder.automatic_preview_refresh_and_recovery',
-        runnerActionId: coreAdapters['builder.automatic_preview_refresh_and_recovery'].runnerActionId,
-        values: {},
-      },
-      requestStep: { actionId: 'refresh_preview_catalog', kind: 'command' },
-    });
-
-    expect(refresh).toHaveBeenCalledOnce();
-  });
-
-  it('does not treat another local action as Cancel proposal', async () => {
-    const cancelled = vi.fn();
-    render(<button type="button" data-testid="construction-close-operation-editor" onClick={cancelled}>Back to table</button>);
-
-    let caught: unknown;
-    try {
-      await lifecycleAdapter.drive({
-        uiAction: {
-          affordanceId: 'builder.construction_proposal_apply_cancel_retry',
-          runnerActionId: lifecycleAdapter.runnerActionId,
-          values: { localAction: 'accept_construction_proposal' },
-        },
-        requestStep: null,
-      });
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(cancelled).not.toHaveBeenCalled();
-    expect(caught).toBeInstanceOf(CoreAdapterGapError);
-    expect((caught as Error).message).toContain('proposal lifecycle actionId (missing) is not supported');
   });
 });

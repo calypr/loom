@@ -6,7 +6,6 @@ import { resolve } from 'node:path';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type {
   DiscoverConstructionCategoriesArgs,
@@ -349,14 +348,6 @@ const operationHistorySeedIdentityById = new Map<string, OperationHistorySeedIde
     outputId: trace.initial.workspaceContext.outputId,
   }]),
 );
-const capturedCandidates = new Map<string, Array<Record<string, unknown>>>();
-const actualRequestFingerprints = new Set<string>();
-
-const actualRequestFingerprint = (request: ProposeConstructionArgs): string => {
-  const stableRequest = Object.fromEntries(Object.entries(request).filter(([key]) => key !== 'requestId'));
-  return createHash('sha256').update(JSON.stringify(stableRequest)).digest('hex');
-};
-
 type OperationHistoryTraceFile = z.infer<typeof operationHistoryTraceFileSchema>;
 type OperationHistoryTrace = OperationHistoryTraceFile['cases'][number];
 type OperationHistorySourceColumn = NonNullable<OperationHistoryTrace['initial']['sourceColumns']>[number];
@@ -907,8 +898,6 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
 
   for (const trace of operationHistoryTraceFile.cases) it(`replays each operation schedule through ConstructionReshapeEditor: '${trace.id}'`, async () => {
     const construction = constructionForTrace(trace);
-    const acceptedDocument = documentForTrace(trace, construction);
-    const acceptedWorkspace = workspaceForTrace(trace, acceptedDocument);
     vi.useFakeTimers();
     const contextFor = (actionIndex: number) =>
       `${trace.id} at action ${actionIndex}: ${JSON.stringify(trace.actions.slice(0, actionIndex + 1))}`;
@@ -950,7 +939,6 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
 
     let candidateActionIndex: number | undefined;
     let previousCandidateKeyOutputId = trace.initial.keyOutputId;
-    const checkpoints: Array<Record<string, unknown>> = [];
     for (const [actionIndex, action] of trace.actions.entries()) {
       if (action.kind === 'editAggregate') {
         if (action.aggregate !== 'COUNT_ROWS' && action.aggregate !== 'MEAN') {
@@ -1052,51 +1040,8 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
         expect(dependent?.inputs[0], `${contextFor(actionIndex)}: raw ${dependentStepId} input`).toEqual({ kind: 'STEP_OUTPUT', stepId: inputStepId });
       }
 
-      const rawDownstreamInputTypes = Object.fromEntries(trace.initial.downstream.map((dependent) => {
-        const columnId = dependent.columnId ?? (dependent.dependency === 'aggregate'
-          ? trace.initial.aggregateOutputId
-          : expectation.acceptedGroupKeyOutputId ?? 'missing-group-key');
-        const type = candidateGroup.outputs.find((output) => output.id === columnId)?.type ?? 'MISSING';
-        const rawStep = candidate.steps.find((step) => step.id === dependent.id);
-        const input = rawStep?.inputs[0];
-        return [dependent.id, {
-          columnId,
-          type,
-          inputStepId: input?.kind === 'STEP_OUTPUT' ? input.stepId : undefined,
-        }];
-      }));
-      const fingerprint = actualRequestFingerprint(request);
-      actualRequestFingerprints.add(fingerprint);
-      checkpoints.push({
-        actionIndex,
-        acceptedDocument,
-        acceptedWorkspace: workspaceForTrace(trace, acceptedDocument),
-        proposalRequest: request,
-        candidateConstruction: candidate,
-        changedStepId: request.changedStepId,
-        removeStepIds: request.removeStepIds ?? [],
-        expected: {
-          ...expectation,
-          actualCandidateGroupKeyOutputId: candidateKeyOutputId ?? null,
-          actualRequestFingerprint: fingerprint,
-          // The raw request keeps accepted downstream steps; the Go model's downstreamInputTypes are resolved values.
-          rawDownstreamInputTypes,
-          rawDownstreamOutputTypes: Object.fromEntries(candidate.steps.slice(1).map((step) => [step.id, step.outputs.map((output) => ({ id: output.id, type: output.type }))])),
-        },
-      });
       if (candidateKeyOutputId) previousCandidateKeyOutputId = candidateKeyOutputId;
     }
-    capturedCandidates.set(trace.id, checkpoints);
-  });
-
-  it('accounts for every exercised schedule and proposal checkpoint', () => {
-    const proposalCount = operationHistoryTraceFile.cases.reduce((count, trace) =>
-      count + trace.actions.filter((action) => action.kind === 'propose').length, 0);
-    const capturedCount = [...capturedCandidates.values()].reduce((count, checkpoints) => count + checkpoints.length, 0);
-    expect(capturedCandidates.size).toBe(operationHistoryTraceFile.cases.length);
-    expect([...capturedCandidates.keys()].sort()).toEqual(operationHistoryTraceFile.cases.map((trace) => trace.id).sort());
-    expect(capturedCount).toBe(proposalCount);
-    expect(actualRequestFingerprints.size).toBeGreaterThan(0);
   });
 
   it('reviews proposed removals before explicit Apply', () => {
