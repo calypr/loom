@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import type { LoomClient } from '../../../api';
 import { useQuery } from '../../../react';

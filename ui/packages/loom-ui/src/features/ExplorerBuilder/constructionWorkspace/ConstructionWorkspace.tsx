@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useDismissibleLayer } from '../components/useDismissibleLayer';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 

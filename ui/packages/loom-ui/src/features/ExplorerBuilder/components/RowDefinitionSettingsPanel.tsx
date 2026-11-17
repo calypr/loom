@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import React, { useEffect, useRef, useState, type ReactNode } from 'react';
+import React, { useRef, useState, type ReactNode } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
   ConstructionStep,
