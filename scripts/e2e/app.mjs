@@ -21,6 +21,67 @@ const chromePath = process.env.LOOM_E2E_CHROME || [
 
 export const wait = (ms = 50) => new Promise(resolvePromise => setTimeout(resolvePromise, ms));
 
+function waitForChildExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolvePromise, reject) => {
+    let timer;
+    const finish = (callback, value) => {
+      clearTimeout(timer);
+      child.off('exit', onExit);
+      child.off('error', onError);
+      callback(value);
+    };
+    const onExit = () => finish(resolvePromise);
+    const onError = error => finish(reject, error);
+    child.once('exit', onExit);
+    child.once('error', onError);
+    timer = setTimeout(() => finish(reject, new Error(`Chrome process ${child.pid} did not exit within ${timeoutMs}ms`)), timeoutMs);
+  });
+}
+
+function observeChildExit(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return { promise: Promise.resolve(), dispose() {} };
+  let resolvePromise;
+  const promise = new Promise(resolve => { resolvePromise = resolve; });
+  const onExit = () => {
+    child.off('exit', onExit);
+    resolvePromise();
+  };
+  child.once('exit', onExit);
+  return { promise, dispose: () => child.off('exit', onExit) };
+}
+
+function withTimeout(promise, label, timeoutMs) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} did not complete within ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function throwTeardownErrors(primaryError, hasPrimaryError, cleanupErrors) {
+  const errors = [...(hasPrimaryError ? [primaryError] : []), ...cleanupErrors];
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors,
+    hasPrimaryError ? 'E2E action and teardown failed' : 'E2E teardown failed',
+    hasPrimaryError ? { cause: primaryError } : undefined);
+}
+
+async function withTeardown(action, cleanupTasks) {
+  let value;
+  let primaryError;
+  let hasPrimaryError = false;
+  try { value = await action(); } catch (error) { primaryError = error; hasPrimaryError = true; }
+  const cleanupErrors = [];
+  for (const cleanup of cleanupTasks) {
+    try { await cleanup(); } catch (error) { cleanupErrors.push(error); }
+  }
+  throwTeardownErrors(primaryError, hasPrimaryError, cleanupErrors);
+  return value;
+}
+
 export async function until(probe, label, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   let last;
@@ -130,8 +191,32 @@ export async function launchBrowser() {
     page: context,
     downloads, downloadStarts, downloadStates,
     async close() {
-      page.close(); browser.close(); chrome.kill('SIGTERM');
-      await wait(100);
+      const childExit = observeChildExit(chrome);
+      const errors = [];
+      try {
+        try { page.close(); } catch (error) { errors.push(error); }
+        try { await withTimeout(browser.send('Browser.close'), 'Chrome Browser.close command', 3000); }
+        catch (error) { errors.push(error); }
+        try { browser.close(); } catch (error) { errors.push(error); }
+        try {
+          await withTimeout(childExit.promise, `Chrome process ${chrome.pid} exit`, 5000);
+        } catch (error) {
+          errors.push(error);
+          try {
+            const signalled = chrome.kill('SIGTERM');
+            if (!signalled && chrome.exitCode === null && chrome.signalCode === null) {
+              throw new Error(`Could not signal Chrome process ${chrome.pid} after graceful shutdown timed out`);
+            }
+          } catch (signalError) { errors.push(signalError); }
+          try { await waitForChildExit(chrome, 2000); } catch (exitError) { errors.push(exitError); }
+        }
+      } finally {
+        childExit.dispose();
+      }
+      if (chrome.exitCode !== 0) errors.push(new Error(`Chrome process ${chrome.pid} exited with code ${chrome.exitCode ?? 'null'} and signal ${chrome.signalCode ?? 'none'}`));
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, `Could not cleanly close Chrome process ${chrome.pid}`);
+      return { pid: chrome.pid, exitCode: chrome.exitCode, signalCode: chrome.signalCode };
     },
   };
 }
@@ -583,23 +668,20 @@ export async function builderURL(scenario, mode = 'builder') {
 }
 
 export async function cleanupExplorer(scenario) {
-  try {
-    const capability = await api(`${scenario.base}/capability`);
-    if (capability.features?.deleteExplorer) {
-      await api(`${scenario.root}/${encodeURIComponent(scenario.explorerId)}`, { method: 'DELETE' });
-      return;
-    }
-    console.log(`Retained E2E Explorer ${scenario.project}/${scenario.explorerId}: deleteExplorer is unsupported`);
-  } catch (error) {
-    console.warn(`Could not inspect E2E Explorer cleanup capability for ${scenario.project}/${scenario.explorerId}: ${error.message}`);
+  const capability = await api(`${scenario.base}/capability`);
+  if (capability.features?.deleteExplorer) {
+    await api(`${scenario.root}/${encodeURIComponent(scenario.explorerId)}`, { method: 'DELETE' });
+    return;
   }
+  console.log(`Retained E2E Explorer ${scenario.project}/${scenario.explorerId}: deleteExplorer is unsupported`);
 }
 
 export async function withFreshUIExplorer(name, setup, run, { fixtureDirectory = fixtureRoot } = {}) {
   const projectFixture = await seedFreshFixtureProject(fixtureDirectory);
-  const browser = await launchBrowser();
+  let browser;
   let scenario;
-  try {
+  return withTeardown(async () => {
+    browser = await launchBrowser();
     const page = browser.page;
     await page.navigate(`${uiOrigin}/?project=${encodeURIComponent(project)}&mode=builder`);
     await page.until(() => page.evaluate('document.body.innerText.includes("New explorer") || document.body.innerText.includes("Create your first Explorer")'), 'empty-project Explorer creation UI', 30000);
@@ -624,17 +706,14 @@ export async function withFreshUIExplorer(name, setup, run, { fixtureDirectory =
     await page.navigate(scenario.url);
     const fixture = await setup(scenario, page, projectFixture);
     await run({ scenario, fixture, projectFixture, ...browser });
-  } finally {
-    await browser.close();
-    if (scenario) await cleanupExplorer(scenario);
-  }
+  }, [() => browser?.close(), () => scenario ? cleanupExplorer(scenario) : undefined]);
 }
 
 export async function withScenario(name, setup, run) {
   const projectFixture = await seedFreshFixtureProject();
   const scenario = await createExplorer(name);
   let browser;
-  try {
+  return withTeardown(async () => {
     browser = await launchBrowser();
     await browser.page.navigate(scenario.url);
     const fixture = await setup(scenario, browser.page, projectFixture);
@@ -649,8 +728,5 @@ export async function withScenario(name, setup, run) {
       }
     }
     await run({ scenario, fixture, ...browser });
-  } finally {
-    await browser?.close();
-    await cleanupExplorer(scenario);
-  }
+  }, [() => browser?.close(), () => cleanupExplorer(scenario)]);
 }
