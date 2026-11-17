@@ -23,13 +23,11 @@ import {
 } from '../../react';
 import type { ResourceRef, SelectionRevision } from '../../selection';
 import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
-import { explorerBuilderAcceptedConstructionSchema } from '../../types';
 import type {
   ExplorerAuthoringDiagnostic,
   ExplorerBuilderCatalog,
   ExplorerBuilderCommand,
   ExplorerBuilderCompileResult,
-  ExplorerBuilderCommandsResult,
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerBuilderPreviewResult,
@@ -79,7 +77,6 @@ import {
   type BuilderAuthoringState,
 } from './authoring/model';
 import {
-  hasCommandSelectedTable,
   hasPairedPreviewRows,
   isCompilerNavigationSelection,
 } from './authoring/workspaceGuards';
@@ -97,7 +94,7 @@ import {
   previewRecoveryAction,
   type PreviewLimit,
 } from './authoring/previewRecovery';
-import { commandDraftIdentity } from './authoring/commandDraftIdentity';
+import { useCommandQueue } from './authoring/useCommandQueue';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { shouldSyncServerDraft } from './authoring/serverDraftSync';
 import { useRootChange } from './authoring/useRootChange';
@@ -154,7 +151,6 @@ import {
   type RelatedSourceStep,
 } from './constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
-import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
 import { ConstructionCombineEditor } from './constructionOperations/ConstructionCombineEditor';
 import type { ConstructionCombineStep } from './constructionOperations/combineEditorTypes';
 
@@ -276,61 +272,6 @@ type PublicationAcknowledgementIdentity = {
   readonly draftDigest: string;
   readonly intentFingerprint: string;
   readonly snapshotToken: string;
-};
-
-type ConstructionApplyPreviewIdentity = {
-  readonly ownerKey: string;
-  readonly snapshotToken: string;
-  readonly draftVersion: number;
-  readonly draftDigest: string;
-  readonly previewRequestVersion: number;
-  readonly outputId: string;
-  readonly proposalId: string;
-  readonly limit: PreviewLimit;
-};
-
-const acceptedConstructionForApply = (
-  value: ExplorerBuilderCommandsResult,
-  request: ConstructionApplyPreviewIdentity,
-  command: ExplorerBuilderCommand | undefined,
-  current: BuilderAuthoringState,
-  currentPreviewIdentity: AutomaticPreviewIdentity | undefined,
-): { readonly receipt: ExplorerBuilderCompileResult; readonly preview: ExplorerBuilderPreviewResult } | undefined => {
-  if (!currentPreviewIdentity) return undefined;
-  if (
-    command?.type !== 'APPLY_CONSTRUCTION_PROPOSAL' ||
-    command.proposalId !== request.proposalId ||
-    command.outputId !== request.outputId ||
-    currentPreviewIdentity.ownerKey !== request.ownerKey ||
-    currentPreviewIdentity.snapshotToken !== request.snapshotToken ||
-    currentPreviewIdentity.draftVersion !== request.draftVersion ||
-    currentPreviewIdentity.draftDigest !== request.draftDigest ||
-    currentPreviewIdentity.previewRequestVersion !== request.previewRequestVersion ||
-    currentPreviewIdentity.outputId !== request.outputId ||
-    currentPreviewIdentity.limit !== request.limit ||
-    current.catalog.snapshotToken !== request.snapshotToken ||
-    current.draftVersion !== request.draftVersion ||
-    current.draftDigest !== request.draftDigest ||
-    selectedTable(current)?.outputId !== request.outputId
-  ) return undefined;
-  const parsed = explorerBuilderAcceptedConstructionSchema.safeParse(value.acceptedConstruction);
-  if (!parsed.success) return undefined;
-  const receipt: ExplorerBuilderCompileResult = {
-    ...parsed.data.receipt,
-    builder: value.workspace,
-  };
-  const { preview } = parsed.data;
-  if (
-    parsed.data.previewLimit !== request.limit ||
-    receipt.receiptId !== request.proposalId ||
-    receipt.intentDigest !== value.draftDigest ||
-    receipt.snapshotToken !== request.snapshotToken ||
-    !receipt.outputs.some((output) => output.outputId === request.outputId) ||
-    preview.receiptId !== receipt.receiptId ||
-    preview.outputId !== request.outputId ||
-    preview.rows === null
-  ) return undefined;
-  return { receipt, preview };
 };
 
 type AutomaticPreviewExecution = {
@@ -544,7 +485,6 @@ const BuilderWorkspaceContent = ({
     readonly ownerKey: string;
     readonly draftDigest: string;
   }>();
-  const [pendingCommands, setPendingCommands] = useState(0);
   const [occurrenceInspectorHost, setOccurrenceInspectorHost] = useState<HTMLElement | null>(null);
   const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
@@ -643,9 +583,6 @@ const BuilderWorkspaceContent = ({
   const cancelAutomaticPreview = useCallback(() => {
     activeAutomaticPreview.current?.cancel();
   }, []);
-  const commandRecipeAdmission = useRef<(commands: ReadonlyArray<ExplorerBuilderCommand>) => boolean>(() => true);
-  const commandQueue = useRef<Promise<void>>(Promise.resolve());
-  const relatedExpandQueryOwnerRef = useRef<RelatedExpandQueryOwner | null>(null);
   const firstTableActionPending = useRef(false);
   const serverDraft = useRef({ version: 0, digest: '' });
   const suggestionRequestKey = useRef('');
@@ -803,162 +740,33 @@ const BuilderWorkspaceContent = ({
     (table) => !table.document.rootResourceType,
   );
 
-  const applyCommandsWithResult = useCallback(
-    (
-      commands: ReadonlyArray<ExplorerBuilderCommand>,
-      proposedCommandId?: string,
-      constructionApplyIdentity?: ConstructionApplyPreviewIdentity,
-      admitCommand?: () => boolean,
-    ) => {
-      if (!commandRecipeAdmission.current(commands)) return Promise.resolve(undefined);
-      const admission = admitAuthoringRequest(latestState.current.tables, { kind: 'commands', commands });
-      if (admission.kind === 'refused') {
-        setMessage(admission.refusal.message);
-        return Promise.resolve(undefined);
-      }
-      cancelAutomaticPreview();
-      const applyPreviewEpoch = constructionApplyIdentity
-        ? automaticPreviewGeneration.current
-        : undefined;
-      compileGeneration.current += 1;
-      previewGeneration.current += 1;
-      activeCompile.current?.abort();
-      activePreview.current?.abort();
-      setPendingCommands((value) => value + 1);
-      const run = commandQueue.current.then(async () => {
-        const queryOwner = relatedExpandQueryOwnerRef.current;
-        let commandSucceeded = false;
-        try {
-          await queryOwner?.pauseAndDrain();
-          if (!commandRecipeAdmission.current(commands) || (admitCommand && !admitCommand())) return undefined;
-          const current = latestState.current;
-          const queuedAdmission = admitAuthoringRequest(current.tables, { kind: 'commands', commands });
-          if (queuedAdmission.kind === 'refused') {
-            setMessage(queuedAdmission.refusal.message);
-            return undefined;
-          }
-          const commandId = proposedCommandId ?? window.crypto.randomUUID();
-          const draftIdentity = commandDraftIdentity(current, serverDraft.current);
-          const value = await applyBuilderCommands({
-            project: projectId,
-            explorerId: current.explorerId,
-            authResourcePath,
-            commandId,
-            snapshotToken: current.catalog.snapshotToken,
-            ...draftIdentity,
-            commands,
-            requestId: `builder-command-${commandId}`,
-          }).unwrap();
-          commandSucceeded = true;
-          serverDraft.current = {
-            version: value.draftVersion,
-            digest: value.draftDigest,
-          };
-          setRestorableDraft({
-            ownerKey: builderOwnerKeyFor(projectId, authResourcePath, current.explorerId),
-            revisionId: value.previousDraftRevisionId,
-          });
-          serverDraftKey.current = builderDataKey;
-          const acceptedConstruction = constructionApplyIdentity &&
-            applyPreviewEpoch === automaticPreviewGeneration.current &&
-            commands.length === 1
-            ? acceptedConstructionForApply(
-                value,
-                constructionApplyIdentity,
-                commands[0],
-                latestState.current,
-                automaticPreviewRequest.current,
-              )
-            : undefined;
-          if (acceptedConstruction && constructionApplyIdentity) {
-            appliedChoicePreview.current = {
-              ownerKey: constructionApplyIdentity.ownerKey,
-              draftVersion: value.draftVersion,
-              previewRequestVersion: constructionApplyIdentity.previewRequestVersion,
-              outputId: constructionApplyIdentity.outputId,
-              limit: constructionApplyIdentity.limit,
-              snapshotToken: constructionApplyIdentity.snapshotToken,
-              candidateWorkspaceDigest: value.draftDigest,
-              receipt: acceptedConstruction.receipt,
-              preview: acceptedConstruction.preview,
-            };
-          }
-          const next = builderAuthoringReducer(latestState.current, {
-            type: 'commandsApplied',
-            value,
-            ...(acceptedConstruction ? { acceptedReceipt: acceptedConstruction.receipt } : {}),
-          });
-          const selectsTableThroughCommand = commands.some((command) =>
-            command.type === 'CREATE_TABLE' ||
-            command.type === 'DUPLICATE_TABLE' ||
-            (command.type === 'DELETE_TABLE' && command.outputId === current.selectedOutputId),
-          );
-          const selectedOutputId = next.selectedOutputId;
-          if (hasCommandSelectedTable(selectsTableThroughCommand, selectedOutputId)) {
-            rememberSelectedTable(selectedOutputId);
-            setActiveConstructionSelection(undefined);
-          }
-          latestState.current = next;
-          setLocalState({ key: builderDataKey, value: next });
-          setMessage(undefined);
-          return value;
-        } catch (error) {
-          const apiError = error as ExplorerAuthoringApiError;
-          if (
-            isDraftDesynchronized(apiError.code) ||
-            isStaleSnapshot(apiError.code)
-          ) {
-            const refreshed = await refetchBuilder({ reload: true });
-            if (refreshed.data) {
-              syncBuilderData(refreshed.data, 'hydrate');
-              setMessage(undefined);
-            } else if (apiError.code !== 'CLIENT_CANCELLED') {
-              dispatch({
-                type: 'repair',
-                diagnostics: diagnosticsFromError(apiError),
-              });
-            }
-            return undefined;
-          }
-          if (apiError.code !== 'CLIENT_CANCELLED') {
-            const diagnostics = diagnosticsFromError(apiError);
-            if (diagnostics.length > 0) dispatch({ type: 'repair', diagnostics });
-          }
-          return undefined;
-        } finally {
-          if (!commandSucceeded &&
-              relatedExpandQueryOwnerRef.current === queryOwner &&
-              queryOwner &&
-              serverDraft.current.version === queryOwner.draftVersion &&
-              serverDraft.current.digest === queryOwner.draftDigest) {
-            queryOwner.resume();
-          }
-          setPendingCommands((value) => Math.max(0, value - 1));
-        }
-      });
-      commandQueue.current = run.then(() => undefined, () => undefined);
-      return run;
-    },
-    [
-      applyBuilderCommands,
-      authResourcePath,
-      builderDataKey,
-      cancelAutomaticPreview,
-      dispatch,
-      projectId,
-      refetchBuilder,
-      rememberSelectedTable,
-      syncBuilderData,
-    ],
-  );
-  const applyCommands = useCallback(
-    (
-      commands: ReadonlyArray<ExplorerBuilderCommand>,
-      proposedCommandId?: string,
-      admitCommand?: () => boolean,
-    ) => applyCommandsWithResult(commands, proposedCommandId, undefined, admitCommand).then(Boolean),
-    [applyCommandsWithResult],
-  );
+  const { pendingCommands, commandRecipeAdmission, relatedExpandQueryOwnerRef, applyCommandsWithResult, applyCommands } = useCommandQueue({
+    builderOwnerKeyFor,
+    diagnosticsFromError,
+    applyBuilderCommands,
+    authResourcePath,
+    builderDataKey,
+    cancelAutomaticPreview,
+    dispatch,
+    projectId,
+    refetchBuilder,
+    rememberSelectedTable,
+    syncBuilderData,
+    latestState,
+    serverDraft,
+    serverDraftKey,
+    automaticPreviewGeneration,
+    compileGeneration,
+    previewGeneration,
+    activeCompile,
+    activePreview,
+    automaticPreviewRequest,
+    appliedChoicePreview,
+    setRestorableDraft,
+    setActiveConstructionSelection,
+    setLocalState,
+    setMessage,
+  });
 
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
 
