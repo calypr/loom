@@ -102,6 +102,9 @@ func TestQueryRowsWithMaxRuntimeBoundsServerQueryAndCursorCleanup(t *testing.T) 
 	if queryer.called != 1 || queryer.options == nil || queryer.options.Options.MaxRuntime != 2.5 {
 		t.Fatalf("query options=%#v called=%d, want maxRuntime 2.5 seconds", queryer.options, queryer.called)
 	}
+	if queryer.options.Options.MaxNumberOfPlans == nil || *queryer.options.Options.MaxNumberOfPlans != 1 {
+		t.Fatalf("bounded query optimizer plans=%v, want one", queryer.options.Options.MaxNumberOfPlans)
+	}
 	if queryer.options.BatchSize != 7 || queryer.options.BindVars["project"] != "P1" {
 		t.Fatalf("query options lost ordinary fields: %#v", queryer.options)
 	}
@@ -126,7 +129,7 @@ func TestQueryRowsLeavesRuntimeUnboundedOutsidePreview(t *testing.T) {
 	if err := queryRows(context.Background(), queryer, "RETURN 1", 1, nil, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if queryer.options == nil || queryer.options.Options.MaxRuntime != 0 {
+	if queryer.options == nil || queryer.options.Options.MaxRuntime != 0 || queryer.options.Options.MaxNumberOfPlans != nil {
 		t.Fatalf("ordinary query options=%#v, want no preview runtime limit", queryer.options)
 	}
 }

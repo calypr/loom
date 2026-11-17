@@ -297,10 +297,16 @@ func queryRowsWithMaxRuntime(ctx context.Context, queryer driver.DatabaseQuery, 
 	if maxRuntime <= 0 {
 		return fmt.Errorf("arango query max runtime must be positive")
 	}
+	// Wide interactive projections can exhaust their deadline enumerating
+	// equivalent optimizer plans before producing the first row.
+	maxPlans := 1
 	options := &driver.QueryOptions{
 		BatchSize: batchSize,
 		BindVars:  bindVars,
-		Options:   driver.QuerySubOptions{MaxRuntime: maxRuntime.Seconds()},
+		Options: driver.QuerySubOptions{
+			MaxRuntime:       maxRuntime.Seconds(),
+			MaxNumberOfPlans: &maxPlans,
+		},
 	}
 	if memoryLimit, ok := ctx.Value(queryMemoryLimitContextKey{}).(int64); ok {
 		if memoryLimit <= 0 {
