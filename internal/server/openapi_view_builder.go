@@ -25,14 +25,14 @@ func (h *explorerHTTPHandlers) authorizeViewBuilder(ctx context.Context, project
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := h.authorizeRead(ctx, principal, project); err != nil {
-		if isAuthorizerStorageFault(err) {
+		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 			return legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
 		}
 		return legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "You cannot read this project", err)
 	}
 	if write {
 		if err := h.authorizer.AuthorizeWrite(ctx, principal, project, resource); err != nil {
-			if isAuthorizerStorageFault(err) {
+			if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 				return legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
 			}
 			return legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "You cannot edit views in this project", err)
@@ -67,7 +67,7 @@ func (h *explorerHTTPHandlers) authorizedViewBuilderState(ctx context.Context, p
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	err = h.authorizer.AuthorizeWrite(ctx, principal, project, resource)
-	if err != nil && isAuthorizerStorageFault(err) {
+	if err != nil && authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 		return explorer.ViewBuilderState{}, legacyOperationFailure(http.StatusServiceUnavailable, "VIEW_BUILDER_UNAVAILABLE", "Project authorization is temporarily unavailable", err)
 	}
 	value.CanEdit = err == nil

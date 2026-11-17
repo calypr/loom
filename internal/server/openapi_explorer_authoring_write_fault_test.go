@@ -15,6 +15,7 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -276,6 +277,13 @@ func authoringWriteArangoResponseCases() []authoringWriteArangoResponseCase {
 		{name: "query-400-response", fault: arangoDriverFault(http.StatusBadRequest, shared.ErrQueryInvalidArithmeticValue, "query execution failed"), wantStorage: true},
 		{name: "bind-parameter-undeclared-1552", fault: arangoDriverFault(http.StatusBadRequest, shared.ErrQueryBindParameterUndeclared, "bind parameter 'dataset_generation' was not declared in the query"), wantStorage: true},
 		{name: "query-bind-1561", fault: arangoDriverFault(http.StatusBadRequest, 1561, "invalid query bind"), wantStorage: true},
+		{name: "joined-denial-and-outage-denial-wins", fault: errors.Join(authscope.ErrForbidden, authscope.ErrAuthorizationBackendUnavailable), wantStorage: false},
+		{name: "context-canceled-remains-denial", fault: context.Canceled, wantStorage: false},
+		{name: "deadline-is-retryable-outage", fault: context.DeadlineExceeded, wantStorage: true},
+		{name: "pretyped-backend-code-without-cause-remains-denial", fault: dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "pretyped"), wantStorage: false},
+		{name: "pretyped-error-with-backend-sentinel-is-outage", fault: dataframeerrors.Wrap(authscope.ErrAuthorizationBackendUnavailable, dataframeerrors.CodeForbidden, "pretyped"), wantStorage: true},
+		{name: "pointer-query-fault", fault: fmt.Errorf("arango query: %w", &shared.ArangoError{HasError: true, Code: http.StatusBadRequest, ErrorNum: 1552, ErrorMessage: "bind fault"}), wantStorage: true},
+		{name: "pointer-http-permission", fault: fmt.Errorf("arango: %w", &shared.ArangoError{Code: http.StatusForbidden, ErrorNum: shared.ErrForbidden}), wantStorage: false},
 	}
 }
 
@@ -366,7 +374,7 @@ func TestCreateExplorerLegacyArangoResponseClassification(t *testing.T) {
 			if !errors.As(err, &legacy) {
 				t.Fatalf("err=%v (%T); want *explorerLegacyOperationError", err, err)
 			}
-			if ok, _ := shared.IsArangoError(err); !ok {
+			if !errors.Is(err, test.fault) {
 				t.Fatalf("cause chain %v does not preserve the injected driver fault", err)
 			}
 			if test.wantStorage {
@@ -407,7 +415,7 @@ func TestPublishRepositoryLegacyArangoResponseClassification(t *testing.T) {
 			if !errors.As(err, &legacy) {
 				t.Fatalf("err=%v (%T); want *explorerLegacyOperationError", err, err)
 			}
-			if ok, _ := shared.IsArangoError(err); !ok {
+			if !errors.Is(err, test.fault) {
 				t.Fatalf("cause chain %v does not preserve the injected driver fault", err)
 			}
 			if test.wantStorage {

@@ -120,7 +120,7 @@ func (r *explorerHTTPHandlers) listExplorers(ctx context.Context, rawProject str
 	project := projectid.Canonical(rawProject)
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizeRead(ctx, principal, project); err != nil {
-		if isAuthorizerStorageFault(err) {
+		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
 		}
 		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
@@ -147,7 +147,7 @@ func (r *explorerHTTPHandlers) createExplorer(ctx context.Context, rawProject, a
 	project := projectid.Canonical(rawProject)
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
-		if isAuthorizerStorageFault(err) {
+		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
 		}
 		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
@@ -186,7 +186,7 @@ func (r *explorerHTTPHandlers) getExplorer(ctx context.Context, rawProject, rawI
 	project := projectid.Canonical(rawProject)
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizeRead(ctx, principal, project); err != nil {
-		if isAuthorizerStorageFault(err) {
+		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
 		}
 		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
@@ -238,7 +238,7 @@ func (r *explorerHTTPHandlers) publishRepositoryExplorerConfig(ctx context.Conte
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
-		if isAuthorizerStorageFault(err) {
+		if authorizerResponseStatus(err) == http.StatusServiceUnavailable {
 			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
 		}
 		return result, legacyStringFailure(http.StatusForbidden, "forbidden", err)

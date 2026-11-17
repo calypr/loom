@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
@@ -13,11 +14,12 @@ import (
 type Operation string
 
 const (
-	OperationQueryRead           Operation = "query_read"
-	OperationDataframeRead       Operation = "dataframe_read"
-	OperationRecipeControl       Operation = "recipe_control"
-	OperationRecipeAuthorization Operation = "recipe_authorization"
-	OperationConcealedLookup     Operation = "concealed_lookup"
+	OperationQueryRead             Operation = "query_read"
+	OperationDataframeRead         Operation = "dataframe_read"
+	OperationRecipeControl         Operation = "recipe_control"
+	OperationRecipeAuthorization   Operation = "recipe_authorization"
+	OperationConcealedLookup       Operation = "concealed_lookup"
+	OperationExplorerAuthorization Operation = "explorer_authorization"
 )
 
 // Classify maps shared authorization and dependency sentinels according to
@@ -26,6 +28,9 @@ const (
 func Classify(err error, operation Operation) error {
 	if err == nil {
 		return nil
+	}
+	if operation == OperationExplorerAuthorization {
+		return classifyExplorerAuthorization(err)
 	}
 	if _, ok := dataframeerrors.AsUserError(err); ok {
 		return err
@@ -42,6 +47,43 @@ func Classify(err error, operation Operation) error {
 	default:
 		return err
 	}
+}
+
+// classifyExplorerAuthorization preserves the route adapter's historical
+// status ordering while returning the shared retryable/denial error contract.
+func classifyExplorerAuthorization(err error) error {
+	if err == nil {
+		return nil
+	}
+	forbidden := func() error { return dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "forbidden") }
+	unavailable := func() error {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "authorization backend unavailable", dataframeerrors.WithRetryable(true))
+	}
+	if errors.Is(err, authscope.ErrForbidden) || errors.Is(err, authscope.ErrUnauthenticated) {
+		return forbidden()
+	}
+	if errors.Is(err, authscope.ErrAuthorizationBackendUnavailable) || errors.Is(err, dataframeerrors.ErrBackendUnavailable) || errors.Is(err, context.DeadlineExceeded) {
+		return unavailable()
+	}
+	var value shared.ArangoError
+	if errors.As(err, &value) {
+		if arangoPermissionResponse(value) {
+			return forbidden()
+		}
+		return unavailable()
+	}
+	var pointer *shared.ArangoError
+	if errors.As(err, &pointer) && pointer != nil {
+		if arangoPermissionResponse(*pointer) {
+			return forbidden()
+		}
+		return unavailable()
+	}
+	return forbidden()
+}
+
+func arangoPermissionResponse(value shared.ArangoError) bool {
+	return value.Code == shared.ErrHttpUnauthorized || value.Code == shared.ErrHttpForbidden || value.ErrorNum == shared.ErrForbidden
 }
 
 func denialCode(operation Operation) dataframeerrors.ErrorCode {
