@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DiscoverConstructionCategoriesArgs, ExplorerAuthoringApiError, GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../api';
 import {
   EXPLORER_AUTHORING_API_VERSION,
@@ -15,18 +15,7 @@ import {
   type ConstructionCandidateIntent,
   type ConstructionLifecycleClient,
 } from './useConstructionLifecycle';
-import {
-  finishTrace,
-  startTrace,
-  setTraceWorkspace,
-  traceAction,
-  traceApplyCompletion,
-  traceEmbeddedPreviewAccepted,
-  traceInitialObservation,
-  writeTraces,
-  type FormalTraceOwner,
-  type ProposalAttempt,
-} from '../../../../testSupport/formalTrace';
+
 import { resourceFor } from '../../../react';
 import {
   reconcileReceiptMatchesRequest,
@@ -48,7 +37,6 @@ type Deferred<T> = {
 
 type ProposalCall = {
   readonly args: ProposeConstructionArgs;
-  readonly attempt: ProposalAttempt;
   readonly signal: AbortSignal | undefined;
   readonly transport: Deferred<ConstructionProposalResponse>;
 };
@@ -57,14 +45,12 @@ type PreviewArgs = Parameters<ConstructionLifecycleClient['preview']>[0];
 
 type PreviewCall = {
   readonly args: PreviewArgs;
-  readonly attempt: ProposalAttempt;
   readonly signal: AbortSignal | undefined;
   readonly transport: Deferred<ExplorerBuilderPreviewResult>;
 };
 
 type DiscoveryCall = {
   readonly args: DiscoverConstructionCategoriesArgs;
-  readonly attempt: 'D1';
   readonly signal: AbortSignal | undefined;
   readonly transport: Deferred<ConstructionCategoryDiscoveryResponse>;
 };
@@ -218,42 +204,26 @@ const controlledClient = (): ControlledClient => {
   const proposals: ProposalCall[] = [];
   const previews: PreviewCall[] = [];
   const discoveries: DiscoveryCall[] = [];
-  const proposalOwnersByReceipt = new Map<string, ProposalAttempt>();
   const client = {
     getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
     discoverConstructionCategories: vi.fn((args: DiscoverConstructionCategoriesArgs, signal?: AbortSignal) => {
       const transport = deferred<ConstructionCategoryDiscoveryResponse>();
-      discoveries.push({ args, attempt: 'D1', signal, transport });
+      discoveries.push({ args, signal, transport });
       return transport.promise;
     }),
     proposeConstruction: vi.fn((args: ProposeConstructionArgs, signal?: AbortSignal) => {
       const transport = deferred<ConstructionProposalResponse>();
-      const attempt: ProposalAttempt = proposals.length === 0 ? 'P1' : 'P2';
-      const trackedTransport: Deferred<ConstructionProposalResponse> = {
-        promise: transport.promise,
-        resolve: (response) => {
-          if (response.proposalId) proposalOwnersByReceipt.set(response.proposalId, attempt);
-          transport.resolve(response);
-        },
-        reject: transport.reject,
-      };
-      proposals.push({ args, attempt, signal, transport: trackedTransport });
+      proposals.push({ args, signal, transport });
       return transport.promise;
     }),
     preview: vi.fn((args: PreviewArgs, signal?: AbortSignal) => {
-      const attempt = proposalOwnersByReceipt.get(args.receiptId);
-      if (!attempt) throw new Error(`preview request has no captured proposal owner for receipt ${args.receiptId}`);
       const transport = deferred<ExplorerBuilderPreviewResult>();
-      previews.push({ args, attempt, signal, transport });
+      previews.push({ args, signal, transport });
       return transport.promise;
     }),
   } satisfies ConstructionLifecycleClient;
   return { client, proposals, previews, discoveries };
 };
-
-const proposalOwner = (attempt: ProposalAttempt): FormalTraceOwner => ({ kind: 'proposal', attempt });
-const previewOwner = (attempt: ProposalAttempt): FormalTraceOwner => ({ kind: 'preview', attempt });
-const discoveryOwner: FormalTraceOwner = { kind: 'discovery', attempt: 'D1' };
 
 const intentFor = (stepId: string): ConstructionCandidateIntent => ({
   candidateConstruction: { version: 1, steps: [] },
@@ -313,22 +283,22 @@ const identityChanges: ReadonlyArray<{
 ];
 
 afterEach(() => {
-  finishTrace();
+
   vi.useRealTimers();
 });
 
-afterAll(() => writeTraces());
+
 
 describe('useConstructionLifecycle real-controller conformance schedules', () => {
   it('replays category discovery schedule: mount pair; schedule; complete; keep categories', async () => {
-    startTrace('BuilderLifecycle', baseRequest);
+
     const controlled = controlledClient();
     const { result, unmount } = renderHook(() => useConstructionLifecycle({
       client: controlled.client,
       capabilitiesRequest: baseRequest,
     }));
     await act(async () => { await flushMicrotasks(); });
-    traceInitialObservation(result);
+
 
     const request = {
       stageId: baseRequest.stageId,
@@ -339,15 +309,15 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     expect(controlled.discoveries).toHaveLength(1);
     const discovery = controlled.discoveries[0];
     expect(discovery?.args.stageId).toBe(baseRequest.stageId);
-    traceAction('SetPivotPair', result, 'pivot-mounted', 'mount the pivot category/value pair');
-    traceAction('ScheduleDiscovery', result, 'construction-discovery', 'request category values', discoveryOwner);
+
+
     if (!discovery) throw new Error('category discovery request was not sent');
 
     await act(async () => {
       discovery.transport.resolve(discoveryFor(discovery.args));
       await flushMicrotasks();
     });
-    traceAction('DiscoveryComplete', result, 'construction-discovery', 'category values complete', discoveryOwner);
+
     expect(result.current.pivotDiscovery).toMatchObject({
       status: 'complete',
       categories: [{ label: 'A' }],
@@ -380,7 +350,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       for (const currentMode of currentProposalModes) {
         const schedule = `start A; start B replaces A; ${order}; A=${oldMode}; B=${currentMode}; check B readiness and beginApply`;
         it(`replays proposal ordering schedule: ${schedule}`, async () => {
-          startTrace('BuilderLifecycle', baseRequest);
+
           vi.useFakeTimers();
           const controlled = controlledClient();
           const { result, unmount } = renderHook(() => useConstructionLifecycle({
@@ -388,21 +358,21 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
             capabilitiesRequest: baseRequest,
           }));
           await act(async () => { await flushMicrotasks(); });
-          traceInitialObservation(result);
+
 
           const oldSettlement = startAttempt(result, 'step-A');
           await advanceProposalDelay();
           expect(controlled.proposals).toHaveLength(1);
           const oldCall = controlled.proposals[0];
           if (!oldCall) throw new Error('proposal A request was not sent');
-          traceAction('StartProposal(P1)', result, 'propose-construction', 'start A', proposalOwner(oldCall.attempt));
+
 
           const currentSettlement = startAttempt(result, 'step-B');
           await advanceProposalDelay();
           expect(controlled.proposals).toHaveLength(2);
           const currentCall = controlled.proposals[1];
           if (!currentCall) throw new Error('proposal B request was not sent');
-          traceAction('ReplaceProposalOwner', result, 'propose-construction', 'start B replaces A', proposalOwner('P2'));
+
           expect(oldCall?.signal?.aborted).toBe(true);
           expectAbort(await oldSettlement);
 
@@ -434,42 +404,18 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
 
           if (order === 'old response first') {
             await deliver(resolveOld);
-            traceAction(
-              oldMode === 'transport error' ? 'LateProposalErrorIgnored(P1)' : 'LateProposalCompleteIgnored(P1)',
-              result,
-              'proposal-response',
-              `stale A settlement after B replaced it (A=${oldMode})`,
-              proposalOwner(oldCall.attempt),
-            );
+
             expect(result.current.proposal.status).toBe('previewing');
             expect(result.current.canApply).toBe(false);
             expect(result.current.beginApply()).toBeUndefined();
-            traceAction('BeginApply(rejected)', result, 'begin-apply', 'current proposal is still pending', proposalOwner(currentCall.attempt));
+
             await deliver(resolveCurrent);
-            traceAction(
-              currentMode === 'transport error' ? 'ProposalError(P2)' : 'ProposalComplete(P2)',
-              result,
-              'proposal-response',
-              `B=${currentMode}`,
-              proposalOwner(currentCall.attempt),
-            );
+
           } else {
             await deliver(resolveCurrent);
-            traceAction(
-              currentMode === 'transport error' ? 'ProposalError(P2)' : 'ProposalComplete(P2)',
-              result,
-              'proposal-response',
-              `B=${currentMode}`,
-              proposalOwner(currentCall.attempt),
-            );
+
             await deliver(resolveOld);
-            traceAction(
-              oldMode === 'transport error' ? 'LateProposalErrorIgnored(P1)' : 'LateProposalCompleteIgnored(P1)',
-              result,
-              'proposal-response',
-              `stale A settlement after B replaced it (A=${oldMode})`,
-              proposalOwner(oldCall.attempt),
-            );
+
           }
           const currentOutcome = await currentSettlement;
 
@@ -486,13 +432,13 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
               act(() => { appliedProposalId = result.current.beginApply(currentOutcome.value)?.proposalId; });
               expect(appliedProposalId).toBe('proposal-B');
               expect(result.current.proposal.status).toBe('applying');
-      traceAction('BeginApply(accepted)', result, 'begin-apply', undefined, proposalOwner('P2'), 'P2');
+
             }
           } else {
             expect(currentOutcome.kind).toBe('rejected');
             expect(result.current.canApply).toBe(false);
             expect(result.current.beginApply()).toBeUndefined();
-            traceAction('BeginApply(rejected)', result, 'begin-apply', 'B cannot apply without a ready proposal and preview', proposalOwner('P2'));
+
             if (currentMode === 'needs repair') {
               expect(result.current.proposal.status).toBe('needs-repair');
             } else {
@@ -517,7 +463,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
 
   for (const { field, mode } of proposalIdentityMismatches) {
     it(`replays identity schedule: start A; resolve A with ${field} mismatch; inspect state and beginApply`, async () => {
-      startTrace('BuilderLifecycle', baseRequest);
+
       vi.useFakeTimers();
       const controlled = controlledClient();
       const { result, unmount } = renderHook(() => useConstructionLifecycle({
@@ -525,22 +471,22 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
         capabilitiesRequest: baseRequest,
       }));
       await act(async () => { await flushMicrotasks(); });
-      traceInitialObservation(result);
+
 
       const settlement = startAttempt(result, `bad-${field}`);
       await advanceProposalDelay();
       const proposalCall = controlled.proposals[0];
       expect(proposalCall).toBeDefined();
       if (!proposalCall) return;
-      traceAction('StartProposal(P1)', result, 'propose-construction', undefined, proposalOwner(proposalCall.attempt));
+
       await deliver(() => proposalCall.transport.resolve(proposalFor(proposalCall.args, 'bad-proposal', mode)));
-      traceAction('ProposalError(P1)', result, 'proposal-response', `${field} mismatch rejected by the hook`, proposalOwner(proposalCall.attempt));
+
 
       expect((await settlement).kind).toBe('rejected');
       expect(result.current.proposal.status).toBe('error');
       expect(result.current.canApply).toBe(false);
       expect(result.current.beginApply()).toBeUndefined();
-      traceAction('BeginApply(rejected)', result, 'begin-apply', 'mismatched proposal cannot apply', proposalOwner(proposalCall.attempt));
+
       unmount();
     });
   }
@@ -561,7 +507,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     for (const previewMode of currentPreviewModes) {
       const schedule = `start A; resolve A proposal to fallback preview; start B replaces A; resolve B proposal to fallback preview; ${order}; B preview=${previewMode.label}; check beginApply`;
       it(`replays fallback preview schedule: ${schedule}`, async () => {
-        startTrace('BuilderLifecycle', baseRequest);
+
         vi.useFakeTimers();
         const controlled = controlledClient();
         const { result, unmount } = renderHook(() => useConstructionLifecycle({
@@ -569,38 +515,38 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
           capabilitiesRequest: baseRequest,
         }));
         await act(async () => { await flushMicrotasks(); });
-        traceInitialObservation(result);
+
 
         const oldSettlement = startAttempt(result, 'fallback-A');
         await advanceProposalDelay();
         const oldProposal = controlled.proposals[0];
         expect(oldProposal).toBeDefined();
         if (!oldProposal) return;
-        traceAction('StartProposal(P1)', result, 'propose-construction', 'start fallback A', proposalOwner(oldProposal.attempt));
+
         await deliver(() => oldProposal.transport.resolve(proposalFor(oldProposal.args, 'fallback-proposal-A', 'ready', false)));
         expect(controlled.previews).toHaveLength(1);
-        traceAction('ProposalComplete(P1)', result, 'proposal-response', 'fallback A response accepted without embedded preview', proposalOwner(oldProposal.attempt));
+
         const oldPreview = controlled.previews[0];
         expect(oldPreview).toBeDefined();
         if (!oldPreview) return;
-        traceAction('StartPreview(P1)', result, 'preview', 'fallback A preview request started', previewOwner(oldPreview.attempt));
+
 
         const currentSettlement = startAttempt(result, 'fallback-B');
         await advanceProposalDelay();
         const currentProposal = controlled.proposals[1];
         expect(currentProposal).toBeDefined();
         if (!currentProposal) return;
-        traceAction('ReplaceProposalOwner', result, 'propose-construction', 'start fallback B replaces A', proposalOwner(currentProposal.attempt));
+
         expect(oldProposal.signal?.aborted).toBe(true);
         expectAbort(await oldSettlement);
         await deliver(() => currentProposal.transport.resolve(proposalFor(currentProposal.args, 'fallback-proposal-B', 'ready', false)));
         expect(controlled.previews).toHaveLength(2);
-        traceAction('ProposalComplete(P2)', result, 'proposal-response', 'fallback B response accepted without embedded preview', proposalOwner(currentProposal.attempt));
+
 
         const currentPreview = controlled.previews[1];
         expect(currentPreview).toBeDefined();
         if (!currentPreview) return;
-        traceAction('StartPreview(P2)', result, 'preview', 'fallback B preview request started', previewOwner(currentPreview.attempt));
+
 
         const resolveOldPreview = () => oldPreview.transport.resolve(previewFor(oldPreview.args.receiptId, oldPreview.args.outputId));
         const resolveCurrentPreview = () => {
@@ -618,18 +564,18 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
         if (order === 'old preview first') {
           expect(oldPreview.signal?.aborted).toBe(true);
           await deliver(resolveOldPreview);
-          traceAction('LatePreviewCompleteIgnored(P1)', result, 'preview-response', 'stale fallback A preview response ignored', previewOwner(oldPreview.attempt));
+
           expect(result.current.proposal.status).toBe('previewing');
           expect(result.current.canApply).toBe(false);
           expect(result.current.beginApply()).toBeUndefined();
-          traceAction('BeginApply(rejected)', result, 'begin-apply', 'current preview is still pending', proposalOwner(currentPreview.attempt));
+
           await deliver(resolveCurrentPreview);
-          traceAction(previewMode.mode === 'transport error' ? 'PreviewError(P2)' : 'PreviewComplete(P2)', result, 'preview-response', `fallback B preview ${previewMode.label}`, previewOwner(currentPreview.attempt));
+
         } else {
           await deliver(resolveCurrentPreview);
-          traceAction(previewMode.mode === 'transport error' ? 'PreviewError(P2)' : 'PreviewComplete(P2)', result, 'preview-response', `fallback B preview ${previewMode.label}`, previewOwner(currentPreview.attempt));
+
           await deliver(resolveOldPreview);
-          traceAction('LatePreviewCompleteIgnored(P1)', result, 'preview-response', 'stale fallback A preview response ignored', previewOwner(oldPreview.attempt));
+
         }
         const currentOutcome = await currentSettlement;
 
@@ -642,13 +588,13 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
           });
           expect(result.current.canApply).toBe(true);
           act(() => { expect(result.current.beginApply()?.proposalId).toBe('fallback-proposal-B'); });
-          traceAction('BeginApply(accepted)', result, 'begin-apply', undefined, proposalOwner(currentProposal.attempt));
+
         } else {
           expect(currentOutcome.kind).toBe('rejected');
           expect(result.current.proposal.status).toBe('error');
           expect(result.current.canApply).toBe(false);
           expect(result.current.beginApply()).toBeUndefined();
-          traceAction('BeginApply(rejected)', result, 'begin-apply', 'fallback preview did not satisfy Apply', proposalOwner(currentProposal.attempt));
+
         }
         unmount();
       });
@@ -664,7 +610,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
   for (const outcome of canceledProposalModes) {
     const schedule = `start A; wait for proposal transport; explicit cancel; resolve after abort with ${outcome.label}; check idle and beginApply`;
     it(`replays explicit cancellation schedule: ${schedule}`, async () => {
-      startTrace('BuilderLifecycle', baseRequest);
+
       vi.useFakeTimers();
       const controlled = controlledClient();
       const { result, unmount } = renderHook(() => useConstructionLifecycle({
@@ -672,24 +618,24 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
         capabilitiesRequest: baseRequest,
       }));
       await act(async () => { await flushMicrotasks(); });
-      traceInitialObservation(result);
+
 
       const settlement = startAttempt(result, 'cancel-A');
       await advanceProposalDelay();
       const proposalCall = controlled.proposals[0];
       expect(proposalCall).toBeDefined();
       if (!proposalCall) return;
-      traceAction('StartProposal(P1)', result, 'propose-construction', 'start A before cancel', proposalOwner(proposalCall.attempt));
+
       expect(result.current.beginApply()).toBeUndefined();
-      traceAction('BeginApply(rejected)', result, 'begin-apply', 'pending proposal cannot apply', proposalOwner(proposalCall.attempt));
+
       act(() => result.current.cancel());
       expect(proposalCall.signal?.aborted).toBe(true);
       expectAbort(await settlement);
       expect(result.current.proposal.status).toBe('idle');
       expect(result.current.canApply).toBe(false);
-      traceAction('CancelProposalOwner', result, 'cancel', 'explicit cancel', proposalOwner(proposalCall.attempt));
+
       expect(result.current.beginApply()).toBeUndefined();
-      traceAction('BeginApply(rejected)', result, 'begin-apply', 'no active proposal after cancellation', null);
+
 
       await deliver(() => {
         if (outcome.mode === 'transport error') {
@@ -702,17 +648,11 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
           outcome.mode,
         ));
       });
-      traceAction(
-        outcome.mode === 'transport error' ? 'LateProposalErrorIgnored(P1)' : 'LateProposalCompleteIgnored(P1)',
-        result,
-        'proposal-response',
-        `canceled A settlement after explicit cancel (${outcome.label})`,
-        proposalOwner(proposalCall.attempt),
-      );
+
       expect(result.current.proposal.status).toBe('idle');
       expect(result.current.canApply).toBe(false);
       expect(result.current.beginApply()).toBeUndefined();
-      traceAction('BeginApply(rejected)', result, 'begin-apply', 'no active proposal after late settlement', null);
+
       unmount();
     });
   }
@@ -720,7 +660,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
   for (const change of identityChanges) {
     const schedule = `start A under base identity; change ${change.label}; resolve A; check mismatched owner stays hidden and cannot beginApply`;
     it(`hides an old owner after request identity change: ${schedule}`, async () => {
-      startTrace('BuilderLifecycle', baseRequest);
+
       vi.useFakeTimers();
       const controlled = controlledClient();
       const { result, rerender, unmount } = renderHook(
@@ -729,36 +669,36 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
         { initialProps: { capabilitiesRequest: baseRequest } },
       );
       await act(async () => { await flushMicrotasks(); });
-      traceInitialObservation(result);
+
 
       const settlement = startAttempt(result, `identity-${change.label}`);
       await advanceProposalDelay();
       const proposalCall = controlled.proposals[0];
       expect(proposalCall).toBeDefined();
       if (!proposalCall) return;
-      traceAction('StartProposal(P1)', result, 'propose-construction', 'start A under base identity', proposalOwner(proposalCall.attempt));
+
       rerender({ capabilitiesRequest: change.request });
       await act(async () => { await flushMicrotasks(); });
       expect(result.current.proposal.status).toBe('idle');
       expect(result.current.canApply).toBe(false);
-      setTraceWorkspace(change.request);
-    traceAction('ChangeDraftIdentity(A-to-B)', result, 'identity-change', `change ${change.label}`);
+
+
       expect(result.current.beginApply()).toBeUndefined();
-      traceAction('BeginApply(rejected)', result, 'begin-apply', 'identity change hides the old proposal', proposalOwner(proposalCall.attempt));
+
 
       await deliver(() => proposalCall.transport.resolve(proposalFor(proposalCall.args, 'hidden-proposal')));
       expectAbort(await settlement);
-      traceAction('LateProposalCompleteIgnored(P1)', result, 'proposal-response', `old owner A settlement after ${change.label} identity change`, proposalOwner(proposalCall.attempt));
+
       expect(result.current.proposal.status).toBe('idle');
       expect(result.current.canApply).toBe(false);
       expect(result.current.beginApply()).toBeUndefined();
-      traceAction('BeginApply(rejected)', result, 'begin-apply', 'old proposal remains hidden after settlement', proposalOwner(proposalCall.attempt));
+
       unmount();
     });
   }
 
   it('replays A→B→A: start proposal at A; briefly render B; return to exact A before unsubscribe cleanup; settle and beginApply', async () => {
-    startTrace('BuilderLifecycle', baseRequest);
+
     vi.useFakeTimers();
     const controlled = controlledClient();
     const otherIdentity = { ...baseRequest, outputId: 'observations' };
@@ -768,24 +708,24 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       { initialProps: { capabilitiesRequest: baseRequest } },
     );
     await act(async () => { await flushMicrotasks(); });
-    traceInitialObservation(result);
+
 
     const settlement = startAttempt(result, 'A-B-A');
     await advanceProposalDelay();
     const proposalCall = controlled.proposals[0];
     expect(proposalCall).toBeDefined();
     if (!proposalCall) return;
-    traceAction('StartProposal(P1)', result, 'propose-construction', 'start A', proposalOwner(proposalCall.attempt));
+
     rerender({ capabilitiesRequest: otherIdentity });
     expect(result.current.proposal.status).toBe('idle');
     expect(result.current.canApply).toBe(false);
-    setTraceWorkspace(otherIdentity);
-    traceAction('ChangeDraftIdentity(A-to-B)', result, 'identity-change', 'render B');
+
+
     rerender({ capabilitiesRequest: baseRequest });
     await act(async () => { await flushMicrotasks(); });
     expect(proposalCall.signal?.aborted).toBe(false);
-    setTraceWorkspace(baseRequest);
-    traceAction('ChangeDraftIdentity(B-to-A)', result, 'identity-change', 'return to exact A');
+
+
     await deliver(() => proposalCall.transport.resolve(proposalFor(proposalCall.args, 'resurfaced-proposal')));
     expect((await settlement).kind).toBe('resolved');
     expect(result.current.proposal).toMatchObject({
@@ -793,14 +733,14 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       response: { proposalId: 'resurfaced-proposal', outputId: baseRequest.outputId },
     });
     expect(result.current.canApply).toBe(true);
-    traceEmbeddedPreviewAccepted(result, proposalOwner(proposalCall.attempt), 'ProposalComplete(P1)', 'P1 response included its accepted embedded preview');
+
     act(() => { expect(result.current.beginApply()?.proposalId).toBe('resurfaced-proposal'); });
-    traceAction('BeginApply(accepted)', result, 'begin-apply', undefined, proposalOwner(proposalCall.attempt));
+
     unmount();
   });
 
   it('replays retry: fail A; retry the same candidate; resolve retry proposal and matching preview; apply only retry receipt', async () => {
-    startTrace('BuilderLifecycle', baseRequest);
+
     vi.useFakeTimers();
     const controlled = controlledClient();
     const { result, unmount } = renderHook(() => useConstructionLifecycle({
@@ -808,21 +748,21 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       capabilitiesRequest: baseRequest,
     }));
     await act(async () => { await flushMicrotasks(); });
-    traceInitialObservation(result);
+
 
     const firstSettlement = startAttempt(result, 'retry-candidate');
     await advanceProposalDelay();
     const firstCall = controlled.proposals[0];
     expect(firstCall).toBeDefined();
     if (!firstCall) return;
-    traceAction('StartProposal(P1)', result, 'propose-construction', 'first attempt', proposalOwner(firstCall.attempt));
+
     await deliver(() => firstCall.transport.reject(new Error('First proposal transport failed.')));
-    traceAction('ProposalError(P1)', result, 'proposal-response', 'first attempt transport error', proposalOwner(firstCall.attempt));
+
     expect((await firstSettlement).kind).toBe('rejected');
     expect(result.current.proposal.status).toBe('error');
     expect(result.current.canApply).toBe(false);
     expect(result.current.beginApply()).toBeUndefined();
-    traceAction('BeginApply(rejected)', result, 'begin-apply', 'failed proposal cannot apply', proposalOwner(firstCall.attempt));
+
 
     act(() => result.current.retry());
     await advanceProposalDelay();
@@ -832,10 +772,10 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     if (!retryCall) return;
     expect(retryCall.args.changedStepId).toBe('retry-candidate');
     expect(result.current.proposal.status).toBe('previewing');
-    traceAction('RetryProposal(P1-to-P2)', result, 'retry', 'retry same candidate', proposalOwner(retryCall.attempt));
+
     expect(result.current.canApply).toBe(false);
     expect(result.current.beginApply()).toBeUndefined();
-    traceAction('BeginApply(rejected)', result, 'begin-apply', 'retry proposal is still pending', proposalOwner(retryCall.attempt));
+
 
     await deliver(() => retryCall.transport.resolve(proposalFor(
       retryCall.args,
@@ -849,13 +789,13 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     if (!retryPreview) return;
     expect(retryPreview.args.receiptId).toBe('retry-proposal');
     expect(retryPreview.args.outputId).toBe(baseRequest.outputId);
-    traceAction('ProposalComplete(P2)', result, 'proposal-response', 'retry response accepted without embedded preview', proposalOwner(retryCall.attempt));
-    traceAction('StartPreview(P2)', result, 'preview', 'retry fallback preview request started', previewOwner(retryPreview.attempt));
+
+
     await deliver(() => retryPreview.transport.resolve(previewFor(
       'retry-proposal',
       baseRequest.outputId,
     )));
-    traceAction('PreviewComplete(P2)', result, 'preview-response', 'retry preview accepted', previewOwner(retryPreview.attempt));
+
 
     expect(result.current.proposal).toMatchObject({
       status: 'ready',
@@ -864,12 +804,12 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     });
     expect(result.current.canApply).toBe(true);
     act(() => { expect(result.current.beginApply()?.proposalId).toBe('retry-proposal'); });
-    traceAction('BeginApply(accepted)', result, 'begin-apply', undefined, proposalOwner(retryCall.attempt));
+
     unmount();
   });
 
   it('replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B', async () => {
-    startTrace('BuilderLifecycle', baseRequest);
+
     vi.useFakeTimers();
     const controlled = controlledClient();
     const { result, unmount } = renderHook(() => useConstructionLifecycle({
@@ -877,16 +817,16 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       capabilitiesRequest: baseRequest,
     }));
     await act(async () => { await flushMicrotasks(); });
-    traceInitialObservation(result);
+
 
     const oldSettlement = startAttempt(result, 'ready-A');
     await advanceProposalDelay();
     const oldCall = controlled.proposals[0];
     expect(oldCall).toBeDefined();
     if (!oldCall) return;
-    traceAction('StartProposal(P1)', result, 'propose-construction', 'start ready A', proposalOwner(oldCall.attempt));
+
     await deliver(() => oldCall.transport.resolve(proposalFor(oldCall.args, 'already-ready-A')));
-    traceEmbeddedPreviewAccepted(result, proposalOwner(oldCall.attempt), 'ProposalComplete(P1)', 'A response included its accepted embedded preview');
+
     const oldOutcome = await oldSettlement;
     expect(oldOutcome.kind).toBe('resolved');
     if (oldOutcome.kind !== 'resolved') return;
@@ -896,27 +836,27 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     const currentCall = controlled.proposals[1];
     expect(currentCall).toBeDefined();
     if (!currentCall) return;
-    traceAction('ReplaceProposalOwner', result, 'propose-construction', 'start B replaces A', proposalOwner(currentCall.attempt));
+
     expect(result.current.proposal.status).toBe('previewing');
     expect(result.current.beginApply(oldOutcome.value)).toBeUndefined();
-    traceAction('BeginApply(rejected)', result, 'begin-apply', 'old A outcome cannot apply while B previews', proposalOwner(currentCall.attempt), oldCall.attempt);
+
     await deliver(() => currentCall.transport.resolve(proposalFor(currentCall.args, 'current-B')));
-    traceEmbeddedPreviewAccepted(result, proposalOwner(currentCall.attempt), 'ProposalComplete(P2)', 'B response included its accepted embedded preview');
+
     const currentOutcome = await currentSettlement;
     expect(currentOutcome.kind).toBe('resolved');
     expect(result.current.proposal.status).toBe('ready');
     expect(result.current.beginApply(oldOutcome.value)).toBeUndefined();
-    traceAction('BeginApply(rejected)', result, 'begin-apply', 'old A outcome cannot apply after B became ready', proposalOwner(currentCall.attempt), oldCall.attempt);
+
     if (currentOutcome.kind === 'resolved') {
       act(() => { expect(result.current.beginApply(currentOutcome.value)?.proposalId).toBe('current-B'); });
-      traceAction('BeginApply(accepted)', result, 'begin-apply', 'apply B', proposalOwner(currentCall.attempt), currentCall.attempt);
+
     }
     unmount();
   });
 
   // Regressions for Apply completion targeting the owner that began Apply.
   it('regression: old Apply success after replacement must not cancel the replacement owner', async () => {
-    startTrace('BuilderLifecycle', baseRequest);
+
     vi.useFakeTimers();
     const controlled = controlledClient();
     const { result, unmount } = renderHook(() => useConstructionLifecycle({
@@ -924,44 +864,44 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       capabilitiesRequest: baseRequest,
     }));
     await act(async () => { await flushMicrotasks(); });
-    traceInitialObservation(result);
+
 
     const oldSettlement = startAttempt(result, 'ready-A');
     await advanceProposalDelay();
     const oldCall = controlled.proposals[0];
     expect(oldCall).toBeDefined();
     if (!oldCall) return;
-    traceAction('StartProposal', result, 'propose-construction', 'start ready A', proposalOwner(oldCall.attempt));
+
     await deliver(() => oldCall.transport.resolve(proposalFor(oldCall.args, 'already-ready-A')));
     const oldOutcome = await oldSettlement;
     expect(oldOutcome.kind).toBe('resolved');
     if (oldOutcome.kind !== 'resolved') return;
-    traceEmbeddedPreviewAccepted(result, proposalOwner(oldCall.attempt), 'ProposalComplete', 'A response included its accepted embedded preview');
+
     let applyA: ReturnType<typeof result.current.beginApply>;
     act(() => { applyA = result.current.beginApply(oldOutcome.value); });
     expect(applyA?.proposalId).toBe('already-ready-A');
-    traceAction('BeginApply', result, 'begin-apply', 'apply A', { kind: 'apply', attempt: oldCall.attempt }, oldCall.attempt);
+
 
     const currentSettlement = startAttempt(result, 'replacement-B');
     await advanceProposalDelay();
     const currentCall = controlled.proposals[1];
     if (!currentCall) return;
-    traceAction('ReplaceProposal', result, 'propose-construction', 'start B replaces applying A', proposalOwner(currentCall.attempt));
+
     await deliver(() => currentCall.transport.resolve(proposalFor(currentCall.args, 'current-B')));
     const currentOutcome = await currentSettlement;
     expect(currentOutcome.kind).toBe('resolved');
     expect(result.current.proposal.status).toBe('ready');
-    traceEmbeddedPreviewAccepted(result, proposalOwner(currentCall.attempt), 'ProposalComplete', 'B response included its accepted embedded preview');
+
 
     act(() => { applyA?.finish(true); });
-    traceAction('ApplyAck', result, 'finish-apply', 'actual state after finishApply(true)', { kind: 'apply', attempt: oldCall.attempt });
+
     expect(result.current.proposal.status).toBe('ready');
     expect(result.current.canApply).toBe(true);
     unmount();
   });
 
   it('regression: old Apply failure after replacement must not mark the replacement owner as an error', async () => {
-    startTrace('BuilderLifecycle', baseRequest);
+
     vi.useFakeTimers();
     const controlled = controlledClient();
     const { result, unmount } = renderHook(() => useConstructionLifecycle({
@@ -969,37 +909,37 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
       capabilitiesRequest: baseRequest,
     }));
     await act(async () => { await flushMicrotasks(); });
-    traceInitialObservation(result);
+
 
     const oldSettlement = startAttempt(result, 'ready-A');
     await advanceProposalDelay();
     const oldCall = controlled.proposals[0];
     expect(oldCall).toBeDefined();
     if (!oldCall) return;
-    traceAction('StartProposal', result, 'propose-construction', 'start ready A', proposalOwner(oldCall.attempt));
+
     await deliver(() => oldCall.transport.resolve(proposalFor(oldCall.args, 'already-ready-A')));
     const oldOutcome = await oldSettlement;
     expect(oldOutcome.kind).toBe('resolved');
     if (oldOutcome.kind !== 'resolved') return;
-    traceEmbeddedPreviewAccepted(result, proposalOwner(oldCall.attempt), 'ProposalComplete', 'A response included its accepted embedded preview');
+
     let applyA: ReturnType<typeof result.current.beginApply>;
     act(() => { applyA = result.current.beginApply(oldOutcome.value); });
     expect(applyA?.proposalId).toBe('already-ready-A');
-    traceAction('BeginApply', result, 'begin-apply', 'apply A', { kind: 'apply', attempt: oldCall.attempt }, oldCall.attempt);
+
 
     const currentSettlement = startAttempt(result, 'replacement-B');
     await advanceProposalDelay();
     const currentCall = controlled.proposals[1];
     if (!currentCall) return;
-    traceAction('ReplaceProposal', result, 'propose-construction', 'start B replaces applying A', proposalOwner(currentCall.attempt));
+
     await deliver(() => currentCall.transport.resolve(proposalFor(currentCall.args, 'current-B')));
     const currentOutcome = await currentSettlement;
     expect(currentOutcome.kind).toBe('resolved');
     expect(result.current.proposal.status).toBe('ready');
-    traceEmbeddedPreviewAccepted(result, proposalOwner(currentCall.attempt), 'ProposalComplete', 'B response included its accepted embedded preview');
+
 
     act(() => { applyA?.finish(false); });
-    traceAction('ApplyAck', result, 'finish-apply', 'actual state after finishApply(false)', { kind: 'apply', attempt: oldCall.attempt });
+
     expect(result.current.proposal.status).toBe('ready');
     expect(result.current.canApply).toBe(true);
     unmount();
@@ -1012,7 +952,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
   ];
   for (const change of completionIdentityCases) for (const applied of [true, false]) {
     it(`Apply completion after ${change.label} identity change: owns current editor=${change.ownsCompletion} (success=${applied})`, async () => {
-      startTrace('BuilderLifecycle', baseRequest);
+
       vi.useFakeTimers();
       const controlled = controlledClient();
       const { result, rerender, unmount } = renderHook(
@@ -1021,27 +961,27 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
         { initialProps: { capabilitiesRequest: baseRequest } },
       );
       await act(async () => { await flushMicrotasks(); });
-      traceInitialObservation(result);
+
       const pending = startAttempt(result, 'identity-owned-apply');
       await advanceProposalDelay();
       const call = controlled.proposals[0];
       if (!call) throw new Error('Expected real proposal request');
-      traceAction('StartProposal', result, 'propose-construction', undefined, proposalOwner(call.attempt));
+
       await deliver(() => call.transport.resolve(proposalFor(call.args, 'identity-apply')));
       const ready = await pending;
       if (ready.kind !== 'resolved') throw new Error('Expected reviewed proposal');
-      traceEmbeddedPreviewAccepted(result, proposalOwner(call.attempt), 'ProposalComplete');
+
       let apply: ReturnType<typeof result.current.beginApply>;
       act(() => { apply = result.current.beginApply(ready.value); });
       if (!apply) throw new Error('Expected Apply handle');
-      traceAction('BeginApply', result, 'begin-apply', undefined, { kind: 'apply', attempt: call.attempt });
+
       rerender({ capabilitiesRequest: change.request });
-      setTraceWorkspace(change.request);
-      traceAction('ChangeIdentity', result, 'identity-change', change.label);
+
+
       const before = result.current.proposal;
       let accepted: boolean | undefined;
       act(() => { accepted = apply?.finish(applied); });
-      traceApplyCompletion(result, { kind: 'apply', attempt: call.attempt }, accepted === true, change.label);
+
       expect(accepted).toBe(change.ownsCompletion);
       if (change.ownsCompletion) expect(result.current.proposal.status).toBe(applied ? 'idle' : 'error');
       else expect(result.current.proposal).toEqual(before);
@@ -1053,25 +993,25 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     for (const applied of [true, false]) for (const reuseReceipt of [false, true]) {
       for (const order of ['old-first', 'current-first'] as const) {
         it(`old Apply ${applied ? 'success' : 'failure'} after cancel and new Apply: ${order}, reused receipt=${reuseReceipt}`, async () => {
-          startTrace('BuilderLifecycle', baseRequest);
+
           vi.useFakeTimers();
           const controlled = controlledClient();
           const { result, unmount } = renderHook(() => useConstructionLifecycle({
             client: controlled.client, capabilitiesRequest: baseRequest,
           }));
           await act(async () => { await flushMicrotasks(); });
-          traceInitialObservation(result);
+
           const startReady = async (index: number, proposalId: string, beforeResolve?: () => void) => {
             const pending = startAttempt(result, `step-${index}`);
             await advanceProposalDelay();
             const call = controlled.proposals[index];
             if (!call) throw new Error('Expected real proposal request');
-            traceAction('StartProposal', result, 'propose-construction', undefined, proposalOwner(call.attempt));
+
             beforeResolve?.();
             await deliver(() => call.transport.resolve(proposalFor(call.args, proposalId)));
             const settled = await pending;
             if (settled.kind !== 'resolved') throw new Error('Expected reviewed proposal');
-            traceEmbeddedPreviewAccepted(result, proposalOwner(call.attempt), 'ProposalComplete');
+
             return { call, settled: settled.value };
           };
           const begin = (ready: { call: ProposalCall; settled: ReadyProposal }, proposalId: string) => {
@@ -1079,20 +1019,20 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
             act(() => { apply = result.current.beginApply(ready.settled); });
             expect(apply?.proposalId).toBe(proposalId);
             if (!apply) throw new Error('Expected Apply handle');
-            traceAction('BeginApply', result, 'begin-apply', undefined, { kind: 'apply', attempt: ready.call.attempt });
+
             return apply;
           };
           try {
             const oldReady = await startReady(0, 'apply-A');
             const old = { call: oldReady.call, apply: begin(oldReady, 'apply-A') };
             act(() => { result.current.cancel(); });
-            traceAction('CancelDuringApply', result, 'cancel', 'Old Apply promise is still outstanding; a new Apply must wait for it to release ownership');
+
             const currentProposalId = reuseReceipt ? 'apply-A' : 'apply-B';
             const finishOld = () => {
               const before = result.current.proposal;
               let accepted: boolean | undefined;
               act(() => { accepted = old.apply.finish(applied); });
-              traceApplyCompletion(result, { kind: 'apply', attempt: old.call.attempt }, accepted === true, 'Old caller must not settle a later Apply');
+
               expect(accepted).toBe(false);
               expect(result.current.proposal).toEqual(before);
               act(() => { expect(old.apply.finish(!applied)).toBe(false); });
@@ -1101,7 +1041,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
             const finishCurrent = (current: { call: ProposalCall; apply: NonNullable<ReturnType<typeof result.current.beginApply>> }) => {
               let accepted: boolean | undefined;
               act(() => { accepted = current.apply.finish(applied); });
-              traceApplyCompletion(result, { kind: 'apply', attempt: current.call.attempt }, accepted === true, 'Current caller settles its own Apply');
+
               expect(accepted).toBe(true);
               expect(result.current.proposal.status).toBe(applied ? 'idle' : 'error');
               act(() => { expect(current.apply.finish(!applied)).toBe(false); });

@@ -1,0 +1,549 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "removal-0",
+      "receiptMatches": false,
+      "provenanceMatches": false,
+      "authorizationMatches": false,
+      "previewCompletes": false,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-1",
+      "receiptMatches": true,
+      "provenanceMatches": false,
+      "authorizationMatches": false,
+      "previewCompletes": false,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-2",
+      "receiptMatches": false,
+      "provenanceMatches": true,
+      "authorizationMatches": false,
+      "previewCompletes": false,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-3",
+      "receiptMatches": true,
+      "provenanceMatches": true,
+      "authorizationMatches": false,
+      "previewCompletes": false,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-4",
+      "receiptMatches": false,
+      "provenanceMatches": false,
+      "authorizationMatches": true,
+      "previewCompletes": false,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-5",
+      "receiptMatches": true,
+      "provenanceMatches": false,
+      "authorizationMatches": true,
+      "previewCompletes": false,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-6",
+      "receiptMatches": false,
+      "provenanceMatches": true,
+      "authorizationMatches": true,
+      "previewCompletes": false,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-7",
+      "receiptMatches": true,
+      "provenanceMatches": true,
+      "authorizationMatches": true,
+      "previewCompletes": false,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 1,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-8",
+      "receiptMatches": false,
+      "provenanceMatches": false,
+      "authorizationMatches": false,
+      "previewCompletes": true,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-9",
+      "receiptMatches": true,
+      "provenanceMatches": false,
+      "authorizationMatches": false,
+      "previewCompletes": true,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-10",
+      "receiptMatches": false,
+      "provenanceMatches": true,
+      "authorizationMatches": false,
+      "previewCompletes": true,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-11",
+      "receiptMatches": true,
+      "provenanceMatches": true,
+      "authorizationMatches": false,
+      "previewCompletes": true,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-12",
+      "receiptMatches": false,
+      "provenanceMatches": false,
+      "authorizationMatches": true,
+      "previewCompletes": true,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-13",
+      "receiptMatches": true,
+      "provenanceMatches": false,
+      "authorizationMatches": true,
+      "previewCompletes": true,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-14",
+      "receiptMatches": false,
+      "provenanceMatches": true,
+      "authorizationMatches": true,
+      "previewCompletes": true,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-15",
+      "receiptMatches": true,
+      "provenanceMatches": true,
+      "authorizationMatches": true,
+      "previewCompletes": true,
+      "concurrentDraftChange": false,
+      "expected": {
+        "accepted": true,
+        "previewCalls": 1,
+        "saveAttempts": 1,
+        "successfulSaves": 1,
+        "preservedHead": false,
+        "exactCandidate": true,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-16",
+      "receiptMatches": false,
+      "provenanceMatches": false,
+      "authorizationMatches": false,
+      "previewCompletes": false,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-17",
+      "receiptMatches": true,
+      "provenanceMatches": false,
+      "authorizationMatches": false,
+      "previewCompletes": false,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-18",
+      "receiptMatches": false,
+      "provenanceMatches": true,
+      "authorizationMatches": false,
+      "previewCompletes": false,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-19",
+      "receiptMatches": true,
+      "provenanceMatches": true,
+      "authorizationMatches": false,
+      "previewCompletes": false,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-20",
+      "receiptMatches": false,
+      "provenanceMatches": false,
+      "authorizationMatches": true,
+      "previewCompletes": false,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-21",
+      "receiptMatches": true,
+      "provenanceMatches": false,
+      "authorizationMatches": true,
+      "previewCompletes": false,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-22",
+      "receiptMatches": false,
+      "provenanceMatches": true,
+      "authorizationMatches": true,
+      "previewCompletes": false,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-23",
+      "receiptMatches": true,
+      "provenanceMatches": true,
+      "authorizationMatches": true,
+      "previewCompletes": false,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 1,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-24",
+      "receiptMatches": false,
+      "provenanceMatches": false,
+      "authorizationMatches": false,
+      "previewCompletes": true,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-25",
+      "receiptMatches": true,
+      "provenanceMatches": false,
+      "authorizationMatches": false,
+      "previewCompletes": true,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-26",
+      "receiptMatches": false,
+      "provenanceMatches": true,
+      "authorizationMatches": false,
+      "previewCompletes": true,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-27",
+      "receiptMatches": true,
+      "provenanceMatches": true,
+      "authorizationMatches": false,
+      "previewCompletes": true,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-28",
+      "receiptMatches": false,
+      "provenanceMatches": false,
+      "authorizationMatches": true,
+      "previewCompletes": true,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-29",
+      "receiptMatches": true,
+      "provenanceMatches": false,
+      "authorizationMatches": true,
+      "previewCompletes": true,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-30",
+      "receiptMatches": false,
+      "provenanceMatches": true,
+      "authorizationMatches": true,
+      "previewCompletes": true,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 0,
+        "saveAttempts": 0,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": false
+      }
+    },
+    {
+      "id": "removal-31",
+      "receiptMatches": true,
+      "provenanceMatches": true,
+      "authorizationMatches": true,
+      "previewCompletes": true,
+      "concurrentDraftChange": true,
+      "expected": {
+        "accepted": false,
+        "previewCalls": 1,
+        "saveAttempts": 1,
+        "successfulSaves": 0,
+        "preservedHead": true,
+        "exactCandidate": false,
+        "conflict": true
+      }
+    }
+  ]
+}

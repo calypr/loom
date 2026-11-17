@@ -1,10 +1,10 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -18,12 +18,23 @@ import (
 )
 
 type formalRemovalCase struct {
-	ID                    string `json:"id"`
-	ReceiptMatches        *bool  `json:"receiptMatches"`
-	ProvenanceMatches     *bool  `json:"provenanceMatches"`
-	AuthorizationMatches  *bool  `json:"authorizationMatches"`
-	PreviewCompletes      *bool  `json:"previewCompletes"`
-	ConcurrentDraftChange *bool  `json:"concurrentDraftChange"`
+	ID                    string                   `json:"id"`
+	ReceiptMatches        *bool                    `json:"receiptMatches"`
+	ProvenanceMatches     *bool                    `json:"provenanceMatches"`
+	AuthorizationMatches  *bool                    `json:"authorizationMatches"`
+	PreviewCompletes      *bool                    `json:"previewCompletes"`
+	ConcurrentDraftChange *bool                    `json:"concurrentDraftChange"`
+	Expected              formalRemovalExpectation `json:"expected"`
+}
+
+type formalRemovalExpectation struct {
+	Accepted        bool `json:"accepted"`
+	PreviewCalls    int  `json:"previewCalls"`
+	SaveAttempts    int  `json:"saveAttempts"`
+	SuccessfulSaves int  `json:"successfulSaves"`
+	PreservedHead   bool `json:"preservedHead"`
+	ExactCandidate  bool `json:"exactCandidate"`
+	Conflict        bool `json:"conflict"`
 }
 type formalRemovalResult struct {
 	ID              string `json:"id"`
@@ -169,41 +180,21 @@ func formalRemovalObserve(t *testing.T, c formalRemovalCase) formalRemovalResult
 	}
 	return result
 }
+
 func TestPopulationRemovalModelReplay(t *testing.T) {
-	input, output := os.Getenv("LOOM_FORMAL_REMOVAL_INPUT"), os.Getenv("LOOM_FORMAL_REMOVAL_OUTPUT")
-	if input == "" && output == "" {
-		yes, no := true, false
-		valid := formalRemovalCase{ID: "valid", ReceiptMatches: &yes, ProvenanceMatches: &yes, AuthorizationMatches: &yes, PreviewCompletes: &yes, ConcurrentDraftChange: &no}
-		if row := formalRemovalObserve(t, valid); !row.Accepted || !row.ExactCandidate || row.SuccessfulSaves != 1 {
-			t.Fatalf("valid removal: %#v", row)
-		}
-		valid.ID = "conflict"
-		valid.ConcurrentDraftChange = &yes
-		if row := formalRemovalObserve(t, valid); row.Accepted || !row.Conflict || !row.PreservedHead || row.SuccessfulSaves != 0 {
-			t.Fatalf("competing removal: %#v", row)
-		}
-		return
-	}
-	if input == "" || output == "" {
-		t.Fatal("removal paths must be paired")
-	}
-	info, err := os.Stat(input)
+	const scheduleFile = "testdata/population_removal_cases.json"
+	data, err := os.ReadFile(scheduleFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() > 4*1024*1024 {
-		t.Fatal("removal input exceeds bound")
+	if len(data) > 4<<20 {
+		t.Fatalf("schedule file %s exceeds 4 MiB", scheduleFile)
 	}
-	file, err := os.Open(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
 	var request struct {
 		SchemaVersion int                 `json:"schemaVersion"`
 		Cases         []formalRemovalCase `json:"cases"`
 	}
-	decoder := json.NewDecoder(file)
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
 		t.Fatal(err)
@@ -212,26 +203,19 @@ func TestPopulationRemovalModelReplay(t *testing.T) {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		t.Fatalf("trailing removal input: %v", err)
 	}
-	if request.SchemaVersion != 1 || len(request.Cases) == 0 || len(request.Cases) > 1024 {
-		t.Fatal("invalid removal inventory")
+	if request.SchemaVersion != 1 || len(request.Cases) == 0 || len(request.Cases) > 200 {
+		t.Fatal("invalid frozen removal schedules")
 	}
 	seen := map[string]bool{}
-	results := make([]formalRemovalResult, 0, len(request.Cases))
 	for _, c := range request.Cases {
-		if seen[c.ID] {
-			t.Fatal("duplicate removal ID")
+		if c.ID == "" || seen[c.ID] {
+			t.Fatalf("duplicate or missing removal ID: %q", c.ID)
 		}
 		seen[c.ID] = true
-		results = append(results, formalRemovalObserve(t, c))
-	}
-	encoded, err := json.Marshal(struct {
-		SchemaVersion int                   `json:"schemaVersion"`
-		Results       []formalRemovalResult `json:"results"`
-	}{1, results})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(output, encoded, 0600); err != nil {
-		t.Fatal(fmt.Errorf("write removal observations: %w", err))
+		got := formalRemovalObserve(t, c)
+		actual := formalRemovalExpectation{Accepted: got.Accepted, PreviewCalls: got.PreviewCalls, SaveAttempts: got.SaveAttempts, SuccessfulSaves: got.SuccessfulSaves, PreservedHead: got.PreservedHead, ExactCandidate: got.ExactCandidate, Conflict: got.Conflict}
+		if !reflect.DeepEqual(actual, c.Expected) {
+			t.Errorf("schedule %s: got %+v, want frozen behavior %+v", c.ID, actual, c.Expected)
+		}
 	}
 }

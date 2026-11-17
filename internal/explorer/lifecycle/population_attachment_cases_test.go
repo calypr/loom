@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -17,14 +17,30 @@ import (
 )
 
 type attachmentCase struct {
-	ID               string `json:"id"`
-	Edge             string `json:"edge"`
-	SnapshotMatches  *bool  `json:"snapshotMatches"`
-	OutputMatches    *bool  `json:"outputMatches"`
-	SelectionMatches *bool  `json:"selectionMatches"`
-	Selection        string `json:"selection"`
-	Route            string `json:"route"`
-	Batch            string `json:"batch"`
+	ID               string                `json:"id"`
+	Edge             string                `json:"edge"`
+	SnapshotMatches  *bool                 `json:"snapshotMatches"`
+	OutputMatches    *bool                 `json:"outputMatches"`
+	SelectionMatches *bool                 `json:"selectionMatches"`
+	Selection        string                `json:"selection"`
+	Route            string                `json:"route"`
+	Batch            string                `json:"batch"`
+	Expected         attachmentExpectation `json:"expected"`
+}
+
+type attachmentExpectation struct {
+	Accepted            bool                              `json:"accepted"`
+	SearchChoices       int                               `json:"searchChoices"`
+	SearchPreservedHead bool                              `json:"searchPreservedHead"`
+	SaveAttempts        int                               `json:"saveAttempts"`
+	Writes              int                               `json:"writes"`
+	PreservedHead       bool                              `json:"preservedHead"`
+	ExactWorkspace      bool                              `json:"exactWorkspace"`
+	StableHead          bool                              `json:"stableHead"`
+	VersionBefore       int64                             `json:"versionBefore"`
+	VersionAfter        int64                             `json:"versionAfter"`
+	SelectionID         string                            `json:"selectionId"`
+	Route               []authoringv2.PopulationRouteStep `json:"route"`
 }
 type attachmentResult struct {
 	ID                  string                            `json:"id"`
@@ -294,38 +310,21 @@ func attachmentObserve(t *testing.T, c attachmentCase) attachmentResult {
 	}
 	return result
 }
+
 func TestPopulationAttachmentGeneratedReplay(t *testing.T) {
-	input, output := os.Getenv("LOOM_ATTACHMENT_INPUT"), os.Getenv("LOOM_ATTACHMENT_OUTPUT")
-	if input == "" && output == "" {
-		yes := true
-		for _, edge := range []string{"primary", "parallel", "zero"} {
-			row := attachmentObserve(t, attachmentCase{ID: edge, Edge: edge, SnapshotMatches: &yes, OutputMatches: &yes, SelectionMatches: &yes, Selection: "current", Route: "authorized", Batch: "single"})
-			if !row.Accepted || row.Writes != 1 || !row.ExactWorkspace {
-				t.Fatalf("valid attachment smoke: %#v", row)
-			}
-		}
-		return
-	}
-	if input == "" || output == "" {
-		t.Fatal("attachment paths must be paired")
-	}
-	info, err := os.Stat(input)
+	const scheduleFile = "testdata/population_attachment_cases.json"
+	data, err := os.ReadFile(scheduleFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() > 4*1024*1024 {
-		t.Fatal("attachment input too large")
+	if len(data) > 4<<20 {
+		t.Fatalf("schedule file %s exceeds 4 MiB", scheduleFile)
 	}
-	file, err := os.Open(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
 	var request struct {
 		SchemaVersion int              `json:"schemaVersion"`
 		Cases         []attachmentCase `json:"cases"`
 	}
-	decoder := json.NewDecoder(file)
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&request); err != nil {
 		t.Fatal(err)
@@ -334,27 +333,25 @@ func TestPopulationAttachmentGeneratedReplay(t *testing.T) {
 	if err = decoder.Decode(&trailing); err != io.EOF {
 		t.Fatal("trailing attachment data")
 	}
-	if request.SchemaVersion != 1 || len(request.Cases) == 0 || len(request.Cases) > 1024 {
-		t.Fatal("invalid attachment inventory")
+	if request.SchemaVersion != 1 || len(request.Cases) == 0 || len(request.Cases) > 200 {
+		t.Fatal("invalid frozen attachment schedules")
 	}
 	seen := map[string]bool{}
-	results := make([]attachmentResult, 0, len(request.Cases))
 	for _, c := range request.Cases {
-		if seen[c.ID] {
-			t.Fatal("duplicate attachment case")
+		if c.ID == "" || seen[c.ID] {
+			t.Fatalf("duplicate or missing attachment case ID: %q", c.ID)
 		}
 		seen[c.ID] = true
-		results = append(results, attachmentObserve(t, c))
+		got := attachmentObserve(t, c)
+		actual := attachmentExpectation{Accepted: got.Accepted, SearchChoices: got.SearchChoices, SearchPreservedHead: got.SearchPreservedHead, SaveAttempts: got.SaveAttempts, Writes: got.Writes, PreservedHead: got.PreservedHead, ExactWorkspace: got.ExactWorkspace, StableHead: got.StableHead, VersionBefore: got.VersionBefore, VersionAfter: got.VersionAfter, SelectionID: got.SelectionID, Route: got.Route}
+		if !reflect.DeepEqual(actual, c.Expected) {
+			t.Errorf("schedule %s: got %+v, want frozen behavior %+v", c.ID, actual, c.Expected)
+		}
+		if !got.Accepted && c.Selection == "revokedScope" && !strings.Contains(got.Error, "STALE_POPULATION_SELECTION") {
+			t.Errorf("schedule %s: revocation failure did not reach selection scope reauthorization: %q", c.ID, got.Error)
+		}
+		if !got.Accepted && c.SnapshotMatches != nil && *c.SnapshotMatches && c.OutputMatches != nil && *c.OutputMatches && c.SelectionMatches != nil && *c.SelectionMatches && c.Selection == "current" && c.Route == "authorized" && c.Batch == "invalidSecond" && !strings.Contains(got.Error, "outputId does not identify a valid row-rooted table") {
+			t.Errorf("schedule %s: invalid suffix failure did not reach late preparation: %q", c.ID, got.Error)
+		}
 	}
-	raw, err := json.Marshal(struct {
-		SchemaVersion int                `json:"schemaVersion"`
-		Results       []attachmentResult `json:"results"`
-	}{1, results})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(output, raw, 0600); err != nil {
-		t.Fatal(err)
-	}
-	fmt.Printf("ATTACHMENT_CASES=%d\n", len(results))
 }

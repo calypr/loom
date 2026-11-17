@@ -1,9 +1,9 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -17,14 +17,23 @@ import (
 )
 
 type formalPopulationCase struct {
-	ID                      string `json:"id"`
-	AuthorizedScopeMatches  *bool  `json:"authorizedScopeMatches"`
-	SelectionComplete       *bool  `json:"selectionComplete"`
-	SelectionBindingMatches *bool  `json:"selectionBindingMatches"`
-	MemberReadCompletes     *bool  `json:"memberReadCompletes"`
-	MappingCompletes        *bool  `json:"mappingCompletes"`
-	Alias                   *bool  `json:"alias"`
-	Deadline                *bool  `json:"deadline"`
+	ID                      string                      `json:"id"`
+	AuthorizedScopeMatches  *bool                       `json:"authorizedScopeMatches"`
+	SelectionComplete       *bool                       `json:"selectionComplete"`
+	SelectionBindingMatches *bool                       `json:"selectionBindingMatches"`
+	MemberReadCompletes     *bool                       `json:"memberReadCompletes"`
+	MappingCompletes        *bool                       `json:"mappingCompletes"`
+	Alias                   *bool                       `json:"alias"`
+	Deadline                *bool                       `json:"deadline"`
+	Expected                formalPopulationExpectation `json:"expected"`
+}
+
+type formalPopulationExpectation struct {
+	Outcome        string  `json:"outcome"`
+	MemberReads    int     `json:"memberReads"`
+	MappingCalls   int     `json:"mappingCalls"`
+	Counts         []int64 `json:"counts"`
+	BindingCorrect bool    `json:"bindingCorrect"`
 }
 
 type formalPopulationResult struct {
@@ -129,47 +138,19 @@ func formalPopulationObserve(t *testing.T, value formalPopulationCase) formalPop
 }
 
 func TestPopulationModelReplay(t *testing.T) {
-	input, output := os.Getenv("LOOM_FORMAL_POPULATION_INPUT"), os.Getenv("LOOM_FORMAL_POPULATION_OUTPUT")
-	if input == "" && output == "" {
-		yes, no := true, false
-		valid := formalPopulationCase{ID: "complete", AuthorizedScopeMatches: &yes, SelectionComplete: &yes, SelectionBindingMatches: &yes, MemberReadCompletes: &yes, MappingCompletes: &yes, Alias: &no, Deadline: &no}
-		if row := formalPopulationObserve(t, valid); row.Outcome != "complete" || !row.BindingCorrect || !reflect.DeepEqual(row.Counts, []int64{3, 2, 1, 1}) {
-			t.Fatalf("complete smoke: %#v", row)
-		}
-		invalid := valid
-		invalid.ID = "untrusted"
-		invalid.SelectionBindingMatches = &no
-		if row := formalPopulationObserve(t, invalid); row.Outcome != "rejected" || row.MappingCalls != 0 || len(row.Counts) != 0 {
-			t.Fatalf("untrusted smoke: %#v", row)
-		}
-		partial := valid
-		partial.ID = "incomplete"
-		partial.MappingCompletes = &no
-		if row := formalPopulationObserve(t, partial); row.Outcome != "incomplete" || len(row.Counts) != 0 {
-			t.Fatalf("incomplete smoke: %#v", row)
-		}
-		return
-	}
-	if input == "" || output == "" {
-		t.Fatal("population input and output paths must be paired")
-	}
-	info, err := os.Stat(input)
+	const scheduleFile = "testdata/population_mapping_cases.json"
+	data, err := os.ReadFile(scheduleFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() > 4*1024*1024 {
-		t.Fatal("population input exceeds bound")
+	if len(data) > 4<<20 {
+		t.Fatalf("schedule file %s exceeds 4 MiB", scheduleFile)
 	}
-	file, err := os.Open(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
 	var request struct {
 		SchemaVersion int                    `json:"schemaVersion"`
 		Cases         []formalPopulationCase `json:"cases"`
 	}
-	decoder := json.NewDecoder(file)
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
 		t.Fatal(err)
@@ -178,26 +159,19 @@ func TestPopulationModelReplay(t *testing.T) {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		t.Fatalf("trailing population input: %v", err)
 	}
-	if request.SchemaVersion != 1 || len(request.Cases) == 0 || len(request.Cases) > 4096 {
-		t.Fatal("invalid population case inventory")
+	if request.SchemaVersion != 1 || len(request.Cases) == 0 || len(request.Cases) > 200 {
+		t.Fatal("invalid frozen population schedules")
 	}
 	seen := map[string]bool{}
-	results := make([]formalPopulationResult, 0, len(request.Cases))
 	for _, value := range request.Cases {
-		if seen[value.ID] {
-			t.Fatal("duplicate population case ID")
+		if value.ID == "" || seen[value.ID] {
+			t.Fatalf("duplicate or missing population case ID: %q", value.ID)
 		}
 		seen[value.ID] = true
-		results = append(results, formalPopulationObserve(t, value))
-	}
-	encoded, err := json.Marshal(struct {
-		SchemaVersion int                      `json:"schemaVersion"`
-		Results       []formalPopulationResult `json:"results"`
-	}{1, results})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(output, encoded, 0600); err != nil {
-		t.Fatal(fmt.Errorf("write population observations: %w", err))
+		got := formalPopulationObserve(t, value)
+		actual := formalPopulationExpectation{Outcome: got.Outcome, MemberReads: got.MemberReads, MappingCalls: got.MappingCalls, Counts: got.Counts, BindingCorrect: got.BindingCorrect}
+		if !reflect.DeepEqual(actual, value.Expected) {
+			t.Errorf("schedule %s: got %+v, want frozen behavior %+v", value.ID, actual, value.Expected)
+		}
 	}
 }

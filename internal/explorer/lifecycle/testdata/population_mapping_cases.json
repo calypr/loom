@@ -1,0 +1,2201 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "population-0-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-0-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-0-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-0-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-1-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-1-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-1-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-1-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-2-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-2-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-2-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-2-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-3-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-3-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-3-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-3-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-4-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-4-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-4-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-4-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-5-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-5-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-5-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-5-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-6-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-6-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-6-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-6-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-7-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-7-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-7-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-7-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-8-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-8-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-8-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-8-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-9-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-9-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-9-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-9-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-10-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-10-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-10-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-10-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-11-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-11-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-11-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-11-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-12-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-12-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-12-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-12-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-13-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-13-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-13-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-13-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-14-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-14-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-14-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-14-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-15-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 1,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-15-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 1,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-15-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 1,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-15-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": false,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 1,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-16-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-16-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-16-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-16-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-17-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-17-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-17-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-17-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-18-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-18-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-18-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-18-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-19-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-19-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-19-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-19-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-20-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-20-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-20-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-20-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-21-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-21-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-21-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-21-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-22-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-22-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-22-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-22-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-23-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-23-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-23-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-23-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": false,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "incomplete",
+        "memberReads": 1,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-24-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-24-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-24-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-24-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-25-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-25-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-25-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-25-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-26-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-26-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-26-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-26-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-27-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-27-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-27-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-27-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": false,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-28-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-28-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-28-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-28-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-29-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-29-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-29-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-29-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": false,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-30-0-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-30-0-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-30-1-0",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-30-1-1",
+      "authorizedScopeMatches": false,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "rejected",
+        "memberReads": 0,
+        "mappingCalls": 0,
+        "counts": [],
+        "bindingCorrect": false
+      }
+    },
+    {
+      "id": "population-31-0-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": false,
+      "expected": {
+        "outcome": "complete",
+        "memberReads": 1,
+        "mappingCalls": 1,
+        "counts": [
+          3,
+          2,
+          1,
+          1
+        ],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-31-0-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": false,
+      "deadline": true,
+      "expected": {
+        "outcome": "complete",
+        "memberReads": 1,
+        "mappingCalls": 1,
+        "counts": [
+          3,
+          2,
+          1,
+          1
+        ],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-31-1-0",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": false,
+      "expected": {
+        "outcome": "complete",
+        "memberReads": 1,
+        "mappingCalls": 1,
+        "counts": [
+          3,
+          2,
+          1,
+          1
+        ],
+        "bindingCorrect": true
+      }
+    },
+    {
+      "id": "population-31-1-1",
+      "authorizedScopeMatches": true,
+      "selectionComplete": true,
+      "selectionBindingMatches": true,
+      "memberReadCompletes": true,
+      "mappingCompletes": true,
+      "alias": true,
+      "deadline": true,
+      "expected": {
+        "outcome": "complete",
+        "memberReads": 1,
+        "mappingCalls": 1,
+        "counts": [
+          3,
+          2,
+          1,
+          1
+        ],
+        "bindingCorrect": true
+      }
+    }
+  ]
+}

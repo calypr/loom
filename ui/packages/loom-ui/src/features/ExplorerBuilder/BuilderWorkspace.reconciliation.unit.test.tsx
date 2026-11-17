@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { afterAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { act, fireEvent, render as renderUI, screen, waitFor, within } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
@@ -43,16 +43,9 @@ import type {
   ProposeConstructionChoicesArgs,
   ReconcileExplorerBuilderArgs,
 } from '../../api';
-import {
-  finishTrace,
-  startTrace,
-  traceInitialReconcileObservation,
-  traceReconcileAction,
-  type ReconcileTraceSnapshot,
-  writeTraces,
-} from '../../../testSupport/formalTrace';
 
-afterAll(() => writeTraces());
+
+
 
 const mockLoomClient = vi.hoisted(() => ({
   describeAuthoringNetwork: vi.fn(),
@@ -4412,6 +4405,52 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   });
 
   it('formal mounted reconcile race keeps B visible after late A settles', async () => {
+    type ReconcileSnapshot = {
+      readonly status: string;
+      readonly current: {
+        readonly modelKey: 'W1' | 'W2';
+        readonly draftVersion: number;
+        readonly draftDigest: string;
+        readonly snapshotToken: string;
+        readonly outputId: string;
+        readonly explorerId: string;
+        readonly provenance: {
+          readonly draftIdentity: 'rendered-dom';
+          readonly outputId: 'rendered-dom';
+          readonly snapshotToken: 'matching-reconcile-request';
+          readonly explorerId: 'matching-reconcile-request';
+        };
+      };
+      readonly request: {
+        readonly modelKey: 'A' | 'B';
+        readonly rawRequestId: string;
+        readonly workspaceKey: 'W1' | 'W2';
+        readonly draftVersion: number;
+        readonly draftDigest: string;
+        readonly snapshotToken: string;
+        readonly outputId: string;
+        readonly explorerId: string;
+      } | null;
+      readonly receipt: {
+        readonly snapshotToken: string;
+        readonly outputIds: ReadonlyArray<string>;
+        readonly modelKey: 'R1' | 'R2';
+        readonly receiptId: string;
+        readonly requestKey: 'A' | 'B';
+        readonly workspaceKey: 'W1' | 'W2';
+        readonly outputModelKey: 'O1' | 'O2';
+        readonly outputId: string;
+      } | null;
+      readonly returned: {
+        readonly requestKey: 'A' | 'B';
+        readonly receiptModelKey: 'R1' | 'R2';
+        readonly receiptId: string;
+        readonly workspaceKey: 'W1' | 'W2';
+        readonly outputModelKey: 'O1' | 'O2';
+        readonly outputId: string;
+        readonly outputIds: ReadonlyArray<string>;
+      } | null;
+    };
     type ReconcileKey = 'A' | 'B';
     type WorkspaceKey = 'W1' | 'W2';
     type ReceiptModelKey = 'R1' | 'R2';
@@ -4460,7 +4499,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     };
     const requestSnapshot = (
       call: CapturedReconcile | null,
-    ): ReconcileTraceSnapshot['request'] => {
+    ): ReconcileSnapshot['request'] => {
       if (!call) return null;
       const { args, modelKey } = call;
       const { requestId, outputId, explorerId, snapshotToken, draftVersion, draftDigest } = args;
@@ -4478,7 +4517,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     };
     const returnedSnapshot = (
       call: ReturnedReconcile | null,
-    ): ReconcileTraceSnapshot['returned'] => {
+    ): ReconcileSnapshot['returned'] => {
       if (!call) return null;
       const { modelKey, args, result } = call;
       const outputId = args.outputId;
@@ -4498,7 +4537,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       };
     };
     const latestSettledReconcile = (): ReturnedReconcile | null => returnedReconciles.at(-1) ?? null;
-    const mountedSnapshot = ({ eventCall }: { readonly eventCall: CapturedReconcile | null }): ReconcileTraceSnapshot => {
+    const mountedSnapshot = ({ eventCall }: { readonly eventCall: CapturedReconcile | null }): ReconcileSnapshot => {
       const constructionWorkspace = screen.getByTestId('construction-workspace');
       const constructionPreview = screen.getByTestId('construction-preview');
       const rawDraftVersion = constructionWorkspace.getAttribute('data-draft-version');
@@ -4611,7 +4650,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       diagnostics: [],
     } satisfies ExplorerBuilderPreviewResult));
 
-    startTrace('ReconcileLifecycle');
+
     mockUseActualReconcile.enabled = true;
     try {
       renderWithLoomClient(
@@ -4645,12 +4684,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         rawRequestId: requestA.args.requestId,
         workspaceKey: 'W1',
       });
-      traceInitialReconcileObservation(
-        requestASnapshot,
-        'RequestReconcile(A)',
-        'requestA',
-        'real reconcile hook/client; only reconcile fetch is deferred; other hook fixtures remain mocked',
-      );
+
       expect(requestA.args).toMatchObject({
         explorerId: 'test',
         snapshotToken: 'snapshot-1',
@@ -4704,12 +4738,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         rawRequestId: requestB.args.requestId,
         workspaceKey: 'W2',
       });
-      traceReconcileAction(
-        'WorkspaceChangeStartsReconcile(B)',
-        'workspaceChangeB',
-        requestBSnapshot,
-        'mounted workspace edit caused B through the real reconcile hook/client and deferred fetch transport',
-      );
+
 
       await act(async () => {
         pendingB.resolve(new Response(JSON.stringify(returnedB), {
@@ -4764,12 +4793,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         outputId: 'specimens',
         outputIds: ['specimens'],
       });
-      traceReconcileAction(
-        'ReconcileSuccess(B)',
-        'successB',
-        successSnapshot,
-        'deferred B HTTP response was parsed by the real client and rendered by BuilderWorkspace',
-      );
+
 
       await act(async () => {
         pendingA.resolve(new Response(JSON.stringify(returnedA), {
@@ -4812,18 +4836,13 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         outputId: 'specimens',
         outputIds: ['specimens'],
       });
-      traceReconcileAction(
-        'LateReconcileIgnored(A)',
-        'lateA',
-        lateASnapshot,
-        'deferred A HTTP response settled after B through the real client; mounted DOM retained B',
-      );
+
       expect(returnedCallA.result.receiptId).toBe('receipt-A');
       expect(returnedCallA.result.outputs.map((output) => output.outputId)).toEqual(['specimens']);
       expect(returnedCallB.result.receiptId).toBe('receipt-B');
       expect(returnedCallB.result.outputs.map((output) => output.outputId)).toEqual(['specimens']);
     } finally {
-      finishTrace();
+
     }
   });
 
