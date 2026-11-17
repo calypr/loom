@@ -122,7 +122,6 @@ vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: 
 vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
 vi.mock('./components/RowDefinitionSettingsPanel', () => ({ RowDefinitionSettingsPanel: () => null }));
-vi.mock('./components/TableShapeSettingsPanel', () => ({ TableShapeSettingsPanel: () => null }));
 vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;

@@ -63,7 +63,17 @@ For example, `git show 5646633e:verification/builder-interactions/BuilderOperati
 The [retained coverage decisions](RETAINED_COVERAGE_DECISIONS.md) record browser and database boundaries already recovered.
 The [feature map](../../.codex/skills/builder-interaction-formal-verification/features/README.md) names current execution routes.
 This reference is not a new runtime catalog or a pass gate. Update a disposition when the replacement has executable evidence.
+# FE-17 step 1 retired verification guarantees
 
+Recovery point: commit `45879f3b2` (the immutable source snapshot used for this isolated FE-17 worktree).
+
+Retired checks: `TableShapeSettingsPanel.unit.test.tsx`, `TableShapeEditor.unit.test.tsx`, `TableShapeComparison.unit.test.tsx`, and `tableShapeController.unit.test.ts` covered TableShape-specific stale catalog/epoch behavior, proposal preview/review state, and settings editing. Their source is recoverable with `git show 45879f3b2:<path>`.
+
+Replacement scope: production Builder reshape uses Construction; retain its `ConstructionReshapeEditor.*.unit.test.tsx` coverage. This is a scoped retirement record, not a claim that every prior TableShape assertion is behaviorally equivalent.
+
+Also retired stale automation/test scaffolding: the `legacy.table_shape.grouped_pivot` and `legacy.table_shape.unpivot` adapters in `testSupport/builderContractAdapters/shapeCombine.ts`, the derived TableShape adapter in `core.ts`, the orphan `ConstructionSourcePicker.unit.test.tsx` panel test, and TableShape-only mock setup in BuilderWorkspace tests. These all targeted a panel no production entry renders. Recover from the same commit if needed.
+
+Additional FE-17 step 1 retirements: `ConstructionOperationsPanel.unit.test.tsx` covered orphaned operation-panel selection and proposal interactions. Removed TableShape cases in `api.unit.test.ts` and `types.unit.test.ts` covered legacy endpoint request mapping, scalar/comparison evidence strictness, and proposal catalog/receipt identity validation. Recover these checks at `45879f3b2` using the original paths. These promises target the retired client layer; live Construction coverage remains separately maintained.
 # WP-1 retired helper guarantees
 
 Source recovery point: immutable base commit `45879f3b2` (`feature/default-recipe-authoring` HEAD used for the detached WP-1 worktree). The removed definitions can be recovered from that commit with `git show 45879f3b2:<path>`.

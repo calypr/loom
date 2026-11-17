@@ -62,10 +62,6 @@ const mockLoomClient = vi.hoisted(() => ({
   searchPopulationRoutes: vi.fn(),
   createSelection: vi.fn(),
   configuredColumnContextsQuery: vi.fn(),
-  getTableShapeCapabilities: vi.fn(),
-  discoverTableShapeCategories: vi.fn(),
-  resolveTableShape: vi.fn(),
-  proposeTableShape: vi.fn(),
   getConstructionCapabilities: vi.fn(),
   getConstructionInputs: vi.fn(),
   discoverConstructionCategories: vi.fn(),
@@ -622,40 +618,6 @@ const receipt = {
   diagnostics: [],
 };
 
-const tableShapeCapabilities = {
-  catalogId: 'shape-catalog', outputId: 'specimens',
-  reshapeModes: [{ choiceId: 'mode-none', choiceKind: 'reshapeMode', label: 'Keep columns', mode: 'NONE', availability: { kind: 'supported' } }],
-  groupColumns: [], categoryColumns: [], valueColumns: [], pivotCategoryDiscovery: { kind: 'not-requested' },
-  duplicatePolicies: [], missingCellPolicies: [], unlistedCategoryPolicies: [], unpivotColumns: [],
-  unpivotKeyOutput: { kind: 'unsupported', reason: 'No key is available.' },
-  unpivotValueOutput: { kind: 'unsupported', reason: 'No value is available.' },
-  unpivotNullRowPolicies: [], derivedAvailability: { kind: 'supported' },
-  unpivotWithDerivedAvailability: { kind: 'unsupported', reason: 'Not supported after unpivot.' },
-  derivedOutputSuggestions: [{
-    choiceId: 'suggestion-calculated', choiceKind: 'derivedOutput', label: 'Calculated value',
-    availability: { kind: 'supported' }, resultTypeLabel: 'number',
-    suggestedOutput: { column: 'calculated', label: 'Calculated value' },
-  }],
-  binaryOperators: [{
-    choiceId: 'operator-add', choiceKind: 'binaryOperator', label: 'Add', availability: { kind: 'supported' },
-    requiresDivisionByZeroPolicy: false,
-  }],
-  operands: [
-    { choiceId: 'weight', choiceKind: 'operand', label: 'Weight', availability: { kind: 'supported' } },
-    { choiceId: 'height', choiceKind: 'operand', label: 'Height', availability: { kind: 'supported' } },
-  ],
-  missingInputPolicies: [{ choiceId: 'missing-propagate', choiceKind: 'missingInputPolicy', label: 'Propagate missing', availability: { kind: 'supported' } }],
-  divisionByZeroPolicies: [],
-  savedProposalIntent: { kind: 'NONE', reshapeMode: { kind: 'reshapeMode', choiceId: 'mode-none' }, derivedColumns: [] },
-  savedProposalAvailability: { kind: 'supported' },
-};
-const tableShapeComparison = {
-  status: 'AVAILABLE', base: { rowCount: 1, sampled: false }, candidate: { rowCount: 1, sampled: false },
-  changedColumns: [], changedRowCount: 0, changedRowsSampled: false, changedRows: [],
-  contributors: [], contributorsSampled: false, evidenceLimitations: [], notices: [],
-  exclusions: { status: 'COMPLETE', records: [], complete: true, sampled: false },
-  declaredInformationLoss: { status: 'COMPLETE', items: [] },
-};
 
 const resolvedRequest = <T,>(value: T) => ({
   unwrap: vi.fn().mockResolvedValue(value),
@@ -961,16 +923,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: true,
       isFetching: true,
       refetch: vi.fn(),
-    });
-    mockLoomClient.getTableShapeCapabilities.mockResolvedValue(tableShapeCapabilities);
-    mockLoomClient.discoverTableShapeCategories.mockResolvedValue({});
-    mockLoomClient.resolveTableShape.mockResolvedValue({
-      catalogId: 'shape-catalog', resolutionId: 'derived-resolution', kind: 'DERIVED', outputDescriptors: [], postPivotOperands: [],
-    });
-    mockLoomClient.proposeTableShape.mockResolvedValue({
-      proposalId: 'shape-proposal', baseReceiptId: 'receipt-1', baseDocumentDigest: 'document-1',
-      candidateWorkspaceDigest: 'candidate-1', draftDigest: 'sha256:draft-1', draftVersion: 1,
-      mode: 'ADD', outputId: 'specimens', snapshotToken: 'snapshot-1', comparison: tableShapeComparison,
     });
     mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
       readonly snapshotToken: string;

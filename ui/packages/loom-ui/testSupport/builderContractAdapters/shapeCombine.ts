@@ -27,8 +27,6 @@ const IDS = {
   append: 'builder.combine.append',
   keyJoin: 'builder.combine.key_join',
   membership: 'builder.combine.membership',
-  legacyPivot: 'legacy.table_shape.grouped_pivot',
-  legacyUnpivot: 'legacy.table_shape.unpivot',
   expandedRows: 'builder.row_definition.expanded_source_rows',
   explicitGroups: 'builder.row_definition.explicit_groups',
   rowShape: 'builder.row_definition.rows_per_starting_record',
@@ -519,62 +517,6 @@ const driveMembership = async (input: AdapterInput): Promise<void> => {
   await configureCombine(input, 'MEMBERSHIP');
 };
 
-const driveLegacyGroupedPivot = async (input: AdapterInput): Promise<void> => {
-  requireAction(input, IDS.legacyPivot, 'driveLegacyGroupedPivot');
-  await click('ui04-open-table-shape-settings');
-  await screen.findByTestId('ui04-reshape-mode');
-  await selectValue('Reshape mode', requiredId(input, 'reshape_mode'));
-  const groups = listValues(input, 'group_column');
-  for (const group of groups) {
-    if (!isRecord(group) || !nonEmptyString(group.label)) throw new Error('group_column items must include their visible choice label.');
-    await setCheckbox(`Pivot group columns: ${group.label}`, true);
-  }
-  await selectValue('Pivot category column', requiredId(input, 'category_column'));
-  await selectValue('Pivot value column', requiredId(input, 'value_column'));
-  await click('ui04-pivot-discover-categories');
-  await screen.findByTestId('ui04-pivot-category-discovery-state', {}, { timeout: 30_000 });
-  const categories = listValues(input, 'included_category');
-  if (categories.length === 0) throw new Error('Legacy grouped pivot requires one or more discovered categories.');
-  for (const category of categories) {
-    const label = isRecord(category) ? nonEmptyString(category.label) : nonEmptyString(category);
-    if (!label) throw new Error('included_category items must include their visible label.');
-    await setCheckbox(`Include ${label} category`, true);
-  }
-  const policies = dimension(input, 'pivot_policy_choices');
-  if (!isRecord(policies)) throw new Error('pivot_policy_choices must include duplicate, missing-cell, and unlisted choices.');
-  await selectValue('Duplicate cell policy', requiredPairId(policies, ['duplicate', 'duplicatePolicy']));
-  await selectValue('Missing cell policy', requiredPairId(policies, ['missing', 'missingCellPolicy']));
-  await selectValue('Unlisted category policy', requiredPairId(policies, ['unlisted', 'unlistedCategoryPolicy']));
-  await click('ui04-preview-table-shape');
-  await screen.findByTestId('ui04-confirm-table-shape', {}, { timeout: 30_000 });
-  await clickRequestApplyIfCommand(input, 'ui04-confirm-table-shape');
-};
-
-const driveLegacyUnpivot = async (input: AdapterInput): Promise<void> => {
-  requireAction(input, IDS.legacyUnpivot, 'driveLegacyUnpivot');
-  await click('ui04-open-table-shape-settings');
-  await screen.findByTestId('ui04-reshape-mode');
-  await selectValue('Reshape mode', requiredId(input, 'reshape_mode'));
-  const inputIds = listIds(input, 'input_column');
-  if (inputIds.length === 0) throw new Error('Legacy unpivot requires at least one input column.');
-  const inputChoices = listValues(input, 'input_column');
-  for (let index = 0; index < inputIds.length; index += 1) {
-    const choice = inputChoices[index];
-    if (!isRecord(choice) || !nonEmptyString(choice.label)) throw new Error('input_column items must include their visible column label.');
-    await setCheckbox(`Unpivot input columns: ${choice.label}`, true);
-  }
-  const keyOutput = textPair(dimension(input, 'key_output'), 'key_output');
-  const valueOutput = textPair(dimension(input, 'value_output'), 'value_output');
-  await textValue('Unpivot key output column', keyOutput.name);
-  await textValue('Unpivot key output label', keyOutput.label);
-  await textValue('Unpivot value output column', valueOutput.name);
-  await textValue('Unpivot value output label', valueOutput.label);
-  await selectValue('Unpivot null-row policy', requiredId(input, 'null_row_policy'));
-  await click('ui04-preview-table-shape');
-  await screen.findByTestId('ui04-confirm-table-shape', {}, { timeout: 30_000 });
-  await clickRequestApplyIfCommand(input, 'ui04-confirm-table-shape');
-};
-
 const driveCodedPivot = async (input: AdapterInput): Promise<void> => {
   requireAction(input, IDS.codedPivot, 'driveCodedPivot');
   await openReshapeChooser('reshape');
@@ -824,28 +766,6 @@ const shapeCombineAdapters = {
       'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx:749',
     ],
     drive: driveMembership,
-  },
-  [IDS.legacyPivot]: {
-    adapterId: `shape-combine.${IDS.legacyPivot}`,
-    runnerActionId: 'driveLegacyGroupedPivot',
-    sourceRefs: [
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4865',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:344',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx:165',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/components/GroupedPivotEditor.tsx:79',
-    ],
-    drive: driveLegacyGroupedPivot,
-  },
-  [IDS.legacyUnpivot]: {
-    adapterId: `shape-combine.${IDS.legacyUnpivot}`,
-    runnerActionId: 'driveLegacyUnpivot',
-    sourceRefs: [
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4865',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:344',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx:165',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/components/UnpivotEditor.tsx:15',
-    ],
-    drive: driveLegacyUnpivot,
   },
   [IDS.expandedRows]: {
     adapterId: `shape-combine.${IDS.expandedRows}`,
