@@ -279,3 +279,40 @@ func TestConstructionBaseCacheEvictsOldestEntry(t *testing.T) {
 		t.Fatal("cache entry c should remain")
 	}
 }
+
+func TestTTLCacheSamplesPutClockWhileLocked(t *testing.T) {
+	now := time.Unix(100, 0)
+	var cache *ttlCache[string, string]
+	sampledWhileLocked := false
+	cache = newTTLCache[string, string](time.Minute, 2, func() time.Time {
+		if cache.mu.TryLock() {
+			cache.mu.Unlock()
+		} else {
+			sampledWhileLocked = true
+		}
+		return now
+	}, time.Minute, 2)
+
+	cache.Put("key", "value")
+	if !sampledWhileLocked {
+		t.Fatal("generic Put sampled its clock before acquiring the cache lock")
+	}
+}
+
+func TestConstructionBaseCacheSamplesClockBeforeLock(t *testing.T) {
+	now := time.Unix(100, 0)
+	var cache *constructionBaseCache
+	sampledUnlocked := false
+	cache = newConstructionBaseCache(time.Minute, 2, func() time.Time {
+		if cache.entries.mu.TryLock() {
+			sampledUnlocked = true
+			cache.entries.mu.Unlock()
+		}
+		return now
+	})
+
+	cache.Put(constructionBaseCacheKey{OutputID: "out"}, constructionBaseCacheValue{})
+	if !sampledUnlocked {
+		t.Fatal("construction base cache sampled its clock after acquiring the cache lock")
+	}
+}
