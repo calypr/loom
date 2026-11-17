@@ -11,6 +11,58 @@ API/UI smoke checks in a disposable Compose project. The verification project
 and its volumes are removed after evidence is exported; the canonical project
 and its data remain available.
 
+## Run the acceptance checks
+
+Prerequisites: Docker with Compose, Git, the repository's Go toolchain, `jq`,
+`python3`, and standard shell tools. Browser smoke also needs Chrome/Chromium.
+A cold fixture fetch needs network access to the locked FHIR source. A warm,
+validated fixture cache needs no upstream requests. Install UI dependencies
+when running local browser/component checks.
+
+From the repository root:
+
+```sh
+make acceptance-real
+make acceptance-performance
+```
+
+`acceptance-real` is an active deployment command: it rebuilds and redeploys
+canonical `loom-demo`, then runs correctness and browser smoke in a generated
+Compose project. Do not use it as a passive Doctor. Performance uses generated
+base/current variants. Run against the requested checkout; an already running
+server from another checkout cannot establish its behavior.
+
+The scripts support `LOOM_ACCEPTANCE_ARTIFACTS` and
+`LOOM_ACCEPTANCE_FIXTURE_CACHE` overrides. Set `LOOM_ACCEPTANCE_BASE_REF` for
+an explicit performance base. `LOOM_ACCEPTANCE_BROWSER_SMOKE=false` omits
+browser smoke when Chrome is unavailable; report that gap. API/UI smoke still
+runs. `go run ./cmd/loom-acceptance --refresh-fixture --fixture-lock <path>`
+explicitly refreshes fixture metadata; review IDs/digests and oracle changes
+separately.
+
+## Doctor and cleanup
+
+After correctness succeeds, require all of the following:
+
+- `.artifacts/acceptance/<id>/report.json` has `status: "PASSED"`.
+- `cleanup.json` has string `status: "0"` and `cleanup_status: "0"`.
+- `cleanup.json` names `loom-demo` as `deployment_project` and a generated
+  `loom-acceptance-<id>` as `acceptance_project` for the normal correctness run.
+- `docker compose --project-name loom-demo ps` shows canonical services running.
+- `docker compose ls --all` shows no generated acceptance project from that run.
+
+Canonical readiness at `http://127.0.0.1:8080/readyz` and the UI at port 3080
+are useful health checks; neither replaces the isolated fixture proof.
+Preserve `report.json`, `cleanup.json`, normalized responses, timings, service
+and image listings, and browser output, including on failure. Evidence survives
+generated-project teardown. The fixture cache is reusable input, not a report.
+
+Only generated owned projects may be passed to `demo-down --volumes`.
+Never target canonical `loom-demo`: its volumes contain user working data.
+Correctness owns its generated project cleanup; performance owns each variant
+and retries teardown from its EXIT trap. Inspect cleanup evidence after failure
+or interruption; cleanup failure cannot count as a passing acceptance run.
+
 ## Fixture contract
 
 The fixture is a locked cohort of 100 TCGA-BRCA Patients from `ResearchStudy/638f6162-e000-5167-8216-962d86b74a98` at `https://google-fhir.fhir-aggregator.org`.
@@ -64,7 +116,7 @@ latest_collection_day
 
 The oracle makes coverage readable in addition to checking the exact normalized row digest. It requires stage, pairing, specimen counts, and collection range for all 100 patients; age at diagnosis for 98; diagnostic method for 88; days to death for 6; race for 89; and ethnicity for 84.
 
-The acceptance command checks that every requested field and traversal exists in the generation catalog before publication. It does not weaken the workspace when a path is missing.
+The acceptance command creates a test-only catalog Explorer to check that every requested field and traversal exists in the generation catalog before publication. The current checkout supplies that server through the generated Compose project. It does not weaken the workspace when a path is missing. Publication then reads the default Explorer viewer projection; the temporary catalog Explorer is not that published Viewer.
 
 ## Command contract
 
@@ -139,7 +191,7 @@ The command performs these checks:
 4. Publish the checked-in workspace through the repository Explorer route.
 5. Resolve the ClickHouse table through the returned execution ID and the Arango publication registry.
 6. Compare the physical schema, row count, and unique Patient count with the checked-in oracle.
-7. Require a non-empty Explorer viewer state containing the publication recipe.
+7. Require the default Explorer viewer state to be non-empty and contain the publication recipe.
 8. Query GraphQL dataset metadata, sorted rows, counts, and facets. Require numeric `rowCount` and `totalCount`, array-shaped `rows`, and reject any GraphQL `errors` value. Compare per-column coverage and boolean truth counts with the readable oracle, then compare the normalized rows with the exact `row_digest`.
 9. Publish the same workspace again and prove that its execution and selector are unchanged.
 
@@ -178,7 +230,7 @@ internal/acceptance/                 Fixture, target, scenario, evidence, and co
 testdata/acceptance/ncpi-tcga-brca/ Fixture lock, provenance, workspace, GraphQL document, and oracle
 scripts/acceptance-real.sh          Stable local entry point
 scripts/acceptance-performance.sh   Same-machine base/current regression driver
-.codex/skills/verify-loom/          Agent-facing launch, drive, evidence, and cleanup instructions
+.codex/skills/verify-loom/          Agent-facing pointer to this runbook
 ```
 
 The commands write `report.json`, normalized responses, timings, cleanup proofs, service logs, and `performance.json` under `.artifacts/acceptance/`. Reports exclude credentials and raw FHIR payloads.

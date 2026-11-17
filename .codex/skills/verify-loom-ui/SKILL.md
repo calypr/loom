@@ -1,58 +1,84 @@
 ---
 name: verify-loom-ui
-description: Drive the locally deployed authenticated Calypr Explorer Builder through Chrome and diagnose frontend-to-Loom V2 contract failures without manual screenshots.
+description: Check authenticated Builder loading on an external Calypr deployment through real Chrome, preserving sanitized API and browser evidence.
 ---
 
-# Verify Loom UI
+# Verify authenticated Calypr Builder loading
 
-Use this for the local `caliper-training.ohsu.edu` Builder surface. It drives a disposable Chrome profile through the real reverse proxy and preserves sanitized evidence under `.artifacts/loom-ui/`.
+Use the existing external Calypr deployment at `caliper-training.ohsu.edu`.
+That deployment is not managed in this repository. Do not start, redeploy, or
+modify it as part of this read-only check. The helper launches its own temporary
+Chrome profile and uses the deployed frontend and reverse proxy.
 
-## Launch
+## Credentials and prerequisites
 
-The harness uses the already deployed local Kubernetes stack and installed Google Chrome. Do not start a second frontend or Loom instance.
+Provide a short-lived access token through `LOOM_E2E_TOKEN` or a mode `0600`
+file. `LOOM_E2E_TOKEN_FILE` supplies the file default; `--token-file` overrides
+it. Never put a token in a prompt, command output, or committed artifact.
+Node and an installed Chrome/Chromium executable are required.
 
-Provide a short-lived token through `LOOM_E2E_TOKEN` or a mode `0600` file passed with `--token-file`. Never paste the token into a prompt or command output.
+| Option | Environment/default |
+|---|---|
+| `--chrome PATH` | `LOOM_E2E_CHROME`, otherwise the macOS Google Chrome path. Pass `/usr/bin/chromium` on Linux when appropriate. |
+| `--artifacts PATH` | `LOOM_E2E_ARTIFACTS`, otherwise `.artifacts/loom-ui`. |
+| `--settle-ms N` | Browser settle interval, default 3000; allowed range 0–30000. |
+| `--page-url URL` | External Builder page; defaults to the HTAN_INT/BForePC project and Explorer `test`. |
+| `--api-url URL` | Matching Builder V2 API; override together with the page URL. |
+
+The default API project segment is `HTAN_INT%252FBForePC`. The frontend's
+`canonicalProject` and `encodedProject` functions in `ui/packages/loom-ui/src/api.ts`
+canonicalize the project and encode its slash twice for proxy routing. Commit
+`646988017` preserves the supplied ingest storage identity; it does not change
+this frontend route encoding. Verify the API and page refer to the same project
+and Explorer when overriding either URL.
 
 ## Doctor
 
-Run the authenticated Builder API minimum-envelope probe before opening Chrome:
-
-```bash
+```sh
 node .codex/skills/verify-loom-ui/scripts/verify.mjs doctor --token-file /path/to/token
 ```
 
-Proceed only when it reports `DOCTOR_PASSED`. `AUTH_REQUIRED`, `FORBIDDEN`, `API_FAILED`, and `CONTRACT_FAILED` identify the boundary that failed. Doctor checks the stable state, draft, workspace, and catalog envelopes. It does not duplicate the frontend's complete nested Zod schema. A `drive` result is the authoritative frontend compatibility proof.
+Require `DOCTOR_PASSED` before drive. `AUTH_REQUIRED`, `FORBIDDEN`, `API_FAILED`,
+and `CONTRACT_FAILED` identify API boundary failures. Doctor checks the stable
+state, draft, workspace, and catalog envelopes; it does not duplicate the full
+frontend decoder or prove rendered compatibility.
 
 ## Drive
 
-Run the real browser path:
-
-```bash
+```sh
 node .codex/skills/verify-loom-ui/scripts/verify.mjs drive --token-file /path/to/token
 ```
 
-Override `--page-url` and `--api-url` together for another project or Explorer. The browser sends the bearer credential through the same host used by the deployed frontend. It probes the V2 Builder API envelope, loads the page through the frontend's real runtime decoder, detects authentication redirects and the no-V1-fallback error, and records browser warnings.
+The browser sends the bearer credential through the deployed frontend's host,
+loads Builder, and records authentication redirects, document errors, failed
+requests, console errors, and the rendered load-failure UI.
 
-Read [features/README.md](features/README.md) before testing a different Builder feature.
+`Couldn’t load this dataset.` must appear in a visible `role="alert"` with an
+enabled `Try again` button inside that same alert to form a complete failure UI.
+A load failure always produces `UI_FAILED`, including text without the alert,
+an alert without retry, a visible retry outside the failure alert, and disabled
+retry controls.
+`browser.loadFailure.complete` distinguishes complete error recovery controls
+from partial error UI. Drive does not click retry or mutate the Explorer.
 
-## Evidence
+Require `PASSED` for a clean browser-load result. `UI_WARNINGS` is recorded
+separately and exits zero; inspect its failed requests and console errors rather
+than reporting it as a clean pass. A Next.js `builder.json` HTTP 200 alone does
+not establish that Loom Builder state loaded. See [coverage](features/README.md).
 
-Each run creates a permission-restricted timestamped directory containing:
+## Evidence and cleanup
 
-- `report.json` with the API contract summary, final browser URL, console errors, failed requests, and relevant response statuses.
-- `builder-response.json` with the credential-sanitized V2 response.
-- `page.png` and `page.html` for browser runs.
+Each run writes a permission-restricted timestamped directory with `report.json`,
+credential-sanitized `builder-response.json`, and browser `page.png`/`page.html`.
+Reports retain target and snapshot identity without bearer credentials. Keep
+artifacts local. Do not add raw HAR files or traces containing headers/cookies.
 
-The report never includes the bearer credential. Do not add raw HAR or trace files because they can retain authorization headers and cookies. A valid proof uses the API result and rendered page together. A 200 response from Next.js `builder.json` alone is not proof that Loom Builder state loaded.
+The helper terminates only its own Chrome process and removes its temporary
+profile. Evidence survives. It does not change projects, Explorers, databases,
+or external infrastructure. Record unavailable authenticated browser acceptance
+as unverified; deterministic helper tests cannot substitute for it.
 
-## Cleanup
-
-The helper terminates only the Chrome process it starts and removes its temporary profile. It never modifies the project, Explorer, databases, or Kubernetes resources. Evidence survives cleanup.
-
-## Helpers
-
-Run deterministic helper tests with:
-
-```bash
+```sh
+node --check .codex/skills/verify-loom-ui/scripts/verify.mjs
 node --test .codex/skills/verify-loom-ui/scripts/verify.test.mjs
 ```

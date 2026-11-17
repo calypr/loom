@@ -10,7 +10,6 @@ import { CDPClient } from "../../../../scripts/browser/cdp.mjs";
 const DEFAULT_PAGE_URL = "https://caliper-training.ohsu.edu/org/HTAN_INT/project/BForePC/explorers/builder?explorerId=test";
 const DEFAULT_API_URL = "https://caliper-training.ohsu.edu/loom/api/v1/projects/HTAN_INT%252FBForePC/explorers/test/authoring/v2/builder";
 const DEFAULT_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const FAILURE_TEXT = "Loom’s V2 Builder state could not be loaded. This Builder has no V1 fallback.";
 const SECRET_KEYS = new Set(["authorization", "cookie", "set-cookie", "access_token", "refresh_token", "id_token"]);
 const BUILDER_STATE_KEYS = new Set(["apiVersion", "kind", "lifecycleState", "draftVersion", "draftDigest", "workspace", "catalog"]);
 const BUILDER_WORKSPACE_KEYS = new Set(["apiVersion", "kind", "semanticsVersion", "migrationDecisions", "explorer", "documents", "tabs", "sharedFilters", "fileActions"]);
@@ -142,11 +141,34 @@ export function summarizeBuilder(status, body, headers = {}) {
   return summary;
 }
 
+export function inspectBuilderLoadFailure(document) {
+  const failureText = "Couldn’t load this dataset.";
+  const visible = (element) => {
+    const style = document.defaultView.getComputedStyle(element);
+    return element.getClientRects().length > 0
+      && style.visibility !== "hidden" && style.visibility !== "collapse"
+      && style.display !== "none";
+  };
+  const alerts = [...document.querySelectorAll('[role="alert"]')].filter(visible);
+  const failureAlerts = alerts.filter((alert) => alert.innerText.includes(failureText));
+  const retryButtons = (alert) => [...alert.querySelectorAll("button")]
+    .filter((button) => button.innerText.trim() === "Try again" && visible(button));
+  const textVisible = (document.body?.innerText ?? "").includes(failureText);
+  const alertVisible = failureAlerts.length > 0;
+  const retryVisible = [...document.querySelectorAll("button")].some((button) =>
+    button.innerText.trim() === "Try again" && visible(button));
+  const retryEnabled = failureAlerts.some((alert) =>
+    retryButtons(alert).some((button) => !button.matches(":disabled")));
+  return { textVisible, alertVisible, retryVisible, retryEnabled,
+    complete: alertVisible && retryEnabled };
+}
+
 export function classifyResult(api, browser) {
   if (api.result !== "PASSED") return api.result;
   if (!browser) return "DOCTOR_PASSED";
   if (browser.authRedirected || browser.authPromptVisible) return "BROWSER_AUTH_REQUIRED";
-  if (browser.fallbackVisible || browser.responses?.some((response) =>
+  if (browser.loadFailure?.textVisible || browser.loadFailure?.alertVisible
+      || browser.loadFailure?.retryVisible || browser.responses?.some((response) =>
     response.type === "Document" && response.status >= 400
     && response.url === browser.finalUrl)) return "UI_FAILED";
   if (browser.failedRequests.length || browser.consoleErrors.length) return "UI_WARNINGS";
@@ -302,7 +324,7 @@ async function runBrowser(options, authorization, artifactDir) {
     await new Promise((resolve) => setTimeout(resolve, options.settleMs));
 
     const evaluated = await client.send("Runtime.evaluate", {
-      expression: `JSON.stringify({url: location.href, title: document.title, text: document.body?.innerText ?? "", html: document.documentElement?.outerHTML ?? ""})`,
+      expression: `JSON.stringify({url: location.href, title: document.title, text: document.body?.innerText ?? "", html: document.documentElement?.outerHTML ?? "", loadFailure: (${inspectBuilderLoadFailure.toString()})(document)})`,
       returnByValue: true,
     });
     const page = JSON.parse(evaluated.result.value);
@@ -315,7 +337,7 @@ async function runBrowser(options, authorization, artifactDir) {
       title: page.title,
       authRedirected: /\/login|\/user\/login|oauth|authorize/i.test(page.url),
       authPromptVisible: /Protected Content/i.test(page.text) && /log in to your account/i.test(page.text),
-      fallbackVisible: page.text.includes(FAILURE_TEXT),
+      loadFailure: page.loadFailure,
       bodyPreview: sanitizeValue(page.text.slice(0, 4000), secrets),
       consoleErrors,
       failedRequests,
@@ -368,7 +390,7 @@ async function main() {
   await writeFile(path.join(artifactDir, "report.json"), `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
   console.log(`loom-ui ${result.result} artifacts=${artifactDir}`);
   console.log(`api status=${result.api.httpStatus} kind=${result.api.kind ?? "none"} request_id=${result.api.requestId ?? "none"}`);
-  if (browser) console.log(`browser url=${browser.finalUrl} auth_prompt=${browser.authPromptVisible} fallback=${browser.fallbackVisible} console_errors=${browser.consoleErrors.length} failed_requests=${browser.failedRequests.length}`);
+  if (browser) console.log(`browser url=${browser.finalUrl} auth_prompt=${browser.authPromptVisible} load_failure=${browser.loadFailure.textVisible || browser.loadFailure.retryVisible} load_failure_ui_complete=${browser.loadFailure.complete} console_errors=${browser.consoleErrors.length} failed_requests=${browser.failedRequests.length}`);
   if (!["PASSED", "DOCTOR_PASSED", "UI_WARNINGS"].includes(result.result)) process.exitCode = 1;
 }
 
