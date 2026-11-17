@@ -246,9 +246,6 @@ func ClonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 func ClonePhysicalOperations(operations []PhysicalOperation) []PhysicalOperation {
 	return clonePhysicalOperations(operations)
 }
-func ClonePhysicalPredicateExpression(predicate PhysicalPredicateExpression) PhysicalPredicateExpression {
-	return clonePhysicalPredicateExpression(predicate)
-}
 func ClonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	return clonePhysicalExpression(expression)
 }
