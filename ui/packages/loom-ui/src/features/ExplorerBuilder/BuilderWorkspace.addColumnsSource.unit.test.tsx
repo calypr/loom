@@ -772,13 +772,15 @@ describe('BuilderWorkspace Add columns source selection', () => {
       snapshotToken: args.snapshotToken,
       sources: [],
     }));
-    mockLoomClient.browseSemanticInventory.mockReset().mockResolvedValue({
+    mockLoomClient.browseSemanticInventory.mockReset().mockImplementation(async ({ query, resourceType }: Parameters<LoomClient['browseSemanticInventory']>[0]) => ({
       contextToken: 'semantic-context',
       buildId: 'semantic-build',
       state: 'complete',
       sourceAvailability: 'verified',
-      entries: [],
-    });
+      entries: query === 'identifier' && resourceType === 'Patient'
+        ? [{ resourceType, sourcePath: 'identifier[]', system: 'urn:patient', occurrences: 1 }]
+        : [],
+    }));
     mockLoomClient.getConstructionCapabilities.mockReset().mockImplementation(async (args: {
       readonly snapshotToken: string;
       readonly expectedDraftVersion: number;
@@ -1103,9 +1105,13 @@ describe('BuilderWorkspace Add columns source selection', () => {
     const panel = screen.getByRole('tabpanel', { name: 'Advanced' });
     expect(within(panel).getByRole('list', { name: 'Column rules' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Extensions' })).toBeDisabled();
-    expect(within(panel).getByRole('button', { name: 'Category codings' })).toBeEnabled();
-    expect(within(panel).getByRole('button', { name: 'Catalog fields' })).toBeEnabled();
-    fireEvent.click(within(panel).getByRole('button', { name: 'Identifiers' }));
+    expect(within(panel).getByRole('button', { name: 'Category codings' })).toBeDisabled();
+    expect(await within(panel).findByText('No category codings were observed for this resource type.')).toBeInTheDocument();
+    expect(await within(panel).findByText('No extension paths with values were observed for this resource type.')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Catalog fields' })).toBeInTheDocument();
+    const identifiers = within(panel).getByRole('button', { name: 'Identifiers' });
+    await waitFor(() => expect(identifiers).toBeEnabled());
+    fireEvent.click(identifiers);
     expect(within(panel).getByRole('heading', { name: 'Columns from identifiers' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Review column rule' })).toBeEnabled();
     expect(within(panel).queryByRole('button', { name: /identifier_keys|extension_keys/ })).not.toBeInTheDocument();
@@ -1140,7 +1146,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
     renderImportedBuilder();
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Identifiers' }));
+    const identifiers = screen.getByRole('button', { name: 'Identifiers' });
+    await waitFor(() => expect(identifiers).toBeEnabled());
+    fireEvent.click(identifiers);
 
     const systems = screen.getByRole('region', { name: 'Observed identifier systems' });
     expect(await within(systems).findByText('urn:first')).toBeInTheDocument();
@@ -1197,7 +1205,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
 
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
     fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Identifiers' }));
+    const identifiers = screen.getByRole('button', { name: 'Identifiers' });
+    await waitFor(() => expect(identifiers).toBeEnabled());
+    fireEvent.click(identifiers);
     fireEvent.click(screen.getByRole('button', { name: 'Review column rule' }));
     fireEvent.click(screen.getByRole('button', { name: 'Preview column rule' }));
     const first = mockLoomClient.proposeSourceRelationship.mock.calls[0];

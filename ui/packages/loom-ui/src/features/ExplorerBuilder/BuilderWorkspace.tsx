@@ -1345,11 +1345,15 @@ const BuilderWorkspaceContent = ({
     resourceType: graphSource?.resourceType ?? table.document.rootResourceType,
     label: graphOccurrence?.path ?? table.document.rootResourceType,
   } : undefined;
+  const removedRuleOccurrence = Boolean(state.selectedOccurrenceId &&
+    table?.document.importedSource?.relationships?.removals?.includes(state.selectedOccurrenceId));
   const ruleUnavailableReason = !table?.document.importedRecipe
     ? 'Column rules are available on imported recipe tables.'
-    : graphSource && !graphSource.isRoot && !graphSource.nodeId
-      ? 'This graph occurrence is unavailable.'
-      : undefined;
+    : removedRuleOccurrence
+      ? 'The selected graph occurrence was removed.'
+      : graphSource && !graphSource.isRoot && !graphSource.nodeId
+        ? 'This graph occurrence is unavailable.'
+        : undefined;
   const ruleInventoryScope = {
     project: projectId, explorerId: state.explorerId, authResourcePath,
     snapshotToken: state.catalog.snapshotToken,
@@ -1357,7 +1361,7 @@ const BuilderWorkspaceContent = ({
     resourceType: ruleOccurrence?.resourceType ?? '',
   };
   const ruleFieldPaths = Array.from(new Set((state.catalog.candidates ?? [])
-    .filter(candidate => candidate.nodeId === graphSource?.nodeId && candidate.fieldPath)
+    .filter(candidate => candidate.nodeId === graphSource?.nodeId && candidate.populated !== false && candidate.fieldPath)
     .map(candidate => ruleOccurrence && candidate.fieldPath.startsWith(`${ruleOccurrence.resourceType}.`)
       ? candidate.fieldPath.slice(ruleOccurrence.resourceType.length + 1) : candidate.fieldPath))).sort();
   const operationEditor = table && activeOperation ? (
@@ -1390,6 +1394,7 @@ const BuilderWorkspaceContent = ({
       reviewingAdvancedColumns={reviewingAdvancedColumns}
       columnRulesUnavailableReason={ruleUnavailableReason}
       columnRuleInventoryScope={ruleInventoryScope}
+      hasCatalogRuleFields={ruleFieldPaths.length > 0}
       renderColumnRule={(preset, inventory) => {
         const defaults = columnRuleDefaults[preset.id];
         const extensionPath = inventory.extensionPaths[0];

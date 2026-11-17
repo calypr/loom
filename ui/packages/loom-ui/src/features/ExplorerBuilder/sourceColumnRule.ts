@@ -19,9 +19,9 @@ export const isCategoryCodingRule = (rule: DynamicParameters): boolean =>
 
 export const columnRulePresets = [
   { id: 'identifier', kind: 'DYNAMIC_COLUMN', label: 'Identifiers', description: 'Generate one column for each identifier system.' },
-  { id: 'extension', kind: 'EXTENSION_COLUMN', label: 'Extensions', description: 'Generate one column for each extension URL at the selected path.' },
+  { id: 'extension', kind: 'EXTENSION_COLUMN', label: 'Extensions', description: 'Generate one column for each extension URL at or below the selected path.' },
   { id: 'categoryCoding', kind: 'DYNAMIC_COLUMN', label: 'Category codings', description: 'Generate one column for each category coding system.' },
-  { id: 'catalog', kind: 'CATALOG_PROJECTION', label: 'Catalog fields', description: 'Generate columns from the populated fields covered by the rule.' },
+  { id: 'catalog', kind: 'CATALOG_PROJECTION', label: 'Catalog fields', description: 'Generate one column for each populated field matched by the rule.' },
 ] as const satisfies ReadonlyArray<{ id: string; kind: SourceRuleCreate['kind']; label: string; description: string }>;
 
 export type ColumnRulePreset = (typeof columnRulePresets)[number];

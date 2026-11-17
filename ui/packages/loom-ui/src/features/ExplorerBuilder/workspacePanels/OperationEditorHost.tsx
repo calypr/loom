@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react';
-import { observedExtensionPaths, observedIdentifierSystems, useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
-import { columnRuleDefaults, columnRulePresets, type ColumnRulePreset } from '../sourceColumnRule';
+import { hasObservedCategoryCodings, observedExtensionPaths, observedIdentifierSystems, useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
+import { columnRulePresets, type ColumnRulePreset } from '../sourceColumnRule';
 import type { AddColumnsGraphSource, AddColumnsView } from '../authoring/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { Construction, ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep, ExplorerBuilderCommand } from '../../../types';
@@ -36,9 +36,17 @@ type RuleInventory = {
   readonly unavailable: boolean;
 };
 
-function ColumnRulePicker({ client, inventoryScope, unavailableReason, disabled, reviewing, renderRule }: {
+function inventoryRuleReason(inventory: { readonly isLoading: boolean; readonly error?: unknown }, observed: boolean, label: string) {
+  if (inventory.isLoading) return `Loading ${label}…`;
+  if (inventory.error) return `Observed ${label} are unavailable.`;
+  if (!observed) return `No ${label} were observed for this resource type.`;
+  return undefined;
+}
+
+function ColumnRulePicker({ client, inventoryScope, hasCatalogFields, unavailableReason, disabled, reviewing, renderRule }: {
   readonly client: LoomClient;
   readonly inventoryScope: ColumnRuleInventoryScope;
+  readonly hasCatalogFields: boolean;
   readonly unavailableReason?: string;
   readonly disabled: boolean;
   readonly reviewing: boolean;
@@ -47,13 +55,20 @@ function ColumnRulePicker({ client, inventoryScope, unavailableReason, disabled,
   const [selected, setSelected] = useState<ColumnRulePreset>();
   const identifiers = useColumnRuleInventory(client, inventoryScope, 'identifier', !unavailableReason);
   const extensions = useColumnRuleInventory(client, inventoryScope, 'extension', !unavailableReason);
+  const categories = useColumnRuleInventory(client, inventoryScope, 'category', !unavailableReason);
   const inventory = {
     systems: observedIdentifierSystems(identifiers.data ?? []),
     extensionPaths: observedExtensionPaths(extensions.data ?? []),
     loading: identifiers.isLoading,
     unavailable: Boolean(identifiers.error),
   };
-  if (selected && !unavailableReason && renderRule) {
+  const unavailableByPreset: Record<ColumnRulePreset['id'], string | undefined> = {
+    identifier: inventoryRuleReason(identifiers, inventory.systems.length > 0, 'identifier systems'),
+    extension: inventoryRuleReason(extensions, inventory.extensionPaths.length > 0, 'extension paths with values'),
+    categoryCoding: inventoryRuleReason(categories, hasObservedCategoryCodings(categories.data ?? []), 'category codings'),
+    catalog: hasCatalogFields ? undefined : 'No populated field paths are available for this occurrence.',
+  };
+  if (selected && !unavailableReason && !unavailableByPreset[selected.id] && renderRule) {
     return <div className="grid gap-2">
       <button type="button" disabled={disabled || reviewing} onClick={() => setSelected(undefined)}
         className="justify-self-start px-3 text-sm font-medium text-blue-800">Back to column rules</button>
@@ -63,11 +78,7 @@ function ColumnRulePicker({ client, inventoryScope, unavailableReason, disabled,
   return (
     <ul aria-label="Column rules" className="grid gap-2 px-3 pb-3">
       {columnRulePresets.map(preset => {
-        const reason = unavailableReason ?? (preset.id === 'extension' && !inventory.extensionPaths.length
-          ? extensions.isLoading ? 'Loading observed extension paths…'
-            : extensions.error ? 'Observed extension paths are unavailable.'
-            : 'No extension paths with observed values for this resource type.'
-          : !columnRuleDefaults[preset.id] ? 'This rule kind is unavailable.' : undefined);
+        const reason = unavailableReason ?? unavailableByPreset[preset.id];
         return <li key={preset.id} className="rounded-md border border-slate-200 p-2">
           <button type="button" disabled={disabled || Boolean(reason)}
             className="text-sm font-semibold text-blue-800 disabled:text-slate-700"
@@ -110,6 +121,7 @@ export interface OperationEditorHostProps {
   readonly addColumnsView: AddColumnsView;
   readonly columnRulesUnavailableReason?: string;
   readonly columnRuleInventoryScope: ColumnRuleInventoryScope;
+  readonly hasCatalogRuleFields: boolean;
   readonly renderColumnRule?: (preset: ColumnRulePreset, inventory: RuleInventory) => React.ReactNode;
   readonly reviewingAdvancedColumns?: boolean;
   readonly onSwitchAddColumnsView: (view: AddColumnsView) => void;
@@ -166,6 +178,7 @@ export const OperationEditorHost = ({
   addColumnsView: columnKind,
   columnRulesUnavailableReason,
   columnRuleInventoryScope,
+  hasCatalogRuleFields,
   renderColumnRule,
   reviewingAdvancedColumns,
   onSwitchAddColumnsView: selectColumnKind,
@@ -311,7 +324,7 @@ export const OperationEditorHost = ({
                   className="grid gap-3">
                   {advanced ? <ColumnRulePicker
                     key={`${ownerKey}:${graphSource?.occurrenceId ?? ''}`}
-                    client={loomClient} inventoryScope={columnRuleInventoryScope}
+                    client={loomClient} inventoryScope={columnRuleInventoryScope} hasCatalogFields={hasCatalogRuleFields}
                     unavailableReason={columnRulesUnavailableReason} disabled={columnControlsDisabled}
                     reviewing={Boolean(reviewingAdvancedColumns)} renderRule={renderColumnRule}
                   /> : graphSource && !graphSource.isRoot && !graphSource.nodeId ? (

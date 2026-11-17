@@ -53,3 +53,7 @@ export function observedExtensionPaths(items: ReadonlyArray<SemanticInventoryIte
       /^extension\[\](\.extension\[\])*$/.test(item.sourcePath))
     .map(item => item.sourcePath))].sort();
 }
+
+export function hasObservedCategoryCodings(items: ReadonlyArray<SemanticInventoryItem>) {
+  return items.some(item => item.occurrences > 0 && item.system && item.sourcePath.startsWith('category[]'));
+}
