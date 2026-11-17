@@ -140,13 +140,6 @@ func NewInterpretationRevisionID(raw string) (InterpretationRevisionID, error) {
 	return InterpretationRevisionID(raw), nil
 }
 
-func NewInterpretationRuleID(raw string) (InterpretationRuleID, error) {
-	if err := validateInterpretationID(raw, "rule"); err != nil {
-		return "", err
-	}
-	return InterpretationRuleID(raw), nil
-}
-
 func NewInterpretationContentDigest(raw string) (InterpretationContentDigest, error) {
 	if !interpretationDigestPattern.MatchString(raw) {
 		return "", fmt.Errorf("%w: %q", ErrInvalidInterpretationDigest, raw)

@@ -560,17 +560,3 @@ func physicalGroupRelatedPhysicalRoute(route []recipe.ConstructionGroupRelatedRo
 	}
 	return result
 }
-
-func canonicalGroupRelatedPath(selector spec.Selector) string {
-	parts := make([]string, 0, len(selector.Steps))
-	for _, step := range selector.Steps {
-		part := step.Field
-		if step.Iterate {
-			part += "[]"
-		} else if step.Index != nil {
-			part += fmt.Sprintf("[%d]", *step.Index)
-		}
-		parts = append(parts, part)
-	}
-	return strings.Join(parts, ".")
-}

@@ -1740,10 +1740,6 @@ func semanticEntrySourceMatchesFrameFamily(observation catalog.SemanticObservati
 		observation.Source.Profile == family.SourceProfile
 }
 
-func proveOwnerRecords(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation) bool {
-	return proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, nil)
-}
-
 func proveOwnerRecordsForRoute(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation, route []capability.ConstructionRouteStep) bool {
 	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
 	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {

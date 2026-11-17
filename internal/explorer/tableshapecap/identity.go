@@ -965,13 +965,6 @@ func CategoryValuesDigest(values []Scalar) (string, error) {
 	}
 	return categoryValuesDigest(values)
 }
-func categoriesAsScalars(categories []FrozenCategory) []Scalar {
-	out := make([]Scalar, len(categories))
-	for i := range categories {
-		out[i] = categories[i].Value
-	}
-	return out
-}
 func canonical(value any) ([]byte, error) { return json.Marshal(value) }
 func digest(payload []byte) string {
 	hash := sha256.Sum256(payload)

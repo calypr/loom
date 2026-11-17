@@ -1769,15 +1769,6 @@ func validateConstructionGroupFieldSource(source ConstructionGroupFieldSource) e
 	return nil
 }
 
-func validConstructionGroupSourceRole(role string) bool {
-	switch role {
-	case "ROOT", "OWNER", "ANCESTOR", "CURRENT_ITEM":
-		return true
-	default:
-		return false
-	}
-}
-
 func validateConstructionGroupSemanticCategory(category ConstructionGroupSemanticCategory) error {
 	switch category.Kind {
 	case "CHOICE":

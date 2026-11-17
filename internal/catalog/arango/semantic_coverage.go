@@ -363,10 +363,6 @@ func SemanticCoverageCollectionSpec() store.CollectionSpec {
 	}
 }
 
-func semanticCoveragePathAggregateKey(path catalog.SemanticCoveragePathAggregate) string {
-	return semanticCoverageDocumentKey(path.CanonicalPath, path.ResourceBoundarySignature, string(path.Kind), string(path.Disposition), string(path.Reason))
-}
-
 func semanticCoverageStoredReferences(references []catalog.SemanticCoverageReference) []semanticCoverageStoredReference {
 	result := make([]semanticCoverageStoredReference, 0, len(references))
 	for _, reference := range references {
@@ -873,11 +869,6 @@ func normalizeSemanticCoverageResourceTypes(resourceTypes []string) ([]string, e
 	return result, nil
 }
 
-func containsSemanticCoverageResource(resources []string, candidate string) (int, bool) {
-	index := sort.SearchStrings(resources, candidate)
-	return index, index < len(resources) && resources[index] == candidate
-}
-
 func (s *Store) CompleteSemanticCoverageResource(
 	ctx context.Context,
 	identity SemanticCoverageBuildIdentity,
@@ -1120,14 +1111,6 @@ func validateSemanticCoverageBuildIdentity(identity SemanticCoverageBuildIdentit
 		return ErrInvalidSemanticCoverageRead
 	}
 	return nil
-}
-
-func semanticCoverageBuildBindVars(identity SemanticCoverageBuildIdentity) map[string]interface{} {
-	return map[string]interface{}{
-		"project": identity.Project, "dataset_generation": identity.DatasetGeneration,
-		"build_id": identity.BuildID, "schema_identity": identity.SchemaIdentity,
-		"source_kind": identity.SourceKind,
-	}
 }
 
 func (s *Store) writeSemanticCoverageBuildMarker(
@@ -1936,17 +1919,6 @@ func semanticCoverageCatalogReference(reference semanticCoverageStoredReference)
 		}
 		result.Family = catalog.SemanticInventoryFamilyReference{FamilyID: reference.Family.FamilyID, BindingID: reference.Family.BindingID, SourceKind: reference.Family.SourceKind, ResourceType: reference.Family.ResourceType, SourcePath: reference.Family.SourcePath, System: reference.Family.System, Version: reference.Family.Version}
 		return result, result.Family.FamilyID != "" && result.Family.BindingID != "" && result.Family.System != ""
-	default:
-		return catalog.SemanticCoverageReference{}, false
-	}
-}
-
-func semanticCoverageCatalogReferenceFromCatalog(reference catalog.SemanticCoverageReference) (catalog.SemanticCoverageReference, bool) {
-	switch reference.Kind {
-	case catalog.SemanticCoverageExactReference:
-		return reference, reference.ConceptID != "" && reference.BindingID != ""
-	case catalog.SemanticCoverageFamilyReference:
-		return reference, reference.Family.FamilyID != "" && reference.Family.BindingID != "" && reference.Family.System != ""
 	default:
 		return catalog.SemanticCoverageReference{}, false
 	}

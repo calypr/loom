@@ -125,10 +125,6 @@ func ComparePerformanceRuns(base, current, repeatBase, repeatCurrent map[string]
 // ComparePerformance is retained for callers that already have a reverse
 // current observation but no reverse base. New callers should use
 // ComparePerformanceRuns so confirmation is based on the repeat's base.
-func ComparePerformance(base, current, reverse map[string]float64) []PerformanceObservation {
-	return ComparePerformanceRuns(base, current, base, reverse)
-}
-
 func PerformanceFailure(observations []PerformanceObservation) bool {
 	for _, observation := range observations {
 		if observation.Suspected && observation.ReverseSuspected {

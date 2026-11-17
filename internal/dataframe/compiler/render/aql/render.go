@@ -213,10 +213,6 @@ func RenderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName s
 // from a validated terminal construction stage without sorting the terminal
 // rows by identity. The caller must impose any ordering its result contract
 // requires.
-func RenderPhysicalPlanWithUnorderedTerminalProjection(plan ir.PhysicalPlan, columnName string) (RenderedPhysicalPlan, error) {
-	return renderPhysicalPlanWithTerminalProjection(plan, columnName, true)
-}
-
 // RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker renders a
 // category scan projection while carrying property presence separately from
 // its nullable value through construction stages.

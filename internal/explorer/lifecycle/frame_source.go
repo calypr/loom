@@ -295,10 +295,6 @@ func (s *Service) frameSourceOptionForRoute(
 	}, true
 }
 
-func frameSourceCommand(commands []authoringv2.Command) bool {
-	return len(commands) == 1 && (commands[0].Type == authoringv2.CommandSetFrameSource || commands[0].Type == authoringv2.CommandReplaceFrameSource)
-}
-
 func (s *Service) prepareFrameSourceCommand(
 	ctx context.Context,
 	project, explorerID string,

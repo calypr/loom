@@ -156,10 +156,6 @@ type pageCursor struct {
 	SortValueNull bool `json:"sortValueNull,omitempty"`
 }
 
-func encodeCursor(rowID string, sortValue any) string {
-	return encodeBoundCursor(rowID, sortValue, false, "")
-}
-
 func encodeBoundCursor(rowID string, sortValue any, sortValueNull bool, binding string) string {
 	data, _ := json.Marshal(pageCursor{Version: 2, Binding: binding, RowID: rowID, SortValue: sortValue, SortValueNull: sortValueNull})
 	return base64.RawURLEncoding.EncodeToString(data)

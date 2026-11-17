@@ -283,10 +283,6 @@ func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindin
 	return engine, query, stream
 }
 
-func coveringGroupExplain(collection string) arango.ExplainResult {
-	return groupExplainWithCoverage(true, true, collection)
-}
-
 func coveringGroupExplainWithIndex(collection, indexName string) arango.ExplainResult {
 	result := groupExplainWithCoverage(true, true, collection)
 	result.Plan.Nodes[0].Indexes = arango.ExplainIndexes{{Name: indexName, Collection: collection}}

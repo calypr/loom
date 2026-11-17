@@ -455,6 +455,39 @@ func distinctValueWeight(value string) int { return 32 + len(value) }
 
 func pivotColumnWeight(value string) int { return 32 + len(value) }
 
+func (p *Profiler) addExtensionValueWithLimits(stat *fieldCatalogStats, observation ExtensionValueObservation) {
+	observation.URL = strings.TrimSpace(observation.URL)
+	observation.SourcePath = strings.TrimSpace(observation.SourcePath)
+	observation.ValuePath = strings.TrimSpace(observation.ValuePath)
+	observation.ValueType = strings.TrimSpace(observation.ValueType)
+	if observation.URL == "" || observation.SourcePath == "" || observation.ValueType == "" {
+		return
+	}
+	if len(observation.URL) > p.limits.MaxDistinctValueBytes || len(observation.SourcePath) > p.limits.MaxDistinctValueBytes || len(observation.ValuePath) > p.limits.MaxDistinctValueBytes {
+		stat.distinctTruncated = true
+		p.truncated = true
+		return
+	}
+	for _, ancestor := range observation.URLPath {
+		if len(ancestor) > p.limits.MaxDistinctValueBytes {
+			stat.distinctTruncated = true
+			p.truncated = true
+			return
+		}
+	}
+	key := extensionObservationKey(observation)
+	if _, ok := stat.extensionValueSet[key]; ok {
+		return
+	}
+	if len(stat.extensionValues) >= p.limits.MaxExtensionValuesPerField || !p.reserve(extensionValueWeight(observation)) {
+		stat.distinctTruncated = true
+		p.truncated = true
+		return
+	}
+	stat.extensionValueSet[key] = struct{}{}
+	stat.extensionValues = append(stat.extensionValues, observation)
+}
+
 func extensionValueWeight(observation ExtensionValueObservation) int {
 	weight := 64 + len(observation.URL) + len(observation.SourcePath) + len(observation.ValuePath) + len(observation.ValueType)
 	for _, path := range observation.URLPath {
@@ -497,39 +530,6 @@ func (p *Profiler) addPivotColumnWithLimits(stat *fieldCatalogStats, value strin
 	stat.pivotColumns = append(stat.pivotColumns, value)
 }
 
-func (p *Profiler) addExtensionValueWithLimits(stat *fieldCatalogStats, observation ExtensionValueObservation) {
-	observation.URL = strings.TrimSpace(observation.URL)
-	observation.SourcePath = strings.TrimSpace(observation.SourcePath)
-	observation.ValuePath = strings.TrimSpace(observation.ValuePath)
-	observation.ValueType = strings.TrimSpace(observation.ValueType)
-	if observation.URL == "" || observation.SourcePath == "" || observation.ValueType == "" {
-		return
-	}
-	if len(observation.URL) > p.limits.MaxDistinctValueBytes || len(observation.SourcePath) > p.limits.MaxDistinctValueBytes || len(observation.ValuePath) > p.limits.MaxDistinctValueBytes {
-		stat.distinctTruncated = true
-		p.truncated = true
-		return
-	}
-	for _, ancestor := range observation.URLPath {
-		if len(ancestor) > p.limits.MaxDistinctValueBytes {
-			stat.distinctTruncated = true
-			p.truncated = true
-			return
-		}
-	}
-	key := extensionObservationKey(observation)
-	if _, ok := stat.extensionValueSet[key]; ok {
-		return
-	}
-	if len(stat.extensionValues) >= p.limits.MaxExtensionValuesPerField || !p.reserve(extensionValueWeight(observation)) {
-		stat.distinctTruncated = true
-		p.truncated = true
-		return
-	}
-	stat.extensionValueSet[key] = struct{}{}
-	stat.extensionValues = append(stat.extensionValues, observation)
-}
-
 func extensionObservationKey(observation ExtensionValueObservation) string {
 	return observation.URL + "\x00" + strings.Join(observation.URLPath, "\x00") + "\x00" + observation.SourcePath + "\x00" + observation.ValuePath + "\x00" + observation.ValueType
 }
@@ -566,40 +566,6 @@ func (s *fieldCatalogStats) addPivotColumnWithLimits(value string, limits Profil
 	}
 	s.pivotColumnSet[value] = struct{}{}
 	s.pivotColumns = append(s.pivotColumns, value)
-}
-
-func (s *fieldCatalogStats) addExtensionValueWithLimits(observation ExtensionValueObservation, limits ProfileLimits) {
-	limits = limits.normalized()
-	observation.URL = strings.TrimSpace(observation.URL)
-	observation.SourcePath = strings.TrimSpace(observation.SourcePath)
-	observation.ValuePath = strings.TrimSpace(observation.ValuePath)
-	observation.ValueType = strings.TrimSpace(observation.ValueType)
-	if observation.URL == "" || observation.SourcePath == "" || observation.ValueType == "" {
-		return
-	}
-	if len(observation.URL) > limits.MaxDistinctValueBytes || len(observation.SourcePath) > limits.MaxDistinctValueBytes || len(observation.ValuePath) > limits.MaxDistinctValueBytes {
-		s.distinctTruncated = true
-		return
-	}
-	for _, ancestor := range observation.URLPath {
-		if len(ancestor) > limits.MaxDistinctValueBytes {
-			s.distinctTruncated = true
-			return
-		}
-	}
-	if s.extensionValueSet == nil {
-		s.extensionValueSet = make(map[string]struct{})
-	}
-	key := observation.URL + "\x00" + strings.Join(observation.URLPath, "\x00") + "\x00" + observation.SourcePath + "\x00" + observation.ValuePath + "\x00" + observation.ValueType
-	if _, ok := s.extensionValueSet[key]; ok {
-		return
-	}
-	if len(s.extensionValues) >= limits.MaxExtensionValuesPerField {
-		s.distinctTruncated = true
-		return
-	}
-	s.extensionValueSet[key] = struct{}{}
-	s.extensionValues = append(s.extensionValues, observation)
 }
 
 func (p *Profiler) observeExtensionValues(payload map[string]any) {

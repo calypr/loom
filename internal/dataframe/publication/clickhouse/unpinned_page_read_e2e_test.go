@@ -317,20 +317,6 @@ func (h *uprHarness) seedTable(ctx context.Context, table string, rows int) erro
 	return h.ch.InsertRows(ctx, table, columns, values)
 }
 
-func (h *uprHarness) seedPublishedOutputRecord(name, table, project, generation, recipe string) pubpublication.BundleOutputRecord {
-	verified := time.Now().UTC().Add(-uprReconcileAge)
-	return pubpublication.BundleOutputRecord{
-		Name:          name,
-		PhysicalTable: table,
-		Selector:      dataframepublished.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: name},
-		RowCount:      3,
-		ByteCount:     300,
-		State:         pubpublication.BundlePublished,
-		VerifiedAt:    &verified,
-		Columns:       []pubpublication.PhysicalColumn{{Name: "value", ClickHouse: "Int64"}},
-	}
-}
-
 // tablePresent reports whether a ClickHouse table exists via system.tables.
 func (h *uprHarness) tablePresent(ctx context.Context, table string) bool {
 	rows, err := h.ch.QueryRowsArgs(ctx, "SELECT count() AS c FROM system.tables WHERE database = currentDatabase() AND name = ?", []string{"c"}, table)

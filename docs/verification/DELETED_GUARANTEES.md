@@ -63,3 +63,32 @@ For example, `git show 5646633e:verification/builder-interactions/BuilderOperati
 The [retained coverage decisions](RETAINED_COVERAGE_DECISIONS.md) record browser and database boundaries already recovered.
 The [feature map](../../.codex/skills/builder-interaction-formal-verification/features/README.md) names current execution routes.
 This reference is not a new runtime catalog or a pass gate. Update a disposition when the replacement has executable evidence.
+
+# WP-1 retired helper guarantees
+
+Source recovery point: immutable base commit `45879f3b2` (`feature/default-recipe-authoring` HEAD used for the detached WP-1 worktree). The removed definitions can be recovered from that commit with `git show 45879f3b2:<path>`.
+
+The following unreachable production helpers had no runtime callers according to `deadcode -test ./...`; removing them retires no live behavior:
+
+- `internal/acceptance/performance.go: ComparePerformance`: legacy single-pass performance comparison API. The supported report-file comparison functions remain.
+- `internal/catalog/write_profiler.go: fieldCatalogStats.addExtensionValueWithLimits`: duplicate limits helper on the stats struct. The active `Profiler.addExtensionValueWithLimits` remains.
+- `internal/catalog/arango/semantic_coverage.go`: `semanticCoveragePathAggregateKey`, `containsSemanticCoverageResource`, `semanticCoverageBuildBindVars`, and `semanticCoverageCatalogReferenceFromCatalog`: unused semantic-coverage query/key helpers.
+- `internal/dataframe/compiler/lower/group_related_occurrence_lower.go: canonicalGroupRelatedPath`: unused path canonicalization helper.
+- `internal/dataframe/compiler/lower/recipe_construction.go: constructionScalarKindsCompatible`: unused scalar-kind compatibility helper.
+- `internal/dataframe/compiler/render/aql/render.go: RenderPhysicalPlanWithUnorderedTerminalProjection`: unused renderer entry point. The presence-marker variant remains.
+- `internal/dataframe/execution/engine.go: compiledFinalStageID`: unused final-stage identifier helper.
+- `internal/dataframe/published/read.go: encodeCursor`: unused cursor encoder.
+- `internal/explorer/interpretation.go: NewInterpretationRuleID`: unused interpretation ID constructor.
+- `internal/explorer/selection.go: SelectionRuleDigest`: unused digest variant. `SelectionRuleDigestWithMembers` remains.
+- `internal/explorer/authoringv2/construction_validation.go: validConstructionGroupSourceRole`: unused validation helper.
+- `internal/explorer/lifecycle/construction_choice.go: capabilityCandidateBelongsToRoot`, `frame_source.go: frameSourceCommand`, and `semantic_catalog.go: proveOwnerRecords`: unused lifecycle helpers.
+- `internal/explorer/tableshapecap/identity.go: categoriesAsScalars`: unused conversion helper.
+
+The following test-only helpers were also unreachable even from tests. Their removal retires only the helper's unexercised fixture or comparison path; surrounding test cases remain:
+
+- `internal/dataframe/execution/group_preview_scan_test.go: coveringGroupExplain`: unused group-preview explain fixture helper.
+- `internal/dataframe/publication/arango/name_latest_binding_e2e_test.go: nameBindingReleaseRepository.savedRelease`: unused saved-release fixture lookup.
+- `internal/dataframe/publication/clickhouse/unpinned_page_read_e2e_test.go: uprHarness.seedPublishedOutputRecord`: unused published-output fixture seeder.
+- `internal/explorer/lifecycle/derive_source_test.go: deriveSourceIdentityColumns`: unused derive-source test helper.
+
+`PhysicalSetKind`, `PhysicalNodeSetKind`, and `PhysicalNodePathSetKind` had no production writers or readers. The enum and constants were removed, but `PhysicalSet.Kind` remains a serialized string because `physicalPlanFingerprint` hashes JSON-encoded plans. The two renderer fixtures retain the original `"NODE_SET"` string value. `TestPhysicalPlanFingerprintRetainsSetKind` pins the fingerprint for a representative nonzero kind (`27e8342e…b1cec5e`) so this serialized digest input remains stable.
