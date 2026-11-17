@@ -101,6 +101,7 @@ import { commandDraftIdentity } from './authoring/commandDraftIdentity';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { shouldSyncServerDraft } from './authoring/serverDraftSync';
 import { useRootChange } from './authoring/useRootChange';
+import { useCombineCatalog } from './authoring/useCombineCatalog';
 import {
   isDraftDesynchronized,
   isStaleSnapshot,
@@ -155,11 +156,7 @@ import {
 import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
 import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
 import { ConstructionCombineEditor } from './constructionOperations/ConstructionCombineEditor';
-import type {
-  ConstructionCombineCatalog,
-  ConstructionCombinePublishedRevision,
-  ConstructionCombineStep,
-} from './constructionOperations/combineEditorTypes';
+import type { ConstructionCombineStep } from './constructionOperations/combineEditorTypes';
 
 const receiptContainsOutputIds = (
   receipt: ExplorerBuilderCompileResult | undefined,
@@ -170,13 +167,6 @@ const receiptContainsOutputIds = (
 
 const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
   step.operation.kind === 'RELATED_FIELD';
-
-type ConstructionCombineCatalogLoad = {
-  readonly identity: string;
-  readonly catalog: ConstructionCombineCatalog;
-  readonly loadingMore: boolean;
-  readonly loadMoreError?: string;
-};
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -612,13 +602,6 @@ const BuilderWorkspaceContent = ({
     readonly outputId: string;
     readonly family: ConstructionOperationFamily;
   }>();
-  const [combineCatalogLoad, setCombineCatalogLoad] = useState<ConstructionCombineCatalogLoad>({
-    identity: '',
-    catalog: { kind: 'loading' },
-    loadingMore: false,
-  });
-  const combineCatalogController = useRef<AbortController | undefined>(undefined);
-  const combineCatalogRequestGeneration = useRef(0);
   const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
   const [reshapeEntry, setReshapeEntry] = useState(0);
   const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
@@ -668,8 +651,15 @@ const BuilderWorkspaceContent = ({
   const suggestionRequestKey = useRef('');
   const latestState = useRef(state);
   latestState.current = state;
-  const combineCatalogOwnerRef = useRef({ ownerKey, explorerId: state.explorerId });
-  combineCatalogOwnerRef.current = { ownerKey, explorerId: state.explorerId };
+  const combineCatalog = useCombineCatalog({
+    ownerKey,
+    explorerId: state.explorerId,
+    projectId,
+    authResourcePath,
+    state,
+    latestState,
+    loomClient,
+  });
   const activeConstructionFamily = activeConstructionSelection?.ownerKey === ownerKey &&
     activeConstructionSelection.explorerId === state.explorerId &&
     activeConstructionSelection.outputId === state.selectedOutputId
@@ -761,9 +751,7 @@ const BuilderWorkspaceContent = ({
 
   const selectExplorer = (nextExplorerId: string) => {
     setActiveConstructionSelection(undefined);
-    combineCatalogRequestGeneration.current += 1;
-    combineCatalogController.current?.abort();
-    combineCatalogController.current = undefined;
+    combineCatalog.invalidate();
     cancelAutomaticPreview();
     compileGeneration.current += 1;
     previewGeneration.current += 1;
@@ -1229,145 +1217,6 @@ const BuilderWorkspaceContent = ({
       };
     } },
   });
-  const combineCatalogIdentityFor = (value: BuilderAuthoringState): string => {
-    const selected = selectedTable(value);
-    return JSON.stringify([
-      ownerKey,
-      value.explorerId,
-      selected?.outputId ?? '',
-      value.catalog.snapshotToken,
-      value.draftVersion,
-      value.draftDigest,
-    ]);
-  };
-  const combineCatalogIdentity = combineCatalogIdentityFor(state);
-  const cancelCombineCatalogRequest = () => {
-    combineCatalogRequestGeneration.current += 1;
-    combineCatalogController.current?.abort();
-    combineCatalogController.current = undefined;
-    setCombineCatalogLoad((current) => current.loadingMore ? { ...current, loadingMore: false } : current);
-  };
-  const loadCombineCatalogPage = async (cursor?: string) => {
-    const requestState = latestState.current;
-    const requestTable = selectedTable(requestState);
-    const identity = combineCatalogIdentityFor(requestState);
-    if (!requestTable || !requestState.catalog.snapshotToken || requestState.draftVersion <= 0 || !requestState.draftDigest) {
-      setCombineCatalogLoad({
-        identity,
-        catalog: { kind: 'failed', message: 'The current table draft is still loading.' },
-        loadingMore: false,
-      });
-      return;
-    }
-    const previous = combineCatalogLoad.identity === identity ? combineCatalogLoad : undefined;
-    if (!cursor && previous?.catalog.kind === 'ready') return;
-    if (cursor && (
-      previous?.catalog.kind !== 'ready' ||
-      previous.catalog.nextCursor !== cursor ||
-      previous.loadingMore
-    )) return;
-
-    combineCatalogController.current?.abort();
-    const requestGeneration = ++combineCatalogRequestGeneration.current;
-    const controller = new AbortController();
-    combineCatalogController.current = controller;
-    if (cursor && previous?.catalog.kind === 'ready') {
-      setCombineCatalogLoad({ ...previous, loadingMore: true, loadMoreError: undefined });
-    } else {
-      setCombineCatalogLoad({ identity, catalog: { kind: 'loading' }, loadingMore: false });
-    }
-
-    try {
-      const response = await loomClient.getConstructionInputs({
-        project: projectId,
-        explorerId: requestState.explorerId,
-        ...(authResourcePath ? { authResourcePath } : {}),
-        snapshotToken: requestState.catalog.snapshotToken,
-        expectedDraftVersion: requestState.draftVersion,
-        expectedDraftDigest: requestState.draftDigest,
-        ...(cursor ? { cursor } : {}),
-        limit: 100,
-      }, controller.signal);
-      const latest = latestState.current;
-      if (
-        controller.signal.aborted ||
-        requestGeneration !== combineCatalogRequestGeneration.current ||
-        combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
-        combineCatalogOwnerRef.current.explorerId !== requestState.explorerId ||
-        identity !== combineCatalogIdentityFor(latest)
-      ) return;
-      if (
-        response.snapshotToken !== requestState.catalog.snapshotToken ||
-        response.draftVersion !== requestState.draftVersion ||
-        response.draftDigest !== requestState.draftDigest ||
-        response.datasetGeneration !== requestState.catalog.generation ||
-        response.snapshotToken !== latest.catalog.snapshotToken ||
-        response.draftVersion !== latest.draftVersion ||
-        response.draftDigest !== latest.draftDigest ||
-        response.datasetGeneration !== latest.catalog.generation
-      ) {
-        setCombineCatalogLoad({
-          identity,
-          catalog: { kind: 'failed', message: 'The table changed while published versions were loading. Reopen Combine tables to refresh.' },
-          loadingMore: false,
-        });
-        return;
-      }
-      const revisions: ConstructionCombinePublishedRevision[] = response.entries.map((entry) => ({
-        kind: 'TABLE_REVISION',
-        tableId: entry.tableId,
-        revisionId: entry.revisionId,
-        outputId: entry.outputId,
-        tableTitle: entry.tableTitle,
-        outputTitle: entry.outputTitle,
-        rowMeaning: entry.rowMeaning,
-        isCurrent: entry.isCurrent,
-        columns: entry.columns,
-      }));
-      setCombineCatalogLoad((current) => {
-        if (
-          current.identity !== identity ||
-          requestGeneration !== combineCatalogRequestGeneration.current ||
-          combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
-          combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
-        ) return current;
-        const existing = cursor && current.catalog.kind === 'ready' ? current.catalog.revisions : [];
-        const byKey = new Map<string, ConstructionCombinePublishedRevision>();
-        for (const revision of [...existing, ...revisions]) {
-          byKey.set(JSON.stringify([revision.tableId, revision.revisionId, revision.outputId]), revision);
-        }
-        return {
-          identity,
-          catalog: { kind: 'ready', revisions: [...byKey.values()], ...(response.nextCursor ? { nextCursor: response.nextCursor } : {}) },
-          loadingMore: false,
-        };
-      });
-    } catch (error) {
-      if (
-        controller.signal.aborted ||
-        requestGeneration !== combineCatalogRequestGeneration.current ||
-        combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
-        combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
-      ) return;
-      const message = error instanceof Error && error.message.trim()
-        ? error.message
-        : 'Loom could not load published table versions.';
-      setCombineCatalogLoad((current) => {
-        if (
-          current.identity !== identity ||
-          combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
-          combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
-        ) return current;
-        if (cursor && current.catalog.kind === 'ready') {
-          return { ...current, loadingMore: false, loadMoreError: message };
-        }
-        return { identity, catalog: { kind: 'failed', message }, loadingMore: false };
-      });
-    }
-  };
-  const currentCombineCatalogLoad = combineCatalogLoad.identity === combineCatalogIdentity
-    ? combineCatalogLoad
-    : { identity: combineCatalogIdentity, catalog: { kind: 'loading' as const }, loadingMore: false };
   const combineRootNodeId = table?.document.rootResourceType
     ? derivedOccurrences(table, state.catalog)[0]?.nodeId
     : undefined;
@@ -2004,7 +1853,7 @@ const BuilderWorkspaceContent = ({
     if (applied && settledCurrentOwner) {
       const closeEditor = !fromColumnPicker || activeConstructionFamily === 'ADD_COLUMNS';
       if (closeEditor) {
-        cancelCombineCatalogRequest();
+        combineCatalog.cancel();
         setActiveConstructionFamily(undefined);
         setConstructionHistorySelection({ kind: 'source' });
         setEditingConstructionStepId(undefined);
@@ -3191,7 +3040,7 @@ const BuilderWorkspaceContent = ({
     }
 
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('choose');
@@ -3210,10 +3059,7 @@ const BuilderWorkspaceContent = ({
       title,
       rootNodeId,
     }]);
-    if (
-      combineCatalogOwnerRef.current.ownerKey !== requestOwner.ownerKey ||
-      combineCatalogOwnerRef.current.explorerId !== requestOwner.explorerId
-    ) return;
+    if (!combineCatalog.isOwnerCurrent(requestOwner)) return;
     const createdTable = created?.results.find(
       (result) => result.type === 'TABLE_CREATED' && Boolean(result.outputId),
     );
@@ -3222,7 +3068,7 @@ const BuilderWorkspaceContent = ({
     }
     setFeatureMode('catalog');
     setActiveConstructionFamily('COMBINE');
-    void loadCombineCatalogPage();
+    void combineCatalog.loadPage();
   };
 
   const selectConstructionFamily = (family: ConstructionOperationFamily) => {
@@ -3244,7 +3090,7 @@ const BuilderWorkspaceContent = ({
       return;
     }
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('choose');
@@ -3255,7 +3101,7 @@ const BuilderWorkspaceContent = ({
     if (!recipeMutationAllowed()) return;
     rememberOperationFocus();
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setRowIntentSession(true);
@@ -3315,7 +3161,7 @@ const BuilderWorkspaceContent = ({
     }
 
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     const editorKind = kind === 'expand-signed' ? 'expand' : kind;
@@ -3340,7 +3186,7 @@ const BuilderWorkspaceContent = ({
       setRecipeNotice('Apply or Cancel the active recipe change before editing another step.'); return;
     }
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setRowIntentSession(false);
     setConstructionHistorySelection(selection);
     setEditingConstructionStepId(undefined);
@@ -3363,9 +3209,9 @@ const BuilderWorkspaceContent = ({
     setRowIntentSession(false);
     constructionLifecycle.cancel();
     if (family === 'COMBINE') {
-      void loadCombineCatalogPage();
+      void combineCatalog.loadPage();
     } else {
-      cancelCombineCatalogRequest();
+      combineCatalog.cancel();
     }
     setConstructionHistorySelection({ kind: 'step', stepId });
     setEditingConstructionStepId(stepId);
@@ -3375,7 +3221,7 @@ const BuilderWorkspaceContent = ({
   };
   const closeConstructionWorkspace = () => {
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setEditingConstructionStepId(undefined);
     setActiveConstructionFamily(undefined);
     setRowIntentSession(false);
@@ -3387,7 +3233,7 @@ const BuilderWorkspaceContent = ({
   const switchRowIntent = (_intent: 'records' | 'reshape') => {
     if (!rowIntentSession) return;
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('choose');
@@ -3399,7 +3245,7 @@ const BuilderWorkspaceContent = ({
     setSourceRowsOpen(false);
     if (!rowIntentSession) return;
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setReshapeEntryKind('choose');
@@ -3411,7 +3257,7 @@ const BuilderWorkspaceContent = ({
   const removeConstructionStep = (stepId: string) => {
     if (!recipeMutationAllowed()) return;
     if (!construction?.steps.some((step) => step.id === stepId)) return;
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     constructionLifecycle.onCandidateChange({
       candidateConstruction: {
         ...construction,
@@ -3430,7 +3276,7 @@ const BuilderWorkspaceContent = ({
     if (!recipeMutationAllowed()) return;
     if (!previousDraftRevisionId) return;
     constructionLifecycle.cancel();
-    cancelCombineCatalogRequest();
+    combineCatalog.cancel();
     setActiveConstructionFamily(undefined);
     setEditingConstructionStepId(undefined);
     setConstructionHistorySelection({ kind: 'source' });
@@ -4094,8 +3940,8 @@ const BuilderWorkspaceContent = ({
         ) : null}
         {activeOperation.family === 'COMBINE' ? (
           <ConstructionCombineEditor
-            key={`${ownerKey}:${combineCatalogIdentity}:${editingConstructionStep?.id ?? 'new'}`}
-            catalog={currentCombineCatalogLoad.catalog}
+            key={`${ownerKey}:${combineCatalog.identity}:${editingConstructionStep?.id ?? 'new'}`}
+            catalog={combineCatalog.currentLoad.catalog}
             workspaceInputs={constructionLifecycle.capabilities.status === 'ready'
               ? constructionLifecycle.capabilities.response.workspaceInputs.map((input) => ({
                   kind: 'WORKSPACE_OUTPUT' as const,
@@ -4119,14 +3965,14 @@ const BuilderWorkspaceContent = ({
               ? editingConstructionStep as ConstructionCombineStep
               : undefined}
             disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-            loadingMore={currentCombineCatalogLoad.loadingMore}
-            loadMoreError={currentCombineCatalogLoad.loadMoreError}
+            loadingMore={combineCatalog.currentLoad.loadingMore}
+            loadMoreError={combineCatalog.currentLoad.loadMoreError}
             onLoadMore={() => {
-              if (currentCombineCatalogLoad.catalog.kind === 'ready' && currentCombineCatalogLoad.catalog.nextCursor) {
-                void loadCombineCatalogPage(currentCombineCatalogLoad.catalog.nextCursor);
+              if (combineCatalog.currentLoad.catalog.kind === 'ready' && combineCatalog.currentLoad.catalog.nextCursor) {
+                void combineCatalog.loadPage(combineCatalog.currentLoad.catalog.nextCursor);
               }
             }}
-            onRetryCatalog={() => void loadCombineCatalogPage()}
+            onRetryCatalog={() => void combineCatalog.loadPage()}
             onCandidateChange={constructionLifecycle.onCandidateChange}
           />
         ) : null}
@@ -4781,7 +4627,7 @@ const BuilderWorkspaceContent = ({
                   setSourceRowsOpen(false);
                   if (recipeOwner.state.status === 'saved') {
                     selectConstructionHistory({ kind: 'source' });
-                    cancelCombineCatalogRequest();
+                    combineCatalog.cancel();
                   }
                   selectTableFromUser(outputId);
                 }}
