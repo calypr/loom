@@ -2,7 +2,8 @@ import { admitAuthoringRequest } from './authoring/admission';
 import { reconcileAcceptance } from './authoring/reconcileAcceptance';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useAutomaticPreview, type AutomaticPreviewIdentity, type AutomaticPreviewRun } from './useAutomaticPreview';
+import { useAutomaticPreview } from './useAutomaticPreview';
+import { useAutomaticPreviewOwner, type AutomaticPreviewExecution, type PreviewRequest } from './authoring/useAutomaticPreviewOwner';
 import { constructionAppendStageFor, constructionInputStageFor } from './constructionWorkspace/constructionStages';
 import { effectiveOutputAvailability } from './constructionWorkspace/outputEligibility';
 import {
@@ -139,10 +140,6 @@ import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,
 } from './constructionWorkspace/useConstructionLifecycle';
-import {
-  matchesAcceptedPreviewHandoff,
-  type AppliedPreviewHandoff,
-} from './constructionWorkspace/appliedChoicePreview';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
 import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from './constructionOperations/ConstructionReshapeEditor';
@@ -258,20 +255,6 @@ const editableConstructionFamily = (
       return exhaustive;
     }
   }
-};
-
-type PreviewRequest = {
-  readonly outputId: string;
-  readonly limit: PreviewLimit;
-  readonly receiptRefreshes: number;
-};
-
-type AutomaticPreviewExecution = {
-  cancelled: boolean;
-  compileGeneration?: number;
-  compileRequest?: { readonly abort: () => void };
-  previewGeneration?: number;
-  previewRequest?: { readonly abort: () => void };
 };
 
 type FirstTableProgress =
@@ -493,9 +476,7 @@ const BuilderWorkspaceContent = ({
   const [tableCreatorOpen, setTableCreatorOpen] = useState(false);
   const [firstTableProgress, setFirstTableProgress] =
     useState<FirstTableProgress>({ kind: 'idle' });
-  const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
   const addColumnsRequest = useRef<AbortController | undefined>(undefined);
-  const appliedChoicePreview = useRef<AppliedPreviewHandoff | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [editingRecipeColumn, setEditingRecipeColumn] = useState<{ owner: string; columnId: string }>();
   const [sourceStepInspectorHost, setSourceStepInspectorHost] = useState<HTMLDivElement | null>(null);
@@ -561,17 +542,21 @@ const BuilderWorkspaceContent = ({
   const previewGeneration = useRef(0);
   const activeCompile = useRef<{ abort: () => void } | undefined>(undefined);
   const activePreview = useRef<{ abort: () => void } | undefined>(undefined);
-  const automaticPreviewGeneration = useRef(0);
-  const activeAutomaticPreview = useRef<{ readonly generation: number; readonly execution: AutomaticPreviewExecution; readonly cancel: () => void } | undefined>(undefined);
-  const automaticPreviewRequest = useRef<AutomaticPreviewIdentity | undefined>(undefined);
-  const cancelAutomaticPreview = useCallback(() => {
-    activeAutomaticPreview.current?.cancel();
-  }, []);
   const firstTableActionPending = useRef(false);
   const serverDraft = useRef({ version: 0, digest: '' });
   const suggestionRequestKey = useRef('');
   const latestState = useRef(state);
   latestState.current = state;
+  const { previewLimit, setPreviewLimit, appliedChoicePreview, automaticPreviewGeneration, automaticPreviewRequest, cancelAutomaticPreview, queryOptionsFor } = useAutomaticPreviewOwner({
+    ownerKey,
+    projectId,
+    state,
+    latestState,
+    compileGeneration,
+    previewGeneration,
+    dispatch,
+    setMessage,
+  });
   const combineCatalog = useCombineCatalog({
     ownerKey,
     explorerId: state.explorerId,
@@ -2458,127 +2443,13 @@ const BuilderWorkspaceContent = ({
     }
   };
 
-  const automaticPreviewIdentity: AutomaticPreviewIdentity | undefined =
-    table && state.catalog.snapshotToken && state.draftVersion > 0 && state.draftDigest
-      ? {
-          key: JSON.stringify([
-            ownerKey,
-            state.catalog.snapshotToken,
-            state.draftVersion,
-            state.draftDigest,
-            state.previewRequestVersion,
-            table.outputId,
-            previewLimit,
-          ]),
-          ownerKey,
-          snapshotToken: state.catalog.snapshotToken,
-          draftVersion: state.draftVersion,
-          draftDigest: state.draftDigest,
-          previewRequestVersion: state.previewRequestVersion,
-          outputId: table.outputId,
-          limit: previewLimit,
-        }
-      : undefined;
-  automaticPreviewRequest.current = automaticPreviewIdentity;
-  const automaticPreviewQuery = useAutomaticPreview({
-    request: automaticPreviewIdentity,
-    enabled: !previewDisabled && pendingCommands === 0 && firstTableProgress.kind === 'idle',
-    refresh: async (identity, signal, options): Promise<AutomaticPreviewRun | undefined> => {
-      activeAutomaticPreview.current?.cancel();
-      const generation = ++automaticPreviewGeneration.current;
-      const execution: AutomaticPreviewExecution = { cancelled: false };
-      const cancel = () => {
-        if (automaticPreviewGeneration.current !== generation) return;
-        automaticPreviewGeneration.current += 1;
-        execution.cancelled = true;
-        if (activeAutomaticPreview.current?.generation === generation) {
-          activeAutomaticPreview.current = undefined;
-        }
-        if (execution.compileRequest && execution.compileGeneration === compileGeneration.current) {
-          compileGeneration.current += 1;
-        }
-        if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {
-          previewGeneration.current += 1;
-        }
-        execution.compileRequest?.abort();
-        execution.previewRequest?.abort();
-      };
-      activeAutomaticPreview.current = { generation, execution, cancel };
-      signal.addEventListener('abort', cancel, { once: true });
-      const identityIsCurrent = () => {
-        const current = latestState.current;
-        return !signal.aborted &&
-          automaticPreviewRequest.current?.key === identity.key &&
-          current.catalog.snapshotToken === identity.snapshotToken &&
-          current.draftVersion === identity.draftVersion &&
-          current.draftDigest === identity.draftDigest &&
-          current.previewRequestVersion === identity.previewRequestVersion &&
-          selectedTable(current)?.outputId === identity.outputId;
-      };
-      const accept = (receipt: ExplorerBuilderCompileResult, preview: ExplorerBuilderPreviewResult) => {
-        if (!identityIsCurrent() ||
-          receipt.snapshotToken !== identity.snapshotToken ||
-          !receipt.outputs.some((output) => output.outputId === identity.outputId) ||
-          preview.receiptId !== receipt.receiptId ||
-          preview.outputId !== identity.outputId) return undefined;
-        dispatch({
-          type: 'previewAccepted',
-          identity: {
-            project: projectId,
-            explorerId: latestState.current.explorerId,
-            snapshotToken: identity.snapshotToken,
-            draftVersion: identity.draftVersion,
-            draftDigest: identity.draftDigest,
-            previewRequestVersion: identity.previewRequestVersion,
-            outputId: identity.outputId,
-          },
-          receipt,
-          preview,
-        });
-        setMessage(undefined);
-        return { identity, receipt, preview };
-      };
-      try {
-        if (!identityIsCurrent()) return undefined;
-        const current = latestState.current;
-        const receipt = !options?.reload && current.receipt && current.reconciliation === 'resolved' &&
-          current.receipt.snapshotToken === identity.snapshotToken &&
-          current.receipt.outputs.some((output) => output.outputId === identity.outputId)
-          ? current.receipt
-          : await reconcileCurrent(execution, identity.outputId);
-        if (execution.cancelled || !receipt || !identityIsCurrent()) return undefined;
-        const candidate = appliedChoicePreview.current;
-        appliedChoicePreview.current = undefined;
-        if (matchesAcceptedPreviewHandoff(candidate, {
-          ownerKey: identity.ownerKey,
-          draftVersion: identity.draftVersion,
-          previewRequestVersion: identity.previewRequestVersion,
-          outputId: identity.outputId,
-          limit: identity.limit,
-          snapshotToken: identity.snapshotToken,
-          receipt,
-        })) return accept(receipt, candidate.preview);
-        const completed = await executePreview({
-          outputId: identity.outputId,
-          limit: identity.limit,
-          receiptRefreshes: 0,
-        }, receipt, execution);
-        if (execution.cancelled || !completed || !identityIsCurrent()) return undefined;
-        return accept(completed.receipt, completed.preview);
-      } catch (error) {
-        if (!identityIsCurrent()) return undefined;
-        const apiError = error as ExplorerAuthoringApiError;
-        const suffix = apiError.code ? ` (${apiError.code})` : '';
-        setMessage(`Preview failed: ${apiError.message}${suffix}`);
-        throw error;
-      } finally {
-        signal.removeEventListener('abort', cancel);
-        if (activeAutomaticPreview.current?.generation === generation) {
-          activeAutomaticPreview.current = undefined;
-        }
-      }
-    },
-  });
+  const automaticPreviewQuery = useAutomaticPreview(queryOptionsFor({
+    previewDisabled,
+    pendingCommands,
+    firstTableProgress,
+    reconcileCurrent,
+    executePreview,
+  }));
   const automaticPreviewFailure = automaticPreviewQuery.error as Partial<ExplorerAuthoringApiError> | undefined;
   const automaticPreviewFailureMessage = automaticPreviewQuery.error === undefined
     ? undefined
