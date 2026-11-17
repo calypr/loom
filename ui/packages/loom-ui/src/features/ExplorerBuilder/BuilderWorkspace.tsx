@@ -74,17 +74,13 @@ import {
 import {
   sameRootChangeRequestIdentity,
 } from './authoring/rootChangeSelection';
-import {
-  planInitialTable,
-  type InitialTableCandidateEvidence,
-  type InitialTablePlan,
-} from './authoring/initialTablePlan';
 import type { PreviewLimit } from './authoring/previewRecovery';
 import { useCommandQueue } from './authoring/useCommandQueue';
 import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { useBuilderDraft } from './authoring/useBuilderDraft';
 import { useRecipeFocus } from './authoring/useRecipeFocus';
+import { useFirstTable } from './authoring/useFirstTable';
 import { useTableExplorerCrud } from './authoring/useTableExplorerCrud';
 import { useSuggestions } from './authoring/useSuggestions';
 import { usePopulationExclusion } from './authoring/usePopulationExclusion';
@@ -255,14 +251,6 @@ const editableConstructionFamily = (
   }
 };
 
-type FirstTableProgress =
-  | { readonly kind: 'idle' }
-  | {
-      readonly kind: 'running';
-      readonly resourceType: string;
-      readonly phase: 'checking' | 'creating' | 'adding-id' | 'previewing';
-    };
-
 type SourceProposalOwnerCandidate = Pick<SourceRelationshipProposal,
   'proposalId' | 'candidateDocument' | 'candidateNetwork' | 'candidateRowIdentity' |
   'candidateWorkspaceDigest' | 'candidateReceiptId' | 'outputId' | 'snapshotToken' |
@@ -384,10 +372,10 @@ const BuilderWorkspaceContent = ({
     readonly client: typeof loomClient;
     readonly selectionID: string;
   }>();
-  const [firstTableName, setFirstTableName] = useState('');
-  const [tableCreatorOpen, setTableCreatorOpen] = useState(false);
-  const [firstTableProgress, setFirstTableProgress] =
-    useState<FirstTableProgress>({ kind: 'idle' });
+  const { firstTableName, setFirstTableName, tableCreatorOpen, setTableCreatorOpen,
+    firstTableProgress, firstTableActionPending, actionsFor: firstTableActionsFor } = useFirstTable({
+    latestState, getSuggestions, projectId, authResourcePath, setMessage,
+  });
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [editingRecipeColumn, setEditingRecipeColumn] = useState<{ owner: string; columnId: string }>();
   const [sourceStepInspectorHost, setSourceStepInspectorHost] = useState<HTMLDivElement | null>(null);
@@ -432,7 +420,6 @@ const BuilderWorkspaceContent = ({
   const [tableToolbarHost, setTableToolbarHost] = useState<HTMLElement | null>(
     null,
   );
-  const firstTableActionPending = useRef(false);
   const combineCatalog = useCombineCatalog({
     ownerKey,
     explorerId: state.explorerId,
@@ -1219,107 +1206,7 @@ const BuilderWorkspaceContent = ({
     projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
     effectiveExplorerId, compileGeneration, activeCompile, setMessage, opaqueId,
   });
-  const createFirstTableFromRoot = async (nodeId: string) => {
-    if (firstTableActionPending.current) return;
-    const current = latestState.current;
-    const root = current.catalog.nodes.find((node) => node.nodeId === nodeId);
-    if (!root || !current.catalog.snapshotToken) return;
-
-    let tableCreated = false;
-    firstTableActionPending.current = true;
-    setFirstTableProgress({
-      kind: 'running',
-      resourceType: root.resourceType,
-      phase: 'checking',
-    });
-    try {
-      let evidence: InitialTableCandidateEvidence = { kind: 'unavailable' };
-      try {
-        const value = await getSuggestions({
-          project: projectId,
-          explorerId: current.explorerId,
-          authResourcePath,
-          snapshotToken: current.catalog.snapshotToken,
-          nodeId: root.nodeId,
-          requestId: `first-table-suggestions-${window.crypto.randomUUID()}`,
-        }).unwrap();
-        if (
-          value.snapshotToken === current.catalog.snapshotToken &&
-          value.nodeId === root.nodeId
-        ) {
-          evidence = { kind: 'available', candidates: value.candidates };
-        }
-      } catch {
-        // A root table is still useful when Loom cannot prove an identity field.
-      }
-
-      const plan: InitialTablePlan = planInitialTable(
-        root,
-        firstTableName,
-        evidence,
-      );
-      setFirstTableProgress({
-        kind: 'running',
-        resourceType: root.resourceType,
-        phase: 'creating',
-      });
-      const created = await applyCommandsWithResult([{
-        type: 'CREATE_TABLE',
-        title: plan.title,
-        rootNodeId: plan.root.nodeId,
-      }]);
-      const createdTable = created?.results.find(
-        (result) =>
-          result.type === 'TABLE_CREATED' &&
-          Boolean(result.outputId) &&
-          Boolean(result.occurrenceId),
-      );
-      if (!createdTable?.outputId || !createdTable.occurrenceId) {
-        setMessage(`Loom could not create a ${root.resourceType} table.`);
-        return;
-      }
-      tableCreated = true;
-      setFirstTableName('');
-
-      if (plan.kind === 'root-only') {
-        const reason = plan.reason === 'CATALOG_UNAVAILABLE'
-          ? 'Loom could not verify a safe identity column from the current catalog.'
-          : plan.reason === 'AMBIGUOUS_DIRECT_ID'
-            ? 'Loom found more than one executable direct ID field.'
-            : 'Loom did not find a direct scalar string ID field.';
-        setMessage(
-          `${plan.title} was created with ${root.resourceType} rows. ${reason} Add a column to preview the table.`,
-        );
-        return;
-      }
-
-      setFirstTableProgress({
-        kind: 'running',
-        resourceType: root.resourceType,
-        phase: 'adding-id',
-      });
-      const added = await applyCommandsWithResult([{
-        type: 'ADD_COLUMN',
-        outputId: createdTable.outputId,
-        occurrenceId: createdTable.occurrenceId,
-        candidateId: plan.candidate.candidateId,
-        projectionMode: 'VALUE',
-        initialPresentation: 'TABLE',
-        title: `${root.resourceType} ID`,
-      }]);
-      if (!added) {
-        setMessage(
-          `${plan.title} was created, but Loom could not add the catalog-verified ID column. Review the Builder diagnostics and try again.`,
-        );
-        return;
-      }
-
-    } finally {
-      if (tableCreated) setTableCreatorOpen(false);
-      firstTableActionPending.current = false;
-      setFirstTableProgress({ kind: 'idle' });
-    }
-  };
+  const { createFirstTableFromRoot } = firstTableActionsFor({ applyCommandsWithResult });
 
   const automaticPreviewQuery = useAutomaticPreview(queryOptionsFor({
     previewDisabled,
