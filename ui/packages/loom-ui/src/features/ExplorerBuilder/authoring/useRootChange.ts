@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { isCompilerNavigationSelection } from './workspaceGuards';
 import {
   sameRootChangeRequestIdentity,
@@ -64,6 +64,99 @@ type UseRootChangeOptions = {
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
 };
 
+type RootChangeStateSnapshot = {
+  readonly rootChangeState: RootChangePickerState;
+  readonly pendingRowChangePreview: PendingRowChangePreview | undefined;
+};
+
+type RootChangeStateStore = {
+  readonly getSnapshot: () => RootChangeStateSnapshot;
+  readonly getLifecycleVersion: () => number;
+  readonly subscribe: (subscriber: () => void) => () => void;
+  readonly activate: (identity: RootChangeRequestIdentity | undefined) => void;
+  readonly update: (update: (current: RootChangeStateSnapshot) => RootChangeStateSnapshot) => void;
+};
+
+const createRootChangeStateStore = (
+  onDetach: () => void,
+  onStalePreview: () => void,
+): RootChangeStateStore => {
+  let snapshot: RootChangeStateSnapshot = {
+    rootChangeState: { kind: 'idle' },
+    pendingRowChangePreview: undefined,
+  };
+  let lifecycleVersion = 0;
+  let activated = false;
+  let activeIdentity: RootChangeRequestIdentity | undefined;
+  const subscribers = new Set<() => void>();
+  return {
+    getSnapshot: () => snapshot,
+    getLifecycleVersion: () => lifecycleVersion,
+    subscribe: (subscriber) => {
+      subscribers.add(subscriber);
+      return () => {
+        subscribers.delete(subscriber);
+        lifecycleVersion += 1;
+        onDetach();
+      };
+    },
+    activate: (identity) => {
+      if (!activated) {
+        activated = true;
+        activeIdentity = identity;
+        return;
+      }
+      if (identity && activeIdentity && sameRootChangeRequestIdentity(activeIdentity, identity)) return;
+
+      const previous = activeIdentity;
+      const active = snapshot.rootChangeState;
+      const pending = snapshot.pendingRowChangePreview;
+      const activeIsStale = active.kind !== 'idle' && (
+        identity === undefined || !sameRootChangeRequestIdentity(active.identity, identity)
+      );
+      const previewIsStale = pending !== undefined && (
+        identity === undefined || !sameRootChangeRequestIdentity(pending.identity, identity)
+      );
+      const sameExplorerOutput = identity !== undefined && previous !== undefined &&
+        previous.project === identity.project &&
+        previous.authResourcePath === identity.authResourcePath &&
+        previous.explorerId === identity.explorerId &&
+        previous.outputId === identity.outputId;
+
+      lifecycleVersion += 1;
+      onDetach();
+      activeIdentity = identity;
+      if (!activeIsStale && !previewIsStale) return;
+
+      const nextRootChangeState = activeIsStale
+        ? sameExplorerOutput
+          ? {
+              kind: 'failed' as const,
+              reason: 'stale' as const,
+              selection: active.selection,
+              resolution: active.resolution,
+              identity: active.identity,
+              message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
+            }
+          : { kind: 'idle' as const }
+        : active;
+      const next = {
+        rootChangeState: nextRootChangeState,
+        pendingRowChangePreview: previewIsStale ? undefined : pending,
+      };
+      snapshot = next;
+      if (previewIsStale) onStalePreview();
+      for (const subscriber of subscribers) subscriber();
+    },
+    update: (update) => {
+      const next = update(snapshot);
+      if (next === snapshot) return;
+      snapshot = next;
+      for (const subscriber of subscribers) subscriber();
+    },
+  };
+};
+
 export const useRootChange = ({
   projectId,
   authResourcePath,
@@ -82,18 +175,18 @@ export const useRootChange = ({
   rowSettingsCloseAction,
   setMessage,
 }: UseRootChangeOptions) => {
-  const [rootChangeState, setRootChangeState] =
-    useState<RootChangePickerState>({ kind: 'idle' });
-  const rootChangeStateRef = useRef(rootChangeState);
-  rootChangeStateRef.current = rootChangeState;
-  const [pendingRowChangePreview, setPendingRowChangePreview] =
-    useState<PendingRowChangePreview>();
   const rowChangeAssessmentRequest = useRef<{ readonly abort: () => void } | undefined>(undefined);
   const rowChangeRequestEpoch = useRef(0);
   const rowChangePreviewRequest = useRef<AbortController | undefined>(undefined);
   const rootRecipeAssessment = useRef<ReadyRootChangeAssessment | undefined>(undefined);
   const rootRecipeActions = useRef<RootRecipeActions | undefined>(undefined);
   const [rootReplacementInspectorHost, setRootReplacementInspectorHost] = useState<HTMLElement | null>(null);
+  const abortRootChangeRequests = useCallback(() => {
+    rowChangeAssessmentRequest.current?.abort();
+    rowChangeAssessmentRequest.current = undefined;
+    rowChangePreviewRequest.current?.abort();
+    rowChangePreviewRequest.current = undefined;
+  }, []);
 
   const rootChangeIdentityForTable = (outputId: string): RootChangeRequestIdentity => ({
     epoch: rowChangeRequestEpoch.current,
@@ -119,48 +212,52 @@ export const useRootChange = ({
         currentRootChangeIdentity.draftDigest,
       ])
     : 'none';
-  const [handledRootIdentityKey, setHandledRootIdentityKey] = useState(rootIdentityKey);
-  if (handledRootIdentityKey !== rootIdentityKey) {
-    setHandledRootIdentityKey(rootIdentityKey);
-    const active = rootChangeStateRef.current;
-    const pendingPreview = pendingRowChangePreview;
-    const activeIsStale = active.kind !== 'idle' && (
-      currentRootChangeIdentity === undefined ||
-      !sameRootChangeRequestIdentity(active.identity, currentRootChangeIdentity)
-    );
-    const previewIsStale = pendingPreview !== undefined && (
-      currentRootChangeIdentity === undefined ||
-      !sameRootChangeRequestIdentity(pendingPreview.identity, currentRootChangeIdentity)
-    );
-    if (activeIsStale || previewIsStale) {
-      rowChangeAssessmentRequest.current?.abort();
-      rowChangeAssessmentRequest.current = undefined;
-      rowChangePreviewRequest.current?.abort();
-      rowChangePreviewRequest.current = undefined;
-      rowChangeRequestEpoch.current += 1;
-      setPendingRowChangePreview(undefined);
-
-      if (activeIsStale) {
-        const sameExplorerOutput = active.identity.project === projectId &&
-          active.identity.authResourcePath === authResourcePath &&
-          active.identity.explorerId === state.explorerId &&
-          active.identity.outputId === table?.outputId;
-        setRootChangeState(sameExplorerOutput
-          ? {
-              kind: 'failed',
-              reason: 'stale',
-              selection: active.selection,
-              resolution: active.resolution,
-              identity: active.identity,
-              message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
-            }
-          : { kind: 'idle' });
-      }
-      if (previewIsStale) {
-        setMessage('The table changed while Loom prepared the row preview. Review the change again.');
-      }
-    }
-  }
+  const rootChangeStateStore = useMemo(
+    () => createRootChangeStateStore(
+      abortRootChangeRequests,
+      () => setMessage('The table changed while Loom prepared the row preview. Review the change again.'),
+    ),
+    [abortRootChangeRequests, setMessage],
+  );
+  const rootChangeIdentityForSubscription = useMemo(
+    () => currentRootChangeIdentity,
+    [rootIdentityKey],
+  );
+  const subscribeRootChangeState = useCallback((subscriber: () => void) => {
+    const unsubscribe = rootChangeStateStore.subscribe(subscriber);
+    rootChangeStateStore.activate(rootChangeIdentityForSubscription);
+    return unsubscribe;
+  }, [rootChangeIdentityForSubscription, rootChangeStateStore]);
+  const rootChangeStateSnapshot = useSyncExternalStore(
+    subscribeRootChangeState,
+    rootChangeStateStore.getSnapshot,
+    rootChangeStateStore.getSnapshot,
+  );
+  const rootChangeState = rootChangeStateSnapshot.rootChangeState;
+  const pendingRowChangePreview = rootChangeStateSnapshot.pendingRowChangePreview;
+  const setRootChangeState = useCallback<Dispatch<SetStateAction<RootChangePickerState>>>(
+    (update) => rootChangeStateStore.update((current) => ({
+      ...current,
+      rootChangeState: typeof update === 'function'
+        ? update(current.rootChangeState)
+        : update,
+    })),
+    [rootChangeStateStore],
+  );
+  const setPendingRowChangePreview = useCallback<Dispatch<SetStateAction<PendingRowChangePreview | undefined>>>(
+    (update) => rootChangeStateStore.update((current) => ({
+      ...current,
+      pendingRowChangePreview: typeof update === 'function'
+        ? update(current.pendingRowChangePreview)
+        : update,
+    })),
+    [rootChangeStateStore],
+  );
+  const rootChangeStateRef = useMemo(() => ({
+    get current() {
+      return rootChangeStateStore.getSnapshot().rootChangeState;
+    },
+  }), [rootChangeStateStore]);
 
   const getCurrentRootChangeIdentity = useCallback((): RootChangeRequestIdentity | undefined => {
     const current = latestState.current;
@@ -178,20 +275,13 @@ export const useRootChange = ({
     };
   }, [authResourcePath, projectId]);
 
-  const abortRootChangeRequests = useCallback(() => {
-    rowChangeAssessmentRequest.current?.abort();
-    rowChangeAssessmentRequest.current = undefined;
-    rowChangePreviewRequest.current?.abort();
-    rowChangePreviewRequest.current = undefined;
-  }, []);
-
   const cancelRootChange = useCallback(() => {
     if (rootRecipeActions.current?.cancel() === false) return;
     abortRootChangeRequests();
     rowChangeRequestEpoch.current += 1;
     setPendingRowChangePreview(undefined);
     setRootChangeState({ kind: 'idle' });
-  }, [abortRootChangeRequests]);
+  }, [abortRootChangeRequests, setPendingRowChangePreview, setRootChangeState]);
 
   const changeTableRoot = useCallback(
     async (selection: RootChangeSelection, resolution: RootChangeResolution = {}) => {
@@ -201,6 +291,7 @@ export const useRootChange = ({
       abortRootChangeRequests();
       rowChangeRequestEpoch.current += 1;
       const epoch = rowChangeRequestEpoch.current;
+      const storeLifecycleVersion = rootChangeStateStore.getLifecycleVersion();
       const identity = getCurrentRootChangeIdentity();
       if (!identity) {
         rootOwnership.failed('The selected table is unavailable.');
@@ -212,7 +303,8 @@ export const useRootChange = ({
       setRootChangeState({ kind: 'assessing', selection, resolution, identity });
       const isCurrentAttempt = () => {
         const currentIdentity = getCurrentRootChangeIdentity();
-        return workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
+        return rootChangeStateStore.getLifecycleVersion() === storeLifecycleVersion &&
+          workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
           sameRootChangeRequestIdentity(identity, currentIdentity);
       };
       const request = assessRowChange({
@@ -343,7 +435,8 @@ export const useRootChange = ({
       }
     },
     [abortRootChangeRequests, assessRowChange, getCurrentRootChangeIdentity, loomClient,
-      previewLimit, projectId, refetchBuilder, syncBuilderData],
+      previewLimit, projectId, refetchBuilder, rootChangeStateStore, setMessage,
+      setPendingRowChangePreview, setRootChangeState, syncBuilderData],
   );
 
   const selectRootChoice = useCallback((selection: RootChangeSelection) => {
@@ -392,7 +485,7 @@ export const useRootChange = ({
         : {}),
     };
     void changeTableRoot(selection, resolution);
-  }, [changeTableRoot, getCurrentRootChangeIdentity]);
+  }, [changeTableRoot, getCurrentRootChangeIdentity, rootChangeStateRef, setRootChangeState]);
 
   const resolveRootChange = useCallback((referenceId: string, alternative: string) => {
     const active = rootChangeStateRef.current;
@@ -424,7 +517,7 @@ export const useRootChange = ({
       ],
     };
     void changeTableRoot(active.selection, resolution);
-  }, [changeTableRoot, getCurrentRootChangeIdentity]);
+  }, [changeTableRoot, getCurrentRootChangeIdentity, rootChangeStateRef, setRootChangeState]);
 
   const refreshRootChange = useCallback(() => {
     const active = rootChangeStateRef.current;
@@ -434,7 +527,7 @@ export const useRootChange = ({
       return;
     }
     void changeTableRoot(active.selection, active.resolution);
-  }, [changeTableRoot]);
+  }, [changeTableRoot, rootChangeStateRef]);
 
   const applyRowChangePreview = useCallback(async () => {
     const pending = pendingRowChangePreview;
@@ -447,7 +540,7 @@ export const useRootChange = ({
     }
     const applied = await rootRecipeActions.current?.apply(pending.assessment);
     if (applied) setPendingRowChangePreview(undefined);
-  }, [applyCommands, getCurrentRootChangeIdentity, pendingRowChangePreview]);
+  }, [getCurrentRootChangeIdentity, pendingRowChangePreview, setMessage, setPendingRowChangePreview]);
 
   return {
     rootChangeState,
