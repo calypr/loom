@@ -1391,13 +1391,18 @@ const BuilderWorkspaceContent = ({
       columnRulesUnavailableReason={ruleUnavailableReason}
       columnRuleInventoryScope={ruleInventoryScope}
       renderColumnRule={(preset, inventory) => {
-        const initialParameters = columnRuleDefaults[preset.id];
+        const defaults = columnRuleDefaults[preset.id];
+        const extensionPath = inventory.extensionPaths[0];
+        const initialParameters = preset.id === 'extension' && defaults?.extension && extensionPath
+          ? { extension: { ...defaults.extension, source: { select: extensionPath } } }
+          : defaults;
         if (!ruleOccurrence || !initialParameters) return null;
         return (
           <CreateColumnRule
             key={`${relationshipOwner}:${ruleOccurrence.id}:${preset.id}`}
             kind={preset.kind} occurrence={ruleOccurrence} preset={preset} initialParameters={initialParameters}
             identifierSystems={inventory.systems} identifierInventoryLoading={inventory.loading}
+            extensionSourcePaths={preset.id === 'extension' ? inventory.extensionPaths : undefined}
             identifierInventoryUnavailable={inventory.unavailable}
             fieldPathChoices={preset.id === 'catalog' ? ruleFieldPaths : undefined}
             reviewing={activeRuleReview?.ruleKind === preset.kind && activeRuleReview.occurrenceId === ruleOccurrence.id}

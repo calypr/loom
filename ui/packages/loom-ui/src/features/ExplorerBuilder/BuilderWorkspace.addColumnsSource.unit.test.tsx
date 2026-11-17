@@ -1153,6 +1153,30 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(screen.getByText(/Loom keeps the first in sorted order/)).toBeInTheDocument();
   });
 
+  it('offers only extension paths with observations for the selected resource type', async () => {
+    mockLoomClient.browseSemanticInventory.mockImplementation(async ({ query }: Parameters<LoomClient['browseSemanticInventory']>[0]) => ({
+      contextToken: 'inventory', buildId: 'build', state: 'complete', sourceAvailability: 'unknown',
+      entries: query === 'extension' ? [
+        { resourceType: 'Patient', sourcePath: 'extension[]', valueSelector: 'extension[].valueBoolean', occurrences: 1 },
+        { resourceType: 'Patient', sourcePath: 'extension[].extension[]', valueSelector: 'extension[].extension[].valueString', occurrences: 1 },
+        { resourceType: 'Patient', sourcePath: 'identifier[]', valueSelector: 'identifier[].value', occurrences: 1 },
+        { resourceType: 'Observation', sourcePath: 'extension[].extension[].extension[]', valueSelector: 'nested.valueString', occurrences: 1 },
+      ] : [],
+    }));
+    renderImportedBuilder();
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
+    const extensions = screen.getByRole('button', { name: 'Extensions' });
+    await waitFor(() => expect(extensions).toBeEnabled());
+    fireEvent.click(extensions);
+
+    const source = screen.getByRole('combobox', { name: 'Extension source path' });
+    expect(within(source).getAllByRole('option').map(option => option.textContent))
+      .toEqual(['extension[]', 'extension[].extension[]']);
+    fireEvent.change(source, { target: { value: 'extension[].extension[]' } });
+    expect(screen.getByRole('button', { name: 'Review column rule' })).toBeEnabled();
+  });
+
   it('lists unavailable column rules on a Builder-created table', async () => {
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
 

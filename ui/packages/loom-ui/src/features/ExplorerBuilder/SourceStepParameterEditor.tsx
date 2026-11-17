@@ -77,9 +77,10 @@ function CatalogChoices({ action, options, values, onChange }: {
   </fieldset>;
 }
 
-export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all', structuredColumnRule = false }: {
+export function SourceStepParameterEditor({ parameters, onChange, disabled = false, selectedFieldId, fieldFocusRequest = 0, catalogOutputs = [], pivotOutputs = [], selectedOutputKey, outputFocusRequest = 0, outputRevision = 'unversioned', resourceTypeChoices, sourcePathChoices, extensionSourcePaths, fieldPathChoices, fieldKindChoices, projectedFields, sourceStepId, onRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, view = 'all', structuredColumnRule = false }: {
   readonly view?: 'all' | 'fields' | 'settings';
   readonly parameters: EditorSourceParameters;
+  readonly extensionSourcePaths?: ReadonlyArray<string>;
   readonly structuredColumnRule?: boolean;
   readonly onChange: (parameters: ImportedSourceParameters) => void;
   readonly disabled?: boolean;
@@ -287,8 +288,16 @@ export function SourceStepParameterEditor({ parameters, onChange, disabled = fal
     {view !== 'fields' && 'extension' in parameters && parameters.extension ? (() => { const p = parameters.extension; const update = (patch: Partial<typeof p>) => onChange({ ...parameters, extension: { ...p, ...patch } }); return <>
       <Text label="Extension column name" value={p.name} onChange={(name) => update({ name })} />
       {(() => {
-        const choices = ['root.extension[]', 'root.modifierExtension[]'];
         const current = typeof p.source.select === 'string' ? p.source.select : '';
+        if (structuredColumnRule) {
+          return <label className="grid gap-1 text-xs">Extension source path
+            <select aria-label="Extension source path" className={controlClass} value={current}
+              onChange={event => update({ source: { select: event.currentTarget.value } })}>
+              {(extensionSourcePaths ?? [current]).map(path => <option key={path} value={path}>{path}</option>)}
+            </select>
+          </label>;
+        }
+        const choices = ['root.extension[]', 'root.modifierExtension[]'];
         return <label className="grid gap-1 text-xs">Extension item source
           <select aria-label="Extension item source" className={controlClass} value={current}
             onChange={(event) => update({ source: { select: event.currentTarget.value } })}>

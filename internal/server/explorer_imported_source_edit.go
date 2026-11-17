@@ -28,9 +28,6 @@ func (r importedRecipeSources) CreateSourceRule(ctx context.Context, project str
 	if err := rule.Validate(); err != nil {
 		return authoringv2.Document{}, err
 	}
-	if rule.Kind == recipeimport.SourcePlanExtensionColumn {
-		return authoringv2.Document{}, fmt.Errorf("column rule kind is unavailable")
-	}
 	return r.editSources(ctx, project, authorized, document, nil, nil, &rule)
 }
 

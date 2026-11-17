@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { observedIdentifierSystems, useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
+import { observedExtensionPaths, observedIdentifierSystems, useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
 import { columnRuleDefaults, columnRulePresets, type ColumnRulePreset } from '../sourceColumnRule';
 import type { AddColumnsGraphSource, AddColumnsView } from '../authoring/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
@@ -31,6 +31,7 @@ type FamilyOperation = { readonly family: ConstructionOperationFamily; readonly 
 
 type RuleInventory = {
   readonly systems: ReadonlyArray<string>;
+  readonly extensionPaths: ReadonlyArray<string>;
   readonly loading: boolean;
   readonly unavailable: boolean;
 };
@@ -45,8 +46,10 @@ function ColumnRulePicker({ client, inventoryScope, unavailableReason, disabled,
 }) {
   const [selected, setSelected] = useState<ColumnRulePreset>();
   const identifiers = useColumnRuleInventory(client, inventoryScope, 'identifier', !unavailableReason);
+  const extensions = useColumnRuleInventory(client, inventoryScope, 'extension', !unavailableReason);
   const inventory = {
     systems: observedIdentifierSystems(identifiers.data ?? []),
+    extensionPaths: observedExtensionPaths(extensions.data ?? []),
     loading: identifiers.isLoading,
     unavailable: Boolean(identifiers.error),
   };
@@ -60,7 +63,11 @@ function ColumnRulePicker({ client, inventoryScope, unavailableReason, disabled,
   return (
     <ul aria-label="Column rules" className="grid gap-2 px-3 pb-3">
       {columnRulePresets.map(preset => {
-        const reason = unavailableReason ?? (!columnRuleDefaults[preset.id] ? 'This rule kind is unavailable.' : undefined);
+        const reason = unavailableReason ?? (preset.id === 'extension' && !inventory.extensionPaths.length
+          ? extensions.isLoading ? 'Loading observed extension paths…'
+            : extensions.error ? 'Observed extension paths are unavailable.'
+            : 'No extension paths with observed values for this resource type.'
+          : !columnRuleDefaults[preset.id] ? 'This rule kind is unavailable.' : undefined);
         return <li key={preset.id} className="rounded-md border border-slate-200 p-2">
           <button type="button" disabled={disabled || Boolean(reason)}
             className="text-sm font-semibold text-blue-800 disabled:text-slate-700"

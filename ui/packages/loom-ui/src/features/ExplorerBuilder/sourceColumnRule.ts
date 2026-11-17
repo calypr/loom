@@ -50,4 +50,5 @@ export const columnRuleDefaults: Partial<Record<ColumnRulePreset['id'], Imported
     },
   },
   catalog: { catalog: { name: 'catalog_fields', includePaths: [], naming: 'PATH' } },
+  extension: { extension: { name: 'extensions', source: { select: 'extension[]' } } },
 };

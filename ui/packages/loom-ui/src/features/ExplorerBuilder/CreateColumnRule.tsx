@@ -5,7 +5,7 @@ import { isCategoryCodingRule, isIdentifierColumnRule, type ColumnRuleOccurrence
 
 const ruleNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export function CreateColumnRule({ kind, occurrence, preset, initialParameters, identifierSystems, identifierInventoryLoading, identifierInventoryUnavailable, fieldPathChoices, disabled, reviewing, onReview, onCancel, renderReview }: {
+export function CreateColumnRule({ kind, occurrence, preset, initialParameters, identifierSystems, identifierInventoryLoading, identifierInventoryUnavailable, extensionSourcePaths, fieldPathChoices, disabled, reviewing, onReview, onCancel, renderReview }: {
   readonly kind: SourceRuleCreate['kind'];
   readonly occurrence: ColumnRuleOccurrence;
   readonly preset: ColumnRulePreset;
@@ -13,6 +13,7 @@ export function CreateColumnRule({ kind, occurrence, preset, initialParameters, 
   readonly identifierSystems?: ReadonlyArray<string>;
   readonly identifierInventoryLoading?: boolean;
   readonly identifierInventoryUnavailable?: boolean;
+  readonly extensionSourcePaths?: ReadonlyArray<string>;
   readonly fieldPathChoices?: ReadonlyArray<string>;
   readonly disabled: boolean;
   readonly reviewing: boolean;
@@ -24,17 +25,23 @@ export function CreateColumnRule({ kind, occurrence, preset, initialParameters, 
   const [columnLimit, setColumnLimit] = useState("128");
   const limit = Number(columnLimit);
   const rule = parameters.dynamic;
+  const extension = parameters.extension;
   const catalog = parameters.catalog;
-  const validName = ruleNamePattern.test(rule?.name ?? catalog?.name ?? '');
-  const validPrefix = !rule?.columnPrefix || ruleNamePattern.test(rule.columnPrefix);
+  const validName = ruleNamePattern.test(rule?.name ?? extension?.name ?? catalog?.name ?? '');
+  const prefix = rule?.columnPrefix ?? extension?.columnPrefix;
+  const validPrefix = !prefix || ruleNamePattern.test(prefix);
   const matchesPreset = rule && (preset.id === 'identifier' ? isIdentifierColumnRule(rule) : preset.id === 'categoryCoding' && isCategoryCodingRule(rule));
   const validCatalogLimit = Number.isInteger(limit) && limit >= 1 && limit <= 128;
-  const canReview = Boolean(validName && validPrefix && (matchesPreset || (catalog?.includePaths?.length && validCatalogLimit)));
+  const validExtension = extension?.source.select && extensionSourcePaths?.includes(extension.source.select);
+  const canReview = Boolean(validName && validPrefix && (matchesPreset || validExtension || (catalog?.includePaths?.length && validCatalogLimit)));
 
   return (
     <section className="grid gap-3 px-3 pb-3">
       <h3 className="text-sm font-semibold text-slate-900">Columns from {preset.label.toLowerCase()}</h3>
       <p className="text-xs text-slate-600">{occurrence.label}{rule ? ` · ${rule.source.select}` : ''}</p>
+      {preset.id === 'extension' ? <p className="text-xs text-slate-600">
+        Paths observed on {occurrence.resourceType} records. Preview shows columns generated for {occurrence.label}.
+      </p> : null}
       {preset.id === 'identifier' && identifierSystems ? <section className="grid gap-1 text-xs" aria-label="Observed identifier systems">
         <p className="font-medium text-slate-800">Identifier systems observed on {occurrence.resourceType} records</p>
         {identifierInventoryLoading ? <p role="status">Loading identifier systems…</p>
@@ -44,7 +51,7 @@ export function CreateColumnRule({ kind, occurrence, preset, initialParameters, 
           </ul> : <p>No identifier systems were observed for this resource type.</p>}
       </section> : null}
       <SourceStepParameterEditor parameters={parameters} onChange={setParameters} disabled={disabled || reviewing}
-        structuredColumnRule fieldPathChoices={fieldPathChoices} />
+        structuredColumnRule fieldPathChoices={fieldPathChoices} extensionSourcePaths={extensionSourcePaths} />
       {catalog ? <label className="grid gap-1 text-xs">Maximum columns
         <input type="number" className="w-24 rounded border border-slate-300 px-2 py-1" min={1} max={128} step={1}
           value={columnLimit} disabled={disabled || reviewing} aria-invalid={!validCatalogLimit}
