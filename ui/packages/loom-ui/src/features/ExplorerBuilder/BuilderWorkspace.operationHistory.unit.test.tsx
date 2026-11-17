@@ -96,7 +96,6 @@ vi.mock('./hooks/usePortalHost', () => ({ usePortalHost: () => null }));
 vi.mock('./components/BuilderToolbar', () => ({ BuilderToolbar: () => null, NewExplorerControl: () => null }));
 vi.mock('./components/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));
 vi.mock('./components/GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: () => null }));
-vi.mock('./components/ColumnSelector', () => ({ ColumnSelector: () => null }));
 vi.mock('./components/ConceptCatalog', () => ({ ConceptCatalog: () => null }));
 vi.mock('./components/RowRootPicker', () => ({ RowRootPicker: () => null }));
 vi.mock('./components/PreviewTable', async (importOriginal) => ({
@@ -117,7 +116,6 @@ vi.mock('./components/RowDefinitionSettingsPanel', () => ({
 }));
 vi.mock('./components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
 vi.mock('./constructionWorkspace/FrameSourcePanel', () => ({ FrameSourcePanel: () => null }));
-vi.mock('./constructionOperations/SourceCollectionExpandEditor', () => ({ SourceCollectionExpandEditor: () => null }));
 vi.mock('./constructionWorkspace/ConstructionColumnSelection', () => ({ ConstructionColumnSelection: () => null }));
 vi.mock('./constructionOperations/ConstructionOperationEditor', () => ({ ConstructionOperationEditor: () => null }));
 vi.mock('./constructionOperations/FilterRowsEditor', () => ({ FilterRowsEditor: () => null }));

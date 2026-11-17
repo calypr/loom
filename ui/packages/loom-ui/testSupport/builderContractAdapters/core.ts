@@ -522,23 +522,6 @@ const driveRelatedField = async (input: CoreAdapterInput): Promise<void> => {
   await screen.findByTestId('construction-proposal-loading');
 };
 
-const driveColumnFilterPresentation = async (input: CoreAdapterInput): Promise<void> => {
-  const values = valuesOf(input);
-  const label = requiredString(input, values, 'columnLabel');
-  const desired = values.enabled;
-  if (typeof desired !== 'boolean') throw new CoreAdapterGapError(input.uiAction.affordanceId, 'column filter presentation requires boolean enabled.');
-  const control = await screen.findByRole('checkbox', { name: `Use ${label} as filter` });
-  if (!(control instanceof HTMLInputElement) || control.type !== 'checkbox') {
-    throw new CoreAdapterGapError(input.uiAction.affordanceId, `filter presentation for ${label} is not a mounted checkbox.`);
-  }
-  failIfUnavailable(input, control, `filter presentation for ${label}`);
-  if (control.checked !== desired) fireEvent.click(control);
-  await waitFor(() => {
-    const current = screen.getByRole('checkbox', { name: `Use ${label} as filter` });
-    if (!(current instanceof HTMLInputElement) || current.checked !== desired) throw new Error(`Filter presentation for ${label} did not update.`);
-  });
-};
-
 const driveFirstTable = async (input: CoreAdapterInput): Promise<void> => {
   const values = valuesOf(input);
   const resourceType = requiredString(input, values, 'resourceType');
@@ -802,11 +785,6 @@ export const coreAdapters = {
     'builder.calculate.derive', 'core.calculate.derive', 'core.driveDerivedCalculation',
     ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4432', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1135', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1178'],
     driveCalculate,
-  ),
-  'builder.column_filter_presentation': adapter(
-    'builder.column_filter_presentation', 'core.column_filter_presentation', 'core.driveColumnFilterPresentation',
-    ['ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:298', 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:440'],
-    driveColumnFilterPresentation,
   ),
   'builder.automatic_preview_refresh_and_recovery': adapter(
     'builder.automatic_preview_refresh_and_recovery', 'core.automatic_preview_refresh_and_recovery', 'core.driveAutomaticPreviewRecovery',
