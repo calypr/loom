@@ -1,4 +1,4 @@
-import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName, sourceLabel as pivotSourceLabel, editorContextKey } from './editorShared';
+import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName, sourceLabel as pivotSourceLabel, editorContextKey, stageWithSourceInputs } from './editorShared';
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useQuery } from '../../../react';
@@ -4411,40 +4411,15 @@ const pivotUnlistedPolicyFromInput = (value: string): PivotForm['unlistedCategor
   }
 };
 
-const pivotInputStage = (stage: ReshapeStage, form: PivotForm, choices: ReadonlyArray<SourceInputChoice>): ReshapeStage => {
-  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
-  const inputs = (form.pivotSources ?? []).flatMap((selection) => {
-    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
-    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
-    if (!choice) return [];
-    const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
-    usedNames.add(name.toLowerCase());
-    return [{ id: selection.columnId, name, label: choice.label, type: choice.logicalType, cardinality: 'optional_one' as const }];
-  });
-  return { ...stage, columns: [...stage.columns, ...inputs] };
-};
+const pivotInputStage = (stage: ReshapeStage, form: PivotForm, choices: ReadonlyArray<SourceInputChoice>): ReshapeStage =>
+  stageWithSourceInputs({ stage, choices, selections: form.pivotSources ?? [], kind: 'PIVOT' });
 
-const unpivotInputStage = (stage: ReshapeStage, form: UnpivotForm, choices: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string; readonly label: string; readonly logicalType: string }>): ReshapeStage => {
-  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
-  const inputs = (form.unpivotSources ?? []).flatMap((selection) => {
-    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
-    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
-    if (!choice) return [];
-    const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
-    usedNames.add(name.toLowerCase());
-    return [{ id: selection.columnId, name, label: choice.label, type: choice.logicalType, cardinality: 'optional_one' as const }];
-  });
-  return { ...stage, columns: [...stage.columns, ...inputs] };
-};
+const unpivotInputStage = (stage: ReshapeStage, form: UnpivotForm, choices: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string; readonly label: string; readonly logicalType: string }>): ReshapeStage =>
+  stageWithSourceInputs({ stage, choices, selections: form.unpivotSources ?? [], kind: 'UNPIVOT' });
 
 const expandInputStage = (stage: ReshapeStage, form: ExpandForm, choices: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string; readonly label: string; readonly logicalType: string }>): ReshapeStage => {
   const binding = (form.expandSources ?? []).find((candidate) => candidate.columnId === form.inputColumnId);
-  if (!binding || stage.columns.some((column) => column.id === form.inputColumnId)) return stage;
-  const choice = choices.find((candidate) => candidate.choiceId === binding.choiceId);
-  if (!choice) return stage;
-  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
-  const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
-  return { ...stage, columns: [...stage.columns, { id: form.inputColumnId, name, label: choice.label, type: choice.logicalType, cardinality: 'many' as const }] };
+  return stageWithSourceInputs({ stage, choices, selections: binding ? [binding] : [], kind: 'EXPAND' });
 };
 
 const PivotEditor = (props: {

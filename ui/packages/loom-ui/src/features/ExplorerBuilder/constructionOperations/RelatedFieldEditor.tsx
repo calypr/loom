@@ -9,7 +9,8 @@ import type {
   ConstructionStep,
   RelatedFieldChoiceSearchResponse,
 } from '../../../types';
-import { constructionSchema } from '../../../types';
+import { constructionWithStep } from './editorShared';
+import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 
 type RelatedFieldOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_FIELD' }>;
 export type RelatedFieldStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedFieldOperation };
@@ -61,24 +62,15 @@ const candidateFor = (
   if (step && !step.outputs.some((column) => column.id === outputColumnId)) return undefined;
   const nextStep: RelatedFieldStep = {
     id: stepId,
-    inputs: [stage.id === 'source_projection'
-      ? { kind: 'SOURCE_PROJECTION' }
-      : { kind: 'STEP_OUTPUT', stepId: stage.id }],
+    inputs: [constructionInputForStage(stage)],
     operation: {
       kind: 'RELATED_FIELD',
       relatedField: { choiceId: choice.choiceId, source: choice.source, outputColumnId },
     },
     outputs,
   };
-  const parsed = constructionSchema.safeParse({
-    version: construction.version,
-    steps: step
-      ? construction.steps.map((current) => current.id === step.id ? nextStep : current)
-      : [...construction.steps, nextStep],
-  });
-  return parsed.success
-    ? { candidateConstruction: parsed.data, changedStepId: stepId }
-    : undefined;
+  const candidateConstruction = constructionWithStep({ construction, editingStep: step, step: nextStep });
+  return candidateConstruction ? { candidateConstruction, changedStepId: stepId } : undefined;
 };
 
 export const RelatedFieldEditor = ({

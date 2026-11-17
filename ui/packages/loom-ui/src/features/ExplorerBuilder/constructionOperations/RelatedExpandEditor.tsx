@@ -9,7 +9,8 @@ import type {
   ExplorerBuilderCatalog,
   RelatedExpandChoiceSearchResponse,
 } from '../../../types';
-import { constructionSchema } from '../../../types';
+import { constructionWithStep } from './editorShared';
+import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
 import { routePath } from '../constructionWorkspace/routeDisplay';
 import { TraversalPath } from '../constructionWorkspace/TraversalPath';
@@ -122,9 +123,7 @@ const candidateFor = (
           : { kind: 'STRING' as const, string: condition.value.trim() } } };
   const nextStep: RelatedExpandStep = {
     id: stepId,
-    inputs: [stage.id === 'source_projection'
-      ? { kind: 'SOURCE_PROJECTION' }
-      : { kind: 'STEP_OUTPUT', stepId: stage.id }],
+    inputs: [constructionInputForStage(stage)],
     operation: {
       kind: 'RELATED_EXPAND',
       relatedExpand: {
@@ -144,15 +143,8 @@ const candidateFor = (
     },
     outputs,
   };
-  const parsed = constructionSchema.safeParse({
-    version: construction.version,
-    steps: step
-      ? construction.steps.map((current) => current.id === step.id ? nextStep : current)
-      : [...construction.steps, nextStep],
-  });
-  return parsed.success
-    ? { candidateConstruction: parsed.data, changedStepId: stepId }
-    : undefined;
+  const candidateConstruction = constructionWithStep({ construction, editingStep: step, step: nextStep });
+  return candidateConstruction ? { candidateConstruction, changedStepId: stepId } : undefined;
 };
 
 export const RelatedExpandEditor = ({
