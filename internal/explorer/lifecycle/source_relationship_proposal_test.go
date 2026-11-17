@@ -280,10 +280,10 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 		if rule.Kind != "DYNAMIC_COLUMN" || rule.Parameters.Dynamic.Name != "identifiers" {
 			t.Fatalf("unexpected source rule intent: %#v", rule)
 		}
-		addition := authoringv2.ImportedSourceRuleAddition{StepID: "ruleAdditions[0]", Kind: rule.Kind, Parameters: rule.Parameters, Enabled: true}
-		document.ImportedSource.RuleAdditions = append(document.ImportedSource.RuleAdditions, addition)
-		document.ImportedSource.Steps = append(document.ImportedSource.Steps, recipeimport.SourcePlanForRuleAddition(addition))
-		_, err := recipeimport.ApplySourcePlan(output, document.ImportedSource)
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, authoringv2.CatalogSnapshot{}, recipeimport.PlanEdit{RuleCreate: &rule}, recipeimport.PlanEditInput{})
+		if err == nil {
+			document.ImportedSource = &plan
+		}
 		return document, err
 	}
 	ruleRequest := stepRequest
@@ -317,15 +317,12 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	}
 
 	service.config.EditImportedSource = func(_ context.Context, _ string, _ AuthorizedCapability, document authoringv2.Document, change *authoringv2.ImportedSourceStepChange) (authoringv2.Document, error) {
-		addition := &document.ImportedSource.RuleAdditions[0]
-		if change.StepID != addition.StepID {
-			t.Fatalf("edit targeted %q, want %q", change.StepID, addition.StepID)
+		plan, err := recipeimport.EditPlan(output, *document.ImportedSource, authoringv2.CatalogSnapshot{}, recipeimport.PlanEdit{
+			StepChanges: []authoringv2.ImportedSourceStepChange{*change},
+		}, recipeimport.PlanEditInput{})
+		if err == nil {
+			document.ImportedSource = &plan
 		}
-		addition.Enabled = change.Enabled
-		addition.Parameters = change.Parameters
-		steps := document.ImportedSource.Steps
-		steps[len(steps)-1] = recipeimport.SourcePlanForRuleAddition(*addition)
-		_, err := recipeimport.ApplySourcePlan(output, document.ImportedSource)
 		return document, err
 	}
 	editedParams := *parameters

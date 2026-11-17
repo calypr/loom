@@ -105,273 +105,55 @@ func (r importedRecipeSources) editSources(ctx context.Context, project string, 
 	if err != nil {
 		return authoringv2.Document{}, err
 	}
-	if rule != nil {
-		addition := authoringv2.ImportedSourceRuleAddition{
-			StepID: fmt.Sprintf("ruleAdditions[%d]", len(plan.RuleAdditions)),
-			Kind:   rule.Kind, OccurrenceID: rule.OccurrenceID, Enabled: true, Parameters: rule.Parameters,
-		}
-		plan.RuleAdditions = append(plan.RuleAdditions, addition)
-		plan.Steps = append(plan.Steps, recipeimport.SourcePlanForRuleAddition(addition))
-	}
-	var expected map[string]string
+	catalog := authoringV2Catalog(authorized.Snapshot, "")
+	input := recipeimport.PlanEditInput{}
 	previousSourceLabels := map[string]string{}
-	for i := range changes {
-		change := &changes[i]
-		if change != nil && change.Parameters != nil && change.Parameters.FieldGroup != nil {
-			if expected == nil {
-				pristine, err := r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized)
-				if err != nil {
-					return authoringv2.Document{}, err
-				}
-				var columns []lower.CompiledOutputColumn
-				for _, output := range pristine.resolved.Compiled.Outputs {
-					if output.Name == ref.Output {
-						columns = output.OutputSchema
-					}
-				}
-				expected, err = pinnedFieldBindingIDs(*original, columns)
-				if err != nil {
-					return authoringv2.Document{}, err
-				}
-			}
-			if err := verifyPinnedFieldBindings(plan.FieldBindings, expected); err != nil {
+	for _, change := range changes {
+		if change.Parameters == nil || change.Parameters.FieldGroup == nil {
+			continue
+		}
+		if input.PinnedFieldIDs == nil {
+			pristine, err := r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized)
+			if err != nil {
 				return authoringv2.Document{}, err
 			}
-			for _, oldStep := range plan.Steps {
-				if oldStep.ID != change.StepID || oldStep.Parameters == nil || oldStep.Parameters.FieldGroup == nil {
-					continue
-				}
-				for _, field := range oldStep.Parameters.FieldGroup.Fields {
-					if id := expected[field.FieldID]; id != "" && field.Label != "" {
-						previousSourceLabels[id] = field.Label
-					}
+			var columns []lower.CompiledOutputColumn
+			for _, output := range pristine.resolved.Compiled.Outputs {
+				if output.Name == ref.Output {
+					columns = output.OutputSchema
 				}
 			}
-			bound := map[string]bool{}
-			for _, binding := range plan.FieldBindings {
-				bound[binding.FieldID] = true
-			}
-			for _, field := range change.Parameters.FieldGroup.Fields {
-				id := expected[field.FieldID]
-				if id == "" {
-					return authoringv2.Document{}, fmt.Errorf("source field %q has no unambiguous emitted identity in the pinned projection; resolve its source collision before editing", field.FieldID)
-				}
-				if !bound[field.FieldID] {
-					plan.FieldBindings = append(plan.FieldBindings, authoringv2.ImportedSourceFieldBinding{FieldID: field.FieldID, ColumnID: id})
-					bound[field.FieldID] = true
-				}
+			input.PinnedFieldIDs, err = pinnedFieldBindingIDs(*original, columns)
+			if err != nil {
+				return authoringv2.Document{}, err
 			}
 		}
-		if change != nil {
-
-			additionFound := false
-			for i := range plan.RuleAdditions {
-				addition := &plan.RuleAdditions[i]
-				if addition.StepID != change.StepID {
-					continue
-				}
-				if change.MaxColumns != nil || change.ValueMode != "" {
-					return authoringv2.Document{}, fmt.Errorf("dynamic addition edits do not support a column limit or value mode")
-				}
-				if change.Parameters != nil {
-					if err := change.Parameters.Validate("DYNAMIC_COLUMN"); err != nil {
-						return authoringv2.Document{}, err
-					}
-					if err := recipeimport.ValidateIdentifierDynamic(original.RootResourceType, change.Parameters.Dynamic); err != nil {
-						return authoringv2.Document{}, err
-					}
-					addition.Parameters = change.Parameters
-				}
-				addition.Enabled = change.Enabled
-				stepIndex := len(plan.Steps) - len(plan.RuleAdditions) + i
-				plan.Steps[stepIndex] = recipeimport.SourcePlanForRuleAddition(*addition)
-				additionFound = true
-				break
-			}
-			if additionFound {
+		for _, step := range plan.Steps {
+			if step.ID != change.StepID || step.Parameters == nil || step.Parameters.FieldGroup == nil {
 				continue
 			}
-			found := false
-			for i := range plan.Steps {
-				step := &plan.Steps[i]
-				if step.ID != change.StepID {
-					continue
+			for _, field := range step.Parameters.FieldGroup.Fields {
+				if id := input.PinnedFieldIDs[field.FieldID]; id != "" && field.Label != "" {
+					previousSourceLabels[id] = field.Label
 				}
-				if !step.Editable {
-					return authoringv2.Document{}, fmt.Errorf("this source step cannot be changed")
-				}
-				if change.MaxColumns != nil && step.MaxColumns == nil {
-					return authoringv2.Document{}, fmt.Errorf("this source step has no column limit")
-				}
-				if change.ValueMode != "" && step.ValueMode == "" {
-					return authoringv2.Document{}, fmt.Errorf("this source step has no value policy")
-				}
-				if change.Parameters != nil {
-					if err := change.Parameters.Validate(step.Kind); err != nil {
-						return authoringv2.Document{}, err
-					}
-					step.Parameters = change.Parameters
-				}
-				step.Enabled = change.Enabled
-				if change.MaxColumns != nil {
-					value := *change.MaxColumns
-					step.MaxColumns = &value
-				}
-				if change.ValueMode != "" {
-					step.ValueMode = change.ValueMode
-				}
-				found = true
-			}
-			if !found {
-				return authoringv2.Document{}, fmt.Errorf("source step was not found")
 			}
 		}
-
 	}
-
 	if relationship != nil {
-		catalog := authoringV2Catalog(authorized.Snapshot, "")
 		network, err := recipeimport.HydrateNetwork(document, *original, catalog)
 		if err != nil {
 			return authoringv2.Document{}, err
 		}
-		if plan.Relationships == nil {
-			plan.Relationships = &authoringv2.ImportedRelationshipOverlay{}
-		}
-		overlay := plan.Relationships
-		occurrences := map[string]authoringv2.NetworkOccurrence{}
-		for _, o := range network.Occurrences {
-			if o.Enabled {
-				occurrences[o.OccurrenceID] = o
-			}
-		}
-		switch relationship.Action {
-		case "ADD":
-			parent, ok := occurrences[relationship.ParentOccurrenceID]
-			if !ok {
-				return authoringv2.Document{}, fmt.Errorf("selected parent occurrence is unavailable")
-			}
-			var edge *authoringv2.CatalogEdge
-			for i := range catalog.Edges {
-				if catalog.Edges[i].ID == relationship.EdgeID {
-					edge = &catalog.Edges[i]
-					break
-				}
-			}
-			if edge == nil {
-				return authoringv2.Document{}, fmt.Errorf("selected catalog edge is unavailable")
-			}
-			var from, to *authoringv2.CatalogNode
-			for i := range catalog.Nodes {
-				node := &catalog.Nodes[i]
-				if node.ID == edge.FromNodeID {
-					from = node
-				}
-				if node.ID == edge.ToNodeID {
-					to = node
-				}
-			}
-			if from == nil || to == nil || from.ResourceType != parent.ResourceType {
-				return authoringv2.Document{}, fmt.Errorf("selected catalog edge does not extend this occurrence")
-			}
-			// Reject a resource repeated along this ancestor path. Independent paths
-			// to the same resource type retain separate occurrence identities.
-			for ancestor := parent; ; {
-				if ancestor.ResourceType == to.ResourceType {
-					return authoringv2.Document{}, fmt.Errorf("cyclic source relationship is unsupported")
-				}
-				if ancestor.ParentOccurrenceID == "" {
-					break
-				}
-				next, ok := occurrences[ancestor.ParentOccurrenceID]
-				if !ok {
-					return authoringv2.Document{}, fmt.Errorf("source ancestor is unavailable")
-				}
-				ancestor = next
-			}
-			id := "project_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-			addition := authoringv2.ImportedRelationship{OccurrenceID: id, ParentOccurrenceID: parent.OccurrenceID, CatalogEdgeID: edge.ID, Relationship: edge.Label, ResourceType: to.ResourceType, StorageDirection: edge.StorageDirection, MatchMode: relationship.MatchMode}
-			// Related identifiers remain lists even when the preview happens to have
-			// one match. Catalog authority is required for the copied scalar field.
-			for _, field := range catalog.Candidates {
-				if field.NodeID == to.ID && (field.FieldPath == "id" || field.FieldPath == to.ResourceType+".id") && !field.Repeated {
-					addition.Fields = []authoringv2.ImportedRelationshipField{{CandidateID: field.ID, ColumnID: id + "_id", Column: id + "_id", FieldPath: field.FieldPath, Label: field.Label, ValueMode: "ALL"}}
-					break
-				}
-			}
-			if len(addition.Fields) == 0 {
-				return authoringv2.Document{}, fmt.Errorf("related source requires an authorized scalar identifier field")
-			}
-			overlay.Additions = append(overlay.Additions, addition)
-		case "MATCH", "REMOVE":
-			occurrence, ok := occurrences[relationship.OccurrenceID]
-			if !ok || occurrence.OccurrenceID == authoringv2.RootOccurrenceID {
-				return authoringv2.Document{}, fmt.Errorf("selected relationship occurrence is unavailable")
-			}
-			if relationship.Action == "REMOVE" {
-				for _, o := range network.Occurrences {
-					if o.Enabled && o.ParentOccurrenceID == occurrence.OccurrenceID {
-						return authoringv2.Document{}, fmt.Errorf("remove dependent source relationships explicitly before their parent")
-					}
-				}
-				overlay.Removals = append(overlay.Removals, occurrence.OccurrenceID)
-				matches := overlay.MatchOverrides[:0]
-				for _, m := range overlay.MatchOverrides {
-					if m.OccurrenceID != occurrence.OccurrenceID {
-						matches = append(matches, m)
-					}
-				}
-				overlay.MatchOverrides = matches
-			} else {
-				found := false
-				for i := range overlay.MatchOverrides {
-					if overlay.MatchOverrides[i].OccurrenceID == occurrence.OccurrenceID {
-						overlay.MatchOverrides[i].MatchMode = relationship.MatchMode
-						found = true
-					}
-				}
-				if !found {
-					overlay.MatchOverrides = append(overlay.MatchOverrides, authoringv2.ImportedRelationshipMatch{OccurrenceID: occurrence.OccurrenceID, MatchMode: relationship.MatchMode})
-				}
-			}
-		}
-		if err := recipeimport.ValidateRelationshipOverlay(*original, &plan, catalog); err != nil {
-			return authoringv2.Document{}, err
+		input.Occurrences = network.Occurrences
+		if relationship.Action == "ADD" {
+			input.NewOccurrenceID = "project_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 		}
 	}
-	effectiveCandidate, err := recipeimport.ApplySourcePlan(*original, &plan)
+	plan, err = recipeimport.EditPlan(*original, plan, catalog, recipeimport.PlanEdit{
+		StepChanges: changes, Relationship: relationship, RuleCreate: rule,
+	}, input)
 	if err != nil {
 		return authoringv2.Document{}, err
-	}
-	for i := range changes {
-		change := &changes[i]
-		if change != nil && change.Parameters != nil && change.Parameters.Traversal != nil {
-			catalog := authoringV2Catalog(authorized.Snapshot, "")
-			route, err := recipeimport.ImportRoute(effectiveCandidate, catalog)
-			if err != nil {
-				return authoringv2.Document{}, fmt.Errorf("edited source traversal: %w", err)
-			}
-			occurrence := ""
-			for _, step := range plan.Steps {
-				if step.ID == change.StepID {
-					occurrence = step.OccurrenceID
-				}
-			}
-			var selected *authoringv2.RouteNode
-			var find func(*authoringv2.RouteNode)
-			find = func(n *authoringv2.RouteNode) {
-				if n.OccurrenceID == occurrence {
-					selected = n
-				}
-				for i := range n.Children {
-					find(&n.Children[i])
-				}
-			}
-			find(&route)
-			if selected == nil || selected.CatalogEdgeID == "" {
-				return authoringv2.Document{}, fmt.Errorf("edited source traversal %q must resolve to exactly one authorized catalog relationship", change.StepID)
-			}
-		}
 	}
 
 	updated := document
@@ -400,7 +182,7 @@ func (r importedRecipeSources) editSources(ctx context.Context, project string, 
 	if schema == nil {
 		return authoringv2.Document{}, fmt.Errorf("source change produced no public columns")
 	}
-	return rebuildImportedDocument(updated, effective, schema, authoringV2Catalog(authorized.Snapshot, ""), previousSourceLabels)
+	return rebuildImportedDocument(updated, effective, schema, catalog, previousSourceLabels)
 }
 
 func rebuildImportedDocument(document authoringv2.Document, output recipe.Output, schema []recipe.StageColumn, catalog authoringv2.CatalogSnapshot, previousLabels ...map[string]string) (authoringv2.Document, error) {
@@ -569,14 +351,6 @@ func pinnedFieldBindingIDs(output recipe.Output, columns []lower.CompiledOutputC
 		}
 	}
 	return result, nil
-}
-func verifyPinnedFieldBindings(bindings []authoringv2.ImportedSourceFieldBinding, expected map[string]string) error {
-	for _, binding := range bindings {
-		if id := expected[binding.FieldID]; id == "" || id != binding.ColumnID {
-			return fmt.Errorf("source field binding %q does not match its immutable pinned field identity", binding.FieldID)
-		}
-	}
-	return nil
 }
 
 type importedProjectionFact struct {

@@ -107,6 +107,35 @@ func TestImportedIdentifierRuleAdditionIsValidatedAppliedAndHydrated(t *testing.
 	}
 }
 
+func TestEditPlanCreatesAndDisablesRuleWithoutMutatingInput(t *testing.T) {
+	output := recipe.Output{Name: "patient", RootResourceType: "Patient", RowGrain: "resource"}
+	original := SourcePlan(output)
+	catalog := authoringv2.CatalogSnapshot{}
+	key, value := recipe.Expression{Select: "item.system"}, recipe.Expression{Select: "item.value"}
+	rule := authoringv2.SourceRuleCreate{Kind: "DYNAMIC_COLUMN", Parameters: &authoringv2.ImportedSourceParameters{
+		Dynamic: &authoringv2.ImportedDynamicParameters{Name: "identifiers", Source: recipe.Expression{Select: "root.identifier[]"}, Key: &key, Value: &value},
+	}}
+	created, err := EditPlan(output, original, catalog, PlanEdit{RuleCreate: &rule}, PlanEditInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(original.RuleAdditions) != 0 || len(created.RuleAdditions) != 1 {
+		t.Fatal("creation mutated the input or lost the new rule")
+	}
+	id := created.RuleAdditions[0].StepID
+	change := authoringv2.ImportedSourceStepChange{StepID: id, Enabled: false}
+	edited, err := EditPlan(output, created, catalog, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}}, PlanEditInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created.RuleAdditions[0].Enabled || edited.RuleAdditions[0].Enabled || edited.RuleAdditions[0].StepID != id {
+		t.Fatal("edit mutated its input or lost the durable rule identity")
+	}
+	if _, err := EditPlan(output, original, catalog, PlanEdit{StepChanges: []authoringv2.ImportedSourceStepChange{change}, RuleCreate: &rule}, PlanEditInput{}); err == nil {
+		t.Fatal("accepted more than one edit intent")
+	}
+}
+
 func TestApplySourcePlanAppliesNestedEnablementAndBoundedOverridesWithoutMutatingSource(t *testing.T) {
 	bundle := defaultSourcePlanFixture(t)
 	output := outputNamed(t, bundle, "DocumentReference")

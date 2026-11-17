@@ -118,7 +118,7 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 					if err != nil {
 						return importedRecipeResolution{}, err
 					}
-					if err := verifyPinnedFieldBindings(document.ImportedSource.FieldBindings, expected); err != nil {
+					if err := recipeimport.VerifyPinnedFieldBindings(document.ImportedSource.FieldBindings, expected); err != nil {
 						return importedRecipeResolution{}, err
 					}
 				}

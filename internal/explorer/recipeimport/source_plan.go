@@ -336,10 +336,6 @@ func ruleAdditionStep(addition authoringv2.ImportedSourceRuleAddition) authoring
 	}
 }
 
-func SourcePlanForRuleAddition(addition authoringv2.ImportedSourceRuleAddition) authoringv2.ImportedSourceStep {
-	return ruleAdditionStep(addition)
-}
-
 func validateMaxColumnsOverride(step, base authoringv2.ImportedSourceStep) error {
 	if (step.MaxColumns == nil) != (base.MaxColumns == nil) {
 		return fmt.Errorf("imported source plan step %q changed maxColumns support", step.ID)
