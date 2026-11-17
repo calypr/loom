@@ -2426,6 +2426,14 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     const nextRequestIdentity = next.kind === 'pivot'
       ? pivotDiscoveryRequestIdentity(next, stage.id, contextKey)
       : undefined;
+    if (next.kind === 'pivot' && next.discovery && form.kind === 'pivot' && !form.discovery) {
+      const scheduled = scheduledPivotDiscovery.current;
+      if (scheduled && scheduled.identity === previousRequestIdentity) {
+        window.clearTimeout(scheduled.timer);
+        scheduledPivotDiscovery.current = undefined;
+        clearAwaitingPivotDiscovery(scheduled.identity, scheduled.revision);
+      }
+    }
     if (form.kind === 'pivot' && next.kind === 'pivot' && previousRequestIdentity !== nextRequestIdentity) {
       automaticallySelectedPivotPairs.current.delete(pivotSelectionIdentity(form, stage.id));
     }
