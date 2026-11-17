@@ -1701,7 +1701,7 @@ const BuilderWorkspaceContent = ({
       ? {
           kind: 'EXACT_RELATED' as const,
           key: `exact:${currentStage?.id}:${activeRelatedRecord.targetNodeId}`,
-          label: activeRelatedRecord.targetResourceType,
+          label: `${activeRelatedRecord.targetResourceType} — current related record`,
           resourceType: activeRelatedRecord.targetResourceType,
           sourceNodeId: undefined,
         }
@@ -1723,6 +1723,36 @@ const BuilderWorkspaceContent = ({
   const selectedAddSource = addSourceOptions.find(
     (source) => source.kind !== 'ALL' && source.key === storedAddSourceKey,
   ) ?? addSourceOptions.find((option) => option.kind === 'ROOT') ?? addSourceOptions[0];
+  const concreteAddSources = addSourceOptions.filter((source) => source.kind !== 'ALL');
+  const relatedSourceTypeCounts = addSourceOptions.reduce((counts, source) => {
+    if (source.kind === 'RELATED') {
+      counts.set(source.resourceType, (counts.get(source.resourceType) ?? 0) + 1);
+    }
+    return counts;
+  }, new Map<string, number>());
+  const addSourceOptionLabel = (source: (typeof concreteAddSources)[number]) =>
+    source.kind === 'RELATED' && (relatedSourceTypeCounts.get(source.resourceType) ?? 0) > 1
+      ? `${source.label} (${source.sourceNodeId})`
+      : source.label;
+  const addColumnsSourceControls = concreteAddSources.length > 1 ? (
+    <div role="group" aria-label="Add columns source" className="rounded border border-slate-200 bg-white px-3 py-2">
+      <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+        Fields from
+        <select
+          aria-label="Add columns source"
+          value={selectedAddSource?.key ?? ''}
+          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+          onChange={(event) => {
+            const source = concreteAddSources.find((candidate) => candidate.key === event.currentTarget.value);
+            if (source) setAddColumnsSource({ context: addSourceContext, key: source.key });
+          }}
+          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+        >
+          {concreteAddSources.map((source) => <option key={source.key} value={source.key}>{addSourceOptionLabel(source)}</option>)}
+        </select>
+      </label>
+    </div>
+  ) : undefined;
   const selectAddColumnsView = (view: Exclude<ConceptCatalogView, 'all'>) => {
     if (view === 'coded' && selectedAddSource?.kind === 'EXACT_RELATED') {
       const rootSource = addSourceOptions.find((source) => source.kind === 'ROOT');
@@ -1744,12 +1774,6 @@ const BuilderWorkspaceContent = ({
     addColumnsRequest.current?.abort();
     addColumnsRequest.current = undefined;
   }, [selectedAddSource?.key, activeConstructionFamily]);
-  const relatedSourceTypeCounts = addSourceOptions.reduce((counts, source) => {
-    if (source.kind === 'RELATED') {
-      counts.set(source.resourceType, (counts.get(source.resourceType) ?? 0) + 1);
-    }
-    return counts;
-  }, new Map<string, number>());
   const addSourceRouteContext = selectedAddSource?.sourceNodeId !== undefined && selectedAddSource.sourceNodeId === selectedRouteContext?.nodeId
     ? selectedRouteContext
     : undefined;
@@ -4259,6 +4283,7 @@ const BuilderWorkspaceContent = ({
                     construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
                     capabilities={constructionLifecycle.capabilities.response}
                     disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                    sourceControls={addColumnsSourceControls}
                     onCandidateChange={constructionLifecycle.onCandidateChange}
                   />
                 ) : (
@@ -4284,7 +4309,8 @@ const BuilderWorkspaceContent = ({
                       semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
                       existingSourceKeys={existingSourceKeys}
                       nodeOccurrences={capabilityNodeOccurrences}
-                        catalog={state.catalog}
+                      catalog={state.catalog}
+                      sourceControls={addColumnsSourceControls}
                       sourceProjectionAvailability={sourceAvailability}
                       relatedSourceAvailability={relatedSourceAvailability}
                       suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}

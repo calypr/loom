@@ -1657,13 +1657,18 @@ describe('BuilderWorkspace Add columns source selection', () => {
       />,
     );
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    await screen.findByRole('listbox', { name: 'Available columns and coded values' });
-    expect(screen.queryByRole('group', { name: 'Add columns source' })).not.toBeInTheDocument();
+    const catalogList = await screen.findByRole('listbox', { name: 'Available columns and coded values' });
+    const sourcePicker = screen.getByRole('combobox', { name: 'Add columns source' });
+    const sourceLabels = within(sourcePicker).getAllByRole('option').map((option) => option.textContent);
+    expect(sourceLabels.some((label) => label?.startsWith('Patient — table rows'))).toBe(true);
+    expect(sourceLabels).toContain('SyntheticResource7 — related source (synthetic-node-7)');
+    expect(sourceLabels).toContain('SyntheticResource7 — related source (synthetic-node-7-secondary)');
+    expect(sourceLabels).not.toContain('All accessible resources');
     expect(screen.queryByRole('group', { name: 'Related resources' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search coded values by code or label' }), { target: { value: 'SyntheticResource7' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     await act(async () => { await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0)); });
-    const matchingSources = await screen.findAllByRole('option', { name: /SyntheticResource7/ });
+    const matchingSources = await within(catalogList).findAllByRole('option', { name: /SyntheticResource7/ });
     expect(matchingSources).toHaveLength(2);
     expect(matchingSources.map((option) => option.getAttribute('aria-selected'))).toEqual(['false', 'false']);
     fireEvent.click(matchingSources[0]!);
@@ -3093,6 +3098,162 @@ describe('BuilderWorkspace Add columns source selection', () => {
     await waitFor(() => expect(signals.length).toBeGreaterThan(previous));
     expect(signals.at(-1)?.aborted).toBe(false);
     await waitFor(() => expect(mockLoomClient.browseSemanticInventory.mock.calls.at(-1)?.[0].fieldPresentation).toMatchObject({expectedDraftVersion:2,expectedDraftDigest:'sha256:draft-2'}));
+  });
+
+  it('selects the supported current related-record source and browses its fields with the active construction context', async () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'expand-observations',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'RELATED_EXPAND',
+          relatedExpand: {
+            anchorColumnId: 'patient-row-id',
+            choiceId: 'patient-observations',
+            targetNodeId: 'observation-node',
+            targetResourceType: 'Observation',
+            route: [{
+              edgeId: 'patient-observations',
+              fromNodeId: 'patient-node',
+              fromResourceType: 'Patient',
+              relationship: 'subject_Patient',
+              storageDirection: 'INBOUND',
+              toNodeId: 'observation-node',
+              toResourceType: 'Observation',
+              matchMode: 'OPTIONAL',
+            }],
+            contributorRule: { policy: 'ALL_MATCHES' },
+            emptyPolicy: 'PRESERVE_PARENT',
+            relatedRecordColumnId: 'observation-record',
+          },
+        },
+        outputs: [{ id: 'observation-row-id', name: 'observation_row_id', label: 'Observation row ID' }],
+      }],
+    };
+    const expandedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0]!, construction }],
+    };
+    const savedPreview: ExplorerBuilderPreviewResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'saved-related-expand-preview',
+      outputId: 'patients',
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      diagnostics: [],
+    };
+    const savedReceipt: ExplorerBuilderCompileResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderReceipt',
+      receiptId: savedPreview.receiptId,
+      snapshotToken: 'snapshot-1',
+      builder: expandedWorkspace,
+      outputs: [{ outputId: 'patients', columns: [] }],
+      diagnostics: [],
+    };
+    (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+      vi.fn().mockReturnValue({ unwrap: vi.fn().mockResolvedValue(savedReceipt) }),
+      { isLoading: false },
+    ]);
+    (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue([
+      vi.fn().mockReturnValue({ unwrap: vi.fn().mockResolvedValue(savedPreview) }),
+      { isLoading: false },
+    ]);
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: expandedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    const sourceStage: ConstructionStageDescriptor = {
+      id: 'source_projection',
+      inputStageId: '',
+      operation: 'SOURCE_PROJECTION',
+      rowIdentityColumn: 'patient-row-id',
+      columns: [],
+      capabilities: [],
+    };
+    const selectedStage: ConstructionStageDescriptor = {
+      id: 'expand-observations',
+      inputStageId: 'source_projection',
+      operation: 'RELATED_EXPAND',
+      rowIdentityColumn: 'observation-row-id',
+      columns: [],
+      capabilities: [{ kind: 'RELATED_FIELD', supported: true }],
+      activeRelatedRecord: {
+        targetNodeId: 'observation-node',
+        targetResourceType: 'Observation',
+        terminalIdentityColumn: 'observation-row-id',
+      },
+    };
+    mockLoomClient.getConstructionCapabilities.mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      outputId: 'patients',
+      stageId: 'expand-observations',
+      baseConstruction: construction,
+      stages: [sourceStage, selectedStage],
+      selectedStage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
+      workspaceInputs: [],
+    });
+    const relatedChoices: RelatedFieldChoiceSearchResponse['choices'] = Array.from({ length: 8 }, (_, index) => ({
+      choiceId: `observation-field-${index}`,
+      label: index === 0 ? 'valueQuantity.value' : `Observation field ${index}`,
+      source: {
+        kind: 'FIELD',
+        candidateId: `observation-candidate-${index}`,
+        nodeId: 'observation-node',
+        resourceType: 'Observation',
+        path: index === 0 ? 'valueQuantity.value' : `field${index}`,
+        cardinality: 'optional_one',
+        logicalType: 'decimal',
+      },
+    }));
+    mockLoomClient.searchRelatedFieldChoices.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      complete: true,
+      truncated: false,
+      choices: relatedChoices,
+    }));
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    const sourcePicker = await screen.findByRole('combobox', { name: 'Add columns source' });
+    const options = within(sourcePicker).getAllByRole('option');
+    expect(options.map((option) => option.textContent)).toContain('Observation — current related record');
+    expect(options.map((option) => option.textContent)).not.toContain('All accessible resources');
+    fireEvent.change(sourcePicker, { target: { value: 'exact:expand-observations:observation-node' } });
+
+    const fields = await screen.findByRole('group', { name: 'Fields from this related record' });
+    await waitFor(() => expect(mockLoomClient.searchRelatedFieldChoices).toHaveBeenCalledWith(expect.objectContaining({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 1,
+      expectedDraftDigest: 'sha256:draft-1',
+      outputId: 'patients',
+      stageId: 'expand-observations',
+      query: '',
+      limit: 20,
+    }), expect.any(AbortSignal)));
+    expect(within(fields).getByRole('button', { name: /valueQuantity\.value/ })).toBeEnabled();
   });
 
 });
