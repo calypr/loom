@@ -117,6 +117,7 @@ export async function launchBrowser() {
   for (const method of [
     'Page.frameStartedLoading', 'Page.frameStoppedLoading', 'Page.frameNavigated',
     'Page.domContentEventFired', 'Page.loadEventFired', 'Page.lifecycleEvent',
+    'Page.javascriptDialogOpening', 'Page.javascriptDialogClosed',
     'Runtime.executionContextCreated', 'Runtime.executionContextDestroyed', 'Runtime.exceptionThrown',
     'Inspector.targetCrashed', 'Inspector.targetReloadedAfterCrash', 'Network.loadingFailed',
     'Network.responseReceived', 'Log.entryAdded',
@@ -331,7 +332,7 @@ export class E2EPage {
       catch (diagnosticError) { filepath = `unavailable (${diagnosticError.message})`; }
       const reloadEvents = [...this.devtoolsEvents, ...this.lifecycleEvents]
         .filter(event => event.sequence > reload.afterSequence
-          && ['Page.frameStartedLoading', 'Page.frameStoppedLoading', 'Page.frameNavigated', 'Page.lifecycleEvent'].includes(event.method))
+          && ['Page.frameStartedLoading', 'Page.frameStoppedLoading', 'Page.frameNavigated', 'Page.lifecycleEvent', 'Page.javascriptDialogOpening', 'Page.javascriptDialogClosed'].includes(event.method))
         .sort((left, right) => left.sequence - right.sequence).slice(-30);
       throw new Error(`${error.message}; reload events=${JSON.stringify(reloadEvents)}; full CDP diagnostics saved at ${filepath}`);
     }
@@ -504,7 +505,9 @@ export async function createResourceTableInUI(scenario, page, resourceType, { ad
     return state.workspace?.documents?.length ? state : false;
   }, 'Patient table created through Builder', 45000);
   const outputId = created.workspace.documents[0].output.id;
+  await page.until(() => page.evaluate(`(() => {const button=document.querySelector('[data-testid="construction-action-add-columns"]');return Boolean(button && !button.disabled)})()`), 'first table committed in Builder', 45000);
   if (addFields.length) await addDatasetFieldsInUI(scenario, page, addFields);
+  await page.until(() => page.evaluate(`(() => {const button=document.querySelector('[data-testid="construction-action-add-columns"]');return Boolean(button && !button.disabled)})()`), 'first-table changes committed in Builder', 45000);
   await page.reload();
   try {
     await page.until(() => page.evaluate(`Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]') || [...document.querySelectorAll('button')].some(x=>x.innerText.trim()==='Edit row definition' || /^Change starting records/.test(x.getAttribute('aria-label')||'')))`), 'saved first-table workspace', 45000);

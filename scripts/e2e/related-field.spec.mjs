@@ -29,7 +29,7 @@ test('related Observation values reject ambiguous ONE, accept ALL, and persist a
   assert.equal(new Set(relatedObservations.filter(item => item.patientId === 'dev-patient-001').map(item => item.value)).size, 2,
     'The first Patient has two distinct related Observation values, so ONE must reject the Group row value.');
 
-  await withScenario('related-field', (scenario, page) => createPatientTableInUI(scenario, page, 'Patient', { addFields: ['id'] }), async ({ scenario, page }) => {
+  await withScenario('related-field', (scenario, page) => createPatientTableInUI(scenario, page, { addFields: ['id'] }), async ({ scenario, page }) => {
     const beforeExpansion = await api(`${scenario.base}/builder`);
 
     const configureObservationExpansion = async () => {
